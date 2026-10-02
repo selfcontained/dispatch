@@ -148,6 +148,20 @@ function writeChecksums() {
       return `${sha256}  ${entry}  ${sizeBytes}`;
     });
 
+  // Only binaries compiled by this invocation declare the write-fenced protocol.
+  const capabilities = Object.fromEntries(
+    checksumLines
+      .map((line) => line.split(/\s+/))
+      .filter(([, name]) =>
+        targets.some((target) => name === `dispatch-${version}-${target}`)
+      )
+      .map(([sha256, name]) => [name, { protocol: 1, sha256 }])
+  );
+  writeFileSync(
+    path.join(outDir, "RECOVERY_CAPABILITIES.json"),
+    JSON.stringify({ formatVersion: 1, artifacts: capabilities }) + "\n"
+  );
+
   writeFileSync(
     path.join(outDir, "SHA256SUMS.txt"),
     `${checksumLines.join("\n")}\n`,

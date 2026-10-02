@@ -204,7 +204,7 @@ if [ -z "$DATABASE_URL" ]; then
   else echo "error: cannot administer local PostgreSQL; rerun with --database-url" >&2; exit 1; fi
   # Names and password are installer-generated hex, never user interpolation.
   $PSQL -v ON_ERROR_STOP=1 -f - <<EOF
-CREATE ROLE $ROLE LOGIN PASSWORD '$PASSWORD';
+CREATE ROLE $ROLE LOGIN CREATEDB PASSWORD '$PASSWORD';
 CREATE DATABASE $DB OWNER $ROLE;
 \\connect $DB
 GRANT ALL ON SCHEMA public TO $ROLE;
@@ -220,6 +220,13 @@ umask 077
 printf '%s\n' "DATABASE_URL=$DATABASE_URL" "DISPATCH_HOST=127.0.0.1" "DISPATCH_PORT=$PORT" "DISPATCH_STATE_DIR=$STATE_DIR" "DISPATCH_SERVER_DIR=$INSTALL_DIR" "DISPATCH_RUNTIME_PATH=$RUNTIME_PATH" "DISPATCH_SERVICE_NAME=$([ "$PLATFORM" = linux ] && echo "$SERVICE" || echo "$LABEL")" "DISPATCH_UPDATE_CHANNEL=$CHANNEL" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
+if [ "$PLATFORM" = linux ] && [ "$NO_SERVICE" = 0 ]; then
+  command -v flock >/dev/null || { echo "error: flock is required for protected Linux updates" >&2; exit 1; }
+  # The retained helper and journal live outside the state tree restored on
+  # rollback. Supplied databases remain unowned until explicit enrollment.
+  "$RUNTIME_PATH" recovery-enroll "$ENV_FILE" "$([ "$GENERATED_DATABASE" = 1 ] && echo owned || echo unowned)"
+fi
+
 if [ "$NO_SERVICE" = 0 ]; then
   NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   # Keep this shape in sync with apps/server/src/release-candidate-store.ts.
@@ -227,7 +234,7 @@ if [ "$NO_SERVICE" = 0 ]; then
   printf '{\n  "tag": "%s",\n  "previousTag": null,\n  "activatedAt": "%s"\n}\n' "$TAG" "$NOW" > "$STATE_DIR/release-candidate.json"
   if [ "$PLATFORM" = linux ]; then
     mkdir -p "$(dirname "$UNIT")"
-    printf '[Unit]\nDescription=Dispatch\n[Service]\nWorkingDirectory=%s\nEnvironmentFile=%s\nEnvironment=PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\nExecStart=%s\nRestart=on-failure\nRestartSec=3\n# Keep agent host processes alive across a Dispatch service restart.\nKillMode=process\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$ENV_FILE" "$RUNTIME_PATH" > "$UNIT"
+    printf '[Unit]\nDescription=Dispatch\n[Service]\nWorkingDirectory=%s\nEnvironmentFile=%s\nEnvironmentFile=-%s.recovery/launch.env\nEnvironment=PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\nExecStartPre=%s.recovery/dispatch-recovery recovery-serve %s.recovery/installation.json\nExecStart=%s\nRestart=on-failure\nRestartSec=3\n# Keep agent host processes alive across a Dispatch service restart.\nKillMode=process\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$ENV_FILE" "$STATE_DIR" "$STATE_DIR" "$STATE_DIR" "$RUNTIME_PATH" > "$UNIT"
     SERVICE_REGISTERED=1
     systemctl --user daemon-reload; systemctl --user enable --now "$SERVICE.service"
     if command -v loginctl >/dev/null && ! loginctl show-user "$USER" -p Linger --value 2>/dev/null | grep -qx yes; then

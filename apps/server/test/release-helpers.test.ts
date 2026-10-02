@@ -263,6 +263,36 @@ describe("createCheckIsAdmin", () => {
 });
 
 describe("fetchReleaseMetadata", () => {
+  it("accepts only the published SHA256 digest for the exact server asset", async () => {
+    for (const digest of [
+      "sha256:" + "a".repeat(64),
+      "sha512:" + "a".repeat(64),
+      undefined,
+    ]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                tag_name: "v1.0.0",
+                published_at: "2026-01-01T00:00:00Z",
+                html_url: "https://example.com",
+                assets: [
+                  { name: "unrelated.zip", digest: "sha256:" + "b".repeat(64) },
+                  { name: "dispatch-server.tar.gz", digest },
+                ],
+              })
+            )
+        )
+      );
+      const result = await fetchReleaseMetadata("v1.0.0");
+      expect(result?.artifactSha256).toBe(
+        digest?.startsWith("sha256:") ? "a".repeat(64) : undefined
+      );
+    }
+  });
+
   it("returns release metadata on success", async () => {
     vi.stubGlobal(
       "fetch",

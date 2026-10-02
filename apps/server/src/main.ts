@@ -8,7 +8,18 @@ import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environm
 //   The adapters ship inside this binary rather than as a global npm
 //   install, so there is nothing for anyone to install or configure; each
 //   one drives the engine CLI the user already has (see engine-spec.ts).
-if (process.argv[2] === "init-local-tls") {
+if (process.argv[2]?.startsWith("recovery-")) {
+  try {
+    const { runRecoveryCli } = await import("./update-recovery/cli.js");
+    await runRecoveryCli(process.argv.slice(2));
+  } catch {
+    // Never print raw command, database or configuration errors with secrets.
+    console.error(
+      "Dispatch update recovery could not complete; installation remains fenced."
+    );
+    process.exitCode = 2;
+  }
+} else if (process.argv[2] === "init-local-tls") {
   if (
     process.env.DISPATCH_UPDATE_OWNER !== "macos-app" ||
     process.env.DISPATCH_LOCAL_TLS !== "1"

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -51,6 +52,18 @@ function dependencies(file) {
 }
 export function verifyPostgres(directory, arch) {
   directory = path.resolve(directory);
+  for (const name of [
+    "initdb",
+    "pg_ctl",
+    "pg_controldata",
+    "postgres",
+    "psql",
+    "createdb",
+  ]) {
+    const file = path.join(directory, "bin", name);
+    if (!existsSync(file) || !lstatSync(file).isFile())
+      throw new Error(`Missing required bundled PostgreSQL tool: ${name}`);
+  }
   const files = machoFiles(directory);
   for (const file of files) {
     run("lipo", [file, "-verify_arch", arch === "x64" ? "x86_64" : "arm64"]);
@@ -133,9 +146,14 @@ export async function downloadPostgres(arch, destination) {
     const source = path.join(temporary, "pgsql");
     mkdirSync(path.join(destination, "bin"), { recursive: true });
     mkdirSync(path.join(destination, "lib/postgresql"), { recursive: true });
-    const selected = ["initdb", "pg_ctl", "postgres", "psql", "createdb"].map(
-      (name) => `bin/${name}`
-    );
+    const selected = [
+      "initdb",
+      "pg_ctl",
+      "pg_controldata",
+      "postgres",
+      "psql",
+      "createdb",
+    ].map((name) => `bin/${name}`);
     // Keep core procedural language, text search and encoding conversions. Optional
     // EDB Perl/Python/Tcl modules require a separately installed language pack.
     for (const name of readdirSync(path.join(source, "lib/postgresql"))) {

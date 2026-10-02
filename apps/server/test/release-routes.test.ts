@@ -30,6 +30,20 @@ vi.mock("../src/release-tarball-cache.js", async (importOriginal) => {
   return { ...actual, ensureCachedTarball: ensureCachedTarballMock };
 });
 
+// Exercise protected-update admission on every host, including macOS CI.
+// The route tests stop at mocked artifact download; no recovery helper is run.
+vi.mock("../src/server/release-runtime.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/server/release-runtime.js")>();
+  return {
+    ...actual,
+    createReleaseRuntime: (
+      deps: Parameters<typeof actual.createReleaseRuntime>[0]
+    ) =>
+      actual.createReleaseRuntime({ ...deps, applyProtectedUpdate: vi.fn() }),
+  };
+});
+
 let sessionCookie: string;
 const tempRoot = mkdtempSync(
   path.join(os.tmpdir(), "dispatch-release-routes-")
@@ -445,6 +459,9 @@ function validReleaseView({
   return JSON.stringify({
     tagName: tag,
     publishedAt: "2026-04-26T00:00:00Z",
+    assets: [
+      { name: "dispatch-server.tar.gz", digest: `sha256:${"a".repeat(64)}` },
+    ],
     url: `https://github.com/selfcontained/dispatch/releases/tag/${tag}`,
     body,
   });
@@ -486,6 +503,7 @@ function mockReleaseCommands({
           publishedAt: string;
           url: string;
           body?: string | null;
+          assets?: Array<{ name: string; digest?: string }>;
         };
         return new Response(
           JSON.stringify({
@@ -493,6 +511,7 @@ function mockReleaseCommands({
             published_at: view.publishedAt,
             html_url: view.url,
             body: view.body,
+            assets: view.assets,
           })
         );
       }

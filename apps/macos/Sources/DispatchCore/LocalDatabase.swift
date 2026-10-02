@@ -261,7 +261,7 @@ public final class LocalDatabase {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func availablePort(requested: Int = 0) throws -> Int {
+    public static func availablePort(requested: Int = 0) throws -> Int {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw ConfigurationError("Cannot choose a local database port.") }
         defer { close(fd) }

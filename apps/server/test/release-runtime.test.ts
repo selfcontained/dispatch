@@ -19,7 +19,10 @@ import {
   assertHostSurvivalOnRestart,
   createReleaseRuntime,
 } from "../src/server/release-runtime.js";
-import { verifyAndStageRuntime } from "../src/server/release-artifact.js";
+import {
+  verifyAndStageRuntime,
+  verifyRecoveryCapability,
+} from "../src/server/release-artifact.js";
 
 const tempDirs: string[] = [];
 
@@ -398,4 +401,116 @@ describe("artifact activation", () => {
       expect(restartService).not.toHaveBeenCalled();
     }
   );
+});
+
+describe("protected target capability", () => {
+  it("authenticates capability metadata with the separately published package digest", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "dispatch-capability-"));
+    tempDirs.push(root);
+    const tag = "v9.9.9";
+    const tarball = fixtureArtifact(root, tag, "trial-aware executable");
+    const digest = () =>
+      createHash("sha256").update(readFileSync(tarball)).digest("hex");
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: digest(),
+      })
+    ).rejects.toThrow("cannot be trialled safely");
+    const targetHash = createHash("sha256")
+      .update("trial-aware executable")
+      .digest("hex");
+    writeFileSync(
+      path.join(root, "dist/bun/RECOVERY_CAPABILITIES.json"),
+      JSON.stringify({
+        formatVersion: 1,
+        artifacts: {
+          [artifactMember(tag).split("/").pop()!]: {
+            protocol: 1,
+            sha256: targetHash,
+          },
+        },
+      })
+    );
+    execFileSync("tar", ["czf", tarball, "dist"], { cwd: root });
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: "0".repeat(64),
+      })
+    ).rejects.toThrow("published asset digest");
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: digest(),
+      })
+    ).resolves.toEqual({ protocol: 1, sha256: targetHash });
+    writeFileSync(
+      path.join(root, "dist/bun/RECOVERY_CAPABILITIES.json"),
+      JSON.stringify({
+        formatVersion: 1,
+        artifacts: {
+          [artifactMember(tag).split("/").pop()!]: {
+            protocol: 0,
+            sha256: targetHash,
+          },
+        },
+      })
+    );
+    execFileSync("tar", ["czf", tarball, "dist"], { cwd: root });
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: digest(),
+      })
+    ).rejects.toThrow("cannot be trialled safely");
+  });
+});
+
+it("makes a protected admission failure terminal and frees the update slot", async () => {
+  const tag = "v9.9.9";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          tag_name: tag,
+          published_at: "2026-01-01T00:00:00Z",
+          html_url: "https://example.test/release",
+          assets: [
+            {
+              name: "dispatch-server.tar.gz",
+              digest: `sha256:${"a".repeat(64)}`,
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    )
+  );
+  const runtime = createReleaseRuntime({
+    serverDir: "/tmp/dispatch",
+    runCommand: vi.fn(),
+    readReleaseStore: vi.fn(),
+    writeReleaseStore: vi.fn(),
+    ensureCachedTarball: vi.fn().mockResolvedValue({ path: "/tmp/artifact" }),
+    pruneCacheExcept: vi.fn(),
+    unlinkCachedTarball: vi.fn(),
+    createReleaseLogStreamProcessor: vi.fn(),
+    applyProtectedUpdate: async () => {
+      throw new Error(
+        "Update deferred: active work must finish before retrying"
+      );
+    },
+  });
+  const job = updateJob(tag);
+  runtime.setActiveUpdateJob(job);
+  await runtime.runUpdateJob(job);
+  expect(job.phase).toBe("failed");
+  expect(job.error).toContain("deferred");
+  expect(runtime.hasActiveUpdateJob()).toBe(false);
 });

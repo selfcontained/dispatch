@@ -14,6 +14,7 @@ let package = Package(
     products: [.executable(name: "DispatchMenu", targets: ["DispatchMenu"])],
     targets: [
         .target(name: "DispatchCore"),
+        .executableTarget(name: "DispatchRecovery", dependencies: ["DispatchCore"]),
         .executableTarget(name: "DispatchMenu", dependencies: ["DispatchCore"], swiftSettings: probeSwift, linkerSettings: probeLink),
         .testTarget(name: "DispatchCoreTests", dependencies: ["DispatchCore"]),
         .testTarget(name: "DispatchMenuTests", dependencies: ["DispatchMenu", "DispatchCore"],

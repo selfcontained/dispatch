@@ -112,4 +112,26 @@ final class ServiceSupervisorTests: XCTestCase {
         XCTAssertTrue(loggedIn.isRunning)
         XCTAssertTrue(ServiceRuntime.read(root: root)?.isActive == true)
     }
+
+    func testStagedUpdateFencesEveryBuildButTheOldOne() throws {
+        for (build, expectStart) in [("2", false), ("1", true)] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-staged-\(UUID().uuidString)")
+            let store = NativeRecoveryStore(root: root)
+            defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: store.directory) }
+            try Configuration(databaseURL: "postgres://localhost/preview").save(to: root.appendingPathComponent("configuration.json"))
+            try StartupPreferences(startServerAtLogin: true).save(root: root)
+            try store.initialize()
+            var journal = NativeRecoveryJournal(instanceID: "i", appPath: "/Applications/Dispatch.app", oldBuild: "1", targetBuild: "2", targetIdentity: "id", wasRunning: true)
+            journal.phase = .staged; journal.stagedAt = Date(); try store.save(journal)
+            var started = false
+            let termination = ServerTermination(gracePeriod: 0.15, installSignalHandlers: false)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.8) { termination.requestStop() }
+            try runServiceSupervisor(root: root, termination: termination, makeWorker: {
+                started = true
+                let worker = Process(); worker.executableURL = URL(fileURLWithPath: "/bin/sleep"); worker.arguments = ["10"]
+                return worker
+            }, saveState: { _ in }, build: build)
+            XCTAssertEqual(started, expectStart, "build \(build)")
+        }
+    }
 }
