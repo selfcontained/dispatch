@@ -307,7 +307,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
 export function buildPersonaKickoffPrompt(parentAgentId: string): string {
   return [
     "Begin now. Your persona instructions, the launcher's briefing, and (when included) a map of the changes are already in your context.",
-    `When you are done, post your result to the agent that launched you: post with to: "${parentAgentId}". A reviewer posts one \`review\` block (verdict, summary, findings); any other persona posts what its instructions say.`,
+    `When you are done, post your result to the agent that launched you: post with to: "${parentAgentId}". A reviewer posts one \`review\` block (summary, findings); any other persona posts what its instructions say.`,
     "Later replies in that thread arrive as new prompts; answer in the thread (post with replyTo).",
   ].join("\n");
 }

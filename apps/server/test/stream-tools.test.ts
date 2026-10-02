@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+
 import { registerStreamTools } from "../src/shared/mcp/stream-tools.js";
 
 type Registered = {
@@ -92,6 +96,14 @@ describe("registerStreamTools", () => {
     return found;
   }
 
+  function shape(name: string): Record<string, Schema> {
+    return (
+      tool(name).config.inputSchema as unknown as {
+        shape: Record<string, Schema>;
+      }
+    ).shape;
+  }
+
   it("registers the tools only when allowed and a service is present", () => {
     expect(server.tools.map((t) => t.name)).toEqual([
       "get_review",
@@ -144,7 +156,7 @@ describe("registerStreamTools", () => {
     expect(description).toContain("DISPATCH POST envelope");
     expect(description).toContain("`notify: true`");
     expect(description).not.toMatch(/chat_post|share_file|chat_update/);
-    expect(Object.keys(tool("post").config.inputSchema)).toEqual([
+    expect(Object.keys(shape("post"))).toEqual([
       "to",
       "text",
       "replyTo",
@@ -157,7 +169,7 @@ describe("registerStreamTools", () => {
       "notify",
       "delivery",
     ]);
-    expect(Object.keys(tool("update").config.inputSchema)).toEqual([
+    expect(Object.keys(shape("update"))).toEqual([
       "id",
       "text",
       "data",
@@ -300,7 +312,7 @@ describe("registerStreamTools", () => {
   });
 
   it("declares file attachments by path, fileName or fileId", () => {
-    const schema = tool("post").config.inputSchema.attachments as Schema;
+    const schema = shape("post").attachments;
     expect(
       schema.safeParse([{ type: "file", path: "/tmp/a.png" }]).success
     ).toBe(true);
@@ -331,7 +343,7 @@ describe("registerStreamTools", () => {
   });
 
   it("bounds the typed payloads at the schema", () => {
-    const input = tool("post").config.inputSchema;
+    const input = shape("post");
     const question = input.question as Schema;
     expect(question.safeParse({ options: [] }).success).toBe(false);
     expect(
@@ -495,5 +507,151 @@ describe("registerStreamTools", () => {
     const failed = await tool("react").handler({ id: OTHER, emoji: "👍" });
     expect(failed.isError).toBe(true);
     expect(failed.content[0]?.text).toBe("Block not found");
+  });
+});
+
+describe("post and update reject fields they do not declare", () => {
+  const post = vi.fn(async () => ({
+    id: BLOCK,
+    kind: "question",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }));
+  const update = vi.fn(async () => ({
+    id: BLOCK,
+    updatedAt: "2026-01-02T00:00:00.000Z",
+  }));
+
+  // Through a real client and server, so the SDK's own argument parsing is
+  // what rejects the call, before the handler (and the stream) sees it.
+  async function call(name: string, args: Record<string, unknown>) {
+    const server = new McpServer({ name: "stream-tools-test", version: "1" });
+    registerStreamTools(server, ALL, {
+      agentId: AGENT_ID,
+      streams: { post, update } as never,
+    });
+    const client = new Client({ name: "stream-tools-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      return (await client.callTool({ name, arguments: args })) as {
+        isError?: boolean;
+        content: Array<{ type: string; text: string }>;
+      };
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  }
+
+  beforeEach(() => {
+    post.mockClear();
+    update.mockClear();
+  });
+
+  it("rejects an invented top-level key instead of posting the text alone", async () => {
+    const result = await call("post", {
+      text: "How far should this go?",
+      blocks: [
+        {
+          question: "How far should this go?",
+          options: [{ label: "Minimal", description: "Just the fix" }],
+        },
+      ],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('Unknown field "blocks"');
+    for (const field of [
+      "question",
+      "form",
+      "link",
+      "review",
+      "tasks",
+      "attachments",
+    ]) {
+      expect(result.content[0]?.text).toContain(field);
+    }
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown keys inside the typed payloads", async () => {
+    const option = await call("post", {
+      text: "Pick",
+      question: {
+        options: [{ label: "Minimal", description: "Just the fix" }],
+      },
+    });
+    expect(option.isError).toBe(true);
+    expect(option.content[0]?.text).toContain('Unknown field "description"');
+    expect(option.content[0]?.text).toContain(
+      "valid fields here: label, value"
+    );
+    expect(option.content[0]?.text).toContain("question.options[0]");
+
+    const review = await call("post", {
+      to: "agt_builder",
+      review: { verdict: "approve", summary: "Clean", findings: [] },
+    });
+    expect(review.isError).toBe(true);
+    expect(review.content[0]?.text).toContain('Unknown field "verdict"');
+
+    const attachment = await call("post", {
+      attachments: [{ type: "link", url: "https://x", label: "x" }],
+    });
+    expect(attachment.isError).toBe(true);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown keys on update but leaves data and state open", async () => {
+    const unknown = await call("update", { id: BLOCK, status: "fixed" });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.content[0]?.text).toContain('Unknown field "status"');
+    expect(update).not.toHaveBeenCalled();
+
+    const ok = await call("update", {
+      id: BLOCK,
+      state: { status: "dismissed", note: "n/a" },
+      data: { anything: true },
+    });
+    expect(ok.isError).toBeUndefined();
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("still posts a well-formed question", async () => {
+    const result = await call("post", {
+      text: "How far should this go?",
+      question: {
+        options: [{ label: "Minimal" }, { label: "Full", value: "full" }],
+        allowFreeform: true,
+      },
+    });
+    expect(result.isError).toBeUndefined();
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it("advertises additionalProperties: false so clients see the contract", async () => {
+    const server = new McpServer({ name: "stream-tools-test", version: "1" });
+    registerStreamTools(server, ALL, {
+      agentId: AGENT_ID,
+      streams: { post, update } as never,
+    });
+    const client = new Client({ name: "stream-tools-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const { tools } = await client.listTools();
+      const postSchema = tools.find((t) => t.name === "post")?.inputSchema as {
+        additionalProperties?: boolean;
+        properties: Record<string, { additionalProperties?: boolean }>;
+      };
+      expect(postSchema.additionalProperties).toBe(false);
+      expect(postSchema.properties.question?.additionalProperties).toBe(false);
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });

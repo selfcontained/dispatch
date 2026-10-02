@@ -23,7 +23,22 @@ export type StreamToolsContext = {
   >;
 };
 
-const optionSchema = z.object({
+/**
+ * An object that rejects keys it does not declare, naming the valid ones.
+ * Zod's default strips them silently, so a misshapen structured post used
+ * to land as plain text with no error for the agent to correct.
+ */
+function strictObject<T extends z.ZodRawShape>(shape: T) {
+  const known = Object.keys(shape).join(", ");
+  return z.strictObject(shape, {
+    error: (issue) =>
+      issue.code === "unrecognized_keys"
+        ? `Unknown ${issue.keys.length === 1 ? "field" : "fields"} ${issue.keys.map((key) => `"${key}"`).join(", ")}; valid fields here: ${known}.`
+        : undefined,
+  });
+}
+
+const optionSchema = strictObject({
   label: z
     .string()
     .min(1)
@@ -39,118 +54,106 @@ const optionSchema = z.object({
     .describe("Sent back to you when chosen. Defaults to the label."),
 });
 
-const questionSchema = z
-  .object({
-    options: z.array(optionSchema).min(1).max(BLOCK_OPTIONS_MAX),
-    allowFreeform: z
-      .boolean()
-      .optional()
-      .describe("Hint that a typed reply is also acceptable."),
-  })
-  .describe(
-    'Ask the user (or the agent in `to`) something with options. The options render as buttons, so keep each label to a short action and put the context in the text; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting. If you found the answer yourself, close it with update({ id, state: { answer: "<what settled it>" } }). If you no longer need it asked at all, withdraw it instead: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
-  );
+const questionSchema = strictObject({
+  options: z.array(optionSchema).min(1).max(BLOCK_OPTIONS_MAX),
+  allowFreeform: z
+    .boolean()
+    .optional()
+    .describe("Hint that a typed reply is also acceptable."),
+}).describe(
+  'Ask the user (or the agent in `to`) something with options. The options render as buttons, so keep each label to a short action and put the context in the text; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting. If you found the answer yourself, close it with update({ id, state: { answer: "<what settled it>" } }). If you no longer need it asked at all, withdraw it instead: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
+);
 
-const formSchema = z
-  .object({
-    title: z.string().max(200).optional(),
-    fields: z
-      .array(
-        z.object({
-          id: z.string().min(1).max(64),
-          label: z.string().min(1).max(200),
-          type: z.enum(["text", "textarea", "number", "select", "checkbox"]),
-          options: z.array(optionSchema).max(BLOCK_OPTIONS_MAX).optional(),
-          required: z.boolean().optional(),
-          placeholder: z.string().max(200).optional(),
-          value: z.union([z.string(), z.number(), z.boolean()]).optional(),
-        })
-      )
-      .min(1)
-      .max(BLOCK_FORM_FIELDS_MAX),
-    submitLabel: z.string().max(60).optional(),
-  })
-  .describe(
-    'Collect several values at once. The submission comes back to you as a DISPATCH POST listing each field. While it is open you show as Waiting. If you no longer need it, withdraw it: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
-  );
+const formSchema = strictObject({
+  title: z.string().max(200).optional(),
+  fields: z
+    .array(
+      strictObject({
+        id: z.string().min(1).max(64),
+        label: z.string().min(1).max(200),
+        type: z.enum(["text", "textarea", "number", "select", "checkbox"]),
+        options: z.array(optionSchema).max(BLOCK_OPTIONS_MAX).optional(),
+        required: z.boolean().optional(),
+        placeholder: z.string().max(200).optional(),
+        value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+      })
+    )
+    .min(1)
+    .max(BLOCK_FORM_FIELDS_MAX),
+  submitLabel: z.string().max(60).optional(),
+}).describe(
+  'Collect several values at once. The submission comes back to you as a DISPATCH POST listing each field. While it is open you show as Waiting. If you no longer need it, withdraw it: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
+);
 
-const linkSchema = z
-  .object({
-    url: chatUrlSchema,
-    title: z.string().max(200).optional(),
-  })
-  .describe(
-    "A link card: a dev server, a PR, a doc. Shows in the stream and the Inbox."
-  );
+const linkSchema = strictObject({
+  url: chatUrlSchema,
+  title: z.string().max(200).optional(),
+}).describe(
+  "A link card: a dev server, a PR, a doc. Shows in the stream and the Inbox."
+);
 
-const reviewSchema = z
-  .object({
-    summary: z.string().min(1).max(4000),
-    findings: z
-      .array(
-        z.object({
-          severity: z.enum(["blocker", "major", "minor", "nit"]),
-          title: z.string().min(1).max(300),
-          body: z.string().min(1).max(BLOCK_TEXT_MAX_CHARS),
-          path: z.string().max(1000).optional(),
-          line: z.int().positive().optional(),
-        })
-      )
-      .max(BLOCK_REVIEW_FINDINGS_MAX),
-  })
-  .describe(
-    "A structured review of an agent's work: one block, each finding a block of its own with its own thread. Post it with `to` set to the agent whose work you reviewed. Where it stands comes from its findings: resolve each once it is addressed."
-  );
+const reviewSchema = strictObject({
+  summary: z.string().min(1).max(4000),
+  findings: z
+    .array(
+      strictObject({
+        severity: z.enum(["blocker", "major", "minor", "nit"]),
+        title: z.string().min(1).max(300),
+        body: z.string().min(1).max(BLOCK_TEXT_MAX_CHARS),
+        path: z.string().max(1000).optional(),
+        line: z.int().positive().optional(),
+      })
+    )
+    .max(BLOCK_REVIEW_FINDINGS_MAX),
+}).describe(
+  "A structured review of an agent's work: one block, each finding a block of its own with its own thread. Post it with `to` set to the agent whose work you reviewed. Where it stands comes from its findings: resolve each once it is addressed."
+);
 
-const tasksSchema = z
-  .object({
-    items: z
-      .array(
-        z.object({
-          id: z.string().min(1).max(64),
-          text: z.string().min(1).max(500),
-        })
-      )
-      .min(1)
-      .max(BLOCK_TASKS_MAX),
-  })
-  .describe(
-    'A checklist. Tick items later with update: { state: { items: { <id>: "done" } } }.'
-  );
+const tasksSchema = strictObject({
+  items: z
+    .array(
+      strictObject({
+        id: z.string().min(1).max(64),
+        text: z.string().min(1).max(500),
+      })
+    )
+    .min(1)
+    .max(BLOCK_TASKS_MAX),
+}).describe(
+  'A checklist. Tick items later with update: { state: { items: { <id>: "done" } } }.'
+);
 
 const attachmentSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("file"),
-      path: z
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-          "Absolute path of a file on your machine to upload and attach (images, pdf, text, code)."
-        ),
-      fileName: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("A file you attached before, by the fileName in its block."),
-      fileId: z.int().positive().optional(),
-      description: z.string().max(500).optional(),
-    })
-    .describe(
-      "One of path (upload now), fileName or fileId (already uploaded)."
-    ),
-  z.object({
+  strictObject({
+    type: z.literal("file"),
+    path: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Absolute path of a file on your machine to upload and attach (images, pdf, text, code)."
+      ),
+    fileName: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("A file you attached before, by the fileName in its block."),
+    fileId: z.int().positive().optional(),
+    description: z.string().max(500).optional(),
+  }).describe(
+    "One of path (upload now), fileName or fileId (already uploaded)."
+  ),
+  strictObject({
     type: z.literal("link"),
     url: chatUrlSchema,
     title: z.string().max(200).optional(),
   }),
-  z.object({
+  strictObject({
     type: z.literal("pr"),
     url: chatUrlSchema,
     title: z.string().max(200).optional(),
   }),
-  z.object({
+  strictObject({
     type: z.literal("code"),
     code: z.string().min(1).max(BLOCK_TEXT_MAX_CHARS),
     language: z.string().max(40).optional(),
@@ -236,7 +239,7 @@ export function registerStreamTools(
       "post",
       {
         description: POST_DESCRIPTION,
-        inputSchema: {
+        inputSchema: strictObject({
           to: z
             .string()
             .min(1)
@@ -257,7 +260,7 @@ export function registerStreamTools(
             .describe(
               "Agent-to-agent posts wait for active work to finish, or start a turn if the recipient is idle. Both auto (default) and queue follow this rule; only actual user messages can steer an active conversation. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
             ),
-        },
+        }),
       },
       async (args) => {
         try {
@@ -301,7 +304,7 @@ export function registerStreamTools(
       "update",
       {
         description: UPDATE_DESCRIPTION,
-        inputSchema: {
+        inputSchema: strictObject({
           id: z
             .uuid()
             .describe("Id returned by post, or from a DISPATCH POST envelope."),
@@ -319,7 +322,7 @@ export function registerStreamTools(
               'A finding: { status: "fixed" | "dismissed" | "open", note? }. Tasks: { items: { <id>: <status> } }.'
             ),
           attachments: attachmentsSchema.optional(),
-        },
+        }),
       },
       async (args) => {
         try {
