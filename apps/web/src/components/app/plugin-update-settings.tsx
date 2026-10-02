@@ -1,179 +1,158 @@
-import { useAtom } from "jotai";
-import { useState } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   AGENT_TYPE_LABELS,
   usePluginStatus,
+  useRefreshPluginStatus,
   useUpdatePlugin,
   type PluginStatus,
 } from "@/hooks/use-plugin-status";
-import { dismissedPluginUpdateAtomFamily } from "@/lib/store";
 
-function dismissalKey(status: PluginStatus): string {
-  return `${status.agentType}:${status.latestVersion ?? ""}`;
-}
-
-/** Presentational — the parent owns dismissal state (read and write) so the section header can react to it too; see PluginUpdateSettings. */
-function PluginUpdateRow({
-  status,
-  onDismiss,
-}: {
-  status: PluginStatus;
-  onDismiss: () => void;
-}): JSX.Element {
-  const { mutate, isPending, error } = useUpdatePlugin();
+function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
+  const action = status.installed ? "update" : "install";
+  const { mutate, isPending, error } = useUpdatePlugin(action);
   const label = AGENT_TYPE_LABELS[status.agentType];
+  const canAct =
+    !status.detectionError && (!status.installed || status.updateAvailable);
+  const state = status.detectionError
+    ? "Status unavailable"
+    : !status.installed
+      ? "Not installed"
+      : !status.enabled
+        ? "Disabled"
+        : status.updateAvailable
+          ? "Update available"
+          : status.latestVersion === null
+            ? "Latest version unavailable"
+            : "Up to date";
 
   return (
-    <div className="flex items-start justify-between gap-3 rounded border border-border px-3 py-2.5">
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-          <span className="truncate">{label}</span>
-          <Badge variant="running" className="shrink-0 whitespace-nowrap">
-            Update available
-          </Badge>
+    <div className="rounded border border-border px-3 py-3">
+      <div className="flex min-h-12 items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">{label}</div>
+          {status.installed ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {status.currentVersion
+                ? `Installed v${status.currentVersion}`
+                : "Installed version unknown"}
+              {status.updateAvailable ? ` → v${status.latestVersion}` : ""}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Dispatch skills
+            </p>
+          )}
         </div>
-        <div className="text-xs text-muted-foreground">
-          v{status.currentVersion} → v{status.latestVersion}
-        </div>
-        {error ? (
-          <p
-            role="alert"
-            title={error.message}
-            className="mt-1 line-clamp-3 whitespace-pre-line text-xs text-destructive"
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <Badge
+            variant={status.updateAvailable ? "running" : "default"}
+            className="max-w-36 rounded-none border-0 bg-transparent p-0 text-right text-xs font-normal normal-case tracking-normal"
           >
-            {error.message}
-          </p>
-        ) : null}
+            {state}
+          </Badge>
+          {canAct ? (
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 min-w-24 text-xs"
+              disabled={isPending}
+              aria-busy={isPending}
+              aria-label={`${action === "install" ? "Install" : "Update"} ${label} plugin`}
+              onClick={() => mutate(status.agentType)}
+            >
+              {isPending ? (
+                <RefreshCw className="mr-1.5 h-3 w-3 animate-spin" />
+              ) : action === "install" ? (
+                <Download className="mr-1.5 h-3 w-3" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-3 w-3" />
+              )}
+              {isPending
+                ? action === "install"
+                  ? "Installing…"
+                  : "Updating…"
+                : action === "install"
+                  ? "Install"
+                  : "Update"}
+            </Button>
+          ) : null}
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Button
-          variant="primary"
-          size="sm"
-          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-          aria-disabled={isPending}
-          aria-busy={isPending}
-          onClick={() => {
-            if (isPending) return;
-            mutate(status.agentType);
-          }}
+      {status.detectionError ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {status.detectionError}
+        </p>
+      ) : null}
+      {error ? (
+        <p
+          role="alert"
+          className="mt-2 whitespace-pre-line text-xs text-destructive"
         >
-          <RefreshCw
-            className={`mr-1.5 h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`}
-          />
-          {isPending ? "Updating…" : "Update"}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-          aria-disabled={isPending}
-          aria-label={`Dismiss ${label} update`}
-          onClick={() => {
-            if (isPending) return;
-            onDismiss();
-          }}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+          {error.message}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-/**
- * Nudges toward updating the Dispatch plugin per installed CLI (Claude Code,
- * Codex) once a newer version is published. Renders no visible section when
- * nothing is installed, everything is current, or every actionable row has
- * been dismissed — this isn't the install affordance (see the
- * plugin-install-detection-nudge idea), so a CLI with no plugin installed at
- * all is silently out of scope here.
- *
- * Dismissal is keyed by version (see dismissedPluginUpdateAtomFamily): unlike
- * a first-install dismissal, "not now" here must not silence every future
- * release too. It's read (and written) here, in the parent, rather than
- * inside each row — the section header must not outlive its last visible
- * row, so the parent needs to know dismissal state regardless, and a row
- * subscribing to the same atom again would just be a second owner of one
- * piece of state. Two explicit hook calls (Claude, Codex) rather than a loop
- * over `statuses`, since the pair is fixed and small enough that looping
- * would only trade clarity for no real flexibility.
- *
- * A dismissed/updated row unmounting drops focus to the document body with
- * no visual trace — expected when content the user just acted on goes away,
- * but screen-reader users get no confirmation anything happened without an
- * explicit announcement. Rather than chase focus to some stable neighbour
- * (coupling this component to settings-pane's structure), the wrapper below
- * always stays mounted and carries a polite live region for that
- * announcement, even when the visible section itself is absent.
- */
+/** Persistent plugin inventory for the enabled Claude Code and Codex CLIs. */
 export function PluginUpdateSettings(): JSX.Element {
-  const { data } = usePluginStatus();
-  const statuses = data?.statuses ?? [];
-  const claude = statuses.find((s) => s.agentType === "claude") ?? null;
-  const codex = statuses.find((s) => s.agentType === "codex") ?? null;
-
-  const [claudeDismissed, setClaudeDismissed] = useAtom(
-    dismissedPluginUpdateAtomFamily(claude ? dismissalKey(claude) : "claude:")
-  );
-  const [codexDismissed, setCodexDismissed] = useAtom(
-    dismissedPluginUpdateAtomFamily(codex ? dismissalKey(codex) : "codex:")
-  );
-  const [announcement, setAnnouncement] = useState("");
-
-  const rows: Array<{ status: PluginStatus; onDismiss: () => void }> = [
-    claude && claude.updateAvailable && !claudeDismissed
-      ? {
-          status: claude,
-          onDismiss: () => {
-            setClaudeDismissed(true);
-            setAnnouncement(`${AGENT_TYPE_LABELS.claude} update dismissed.`);
-          },
-        }
-      : null,
-    codex && codex.updateAvailable && !codexDismissed
-      ? {
-          status: codex,
-          onDismiss: () => {
-            setCodexDismissed(true);
-            setAnnouncement(`${AGENT_TYPE_LABELS.codex} update dismissed.`);
-          },
-        }
-      : null,
-  ].filter(
-    (r): r is { status: PluginStatus; onDismiss: () => void } => r !== null
-  );
-
+  const { data, isPending, isFetching, error } = usePluginStatus();
+  const refresh = useRefreshPluginStatus();
+  const checking = isFetching || refresh.isPending;
   return (
-    <>
-      <div role="status" aria-live="polite" className="sr-only">
-        {announcement}
-      </div>
-      {rows.length > 0 ? (
-        <div className="flex flex-col gap-4 border-t border-border p-6">
-          <div>
-            <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-              Plugin update
-            </div>
-            <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-              A newer version of the Dispatch plugin is available for one or
-              more CLIs.
-            </p>
-          </div>
-          <div className="max-w-lg space-y-2">
-            {rows.map(({ status, onDismiss }) => (
-              <PluginUpdateRow
-                key={status.agentType}
-                status={status}
-                onDismiss={onDismiss}
-              />
-            ))}
-          </div>
+    <section
+      aria-label="Dispatch plugins"
+      className="flex flex-col gap-4 border-t border-border p-6"
+    >
+      <div className="max-w-lg">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-medium text-foreground">
+            Dispatch plugins
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={checking}
+            onClick={() => refresh.mutate()}
+          >
+            <RefreshCw
+              className={`mr-1.5 h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`}
+            />
+            Check again
+          </Button>
         </div>
-      ) : null}
-    </>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Skills for your enabled Claude Code and Codex CLIs. Install or update
+          on this Dispatch server, then start a fresh agent session to load
+          them.
+        </p>
+      </div>
+      <div className="max-w-lg space-y-2">
+        {isPending ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Checking plugin versions…
+          </p>
+        ) : null}
+        {error || refresh.error ? (
+          <p role="alert" className="text-sm text-destructive">
+            Could not load plugin status. Check again to retry.
+          </p>
+        ) : null}
+        {data?.statuses.map((status) => (
+          <PluginRow key={status.agentType} status={status} />
+        ))}
+        {data?.statuses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Enable Claude Code or Codex in Settings → Agents to manage its
+            Dispatch plugin.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }

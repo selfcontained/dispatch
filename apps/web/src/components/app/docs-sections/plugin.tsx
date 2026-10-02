@@ -132,18 +132,18 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       <Section>
         <H3 id="plugin-updating">Keeping it updated</H3>
         <P>
-          <strong>Settings → Updates</strong> shows a dismissible card when a
-          newer plugin version is available, with an <strong>Update</strong>{" "}
-          button that runs the refresh-then-install sequence below for you.
-          Detection shells out to <Code>claude plugin list --json</Code> /{" "}
-          <Code>codex plugin list --json</Code> and their{" "}
-          <Code>marketplace list --json</Code> counterparts — it reads the real
-          CLI state, not Dispatch's assertion — and caches each result for up to
-          an hour. It only checks enabled agent types (
-          <strong>Settings → Agents</strong>) and fails open to showing no card
-          on any spawn, parse, or exit-code error, so a missing card means
-          "couldn't tell," not "you're current." Dismissing a card silences only
-          that version; the next release prompts again.
+          <strong>Settings → Updates</strong> shows the installed Dispatch
+          plugin version for each enabled Claude Code or Codex CLI, including
+          plugins that are already up to date or disabled. Missing plugins have
+          an
+          <strong> Install</strong> button that registers the marketplace and
+          installs the plugin on the Dispatch server. When a newer version is
+          available, <strong>Update</strong> refreshes the marketplace and
+          applies it. Start a fresh agent session after installation or updating
+          to load the new skills. Use <strong>Check again</strong> to refresh
+          status. Failed checks appear as unavailable rather than not installed.
+          Only enabled agent types (<strong>Settings → Agents</strong>) are
+          checked.
         </P>
         <P>
           The plugin carries an explicit version in its manifests, so updates
