@@ -533,9 +533,9 @@ function PlanLimitsSkeleton({
             </div>
           ) : null}
           {plan.note ? (
-            <p className="text-[11px]">
+            <div className="text-[11px]">
               <Line className="w-56" />
-            </p>
+            </div>
           ) : null}
         </div>
       ))}
