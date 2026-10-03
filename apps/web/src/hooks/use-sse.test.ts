@@ -1324,8 +1324,8 @@ describe("applyStreamEntry and blocks shown in threads", () => {
     applyStreamEntry(queryClient, "agt_1", blockEntry(ask));
     let first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
     expect(first.openInputs?.map((b) => b.id)).toEqual(["q1"]);
-    // Not a row of the channel: it is in the card's thread.
-    expect(first.entries.map((e) => e.id)).toEqual(["card"]);
+    // The same ask appears in the main stream and in its original thread.
+    expect(first.entries.map((e) => e.id)).toEqual(["card", "q1"]);
 
     applyStreamEntry(
       queryClient,
@@ -1338,6 +1338,9 @@ describe("applyStreamEntry and blocks shown in threads", () => {
     );
     first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
     expect(first.openInputs).toEqual([]);
+    expect(first.entries.find((e) => e.id === "q1")?.block.state).toEqual(
+      answered("Yes")
+    );
   });
 
   it("adds a top-level ask to the open list as well as the feed", () => {

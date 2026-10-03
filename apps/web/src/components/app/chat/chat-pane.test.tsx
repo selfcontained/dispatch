@@ -823,6 +823,119 @@ describe("ChatPane", () => {
     expect(H.answer).not.toHaveBeenCalled();
   });
 
+  it("explicitly answers a child's mirrored free-text question from the root composer", () => {
+    H.rootId = "agt_1";
+    H.agents = [agent, { ...agent, id: "agt_child", parentAgentId: "agt_1" }];
+    H.entries = [
+      blockEntry(
+        block({
+          id: "child-ask",
+          author: { kind: "agent", agentId: "agt_child" },
+          threadId: "child-home",
+          replyTo: "child-home",
+          text: "Which channel?",
+          body: questionBody([{ label: "Stable" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    renderPane();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
+    typeAndSend("Beta please");
+    expect(H.answer).toHaveBeenCalledWith(
+      expect.objectContaining({ blockId: "child-ask", value: "Beta please" })
+    );
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "uses the child's recipient and launch conversation from the root (home loaded: %s)",
+    (loadedHome) => {
+      H.rootId = "agt_1";
+      const child = {
+        ...agent,
+        id: "agt_child",
+        name: "Release helper",
+        parentAgentId: "agt_1",
+        inputState: {
+          active: true,
+          steeringSupported: true,
+          interruptSupported: true,
+          conversation: { streamId: "agt_1", threadId: "child-home" },
+        },
+      };
+      // The root cannot interrupt; the child's known conversation can.
+      H.agents = [
+        {
+          ...agent,
+          inputState: {
+            active: true,
+            steeringSupported: false,
+            interruptSupported: false,
+            conversation: { streamId: "agt_1", threadId: null },
+          },
+        },
+        child,
+      ];
+      H.entries = [
+        ...(loadedHome
+          ? [
+              blockEntry(
+                launchBlock({ id: "child-home", toAgentId: "agt_child" })
+              ),
+            ]
+          : []),
+        blockEntry(
+          block({
+            id: "child-ask",
+            author: { kind: "agent", agentId: "agt_child" },
+            threadId: "different-discussion",
+            replyTo: "different-discussion",
+            text: "Which channel?",
+            body: questionBody([{ label: "Stable" }], { allowFreeform: true }),
+          })
+        ),
+      ];
+      renderPane();
+      expect(
+        screen
+          .getByTestId("chat-composer-recipient")
+          .getAttribute("data-agent-id")
+      ).toBe("agt_1");
+      fireEvent.click(screen.getByTestId("chat-answer-question"));
+      expect(
+        screen
+          .getByTestId("chat-composer-recipient")
+          .getAttribute("data-agent-id")
+      ).toBe("agt_child");
+      if (loadedHome) {
+        // Now is offered only when the recipient's running conversation matches.
+        fireEvent.click(
+          screen.getByRole("button", { name: "Message timing: Now" })
+        );
+        expect(
+          (
+            screen.getByRole("button", {
+              name: "Interrupt current work",
+            }) as HTMLButtonElement
+          ).disabled
+        ).toBe(false);
+        fireEvent.click(
+          screen.getByRole("button", { name: "Interrupt current work" })
+        );
+        typeAndSend("Beta please");
+        expect(H.answer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            blockId: "child-ask",
+            value: "Beta please",
+            delivery: "interrupt",
+          })
+        );
+      } else {
+        expect(screen.queryByTestId("chat-composer-delivery")).toBeNull();
+      }
+    }
+  );
+
   it("answers the newest open free-text question only after selecting Answer question", () => {
     H.entries = [
       blockEntry(
@@ -1389,6 +1502,32 @@ describe("ChatPane scroll memory", () => {
 });
 
 describe("isMainColumnEntry", () => {
+  it("shows threaded user asks even when child activity is hidden", () => {
+    const ask = blockEntry(
+      block({
+        id: "ask",
+        author: { kind: "agent", agentId: "child" },
+        threadId: "launch",
+        replyTo: "launch",
+        body: questionBody([{ label: "Yes" }]),
+      })
+    );
+    expect(isMainColumnEntry(ask)).toBe(true);
+    expect(
+      filterStreamView(
+        [ask],
+        { agentId: "root", rootId: "root", descendants: new Set(["child"]) },
+        false
+      )
+    ).toEqual([ask]);
+    expect(
+      isMainColumnEntry({
+        ...ask,
+        block: { ...ask.block, kind: "text", data: {} },
+      } as StreamEntry)
+    ).toBe(false);
+  });
+
   it("leaves a turn a thread reply opened to the drawer", () => {
     const plain = turnEntry("turn:1", "agt_1", "2026-09-02T10:00:00.000Z");
     expect(isMainColumnEntry(plain)).toBe(true);

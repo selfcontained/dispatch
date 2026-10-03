@@ -69,8 +69,9 @@ const BLOCK_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `b.${c}`).join(", ");
 const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
 
 /**
- * Top-level blocks on a stream, newest first. Replies live in threads and
- * are read through the thread route.
+ * Top-level blocks and user-directed questions/forms, newest first. Other
+ * replies are read through the thread route. Mirrored asks keep their IDs
+ * and thread metadata so both views answer the same stored block.
  *
  * The page is materialized first, then its attachments are expanded once,
  * joined to `files` for each file's live type and image dimensions, and
@@ -86,10 +87,12 @@ async function listBlockEntries(
 ): Promise<Keyed<StreamBlockEntry>[]> {
   const params: unknown[] = [streamId];
   let clause = cursorClause("block", "uuid", cursor, params, "b");
-  // A page lists top-level blocks only; a read by id may name a reply (or
-  // a block another one shows), which is published as its own entry so a
+  // A page also lists user-directed asks from threads. A read by id may
+  // name any reply (or a block another one shows), which is published as its own entry so a
   // client can file it into its thread.
-  let scope = "AND b.thread_id IS NULL";
+  let scope = `AND (b.thread_id IS NULL OR
+    (b.author_kind = 'agent' AND b.to_agent_id IS NULL
+      AND b.kind IN ('question', 'form')))`;
   if (onlyIds !== undefined) {
     params.push([...onlyIds]);
     clause += ` AND b.id = ANY($${params.length}::uuid[])`;

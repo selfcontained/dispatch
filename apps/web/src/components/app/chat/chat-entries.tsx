@@ -1,4 +1,4 @@
-import { qualifyExternalMentions } from "@dispatch/shared";
+import { isUserInputBlock, qualifyExternalMentions } from "@dispatch/shared";
 import { Link } from "react-router-dom";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
@@ -1319,9 +1319,15 @@ export const BlockView = memo(function BlockView({
   // Inside the panel the thread itself says who is talking to whom; the
   // side indent would only push the replies off the left edge.
   const side = inThread ? undefined : blockSide(block, ctx);
+  const mirroredInput =
+    !inThread && block.threadId !== null && isUserInputBlock(block);
   const replyAction =
     !inThread && ctx.onOpenThread ? (
-      <ReplyInThreadButton onClick={() => ctx.onOpenThread?.(block.id)} />
+      <ReplyInThreadButton
+        onClick={() =>
+          ctx.onOpenThread?.(mirroredInput ? block.threadId! : block.id)
+        }
+      />
     ) : null;
   const copyText = block.turn ? turnAnswerText(block, block.turn) : block.text;
   const copyAction =
@@ -1520,6 +1526,12 @@ export const BlockView = memo(function BlockView({
       action={agentAction}
       deliveryIndicator={deliveryIndicator}
     >
+      {mirroredInput ? (
+        <SourceMessageLink
+          block={block}
+          agentId={ctx.agentId ?? block.streamId}
+        />
+      ) : null}
       {block.kind === "text" && block.data?.responseTo?.length ? (
         <ResponseBacklink
           agentId={
@@ -1600,6 +1612,40 @@ function ResponseBacklink({
       }}
     >
       In response to your {multiple ? "messages" : "message"}
+    </Link>
+  );
+}
+
+/** Open the containing thread on the exact message, including repeated clicks. */
+function SourceMessageLink({
+  block,
+  agentId,
+}: {
+  block: Block;
+  agentId: string;
+}) {
+  const jump = useJumpToTurn();
+  const target = { blockId: block.id, threadId: block.threadId };
+  return (
+    <Link
+      data-testid="chat-input-source"
+      className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+      to={agentTurnLocation(agentId, target)}
+      onClick={(event) => {
+        if (
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        )
+          return;
+        event.preventDefault();
+        jump(agentId, target);
+      }}
+    >
+      <MessagesSquare className="h-3 w-3" aria-hidden="true" />
+      Open original message
     </Link>
   );
 }

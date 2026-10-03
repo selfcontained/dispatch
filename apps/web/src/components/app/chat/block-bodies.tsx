@@ -5,7 +5,7 @@
  * kind needs, and reads nothing else from the feed. Composed into posts by
  * chat-entries.tsx.
  */
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import type {
   Block,
   BlockFindingData,
@@ -265,17 +265,18 @@ function isBlank(value: FormValue | undefined): boolean {
 }
 
 function FormFieldInput({
+  id,
   field,
   value,
   disabled,
   onChange,
 }: {
+  id: string;
   field: BlockFormField;
   value: FormValue | undefined;
   disabled: boolean;
   onChange: (value: FormValue) => void;
 }): JSX.Element {
-  const id = `block-field-${field.id}`;
   switch (field.type) {
     case "textarea":
       return (
@@ -389,6 +390,7 @@ export function FormBlockBody({
   /** Closes an ask the person no longer needs to answer. */
   onCancel?: () => void;
 }): JSX.Element {
+  const formId = useId();
   const submission = block.state?.submission;
   const cancellation = askCancellation(block);
   const [values, setValues] = useState(() =>
@@ -427,7 +429,7 @@ export function FormBlockBody({
         {block.data.fields.map((field) => {
           const label = (
             <label
-              htmlFor={`block-field-${field.id}`}
+              htmlFor={`${formId}-${field.id}`}
               className="text-xs font-medium text-foreground"
             >
               {field.label}
@@ -470,6 +472,7 @@ export function FormBlockBody({
             >
               {label}
               <FormFieldInput
+                id={`${formId}-${field.id}`}
                 field={field}
                 value={values[field.id]}
                 disabled={!open || disabled || submitting}
