@@ -4,8 +4,9 @@ import AppKit
 @MainActor
 final class UpdateProgressWindow: NSWindowController, NSWindowDelegate {
     enum Phase: Equatable {
-        case preparing, restarting, stopped(String)
+        case checkingActivity, waitingForAgents, cancelling, preparing, restarting, stopped(String), cancelFailed(String)
     }
+    var onAction: (() -> Void)?
     var onClose: (() -> Void)?
     private let content = NSStackView()
     private(set) var phase: Phase = .preparing
@@ -47,24 +48,44 @@ final class UpdateProgressWindow: NSWindowController, NSWindowDelegate {
     func update(_ phase: Phase) {
         self.phase = phase
         switch phase {
+        case .checkingActivity:
+            heading.stringValue = "Checking agent activity…"
+            detail.stringValue = "Dispatch checks for active work before offering installation."
+        case .waitingForAgents:
+            heading.stringValue = "Waiting for agents to finish"
+            detail.stringValue = "Agents or background tasks are still working. This window checks automatically and will ask you to confirm installation when work is idle. Cancel update cancels this attempt without interrupting agents. Future update checks stay enabled."
+        case .cancelling:
+            heading.stringValue = "Cancelling update…"
+            detail.stringValue = "Dispatch is removing the pending installer. Agents can keep working."
         case .preparing:
             heading.stringValue = "Preparing update…"
             detail.stringValue = "Dispatch is preparing a recovery point and stopping the server safely. It will restart when the update is ready."
         case .restarting:
             heading.stringValue = "Restarting Dispatch…"
             detail.stringValue = "The update is ready. Dispatch will briefly close, then notify you when the update finishes."
-        case .stopped(let message):
+        case .stopped(let message), .cancelFailed(let message):
             heading.stringValue = "Update paused"
             detail.stringValue = message
         }
         let stopped: Bool
-        if case .stopped = phase { stopped = true } else { stopped = false }
-        dismiss.isHidden = !stopped; spinner.isHidden = stopped
-        if stopped { spinner.stopAnimation(nil) } else { spinner.startAnimation(nil) }
+        switch phase {
+        case .stopped, .cancelFailed, .waitingForAgents, .checkingActivity: stopped = true
+        default: stopped = false
+        }
+        switch phase {
+        case .checkingActivity, .waitingForAgents: dismiss.title = "Cancel update"
+        case .cancelFailed: dismiss.title = "Try again"
+        default: dismiss.title = "Dismiss"
+        }
+        dismiss.isHidden = !stopped
+        let failed: Bool
+        switch phase { case .stopped, .cancelFailed: failed = true; default: failed = false }
+        spinner.isHidden = failed
+        if failed { spinner.stopAnimation(nil) } else { spinner.startAnimation(nil) }
         window?.styleMask = stopped ? [.titled, .closable] : [.titled]
         content.layoutSubtreeIfNeeded()
         window?.setContentSize(NSSize(width: 460, height: max(190, content.fittingSize.height + 48)))
     }
     func windowWillClose(_ notification: Notification) { onClose?() }
-    @objc private func dismissProgress() { close() }
+    @objc private func dismissProgress() { if let onAction { onAction() } else { close() } }
 }

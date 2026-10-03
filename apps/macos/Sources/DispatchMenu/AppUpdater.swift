@@ -61,6 +61,25 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     init(service: SMAppService, root: URL = AppPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
         self.service = service; self.root = root; self.build = build
         super.init()
+        userDriver.cancelPendingInstall = { [weak self] in
+            guard let self else { return }
+            self.busy = true; self.onChange?()
+            defer { self.busy = false; self.onChange?() }
+            self.userDriver.expectBusyDeferral("Update cancelled.")
+            let withdrawal = self.withdrawal
+            let withdrawn = await Task.detached { withdrawal.withdraw() }.value
+            guard withdrawn else {
+                self.userDriver.clearBusyDeferral()
+                throw ConfigurationError("The installer could not be removed; Dispatch will keep protecting the pending update.")
+            }
+            self.handoff.abort()
+            self.releaseStaged("Cancelled by the user before installation.")
+            self.clearDeferral(); self.restoreAutomatic()
+        }
+        userDriver.checkActivity = { [weak self] in
+            guard let self, self.wasRunning() else { return false }
+            return try await RecoveryProtocol.updateBusy(root: self.root)
+        }
         updater = SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: userDriver, delegate: self)
     }
     func start() async {
@@ -381,10 +400,12 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     /// docs/macos-native-recovery.md). Remove it and prove it is gone before releasing
     /// the handoff; if that cannot be proven, Quit stays held with exact instructions.
     private func withdrawStagedInstall(_ reason: LocalizedError, retry: Bool, disableAutomatic: Bool = false) async -> Bool {
+        if retry { userDriver.expectBusyDeferral(reason.errorDescription ?? "Waiting for agents to finish.") }
         let withdrawal = StagedInstallerWithdrawal(bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
         let withdrawn = await Task.detached { withdrawal.withdraw() }.value
         let message = reason.errorDescription ?? "The update could not be protected."
         guard withdrawn else {
+            userDriver.clearBusyDeferral()
             log("staged installer could not be withdrawn: \(message)")
             fail(ConfigurationError("\(message)\n\nSparkle has already staged this update to install when Dispatch quits, and Dispatch could not withdraw it, so Dispatch will not quit or log out while it would install unprotected. Choose Retry Update Recovery when agents are idle, or remove the staged installer with `launchctl bootout gui/\(getuid())/\(withdrawal.labels[0])` and quit again."))
             return false
@@ -571,6 +592,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     /// Read per check, so a channel picked in Settings applies to the next one.
     func allowedChannels(for updater: SPUUpdater) -> Set<String> { UpdateChannel.current().sparkleChannels }
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        userDriver.beginUpdateCycle()
         if controlsLocked || needsRecovery { throw ConfigurationError("Finish update recovery before checking for another update.") }
     }
     /// The last point where an update can be vetoed before Sparkle downloads, extracts,
@@ -617,8 +639,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         checking = false; installing = false
         // Sparkle has handed off (or given up on) any install by now.
         restoreAutomatic()
-        if wasRemote, let error = error as NSError?, error.code != Int(SUError.noUpdateError.rawValue) {
-            remoteError = error.localizedDescription
+        if wasRemote, !needsRecovery, let error = error as NSError?, error.code != Int(SUError.noUpdateError.rawValue) {
+            remoteError = userDriver.busyDeferral ?? error.localizedDescription
         }
         // A cycle that ended with no installer (failed download, veto) releases staging;
         // a still-staged installer (e.g. "install on quit") keeps its protection.

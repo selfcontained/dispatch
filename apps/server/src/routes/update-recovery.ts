@@ -77,6 +77,7 @@ export async function registerUpdateRecoveryRoutes(
       return reply.code(400).send({ code: "INVALID_REQUEST" });
     return signed(auth.key, "status", challenge.data, {
       ...maintenance.status(),
+      ...(await maintenance.activity()),
       ...maintenance.identity(),
     });
   });
