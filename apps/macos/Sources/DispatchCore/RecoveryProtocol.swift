@@ -26,6 +26,30 @@ public struct RecoveryRefusal: LocalizedError, Equatable {
 
 /// Authenticated, installation-scoped recovery API. Ordinary health is insufficient.
 public enum RecoveryProtocol {
+    /// Advisory, authenticated check. The installation fence remains authoritative.
+    public static func updateBusy(root: URL) async throws -> Bool {
+        let config = try Configuration.read(from: root.appendingPathComponent("configuration.json"))
+        guard let token = AppControlToken.read(root: root) else { throw ConfigurationError("Cannot check agent activity. Start the Dispatch server and try again.") }
+        let challenge = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        var components = URLComponents(url: config.serverURL.appendingPathComponent(String(prefix.dropFirst()) + "status"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "challenge", value: challenge)]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 10
+        request.setValue("Dispatch-Recovery \(token)", forHTTPHeaderField: "Authorization")
+        let session = URLSession(configuration: .ephemeral, delegate: LocalServerTrust(root: root), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              var body = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let proof = body.removeValue(forKey: "proof") as? String,
+              try verifyProof(proof, body: body, key: token, route: "status", challenge: challenge, nonce: nil),
+              let instance = body["instance"] as? [String: Any], instance["macInstanceId"] as? String == config.instanceID else {
+            throw ConfigurationError("Cannot verify agent activity. Check that the Dispatch server is running and try again.")
+        }
+        // Older servers do not expose activity; their installation fence still guards updates.
+        return body["busy"] as? Bool ?? false
+    }
+
     public static let prefix = "/api/v1/system/update-recovery/"
     public static func canonical(_ body: [String: Any]) throws -> String {
         String(decoding: try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
@@ -118,6 +142,29 @@ public enum RecoveryProtocol {
               journal.wasRunning ? body["mode"] as? String == "fenced" : body["ready"] as? Bool == true else {
             throw ConfigurationError("Recovery requires stopped idle hosts and Dispatch-owned state inside the private Mac data directory. External state requires operator recovery.")
         }
+    }
+    /// Commit as soon as the live menu and authenticated, write-fenced server
+    /// prove readiness. The deadline bounds startup; it is not a minimum delay.
+    public static func awaitReadiness(
+        deadline: Date,
+        workerRunning: () -> Bool,
+        menuReady: () -> Bool,
+        serverReady: () async -> Bool,
+        now: () -> Date = Date.init,
+        wait: () async throws -> Void = { try await Task.sleep(for: .seconds(1)) }
+    ) async throws {
+        while now() < deadline {
+            guard workerRunning() else { throw ConfigurationError("The probation server exited before readiness.") }
+            if menuReady(), await serverReady() {
+                // The proof request suspends: neither an exited process nor an
+                // expired startup deadline may be accepted on its return.
+                guard workerRunning() else { throw ConfigurationError("The probation server exited before readiness.") }
+                guard now() < deadline else { break }
+                if menuReady() { return }
+            }
+            try await wait()
+        }
+        throw ConfigurationError("The app/server failed write-fenced readiness probation.")
     }
     public static func ready(_ journal: NativeRecoveryJournal, root: URL, build: String) async -> Bool {
         guard let body = try? await request("readiness", journal: journal, root: root) else { return false }

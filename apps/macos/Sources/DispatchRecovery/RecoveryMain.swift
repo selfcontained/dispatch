@@ -136,18 +136,17 @@ import DispatchCore
         try worker.run()
         do {
             _ = try? RecoveryCommand.run(URL(fileURLWithPath: "/usr/bin/open"), [app.path])
-            var stable: Date?
-            while Date() < journal.deadline {
-                guard worker.isRunning else { throw ConfigurationError("The probation server exited before readiness.") }
-                let menu = (try? Data(contentsOf: store.directory.appendingPathComponent("menu-ready.json"))).flatMap { try? JSONDecoder().decode(RecoveryProcess.self, from: $0) }
-                if menu?.transactionId == journal.id, menu?.build == build, menu?.matches == true,
-                   await RecoveryProtocol.ready(journal, root: store.root, build: build) {
-                    if stable == nil { stable = Date() }
-                    if Date().timeIntervalSince(stable!) >= 60 { try stop(worker); return }
-                } else { stable = nil }
-                try await Task.sleep(for: .seconds(1))
-            }
-            throw ConfigurationError("The app/server failed write-fenced readiness probation.")
+            try await RecoveryProtocol.awaitReadiness(
+                deadline: journal.deadline,
+                workerRunning: { worker.isRunning },
+                menuReady: {
+                    let menu = (try? Data(contentsOf: store.directory.appendingPathComponent("menu-ready.json")))
+                        .flatMap { try? JSONDecoder().decode(RecoveryProcess.self, from: $0) }
+                    return menu?.transactionId == journal.id && menu?.build == build && menu?.matches == true
+                },
+                serverReady: { await RecoveryProtocol.ready(journal, root: store.root, build: build) }
+            )
+            try stop(worker)
         } catch { try stop(worker); throw error }
     }
     static func stop(_ worker: Process) throws {

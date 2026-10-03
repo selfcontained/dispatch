@@ -286,6 +286,29 @@ describe("readRecoveryKey", () => {
 });
 
 describe("recovery route auth", () => {
+  it("reports busy activity without fencing or stopping work, then clears when idle", async () => {
+    const dir = await tempDir();
+    const keyFile = await privateFile(dir, "control.key", KEY);
+    let active = true;
+    const { deps } = makeDeps({
+      busyReasons: async () => (active ? [{ kind: "agent-turn" }] : []),
+    });
+    const maintenance = new RecoveryMaintenance(deps);
+    const app = await harness(maintenance, keyFile);
+    const url = `${route("status")}?challenge=${CHALLENGE}`;
+    const first = await app.inject({ url, headers: auth });
+    expect(first.json().busy).toBe(true);
+    expect(verify("status", first.json())).toBe(true);
+    expect(first.json().mode).toBe("normal");
+    expect(deps.stopWriters).not.toHaveBeenCalled();
+    expect(deps.quiesceHosts).not.toHaveBeenCalled();
+    expect(
+      (await app.inject({ method: "POST", url: "/api/v1/agents" })).statusCode
+    ).toBe(200);
+    active = false;
+    expect((await app.inject({ url, headers: auth })).json().busy).toBe(false);
+  });
+
   it("requires enrollment, the key and a loopback socket", async () => {
     const dir = await tempDir();
     const keyFile = path.join(dir, "control.key");

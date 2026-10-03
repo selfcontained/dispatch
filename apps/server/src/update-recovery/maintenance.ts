@@ -207,6 +207,12 @@ export class RecoveryMaintenance {
     return drained;
   }
 
+  /** Advisory only: never fences writes or stops agent hosts. */
+  async activity(): Promise<{ busy: boolean }> {
+    const reasons = await this.deps.busyReasons();
+    return { busy: reasons.length > 0 || this.inFlight.size > 0 };
+  }
+
   status(): Record<string, unknown> {
     return {
       mode: this.state,

@@ -215,10 +215,16 @@ installs off. To update:
 
 ## Commit and rollback
 
-Activation has a bounded five-minute deadline. Target startup and stable readiness
-share a three-minute window, including sixty seconds of continuous authenticated
-readiness and a matching live menu acknowledgment. The helper stops its probation
-worker before durably committing.
+Activation has a bounded five-minute deadline. Target startup and authenticated
+readiness share a three-minute deadline. The helper proceeds as soon as the
+write-fenced server proves readiness and the matching menu process is alive;
+there is no minimum observation delay. It rechecks process liveness and the
+deadline after the readiness request, then stops its probation worker before
+durably committing. The restored app uses the same readiness gate on rollback.
+
+This favors a fast handoff over observing the new build after readiness. A
+failure after commit is not rolled back automatically; the helper no longer
+waits to detect crashes shortly after the first proven readiness.
 
 ### Service handoff after a terminal decision
 
@@ -331,3 +337,18 @@ databases and does not provide a destructive offline override. It leaves
 `recoveryRequired` if it cannot prove all writers stopped. These capability
 failures must remain visible as blocked installation, never be bypassed as a
 successful backup or silently downgraded to app-only rollback.
+
+### Busy-agent feedback before installation
+
+After the user chooses installation, the native update flow reads authenticated
+recovery status, without fencing writes or stopping hosts. If agents or background work are active, it
+shows “Waiting for agents to finish” and checks again every three seconds.
+Cancel update withdraws any staged installer and closes the offer. Leaving it
+open offers installation once work is idle, without accepting installation on
+the user's behalf. Transient connection failures retry up to three times; an
+unverifiable response or persistent failure shows an actionable paused message. Older servers without the advisory activity
+field retain the final installation-fence check.
+
+The fence is still authoritative if work starts after this preview. An intentional
+installer withdrawal for active work keeps Dispatch's busy explanation instead
+of Sparkle's generic connection-closed error. No force-update override is added.
