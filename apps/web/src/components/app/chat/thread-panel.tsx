@@ -2,8 +2,8 @@ import { useDeliveryAgents } from "@/hooks/use-agent-tree";
 /**
  * The thread behind one block, Slack-style: a panel to the right of the
  * stream (a full-width sheet on a phone) showing the root block, its
- * replies, and a composer whose posts reply under the root. Replies never
- * render in the main stream; this is the only place they appear.
+ * replies, and a composer whose posts reply under the root. Questions and
+ * forms for the user also appear in the main stream.
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";

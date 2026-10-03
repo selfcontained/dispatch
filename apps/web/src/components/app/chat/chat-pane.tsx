@@ -1,3 +1,4 @@
+import { isUserInputBlock } from "@dispatch/shared";
 import {
   useCallback,
   useEffect,
@@ -146,6 +147,9 @@ export function filterStreamView(
   showChildAgents: boolean
 ): StreamEntry[] {
   return entries.filter((entry) => {
+    // Asking the user must remain visible even with child activity hidden.
+    if (isUserInputBlock(entry.block) && view.agentId === view.rootId)
+      return true;
     const owner = entryOwner(entry, view);
     return owner === "own" || (owner === "child" && showChildAgents);
   });
@@ -154,14 +158,14 @@ export function filterStreamView(
 /**
  * What the main column shows of the feed. A reply (a block under a thread,
  * a turn's answer to a thread reply included) lives in the drawer's thread
- * page only, except an agent's post to another agent, which is the one
+ * page only, except user-directed asks and an agent's post to another agent, which is the one
  * record of that exchange in the column (a parent's post to a child
  * threads under the child's launch post, and folds into the parent's turn
  * as "Sent to").
  */
 export function isMainColumnEntry(entry: StreamEntry): boolean {
   const { block } = entry;
-  if (block.threadId === null) return true;
+  if (block.threadId === null || isUserInputBlock(block)) return true;
   return block.author.kind === "agent" && block.toAgentId !== null;
 }
 
@@ -477,10 +481,23 @@ export function ChatPane({
     [entries, showChildAgents, view]
   );
 
+  // The root's composer can also explicitly answer a child's mirrored ask.
+  // Keep these separate from ownEntries, which governs the page agent's turns.
+  const questionEntries = useMemo(
+    () =>
+      view && view.agentId === view.rootId
+        ? entries.filter(
+            (entry) =>
+              entryOwner(entry, view) === "own" || isUserInputBlock(entry.block)
+          )
+        : ownEntries,
+    [entries, ownEntries, view]
+  );
+
   // Answering is explicit: an open question never captures a new message.
   const openQuestion = useMemo(
-    () => latestOpenFreeformQuestion(ownEntries),
-    [ownEntries]
+    () => latestOpenFreeformQuestion(questionEntries),
+    [questionEntries]
   );
   const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(
     null
@@ -491,21 +508,26 @@ export function ChatPane({
   const replyTarget = useMemo(
     () =>
       answeringQuestionId
-        ? latestOpenFreeformQuestion(ownEntries, answeringQuestionId)
+        ? latestOpenFreeformQuestion(questionEntries, answeringQuestionId)
         : null,
-    [ownEntries, answeringQuestionId]
+    [questionEntries, answeringQuestionId]
   );
 
   // Structured answers resume work: a main-stream ask resumes the root;
   // a child's threaded ask resumes its launch-card home. Never use the ask's
   // storage thread as a guess when the child's launch card is not loaded.
+  const answerRecipientId =
+    replyTarget?.author.kind === "agent" ? replyTarget.author.agentId : agentId;
   const answerAtChildHome = Boolean(
-    replyTarget?.threadId && agentId !== rootId
+    replyTarget &&
+    answerRecipientId !== rootId &&
+    (replyTarget.threadId || answerRecipientId !== agentId)
   );
   const childHome = answerAtChildHome
     ? entries.find(
         (entry) =>
-          entry.block.kind === "launch" && entry.block.toAgentId === agentId
+          entry.block.kind === "launch" &&
+          entry.block.toAgentId === answerRecipientId
       )?.block.id
     : null;
   const composerConversation =
@@ -1276,8 +1298,13 @@ export function ChatPane({
               }
               mentionables={mentionables}
               defaultRecipients={
-                agentId
-                  ? [{ id: agentId, name: agentDisplayName(agentId, ctx) }]
+                answerRecipientId
+                  ? [
+                      {
+                        id: answerRecipientId,
+                        name: agentDisplayName(answerRecipientId, ctx),
+                      },
+                    ]
                   : undefined
               }
               slashCommands={slashCommands}

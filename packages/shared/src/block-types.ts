@@ -603,3 +603,12 @@ export const BLOCK_REVIEW_FINDINGS_MAX = 50;
 export const BLOCK_TASKS_MAX = 50;
 /** Distinct emoji one block can carry. */
 export const BLOCK_REACTIONS_MAX = 20;
+
+/** Questions and forms addressed to the user remain visible across threads. */
+export function isUserInputBlock(block: Block): boolean {
+  return (
+    block.author.kind === "agent" &&
+    block.toAgentId === null &&
+    (block.kind === "question" || block.kind === "form")
+  );
+}

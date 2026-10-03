@@ -1,3 +1,4 @@
+import { isUserInputBlock } from "@dispatch/shared";
 import { useEffect } from "react";
 import type {
   SharedUiEvent,
@@ -206,8 +207,8 @@ function invalidateReviewSummary(queryClient: QueryClient): void {
  * A feed with no query mounted at all has nothing to patch or invalidate;
  * whenever it is next fetched, that fetch will carry the row.
  *
- * A reply (a block with `threadId`) never goes into the feed: it lands in
- * its thread when that is loaded, and the root's reply line counts it.
+ * Replies update their threads and reply counts. User-directed questions
+ * and forms also appear in the main feed under the same block ID.
  */
 export function applyStreamEntry(
   queryClient: QueryClient,
@@ -230,7 +231,7 @@ export function applyStreamEntry(
     queryClient.setQueryData<FeedCache>(key, (old) =>
       syncAcrossStream(bumpReplyCount(old, reply), reply)
     );
-    return;
+    if (!isUserInputBlock(reply)) return;
   }
   if (entry.type === "block") {
     // The panel shows a thread's root too; keep it in step with the feed.

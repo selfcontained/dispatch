@@ -575,6 +575,72 @@ describe("composeStreamFeed", () => {
     });
   });
 
+  it("mirrors user asks from threads with stable IDs, pagination and settled state", async () => {
+    const root = await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "Discussion",
+    });
+    await stamp(root.id, at(1));
+    const asks = [];
+    for (const kind of ["question", "form"] as const) {
+      const ask = await store.insert({
+        streamId: A,
+        author: agent(ARCHIVED_CHILD),
+        kind,
+        threadId: root.id,
+        replyTo: root.id,
+        text: kind,
+        data:
+          kind === "question"
+            ? { options: [{ label: "Yes" }] }
+            : { fields: [{ id: "n", label: "N", type: "text" }] },
+        state: {},
+      });
+      await stamp(ask.id, at(asks.length + 2));
+      asks.push(ask);
+    }
+    const privateAsk = await store.insert({
+      streamId: A,
+      author: agent(A),
+      toAgentId: OTHER,
+      kind: "question",
+      threadId: root.id,
+      replyTo: root.id,
+      text: "For another agent",
+      data: { options: [{ label: "Yes" }] },
+      state: {},
+    });
+    const first = await composeStreamFeed(store, A, { limit: 1 });
+    expect(first.entries.map((e) => e.id)).toEqual([asks[1]!.id]);
+    expect(first.entries[0]!.block.threadId).toBe(root.id);
+    const second = await composeStreamFeed(store, A, {
+      limit: 1,
+      cursor: decodeFeedCursor(first.nextCursor!),
+    });
+    expect(second.entries.map((e) => e.id)).toEqual([asks[0]!.id]);
+    expect(
+      (await composeStreamFeed(store, A)).entries.map((e) => e.id)
+    ).not.toContain(privateAsk.id);
+    await store.mergeState(asks[0]!.id, {
+      answer: { value: "Yes", by: USER, at: "t", blockId: root.id },
+    });
+    await store.mergeState(asks[1]!.id, {
+      cancellation: { by: USER, at: "t" },
+    });
+    const settled = await composeStreamFeed(store, A);
+    expect(settled.entries.map((e) => e.id)).toEqual([
+      root.id,
+      ...asks.map((a) => a.id),
+    ]);
+    expect(settled.entries[1]!.block.state).toHaveProperty(
+      "answer.value",
+      "Yes"
+    );
+    expect(settled.entries[2]!.block.state).toHaveProperty("cancellation");
+    expect(settled.openInputs).toEqual([]);
+  });
+
   it("lists every open ask for people on the first page, threads included", async () => {
     const top = await store.insert({
       streamId: A,

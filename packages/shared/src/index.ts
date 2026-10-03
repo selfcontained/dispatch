@@ -77,6 +77,7 @@ export {
   BLOCK_REVIEW_FINDINGS_MAX,
   BLOCK_TASKS_MAX,
   BLOCK_TEXT_MAX_CHARS,
+  isUserInputBlock,
   reviewFindings,
   reviewStatus,
 } from "./block-types.js";
