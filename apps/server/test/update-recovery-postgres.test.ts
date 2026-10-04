@@ -36,7 +36,7 @@ function testTools(): PostgresTools | undefined {
     (run?.startsWith("servertest-") ? `dispatch-postgres-${run}` : undefined);
   if (container) {
     if (
-      !/^dispatch-(?:ci-[0-9]+|release-verify-pg-[0-9]+|postgres-servertest-[a-zA-Z0-9-]+)$/.test(
+      !/^dispatch-(?:ci-(?:pg[0-9]+-)?[0-9]+|release-verify-pg-[0-9]+|postgres-servertest-[a-zA-Z0-9-]+)$/.test(
         container
       )
     )

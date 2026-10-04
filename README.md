@@ -12,23 +12,41 @@ updates itself from the menu bar.
 **Linux:** install and start PostgreSQL 14+, then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/acp-runtime/bin/install-dispatch.sh | bash
 ```
+
+> **Preview:** while 1.x is in preview, install from the `acp-runtime` branch
+> as shown. The installer on `main` is still 0.x, which installs to `~/.dispatch`.
 
 The installer picks the newest release on a channel: **stable** (promoted
 releases) or **preview** (every release as soon as it ships). It uses stable,
 or preview while no stable release exists; pass `--channel preview` or
-`--channel stable` to choose. It creates a private database and credentials
-when it can administer PostgreSQL, installs the platform-matched binary under
+`--channel stable` to choose. It checks the PostgreSQL version before
+downloading anything. It creates a private database and credentials when it can
+administer PostgreSQL: as you through `psql`, or as `postgres` through `sudo`
+(asking for your password when run from a terminal). Otherwise it prints the
+SQL to create one yourself. It installs the platform-matched binary under
 `~/.local/share/dispatch`, and registers a `dispatch-server` systemd user
 service. For a managed database, pass its URL instead:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
+curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/acp-runtime/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
 ```
 
+A supplied database is enrolled as **unowned**: Dispatch uses it, but never
+backs it up, restores it, or treats it as its own. Protected updates on Linux
+back up the database before they migrate it, so they need a database the
+installer created. Settings → Updates won't update an install that uses a
+supplied database.
+
+The database URL and its password are stored only in
+`~/.local/share/dispatch/server/.env` (mode `0600`). On Linux the service logs
+go to the systemd journal: `journalctl --user -u dispatch-server`.
+
 The service listens on `127.0.0.1:6767`, or the next free port above it (the
-installer prints the URL; `--port` picks one). Updates come from
+installer prints the URL; `--port` picks one). Pass `--host 0.0.0.0` to accept
+LAN or Tailscale connections, as a 0.x install configured with
+`DISPATCH_HOST=0.0.0.0` did. Updates come from
 **Settings → Updates**, which follows the same channel: they atomically replace
 the executable and restart the service without stopping running agents.
 
@@ -93,7 +111,7 @@ Dispatch spawns agents via their CLI tools. Install at least one:
 | **Claude** | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)            |
 | **Codex**  | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile |
 
-Dispatch drives each CLI through its Agent Client Protocol adapter: `npm i -g @agentclientprotocol/claude-agent-acp` for Claude, `npm i -g @agentclientprotocol/codex-acp` for Codex. The CLI must be authenticated before Dispatch can spawn agents of that type; the agent host starts through your login shell, so login state and API keys in your profile are inherited automatically.
+Dispatch drives each CLI through its Agent Client Protocol adapter. The adapters are built into the Dispatch binary, so there's nothing extra to install. The CLI must be authenticated before Dispatch can spawn agents of that type; the agent host starts through your login shell, so login state and API keys in your profile are inherited automatically.
 
 ## Setup
 

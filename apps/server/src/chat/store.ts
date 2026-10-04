@@ -715,7 +715,8 @@ export class BlockStore {
       `INSERT INTO block_reactions
          (id, block_id, stream_id, author_kind, author_agent_id, emoji, delivered)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (block_id, author_kind, author_agent_id, emoji) DO NOTHING
+       ON CONFLICT (block_id, author_kind, COALESCE(author_agent_id, ''), emoji)
+         DO NOTHING
        RETURNING *`,
       [
         randomUUID(),
