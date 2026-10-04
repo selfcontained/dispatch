@@ -31,7 +31,7 @@ for (const width of [390, 1280]) {
 
 | Identifier | Status | Owner | Purpose |
 | --- | --- | --- | --- |
-| very_long_unbroken_identifier_that_should_stay_readable_123456789 | Running | Example owner | Check horizontal scrolling without widening the page |`,
+| ${"very_long_unbroken_identifier_".repeat(5)} | Running | Example owner | Check horizontal scrolling without widening the page |`,
       });
       await page.goto(`/agents/${agent.id}`, {
         waitUntil: "domcontentloaded",
@@ -68,6 +68,26 @@ for (const width of [390, 1280]) {
         await tables.nth(1).evaluate((el) => el.scrollWidth - el.clientWidth)
       ).toBeLessThanOrEqual(1);
       const wide = tables.nth(2);
+      const textOverflow = await wide.evaluate((wrapper) => {
+        let overflow = 0;
+        for (const cell of wrapper.querySelectorAll("th, td")) {
+          const bounds = cell.getBoundingClientRect();
+          const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const range = document.createRange();
+            range.selectNodeContents(walker.currentNode);
+            for (const rect of range.getClientRects()) {
+              overflow = Math.max(
+                overflow,
+                bounds.left - rect.left,
+                rect.right - bounds.right
+              );
+            }
+          }
+        }
+        return overflow;
+      });
+      expect(textOverflow).toBeLessThanOrEqual(1);
       await wide.evaluate((el) => el.scrollIntoView({ block: "nearest" }));
       // Attaching a session can remount its feed after the first render.
       // Exercise the wheel on the current scroller once that settles.
@@ -85,6 +105,9 @@ for (const width of [390, 1280]) {
       ).toBeLessThanOrEqual(1);
       await wide.evaluate((el) => {
         el.scrollLeft = 0;
+      });
+      await page.screenshot({
+        path: `/tmp/dispatch-markdown-long-token-${width}.png`,
       });
       await readable.evaluate((el) => el.scrollIntoView({ block: "nearest" }));
       await page.screenshot({

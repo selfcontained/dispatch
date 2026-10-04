@@ -395,10 +395,11 @@ function MarkdownDefault({
               >
                 {/* Keep intrinsic column widths instead of squeezing the table
                     into the message. Cap long cells so descriptions still wrap
-                    at words, and let the wrapper handle horizontal scrolling. */}
+                    at words. Break unusually long tokens within capped cells
+                    without reducing their intrinsic width to single letters. */}
                 <table
                   {...props}
-                  className="w-max min-w-full [&_th]:max-w-[32rem] [&_td]:max-w-[32rem] [&_th]:break-normal [&_td]:break-normal [&_th]:[overflow-wrap:normal] [&_td]:[overflow-wrap:normal]"
+                  className="w-max min-w-full [&_th]:max-w-[32rem] [&_td]:max-w-[32rem] [&_th]:break-normal [&_td]:break-normal [&_th]:[overflow-wrap:break-word] [&_td]:[overflow-wrap:break-word]"
                 />
               </div>
             );
