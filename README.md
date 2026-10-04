@@ -21,23 +21,15 @@ curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/acp-runtime/
 The installer picks the newest release on a channel: **stable** (promoted
 releases) or **preview** (every release as soon as it ships). It uses stable,
 or preview while no stable release exists; pass `--channel preview` or
-`--channel stable` to choose. It checks the PostgreSQL version before
-downloading anything. It creates a private database and credentials when it can
-administer PostgreSQL: as you through `psql`, or as `postgres` through `sudo`
-(asking for your password when run from a terminal). Otherwise it prints the
-SQL to create one yourself. It installs the platform-matched binary under
-`~/.local/share/dispatch`, and registers a `dispatch-server` systemd user
-service. If you created a database for Dispatch yourself, pass its URL instead:
+`--channel stable` to choose. It installs the platform-matched binary under
+`~/.local/share/dispatch` and registers a `dispatch-server` systemd user
+service.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/acp-runtime/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
-```
-
-Dispatch owns its database either way. It backs it up before every update,
-and if an update fails, it restores the backup into a new database. A supplied
-database must be on this machine (`127.0.0.1`/`localhost`), owned by the user
-in the URL, and that user needs `CREATEDB`, which is what the SQL the installer
-prints sets up.
+Dispatch creates and owns its own PostgreSQL database. The installer checks the
+PostgreSQL version before downloading anything, then creates a private
+database and credentials, as `postgres` through `sudo` (run it from a terminal
+so sudo can ask for your password). Dispatch backs the database up before every
+update, and restores it if the update fails.
 
 The database URL and its password are stored only in
 `~/.local/share/dispatch/server/.env` (mode `0600`). On Linux the service logs

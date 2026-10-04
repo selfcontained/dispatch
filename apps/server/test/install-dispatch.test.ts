@@ -116,13 +116,13 @@ async function runInstallerPreflight(
   }
 }
 
-const SUPPLIED_URL = "postgres://u:p@127.0.0.1:5432/d";
+/** A psql that administers PostgreSQL and reports the given server version. */
+const adminPsql = (versionNum: number) =>
+  `case "$*" in *server_version_num*) echo ${versionNum} ;; *) echo 1 ;; esac`;
 
 describe("install-dispatch database preflight", () => {
   it("rejects PostgreSQL older than 14 before downloading", async () => {
-    const run = await runInstallerPreflight(["--database-url", SUPPLIED_URL], {
-      psql: "echo 130012",
-    });
+    const run = await runInstallerPreflight([], { psql: adminPsql(130012) });
     expect(run.status).toBe(1);
     expect(run.stderr).toContain(
       "PostgreSQL 13 is not supported; Dispatch needs PostgreSQL 14 or newer"
@@ -131,61 +131,33 @@ describe("install-dispatch database preflight", () => {
   });
 
   it("accepts PostgreSQL 14 and moves on to the download", async () => {
-    const run = await runInstallerPreflight(["--database-url", SUPPLIED_URL], {
-      psql: "echo 140024",
-    });
+    const run = await runInstallerPreflight([], { psql: adminPsql(140024) });
     expect(run.stdout).toContain("==> downloading v1.0.0");
     expect(run.stderr).not.toContain("not supported");
   });
 
-  it("prints ready-to-run SQL and a --database-url when it cannot administer PostgreSQL", async () => {
+  it("stops before downloading when it cannot create the database", async () => {
     const run = await runInstallerPreflight([], {
       psql: "echo 'psql: role does not exist' >&2; exit 2",
     });
     expect(run.status).toBe(1);
+    expect(run.stderr).toContain("creating Dispatch's database needs");
     expect(run.stdout).not.toContain("downloading");
-    const role = run.stderr.match(
-      /CREATE ROLE (dispatch_[0-9a-f]+) LOGIN/
-    )?.[1];
-    expect(role).toBeDefined();
-    expect(run.stderr).toContain(`CREATE DATABASE ${role} OWNER ${role};`);
-    expect(run.stderr).toMatch(
-      new RegExp(
-        `--database-url 'postgres://${role}:[0-9a-f]+@127\\.0\\.0\\.1:5432/${role}'`
-      )
+  });
+
+  it("has no option to bring your own database", async () => {
+    const run = await runInstallerPreflight(
+      ["--database-url", "postgres://u:p@127.0.0.1:5432/d"],
+      { psql: adminPsql(170000) }
     );
-  });
-
-  it.each([
-    "postgres://u:p@127.0.0.1:5432/d",
-    "postgres://u:p@localhost/d",
-    "postgresql://u:p@[::1]:5432/d?sslmode=disable",
-  ])("accepts the local database URL %s", async (url) => {
-    const run = await runInstallerPreflight(["--database-url", url], {
-      psql: "echo 140024",
-    });
-    expect(run.stdout).toContain("==> downloading");
-  });
-
-  it.each([
-    "postgres://u:p@db.example.com:5432/d",
-    "postgres://u:p@10.0.0.5/d",
-    "postgres://u:p@127.0.0.1.example.com/d",
-  ])("refuses the remote database URL %s", async (url) => {
-    const run = await runInstallerPreflight(["--database-url", url], {
-      psql: "echo 140024",
-    });
     expect(run.status).toBe(2);
-    expect(run.stderr).toContain(
-      "--database-url must point at PostgreSQL on this machine"
-    );
+    expect(run.stderr).toContain("unknown option: --database-url");
   });
 
   it("refuses a --host that is not an address", async () => {
-    const run = await runInstallerPreflight(
-      ["--host", "0.0.0.0;id", "--database-url", SUPPLIED_URL],
-      { psql: "echo 140024" }
-    );
+    const run = await runInstallerPreflight(["--host", "0.0.0.0;id"], {
+      psql: adminPsql(170000),
+    });
     expect(run.status).toBe(2);
     expect(run.stderr).toContain("--host must be an IP address or hostname");
   });
@@ -196,14 +168,5 @@ describe("install-dispatch database preflight", () => {
       "utf8"
     );
     expect(script).toContain('"DISPATCH_HOST=$HOST"');
-  });
-
-  it("enrolls a supplied database for update recovery like a generated one", async () => {
-    const script = await readFile(
-      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
-      "utf8"
-    );
-    expect(script).toContain('recovery-enroll "$ENV_FILE"\n');
-    expect(script).not.toContain("unowned");
   });
 });

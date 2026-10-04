@@ -17,7 +17,6 @@ HOST=""
 TAG=""
 CHANNEL=""
 RELEASE_URL="${DISPATCH_RELEASE_URL:-}"
-DATABASE_URL="${DATABASE_URL:-}"
 NO_SERVICE=0
 INSTALL_SUCCEEDED=0
 SERVICE_REGISTERED=0
@@ -40,7 +39,6 @@ Installs the newest Dispatch release on a channel for the current platform.
   --release-url URL     Artifact URL (testing/air-gapped installs)
   --install-dir PATH    Install directory (default: ~/.local/share/dispatch/server)
   --runtime-path PATH   Fixed executable path (default: INSTALL_DIR/dispatch)
-  --database-url URL    Use an existing PostgreSQL database
   --port PORT           HTTP port (default: 6767, or the next free port above it)
   --host ADDR           Listen address (default: 127.0.0.1; 0.0.0.0 for LAN/Tailscale)
   --no-service          Install files/configuration without a service or active-release record
@@ -54,7 +52,6 @@ while [ "$#" -gt 0 ]; do
     --release-url) RELEASE_URL="$2"; shift 2 ;;
     --install-dir) INSTALL_DIR="$2"; shift 2 ;;
     --runtime-path) RUNTIME_PATH="$2"; shift 2 ;;
-    --database-url) DATABASE_URL="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --host) HOST="$2"; shift 2 ;;
     --no-service) NO_SERVICE=1; shift ;;
@@ -157,67 +154,35 @@ CHANNEL="${CHANNEL:-stable}"
 MEMBER="dist/bun/dispatch-${TAG#v}-bun-$PLATFORM-$ARCH"
 RELEASE_URL="${RELEASE_URL:-https://github.com/$REPO/releases/download/$TAG/dispatch-server.tar.gz}"
 
-# Database preflight, before anything is downloaded or changed. Creating a
-# generated database still waits for a verified runtime below.
-pg_version_ok() {
-  case "$1" in
-    ''|*[!0-9]*) echo "warning: could not read the PostgreSQL server version; continuing" >&2; return 0 ;;
-  esac
-  [ "$1" -ge "$MIN_PG_VERSION_NUM" ] || {
-    echo "error: PostgreSQL $(($1 / 10000)) is not supported; Dispatch needs PostgreSQL $((MIN_PG_VERSION_NUM / 10000)) or newer" >&2
-    exit 1
-  }
-}
-VERSION_SQL="SELECT current_setting('server_version_num')"
-if [ -n "$DATABASE_URL" ]; then
-  # Dispatch owns its database and backs it up before updates, which needs it
-  # on this machine.
-  DB_HOST="${DATABASE_URL#*://}"; DB_HOST="${DB_HOST##*@}"; DB_HOST="${DB_HOST%%/*}"; DB_HOST="${DB_HOST%%\?*}"
-  case "$DB_HOST" in \[*\]*) DB_HOST="${DB_HOST%%]*}]";; *) DB_HOST="${DB_HOST%%:*}";; esac
-  case "$DB_HOST" in
-    127.0.0.1|localhost|'[::1]') ;;
-    *) echo "error: --database-url must point at PostgreSQL on this machine (127.0.0.1 or localhost); Dispatch owns and backs up its database" >&2; exit 2 ;;
-  esac
-  if command -v psql >/dev/null; then
-    if PG_VERSION_NUM="$(psql "$DATABASE_URL" -Atqc "$VERSION_SQL" 2>&1)"; then
-      pg_version_ok "$PG_VERSION_NUM"
-    else
-      echo "warning: could not connect to the supplied database with psql; continuing" >&2
-      printf '  %s\n' "$PG_VERSION_NUM" >&2
-    fi
-  fi
-else
-  for command in psql openssl; do command -v "$command" >/dev/null || { echo "error: $command is required to create a local PostgreSQL database; rerun with --database-url" >&2; exit 1; }; done
-  SUFFIX="$(openssl rand -hex 6 2>/dev/null || date +%s)"
-  ROLE="dispatch_$SUFFIX"; DB="dispatch_$SUFFIX"; PASSWORD="$(openssl rand -hex 24)"
-  if psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="psql -d postgres";
-  elif [ "$PLATFORM" = linux ] && sudo -n -u postgres psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="sudo -n -u postgres psql -d postgres";
-  elif [ "$PLATFORM" = linux ] && command -v sudo >/dev/null && (exec </dev/tty) 2>/dev/null; then
-    # `curl | bash` leaves stdin on the pipe, so ask on the terminal.
-    echo "==> creating Dispatch's database as the postgres user; sudo may ask for your password" >/dev/tty
-    if sudo -u postgres psql -d postgres -Atqc 'SELECT 1' </dev/tty >/dev/null; then PSQL="sudo -u postgres psql -d postgres"; fi
-  fi
-  if [ -z "$PSQL" ]; then
-    ADMIN="psql -d postgres"; [ "$PLATFORM" = linux ] && ADMIN="sudo -u postgres psql -d postgres"
-    cat >&2 <<EOF
-error: cannot administer local PostgreSQL as $(id -un) (no passwordless psql or sudo).
-Create a database for Dispatch:
-
-  $ADMIN -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE $ROLE LOGIN CREATEDB PASSWORD '$PASSWORD';
-CREATE DATABASE $DB OWNER $ROLE;
-\connect $DB
-GRANT ALL ON SCHEMA public TO $ROLE;
-SQL
-
-then rerun the installer with the same options plus:
-
-  --database-url 'postgres://$ROLE:$PASSWORD@127.0.0.1:5432/$DB'
-EOF
-    exit 1
-  fi
-  pg_version_ok "$($PSQL -Atqc "$VERSION_SQL" 2>/dev/null)"
+# Dispatch creates and owns its database. Find a way to administer local
+# PostgreSQL and check its version before anything is downloaded or changed;
+# the database itself waits for a verified runtime below.
+for command in psql openssl; do command -v "$command" >/dev/null || { echo "error: $command is required; install PostgreSQL $((MIN_PG_VERSION_NUM / 10000)) or newer" >&2; exit 1; }; done
+if psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="psql -d postgres";
+elif [ "$PLATFORM" = linux ] && sudo -n -u postgres psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="sudo -n -u postgres psql -d postgres";
+elif [ "$PLATFORM" = linux ] && command -v sudo >/dev/null && (exec </dev/tty) 2>/dev/null; then
+  # `curl | bash` leaves stdin on the pipe, so sudo asks on the terminal.
+  echo "==> creating Dispatch's database as the postgres user; sudo may ask for your password" >/dev/tty
+  if sudo -u postgres psql -d postgres -Atqc 'SELECT 1' </dev/tty >/dev/null; then PSQL="sudo -u postgres psql -d postgres"; fi
 fi
+if [ -z "$PSQL" ]; then
+  if [ "$PLATFORM" = linux ]; then
+    echo "error: creating Dispatch's database needs sudo access to the postgres user; run the installer from a terminal so sudo can ask for your password" >&2
+  else
+    echo "error: creating Dispatch's database needs 'psql -d postgres' to work as $(id -un); check that PostgreSQL is running" >&2
+  fi
+  exit 1
+fi
+PG_VERSION_NUM="$($PSQL -Atqc "SELECT current_setting('server_version_num')" 2>/dev/null || true)"
+case "$PG_VERSION_NUM" in
+  ''|*[!0-9]*) echo "warning: could not read the PostgreSQL server version; continuing" >&2 ;;
+  *) [ "$PG_VERSION_NUM" -ge "$MIN_PG_VERSION_NUM" ] || {
+       echo "error: PostgreSQL $((PG_VERSION_NUM / 10000)) is not supported; Dispatch needs PostgreSQL $((MIN_PG_VERSION_NUM / 10000)) or newer" >&2
+       exit 1
+     } ;;
+esac
+SUFFIX="$(openssl rand -hex 6 2>/dev/null || date +%s)"
+ROLE="dispatch_$SUFFIX"; DB="dispatch_$SUFFIX"; PASSWORD="$(openssl rand -hex 24)"
 
 PARENT="$(dirname "$RUNTIME_PATH")"
 mkdir -p "$PARENT" "$INSTALL_DIR" "$STATE_DIR"
@@ -271,20 +236,18 @@ if command -v sha256sum >/dev/null; then ACTUAL="$(sha256sum "$TMP.binary" | awk
 chmod 755 "$TMP.binary"
 mv "$TMP.binary" "$RUNTIME_PATH"
 
-if [ -z "$DATABASE_URL" ]; then
-  # Names and password are installer-generated hex, never user interpolation.
-  $PSQL -v ON_ERROR_STOP=1 -f - <<EOF
+# Names and password are installer-generated hex, never user interpolation.
+$PSQL -v ON_ERROR_STOP=1 -f - <<EOF
 CREATE ROLE $ROLE LOGIN CREATEDB PASSWORD '$PASSWORD';
 CREATE DATABASE $DB OWNER $ROLE;
 \\connect $DB
 GRANT ALL ON SCHEMA public TO $ROLE;
 EOF
-  DATABASE_URL="postgres://$ROLE:$PASSWORD@127.0.0.1:5432/$DB"
-  GENERATED_DATABASE=1; GENERATED_ROLE="$ROLE"; GENERATED_DB="$DB"
-  PGPASSWORD="$PASSWORD" psql "postgres://$ROLE@127.0.0.1:5432/$DB" -Atqc 'SELECT 1' >/dev/null || {
-    echo "error: generated database URL is not connectable; rerun with --database-url" >&2; exit 1;
-  }
-fi
+DATABASE_URL="postgres://$ROLE:$PASSWORD@127.0.0.1:5432/$DB"
+GENERATED_DATABASE=1; GENERATED_ROLE="$ROLE"; GENERATED_DB="$DB"
+PGPASSWORD="$PASSWORD" psql "postgres://$ROLE@127.0.0.1:5432/$DB" -Atqc 'SELECT 1' >/dev/null || {
+  echo "error: Dispatch's database was created but 127.0.0.1:5432 refuses its password login; check pg_hba.conf allows password (scram-sha-256/md5) logins" >&2; exit 1;
+}
 
 umask 077
 printf '%s\n' "DATABASE_URL=$DATABASE_URL" "DISPATCH_HOST=$HOST" "DISPATCH_PORT=$PORT" "DISPATCH_STATE_DIR=$STATE_DIR" "DISPATCH_SERVER_DIR=$INSTALL_DIR" "DISPATCH_RUNTIME_PATH=$RUNTIME_PATH" "DISPATCH_SERVICE_NAME=$([ "$PLATFORM" = linux ] && echo "$SERVICE" || echo "$LABEL")" "DISPATCH_UPDATE_CHANNEL=$CHANNEL" > "$ENV_FILE"
@@ -293,7 +256,7 @@ chmod 600 "$ENV_FILE"
 if [ "$PLATFORM" = linux ] && [ "$NO_SERVICE" = 0 ]; then
   command -v flock >/dev/null || { echo "error: flock is required for protected Linux updates" >&2; exit 1; }
   # The retained helper and journal live outside the state tree restored on
-  # rollback. Dispatch owns its database, generated or supplied.
+  # rollback.
   "$RUNTIME_PATH" recovery-enroll "$ENV_FILE"
 fi
 
