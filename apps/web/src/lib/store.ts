@@ -458,6 +458,13 @@ export const chatShowChildAgentsAtom = atomWithLocalStorage<boolean>(
   { validate: (value): value is boolean => typeof value === "boolean" }
 );
 
+// A standing chat display preference, shared by normal and split-pane headers.
+export const chatShowLastMessageAtom = atomWithLocalStorage<boolean>(
+  "dispatch:chatShowLastMessage",
+  true,
+  { validate: (value): value is boolean => typeof value === "boolean" }
+);
+
 // ---------------------------------------------------------------------------
 // Chat composer drafts — what was typed and attached but not yet sent, per
 // agent. The atom holds the full draft; storage gets `fitChatDraft`'s

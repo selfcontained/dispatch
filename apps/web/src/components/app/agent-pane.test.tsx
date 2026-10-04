@@ -188,7 +188,7 @@ describe("ChatFiltersButton", () => {
     );
     expect(
       screen.getByTestId("chat-filters-trigger").getAttribute("aria-label")
-    ).toBe("Chat filters, child agents hidden");
+    ).toBe("Chat options, child agents hidden");
   });
 
   it("keeps the filter icon unchanged inside a compact visible surface", () => {

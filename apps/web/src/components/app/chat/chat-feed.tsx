@@ -356,6 +356,7 @@ export type FeedPlace = {
   holdBelow: () => void;
   /** After the pane scrolled (a jump, a restore): the rows in view now hold it. */
   takeHere: () => void;
+  suspend: () => () => void;
 };
 
 export type ChatFeedProps = {
@@ -423,6 +424,7 @@ export function ChatFeed({
     placeRef.current = {
       holdBelow: windowed.holdPlace,
       takeHere: windowed.takePlace,
+      suspend: windowed.suspendPlace,
     };
   }
   const entering = useEnteringEntries(entries, ctx.agentId);

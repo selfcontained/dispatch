@@ -1,5 +1,7 @@
+import { useAtom } from "jotai";
+import { chatShowLastMessageAtom } from "@/lib/store";
 import { useEffect, useState } from "react";
-import { Hash, ListFilter } from "lucide-react";
+import { Hash, Settings } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { type Agent } from "@/components/app/types";
@@ -18,14 +20,17 @@ export type ChatFiltersButtonProps = {
   onShowChildAgentsChange?: (show: boolean) => void;
 };
 
-/** The Chat filters popover in the Agent pane header. */
+/** The Chat options popover in the Agent pane header. */
 export function ChatFiltersButton({
   showChildAgents = true,
   onShowChildAgentsChange,
 }: ChatFiltersButtonProps): JSX.Element {
+  const [showLastMessage, setShowLastMessage] = useAtom(
+    chatShowLastMessageAtom
+  );
   const filtersLabel = showChildAgents
-    ? "Chat filters"
-    : "Chat filters, child agents hidden";
+    ? "Chat options"
+    : "Chat options, child agents hidden";
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -48,10 +53,7 @@ export function ChatFiltersButton({
               !showChildAgents && "bg-primary/10"
             )}
           >
-            <ListFilter
-              data-testid="chat-filters-icon"
-              className="h-3.5 w-3.5"
-            />
+            <Settings data-testid="chat-filters-icon" className="h-3.5 w-3.5" />
           </span>
         </Button>
       </PopoverTrigger>
@@ -61,7 +63,7 @@ export function ChatFiltersButton({
         data-testid="chat-filters-popover"
       >
         <div className="mb-2 text-xs font-semibold text-foreground">
-          Chat filters
+          Chat options
         </div>
         <label
           htmlFor="show-child-agents"
@@ -81,6 +83,26 @@ export function ChatFiltersButton({
             onCheckedChange={onShowChildAgentsChange}
             aria-label="Child agents"
             data-testid="show-child-agents-switch"
+          />
+        </label>
+        <label
+          htmlFor="show-last-message"
+          className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-foreground">
+              Your last message
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Keep your request visible above the stream.
+            </span>
+          </span>
+          <Switch
+            id="show-last-message"
+            checked={showLastMessage}
+            onCheckedChange={setShowLastMessage}
+            aria-label="Your last message"
+            data-testid="show-last-message-switch"
           />
         </label>
       </PopoverContent>

@@ -134,6 +134,8 @@ export type WindowedRows = {
    * around the new place has measured itself.
    */
   takePlace: () => void;
+  /** Suspend anchoring while the pane animates a jump; release at its destination. */
+  suspendPlace: () => () => void;
   /** Spread on that element too: the row holding focus stays rendered. */
   containerProps: {
     onFocus: (event: FocusEvent<HTMLElement>) => void;
@@ -376,10 +378,23 @@ export function useWindowedRows({
    * more than a view since they were taken is a jump or a restore: that
    * stands, and nothing is corrected. False when nothing could be held.
    */
+  const suspendedPlaceRef = useRef(0);
+  const suspendPlace = useCallback(() => {
+    suspendedPlaceRef.current += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      suspendedPlaceRef.current -= 1;
+      captureAnchor();
+    };
+  }, [captureAnchor]);
+
   const correct = useCallback((): boolean => {
     const scroller = scrollRef.current;
     const anchors = anchorsRef.current;
     if (
+      suspendedPlaceRef.current > 0 ||
       !scroller ||
       anchors.length === 0 ||
       Math.abs(scroller.scrollTop - anchors[0]!.scrollTop) >
@@ -407,7 +422,7 @@ export function useWindowedRows({
 
   const keepPlace = useCallback(() => {
     const scroller = scrollRef.current;
-    if (!scroller || !windowing) return;
+    if (!scroller || !windowing || suspendedPlaceRef.current > 0) return;
     if (isFollowingRef.current?.()) {
       const bottom = scroller.scrollHeight - scroller.clientHeight;
       if (bottom - scroller.scrollTop > AT_END_PX) scroller.scrollTop = bottom;
@@ -602,6 +617,7 @@ export function useWindowedRows({
     containerProps: { onFocus, onBlur },
     holdPlace: holdPlaceBelow,
     takePlace: takePlaceHere,
+    suspendPlace,
     segments,
     measure,
   };

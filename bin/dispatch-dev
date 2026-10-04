@@ -318,7 +318,16 @@ cmd_up() {
   # from a phone or another laptop; the URLs below say so rather than
   # leaving it to be discovered. 0.0.0.0 is not an address a browser can
   # open, so they use the loopback plus this machine's network address.
-  DEV_BIND_HOST="${DISPATCH_HOST:-0.0.0.0}"
+  # Resolve the copied checkout .env before choosing either server's host.
+  # The API sources it below, but Vite runs in a separate subshell; resolving
+  # here keeps an inherited app localhost binding from overriding the .env.
+  DEV_BIND_HOST="$(
+    if [ -f "$cwd/.env" ]; then
+      # shellcheck disable=SC1091
+      source "$cwd/.env"
+    fi
+    printf '%s' "${DISPATCH_HOST:-0.0.0.0}"
+  )"
   DEV_DISPLAY_HOST="$DEV_BIND_HOST"
   [ "$DEV_DISPLAY_HOST" = "0.0.0.0" ] && DEV_DISPLAY_HOST="127.0.0.1"
   DEV_LAN_HOST=""
@@ -345,7 +354,7 @@ cmd_up() {
     export DISPATCH_DEV_STACK=1
     # Bind to all interfaces so the dev stack is reachable from other devices
     # (phone, another laptop) on the LAN or tailnet, not just this machine.
-    export DISPATCH_HOST="${DISPATCH_HOST:-0.0.0.0}"
+    export DISPATCH_HOST="$DEV_BIND_HOST"
     if [ "$OPT_LIVE" = "1" ]; then
       export DISPATCH_AGENT_RUNTIME="acp"
     else
