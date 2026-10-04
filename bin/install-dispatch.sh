@@ -40,7 +40,7 @@ Installs the newest Dispatch release on a channel for the current platform.
   --install-dir PATH    Install directory (default: ~/.local/share/dispatch/server)
   --runtime-path PATH   Fixed executable path (default: INSTALL_DIR/dispatch)
   --port PORT           HTTP port (default: 6767, or the next free port above it)
-  --host ADDR           Listen address (default: 127.0.0.1; 0.0.0.0 for LAN/Tailscale)
+  --host ADDR           Listen address: 127.0.0.1 (default) or 0.0.0.0 for LAN/Tailscale
   --no-service          Install files/configuration without a service or active-release record
 EOF
 }
@@ -61,7 +61,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$PORT" in '') ;; *[!0-9]*) echo "error: --port must be numeric" >&2; exit 2;; esac
-case "$HOST" in *[!0-9A-Za-z.:-]*) echo "error: --host must be an IP address or hostname" >&2; exit 2;; esac
+# Update recovery reaches the server on 127.0.0.1, so it must listen there.
+case "$HOST" in ''|127.0.0.1|0.0.0.0) ;; *) echo "error: --host must be 127.0.0.1 or 0.0.0.0 (use 0.0.0.0 for LAN/Tailscale access)" >&2; exit 2;; esac
 case "$CHANNEL" in ''|stable|preview) ;; *) echo "error: --channel must be stable or preview" >&2; exit 2;; esac
 case "$(uname -s)" in Darwin) PLATFORM=darwin;; Linux) PLATFORM=linux;; *) echo "unsupported OS" >&2; exit 1;; esac
 case "$(uname -m)" in arm64|aarch64) ARCH=arm64;; x86_64|amd64) ARCH=x64;; *) echo "unsupported architecture" >&2; exit 1;; esac
@@ -96,8 +97,6 @@ if [ -e "$OLD_UNIT" ] || [ -e "$OLD_PLIST" ] || [ -d "$HOME_DIR/.dispatch/server
   fi
 fi
 HOST="${HOST:-127.0.0.1}"
-# The address the installer itself connects to: any wildcard means loopback.
-case "$HOST" in 0.0.0.0|::) CONNECT_HOST=127.0.0.1;; *:*) CONNECT_HOST="[$HOST]";; *) CONNECT_HOST="$HOST";; esac
 
 # Something already answers on 127.0.0.1:PORT (often a 0.x Dispatch on 6767).
 port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
@@ -158,12 +157,14 @@ RELEASE_URL="${RELEASE_URL:-https://github.com/$REPO/releases/download/$TAG/disp
 # PostgreSQL and check its version before anything is downloaded or changed;
 # the database itself waits for a verified runtime below.
 for command in psql openssl; do command -v "$command" >/dev/null || { echo "error: $command is required; install PostgreSQL $((MIN_PG_VERSION_NUM / 10000)) or newer" >&2; exit 1; }; done
-if psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="psql -d postgres";
-elif [ "$PLATFORM" = linux ] && sudo -n -u postgres psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="sudo -n -u postgres psql -d postgres";
+# A login alone isn't enough: creating the role and database needs these.
+ADMIN_SQL="SELECT rolsuper OR (rolcreaterole AND rolcreatedb) FROM pg_roles WHERE rolname = current_user"
+if [ "$(psql -d postgres -Atqc "$ADMIN_SQL" 2>/dev/null)" = t ]; then PSQL="psql -d postgres";
+elif [ "$PLATFORM" = linux ] && [ "$(sudo -n -u postgres psql -d postgres -Atqc "$ADMIN_SQL" 2>/dev/null)" = t ]; then PSQL="sudo -n -u postgres psql -d postgres";
 elif [ "$PLATFORM" = linux ] && command -v sudo >/dev/null && (exec </dev/tty) 2>/dev/null; then
   # `curl | bash` leaves stdin on the pipe, so sudo asks on the terminal.
   echo "==> creating Dispatch's database as the postgres user; sudo may ask for your password" >/dev/tty
-  if sudo -u postgres psql -d postgres -Atqc 'SELECT 1' </dev/tty >/dev/null; then PSQL="sudo -u postgres psql -d postgres"; fi
+  if [ "$(sudo -u postgres psql -d postgres -Atqc "$ADMIN_SQL" </dev/tty)" = t ]; then PSQL="sudo -u postgres psql -d postgres"; fi
 fi
 if [ -z "$PSQL" ]; then
   if [ "$PLATFORM" = linux ]; then
@@ -284,7 +285,7 @@ if [ "$NO_SERVICE" = 0 ]; then
     SERVICE_REGISTERED=1
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
   fi
-  HEALTH_URL="http://$CONNECT_HOST:$PORT/api/v1/health"
+  HEALTH_URL="http://127.0.0.1:$PORT/api/v1/health"
   for _ in $(seq 1 30); do curl -fs "$HEALTH_URL" >/dev/null 2>&1 && break; sleep 1; done
   if ! curl -fsS "$HEALTH_URL" >/dev/null; then
     if [ "$PLATFORM" = linux ]; then
@@ -311,7 +312,7 @@ INSTALL_SUCCEEDED=1
 echo "Dispatch $TAG installed at $RUNTIME_PATH"
 echo "  channel: $CHANNEL (change it in Settings → Updates)"
 if [ "$NO_SERVICE" = 0 ]; then
-  echo "  open: http://$CONNECT_HOST:$PORT"
-  [ "$CONNECT_HOST" = "$HOST" ] || [ "$CONNECT_HOST" = "[$HOST]" ] || echo "  listening on: $HOST:$PORT (all interfaces)"
+  echo "  open: http://127.0.0.1:$PORT"
+  if [ "$HOST" = 0.0.0.0 ]; then echo "  listening on: 0.0.0.0:$PORT (all interfaces)"; fi
   if [ "$PLATFORM" = linux ]; then echo "  logs: journalctl --user -u $SERVICE"; fi
 fi

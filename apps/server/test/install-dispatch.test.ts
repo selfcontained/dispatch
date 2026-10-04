@@ -118,7 +118,7 @@ async function runInstallerPreflight(
 
 /** A psql that administers PostgreSQL and reports the given server version. */
 const adminPsql = (versionNum: number) =>
-  `case "$*" in *server_version_num*) echo ${versionNum} ;; *) echo 1 ;; esac`;
+  `case "$*" in *server_version_num*) echo ${versionNum} ;; *rolsuper*) echo t ;; *) echo 1 ;; esac`;
 
 describe("install-dispatch database preflight", () => {
   it("rejects PostgreSQL older than 14 before downloading", async () => {
@@ -145,6 +145,15 @@ describe("install-dispatch database preflight", () => {
     expect(run.stdout).not.toContain("downloading");
   });
 
+  it("does not mistake a login without CREATEROLE for admin access", async () => {
+    const run = await runInstallerPreflight([], {
+      psql: `case "$*" in *rolsuper*) echo f ;; *server_version_num*) echo 170000 ;; *) echo 1 ;; esac`,
+    });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("creating Dispatch's database needs");
+    expect(run.stdout).not.toContain("downloading");
+  });
+
   it("has no option to bring your own database", async () => {
     const run = await runInstallerPreflight(
       ["--database-url", "postgres://u:p@127.0.0.1:5432/d"],
@@ -154,12 +163,22 @@ describe("install-dispatch database preflight", () => {
     expect(run.stderr).toContain("unknown option: --database-url");
   });
 
-  it("refuses a --host that is not an address", async () => {
-    const run = await runInstallerPreflight(["--host", "0.0.0.0;id"], {
+  it.each(["192.168.1.20", "::1", "dispatch.local", "0.0.0.0;id"])(
+    "refuses --host %s, which update recovery can't reach on 127.0.0.1",
+    async (host) => {
+      const run = await runInstallerPreflight(["--host", host], {
+        psql: adminPsql(170000),
+      });
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain("--host must be 127.0.0.1 or 0.0.0.0");
+    }
+  );
+
+  it.each(["127.0.0.1", "0.0.0.0"])("accepts --host %s", async (host) => {
+    const run = await runInstallerPreflight(["--host", host], {
       psql: adminPsql(170000),
     });
-    expect(run.status).toBe(2);
-    expect(run.stderr).toContain("--host must be an IP address or hostname");
+    expect(run.stdout).toContain("==> downloading");
   });
 
   it("writes the chosen listen address to .env", async () => {
