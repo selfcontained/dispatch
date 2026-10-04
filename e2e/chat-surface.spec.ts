@@ -270,6 +270,112 @@ test.describe("Chat surface", () => {
     }
   });
 
+  test("composer footer keeps many recipients balanced beside long model labels", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request);
+    const recipients = [agent];
+    for (let i = 0; i < 8; i++) {
+      recipients.push(
+        await createAgentViaAPI(request, {
+          name: `footer-helper-${i}-${Date.now()}`,
+          parentAgentId: agent.id,
+        })
+      );
+    }
+    await page.route(`**/api/v1/agents/${agent.id}/config`, (route) =>
+      route.fulfill({
+        json: {
+          running: true,
+          options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              currentValue: "long",
+              choices: [
+                { value: "long", name: "Claude Sonnet 4.6 (1M context)" },
+              ],
+            },
+            {
+              id: "effort",
+              name: "Effort",
+              category: "thought_level",
+              currentValue: "high",
+              choices: [{ value: "high", name: "Extra high" }],
+            },
+          ],
+        },
+      })
+    );
+    await page.route(`**/api/v1/agents/${agent.id}/usage`, (route) =>
+      route.fulfill({
+        json: {
+          context: { used: 150_000, size: 200_000 },
+          sessionCost: { amount: 123.45, currency: "USD" },
+          session: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+          month: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          byModel: [],
+        },
+      })
+    );
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const input = page.getByTestId("chat-composer-input");
+    await expect(input).toBeVisible();
+    await expect(page.getByTestId("composer-model-chip")).toContainText(
+      "Claude Sonnet"
+    );
+    for (const width of [872, 800, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await input.fill(
+        recipients.map((item) => `@${item.name}`).join(" ") +
+          " Check the footer."
+      );
+      const badges = page.getByTestId("chat-composer-recipient");
+      await expect(badges).toHaveCount(9);
+      const routing = (await page
+        .getByTestId("chat-composer-routing")
+        .boundingBox())!;
+      const meta = (await page.getByTestId("composer-meta").boundingBox())!;
+      const footer = (await page
+        .locator(".chat-composer-footer")
+        .boundingBox())!;
+      expect(routing.height).toBeLessThan(100);
+      expect(meta.y).toBeGreaterThanOrEqual(routing.y + routing.height);
+      for (const control of [
+        page.getByTestId("composer-model-chip"),
+        page.getByTestId("composer-usage-chip"),
+        ...(await badges.all()),
+      ]) {
+        const bounds = (await control.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(footer.x);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(
+          footer.x + footer.width + 1
+        );
+      }
+      await page.getByTestId("composer-usage-chip").click();
+      await expect(
+        page.getByRole("heading", { name: "This agent" })
+      ).toBeVisible();
+      await page.getByTestId("composer-usage-chip").click();
+      await expect(
+        page.getByRole("heading", { name: "This agent" })
+      ).toBeHidden();
+      await input.focus();
+      await page.mouse.move(1, 1);
+      await page
+        .locator("form.chat-composer")
+        .screenshot({ path: `/tmp/e2e-composer-footer-long-${width}.png` });
+    }
+  });
+
   test("Agent tab renders a seeded feed", async ({ page, request }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-on-${Date.now()}`,

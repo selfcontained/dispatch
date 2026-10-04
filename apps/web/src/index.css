@@ -1612,20 +1612,27 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 }
 
 .chat-composer-footer-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem 1rem;
 }
 
+.chat-composer-footer-layout > [data-testid="chat-composer-routing"] {
+  flex: 1 1 12rem;
+}
+
 .composer-meta {
+  flex: 1 1 auto;
+  max-width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
 @container composer-footer (max-width: 32rem) {
-  .chat-composer-footer-layout {
-    grid-template-columns: minmax(0, 1fr);
+  .chat-composer-footer-layout > [data-testid="chat-composer-routing"],
+  .chat-composer-footer-layout > .composer-meta {
+    flex-basis: 100%;
   }
 }
 
