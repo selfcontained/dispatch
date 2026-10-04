@@ -186,11 +186,8 @@ else
   elif [ "$PLATFORM" = linux ] && sudo -n -u postgres psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="sudo -n -u postgres psql -d postgres";
   elif [ "$PLATFORM" = linux ] && command -v sudo >/dev/null && (exec </dev/tty) 2>/dev/null; then
     # `curl | bash` leaves stdin on the pipe, so ask on the terminal.
-    printf '==> creating a database needs the postgres account; use sudo (it may ask for your password)? [Y/n] ' >/dev/tty
-    read -r answer </dev/tty || answer=n
-    case "$answer" in
-      ''|[Yy]*) sudo -u postgres psql -d postgres -Atqc 'SELECT 1' </dev/tty >/dev/null && PSQL="sudo -u postgres psql -d postgres" ;;
-    esac
+    echo "==> creating Dispatch's database as the postgres user; sudo may ask for your password" >/dev/tty
+    if sudo -u postgres psql -d postgres -Atqc 'SELECT 1' </dev/tty >/dev/null; then PSQL="sudo -u postgres psql -d postgres"; fi
   fi
   if [ -z "$PSQL" ]; then
     ADMIN="psql -d postgres"; [ "$PLATFORM" = linux ] && ADMIN="sudo -u postgres psql -d postgres"
