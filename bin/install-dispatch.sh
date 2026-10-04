@@ -157,8 +157,9 @@ RELEASE_URL="${RELEASE_URL:-https://github.com/$REPO/releases/download/$TAG/disp
 # PostgreSQL and check its version before anything is downloaded or changed;
 # the database itself waits for a verified runtime below.
 for command in psql openssl; do command -v "$command" >/dev/null || { echo "error: $command is required; install PostgreSQL $((MIN_PG_VERSION_NUM / 10000)) or newer" >&2; exit 1; }; done
-# A login alone isn't enough: creating the role and database needs these.
-ADMIN_SQL="SELECT rolsuper OR (rolcreaterole AND rolcreatedb) FROM pg_roles WHERE rolname = current_user"
+# A login alone isn't enough. Only a superuser can create a role and then a
+# database it owns without first being granted membership in that role.
+ADMIN_SQL="SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
 if [ "$(psql -d postgres -Atqc "$ADMIN_SQL" 2>/dev/null)" = t ]; then PSQL="psql -d postgres";
 elif [ "$PLATFORM" = linux ] && [ "$(sudo -n -u postgres psql -d postgres -Atqc "$ADMIN_SQL" 2>/dev/null)" = t ]; then PSQL="sudo -n -u postgres psql -d postgres";
 elif [ "$PLATFORM" = linux ] && command -v sudo >/dev/null && (exec </dev/tty) 2>/dev/null; then

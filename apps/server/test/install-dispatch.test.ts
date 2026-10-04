@@ -145,7 +145,7 @@ describe("install-dispatch database preflight", () => {
     expect(run.stdout).not.toContain("downloading");
   });
 
-  it("does not mistake a login without CREATEROLE for admin access", async () => {
+  it("does not mistake a non-superuser login for admin access", async () => {
     const run = await runInstallerPreflight([], {
       psql: `case "$*" in *rolsuper*) echo f ;; *server_version_num*) echo 170000 ;; *) echo 1 ;; esac`,
     });
