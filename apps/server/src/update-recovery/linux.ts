@@ -217,8 +217,9 @@ async function load(config: string): Promise<{
   return { installation, env, store };
 }
 
-/** Fresh artifact installer enrollment. Ownership is an installer-generated
- * attestation; an arbitrary supplied DATABASE_URL is never silently enrolled. */
+/** Fresh artifact installer enrollment. Ownership is the installer's
+ * attestation that the database, generated or supplied, is dedicated to
+ * Dispatch; postgres.ts preflight still verifies it before every backup. */
 export async function enrollLinux(
   envFile: string,
   owned: boolean

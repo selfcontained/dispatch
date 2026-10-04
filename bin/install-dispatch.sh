@@ -288,8 +288,10 @@ chmod 600 "$ENV_FILE"
 if [ "$PLATFORM" = linux ] && [ "$NO_SERVICE" = 0 ]; then
   command -v flock >/dev/null || { echo "error: flock is required for protected Linux updates" >&2; exit 1; }
   # The retained helper and journal live outside the state tree restored on
-  # rollback. Supplied databases remain unowned until explicit enrollment.
-  "$RUNTIME_PATH" recovery-enroll "$ENV_FILE" "$([ "$GENERATED_DATABASE" = 1 ] && echo owned || echo unowned)"
+  # rollback. A supplied database is taken to be dedicated to Dispatch too;
+  # recovery restores into a new database and never drops the original, and
+  # update preflight refuses one that isn't local or owned by the URL's role.
+  "$RUNTIME_PATH" recovery-enroll "$ENV_FILE" owned
 fi
 
 if [ "$NO_SERVICE" = 0 ]; then

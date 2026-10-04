@@ -172,4 +172,13 @@ describe("install-dispatch database preflight", () => {
     );
     expect(script).toContain('"DISPATCH_HOST=$HOST"');
   });
+
+  it("enrolls a supplied database for update recovery like a generated one", async () => {
+    const script = await readFile(
+      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
+      "utf8"
+    );
+    expect(script).toContain('recovery-enroll "$ENV_FILE" owned');
+    expect(script).not.toContain("unowned");
+  });
 });

@@ -33,11 +33,12 @@ service. For a managed database, pass its URL instead:
 curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/acp-runtime/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
 ```
 
-A supplied database is enrolled as **unowned**: Dispatch uses it, but never
-backs it up, restores it, or treats it as its own. Protected updates on Linux
-back up the database before they migrate it, so they need a database the
-installer created. Settings → Updates won't update an install that uses a
-supplied database.
+A supplied database should be dedicated to Dispatch. Updates on Linux back it
+up before migrating; if an update fails, the backup is restored into a new
+database and the original is left as it was. For that to work, the database
+must be on this machine (`127.0.0.1`/`localhost`), owned by the user in the
+URL, and that user needs `CREATEDB`. Otherwise Settings → Updates refuses to
+update and says why.
 
 The database URL and its password are stored only in
 `~/.local/share/dispatch/server/.env` (mode `0600`). On Linux the service logs
