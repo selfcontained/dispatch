@@ -170,6 +170,14 @@ pg_version_ok() {
 }
 VERSION_SQL="SELECT current_setting('server_version_num')"
 if [ -n "$DATABASE_URL" ]; then
+  # Dispatch owns its database and backs it up before updates, which needs it
+  # on this machine.
+  DB_HOST="${DATABASE_URL#*://}"; DB_HOST="${DB_HOST##*@}"; DB_HOST="${DB_HOST%%/*}"; DB_HOST="${DB_HOST%%\?*}"
+  case "$DB_HOST" in \[*\]*) DB_HOST="${DB_HOST%%]*}]";; *) DB_HOST="${DB_HOST%%:*}";; esac
+  case "$DB_HOST" in
+    127.0.0.1|localhost|'[::1]') ;;
+    *) echo "error: --database-url must point at PostgreSQL on this machine (127.0.0.1 or localhost); Dispatch owns and backs up its database" >&2; exit 2 ;;
+  esac
   if command -v psql >/dev/null; then
     if PG_VERSION_NUM="$(psql "$DATABASE_URL" -Atqc "$VERSION_SQL" 2>&1)"; then
       pg_version_ok "$PG_VERSION_NUM"
@@ -285,10 +293,8 @@ chmod 600 "$ENV_FILE"
 if [ "$PLATFORM" = linux ] && [ "$NO_SERVICE" = 0 ]; then
   command -v flock >/dev/null || { echo "error: flock is required for protected Linux updates" >&2; exit 1; }
   # The retained helper and journal live outside the state tree restored on
-  # rollback. A supplied database is taken to be dedicated to Dispatch too;
-  # recovery restores into a new database and never drops the original, and
-  # update preflight refuses one that isn't local or owned by the URL's role.
-  "$RUNTIME_PATH" recovery-enroll "$ENV_FILE" owned
+  # rollback. Dispatch owns its database, generated or supplied.
+  "$RUNTIME_PATH" recovery-enroll "$ENV_FILE"
 fi
 
 if [ "$NO_SERVICE" = 0 ]; then

@@ -60,7 +60,7 @@ const installationSchema = z
     envFile: z.string().refine(path.isAbsolute),
     service: z.string().regex(/^[A-Za-z0-9_.-]+$/),
     helper: z.string().refine(path.isAbsolute),
-    policy: policySchema.nullable(),
+    policy: policySchema,
   })
   .strict();
 type Installation = z.infer<typeof installationSchema>;
@@ -217,13 +217,10 @@ async function load(config: string): Promise<{
   return { installation, env, store };
 }
 
-/** Fresh artifact installer enrollment. Ownership is the installer's
- * attestation that the database, generated or supplied, is dedicated to
- * Dispatch; postgres.ts preflight still verifies it before every backup. */
-export async function enrollLinux(
-  envFile: string,
-  owned: boolean
-): Promise<void> {
+/** Fresh artifact installer enrollment. Dispatch owns its database, whether
+ * the installer generated it or was given it; postgres.ts preflight still
+ * verifies ownership before every backup. */
+export async function enrollLinux(envFile: string): Promise<void> {
   if (process.platform !== "linux")
     throw new Error("Linux recovery requires Linux");
   const env = parse(await readPrivate(envFile));
@@ -255,15 +252,13 @@ export async function enrollLinux(
     envFile: path.resolve(envFile),
     service: env.DISPATCH_SERVICE_NAME,
     helper,
-    policy: owned
-      ? {
-          kind: "dedicated-owned",
-          database: decodeURIComponent(url.pathname.slice(1)),
-          owner: decodeURIComponent(url.username),
-          host: url.hostname,
-          port: Number(url.port || 5432),
-        }
-      : null,
+    policy: {
+      kind: "dedicated-owned",
+      database: decodeURIComponent(url.pathname.slice(1)),
+      owner: decodeURIComponent(url.username),
+      host: url.hostname,
+      port: Number(url.port || 5432),
+    },
   });
   await writeAtomic(
     path.join(store.root, "installation.json"),
@@ -289,10 +284,6 @@ export async function prepareLinuxUpdate(
   targetCapability: RecoveryCapability
 ): Promise<{ id: string; helper: string; root: string }> {
   const { installation, store, env } = await load(config);
-  if (!installation.policy)
-    throw new Error(
-      "Protected updates require an explicitly owned local PostgreSQL database"
-    );
   if ((await lstat(candidate)).isFile() !== true)
     throw new Error("Update candidate must be a regular executable");
   if (!installation.envFile.startsWith(`${installation.stateRoot}${path.sep}`))
@@ -387,10 +378,6 @@ export async function applyProtectedLinuxUpdate(input: {
     );
   const config = path.join(`${stateRoot}.recovery`, "installation.json");
   const { installation, store } = await load(config);
-  if (!installation.policy)
-    throw new Error(
-      "Linux updates require explicit dedicated database recovery enrollment"
-    );
   const requestLock = path.join(store.root, "request.lock");
   await withLinuxRequestLease(requestLock, async () => {
     let active: string | undefined;
@@ -493,8 +480,6 @@ async function effects(
   plan: Plan;
 }> {
   const { installation, env, store } = await load(config);
-  if (!installation.policy)
-    throw new Error("Recovery database is not enrolled");
   const work = path.join(`${store.root}.staging`, id);
   const plan = planSchema.parse(
     JSON.parse(await readPrivate(path.join(work, "plan.json")))

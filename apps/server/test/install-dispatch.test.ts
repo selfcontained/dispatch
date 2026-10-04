@@ -156,6 +156,31 @@ describe("install-dispatch database preflight", () => {
     );
   });
 
+  it.each([
+    "postgres://u:p@127.0.0.1:5432/d",
+    "postgres://u:p@localhost/d",
+    "postgresql://u:p@[::1]:5432/d?sslmode=disable",
+  ])("accepts the local database URL %s", async (url) => {
+    const run = await runInstallerPreflight(["--database-url", url], {
+      psql: "echo 140024",
+    });
+    expect(run.stdout).toContain("==> downloading");
+  });
+
+  it.each([
+    "postgres://u:p@db.example.com:5432/d",
+    "postgres://u:p@10.0.0.5/d",
+    "postgres://u:p@127.0.0.1.example.com/d",
+  ])("refuses the remote database URL %s", async (url) => {
+    const run = await runInstallerPreflight(["--database-url", url], {
+      psql: "echo 140024",
+    });
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain(
+      "--database-url must point at PostgreSQL on this machine"
+    );
+  });
+
   it("refuses a --host that is not an address", async () => {
     const run = await runInstallerPreflight(
       ["--host", "0.0.0.0;id", "--database-url", SUPPLIED_URL],
@@ -178,7 +203,7 @@ describe("install-dispatch database preflight", () => {
       path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
       "utf8"
     );
-    expect(script).toContain('recovery-enroll "$ENV_FILE" owned');
+    expect(script).toContain('recovery-enroll "$ENV_FILE"\n');
     expect(script).not.toContain("unowned");
   });
 });
