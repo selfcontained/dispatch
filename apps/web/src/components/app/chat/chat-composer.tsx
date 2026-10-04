@@ -1463,12 +1463,12 @@ export function ChatComposer({
         )}
       </div>
       {defaultRecipients || footer ? (
-        <div className="chat-composer-details">
-          <div className="min-h-0 overflow-hidden flex min-w-0 items-center justify-between gap-2 px-1">
+        <div className="chat-composer-details chat-composer-footer">
+          <div className="chat-composer-footer-layout min-h-0 min-w-0 px-1">
             {defaultRecipients ? (
               <TooltipProvider delayDuration={150}>
                 <div
-                  className="flex min-w-12 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground max-[360px]:min-w-20"
+                  className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"
                   data-testid="chat-composer-routing"
                   role="group"
                   aria-label="Message recipients"
@@ -1476,32 +1476,34 @@ export function ChatComposer({
                   aria-atomic="true"
                 >
                   <span className="shrink-0">To:</span>
-                  {recipients.map((agent) => (
-                    <Tooltip key={agent.id}>
-                      <TooltipTrigger asChild>
-                        <span
-                          tabIndex={0}
-                          className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          data-testid="chat-composer-recipient"
-                          data-agent-id={agent.id}
-                        >
-                          <AgentSeatBadge
-                            seat={agent.seat ?? null}
-                            name={agent.name}
-                            size="sm"
-                          />
-                          {agent.seat === undefined ? (
-                            <span>{agent.name}</span>
-                          ) : null}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {agent.seat === undefined
-                          ? agent.name
-                          : `@${agent.seat} · ${agent.name}`}
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 py-1">
+                    {recipients.map((agent) => (
+                      <Tooltip key={agent.id}>
+                        <TooltipTrigger asChild>
+                          <span
+                            tabIndex={0}
+                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            data-testid="chat-composer-recipient"
+                            data-agent-id={agent.id}
+                          >
+                            <AgentSeatBadge
+                              seat={agent.seat ?? null}
+                              name={agent.name}
+                              size="sm"
+                            />
+                            {agent.seat === undefined ? (
+                              <span className="truncate">{agent.name}</span>
+                            ) : null}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          {agent.seat === undefined
+                            ? agent.name
+                            : `@${agent.seat} · ${agent.name}`}
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
                   {(canQueue && conversation) ||
                   deliveryMode === "interrupt" ? (
                     <ComposerDelivery
