@@ -10,6 +10,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -209,7 +210,7 @@ describe("AgentPane", () => {
   it("shows the agent's name, the filters and the chat pane", () => {
     renderPane();
     expect(
-      screen.getByText("agent agt_a", { selector: ".truncate" })
+      within(screen.getByTestId("agent-pane-header")).getByText("agent agt_a")
     ).toBeTruthy();
     expect(screen.getByTestId("chat-filters-trigger")).toBeTruthy();
     expect(screen.getByTestId("chat-pane")).toBeTruthy();
@@ -220,9 +221,7 @@ describe("AgentPane", () => {
   it("leaves the header to the split pane when asked", () => {
     renderPane({ header: false });
     expect(screen.queryByTestId("chat-filters-trigger")).toBeNull();
-    expect(
-      screen.queryByText("agent agt_a", { selector: ".truncate" })
-    ).toBeNull();
+    expect(screen.queryByTestId("agent-pane-header")).toBeNull();
     expect(screen.getByTestId("chat-pane")).toBeTruthy();
   });
 

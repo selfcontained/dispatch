@@ -144,7 +144,10 @@ export function AgentPane({
       data-testid="agent-pane"
     >
       {header ? (
-        <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-0 pl-3 pr-2 md:py-1.5">
+        <div
+          className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-0 pl-3 pr-2 md:py-1.5"
+          data-testid="agent-pane-header"
+        >
           <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
             <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{agent?.name ?? "Agent"}</span>
