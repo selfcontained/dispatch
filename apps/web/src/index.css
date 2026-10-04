@@ -1603,3 +1603,47 @@ html[data-hidden] .animate-sidebar-nav-pulse {
     transition: none;
   }
 }
+
+/* Size the footer against its pane, including desktop split views. Recipients
+   can grow independently; timing stays beside the list instead of wrapping
+   onto a line by itself. */
+.chat-composer-footer {
+  container: composer-footer / inline-size;
+}
+
+.chat-composer-footer-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1rem;
+}
+
+.chat-composer-footer-layout > [data-testid="chat-composer-routing"] {
+  flex: 1 1 12rem;
+}
+
+.composer-meta {
+  flex: 1 1 auto;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@container composer-footer (max-width: 32rem) {
+  .chat-composer-footer-layout > [data-testid="chat-composer-routing"],
+  .chat-composer-footer-layout > .composer-meta {
+    flex-basis: 100%;
+  }
+}
+
+@container composer-footer (max-width: 22rem) {
+  .composer-model-effort,
+  .composer-usage-full,
+  .composer-usage-cost {
+    display: none;
+  }
+
+  .composer-usage-short {
+    display: inline;
+  }
+}

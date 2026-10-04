@@ -77,7 +77,7 @@ export function ComposerMeta({
   if (!agent) return null;
   return (
     <div
-      className="flex min-w-0 items-center gap-1"
+      className="composer-meta min-w-0 items-center gap-3"
       data-testid="composer-meta"
     >
       <ModelChip agentId={agentId} agent={agent} active={active} />
@@ -127,7 +127,7 @@ function ModelChip({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={CHIP_CLASS}
+          className={cn(CHIP_CLASS, "max-w-full justify-self-start")}
           disabled={disabled}
           title={
             running ? "Change the model" : "Start the agent to change its model"
@@ -137,7 +137,7 @@ function ModelChip({
           <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="truncate">{label}</span>
           {effortLabel ? (
-            <span className="shrink-0 text-muted-foreground/70">
+            <span className="composer-model-effort shrink-0 text-muted-foreground/70">
               · {effortLabel}
             </span>
           ) : null}
@@ -261,12 +261,12 @@ function UsageChip({
           data-testid="composer-usage-chip"
         >
           <Gauge className="h-3 w-3 shrink-0" aria-hidden="true" />
-          <span className="max-[360px]:hidden">{usageLabel}</span>
-          <span className="hidden max-[360px]:inline">
+          <span className="composer-usage-full">{usageLabel}</span>
+          <span className="composer-usage-short hidden">
             {percent === null ? "Usage" : `${percent}% ctx`}
           </span>
           {cost ? (
-            <span className="max-[360px]:hidden">
+            <span className="composer-usage-cost">
               · {formatCost(cost.amount, cost.currency)}
             </span>
           ) : null}

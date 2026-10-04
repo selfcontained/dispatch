@@ -106,7 +106,7 @@ export function ComposerDelivery({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 w-7 p-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+          className="h-7 w-7 shrink-0 p-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
           aria-label={`Message timing: ${label}`}
           aria-description={`${modeLabel} delivery mode. Open to change.`}
           title={`${modeLabel} · ${label}`}
