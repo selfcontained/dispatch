@@ -12,23 +12,33 @@ updates itself from the menu bar.
 **Linux:** install and start PostgreSQL 14+, then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/acp-runtime/bin/install-dispatch.sh | bash
 ```
+
+> **Preview:** while 1.x is in preview, install from the `acp-runtime` branch
+> as shown. The installer on `main` is still 0.x, which installs to `~/.dispatch`.
 
 The installer picks the newest release on a channel: **stable** (promoted
 releases) or **preview** (every release as soon as it ships). It uses stable,
 or preview while no stable release exists; pass `--channel preview` or
-`--channel stable` to choose. It creates a private database and credentials
-when it can administer PostgreSQL, installs the platform-matched binary under
-`~/.local/share/dispatch`, and registers a `dispatch-server` systemd user
-service. For a managed database, pass its URL instead:
+`--channel stable` to choose. It installs the platform-matched binary under
+`~/.local/share/dispatch` and registers a `dispatch-server` systemd user
+service.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
-```
+Dispatch creates and owns its own PostgreSQL database. The installer checks the
+PostgreSQL version before downloading anything, then creates a private
+database and credentials, as `postgres` through `sudo` (run it from a terminal
+so sudo can ask for your password). Dispatch backs the database up before every
+update, and restores it if the update fails.
+
+The database URL and its password are stored only in
+`~/.local/share/dispatch/server/.env` (mode `0600`). On Linux the service logs
+go to the systemd journal: `journalctl --user -u dispatch-server`.
 
 The service listens on `127.0.0.1:6767`, or the next free port above it (the
-installer prints the URL; `--port` picks one). Updates come from
+installer prints the URL; `--port` picks one). Pass `--host 0.0.0.0` to accept
+LAN or Tailscale connections, as a 0.x install configured with
+`DISPATCH_HOST=0.0.0.0` did. Updates come from
 **Settings → Updates**, which follows the same channel: they atomically replace
 the executable and restart the service without stopping running agents.
 
@@ -93,7 +103,7 @@ Dispatch spawns agents via their CLI tools. Install at least one:
 | **Claude** | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)            |
 | **Codex**  | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile |
 
-Dispatch drives each CLI through its Agent Client Protocol adapter: `npm i -g @agentclientprotocol/claude-agent-acp` for Claude, `npm i -g @agentclientprotocol/codex-acp` for Codex. The CLI must be authenticated before Dispatch can spawn agents of that type; the agent host starts through your login shell, so login state and API keys in your profile are inherited automatically.
+Dispatch drives each CLI through its Agent Client Protocol adapter. The adapters are built into the Dispatch binary, so there's nothing extra to install. The CLI must be authenticated before Dispatch can spawn agents of that type; the agent host starts through your login shell, so login state and API keys in your profile are inherited automatically.
 
 ## Setup
 

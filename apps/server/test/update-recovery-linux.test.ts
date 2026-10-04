@@ -81,20 +81,6 @@ it("pins a candidate and private recovery plan without changing the live executa
     JSON.parse(await readFile(path.join(f.store.root, "active.json"), "utf8"))
   ).toEqual({ id: prepared.id });
 });
-it("rejects unenrolled supplied databases before recording a transaction", async () => {
-  const f = await fixture();
-  await writeFile(
-    f.config,
-    JSON.stringify({ ...f.installation, policy: null })
-  );
-  await expect(
-    prepareLinuxUpdate(f.config, f.candidate, "v2", "1", {
-      protocol: 1,
-      sha256: createHash("sha256").update("new").digest("hex"),
-    })
-  ).rejects.toThrow("explicitly owned");
-  expect(await readFile(f.runtime, "utf8")).toBe("old");
-});
 it("rejects mismatched and public control files before activation", async () => {
   const f = await fixture();
   await chmod(f.config, 0o644);

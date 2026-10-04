@@ -176,8 +176,9 @@ CREATE INDEX blocks_open_input_idx
 CREATE INDEX blocks_attachments_gin
   ON blocks USING gin (attachments jsonb_path_ops);
 
--- One row per (block, author, emoji). NULLS NOT DISTINCT: a user reaction
--- has no agent id, and a plain UNIQUE would let a double click store two.
+-- One row per (block, author, emoji). A user reaction has no agent id, and a
+-- plain UNIQUE would let a double click store two; the unique index below
+-- folds NULL to '' instead of UNIQUE NULLS NOT DISTINCT, which needs PG 15.
 CREATE TABLE block_reactions (
   id uuid PRIMARY KEY,
   block_id uuid NOT NULL REFERENCES blocks (id) ON DELETE CASCADE,
@@ -187,9 +188,11 @@ CREATE TABLE block_reactions (
   emoji text NOT NULL,
   -- User reactions on an agent's block: delivery outcome; NULL while pending.
   delivered boolean,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE NULLS NOT DISTINCT (block_id, author_kind, author_agent_id, emoji)
+  created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX block_reactions_unique_idx
+  ON block_reactions (block_id, author_kind, COALESCE(author_agent_id, ''), emoji);
 
 CREATE INDEX block_reactions_pending_idx
   ON block_reactions (stream_id)
