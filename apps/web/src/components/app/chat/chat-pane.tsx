@@ -13,11 +13,13 @@ import type {
   StreamEntry,
 } from "@dispatch/shared";
 import { MotionConfig } from "framer-motion";
-import { getDefaultStore } from "jotai";
+import { chatShowLastMessageAtom } from "@/lib/store";
+import { getDefaultStore, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
+import { RequestContext } from "./request-context";
 import { PermissionRequests } from "./permission-requests";
 import { ComposerMeta } from "@/components/app/chat/composer-meta";
 import { StopTurnButton } from "@/components/app/chat/stop-turn-button";
@@ -61,7 +63,11 @@ import {
   useSubmitForm,
   useToggleReaction,
 } from "@/hooks/use-stream";
-import { useBlockJump } from "@/hooks/use-block-jump";
+import {
+  findEntryNode,
+  useBlockJump,
+  useJumpToTurn,
+} from "@/hooks/use-block-jump";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { BLOCK_PARAM } from "@/lib/agent-routes";
 import { windowingSupported } from "@/components/app/chat/windowed-rows";
@@ -424,6 +430,7 @@ export function ChatPane({
   // The stream is the root's: a child agent's page reads its root's feed
   // and filters it down to the child (see `entryOwner`).
   const rootId = useRootAgentId(agentId);
+  const showLastMessage = useAtomValue(chatShowLastMessageAtom);
   const deliveryAgents = useDeliveryAgents();
   const slashCommands = useAgentCommands(agentId, active);
   const descendants = useDescendantAgentIds(agentId);
@@ -872,15 +879,59 @@ export function ChatPane({
       followingRef.current = false;
       setFollowing(false);
       setPendingBelow(false);
+      return placeRef.current?.suspend();
     },
-    () => placeRef.current?.takeHere()
+    (id) => {
+      placeRef.current?.takeHere();
+      const scroller = scrollRef.current;
+      const node = scroller && findEntryNode(scroller, id);
+      const viewport = scroller?.getBoundingClientRect();
+      const target = node?.getBoundingClientRect();
+      if (
+        !target ||
+        !viewport ||
+        target.bottom <= viewport.top ||
+        target.top >= viewport.bottom
+      ) {
+        setContextJumpId(null);
+      }
+    }
   );
 
   // Only the rows near the view render (see useWindowedRows). The rows this
   // pane scrolls to itself must be there wherever they are: a `?block=`
   // jump's target, and the rows a reader is put back against on return.
   const [searchParams] = useSearchParams();
+  const jumpToRequest = useJumpToTurn();
   const jumpBlockId = searchParams.get(BLOCK_PARAM);
+  const [contextJumpId, setContextJumpId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!contextJumpId) return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    // Leave the original unobscured, including a first/very tall message
+    // that cannot be scrolled below the floating drawer. Keep its local
+    // selection/open state and restore it once the reader moves away.
+    let reached = false;
+    const check = () => {
+      const node = findEntryNode(scroller, contextJumpId);
+      const viewport = scroller.getBoundingClientRect();
+      const target = node?.getBoundingClientRect();
+      const visible =
+        target && target.bottom > viewport.top && target.top < viewport.bottom;
+      if (visible) reached = true;
+      else if (reached) setContextJumpId(null);
+    };
+    scroller.addEventListener("scroll", check, { passive: true });
+    const observer = new MutationObserver(check);
+    observer.observe(scroller, { childList: true, subtree: true });
+    check();
+    return () => {
+      scroller.removeEventListener("scroll", check);
+      observer.disconnect();
+    };
+  }, [contextJumpId]);
+
   const restoreIds = restoredRef.current
     ? null
     : (savedPositionRef.current?.anchors.map((a) => a.entryId).join("\n") ??
@@ -1113,7 +1164,33 @@ export function ChatPane({
         className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden bg-background"
         data-testid="chat-pane"
       >
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {showLastMessage && (
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 z-20"
+              data-testid="request-context-overlay"
+              style={{ visibility: contextJumpId ? "hidden" : undefined }}
+            >
+              <RequestContext
+                attachmentContext={ctx}
+                entries={ownEntries}
+                hasOlder={feed.hasOlder}
+                loading={feed.isLoading || feed.isFetchingOlder}
+                error={feed.error}
+                loadOlder={feed.loadOlder}
+                onJump={(id) => {
+                  if (agentId) {
+                    setContextJumpId(id);
+                    jumpToRequest(
+                      agentId,
+                      { blockId: id, threadId: null },
+                      "smooth"
+                    );
+                  }
+                }}
+              />
+            </div>
+          )}
           <div className="relative min-h-0 flex-1">
             <div
               ref={scrollRef}

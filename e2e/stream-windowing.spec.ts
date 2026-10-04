@@ -101,6 +101,76 @@ test.describe("Stream windowing", () => {
   });
 
   for (const width of [1280, 390]) {
+    test(`context jump reaches an unobscured tall request through unmeasured rows at width ${width}`, async ({
+      page,
+      request,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const agent = await createAgentViaAPI(request);
+      const ids = await seedPosts(agent.id, 250);
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        max: 1,
+      });
+      try {
+        await pool.query(
+          "UPDATE blocks SET author_kind='user', author_agent_id=NULL, text=$2 WHERE id=$1",
+          [
+            ids[0],
+            "Original tall request\n\n" +
+              "Read this entire brief before acting.\n\n".repeat(60),
+          ]
+        );
+      } finally {
+        await pool.end();
+      }
+      await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+      const stream = scroller(page);
+      await expect(
+        page.getByRole("button", {
+          name: "Find your last message",
+          exact: true,
+        })
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Find your last message", exact: true })
+        .click();
+      await page.getByTestId("request-context-open").click();
+      await stream.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      await expect
+        .poll(() => stream.evaluate((el) => el.scrollTop))
+        .toBeGreaterThan(10000);
+      const height = await stream.evaluate((el) => el.clientHeight);
+      await page
+        .getByRole("button", { name: "Jump to message", exact: true })
+        .click();
+      const target = page.locator(`[data-chat-entry-id="${ids[0]}"]`);
+      await expect(target).toBeInViewport();
+      await expect
+        .poll(() =>
+          target.evaluate((el) => {
+            const top = el.getBoundingClientRect().top;
+            const view = document
+              .querySelector('[data-testid="chat-scroll"]')!
+              .getBoundingClientRect();
+            return top >= view.top - 1 && top < view.top + 40;
+          })
+        )
+        .toBe(true);
+      await expect(page.getByTestId("request-context-overlay")).toBeHidden();
+      expect(await stream.evaluate((el) => el.clientHeight)).toBe(height);
+      await stream.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      await expect(page.getByTestId("request-context-open")).toBeVisible();
+      await expect(page.getByTestId("request-context-open")).toHaveAttribute(
+        "aria-expanded",
+        "true"
+      );
+    });
+
     test(`a late resize respects an upward scroll before its event at width ${width}`, async ({
       page,
       request,

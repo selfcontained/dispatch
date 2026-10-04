@@ -166,7 +166,9 @@ test("a queued post confirms a combined delivery and pickup update, then stays q
     ).toHaveCount(0);
     await expect(page.getByTestId("chat-receipt-received")).toHaveCount(0);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByText(post.text, { exact: true })).toBeVisible();
+    await expect(
+      page.getByTestId("chat-scroll").getByText(post.text, { exact: true })
+    ).toBeVisible();
     await expect(page.getByTestId("chat-receipt-received")).toHaveCount(0);
   } finally {
     await cleanupE2EAgents(request);

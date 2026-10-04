@@ -16,22 +16,29 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { agentTurnLocation, BLOCK_PARAM } from "@/lib/agent-routes";
 
-type BlockJumpState = { blockJump?: string } | null;
+type BlockJumpState = {
+  blockJump?: string;
+  blockJumpBehavior?: ScrollBehavior;
+} | null;
 
 let jumpSeq = 0;
 
 /** Open an agent's page on its running turn. */
 export function useJumpToTurn(): (
   agentId: string,
-  turn: { blockId: string; threadId: string | null }
+  turn: { blockId: string; threadId: string | null },
+  behavior?: ScrollBehavior
 ) => void {
   const navigate = useNavigate();
   return useCallback(
-    (agentId, turn) => {
+    (agentId, turn, behavior = "auto") => {
       // Unique across reloads too: history state outlives a reload, and a
       // counter alone would restart and repeat a nonce already handled.
       jumpSeq += 1;
-      const state: BlockJumpState = { blockJump: `${Date.now()}-${jumpSeq}` };
+      const state: BlockJumpState = {
+        blockJump: `${Date.now()}-${jumpSeq}`,
+        blockJumpBehavior: behavior,
+      };
       navigate(agentTurnLocation(agentId, turn), { state });
     },
     [navigate]
@@ -64,13 +71,62 @@ export function findEntryNode(
  */
 export function scrollBlockIntoView(
   scroller: HTMLElement,
-  node: HTMLElement
+  node: HTMLElement,
+  behavior: ScrollBehavior = "auto"
 ): void {
   const nodeRect = node.getBoundingClientRect();
   const top =
     nodeRect.top - scroller.getBoundingClientRect().top + scroller.scrollTop;
   const room = scroller.clientHeight - nodeRect.height;
-  scroller.scrollTop = Math.max(0, top - Math.max(JUMP_GAP_PX, room / 2));
+  const target = Math.max(0, top - Math.max(JUMP_GAP_PX, room / 2));
+  if (
+    behavior === "smooth" &&
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    scroller.scrollTo({ top: target, behavior: "smooth" });
+  } else {
+    scroller.scrollTop = target;
+  }
+}
+
+/** Hold list anchoring until native smooth scrolling finishes or the reader interrupts. */
+function smoothBlockJump(
+  scroller: HTMLElement,
+  node: HTMLElement,
+  done: () => void
+): () => void {
+  let finished = false;
+  let idle: number;
+  const finish = (arrived: boolean) => {
+    if (finished) return;
+    finished = true;
+    window.clearTimeout(idle);
+    window.clearTimeout(deadline);
+    scroller.removeEventListener("scroll", progress);
+    scroller.removeEventListener("wheel", cancel);
+    scroller.removeEventListener("touchstart", cancel);
+    scroller.removeEventListener("keydown", cancel);
+    if (arrived && node.isConnected) scrollBlockIntoView(scroller, node);
+    else scroller.scrollTo({ top: scroller.scrollTop, behavior: "instant" });
+    done();
+  };
+  const cancel = () => finish(false);
+  const end = () => finish(true);
+  const progress = () => {
+    window.clearTimeout(idle);
+    idle = window.setTimeout(end, 150);
+  };
+  scroller.addEventListener("scroll", progress, { passive: true });
+  scroller.addEventListener("wheel", cancel, { passive: true });
+  scroller.addEventListener("touchstart", cancel, { passive: true });
+  scroller.addEventListener("keydown", cancel);
+  // Use a quiet scroll interval rather than scrollend: an event queued by
+  // the preceding scroll can arrive after this animation has started.
+  // The deadline also handles an already-aligned target.
+  progress();
+  const deadline = window.setTimeout(end, 2000);
+  scrollBlockIntoView(scroller, node, "smooth");
+  return cancel;
 }
 
 /**
@@ -82,13 +138,13 @@ export function scrollBlockIntoView(
  * again on every render until it appears.
  *
  * `onJump` runs just before the scroll, for a pane that must stop pinning
- * its bottom; `onJumped` just after, for a windowed list that must hold
+ * its bottom; `onJumped` once scrolling settles (or is interrupted), for a windowed list that must hold
  * the new place from there. Returns a ref to the last jump, for a pane whose own scroll
  * bookkeeping must not undo it straight away.
  */
 export function useBlockJump(
   scrollRef: RefObject<HTMLElement>,
-  onJump?: (blockId: string) => void,
+  onJump?: (blockId: string) => void | (() => void),
   onJumped?: (blockId: string) => void
 ): RefObject<BlockJump | null> {
   const [searchParams] = useSearchParams();
@@ -100,6 +156,11 @@ export function useBlockJump(
     nonces: new Set<string>(),
   });
   const jumpedRef = useRef<BlockJump | null>(null);
+  const animationRef = useRef<{
+    blockId: string;
+    nonce: string | null;
+    cancel: () => void;
+  } | null>(null);
   const flashRef = useRef<{ node: HTMLElement; timer: number } | null>(null);
   const onJumpRef = useRef(onJump);
   onJumpRef.current = onJump;
@@ -108,6 +169,14 @@ export function useBlockJump(
 
   // Every render: the target can arrive with any update to the content.
   useLayoutEffect(() => {
+    if (
+      animationRef.current &&
+      (animationRef.current.blockId !== blockId ||
+        animationRef.current.nonce !== nonce)
+    ) {
+      animationRef.current.cancel();
+      animationRef.current = null;
+    }
     if (!blockId) return;
     const handled = handledRef.current;
     // A click's nonce is its own request. With none (a pasted link, a
@@ -123,9 +192,25 @@ export function useBlockJump(
     handled.blocks.add(blockId);
     if (nonce) handled.nonces.add(nonce);
     jumpedRef.current = { blockId, at: Date.now() };
-    onJumpRef.current?.(blockId);
-    scrollBlockIntoView(scroller, node);
-    onJumpedRef.current?.(blockId);
+    const release = onJumpRef.current?.(blockId);
+    const finish = () => {
+      release?.();
+      onJumpedRef.current?.(blockId);
+      animationRef.current = null;
+    };
+    const smooth =
+      (location.state as BlockJumpState)?.blockJumpBehavior === "smooth" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (smooth) {
+      animationRef.current = {
+        blockId,
+        nonce,
+        cancel: smoothBlockJump(scroller, node, finish),
+      };
+    } else {
+      scrollBlockIntoView(scroller, node);
+      finish();
+    }
     const prev = flashRef.current;
     if (prev) {
       window.clearTimeout(prev.timer);
@@ -145,6 +230,7 @@ export function useBlockJump(
 
   useEffect(
     () => () => {
+      animationRef.current?.cancel();
       if (flashRef.current) window.clearTimeout(flashRef.current.timer);
     },
     []
