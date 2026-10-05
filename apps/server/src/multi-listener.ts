@@ -31,6 +31,8 @@ export function parseListenHosts(
 }
 
 /** Additional sockets share Fastify's router, hooks, auth, and websocket handler.
+ * Optional addresses may disappear when a host changes networks; a failed bind
+ * must not interrupt the primary listener or other available addresses.
  * No proxying or wildcard listener broadens the user's chosen address set.
  */
 export async function listenAdditionalHosts(
@@ -66,17 +68,27 @@ export async function listenAdditionalHosts(
         if (!app.server.emit("upgrade", request, socket, head))
           socket.destroy();
       });
-      server.on("error", (error) =>
-        app.log.error({ error, host }, "Additional listener error")
-      );
-      await new Promise<void>((resolve, reject) => {
-        const failed = (error: Error) => reject(error);
-        server.once("error", failed);
-        server.listen({ host, port, ipv6Only: host.includes(":") }, () => {
-          server.removeListener("error", failed);
-          resolve();
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const failed = (error: Error) => reject(error);
+          server.once("error", failed);
+          server.listen({ host, port, ipv6Only: host.includes(":") }, () => {
+            server.removeListener("error", failed);
+            resolve();
+          });
         });
-      });
+      } catch (err) {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        listeners.splice(listeners.indexOf(server), 1);
+        app.log.warn(
+          { err, host, port },
+          "Could not bind optional listen address; continuing on available addresses. Check network settings and restart to retry this address."
+        );
+        continue;
+      }
+      server.on("error", (err) =>
+        app.log.error({ err, host, port }, "Additional listener error")
+      );
     }
     return close;
   } catch (error) {

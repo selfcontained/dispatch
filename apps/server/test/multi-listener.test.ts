@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { createServer } from "node:net";
@@ -80,18 +80,38 @@ it("serves the same routes and authentication hooks on each selected address", a
   await disconnected;
   await expect(fetch(`http://[::1]:${port}/hello`)).rejects.toThrow();
 });
-it("rolls back other new listeners when a selected address is occupied", async () => {
-  const app = Fastify();
-  cleanup.push(() => app.close());
-  await app.listen({ host: "127.0.0.1", port: 0 });
-  const port = (app.server.address() as { port: number }).port;
-  await expect(
-    listenAdditionalHosts(app, ["::1", "127.0.0.1"], port)
-  ).rejects.toThrow();
-  const probe = createServer();
-  await new Promise<void>((resolve, reject) => {
-    probe.once("error", reject);
-    probe.listen({ host: "::1", port, ipv6Only: true }, resolve);
-  });
-  await new Promise<void>((resolve) => probe.close(() => resolve()));
-});
+it.each([
+  ["occupied", "127.0.0.1"],
+  ["unavailable", "192.0.2.1"],
+])(
+  "keeps the primary and other listeners alive when an optional address is %s",
+  async (_reason, host) => {
+    const app = Fastify();
+    cleanup.push(() => app.close());
+    const warn = vi.spyOn(app.log, "warn");
+    app.get("/health", async () => ({ ok: true }));
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const port = (app.server.address() as { port: number }).port;
+    // Exercise failures both before and after a successful optional bind.
+    const close = await listenAdditionalHosts(app, [host, "::1", host], port);
+    cleanup.push(close);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), host, port }),
+      expect.stringContaining("continuing on available addresses")
+    );
+    for (const address of ["127.0.0.1", "[::1]"]) {
+      expect(
+        await (await fetch(`http://${address}:${port}/health`)).json()
+      ).toEqual({ ok: true });
+    }
+    await close();
+    expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200);
+    const probe = createServer();
+    await new Promise<void>((resolve, reject) => {
+      probe.once("error", reject);
+      probe.listen({ host: "::1", port, ipv6Only: true }, resolve);
+    });
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+  }
+);
