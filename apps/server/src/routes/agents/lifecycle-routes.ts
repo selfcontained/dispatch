@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
 import {
   CLI_AGENT_TYPES,
@@ -542,25 +543,29 @@ export async function registerAgentLifecycleRoutes(
       body.startLine === body.endLine
         ? `Line ${body.startLine}`
         : `Lines ${body.startLine}-${body.endLine}`;
-    const codeBlock =
-      lines.length > 0 ? ["```", ...lines, "```"].join("\n") : "";
-
     // The comment is a post in the agent's stream, like anything else a
     // person says to it: it reads in the Chat and reaches the agent as a
     // prompt, quoting the lines it is about.
-    const text = [
-      `**${body.filePath}** · ${lineLabel}`,
-      codeBlock,
-      body.comment.trim(),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const location = `${body.filePath} · ${lineLabel}`;
+    const selectedCode = lines.join("\n");
+    const truncatedNote = "\n… (truncated)";
+    const code =
+      selectedCode.length > BLOCK_TEXT_MAX_CHARS
+        ? selectedCode.slice(0, BLOCK_TEXT_MAX_CHARS - truncatedNote.length) +
+          truncatedNote
+        : selectedCode;
+    const text =
+      code.length > 0
+        ? body.comment.trim()
+        : `${location}\n\n${body.comment.trim()}`;
 
     try {
       const streamId = await deps.chat.streamOf(id);
       const posted = await deps.chat.sendUserPost(streamId, {
         to: id,
         text,
+        attachments:
+          code.length > 0 ? [{ type: "code", path: location, code }] : [],
         allowInert: false,
       });
       return { delivered: true, block: posted.block };
@@ -583,7 +588,7 @@ function extractNewFileLines(
 ): string[] {
   const lines: string[] = [];
   const diffLines = diffText.split("\n");
-  let newLineNum = 0;
+  let newLineNum: number | null = null;
 
   for (const line of diffLines) {
     const hunkMatch = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
@@ -592,7 +597,7 @@ function extractNewFileLines(
       continue;
     }
 
-    if (newLineNum === 0) continue;
+    if (newLineNum === null) continue;
 
     if (line.startsWith("-")) continue;
 
