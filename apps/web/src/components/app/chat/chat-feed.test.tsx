@@ -1111,6 +1111,44 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-day-divider")).toBeTruthy();
   });
 
+  it("keeps delivered user follow-ups grouped without repeating author headers", () => {
+    renderFeed(
+      [0, 1, 2].map((i) =>
+        blockEntry(
+          block({
+            id: `user-${i}`,
+            authorKind: "user",
+            text: `follow-up ${i}`,
+            createdAt: `2026-09-02T10:00:${i}0.000Z`,
+            delivered: true,
+            delivery: [
+              {
+                agentId: AGENT_ID,
+                state: "delivered",
+                receipt: { pickedUpAt: "2026-09-02T10:01:00.000Z" },
+              },
+            ],
+          })
+        )
+      )
+    );
+    expect(
+      screen
+        .getAllByTestId("chat-message")
+        .map((row) => row.getAttribute("data-grouped"))
+    ).toEqual([null, "true", "true"]);
+    expect(
+      screen
+        .getAllByTestId("chat-post-author")
+        .map((author) => author.textContent)
+    ).toEqual(["You"]);
+    expect(screen.getAllByTestId("chat-grouped-receipt-header")).toHaveLength(
+      2
+    );
+    expect(screen.getAllByTestId("chat-delivery-slot")).toHaveLength(3);
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
+  });
+
   it("shows a peer's own icon, its engine and model, and how it stands to this agent", () => {
     const peers = peerDirectory(AGENT_ID, [
       {

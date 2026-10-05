@@ -8,7 +8,7 @@ import {
 } from "../apps/web/src/test-utils/blocks";
 import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
 
-test("corner receipts and folded messages remain operable at 320px and desktop", async ({
+test("header receipts and folded messages remain operable at 320px and desktop", async ({
   page,
   request,
 }) => {
@@ -159,12 +159,21 @@ test("a queued post confirms a combined delivery and pickup update, then stays q
     await loadApp(page);
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("chat-held-hint")).toBeVisible();
+    const headerBounds = async () =>
+      Promise.all(
+        ["chat-post-author", "chat-post-time", "chat-delivery-slot"].map((id) =>
+          page.getByTestId(id).boundingBox()
+        )
+      );
+    const queuedHeader = await headerBounds();
     await page.getByRole("button", { name: "Send now", exact: true }).click();
     await expect(page.getByTestId("chat-receipt-received")).toBeVisible();
+    expect(await headerBounds()).toEqual(queuedHeader);
     await expect(
       page.getByRole("button", { name: "Send now", exact: true })
     ).toHaveCount(0);
     await expect(page.getByTestId("chat-receipt-received")).toHaveCount(0);
+    expect(await headerBounds()).toEqual(queuedHeader);
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByTestId("chat-scroll").getByText(post.text, { exact: true })
@@ -175,7 +184,7 @@ test("a queued post confirms a combined delivery and pickup update, then stays q
   }
 });
 
-test("receipt stays at the bottom left while actions use the right edge", async ({
+test("receipt stays after the time while actions use the right edge", async ({
   page,
   request,
 }) => {
@@ -224,7 +233,7 @@ test("receipt stays at the bottom left while actions use the right edge", async 
         ]);
         return {
           left: s!.x - r!.x,
-          bottom: r!.y + r!.height - s!.y - s!.height,
+          top: s!.y - r!.y,
         };
       };
       const original = await offset();
@@ -241,8 +250,11 @@ test("receipt stays at the bottom left while actions use the right edge", async 
           row.getByTestId("chat-post-action").boundingBox(),
         ]);
         const r = (await row.boundingBox())!;
-        expect(s!.x).toBe(r.x + 16);
-        expect(s!.y + s!.height).toBe(r.y + r.height - 4);
+        const time = (await row.getByTestId("chat-post-time").boundingBox())!;
+        expect(s!.x).toBe(time.x + time.width + 4);
+        expect(
+          Math.abs(s!.y + s!.height / 2 - time.y - time.height / 2)
+        ).toBeLessThan(1);
         expect(a!.x + a!.width).toBe(r.x + r.width - (width < 640 ? 8 : 16));
         await page.mouse.move(0, 0);
         expect(await offset()).toEqual(original);
