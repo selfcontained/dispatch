@@ -587,7 +587,9 @@ export function MessageCopyButton({ text }: { text: string }): JSX.Element {
 /**
  * One full-width row of the channel. A header row carries the avatar, the
  * author and the time; a grouped row (same author, shortly after) keeps only
- * the body, and shows the time in the gutter on hover.
+ * the body, and shows the time in the gutter on hover. Delivery-tracked
+ * grouped rows keep a compact time-and-receipt anchor without repeating
+ * the author metadata; its reserved slot does not move as receipts fade.
  *
  * Rhythm: a group start sits further below the post above it than grouped
  * rows sit below each other, and draws a hairline when it follows another
@@ -620,7 +622,7 @@ export function Post({
   side?: { recipientName: string };
   /** A compact post action, shown in the top-right on hover or touch. */
   action?: ReactNode;
-  /** A receipt in the bottom-left gutter, independent of the message body. */
+  /** A receipt after the timestamp, with a fixed slot that preserves header layout. */
   deliveryIndicator?: ReactNode;
   /**
    * No avatar gutter and a narrower inset: for a card that is the whole
@@ -630,6 +632,25 @@ export function Post({
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
+  const timestamp = (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <span
+        className="text-[11px] text-muted-foreground"
+        title={formatDateTime(at)}
+        data-testid="chat-post-time"
+      >
+        {clockTime(at)}
+      </span>
+      {deliveryIndicator ? (
+        <span
+          className="flex h-4 w-4 shrink-0 items-center"
+          data-testid="chat-delivery-slot"
+        >
+          {deliveryIndicator}
+        </span>
+      ) : null}
+    </span>
+  );
   return (
     <div
       className={cn(
@@ -655,13 +676,15 @@ export function Post({
       {flush ? null : (
         <div className="flex w-8 shrink-0 justify-end">
           {grouped ? (
-            <span
-              className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
-              title={formatDateTime(at)}
-              data-testid="chat-gutter-time"
-            >
-              {gutterTime(at)}
-            </span>
+            deliveryIndicator ? null : (
+              <span
+                className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
+                title={formatDateTime(at)}
+                data-testid="chat-gutter-time"
+              >
+                {gutterTime(at)}
+              </span>
+            )
           ) : (
             <Avatar author={author} />
           )}
@@ -678,7 +701,16 @@ export function Post({
             {action}
           </div>
         ) : null}
-        {grouped ? null : (
+        {grouped ? (
+          deliveryIndicator ? (
+            <div
+              className="flex items-center leading-tight"
+              data-testid="chat-grouped-receipt-header"
+            >
+              {timestamp}
+            </div>
+          ) : null
+        ) : (
           <div
             // Wrapping keeps the recipient readable on narrow screens: rather
             // than squeezing "→ recipient" to nothing beside a long sender,
@@ -706,12 +738,7 @@ export function Post({
                 {side.recipientName}
               </span>
             ) : null}
-            <span
-              className="shrink-0 text-[11px] text-muted-foreground"
-              title={formatDateTime(at)}
-            >
-              {clockTime(at)}
-            </span>
+            {timestamp}
             {action && flush ? (
               <div className="ml-auto -my-1" data-testid="chat-post-action">
                 {action}
@@ -728,14 +755,6 @@ export function Post({
         >
           {children}
         </div>
-        {deliveryIndicator ? (
-          <div
-            className="absolute bottom-1 left-4 h-4 w-4"
-            data-testid="chat-delivery-slot"
-          >
-            {deliveryIndicator}
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -1411,7 +1430,7 @@ export const BlockView = memo(function BlockView({
         {body}
         <AttachmentList block={block} ctx={ctx} />
         {/* Queue/failure actions are persistent callouts. Transient receipt
-            feedback stays in its own fixed margin. */}
+            feedback stays after the timestamp. */}
         <div
           className={cn(
             "min-w-0",
