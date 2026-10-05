@@ -1,3 +1,4 @@
+import { PendingInputsButton } from "./chat/pending-inputs-button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { useAtom } from "jotai";
@@ -447,10 +448,17 @@ export function AgentsView({
     ) : null;
   const splitAgentHeaderAccessory =
     isSplit && agentPaneVisible ? (
-      <ChatFiltersButton
-        showChildAgents={showChildAgents}
-        onShowChildAgentsChange={setShowChildAgents}
-      />
+      <div className="flex items-center gap-1">
+        <PendingInputsButton
+          key={focusedAgentId}
+          agentId={focusedAgentId}
+          showChildAgents={showChildAgents}
+        />
+        <ChatFiltersButton
+          showChildAgents={showChildAgents}
+          onShowChildAgentsChange={setShowChildAgents}
+        />
+      </div>
     ) : null;
 
   return (

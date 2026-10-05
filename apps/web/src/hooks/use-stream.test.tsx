@@ -89,7 +89,7 @@ function feedBlocks(client: QueryClient): Block[] {
 }
 
 describe("useAnswerQuestion", () => {
-  it("posts attachments with the answer, marks the question answered, and files the reply in its thread", async () => {
+  it("posts attachments with the answer, marks the question answered without adding a thread reply", async () => {
     const question = block({
       id: "q1",
       text: "Which spec?",
@@ -163,8 +163,8 @@ describe("useAnswerQuestion", () => {
     const blocks = feedBlocks(client);
     expect(blocks.map((b) => b.id)).toEqual(["q1"]);
     expect(blocks[0]!.state).toEqual(answeredQuestion.state);
-    expect(blocks[0]!.replyCount).toBe(1);
-    expect(blocks[0]!.lastReplyAt).toBe(reply.createdAt);
+    expect(blocks[0]!.replyCount ?? 0).toBe(0);
+    expect(blocks[0]!.lastReplyAt).toBeUndefined();
     // The thread was never fetched, so there is nothing to file it into.
     expect(client.getQueryData(threadQueryKey("agt_1", "q1"))).toBeUndefined();
   });

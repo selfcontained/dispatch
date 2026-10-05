@@ -13,14 +13,7 @@ import {
 } from "react";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
-import {
-  AtSign,
-  CornerDownRight,
-  Plus,
-  SquareSlash,
-  SendHorizontal,
-  X,
-} from "lucide-react";
+import { AtSign, Plus, SquareSlash, SendHorizontal } from "lucide-react";
 
 import {
   type ChatUserAttachmentInput,
@@ -139,16 +132,6 @@ export type ChatComposerProps = {
    * arrives as a prop change, not a mount.
    */
   autoFocus?: boolean;
-  /**
-   * When set, what gets typed answers this question rather than starting a
-   * plain message. The × lets the user opt out and send a plain message.
-   */
-  replyContext?: { excerpt: string; onDismiss: () => void } | null;
-  pendingQuestion?: {
-    excerpt: string;
-    onAnswer: () => void;
-    onDismiss: () => void;
-  } | null;
   /** The agents a typed `@` can name: the stream's tree. */
   mentionables?: readonly Mentionable[];
   /** Defaults from the page or server; mentions override these for ordinary posts. */
@@ -256,8 +239,6 @@ export function ChatComposer({
   sending = false,
   placeholder = "Message the agent…",
   autoFocus = false,
-  replyContext = null,
-  pendingQuestion = null,
   action,
   footer,
   mentionables,
@@ -343,7 +324,7 @@ export function ChatComposer({
   );
   const recipients = [
     ...new Map(
-      (!replyContext && mentionedRecipients.length
+      (mentionedRecipients.length
         ? mentionedRecipients
         : (defaultRecipients ?? [])
       ).map((agent) => [
@@ -374,25 +355,21 @@ export function ChatComposer({
     (command) => command.source === "agent" && command.name === advertisedName
   );
   const slashBlockedReason = advertisedCommand
-    ? replyContext
-      ? "Agent commands must start a new post. Dismiss the reply first."
-      : hasSlashAttachments
-        ? "Remove attachments to run this agent command."
-        : hasSlashMention
-          ? "Remove agent mentions to run this agent command."
-          : null
+    ? hasSlashAttachments
+      ? "Remove attachments to run this agent command."
+      : hasSlashMention
+        ? "Remove agent mentions to run this agent command."
+        : null
     : null;
   const slashUnavailableReason =
     disabledReason ??
-    (replyContext
-      ? "Dismiss the reply to use commands."
-      : hasSlashAttachments
-        ? "Remove attachments to use commands."
-        : hasSlashMention
-          ? "Remove agent mentions to use commands."
-          : !slashCommands?.length
-            ? "No commands are available for this agent."
-            : null);
+    (hasSlashAttachments
+      ? "Remove attachments to use commands."
+      : hasSlashMention
+        ? "Remove agent mentions to use commands."
+        : !slashCommands?.length
+          ? "No commands are available for this agent."
+          : null);
   const slashQuery =
     !slashUnavailableReason && slashDismissedFor !== text
       ? slashQueryAt(text, caret)
@@ -1168,8 +1145,6 @@ export function ChatComposer({
       data-mobile-idle={
         !text &&
         !hasAttachments &&
-        !replyContext &&
-        !pendingQuestion &&
         !error &&
         !disabledReason &&
         !draggingFiles &&
@@ -1189,49 +1164,6 @@ export function ChatComposer({
               : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
         )}
       >
-        {(replyContext || pendingQuestion) && !disabled ? (
-          <div className="px-2 pt-2">
-            <div
-              className="flex w-full items-start gap-2 rounded-md border border-l-[3px] border-border/70 border-l-primary bg-primary/[0.05] px-2 py-1.5 text-xs text-foreground"
-              data-testid={
-                replyContext ? "chat-reply-context" : "chat-pending-question"
-              }
-            >
-              <CornerDownRight className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
-              <span className="shrink-0 font-semibold text-primary">
-                {replyContext ? "Answering:" : "Question:"}
-              </span>
-              <span className="min-w-0 flex-1 break-words">
-                {(replyContext || pendingQuestion)?.excerpt}
-              </span>
-              {!replyContext && pendingQuestion ? (
-                <Button
-                  type="button"
-                  variant="ghost-primary"
-                  size="sm"
-                  className="h-5 shrink-0 px-1.5 text-xs text-primary hover:bg-primary/10 hover:text-primary"
-                  onClick={() => {
-                    pendingQuestion.onAnswer();
-                    textareaRef.current?.focus();
-                  }}
-                  data-testid="chat-answer-question"
-                >
-                  Answer
-                </Button>
-              ) : null}
-              <button
-                type="button"
-                onClick={(replyContext || pendingQuestion)?.onDismiss}
-                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="Send a plain message instead"
-                aria-label="Send a plain message instead"
-                data-testid="chat-reply-context-dismiss"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          </div>
-        ) : null}
         {hasAttachments ? (
           <div
             // Bounded: at the 20-attachment cap the chips scroll inside
@@ -1310,9 +1242,7 @@ export function ChatComposer({
             onSelect={setCaret}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            placeholder={
-              disabled ? "" : replyContext ? "Type your answer…" : placeholder
-            }
+            placeholder={disabled ? "" : placeholder}
             slashOpen={slashOpen}
             slashListId={slashListId}
             activeSlash={activeSlash}

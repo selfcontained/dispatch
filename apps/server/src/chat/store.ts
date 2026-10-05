@@ -827,7 +827,7 @@ export class BlockStore {
                     ORDER BY r.created_at, r.id) AS reactions
              FROM block_reactions r WHERE r.block_id = b.id
          ) rx ON true
-        WHERE b.thread_id = $1 AND NOT (b.id = ANY($2::uuid[]))
+        WHERE b.thread_id = $1 AND COALESCE(b.data->>'inlineAnswer', 'false') <> 'true' AND NOT (b.id = ANY($2::uuid[]))
         ORDER BY b.created_at, b.id`,
       [rootId, shown]
     );

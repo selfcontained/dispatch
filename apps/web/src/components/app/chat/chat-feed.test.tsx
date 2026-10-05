@@ -1504,21 +1504,16 @@ describe("ChatFeed", () => {
       ),
     ]);
     expect(screen.getByTestId("chat-needs-reply")).toBeTruthy();
-    expect(screen.getByText("Or type a reply below.")).toBeTruthy();
+    expect(screen.getByTestId("chat-question-write")).toBeTruthy();
     const options = screen.getAllByTestId("chat-question-option");
     expect(options).toHaveLength(2);
     expect(options.every((o) => !(o as HTMLButtonElement).disabled)).toBe(true);
 
     fireEvent.click(options[1]!);
-    expect(onAnswer).toHaveBeenCalledWith("q1", { label: "Beta" });
-    // Touch/phone sizing: a 44px target with wrapping labels.
-    expect(options[0]!.className).toContain("max-sm:min-h-11");
-    expect(options[0]!.className).toContain(
-      "[@media(pointer:coarse)]:min-h-11"
-    );
+    expect(onAnswer).toHaveBeenCalledWith("q1", { label: "Beta" }, undefined);
   });
 
-  it("cancels an open user-addressed ask through the block state route", () => {
+  it("cancels an open user-addressed ask through the block state route", async () => {
     const onSetBlockState = vi.fn();
     renderFeed(
       [
@@ -1533,8 +1528,7 @@ describe("ChatFeed", () => {
       { answersDisabled: true },
       { onSetBlockState }
     );
-    const cancel = screen.getByTestId("chat-ask-cancel") as HTMLButtonElement;
-    expect(cancel.disabled).toBe(false);
+    const cancel = await screen.findByTestId("chat-ask-cancel");
     expect(
       (screen.getByTestId("chat-question-option") as HTMLButtonElement).disabled
     ).toBe(true);
@@ -1580,11 +1574,10 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-question-options").textContent).toContain(
       "Answered"
     );
-    const options = screen.getAllByTestId("chat-question-option");
-    expect(options.every((o) => (o as HTMLButtonElement).disabled)).toBe(true);
-    expect(options[0]!.getAttribute("aria-pressed")).toBe("true");
-    expect(options[1]!.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(options[1]!);
+    expect(screen.queryAllByTestId("chat-question-option")).toHaveLength(0);
+    expect(screen.getByTestId("chat-question-answer").textContent).toContain(
+      "Alpha"
+    );
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
@@ -2813,6 +2806,99 @@ describe("response backlinks", () => {
     fireEvent.click(link);
     const second = JSON.parse(screen.getByTestId("jump-location").textContent!);
     expect(second.state.blockJump).not.toBe(first.state.blockJump);
+  });
+
+  it.each([null, "child-home"])(
+    "uses the resolved conversation for queued inline answers (%s)",
+    async (threadId) => {
+      const { api } = await import("@/lib/api");
+      vi.mocked(api).mockClear();
+      const reply = block({
+        id: "inline-queued",
+        authorKind: "user",
+        streamId: AGENT_ID,
+        threadId: "question-storage-thread",
+        body: {
+          kind: "text",
+          state: null,
+          data: {
+            inlineAnswer: true,
+            inlineAnswerConversation: { streamId: AGENT_ID, threadId },
+          },
+        },
+        delivery: [{ agentId: AGENT_ID, state: "held" }],
+      });
+      renderFeed(
+        [
+          blockEntry(
+            block({
+              id: "ask",
+              streamId: AGENT_ID,
+              body: questionBody([{ label: "Yes" }], {
+                state: answered("Yes"),
+              }),
+              inputReply: reply,
+            })
+          ),
+        ],
+        {},
+        {},
+        [
+          {
+            id: AGENT_ID,
+            activity: "working",
+            inputState: {
+              active: true,
+              steeringSupported: true,
+              interruptSupported: true,
+              conversation: { streamId: AGENT_ID, threadId: null },
+            },
+          } as Agent,
+        ]
+      );
+      const send = screen.getByRole("button", { name: "Send now" });
+      expect(send.getAttribute("data-send-now")).toBe(
+        threadId ? "interrupt" : "send-now"
+      );
+      fireEvent.click(send);
+      await waitFor(() =>
+        expect(api).toHaveBeenCalledWith(
+          `/api/v1/streams/${AGENT_ID}/blocks/inline-queued/send-now`,
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({ interrupt: !!threadId }),
+          })
+        )
+      );
+    }
+  );
+
+  it("withdraws a queued inline answer using its delivery record ID", async () => {
+    const { api } = await import("@/lib/api");
+    vi.mocked(api).mockClear();
+    renderFeed([
+      blockEntry(
+        block({
+          id: "ask",
+          streamId: AGENT_ID,
+          body: questionBody([{ label: "Yes" }], { state: answered("Yes") }),
+          inputReply: block({
+            id: "inline-withdraw",
+            authorKind: "user",
+            streamId: AGENT_ID,
+            body: { kind: "text", state: null, data: { inlineAnswer: true } },
+            delivery: [{ agentId: AGENT_ID, state: "held" }],
+          }),
+        })
+      ),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        `/api/v1/streams/${AGENT_ID}/blocks/inline-withdraw`,
+        { method: "DELETE" }
+      )
+    );
   });
 
   it("offers Send now for held recipients regardless of delivered recipients' work", () => {

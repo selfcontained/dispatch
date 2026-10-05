@@ -19,7 +19,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
 import {
-  answered,
   block,
   blockEntry,
   FILE_BODY,
@@ -35,7 +34,6 @@ import {
   entryOwner,
   filterStreamView,
   isMainColumnEntry,
-  questionExcerpt,
   type StreamView,
   readChatScrollPosition,
   REMEMBER_THROTTLE_MS,
@@ -302,14 +300,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-});
-
-describe("questionExcerpt", () => {
-  it("takes the first meaningful line, stripped of markdown, and truncates", () => {
-    expect(questionExcerpt("## Ship it?\n\nMore detail")).toBe("Ship it?");
-    expect(questionExcerpt("**Bold** question")).toBe("Bold question");
-    expect(questionExcerpt("x".repeat(100), 10)).toBe("xxxxxxxxx…");
-  });
 });
 
 describe("entryOwner / filterStreamView", () => {
@@ -823,7 +813,7 @@ describe("ChatPane", () => {
     expect(H.answer).not.toHaveBeenCalled();
   });
 
-  it("explicitly answers a child's mirrored free-text question from the root composer", () => {
+  it("answers a child's mirrored question inline without changing the composer recipient", () => {
     H.rootId = "agt_1";
     H.agents = [agent, { ...agent, id: "agt_child", parentAgentId: "agt_1" }];
     H.entries = [
@@ -832,252 +822,45 @@ describe("ChatPane", () => {
           id: "child-ask",
           author: { kind: "agent", agentId: "agt_child" },
           threadId: "child-home",
-          replyTo: "child-home",
           text: "Which channel?",
           body: questionBody([{ label: "Stable" }], { allowFreeform: true }),
         })
       ),
     ];
     renderPane();
-    fireEvent.click(screen.getByTestId("chat-answer-question"));
-    typeAndSend("Beta please");
-    expect(H.answer).toHaveBeenCalledWith(
-      expect.objectContaining({ blockId: "child-ask", value: "Beta please" })
+    expect(screen.queryByTestId("chat-pending-question")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-question-write"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer" }), {
+      target: { value: "Beta please" },
+    });
+    fireEvent.submit(
+      screen.getByRole("textbox", { name: "Your answer" }).closest("form")!
+    );
+    expect(H.answerNow).toHaveBeenCalledWith(
+      { blockId: "child-ask", value: "Beta please", label: "Beta please" },
+      expect.any(Object)
     );
     expect(H.send).not.toHaveBeenCalled();
+    expect(
+      screen
+        .getByTestId("chat-composer-recipient")
+        .getAttribute("data-agent-id")
+    ).toBe("agt_1");
   });
 
-  it.each([true, false])(
-    "uses the child's recipient and launch conversation from the root (home loaded: %s)",
-    (loadedHome) => {
-      H.rootId = "agt_1";
-      const child = {
-        ...agent,
-        id: "agt_child",
-        name: "Release helper",
-        parentAgentId: "agt_1",
-        inputState: {
-          active: true,
-          steeringSupported: true,
-          interruptSupported: true,
-          conversation: { streamId: "agt_1", threadId: "child-home" },
-        },
-      };
-      // The root cannot interrupt; the child's known conversation can.
-      H.agents = [
-        {
-          ...agent,
-          inputState: {
-            active: true,
-            steeringSupported: false,
-            interruptSupported: false,
-            conversation: { streamId: "agt_1", threadId: null },
-          },
-        },
-        child,
-      ];
-      H.entries = [
-        ...(loadedHome
-          ? [
-              blockEntry(
-                launchBlock({ id: "child-home", toAgentId: "agt_child" })
-              ),
-            ]
-          : []),
-        blockEntry(
-          block({
-            id: "child-ask",
-            author: { kind: "agent", agentId: "agt_child" },
-            threadId: "different-discussion",
-            replyTo: "different-discussion",
-            text: "Which channel?",
-            body: questionBody([{ label: "Stable" }], { allowFreeform: true }),
-          })
-        ),
-      ];
-      renderPane();
-      expect(
-        screen
-          .getByTestId("chat-composer-recipient")
-          .getAttribute("data-agent-id")
-      ).toBe("agt_1");
-      fireEvent.click(screen.getByTestId("chat-answer-question"));
-      expect(
-        screen
-          .getByTestId("chat-composer-recipient")
-          .getAttribute("data-agent-id")
-      ).toBe("agt_child");
-      if (loadedHome) {
-        // Now is offered only when the recipient's running conversation matches.
-        fireEvent.click(
-          screen.getByRole("button", { name: "Message timing: Now" })
-        );
-        expect(
-          (
-            screen.getByRole("button", {
-              name: "Interrupt current work",
-            }) as HTMLButtonElement
-          ).disabled
-        ).toBe(false);
-        fireEvent.click(
-          screen.getByRole("button", { name: "Interrupt current work" })
-        );
-        typeAndSend("Beta please");
-        expect(H.answer).toHaveBeenCalledWith(
-          expect.objectContaining({
-            blockId: "child-ask",
-            value: "Beta please",
-            delivery: "interrupt",
-          })
-        );
-      } else {
-        expect(screen.queryByTestId("chat-composer-delivery")).toBeNull();
-      }
-    }
-  );
-
-  it("answers the newest open free-text question only after selecting Answer question", () => {
+  it("keeps a custom draft on its question when a newer question arrives", () => {
     H.entries = [
       blockEntry(
         block({
           id: "q1",
-          text: "Which branch should I use?",
-          body: questionBody([{ label: "main" }], { allowFreeform: true }),
-        })
-      ),
-    ];
-    renderPane();
-    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
-    fireEvent.click(screen.getByTestId("chat-answer-question"));
-    expect(screen.getByTestId("chat-reply-context").textContent).toContain(
-      "Which branch should I use?"
-    );
-    typeAndSend("release/2.0");
-    expect(H.answer).toHaveBeenCalledWith({
-      blockId: "q1",
-      value: "release/2.0",
-      attachments: [],
-    });
-    expect(H.send).not.toHaveBeenCalled();
-  });
-
-  it("forwards selected Interrupt for a free-text question answer", async () => {
-    H.agents = [
-      {
-        ...agent,
-        inputState: {
-          active: true,
-          steeringSupported: true,
-          interruptSupported: true,
-          conversation: { streamId: "agt_1", threadId: null },
-        },
-      },
-    ];
-    H.entries = [
-      blockEntry(
-        block({
-          id: "q1",
-          text: "Which branch?",
-          body: questionBody([{ label: "main" }], { allowFreeform: true }),
-        })
-      ),
-    ];
-    renderPane();
-    fireEvent.click(screen.getByTestId("chat-answer-question"));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Message timing: Now" })
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Interrupt current work" })
-    );
-    expect(H.answer).not.toHaveBeenCalled();
-    typeAndSend("release/2.0");
-    expect(H.answer).toHaveBeenCalledWith({
-      blockId: "q1",
-      value: "release/2.0",
-      attachments: [],
-      delivery: "interrupt",
-    });
-    await waitFor(() =>
-      expect(
-        (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
-      ).toBe("")
-    );
-  });
-
-  it.each([
-    { name: "root ask", askThread: null, workThread: null, loadedHome: true },
-    {
-      name: "threaded ask",
-      askThread: "other-discussion",
-      workThread: "child-home",
-      loadedHome: true,
-    },
-    {
-      name: "unloaded home",
-      askThread: "other-discussion",
-      workThread: "child-home",
-      loadedHome: false,
-    },
-  ])(
-    "resolves child answer timing for $name",
-    ({ askThread, workThread, loadedHome }) => {
-      H.rootId = "agt_1";
-      const child = {
-        ...agent,
-        id: "agt_child",
-        parentAgentId: "agt_1",
-        inputState: {
-          active: true,
-          steeringSupported: true,
-          interruptSupported: true,
-          conversation: { streamId: "agt_1", threadId: workThread },
-        },
-      };
-      H.agents = [agent, child];
-      H.entries = [
-        ...(loadedHome
-          ? [
-              blockEntry(
-                launchBlock({ id: "child-home", toAgentId: "agt_child" })
-              ),
-            ]
-          : []),
-        blockEntry(
-          block({
-            id: "q-child",
-            author: { kind: "agent", agentId: "agt_child" },
-            threadId: askThread,
-            text: "Which branch?",
-            body: questionBody([{ label: "main" }], { allowFreeform: true }),
-          })
-        ),
-      ];
-      renderPane({ agentId: "agt_child", agent: child });
-      fireEvent.click(screen.getByTestId("chat-answer-question"));
-      if (loadedHome) {
-        expect(
-          screen.getByRole("button", { name: "Message timing: Now" })
-        ).toBeTruthy();
-      } else {
-        expect(screen.queryByTestId("chat-composer-delivery")).toBeNull();
-      }
-    }
-  );
-
-  it("keeps the selected answer target when a newer question arrives", () => {
-    H.entries = [
-      blockEntry(
-        block({
-          id: "q1",
-          text: "Which branch?",
+          text: "Branch?",
           body: questionBody([{ label: "main" }], { allowFreeform: true }),
         })
       ),
     ];
     const { rerender } = renderPane();
-    fireEvent.click(screen.getByTestId("chat-answer-question"));
-    fireEvent.change(screen.getByTestId("chat-composer-input"), {
+    fireEvent.click(screen.getByTestId("chat-question-write"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer" }), {
       target: { value: "release/2.0" },
     });
     H.entries = [
@@ -1085,7 +868,7 @@ describe("ChatPane", () => {
       blockEntry(
         block({
           id: "q2",
-          text: "Which platform?",
+          text: "Platform?",
           body: questionBody([{ label: "web" }], { allowFreeform: true }),
         })
       ),
@@ -1101,103 +884,14 @@ describe("ChatPane", () => {
         isMobile={false}
       />
     );
-    expect(screen.getByTestId("chat-reply-context").textContent).toContain(
-      "Which branch?"
+    fireEvent.submit(
+      screen.getByRole("textbox", { name: "Your answer" }).closest("form")!
     );
-    expect(
-      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
-    ).toBe("release/2.0");
-    typeAndSend("release/2.0");
-    expect(H.answer).toHaveBeenCalledWith({
-      blockId: "q1",
-      value: "release/2.0",
-      attachments: [],
-    });
-    expect(H.send).not.toHaveBeenCalled();
-  });
-
-  it("answers a free-text question through the answer route even with attachments", async () => {
-    H.entries = [
-      blockEntry(
-        block({
-          id: "q1",
-          text: "Which spec?",
-          body: questionBody([{ label: "main" }], { allowFreeform: true }),
-        })
-      ),
-    ];
-    H.answer.mockImplementation(async () => {
-      // The answered question comes back from the server; the pane then
-      // has nothing left to reply to.
-      H.entries = [
-        blockEntry(
-          block({
-            id: "q1",
-            text: "Which spec?",
-            body: questionBody([{ label: "main" }], {
-              allowFreeform: true,
-              state: answered("this one", undefined, "r1"),
-            }),
-          })
-        ),
-      ];
-      return {} as never;
-    });
-    const { rerender } = renderPane();
-    fireEvent.click(screen.getByTestId("chat-answer-question"));
-    const input = screen.getByTestId("chat-composer-input");
-    fireEvent.paste(input, {
-      clipboardData: { items: [], getData: () => "https://example.com/spec" },
-    });
-    expect(screen.getByTestId("chat-reply-context")).toBeTruthy();
-    typeAndSend("this one");
-    expect(H.answer).toHaveBeenCalledWith({
-      blockId: "q1",
-      value: "this one",
-      attachments: [{ type: "link", url: "https://example.com/spec" }],
-    });
-    expect(H.send).not.toHaveBeenCalled();
-
-    await waitFor(() =>
-      expect(
-        (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
-      ).toBe("")
-    );
-    rerender(
-      <ChatPane
-        agentId="agt_1"
-        agent={agent}
-        active={true}
-        showChildAgents={true}
-        onShowChildAgentsChange={vi.fn()}
-        openLightbox={vi.fn()}
-        isMobile={false}
-      />
+    expect(H.answerNow).toHaveBeenCalledWith(
+      { blockId: "q1", value: "release/2.0", label: "release/2.0" },
+      expect.any(Object)
     );
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
-    expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
-  });
-
-  it("sends a plain message after the reply context is dismissed", () => {
-    H.entries = [
-      blockEntry(
-        block({
-          id: "q1",
-          text: "Which branch?",
-          body: questionBody([{ label: "main" }], { allowFreeform: true }),
-        })
-      ),
-    ];
-    renderPane();
-    fireEvent.click(screen.getByTestId("chat-answer-question"));
-    fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
-    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
-    typeAndSend("unrelated note");
-    expect(H.send).toHaveBeenCalledWith({
-      text: "unrelated note",
-      attachments: [],
-    });
-    expect(H.answer).not.toHaveBeenCalled();
   });
 
   it("does not offer the reply context for an option-only question", () => {

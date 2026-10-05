@@ -434,6 +434,14 @@ test.describe("Chat surface", () => {
     await expect(messages.nth(2)).toContainText("Done");
     await expect(messages.nth(2)).toContainText("All checks pass.");
 
+    // The request surface can push this feed beyond the viewport. Jump to the
+    // first post so tail-following does not move its copy action mid-click.
+    const firstPostId = await messages.nth(0).getAttribute("data-block-id");
+    await page.goto(`/agents/${agent.id}?block=${firstPostId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(messages.nth(0)).toContainText("Tests are");
+
     // A post exposes a compact copy action and copies its raw Markdown text.
     await page
       .context()

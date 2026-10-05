@@ -3,6 +3,7 @@ import { chatShowLastMessageAtom } from "@/lib/store";
 import { useEffect, useState } from "react";
 import { Hash, Settings } from "lucide-react";
 
+import { PendingInputsButton } from "./chat/pending-inputs-button";
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { type Agent } from "@/components/app/types";
 import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
@@ -182,10 +183,17 @@ export function AgentPane({
               Validation: {agentSwitchValidationMode} fix
             </span>
           ) : null}
-          <ChatFiltersButton
-            showChildAgents={showChildAgents}
-            onShowChildAgentsChange={onShowChildAgentsChange}
-          />
+          <div className="flex shrink-0 items-center gap-1">
+            <PendingInputsButton
+              key={agentId}
+              agentId={agentId}
+              showChildAgents={showChildAgents}
+            />
+            <ChatFiltersButton
+              showChildAgents={showChildAgents}
+              onShowChildAgentsChange={onShowChildAgentsChange}
+            />
+          </div>
         </div>
       ) : null}
       <div className="relative min-h-0 min-w-0 max-w-full flex-1 overflow-hidden">

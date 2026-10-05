@@ -215,6 +215,10 @@ export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
 export type BlockTextData = {
+  /** Delivery record rendered on its question/form, never as a thread reply. */
+  inlineAnswer?: boolean;
+  /** Resolved destination for queue controls on an inline answer. */
+  inlineAnswerConversation?: { streamId: string; threadId: string | null };
   /** A user post first delivered as a raw ACP slash command. */
   acpCommand?: true;
   /** Turn blocks: the `agent_stream_events` row that opened the turn. */
@@ -406,6 +410,8 @@ export type Block = {
    * read time.
    */
   blocks?: Block[];
+  /** Delivery and attachments of an inline question/form answer, attached at read time. */
+  inputReply?: Block;
   /** Blocks that open a thread: how many replies it holds. */
   replyCount?: number;
   lastReplyAt?: string | null;

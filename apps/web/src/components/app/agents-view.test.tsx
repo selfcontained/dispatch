@@ -1,3 +1,6 @@
+vi.mock("./chat/pending-inputs-button", () => ({
+  PendingInputsButton: () => null,
+}));
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
 import {

@@ -1672,13 +1672,12 @@ describe("stream routes with a deliverable engine", () => {
     expect(prompts[0].prompt).toContain(`(id: ${body.reply.id}, from: user)`);
     expect(prompts[0].prompt).toContain("\nYes\n");
     expect(prompts[0].prompt).toContain(`This answers your question ${q.id}.`);
-    // The answered question first, then the reply (filed into its thread by
-    // the client), then the question again as the thread's root.
-    expect(entryIds(published).slice(0, 3)).toEqual([
-      ["stream.entry", q.id, null],
-      ["stream.entry", body.reply.id, null],
-      ["stream.entry", q.id, null],
-    ]);
+    // The question updates in place; its delivery record creates no thread row.
+    expect(
+      entryIds(published)
+        .filter(([type]) => type === "stream.entry")
+        .slice(0, 1)
+    ).toEqual([["stream.entry", q.id, null]]);
 
     // Value-less options match on their label; but the question is taken.
     const again = await app.inject({
@@ -1755,7 +1754,7 @@ describe("stream routes with a deliverable engine", () => {
         "Attachments:",
         `- file: /files-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
         "- link: https://example.com/x",
-        `This answers your question ${q.id}. In the thread under ${q.id}.`,
+        `This answers your question ${q.id}.`,
         "--- END DISPATCH POST ---",
       ].join("\n")
     );
@@ -1864,11 +1863,11 @@ describe("stream routes with a deliverable engine", () => {
     expect(row.delivered).toBe(true);
     expect(prompts[0].prompt).toContain("\nName: Ada\nCount: 2\n");
     expect(prompts[0].prompt).toContain(`This answers your form ${f.id}.`);
-    expect(entryIds(published).slice(0, 3)).toEqual([
-      ["stream.entry", f.id, null],
-      ["stream.entry", body.reply.id, null],
-      ["stream.entry", f.id, null],
-    ]);
+    expect(
+      entryIds(published)
+        .filter(([type]) => type === "stream.entry")
+        .slice(0, 1)
+    ).toEqual([["stream.entry", f.id, null]]);
     // Racing submissions leave one reply.
     const g = await form(agentId);
     const results = await Promise.all(

@@ -30,7 +30,6 @@ import {
   ChatFeed,
   type FeedPlace,
   latestAgentBlockId,
-  latestOpenFreeformQuestion,
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
@@ -405,17 +404,6 @@ export const REMEMBER_THROTTLE_MS = 50;
 /** How long the feed must sit still before the final, exact record. */
 export const REMEMBER_SETTLE_MS = 150;
 
-/** First line of a question, plain enough for a one-line chip. */
-export function questionExcerpt(text: string, max = 80): string {
-  const line =
-    text
-      .split("\n")
-      .map((l) => l.replace(/^[#>*\-\s]+/, "").trim())
-      .find((l) => l.length > 0) ?? "";
-  const plain = line.replace(/[*_`]/g, "");
-  return plain.length > max ? `${plain.slice(0, max - 1).trimEnd()}…` : plain;
-}
-
 export function ChatPane({
   agentId,
   agent,
@@ -488,59 +476,9 @@ export function ChatPane({
     [entries, showChildAgents, view]
   );
 
-  // The root's composer can also explicitly answer a child's mirrored ask.
-  // Keep these separate from ownEntries, which governs the page agent's turns.
-  const questionEntries = useMemo(
-    () =>
-      view && view.agentId === view.rootId
-        ? entries.filter(
-            (entry) =>
-              entryOwner(entry, view) === "own" || isUserInputBlock(entry.block)
-          )
-        : ownEntries,
-    [entries, ownEntries, view]
-  );
-
-  // Answering is explicit: an open question never captures a new message.
-  const openQuestion = useMemo(
-    () => latestOpenFreeformQuestion(questionEntries),
-    [questionEntries]
-  );
-  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(
-    null
-  );
-  const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
-    null
-  );
-  const replyTarget = useMemo(
-    () =>
-      answeringQuestionId
-        ? latestOpenFreeformQuestion(questionEntries, answeringQuestionId)
-        : null,
-    [questionEntries, answeringQuestionId]
-  );
-
-  // Structured answers resume work: a main-stream ask resumes the root;
-  // a child's threaded ask resumes its launch-card home. Never use the ask's
-  // storage thread as a guess when the child's launch card is not loaded.
-  const answerRecipientId =
-    replyTarget?.author.kind === "agent" ? replyTarget.author.agentId : agentId;
-  const answerAtChildHome = Boolean(
-    replyTarget &&
-    answerRecipientId !== rootId &&
-    (replyTarget.threadId || answerRecipientId !== agentId)
-  );
-  const childHome = answerAtChildHome
-    ? entries.find(
-        (entry) =>
-          entry.block.kind === "launch" &&
-          entry.block.toAgentId === answerRecipientId
-      )?.block.id
-    : null;
-  const composerConversation =
-    rootId && (!answerAtChildHome || childHome)
-      ? { streamId: rootId, threadId: childHome ?? null }
-      : undefined;
+  const composerConversation = rootId
+    ? { streamId: rootId, threadId: null }
+    : undefined;
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -904,6 +842,27 @@ export function ChatPane({
   const [searchParams] = useSearchParams();
   const jumpToRequest = useJumpToTurn();
   const jumpBlockId = searchParams.get(BLOCK_PARAM);
+  // Header shortcuts and deep links can name a block outside loaded pages.
+  // Seek until it arrives; useBlockJump will scroll once its pinned row mounts.
+  useEffect(() => {
+    if (
+      active &&
+      jumpBlockId &&
+      hasOlder &&
+      !isFetchingOlder &&
+      !feed.error &&
+      !entries.some((entry) => entry.id === jumpBlockId)
+    )
+      fetchOlder();
+  }, [
+    active,
+    jumpBlockId,
+    hasOlder,
+    isFetchingOlder,
+    feed.error,
+    entries,
+    fetchOlder,
+  ]);
   const [contextJumpId, setContextJumpId] = useState<string | null>(null);
   useEffect(() => {
     if (!contextJumpId) return;
@@ -970,9 +929,9 @@ export function ChatPane({
   // the composer itself, so nothing is set here on error. The mutate
   // functions are stable, unlike the mutation result objects, so these
   // callbacks survive the re-renders live stream updates cause.
-  const { mutateAsync: answerAsync, mutate: answerNow } = answer;
+  const { mutate: answerNow } = answer;
   const { mutateAsync: sendAsync } = send;
-  // Only an explicitly selected question receives the composer's answer.
+  // The composer always starts a normal conversation message.
   const onSend = useCallback(
     async (
       text: string,
@@ -981,15 +940,6 @@ export function ChatPane({
     ): Promise<void> => {
       setSendError(null);
       setFollowing(true);
-      if (replyTarget) {
-        await answerAsync({
-          blockId: replyTarget.id,
-          value: text,
-          attachments,
-          ...(options?.delivery ? { delivery: options.delivery } : {}),
-        });
-        return;
-      }
       await sendAsync({
         text,
         attachments,
@@ -997,7 +947,7 @@ export function ChatPane({
         ...(options?.delivery ? { delivery: options.delivery } : {}),
       });
     },
-    [answerAsync, postTo, replyTarget, sendAsync]
+    [postTo, sendAsync]
   );
 
   const uploadFile = useCallback(
@@ -1008,29 +958,19 @@ export function ChatPane({
     [agentId]
   );
 
-  const replyContext = useMemo(
-    () =>
-      replyTarget
-        ? {
-            excerpt: questionExcerpt(replyTarget.text),
-            onDismiss: () => {
-              setDismissedQuestionId(replyTarget.id);
-              setAnsweringQuestionId(null);
-            },
-          }
-        : null,
-    [replyTarget]
-  );
-
   const onAnswer = useCallback(
-    (blockId: string, option: BlockOption) => {
+    (
+      blockId: string,
+      option: BlockOption,
+      attachments?: ChatUserAttachmentInput[]
+    ) => {
       setSendError(null);
-      setFollowing(true);
       answerNow(
         {
           blockId,
           value: option.value ?? option.label,
           label: option.label,
+          ...(attachments?.length ? { attachments } : {}),
         },
         { onError: (err) => setSendError(err.message) }
       );
@@ -1042,7 +982,6 @@ export function ChatPane({
   const onSubmitForm = useCallback(
     (blockId: string, values: Record<string, string | number | boolean>) => {
       setSendError(null);
-      setFollowing(true);
       submitFormNow(
         { blockId, values },
         { onError: (err) => setSendError(err.message) }
@@ -1359,27 +1298,15 @@ export function ChatPane({
               onSend={onSend}
               uploadFile={uploadFile}
               disabledReason={disabledReason}
-              sending={send.isPending || answer.isPending}
+              sending={send.isPending}
               autoFocus={active && !isMobile && !openThreadId}
-              replyContext={replyContext}
-              pendingQuestion={
-                openQuestion &&
-                !replyTarget &&
-                dismissedQuestionId !== openQuestion.id
-                  ? {
-                      excerpt: questionExcerpt(openQuestion.text),
-                      onAnswer: () => setAnsweringQuestionId(openQuestion.id),
-                      onDismiss: () => setDismissedQuestionId(openQuestion.id),
-                    }
-                  : null
-              }
               mentionables={mentionables}
               defaultRecipients={
-                answerRecipientId
+                agentId
                   ? [
                       {
-                        id: answerRecipientId,
-                        name: agentDisplayName(answerRecipientId, ctx),
+                        id: agentId,
+                        name: agentDisplayName(agentId, ctx),
                       },
                     ]
                   : undefined

@@ -1152,7 +1152,10 @@ export class StreamService {
         replyTo: question.id,
         text,
         attachments: resolved,
-        ...(input.delivery ? { data: { delivery: input.delivery } } : {}),
+        data: {
+          inlineAnswer: true,
+          ...(input.delivery ? { delivery: input.delivery } : {}),
+        },
         delivered: live ? null : false,
       };
       const inserted = input.id
@@ -1243,6 +1246,7 @@ export class StreamService {
         toAgentId,
         kind: "text",
         threadId: form.threadId ?? form.id,
+        data: { inlineAnswer: true },
         replyTo: form.id,
         text,
         delivered: live ? null : false,
@@ -2714,6 +2718,14 @@ export class StreamService {
       this.publishChanged(streamId);
       return;
     }
+    if (
+      entry.block.kind === "text" &&
+      entry.block.data?.inlineAnswer &&
+      entry.block.replyTo
+    ) {
+      await this.publishEntry(streamId, entry.block.replyTo);
+      return;
+    }
     compactFeedTurnDetails([entry.block]);
     this.deps.publishUiEvent({
       type: "stream.entry",
@@ -2875,13 +2887,25 @@ export class StreamService {
             }
           : {}),
       };
+      // Both runtime routing and prompt prose must name the resumed conversation.
+      const deliverySource = structuredAnswer
+        ? await this.resolvePromptSource(agentId, source)
+        : source;
+      if (
+        block.kind === "text" &&
+        block.data?.inlineAnswer &&
+        deliverySource.conversation
+      ) {
+        await this.store.update(block.id, {
+          data: {
+            ...block.data,
+            inlineAnswerConversation: deliverySource.conversation,
+          },
+        });
+      }
       const result = this.injectDetached({
         agentId,
-        // Structured answers are stored with the ask but resume its work.
-        // Plain messages explicitly choose the location they were posted in.
-        source: structuredAnswer
-          ? await this.resolvePromptSource(agentId, source)
-          : source,
+        source: deliverySource,
         envelope:
           own.rawPrompt ??
           buildPostEnvelope({
@@ -2889,7 +2913,9 @@ export class StreamService {
             from,
             text: envelopeText(block),
             attachmentLines: own.attachmentLines ?? [],
-            threadId: block.threadId,
+            threadId: structuredAnswer
+              ? (deliverySource.conversation?.threadId ?? null)
+              : block.threadId,
             finding: finding
               ? {
                   id: finding.id,

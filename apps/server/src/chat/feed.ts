@@ -105,6 +105,7 @@ async function listBlockEntries(
               to_char(b.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
          FROM blocks b
         WHERE b.stream_id = $1
+          ${onlyIds === undefined ? "AND COALESCE(b.data->>'inlineAnswer', 'false') <> 'true'" : ""}
           ${scope} ${clause}
         ORDER BY b.created_at DESC, b.id DESC
         LIMIT $${params.length}
@@ -163,12 +164,14 @@ async function listBlockEntries(
                          FROM blocks b
                          JOIN blocks host ON host.id = c.thread_id
                         WHERE b.thread_id = c.thread_id
+                          AND COALESCE(b.data->>'inlineAnswer', 'false') <> 'true'
                           AND NOT (COALESCE(host.state->'blocks', '[]'::jsonb) ? b.id::text)
                         GROUP BY b.author_kind, b.author_agent_id) a) AS repliers
          FROM page p
          -- The blocks a host shows are in its thread but are not replies:
          -- the host draws them, so they are not counted.
          JOIN blocks c ON c.thread_id = p.id
+          AND COALESCE(c.data->>'inlineAnswer', 'false') <> 'true'
           AND NOT (COALESCE(p.state->'blocks', '[]'::jsonb) ? c.id::text)
         GROUP BY c.thread_id
      )
@@ -299,6 +302,33 @@ export async function attachShown(
   isHeld?: (agentId: string) => boolean,
   depth = 0
 ): Promise<void> {
+  // Answers are rendered on their ask, including delivery failures and attachments.
+  const answered = blocks.flatMap((block) => {
+    const id =
+      block.kind === "question"
+        ? block.state?.answer?.blockId
+        : block.kind === "form"
+          ? block.state?.submission?.blockId
+          : undefined;
+    return id ? [{ block, id }] : [];
+  });
+  if (answered.length) {
+    const replies = await listBlockEntries(
+      db,
+      streamId,
+      null,
+      answered.length,
+      answered.map(({ id }) => id)
+    );
+    const replyBlocks = replies.map((row) => row.entry.block);
+    if (isHeld) markHeld(replyBlocks, isHeld);
+    const byId = new Map(replyBlocks.map((block) => [block.id, block]));
+    for (const { block, id } of answered) {
+      const reply = byId.get(id);
+      if (reply?.kind === "text" && reply.data?.inlineAnswer)
+        block.inputReply = reply;
+    }
+  }
   if (depth >= SHOWN_MAX_DEPTH) return;
   const hosts = blocks.filter((block) => shownIdsOf(block).length > 0);
   if (hosts.length === 0) return;

@@ -145,7 +145,11 @@ export type ThreadPanelProps = {
   disabledReason: string | null;
   isMobile: boolean;
   onClose: () => void;
-  onAnswer: (blockId: string, option: BlockOption) => void;
+  onAnswer: (
+    blockId: string,
+    option: BlockOption,
+    attachments?: ChatUserAttachmentInput[]
+  ) => void;
   answeringBlockId: string | null;
   submittingBlockId: string | null;
   /**

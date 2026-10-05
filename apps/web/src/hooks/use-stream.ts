@@ -1101,8 +1101,8 @@ export function answeredOption(
 
 /**
  * Answer a question block. The question's own state shows the answer at
- * once; the user's reply block lives in the question's thread, where the
- * server files it, so the feed itself gains no row.
+ * once. The delivery record is rendered on the question itself, so neither
+ * the feed nor its thread gains a reply row.
  */
 export function useAnswerQuestion(rootId: string | null) {
   const queryClient = useQueryClient();
@@ -1169,12 +1169,14 @@ export function useAnswerQuestion(rootId: string | null) {
     },
     onSuccess: (data) => {
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        bumpReplyCount(replaceBlock(old, data.block.id, data.block), data.reply)
+        syncAcrossStream(
+          replaceBlock(old, data.block.id, data.block),
+          data.block
+        )
       );
-      queryClient.setQueryData<StreamThreadResponse>(
-        threadQueryKey(rootId, data.block.id),
-        (old) => upsertThreadReply(old, data.reply)
-      );
+      void queryClient.invalidateQueries({
+        queryKey: threadQueryKey(rootId, data.block.threadId ?? data.block.id),
+      });
     },
   });
   return useWithMintedId(mutation);
@@ -1235,12 +1237,14 @@ export function useSubmitForm(rootId: string | null) {
     },
     onSuccess: (data) => {
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        bumpReplyCount(replaceBlock(old, data.block.id, data.block), data.reply)
+        syncAcrossStream(
+          replaceBlock(old, data.block.id, data.block),
+          data.block
+        )
       );
-      queryClient.setQueryData<StreamThreadResponse>(
-        threadQueryKey(rootId, data.block.id),
-        (old) => upsertThreadReply(old, data.reply)
-      );
+      void queryClient.invalidateQueries({
+        queryKey: threadQueryKey(rootId, data.block.threadId ?? data.block.id),
+      });
     },
   });
   return useWithMintedId(mutation);

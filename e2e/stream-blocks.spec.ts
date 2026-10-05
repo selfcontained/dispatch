@@ -300,9 +300,7 @@ test.describe("Stream blocks", () => {
     const question = pane.locator(`[data-chat-entry-id="${questionId}"]`);
     await question.getByTestId("chat-ask-cancel").click();
     await expect(question.getByTestId("chat-ask-canceled")).toBeVisible();
-    await expect(
-      question.getByTestId("chat-question-option").first()
-    ).toBeDisabled();
+    await expect(question.getByTestId("chat-question-option")).toHaveCount(0);
     await expect
       .poll(
         async () =>
