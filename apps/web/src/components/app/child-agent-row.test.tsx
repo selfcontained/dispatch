@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgentReviewSummary } from "@dispatch/shared";
 import type { ComponentProps } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -74,6 +75,7 @@ function renderRow(
   agent: Agent,
   overrides: Partial<ComponentProps<typeof ChildAgentRow>> = {}
 ) {
+  const client = new QueryClient();
   const openAgent = vi.fn().mockResolvedValue(undefined);
   const closeAgent = vi.fn();
   const startAgent = vi.fn().mockResolvedValue(undefined);
@@ -85,26 +87,28 @@ function renderRow(
   const buildElement = (
     elementOverrides: Partial<ComponentProps<typeof ChildAgentRow>> = {}
   ) => (
-    <MemoryRouter>
-      <TooltipProvider>
-        <RowLocation />
-        <ChildAgentRow
-          agent={agent}
-          seat={2}
-          state="idle"
-          isInitialReviewActive={true}
-          openAgent={openAgent}
-          closeAgent={closeAgent}
-          startAgent={startAgent}
-          setStopTarget={setStopTarget}
-          setStopConfirmOpen={setStopConfirmOpen}
-          setDeleteTarget={setDeleteTarget}
-          setDeleteConfirmOpen={setDeleteConfirmOpen}
-          onEditSettings={onEditSettings}
-          {...elementOverrides}
-        />
-      </TooltipProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <TooltipProvider>
+          <RowLocation />
+          <ChildAgentRow
+            agent={agent}
+            seat={2}
+            state="idle"
+            isInitialReviewActive={true}
+            openAgent={openAgent}
+            closeAgent={closeAgent}
+            startAgent={startAgent}
+            setStopTarget={setStopTarget}
+            setStopConfirmOpen={setStopConfirmOpen}
+            setDeleteTarget={setDeleteTarget}
+            setDeleteConfirmOpen={setDeleteConfirmOpen}
+            onEditSettings={onEditSettings}
+            {...elementOverrides}
+          />
+        </TooltipProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
   const { rerender } = render(buildElement(overrides));
   return {
@@ -511,28 +515,35 @@ describe("ChildAgentRow running-turn link", () => {
   }
 
   function renderLinkRow(agent: Agent) {
+    const client = new QueryClient();
+    client.setQueryData(
+      ["agents"],
+      [{ id: "agt_parent", parentAgentId: null }, agent]
+    );
     const openAgent = vi.fn().mockResolvedValue(undefined);
     const closeAgent = vi.fn();
     render(
-      <MemoryRouter initialEntries={["/agents/agt_parent"]}>
-        <TooltipProvider>
-          <ChildAgentRow
-            agent={agent}
-            seat={2}
-            state="idle"
-            isInitialReviewActive={false}
-            openAgent={openAgent}
-            closeAgent={closeAgent}
-            startAgent={vi.fn()}
-            setStopTarget={vi.fn()}
-            setStopConfirmOpen={vi.fn()}
-            setDeleteTarget={vi.fn()}
-            setDeleteConfirmOpen={vi.fn()}
-            onEditSettings={vi.fn()}
-          />
-        </TooltipProvider>
-        <LocationProbe />
-      </MemoryRouter>
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/agents/agt_parent"]}>
+          <TooltipProvider>
+            <ChildAgentRow
+              agent={agent}
+              seat={2}
+              state="idle"
+              isInitialReviewActive={false}
+              openAgent={openAgent}
+              closeAgent={closeAgent}
+              startAgent={vi.fn()}
+              setStopTarget={vi.fn()}
+              setStopConfirmOpen={vi.fn()}
+              setDeleteTarget={vi.fn()}
+              setDeleteConfirmOpen={vi.fn()}
+              onEditSettings={vi.fn()}
+            />
+          </TooltipProvider>
+          <LocationProbe />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
     return { openAgent, closeAgent };
   }
@@ -540,7 +551,11 @@ describe("ChildAgentRow running-turn link", () => {
   const working: Agent = {
     ...baseAgent,
     activity: "working",
-    currentTurn: { blockId: "blk_turn", threadId: null },
+    currentTurn: {
+      streamId: "agt_parent",
+      blockId: "blk_turn",
+      threadId: null,
+    },
   };
 
   it("links a reported current step without checking derived activity", () => {
@@ -577,11 +592,33 @@ describe("ChildAgentRow running-turn link", () => {
     turnLabel.value = "bash";
     renderLinkRow({
       ...working,
-      currentTurn: { blockId: "blk_turn", threadId: "blk_launch" },
+      currentTurn: {
+        streamId: "agt_parent",
+        blockId: "blk_turn",
+        threadId: "blk_launch",
+      },
     });
     fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
     expect(screen.getByTestId("location").textContent).toBe(
       "/agents/agt_child?thread=blk_launch&block=blk_turn"
     );
+  });
+
+  it("opens activity in the stream that owns a cross-stream turn", () => {
+    turnLabel.value = "bash";
+    const { openAgent, closeAgent } = renderLinkRow({
+      ...working,
+      currentTurn: {
+        streamId: "agt_other",
+        blockId: "blk_turn",
+        threadId: "blk_foreign_launch",
+      },
+    });
+    fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/agents/agt_other?thread=blk_foreign_launch&block=blk_turn"
+    );
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(closeAgent).not.toHaveBeenCalled();
   });
 });

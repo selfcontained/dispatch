@@ -21,17 +21,22 @@ export const FINDING_PARAM = "finding";
 export const BLOCK_PARAM = "block";
 
 /**
- * Where an agent's running turn is: its own page (a child's page reads its
- * root's stream, filtered to it, so the child's turns are always there),
- * scrolled to the turn's block, with its thread open in the drawer when
- * the turn sits in one.
+ * A turn in the agent's own lineage opens on its page (including a child's
+ * filtered view). A turn in another lineage opens on its owning stream.
+ * Older snapshots without a stream id stay on the working agent's page.
  */
 export function agentTurnLocation(
   agentId: string,
-  turn: { blockId: string; threadId: string | null }
+  turn: { blockId: string; threadId: string | null; streamId?: string },
+  ownStreamId: string = agentId
 ): { pathname: string; search: string } {
   const params = new URLSearchParams();
   if (turn.threadId) params.set(THREAD_PARAM, turn.threadId);
   params.set(BLOCK_PARAM, turn.blockId);
-  return { pathname: agentRoute(agentId), search: `?${params.toString()}` };
+  return {
+    pathname: agentRoute(
+      turn.streamId && turn.streamId !== ownStreamId ? turn.streamId : agentId
+    ),
+    search: `?${params.toString()}`,
+  };
 }

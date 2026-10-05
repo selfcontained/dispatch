@@ -13,7 +13,10 @@ import {
   useRef,
 } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
+import type { Agent } from "@/components/app/types";
+import { rootAgentIdOf } from "@/hooks/use-agent-tree";
 import { agentTurnLocation, BLOCK_PARAM } from "@/lib/agent-routes";
 
 type BlockJumpState = {
@@ -26,10 +29,11 @@ let jumpSeq = 0;
 /** Open an agent's page on its running turn. */
 export function useJumpToTurn(): (
   agentId: string,
-  turn: { blockId: string; threadId: string | null },
+  turn: { blockId: string; threadId: string | null; streamId?: string },
   behavior?: ScrollBehavior
 ) => void {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   return useCallback(
     (agentId, turn, behavior = "auto") => {
       // Unique across reloads too: history state outlives a reload, and a
@@ -39,9 +43,15 @@ export function useJumpToTurn(): (
         blockJump: `${Date.now()}-${jumpSeq}`,
         blockJumpBehavior: behavior,
       };
-      navigate(agentTurnLocation(agentId, turn), { state });
+      // Read the current directory at click time; a child's own stream is
+      // its lineage's root, but its filtered page remains the destination.
+      const ownStreamId = rootAgentIdOf(
+        agentId,
+        queryClient.getQueryData<Agent[]>(["agents"]) ?? []
+      );
+      navigate(agentTurnLocation(agentId, turn, ownStreamId), { state });
     },
-    [navigate]
+    [navigate, queryClient]
   );
 }
 
