@@ -27,6 +27,8 @@ export type RuntimeLaunch = {
   /** The model to select after the session opens; null keeps the engine's default. */
   model: string | null;
   systemPrompt: string | null;
+  /** Persona task context delivered with the first ordinary prompt, including on resume. */
+  personaContext?: string | null;
   mcp: { url: string; token: string };
   /** Environment additions for the engine child (DISPATCH_*, files dir). */
   env: Record<string, string>;

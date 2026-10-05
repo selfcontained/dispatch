@@ -30,9 +30,9 @@ export type DriverLaunch = {
   agentId: string;
   cwd: string;
   engine: EngineSpec;
-  /** The persona, for an engine whose spec says `system_prompt`; null otherwise. */
+  /** Fixed guidance for engines that support a system prompt; null otherwise. */
   systemPromptAppend: string | null;
-  /** Guidance for engines without system-prompt support, once per host start. */
+  /** Task context plus any first-message guidance, once per host start. */
   firstPromptAppend?: string | null;
   mcp: { url: string; token: string };
   /** Resume this ACP session when set; falls back to a new one if the engine lost it. */
@@ -868,7 +868,6 @@ export class AcpDriver {
           ...imageBlocks,
         ],
       });
-      if (guidance) entry.firstPromptAppend = null;
       if (receiptId) {
         this.emit({
           type: "prompt_delivered",
@@ -883,6 +882,9 @@ export class AcpDriver {
       }
       onAccepted?.();
       const res = await Promise.race([dispatched, gone]);
+      // A rejected prompt may never have entered the engine's history. Keep
+      // launch context pending until a prompt succeeds so a retry gets it too.
+      if (guidance) entry.firstPromptAppend = null;
       entry.turnOpen = false;
       await entry.steering.catch(() => {});
       entry.steeringReceipts.clear();

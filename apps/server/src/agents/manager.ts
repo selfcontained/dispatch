@@ -82,6 +82,7 @@ import {
   missingEngineMessage,
 } from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
+import { extractPersonaContext } from "./acp/persona-context.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
   AgentGitContext,
@@ -1848,6 +1849,7 @@ export class AgentManager {
       bins,
       model: agent.model ?? null,
       systemPrompt,
+      personaContext: extractPersonaContext(agent.agentArgs ?? []),
       mcp: {
         url: dispatchMcpUrl(this.config, agent.id, opts.jobRunId),
         token,

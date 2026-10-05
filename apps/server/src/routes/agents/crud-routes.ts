@@ -340,7 +340,7 @@ export async function registerAgentCrudRoutes(
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      return reply.code(201).send({ agent });
+      return reply.code(201).send({ agent: deps.withStreamFlag(agent) });
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }

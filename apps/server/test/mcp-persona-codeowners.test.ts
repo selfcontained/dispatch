@@ -35,10 +35,10 @@ vi.mock("../src/personas/loader.js", () => ({
   loadPersonas: vi.fn(async () => []),
   loadPersonaBySlug: vi.fn(),
   assemblePersonaPrompt: vi.fn(() => "assembled-prompt"),
+  buildStandardFeedbackGuidance: vi.fn(() => "protected-review-guidance"),
+  MAX_PERSONA_PROMPT_BYTES: 64 * 1024,
 }));
-vi.mock("../src/personas/review-diff.js", () => ({
-  buildPersonaReviewDiff: vi.fn(async () => ({ hasChanges: true })),
-}));
+
 vi.mock("../src/agent-type-settings.js", () => ({
   CLI_AGENT_TYPES: ["codex", "claude", "opencode", "cursor"],
   getEnabledAgentTypes: vi.fn(async () => [
@@ -133,9 +133,7 @@ describe("ACP code owner launches", () => {
     expect(resolveBaseRef).toHaveBeenCalledTimes(1);
     expect(assemblePersonaPrompt).toHaveBeenCalledWith(
       expect.objectContaining({ slug: "owner-one" }),
-      expect.stringContaining("Changed routing"),
-      expect.anything(),
-      expect.objectContaining({ parentAgentId: "parent" })
+      expect.stringContaining("Changed routing")
     );
     expect(agentManager.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -189,9 +187,7 @@ describe("ACP code owner launches", () => {
     await handlers.launchOwnerReviews("parent", { context: "Review" });
     expect(assemblePersonaPrompt).toHaveBeenLastCalledWith(
       getBuiltInPersona("code-review"),
-      expect.any(String),
-      expect.anything(),
-      expect.anything()
+      expect.any(String)
     );
     expect(loadPersonaBySlug).not.toHaveBeenCalledWith(
       "/main-checkout",
@@ -201,13 +197,10 @@ describe("ACP code owner launches", () => {
     await handlers.preparePersonaLaunch(parent as any, {
       persona: "code-review",
       context: "Manual review",
-      includeDiff: false,
     });
     expect(assemblePersonaPrompt).toHaveBeenLastCalledWith(
       override,
-      "Manual review",
-      null,
-      expect.anything()
+      "Manual review"
     );
   });
   it("rejects unknown owners before creating any agents", async () => {

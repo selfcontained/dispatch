@@ -1,3 +1,4 @@
+import { preparePersonaContext } from "./persona-context.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import { spawn } from "node:child_process";
 import { existsSync, openSync } from "node:fs";
@@ -724,6 +725,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         model: input.model,
         fullAccess: input.fullAccess ?? true,
         systemPrompt: input.systemPrompt,
+        personaContext: await preparePersonaContext(dir, input.personaContext),
         mcp: input.mcp,
         env: input.env,
         pathPrefix: input.pathPrefix,

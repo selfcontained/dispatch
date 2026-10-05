@@ -82,6 +82,8 @@ describe("POST /api/v1/templates/:id/launch", () => {
       payload: {},
     });
 
-    expect(res.json()).toEqual({ agent: LAUNCHED_AGENT });
+    expect(res.json()).toEqual({
+      agent: { ...LAUNCHED_AGENT, hasStream: true },
+    });
   });
 });

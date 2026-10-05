@@ -209,8 +209,7 @@ export function AgentsContent() {
           A toolbar above the diff carries the two ways to get the work
           reviewed. <strong>Launch personas</strong> starts one or more persona
           agents as children of this agent — pick the personas, agent type and
-          model, add a focus note, and choose whether the briefing includes the
-          current diff (see the Reviewers section).{" "}
+          model, and add a focus note (see the Reviewers section).{" "}
           <strong>Leave a review</strong> enters review mode for a review by
           hand.
         </P>

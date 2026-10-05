@@ -345,7 +345,7 @@ async function handleLaunchAgent(
   if (!parent) throw new Error("Parent agent not found.");
   if (input.persona) {
     // A persona launch is an ordinary child launch with a profile applied:
-    // the persona's instructions ride in the system prompt, the caller's
+    // the persona's instructions ride in the first ACP message, the caller's
     // prompt is its briefing, and it works in the parent's worktree.
     const launched = await createPersonaHandlers({
       pool: deps.pool,
@@ -360,11 +360,12 @@ async function handleLaunchAgent(
         ? { agentType: input.type as (typeof CLI_AGENT_TYPES)[number] }
         : {}),
       ...(input.model ? { model: input.model } : {}),
-      ...(input.includeDiff !== undefined
-        ? { includeDiff: input.includeDiff }
-        : {}),
     });
-    return { agentId: launched.agentId, name: launched.name };
+    return {
+      agentId: launched.agentId,
+      name: launched.name,
+      ...(launched.warnings ? { warnings: launched.warnings } : {}),
+    };
   }
   const child = input.child !== false;
   // Depth cap: the sidebar renders a child as a row inside its parent's card,

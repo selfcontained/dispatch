@@ -249,9 +249,9 @@ describe("code owner routing", () => {
     }));
     await launchOwnerReviewPlan(plan, "Verify the new contract", launch);
     const briefing = launch.mock.calls[0][1];
-    expect(briefing).toContain("more matched paths omitted");
+    expect(briefing).not.toContain("omitted");
+    for (const file of files) expect(briefing).toContain(file);
     expect(briefing).toContain("Verify the new contract");
-    expect(Buffer.byteLength(briefing)).toBeLessThan(2200);
     expect(plan.owners[0].files).toHaveLength(500);
   });
   it("Dispatch's ownership map selects actual subsystem personas", async () => {

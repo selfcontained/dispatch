@@ -1008,6 +1008,30 @@ describe("AgentManager", () => {
         }
       });
 
+      it("keeps persisted persona task context separate on launch and restart", async () => {
+        const context = "Full persona rules\n".repeat(5000) + "FINAL BRIEFING";
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          type: "codex",
+          useWorktree: false,
+          persona: "reviewer",
+          agentArgs: [
+            "--append-system-prompt",
+            "Protected review instructions",
+            "--dispatch-persona-context",
+            context,
+          ],
+        });
+        expect(lastLaunch().personaContext).toBe(context);
+        expect(lastLaunch().systemPrompt).toContain(
+          "Protected review instructions"
+        );
+        expect(lastLaunch().systemPrompt).not.toContain("FINAL BRIEFING");
+        await manager.stopAgent(agent.id);
+        await manager.startAgent(agent.id);
+        expect(lastLaunch().personaContext).toBe(context);
+      });
+
       it("folds an appended system prompt in, ahead of the active personality", async () => {
         await pool.query(
           `INSERT INTO personalities (id, name, prompt) VALUES ('p-formal', 'Formal', 'You are very formal.')

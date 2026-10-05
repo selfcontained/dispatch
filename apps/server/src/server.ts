@@ -1,3 +1,4 @@
+import { agentForClient } from "./server/agent-client-view.js";
 import path from "node:path";
 import { listenAdditionalHosts } from "./multi-listener.js";
 import { watchLocalTls } from "./local-tls.js";
@@ -232,7 +233,7 @@ const staticTheme = createStaticThemeRuntime(embeddedStaticFiles);
 function withStreamFlag<T extends AgentRecord>(
   agent: T
 ): T & { hasStream: boolean } {
-  return { ...agent, hasStream: streamManager.hasStream(agent.id) };
+  return agentForClient(agent, streamManager.hasStream(agent.id));
 }
 
 const serverDir = resolveConfiguredPath(

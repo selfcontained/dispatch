@@ -1,3 +1,4 @@
+import { firstPromptContext } from "../src/agents/acp/persona-context.js";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -86,6 +87,37 @@ describe("AcpDriver", () => {
       }
     }
   );
+  it.each(["claude", "codex", "opencode"] as const)(
+    "%s retries launch context after a rejected first prompt, then consumes it on success",
+    async (engine) => {
+      let attempts = 0;
+      const fake = createFakeAcpAgent({
+        turn: async () => {
+          if (++attempts === 1)
+            throw new Error("adapter rejected first prompt");
+          return "end_turn";
+        },
+      });
+      const { driver } = driverWith(fake);
+      const context = "Complete persona and briefing";
+      await driver.start(launch({ firstPromptAppend: context }, engine));
+      try {
+        await expect(driver.prompt("agt_1", "Begin")).rejects.toThrow(
+          "adapter rejected first prompt"
+        );
+        await driver.prompt("agt_1", "Retry");
+        await driver.prompt("agt_1", "Follow up");
+        expect(fake.seen.prompts).toEqual([
+          `${context}Begin`,
+          `${context}Retry`,
+          "Follow up",
+        ]);
+      } finally {
+        await driver.stop("agt_1");
+      }
+    }
+  );
+
   it.each(["claude", "codex", "opencode"] as const)(
     "%s: auth failures explain CLI login during startup and turns",
     async (engine) => {
@@ -238,6 +270,48 @@ describe("AcpDriver", () => {
         ]);
       } finally {
         await driver.stop("agt_1");
+      }
+    }
+  );
+
+  it.each(["claude", "codex", "opencode"] as const)(
+    "%s delivers the full persona with the first ordinary turn on launch and resume",
+    async (engine) => {
+      for (const sessionId of [null, "existing-session"]) {
+        const fake = createFakeAcpAgent();
+        const { driver } = driverWith(fake);
+        const context = "Persona rule\n".repeat(1000) + "FINAL BRIEFING RULE";
+        const delivery =
+          engine === "claude"
+            ? "system_prompt"
+            : engine === "codex"
+              ? "first_prompt"
+              : "instructions_file";
+        await driver.start(
+          launch(
+            {
+              sessionId,
+              firstPromptAppend: firstPromptContext(
+                delivery,
+                "FIXED GUIDANCE",
+                context
+              ),
+            },
+            engine
+          )
+        );
+        try {
+          expect(fake.seen.prompts).toEqual([]);
+          await driver.prompt("agt_1", "/status");
+          await driver.prompt("agt_1", "Begin now.");
+          await driver.prompt("agt_1", "Follow up.");
+          expect(fake.seen.prompts[0]).toBe("/status");
+          expect(fake.seen.prompts[1]).toContain(context);
+          expect(fake.seen.prompts[1]).toContain("Begin now.");
+          expect(fake.seen.prompts[2]).toBe("Follow up.");
+        } finally {
+          await driver.stop("agt_1");
+        }
       }
     }
   );

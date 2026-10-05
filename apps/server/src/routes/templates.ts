@@ -265,7 +265,7 @@ export async function registerTemplateRoutes(
           type: "agent.upsert",
           agent: deps.withStreamFlag(result.agent),
         });
-        return { agent: result.agent };
+        return { agent: deps.withStreamFlag(result.agent) };
       } catch (error) {
         const message = errorMessage(error);
         return reply.code(classifyErrorCode(message)).send({ error: message });

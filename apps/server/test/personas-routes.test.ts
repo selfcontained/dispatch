@@ -115,12 +115,11 @@ describe("GET /api/v1/personas", () => {
 });
 
 describe("POST /api/v1/agents/:id/launch-persona", () => {
-  it("validates persona, agent type, and includeDiff", async () => {
+  it("validates persona and agent type", async () => {
     const invalidPayloads = [
       { agentType: "codex" },
       { persona: "bad slug!", agentType: "codex" },
       { persona: "security-review", agentType: "invalid" },
-      { persona: "security-review", agentType: "codex", includeDiff: "yes" },
       { personas: [], agentType: "codex" },
       { personas: [], codeowners: false, agentType: "codex" },
       { codeowners: "yes", agentType: "codex" },
@@ -153,7 +152,6 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
       payload: {
         personas: ["security-review", "ux-review", "security-review"],
         agentType: "codex",
-        includeDiff: false,
         note: "  Focus on the auth changes.  ",
       },
     });
@@ -175,7 +173,7 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
       /security-review[\s\S]*security-review[\s\S]*security-review/
     );
     expect(input.text).toContain('type: "codex"');
-    expect(input.text).toContain("includeDiff: false");
+    expect(input.text).not.toContain("includeDiff");
     expect(input.text).toContain("prompt: <your briefing>");
     expect(input.text).toContain("From the user: Focus on the auth changes.");
     expect(input.text).toContain("its reviewer resolves it");
@@ -190,7 +188,6 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
         codeowners: true,
         agentType: "claude",
         model: "opus",
-        includeDiff: false,
       },
     });
     expect(response.statusCode).toBe(200);
@@ -203,8 +200,6 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     );
     expect(input.text).not.toContain('type: "claude", ');
     expect(input.text).not.toContain("launch_agent(");
-    // Owner reviews always carry the change map; the flag only applies to
-    // hand-picked personas.
     expect(input.text).not.toContain("includeDiff");
   });
 

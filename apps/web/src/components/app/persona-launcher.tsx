@@ -61,7 +61,6 @@ export function PersonaLauncher({
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [codeownersSelected, setCodeownersSelected] = useState(false);
   const [note, setNote] = useState("");
-  const [includeDiff, setIncludeDiff] = useState(true);
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
@@ -118,7 +117,6 @@ export function PersonaLauncher({
             personas: selection.personas,
             codeowners: selection.codeowners,
             agentType: selectedAgentType,
-            includeDiff,
             // A stored id the catalog no longer offers means "CLI default",
             // same as the select renders it.
             model: modelOptions.some((option) => option.id === selectedModel)
@@ -165,7 +163,6 @@ export function PersonaLauncher({
     setSelectedPersonas([]);
     setCodeownersSelected(false);
     setNote("");
-    setIncludeDiff(true);
     launchMutation.reset();
     setTypeDropdownOpen(false);
     setDialogOpen(true);
@@ -280,8 +277,6 @@ export function PersonaLauncher({
         setCodeownersSelected={setCodeownersSelected}
         note={note}
         setNote={setNote}
-        includeDiff={includeDiff}
-        setIncludeDiff={setIncludeDiff}
         launchError={launchErrorMessage}
         isLaunching={launchMutation.isPending}
         onResetLaunchError={() => launchMutation.reset()}

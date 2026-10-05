@@ -55,7 +55,12 @@ export type OwnerReviewPlan = {
   uncoveredFiles: string[];
 };
 export type OwnerReviewResult = OwnerReviewPlan & {
-  launched: Array<{ persona: string; agentId: string; files: string[] }>;
+  launched: Array<{
+    persona: string;
+    agentId: string;
+    files: string[];
+    warnings?: string[];
+  }>;
   failures: Array<{ persona: string; error: string; files: string[] }>;
 };
 
@@ -185,33 +190,25 @@ export async function collectOwnerReviewFiles(
 export async function launchOwnerReviewPlan(
   plan: OwnerReviewPlan,
   context: string,
-  launch: (persona: string, context: string) => Promise<{ agentId: string }>
+  launch: (
+    persona: string,
+    context: string
+  ) => Promise<{ agentId: string; warnings?: string[] }>
 ): Promise<OwnerReviewResult> {
   const result: OwnerReviewResult = { ...plan, launched: [], failures: [] };
   // Launch sequentially to preserve normal lifecycle ordering. Review agents
   // run concurrently once started. A failure must not hide successful launches.
   for (const owner of plan.owners) {
     try {
-      // Keep the ownership list from consuming the launch prompt's 8KB
-      // budget and crowding out the caller's briefing on large changes.
-      const shown: string[] = [];
-      let usedBytes = 0;
-      for (const file of owner.files) {
-        const line = JSON.stringify(file);
-        const bytes = Buffer.byteLength(line, "utf8") + 1;
-        if (shown.length >= 30 || usedBytes + bytes > 1200) break;
-        shown.push(line);
-        usedBytes += bytes;
-      }
-      const omitted = owner.files.length - shown.length;
-      const scope =
-        shown.join("\n") +
-        (omitted
-          ? `\n[${omitted} more matched paths omitted. Read .dispatch/codeowners.json and enumerate the changed paths with git to inspect the full ownership scope.]`
-          : "");
+      // The launch transport handles overflow losslessly, including ownership scope.
+      const scope = owner.files.map((file) => JSON.stringify(file)).join("\n");
       const briefing = `## Code ownership scope\nYou were selected as ${owner.persona}. The review base is ${plan.baseRef}. Paths are repository-relative; inspect them from the repository root. Review these changes and their effects on your subsystem. Read related code and changed contracts as needed; only report defects introduced or worsened by this change.\n\nMatched changed paths:\n${scope}\n\n## Change briefing\n${context}`;
       const launched = await launch(owner.persona, briefing);
-      result.launched.push({ ...owner, agentId: launched.agentId });
+      result.launched.push({
+        ...owner,
+        agentId: launched.agentId,
+        ...(launched.warnings ? { warnings: launched.warnings } : {}),
+      });
     } catch (error) {
       result.failures.push({
         ...owner,

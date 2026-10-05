@@ -67,10 +67,11 @@ finds defects from one that returns a summary. Include:
   shared helper now owns. A briefing that only describes the change gets a
   summary back; one that poses questions gets findings.
 
-Set `includeDiff: false` only for non-code reviews (a plan, a document, images)
-where a code change is not the review target. When it is on, the reviewer gets a
-file-level map of the change and the git commands to read it — never the diff
-itself, since it is already in the worktree.
+Reviewers inspect the target described by the persona and briefing themselves.
+For code-change reviews, include the relevant base branch and scope so they can
+read local diffs. Code owner reviews also receive their matched files and review
+base automatically. For reviews of a plan, document, or images, identify that
+material as the target; no diff option is needed.
 
 ## Working the review
 

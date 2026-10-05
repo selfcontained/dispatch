@@ -1,3 +1,4 @@
+import { firstPromptContext } from "../persona-context.js";
 import type { PromptSource } from "../prompt-source.js";
 /**
  * `dispatch agent-host --state <dir>`: the process that owns one agent's
@@ -455,8 +456,11 @@ async function main(): Promise<void> {
       engine: spec,
       systemPromptAppend:
         spec.personaDelivery === "system_prompt" ? launch.systemPrompt : null,
-      firstPromptAppend:
-        spec.personaDelivery === "first_prompt" ? launch.systemPrompt : null,
+      firstPromptAppend: firstPromptContext(
+        spec.personaDelivery,
+        launch.systemPrompt,
+        launch.personaContext
+      ),
       mcp: launch.mcp,
       sessionId: resume,
       env:
