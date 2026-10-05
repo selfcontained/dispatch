@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import type { Block } from "@dispatch/shared";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,6 +30,11 @@ import {
   summarySentence,
   TasksBlockBody,
 } from "./block-bodies";
+
+vi.mock("@/lib/file-upload", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/file-upload")>()),
+  uploadAgentFile: vi.fn(async () => ({ id: 42, fileName: "uploaded.txt" })),
+}));
 
 vi.mock("@/components/ui/markdown", () => ({
   Markdown: ({ children }: { children: string }) => (
@@ -63,7 +74,111 @@ describe("QuestionOptions", () => {
         : {}),
     }) as Extract<Block, { kind: "question" }>;
 
-  it("offers a modest cancel action while the user-addressed ask is open", () => {
+  it("restores an unmounted freeform draft and clears it when answered", async () => {
+    const q = {
+      ...question(),
+      id: "persisted-draft",
+      data: { ...question().data, allowFreeform: true },
+    };
+    const props = {
+      block: q,
+      answering: false,
+      answersDisabled: false,
+      onAnswer: vi.fn(),
+    };
+    const view = render(<QuestionOptions {...props} />);
+    fireEvent.click(screen.getByTestId("chat-question-write"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer" }), {
+      target: { value: "First line\nSecond line" },
+    });
+    view.unmount();
+    const again = render(<QuestionOptions {...props} />);
+    fireEvent.click(screen.getByTestId("chat-question-write"));
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Your answer",
+        }) as HTMLTextAreaElement
+      ).value
+    ).toBe("First line\nSecond line");
+    again.rerender(
+      <QuestionOptions
+        {...props}
+        block={{
+          ...q,
+          state: {
+            answer: {
+              value: "Yes",
+              by: { kind: "user" },
+              at: new Date().toISOString(),
+              blockId: "reply",
+            },
+          },
+        }}
+      />
+    );
+    await waitFor(() =>
+      expect(
+        JSON.parse(
+          localStorage.getItem(
+            `dispatch:questionDraft:${q.streamId}:${q.id}`
+          ) ?? "{}"
+        )
+      ).toEqual({ text: "", files: [] })
+    );
+  });
+
+  it("attaches pasted files to the answer and retains the draft after an upload error", async () => {
+    const { uploadAgentFile } = await import("@/lib/file-upload");
+    vi.mocked(uploadAgentFile).mockRejectedValueOnce(
+      new Error("Upload unavailable")
+    );
+    const q = {
+      ...question(),
+      id: "paste-draft",
+      data: { ...question().data, allowFreeform: true },
+    };
+    const onAnswer = vi.fn();
+    render(
+      <QuestionOptions
+        block={q}
+        answering={false}
+        answersDisabled={false}
+        onAnswer={onAnswer}
+      />
+    );
+    fireEvent.click(screen.getByTestId("chat-question-write"));
+    const input = screen.getByRole("textbox", { name: "Your answer" });
+    fireEvent.change(input, { target: { value: "The failing log" } });
+    const paste = () =>
+      fireEvent.paste(input, {
+        clipboardData: {
+          items: [
+            {
+              kind: "file",
+              getAsFile: () =>
+                new File(["failure"], "failure.txt", { type: "text/plain" }),
+            },
+          ],
+        },
+      });
+    paste();
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Upload unavailable"
+      )
+    );
+    expect((input as HTMLTextAreaElement).value).toBe("The failing log");
+    paste();
+    await screen.findByRole("button", { name: "Remove failure.txt" });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onAnswer).toHaveBeenCalledWith(
+      { value: "The failing log", label: "The failing log" },
+      [{ type: "file", fileId: 42 }]
+    );
+  });
+
+  it("keeps cancellation directly visible alongside the choices", async () => {
     const onCancel = vi.fn();
     render(
       <QuestionOptions
@@ -74,11 +189,11 @@ describe("QuestionOptions", () => {
         onCancel={onCancel}
       />
     );
-    fireEvent.click(screen.getByTestId("chat-ask-cancel"));
+    fireEvent.click(await screen.findByTestId("chat-ask-cancel"));
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it("keeps a canceled question visible with every choice disabled", () => {
+  it("keeps a canceled question visible without stale controls", () => {
     render(
       <QuestionOptions
         block={question(true)}
@@ -92,11 +207,7 @@ describe("QuestionOptions", () => {
       "Canceled · No longer needed"
     );
     expect(screen.queryByTestId("chat-ask-cancel")).toBeNull();
-    expect(
-      screen
-        .getAllByTestId("chat-question-option")
-        .every((option) => (option as HTMLButtonElement).disabled)
-    ).toBe(true);
+    expect(screen.queryAllByTestId("chat-question-option")).toHaveLength(0);
   });
 });
 

@@ -1934,44 +1934,33 @@ describe("StreamService.answerQuestion", () => {
       blockId: res.reply.id,
       at: expect.any(String),
     });
-    // The answered question, then the reply (a thread block, filed into
-    // the thread by the client), then the question again as the thread's
-    // root with its reply count.
-    expect(events.slice(0, 3)).toEqual([
-      expect.objectContaining({
-        type: "stream.entry",
-        entry: expect.objectContaining({
-          id: q.id,
-          block: expect.objectContaining({ state: res.block.state }),
-        }),
-      }),
-      expect.objectContaining({
-        type: "stream.entry",
-        entry: expect.objectContaining({ id: res.reply.id }),
-      }),
-      expect.objectContaining({
-        type: "stream.entry",
-        entry: expect.objectContaining({
-          id: q.id,
-          block: expect.objectContaining({ replyCount: 1 }),
-        }),
-      }),
-    ]);
+    // Only the question is visible; the answer record is retained for delivery.
+    expect([
+      ...new Set(
+        events
+          .filter((event) => event.type === "stream.entry")
+          .map((event) => event.entry.id)
+      ),
+    ]).toEqual([q.id]);
+    expect((await svc.store.listThread(q.id))?.replies).toHaveLength(0);
+    expect(res.reply.kind === "text" && res.reply.data?.inlineAnswer).toBe(
+      true
+    );
     expect((await settled(svc, res.reply.id)).delivered).toBe(true);
     expect(injected[0]?.text).toBe(
       [
         `--- DISPATCH POST (id: ${res.reply.id}, from: user) ---`,
         "Yes",
-        `This answers your question ${q.id}. In the thread under ${q.id}.`,
+        `This answers your question ${q.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in this thread as you write it. Use post only for a question with options, a file, a link, or to reach another agent (with replyTo: "${q.id}" to keep it in this thread).`,
+        `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.`,
       ].join("\n")
     );
     // Value-less options match on their label; but the question is taken.
     await expect(
       svc.answerQuestion(A, q.id, { value: "No" })
     ).rejects.toBeInstanceOf(StreamConflictError);
-    expect((await svc.store.listThread(q.id))?.replies).toHaveLength(1);
+    expect((await svc.store.listThread(q.id))?.replies).toHaveLength(0);
   });
 
   it("maps missing, foreign, non-question, and bad values to domain errors", async () => {
@@ -2071,7 +2060,7 @@ describe("StreamService.answerQuestion", () => {
         "Attachments:",
         "- file: /files-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
         "- link: https://example.com/spec — Spec",
-        `This answers your question ${q.id}. In the thread under ${q.id}.`,
+        `This answers your question ${q.id}.`,
         "--- END DISPATCH POST ---",
       ].join("\n")
     );
@@ -2193,17 +2182,22 @@ describe("StreamService.submitForm", () => {
       blockId: res.reply.id,
       at: expect.any(String),
     });
-    expect(
-      events.map((e) => (e as { entry: { id: string } }).entry.id)
-    ).toEqual([form.id, res.reply.id, form.id]);
+    expect([
+      ...new Set(
+        events
+          .filter((event) => event.type === "stream.entry")
+          .map((event) => event.entry.id)
+      ),
+    ]).toEqual([form.id]);
+    expect((await svc.store.listThread(form.id))?.replies).toHaveLength(0);
     expect((await settled(svc, res.reply.id)).delivered).toBe(true);
     expect(injected[0]?.text).toBe(
       [
         `--- DISPATCH POST (id: ${res.reply.id}, from: user) ---`,
         "Name: Ada\nCount: 2\nReady: true",
-        `This answers your form ${form.id}. In the thread under ${form.id}.`,
+        `This answers your form ${form.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in this thread as you write it. Use post only for a question with options, a file, a link, or to reach another agent (with replyTo: "${form.id}" to keep it in this thread).`,
+        `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.`,
       ].join("\n")
     );
     await expect(
@@ -2580,8 +2574,8 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
     // Exactly one of answer/cancellation won; never both.
     expect(Boolean(state?.answer) !== Boolean(state?.cancellation)).toBe(true);
     const thread = await svc.store.listThread(q.id);
-    // The winning side left exactly one reply/note in the thread.
-    expect(thread?.replies).toHaveLength(1);
+    // Answers are inline; cancellation notes remain in the thread.
+    expect(thread?.replies).toHaveLength(state?.answer ? 0 : 1);
   });
 });
 
@@ -5475,6 +5469,15 @@ describe("StreamService.retryDelivery", () => {
     });
     const reply = await settled(failing, answered.reply.id);
     expect(reply.delivered).toBe(false);
+    const failedFeed = await failing.feed(A);
+    expect(
+      failedFeed.entries.find((entry) => entry.id === asked.id)?.block
+        .inputReply
+    ).toMatchObject({
+      id: reply.id,
+      delivered: false,
+    });
+    expect((await failing.store.listThread(asked.id))?.replies).toHaveLength(0);
 
     const { svc, injected } = build();
     await svc.retryDelivery(A, reply.id);
@@ -5483,6 +5486,14 @@ describe("StreamService.retryDelivery", () => {
     expect(injected[0]!.text).toContain(
       `This answers your question ${asked.id}.`
     );
+    expect(injected[0]!.text).not.toContain("In the thread under");
+    expect(
+      (await svc.feed(A)).entries.find((entry) => entry.id === asked.id)?.block
+        .inputReply
+    ).toMatchObject({
+      id: reply.id,
+      delivered: true,
+    });
   });
 
   it("rebuilds the cancellation envelope, so the agent still learns its ask was dismissed", async () => {
@@ -6479,6 +6490,11 @@ describe("steering response boundaries", () => {
       await service.waitForInFlightDeliveries(1000);
       const resolved = built.injectedOpts[0]!.source!;
       expect(resolved.conversation).toEqual({ streamId: A, threadId: null });
+      expect(
+        (await service.store.getById(answer.reply.id))?.data
+      ).toMatchObject({
+        inlineAnswerConversation: resolved.conversation,
+      });
       await rec.handle({
         type: "steered",
         agentId: A,

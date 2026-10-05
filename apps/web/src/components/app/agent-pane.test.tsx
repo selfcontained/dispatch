@@ -32,6 +32,7 @@ vi.mock("framer-motion", async (importOriginal) => {
 // so the pane's hosting decisions — what is mounted, hidden, active — can
 // be read straight off the DOM.
 vi.mock("@/hooks/use-stream", () => ({
+  useStreamFeedSelect: () => ({ data: [] }),
   useStreamFeed: () => ({
     entries: [],
     unreadCount: 0,

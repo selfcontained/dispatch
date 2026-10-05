@@ -484,6 +484,35 @@ export const chatDraftAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
+/** Inline answers keep uploaded file IDs as well as text across row unmounts. */
+export type QuestionDraft = {
+  text: string;
+  files: { id: number; name: string }[];
+};
+export const EMPTY_QUESTION_DRAFT: QuestionDraft = { text: "", files: [] };
+export const questionDraftAtomFamily = atomFamily((key: string) =>
+  atomWithLocalStorage<QuestionDraft>(
+    `dispatch:questionDraft:${key}`,
+    EMPTY_QUESTION_DRAFT,
+    {
+      validate: (value): value is QuestionDraft => {
+        if (!value || typeof value !== "object") return false;
+        const draft = value as QuestionDraft;
+        return (
+          typeof draft.text === "string" &&
+          Array.isArray(draft.files) &&
+          draft.files.every(
+            (file) =>
+              file &&
+              Number.isSafeInteger(file.id) &&
+              typeof file.name === "string"
+          )
+        );
+      },
+    }
+  )
+);
+
 /** Write-ahead post copies; null retains an already-recovered notice. */
 export type PendingChatDrafts = Record<string, ChatComposerDraft | null>;
 export const CHAT_PENDING_DRAFT_STORAGE_PREFIX = "dispatch:chatPendingDrafts:";

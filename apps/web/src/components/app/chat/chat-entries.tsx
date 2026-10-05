@@ -10,6 +10,7 @@ import {
   type BlockAuthor,
   type BlockStartup,
   type BlockOption,
+  type ChatUserAttachmentInput,
   fileMedia,
 } from "@dispatch/shared";
 import {
@@ -889,6 +890,38 @@ function ReplierFace({
   );
 }
 
+/** Keep a request's words and controls together, retaining a quiet receipt rail. */
+function InputSurface({
+  block,
+  children,
+}: {
+  block: Block;
+  children: ReactNode;
+}): JSX.Element {
+  if (block.kind !== "question" && block.kind !== "form")
+    return <>{children}</>;
+  const resolved = Boolean(
+    block.state?.cancellation ||
+    (block.kind === "question"
+      ? block.state?.answer !== undefined
+      : block.state?.submission !== undefined)
+  );
+  return (
+    <div
+      data-testid="chat-input-surface"
+      data-state={resolved ? "resolved" : "open"}
+      className={cn(
+        "min-w-0 rounded-r-md border-l-[3px] px-3 py-2",
+        resolved
+          ? "border-border bg-transparent"
+          : "border-primary bg-primary/5"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 /**
  * A block's body by kind, under its text. `text` and `file` have nothing
  * past the text and the attachments; every other kind hangs its own view.
@@ -911,7 +944,11 @@ function BlockBody({
   answering: boolean;
   answersDisabled: boolean;
   submitting: boolean;
-  onAnswer: (blockId: string, option: BlockOption) => void;
+  onAnswer: (
+    blockId: string,
+    option: BlockOption,
+    attachments?: ChatUserAttachmentInput[]
+  ) => void;
   inThread: boolean;
   threadRootId: string;
   highlightFindingId: string | null;
@@ -932,7 +969,9 @@ function BlockBody({
           answering={answering}
           answersDisabled={answersDisabled}
           canceling={ctx.settingBlockStateId === block.id}
-          onAnswer={(option) => onAnswer(block.id, option)}
+          onAnswer={(option, attachments) =>
+            onAnswer(block.id, option, attachments)
+          }
           onCancel={cancelAsk}
         />
       );
@@ -1016,7 +1055,11 @@ function ShownBlocks({
   threadRootId: string;
   highlightFindingId: string | null;
   answersDisabled: boolean;
-  onAnswer: (blockId: string, option: BlockOption) => void;
+  onAnswer: (
+    blockId: string,
+    option: BlockOption,
+    attachments?: ChatUserAttachmentInput[]
+  ) => void;
 }): JSX.Element | null {
   // A review's body is the list of its findings: it draws what it shows.
   if (block.kind === "review") return null;
@@ -1033,18 +1076,20 @@ function ShownBlocks({
         >
           {/* The shown block's own content, all of it: its words, its kind's
               body, its attachments, and the blocks it shows in turn. */}
-          {item.text ? <Markdown>{item.text}</Markdown> : null}
-          <BlockBody
-            block={item}
-            ctx={ctx}
-            answering={false}
-            answersDisabled={answersDisabled}
-            submitting={false}
-            onAnswer={onAnswer}
-            inThread={inThread}
-            threadRootId={threadRootId}
-            highlightFindingId={highlightFindingId}
-          />
+          <InputSurface block={item}>
+            {item.text ? <Markdown>{item.text}</Markdown> : null}
+            <BlockBody
+              block={item}
+              ctx={ctx}
+              answering={false}
+              answersDisabled={answersDisabled}
+              submitting={false}
+              onAnswer={onAnswer}
+              inThread={inThread}
+              threadRootId={threadRootId}
+              highlightFindingId={highlightFindingId}
+            />
+          </InputSurface>
           <AttachmentList block={item} ctx={ctx} />
           <ShownBlocks
             block={item}
@@ -1072,7 +1117,11 @@ export type BlockViewProps = {
   submitting?: boolean;
   /** Answers go through the same delivery as the composer; lock them together. */
   answersDisabled?: boolean;
-  onAnswer: (blockId: string, option: BlockOption) => void;
+  onAnswer: (
+    blockId: string,
+    option: BlockOption,
+    attachments?: ChatUserAttachmentInput[]
+  ) => void;
   /** Inside a thread page: no reply line, no thread to open. */
   inThread?: boolean;
   /** The thread page this is drawn on, when it is one. */
@@ -1358,6 +1407,42 @@ export const BlockView = memo(function BlockView({
         threadRootId={threadRootId}
         highlightFindingId={highlightFindingId}
       />
+      {block.inputReply ? (
+        <>
+          <AttachmentList block={block.inputReply} ctx={ctx} />
+          <DeliveryMeta
+            block={block.inputReply}
+            recipientName={(id) => agentDisplayName(id, ctx)}
+            retrying={ctx.retrying?.has(block.inputReply.id)}
+            onRetryDelivery={ctx.onRetryDelivery}
+          />
+          {block.inputReply.delivered === null &&
+          block.inputReply.delivery?.some((entry) => entry.state === "held") ? (
+            <QueuedMessageActions
+              agentId={block.inputReply.streamId}
+              messageId={block.inputReply.id}
+              recipientIds={block.inputReply.delivery
+                .filter((entry) => entry.state === "held")
+                .map((entry) => entry.agentId)}
+              threadId={
+                block.inputReply.kind === "text"
+                  ? block.inputReply.data?.inlineAnswerConversation?.threadId
+                  : undefined
+              }
+              requiresNextTurn={block.inputReply.attachments.some(
+                (attachment) =>
+                  attachment.type === "file" &&
+                  fileMedia(attachment.mimeType) === "image"
+              )}
+              canSendNow={
+                block.inputReply.kind === "text" &&
+                !!block.inputReply.data?.inlineAnswerConversation &&
+                block.inputReply.data?.delivery !== "interrupt"
+              }
+            />
+          ) : null}
+        </>
+      ) : null}
       <ShownBlocks
         block={block}
         ctx={ctx}
@@ -1548,20 +1633,27 @@ export const BlockView = memo(function BlockView({
           multiple={block.data.responseTo.length > 1}
         />
       ) : null}
-      {block.turn ? (
-        <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />
-      ) : block.text && block.kind !== "launch" ? (
-        <Markdown
-          renderText={(text) => (
-            <MentionText
-              spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
-            />
-          )}
-        >
-          {block.text}
-        </Markdown>
-      ) : null}
-      {body}
+      <InputSurface block={block}>
+        {block.turn ? (
+          <TurnAnswer
+            block={block}
+            turn={block.turn}
+            ctx={ctx}
+            folded={folded}
+          />
+        ) : block.text && block.kind !== "launch" ? (
+          <Markdown
+            renderText={(text) => (
+              <MentionText
+                spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
+              />
+            )}
+          >
+            {block.text}
+          </Markdown>
+        ) : null}
+        {body}
+      </InputSurface>
       <AttachmentList block={block} ctx={ctx} />
       {block.kind === "launch" ? null : (
         <DeliveryMeta

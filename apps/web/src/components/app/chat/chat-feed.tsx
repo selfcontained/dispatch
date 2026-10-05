@@ -6,7 +6,12 @@ import {
   useMemo,
   useRef,
 } from "react";
-import type { Block, BlockOption, StreamEntry } from "@dispatch/shared";
+import type {
+  Block,
+  BlockOption,
+  StreamEntry,
+  ChatUserAttachmentInput,
+} from "@dispatch/shared";
 
 import {
   blockAuthor,
@@ -368,7 +373,11 @@ export type ChatFeedProps = {
   submittingBlockId?: string | null;
   /** Answers go through the same delivery as the composer; lock them together. */
   answersDisabled?: boolean;
-  onAnswer: (blockId: string, option: BlockOption) => void;
+  onAnswer: (
+    blockId: string,
+    option: BlockOption,
+    attachments?: ChatUserAttachmentInput[]
+  ) => void;
   /**
    * The pane's scroller. Given, only the rows near the view render (see
    * useWindowedRows); without it every row does.

@@ -5,9 +5,10 @@
  * kind needs, and reads nothing else from the feed. Composed into posts by
  * chat-entries.tsx.
  */
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useId, useRef, useState, useEffect } from "react";
 import type {
   Block,
+  ChatUserAttachmentInput,
   BlockFindingData,
   BlockFindingPatch,
   BlockFindingState,
@@ -17,19 +18,28 @@ import type {
   BlockReviewStatus,
   BlockTaskStatus,
 } from "@dispatch/shared";
-import { reviewFindings, reviewStatus } from "@dispatch/shared";
+import {
+  CHAT_ATTACHMENTS_MAX,
+  reviewFindings,
+  reviewStatus,
+} from "@dispatch/shared";
 import {
   Check,
+  Paperclip,
   ChevronRight,
   CircleDot,
-  ClipboardList,
-  MessageCircleQuestion,
+  ChevronLeft,
   ExternalLink,
   Link2,
   RotateCcw,
   XCircle,
 } from "lucide-react";
 
+import { useAtom } from "jotai";
+import { questionDraftAtomFamily, EMPTY_QUESTION_DRAFT } from "@/lib/store";
+import { uploadAgentFile, STARTUP_FILE_ACCEPT } from "@/lib/file-upload";
+import { getClipboardFilesFromEvent } from "@/components/app/create-agent-dialog-clipboard";
+import { ContextChip } from "@/components/app/context-picker-items";
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { Badge } from "@/components/ui/badge";
@@ -84,17 +94,10 @@ function useOpened(
 // Questions
 // ---------------------------------------------------------------------------
 
-/**
- * A question or form is an ask of the person. It wears the theme's accent
- * on a rail down its left edge and a faint wash, the same accent its
- * buttons carry, rather than a warning colour: it is an invitation, not
- * an alarm. Answered, the rail and the wash go quiet.
- */
-const ASK_CARD = "mt-2 rounded-md border border-l-[3px] p-3 transition-colors";
-const ASK_OPEN = "border-border/70 border-l-primary bg-primary/[0.05]";
-const ASK_CLOSED = "border-border border-l-border bg-muted/30";
-const ASK_HEAD =
-  "mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-primary";
+/** Compact choices share one action strip with freeform and cancellation. */
+const ASK_CHOICE =
+  "h-auto min-h-7 max-w-full rounded-full border border-primary/40 bg-primary/20 text-primary px-2 py-1 text-[11px] leading-4 whitespace-normal break-words shadow-none backdrop-blur-none hover:border-primary/60 hover:bg-primary/30 hover:text-primary";
+const ASK_ACTION = "h-7 rounded-full px-2 text-[11px] leading-4 shadow-none";
 
 type AskCancellation = {
   by?: unknown;
@@ -129,7 +132,9 @@ function CanceledAskStatus({
 function CancelAskButton({
   disabled,
   onCancel,
+  label = "Cancel",
 }: {
+  label?: string;
   disabled: boolean;
   onCancel?: () => void;
 }): JSX.Element | null {
@@ -139,12 +144,12 @@ function CancelAskButton({
       type="button"
       size="sm"
       variant="ghost"
-      className="h-7 px-2 text-xs max-sm:h-auto max-sm:min-h-11 max-sm:py-2 [@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:py-2"
+      className={ASK_ACTION}
       disabled={disabled}
       data-testid="chat-ask-cancel"
       onClick={onCancel}
     >
-      Cancel
+      {label}
     </Button>
   );
 }
@@ -164,80 +169,281 @@ export function QuestionOptions({
   answersDisabled: boolean;
   /** This ask's cancellation is in flight. */
   canceling?: boolean;
-  onAnswer: (option: BlockOption) => void;
+  onAnswer: (
+    option: BlockOption,
+    attachments?: ChatUserAttachmentInput[]
+  ) => void;
   /** Closes an ask the person no longer needs to answer. */
   onCancel?: () => void;
 }): JSX.Element {
+  const [writing, setWriting] = useState(false);
+  const [draft, setDraft] = useAtom(
+    questionDraftAtomFamily(`${block.streamId}:${block.id}`)
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadingRef = useRef(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const choiceRef = useRef<HTMLButtonElement>(null);
   const answer = block.state?.answer;
   const cancellation = askCancellation(block);
   const open = answer === undefined && cancellation === undefined;
-  const optionsDisabled = !open || answering || answersDisabled;
+  const optionsDisabled =
+    !open || answering || answersDisabled || canceling || uploading;
+  useEffect(() => {
+    if (!open && !answering && !canceling && (draft.text || draft.files.length))
+      setDraft(EMPTY_QUESTION_DRAFT);
+  }, [open, answering, canceling, draft, setDraft]);
+
+  const attachFiles = async (files: File[]) => {
+    if (
+      optionsDisabled ||
+      uploadingRef.current ||
+      !files.length ||
+      block.author.kind !== "agent"
+    )
+      return;
+    if (draft.files.length + files.length > CHAT_ATTACHMENTS_MAX) {
+      setUploadError(`Up to ${CHAT_ATTACHMENTS_MAX} attachments per answer.`);
+      return;
+    }
+    uploadingRef.current = true;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      for (const file of files) {
+        const uploaded = await uploadAgentFile(block.author.agentId, file, {
+          source: "user",
+          inject: false,
+        });
+        setDraft((current) => ({
+          ...current,
+          files: [...current.files, { id: uploaded.id, name: file.name }],
+        }));
+      }
+    } catch (error) {
+      setUploadError(
+        error instanceof Error
+          ? error.message
+          : "Upload failed. Please try attaching the file again."
+      );
+    } finally {
+      uploadingRef.current = false;
+      setUploading(false);
+    }
+  };
+  const backToChoices = () => {
+    setWriting(false);
+    requestAnimationFrame(() => choiceRef.current?.focus());
+  };
   return (
-    <div
-      className={cn(ASK_CARD, open ? ASK_OPEN : ASK_CLOSED)}
-      data-testid="chat-question-options"
-    >
-      {open ? (
-        <div className={ASK_HEAD} data-testid="chat-needs-reply">
-          <MessageCircleQuestion className="h-3.5 w-3.5" aria-hidden="true" />
-          Needs your reply
-        </div>
-      ) : cancellation ? (
-        <CanceledAskStatus cancellation={cancellation} />
+    <div className="mt-2" data-testid="chat-question-options">
+      {!open ? (
+        cancellation ? (
+          <CanceledAskStatus cancellation={cancellation} />
+        ) : (
+          <div
+            className="flex items-start gap-1.5 text-xs"
+            data-testid="chat-question-answer"
+            role="status"
+          >
+            <Check className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
+            <span className="shrink-0 text-muted-foreground">Answered ·</span>
+            <span className="min-w-0 whitespace-pre-wrap break-words">
+              {block.data.options.find(
+                (option) => (option.value ?? option.label) === answer!.value
+              )?.label ?? answer!.value}
+            </span>
+          </div>
+        )
       ) : (
-        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-          <Check className="h-3 w-3" />
-          Answered
-          <span className="truncate">· {answer!.label ?? answer!.value}</span>
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-1.5"
+          data-testid="chat-needs-reply"
+          role="group"
+          aria-label="Answer this question"
+        >
+          {writing ? (
+            <form
+              className="flex w-full min-w-0 max-w-xl flex-col gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (
+                  !optionsDisabled &&
+                  (draft.text.trim() || draft.files.length)
+                ) {
+                  const text =
+                    draft.text.trim() ||
+                    `Attached: ${draft.files.map((file) => file.name).join(", ")}`;
+                  onAnswer(
+                    { value: text, label: text },
+                    draft.files.map((file) => ({
+                      type: "file",
+                      fileId: file.id,
+                    }))
+                  );
+                }
+              }}
+            >
+              <Textarea
+                rows={3}
+                autoFocus
+                aria-label="Your answer"
+                maxLength={20000}
+                placeholder="Your answer…"
+                value={draft.text}
+                className="min-h-24 resize-y border-primary/40 bg-background/60 text-sm shadow-none focus-visible:ring-primary/50"
+                disabled={optionsDisabled}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    text: event.target.value,
+                  }))
+                }
+                onPaste={(event) => {
+                  const files = getClipboardFilesFromEvent(event);
+                  if (files.length) {
+                    event.preventDefault();
+                    void attachFiles(files);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    backToChoices();
+                  }
+                }}
+              />
+              {draft.files.length ? (
+                <fieldset
+                  disabled={optionsDisabled}
+                  className="flex min-w-0 flex-wrap gap-2"
+                >
+                  {draft.files.map((file) => (
+                    <ContextChip
+                      key={file.id}
+                      icon={<Paperclip />}
+                      title={file.name}
+                      onRemove={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          files: current.files.filter(
+                            (item) => item.id !== file.id
+                          ),
+                        }))
+                      }
+                      removeLabel={`Remove ${file.name}`}
+                    />
+                  ))}
+                </fieldset>
+              ) : null}
+              {uploadError ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {uploadError}
+                </p>
+              ) : null}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={STARTUP_FILE_ACCEPT}
+                aria-label="Attach files to answer"
+                className="hidden"
+                disabled={optionsDisabled}
+                onChange={(event) => {
+                  void attachFiles(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+              <div className="flex items-center justify-between gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={ASK_ACTION}
+                  disabled={answering || canceling || uploading}
+                  onClick={backToChoices}
+                >
+                  <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+                  Back to choices
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={ASK_ACTION}
+                  aria-label="Attach files"
+                  title="Attach files"
+                  disabled={optionsDisabled}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  {uploading ? (
+                    <span className="sr-only">Uploading…</span>
+                  ) : null}
+                </Button>
+                <Button
+                  type="submit"
+                  variant="default"
+                  size="sm"
+                  className={cn(
+                    ASK_ACTION,
+                    "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                  )}
+                  disabled={
+                    optionsDisabled ||
+                    (!draft.text.trim() && !draft.files.length)
+                  }
+                >
+                  {answering ? "Sending…" : "Send"}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <>
+              {block.data.options.map((option, index) => (
+                <Button
+                  key={`${index}-${option.value ?? option.label}`}
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  className={ASK_CHOICE}
+                  disabled={optionsDisabled}
+                  data-testid="chat-question-option"
+                  onClick={() => onAnswer(option)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+              {block.data.allowFreeform ? (
+                <Button
+                  ref={choiceRef}
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className={cn(ASK_CHOICE, "border-dashed bg-primary/10")}
+                  disabled={optionsDisabled}
+                  onClick={() => setWriting(true)}
+                  data-testid="chat-question-write"
+                >
+                  Other…
+                </Button>
+              ) : null}
+            </>
+          )}
+          <div
+            className={
+              writing ? "w-full border-t border-border/50 pt-1" : undefined
+            }
+          >
+            <CancelAskButton
+              label="Cancel question"
+              disabled={answering || canceling || uploading}
+              onCancel={onCancel}
+            />
+          </div>
         </div>
       )}
-      <div className="flex flex-wrap gap-1.5">
-        {block.data.options.map((option, index) => {
-          const value = option.value ?? option.label;
-          const chosen = answer !== undefined && answer.value === value;
-          return (
-            <Button
-              key={`${index}-${value}`}
-              type="button"
-              size="sm"
-              // Open choices carry the theme's accent so the ask stands out
-              // from everything else in the feed; once answered only the
-              // chosen one keeps it.
-              variant={chosen || open ? "primary" : "default"}
-              className={cn(
-                // Labels are capped server-side to button length, so a row
-                // of buttons wraps between buttons, not inside one.
-                "h-7 max-w-full gap-1 text-xs",
-                // Phones and touch screens: a real tap target, with the label
-                // allowed to wrap instead of being clipped.
-                "max-sm:h-auto max-sm:min-h-11 max-sm:whitespace-normal max-sm:py-2 max-sm:text-left",
-                "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
-                chosen && "cursor-default"
-              )}
-              disabled={optionsDisabled}
-              aria-pressed={chosen}
-              data-testid="chat-question-option"
-              onClick={() => onAnswer(option)}
-            >
-              {chosen ? <Check className="h-3 w-3" /> : null}
-              {option.label}
-            </Button>
-          );
-        })}
-      </div>
-      {open && block.data.allowFreeform && !answersDisabled ? (
-        <div className="mt-2 text-[11px] text-muted-foreground">
-          Or type a reply below.
-        </div>
-      ) : null}
-      {open && onCancel ? (
-        <div className="mt-2 flex justify-end">
-          <CancelAskButton
-            disabled={answering || canceling}
-            onCancel={onCancel}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -287,7 +493,7 @@ function FormFieldInput({
           disabled={disabled}
           required={field.required}
           rows={3}
-          className="min-h-[4.5rem] text-sm"
+          className="min-h-[3.5rem] min-w-0 border border-border/70 bg-transparent px-2 text-xs shadow-none"
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -300,7 +506,7 @@ function FormFieldInput({
           placeholder={field.placeholder}
           disabled={disabled}
           required={field.required}
-          className="h-8 max-w-[12rem] text-sm"
+          className="h-7 min-w-0 max-w-[12rem] border border-border/70 bg-transparent px-2 text-xs shadow-none"
           onChange={(e) =>
             onChange(e.target.value === "" ? "" : Number(e.target.value))
           }
@@ -315,7 +521,10 @@ function FormFieldInput({
           disabled={disabled}
           onValueChange={onChange}
         >
-          <SelectTrigger id={id} className="h-8 max-w-[18rem] text-sm">
+          <SelectTrigger
+            id={id}
+            className="h-7 min-w-0 max-w-[18rem] border border-border/70 bg-transparent px-2 text-xs shadow-none"
+          >
             <SelectValue placeholder={field.placeholder ?? "Choose…"} />
           </SelectTrigger>
           <SelectContent>
@@ -349,7 +558,7 @@ function FormFieldInput({
           placeholder={field.placeholder}
           disabled={disabled}
           required={field.required}
-          className="h-8 text-sm"
+          className="h-7 min-w-0 border border-border/70 bg-transparent px-2 text-xs shadow-none"
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -407,15 +616,20 @@ export function FormBlockBody({
   };
   return (
     <form
-      className={cn(ASK_CARD, open ? ASK_OPEN : ASK_CLOSED)}
+      className="mt-2 max-w-xl"
       data-testid="chat-form"
       data-open={open ? "true" : undefined}
       onSubmit={submit}
     >
       {open ? (
-        <div className={ASK_HEAD} data-testid="chat-needs-reply">
-          <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-          {block.data.title ?? "Needs your input"}
+        <div
+          className={cn(
+            "mb-2 text-xs font-medium",
+            !block.data.title && "sr-only"
+          )}
+          data-testid="chat-needs-reply"
+        >
+          {block.data.title ?? "Fill in this form"}
         </div>
       ) : cancellation ? (
         <CanceledAskStatus cancellation={cancellation} />
@@ -425,12 +639,12 @@ export function FormBlockBody({
           {block.data.title ? `${block.data.title} · submitted` : "Submitted"}
         </div>
       )}
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-1.5">
         {block.data.fields.map((field) => {
           const label = (
             <label
               htmlFor={`${formId}-${field.id}`}
-              className="text-xs font-medium text-foreground"
+              className="min-w-0 break-words text-xs text-muted-foreground"
             >
               {field.label}
               {field.required && open ? (
@@ -443,12 +657,12 @@ export function FormBlockBody({
             return (
               <div
                 key={field.id}
-                className="flex flex-col gap-0.5"
+                className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-baseline gap-x-3 gap-y-0.5"
                 data-testid="chat-form-value"
                 data-field-id={field.id}
               >
                 {label}
-                <div className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                <div className="whitespace-pre-wrap break-words text-xs text-foreground">
                   {value === undefined || value === "" ? (
                     <span className="italic">—</span>
                   ) : (
@@ -461,12 +675,7 @@ export function FormBlockBody({
           return (
             <div
               key={field.id}
-              className={cn(
-                "flex gap-2",
-                field.type === "checkbox"
-                  ? "flex-row-reverse items-center justify-end"
-                  : "flex-col"
-              )}
+              className="grid min-h-7 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-x-3 gap-y-1"
               data-testid="chat-form-field"
               data-field-id={field.id}
             >
@@ -485,12 +694,15 @@ export function FormBlockBody({
         })}
       </div>
       {open ? (
-        <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mt-2 flex items-center gap-1.5">
           <Button
             type="submit"
             size="sm"
-            variant="primary"
-            className="h-7 text-xs"
+            variant="default"
+            className={cn(
+              ASK_CHOICE,
+              "border-primary/40 bg-primary/10 text-primary"
+            )}
             disabled={missing || submitting || disabled}
             data-testid="chat-form-submit"
           >

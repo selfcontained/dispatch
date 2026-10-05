@@ -257,47 +257,6 @@ describe("ChatComposer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("shows the reply context chip and lets the user opt out of it", () => {
-    const onDismiss = vi.fn();
-    const { input } = renderComposer({
-      replyContext: { excerpt: "Ship it now or wait?", onDismiss },
-    });
-    const chip = screen.getByTestId("chat-reply-context");
-    expect(chip.textContent).toContain("Answering:");
-    expect(chip.textContent).toContain("Ship it now or wait?");
-    expect(input.placeholder).toBe("Type your answer…");
-    fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-  });
-
-  it("focuses the draft and preserves the caret when Answer is activated", () => {
-    const onAnswer = vi.fn();
-    const { input } = renderComposer({
-      pendingQuestion: {
-        excerpt: "Which branch?",
-        onAnswer,
-        onDismiss: vi.fn(),
-      },
-    });
-    fireEvent.change(input, { target: { value: "draft answer" } });
-    input.setSelectionRange(5, 5);
-    screen.getByTestId("chat-answer-question").focus();
-    fireEvent.click(screen.getByTestId("chat-answer-question"));
-    expect(onAnswer).toHaveBeenCalledTimes(1);
-    expect(document.activeElement).toBe(input);
-    expect(input.value).toBe("draft answer");
-    expect(input.selectionStart).toBe(5);
-    expect(input.selectionEnd).toBe(5);
-  });
-
-  it("hides the reply context chip while the composer is disabled", () => {
-    renderComposer({
-      replyContext: { excerpt: "Q", onDismiss: vi.fn() },
-      disabledReason: "The agent is not running.",
-    });
-    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
-  });
-
   it("keeps the input usable but holds the button while a send is in flight", () => {
     const { input } = renderComposer({ sending: true });
     fireEvent.change(input, { target: { value: "next" } });
@@ -487,18 +446,6 @@ describe("ChatComposer toolbar pickers", () => {
     expect(onDispatchCommand).toHaveBeenCalledWith("model");
     expect(input.value).toBe("keep these notes");
     expect(screen.queryByTestId("slash-picker")).toBeNull();
-  });
-
-  it("keeps the slash toolbar disabled when replying", () => {
-    renderComposer({
-      slashCommands,
-      replyContext: { excerpt: "Question", onDismiss: vi.fn() },
-    });
-    const button = screen.getByTestId(
-      "chat-composer-command-button"
-    ) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(button.title).toContain("Dismiss the reply");
   });
 
   it("keeps the slash toolbar disabled with attachments", () => {

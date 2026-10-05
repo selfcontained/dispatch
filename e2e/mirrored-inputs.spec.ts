@@ -91,8 +91,8 @@ for (const mobile of [false, true]) {
     await page.locator('[data-testid="drawer-close"]:visible').click();
     await expect(mirroredQuestion).toContainText("Answered");
     await expect(
-      mirroredQuestion.getByTestId("chat-question-option").first()
-    ).toBeDisabled();
+      mirroredQuestion.getByTestId("chat-question-option")
+    ).toHaveCount(0);
     await mirroredForm.getByTestId("chat-input-source").click();
     const sourceForm = thread.locator(`[data-chat-entry-id="${form}"]`);
     await expect(sourceForm).toBeVisible();
