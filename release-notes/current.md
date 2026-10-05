@@ -1,5 +1,5 @@
 ## What's Changed
-* Support PostgreSQL 14 and smooth first-time Linux installs by @selfcontained in https://github.com/selfcontained/dispatch/pull/1201
+* Keep server online when optional LAN listeners fail by @selfcontained in https://github.com/selfcontained/dispatch/pull/1202
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.0.6...v1.0.7
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.0.7...v1.0.8
