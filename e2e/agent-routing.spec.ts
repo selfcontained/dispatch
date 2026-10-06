@@ -45,14 +45,25 @@ test.describe("Agent routing", () => {
             name: "Foreign thread helper",
             parentAgentId: owner.id,
           });
-      const feed = await request.get(`/api/v1/streams/${owner.id}/blocks`, {
-        headers: authHeaders(),
-      });
-      const { entries } = await feed.json();
-      const threadId = entries.find(
-        (entry: { block: { kind: string; toAgentId: string } }) =>
-          entry.block.kind === "launch" && entry.block.toAgentId === child.id
-      ).id as string;
+      // Agent creation returns before its launch card is written. Wait for
+      // that card before using it as the activity thread's host.
+      let threadId = "";
+      await expect
+        .poll(async () => {
+          const feed = await request.get(`/api/v1/streams/${owner.id}/blocks`, {
+            headers: authHeaders(),
+          });
+          expect(feed.ok()).toBe(true);
+          const { entries } = await feed.json();
+          threadId =
+            entries.find(
+              (entry: { block: { kind: string; toAgentId: string } }) =>
+                entry.block.kind === "launch" &&
+                entry.block.toAgentId === child.id
+            )?.id ?? "";
+          return threadId;
+        })
+        .not.toBe("");
       const post = await callMcpToolViaAPI(request, owner.id, "post", {
         replyTo: threadId,
         text: "Activity belongs in this stream.",
