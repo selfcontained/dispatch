@@ -29,6 +29,36 @@ const defaults = {
 afterEach(cleanup);
 
 describe("request context", () => {
+  it("skips launch cards an agent wrote for its children", () => {
+    const launch = (id: string, launchedByAgentId?: string) =>
+      blockEntry(
+        block({
+          id,
+          authorKind: "user",
+          text: id,
+          body: { kind: "launch", data: null, state: null },
+          ...(launchedByAgentId ? { launchedByAgentId } : {}),
+        })
+      );
+    render(
+      <RequestContext
+        {...defaults}
+        entries={[
+          launch("My launch"),
+          user("My request"),
+          launch("Child briefing", "agt_1"),
+        ]}
+      />
+    );
+    expect(screen.getByTestId("request-context-text").textContent).toContain(
+      "My request"
+    );
+    fireEvent.click(screen.getByLabelText("Previous message"));
+    expect(screen.getByTestId("request-context-text").textContent).toContain(
+      "My launch"
+    );
+  });
+
   it("keeps the user's request across agent traffic and follows new user messages", () => {
     const { rerender } = render(
       <RequestContext

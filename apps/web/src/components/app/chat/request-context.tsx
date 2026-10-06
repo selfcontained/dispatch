@@ -41,7 +41,10 @@ export function RequestContext({
           (block) =>
             block.author.kind === "user" &&
             !block.threadId &&
-            (block.kind === "text" || block.kind === "launch") &&
+            (block.kind === "text" ||
+              // Launch cards are user-authored even when an agent launched
+              // the child; only a person's own launches are their requests.
+              (block.kind === "launch" && !block.launchedByAgentId)) &&
             (block.text.trim() || block.attachments.length > 0)
         ),
     [entries]
