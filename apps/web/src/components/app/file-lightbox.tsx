@@ -233,7 +233,7 @@ export function FileLightbox({
             : isMarkdown
               ? "bg-background"
               : isText
-                ? "bg-[hsl(var(--log-stream-bg))]"
+                ? "syntax-surface"
                 : "bg-black"
         )}
       >

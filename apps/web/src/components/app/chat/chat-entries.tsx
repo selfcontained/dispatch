@@ -14,9 +14,7 @@ import {
   fileMedia,
 } from "@dispatch/shared";
 import {
-  Check,
   ChevronRight,
-  Copy,
   MessageSquarePlus,
   MessagesSquare,
   Rocket,
@@ -25,7 +23,7 @@ import {
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
-import { useCopyText } from "@/hooks/use-copy";
+import { CopyButton } from "@/components/ui/copy-button";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
@@ -559,29 +557,15 @@ export function ReplyInThreadButton({
 
 /** A post-local clipboard action with the same confirmation used elsewhere. */
 export function MessageCopyButton({ text }: { text: string }): JSX.Element {
-  const [copied, copyText] = useCopyText();
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      className={cn(
-        POST_ACTION_BUTTON,
-        copied && "opacity-100 text-status-working"
-      )}
-      onClick={() => copyText(text)}
-      title={copied ? "Copied" : "Copy message"}
-      aria-label={copied ? "Message copied" : "Copy message"}
+    <CopyButton
+      text={text}
+      label="Copy message"
+      copiedLabel="Message copied"
+      className={POST_ACTION_BUTTON}
+      faceClassName={POST_ACTION_FACE}
       data-testid="chat-copy-message"
-    >
-      <span className={POST_ACTION_FACE}>
-        {copied ? (
-          <Check className="h-3.5 w-3.5" aria-hidden="true" />
-        ) : (
-          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-      </span>
-    </Button>
+    />
   );
 }
 

@@ -14,6 +14,7 @@ type CenterPaneSplitProps = {
   splitLeftRef: React.RefObject<HTMLDivElement>;
   splitButtonRef: React.RefObject<HTMLButtonElement>;
   changesElement: React.ReactNode;
+  filesElement?: React.ReactNode;
   /** The Agent pane (Chat) for the "agent" slot. */
   agentElement?: React.ReactNode;
   /** Chat filters, shown in the "agent" slot's header. */
@@ -37,6 +38,7 @@ export function CenterPaneSplit({
   splitLeftRef,
   splitButtonRef,
   changesElement,
+  filesElement = null,
   agentElement = null,
   agentHeaderAccessory = null,
   isMobile,
@@ -45,6 +47,8 @@ export function CenterPaneSplit({
 }: CenterPaneSplitProps): JSX.Element {
   const paneFor = (tab: CenterTab): React.ReactNode => {
     switch (tab) {
+      case "files":
+        return filesElement;
       case "agent":
         return agentElement;
       default:

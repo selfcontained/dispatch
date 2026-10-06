@@ -428,9 +428,9 @@ describe("isSplitPaneState", () => {
     expect(isSplitPaneState({ ...defaultSplitPaneState, mode: "wide" })).toBe(
       false
     );
-    expect(isSplitPaneState({ ...defaultSplitPaneState, left: "files" })).toBe(
-      false
-    );
+    expect(
+      isSplitPaneState({ ...defaultSplitPaneState, left: "unknown" })
+    ).toBe(false);
     expect(isSplitPaneState({ ...defaultSplitPaneState, sizes: [50] })).toBe(
       false
     );

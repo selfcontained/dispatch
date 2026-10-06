@@ -9,12 +9,15 @@ import { registerAgentStreamingRoutes } from "./streaming-routes.js";
 import { registerAgentPermissionRoutes } from "./permission-routes.js";
 import { registerAgentUsageRoutes } from "./usage-routes.js";
 
+import { registerAgentWorkspaceRoutes } from "./workspace-routes.js";
+
 export type { AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
+  await registerAgentWorkspaceRoutes(app, deps);
   await registerAgentEventRoutes(app, deps);
   await registerAgentCrudRoutes(app, deps);
   await registerAgentLifecycleRoutes(app, deps);

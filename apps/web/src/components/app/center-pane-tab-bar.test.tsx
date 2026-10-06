@@ -32,7 +32,7 @@ describe("CenterPaneTabBar", () => {
     );
     const tabs = screen.getAllByRole("tab").map((el) => el.textContent);
     expect(tabs[0]).toMatch(/^Agent/);
-    expect(tabs).toHaveLength(2);
+    expect(tabs).toHaveLength(3);
     expect(screen.queryByRole("tab", { name: /^terminal$/i })).toBeNull();
     expect(screen.queryByRole("tab", { name: /^chat$/i })).toBeNull();
     expect(screen.queryByRole("tab", { name: /^console$/i })).toBeNull();
@@ -60,7 +60,7 @@ describe("CenterPaneTabBar", () => {
     expect(screen.queryByTestId("chat-unread-count")).toBeNull();
   });
 
-  it("renders both tabs", () => {
+  it("renders all three tabs", () => {
     render(
       <MemoryRouter>
         <CenterPaneTabBar
