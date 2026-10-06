@@ -19,6 +19,7 @@
     "@agentclientprotocol/codex-acp": "2.0.1",
     "@agentclientprotocol/sdk": "1.5.1",
     "@dispatch/shared": "workspace:*",
+    "@fastify/compress": "^9.2.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^9.4.0",
     "@fastify/rate-limit": "^10.3.0",

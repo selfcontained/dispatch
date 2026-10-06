@@ -1,13 +1,8 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AuthLayout } from "@/layouts/auth-layout";
 import { DashboardLayout } from "@/App";
-import {
-  ActivityRoute,
-  AgentsRoute,
-  AutomationsRoute,
-  DesignLabRoute,
-  SettingsRoute,
-} from "@/layouts/dashboard-sections";
+import { AgentsRoute } from "@/layouts/agents-route";
+import { RouteLoadError, RouteLoading } from "@/layouts/route-loading";
 import { LoginRoute } from "@/components/app/login-page";
 import {
   LegacyDocsRedirect,
@@ -15,9 +10,31 @@ import {
   RootLayout,
 } from "@/router-layouts";
 
+const loadSettingsRoute = async () => {
+  const { SettingsRoute } = await import("@/layouts/settings-route");
+  return { Component: SettingsRoute };
+};
+
+const loadActivityRoute = async () => {
+  const { ActivityRoute } = await import("@/layouts/activity-route");
+  return { Component: ActivityRoute };
+};
+
+const loadAutomationsRoute = async () => {
+  const { AutomationsRoute } = await import("@/layouts/automations-route");
+  return { Component: AutomationsRoute };
+};
+
+const loadDesignLabRoute = async () => {
+  const { DesignLabRoute } = await import("@/layouts/design-lab-route");
+  return { Component: DesignLabRoute };
+};
+
 export const router = createBrowserRouter([
   {
     element: <RootLayout />,
+    HydrateFallback: RouteLoading,
+    ErrorBoundary: RouteLoadError,
     children: [
       {
         path: "/login",
@@ -42,17 +59,17 @@ export const router = createBrowserRouter([
               },
               {
                 path: "settings",
-                element: <SettingsRoute />,
+                lazy: loadSettingsRoute,
                 handle: { navSection: "settings" },
               },
               {
                 path: "settings/:section",
-                element: <SettingsRoute />,
+                lazy: loadSettingsRoute,
                 handle: { navSection: "settings" },
               },
               {
                 path: "settings/:section/:subsection",
-                element: <SettingsRoute />,
+                lazy: loadSettingsRoute,
                 handle: { navSection: "settings" },
               },
               {
@@ -70,57 +87,57 @@ export const router = createBrowserRouter([
               },
               {
                 path: "activity/:tab",
-                element: <ActivityRoute />,
+                lazy: loadActivityRoute,
                 handle: { navSection: "activity" },
               },
               {
                 path: "activity/:tab/:agentId",
-                element: <ActivityRoute />,
+                lazy: loadActivityRoute,
                 handle: { navSection: "activity" },
               },
               {
                 path: "automations",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/templates/:templateId",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/jobs",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/jobs/:jobId",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/jobs/:jobId/:section",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/jobs/:jobId/:section/:runId",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/brains",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/brains/:encodedRepoRoot",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
                 path: "automations/brains/:encodedRepoRoot/:collection",
-                element: <AutomationsRoute />,
+                lazy: loadAutomationsRoute,
                 handle: { navSection: "automations" },
               },
               {
@@ -133,7 +150,7 @@ export const router = createBrowserRouter([
               },
               {
                 path: "design-lab",
-                element: <DesignLabRoute />,
+                lazy: loadDesignLabRoute,
               },
             ],
           },
