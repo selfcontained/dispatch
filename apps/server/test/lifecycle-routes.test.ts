@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { AgentManager } from "../src/agents/manager.js";
+import { StreamService } from "../src/chat/service.js";
+import * as agentDiff from "../src/shared/git/agent-diff.js";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -131,6 +134,99 @@ describe("GET /api/v1/agents/:id/diff/file", () => {
 // POST /api/v1/agents/:id/diff/comment
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/diff/comment", () => {
+  it.each([
+    { startLine: 1, endLine: 1, code: "const first = 1;", label: "Line 1" },
+    {
+      startLine: 1,
+      endLine: 3,
+      code: "const first = 1;\n\nconst last = 3;",
+      label: "Lines 1-3",
+    },
+    { startLine: 8, endLine: 8, code: null, label: "Line 8" },
+    { startLine: 2, endLine: 2, code: null, label: "Blank line 2" },
+    {
+      startLine: 1,
+      endLine: 1,
+      source: "x".repeat(BLOCK_TEXT_MAX_CHARS),
+      code: "x".repeat(BLOCK_TEXT_MAX_CHARS),
+      label: "Line 1 at the size limit",
+    },
+    {
+      startLine: 1,
+      endLine: 1,
+      source: "x".repeat(BLOCK_TEXT_MAX_CHARS + 1),
+      code:
+        "x".repeat(BLOCK_TEXT_MAX_CHARS - "\n… (truncated)".length) +
+        "\n… (truncated)",
+      label: "Line 1 over the size limit",
+    },
+  ])("posts selected code as an attachment ($label)", async (selection) => {
+    const agent = await createAgent({ name: "snippet-comment" });
+    const diff = vi.spyOn(agentDiff, "getAgentFileDiff").mockResolvedValue({
+      path: "example.ts",
+      status: "modified",
+      added: 2,
+      deleted: 1,
+      diff: [
+        "diff --git a/example.ts b/example.ts",
+        "--- a/example.ts",
+        "+++ b/example.ts",
+        "@@ -1,3 +1,3 @@",
+        "-const first = 0;",
+        `+${selection.source ?? "const first = 1;"}`,
+        " ",
+        " const last = 3;",
+      ].join("\n"),
+    });
+    // Persist normally while using the isolated test runtime's inert agent.
+    const sendUserPost = StreamService.prototype.sendUserPost;
+    const send = vi
+      .spyOn(StreamService.prototype, "sendUserPost")
+      .mockImplementation(function (streamId, input) {
+        return sendUserPost.call(this, streamId, {
+          ...input,
+          allowInert: true,
+        });
+      });
+    try {
+      const res = await authedInject(
+        "POST",
+        `/api/v1/agents/${agent.id}/diff/comment`,
+        {
+          filePath: "example.ts",
+          startLine: selection.startLine,
+          endLine: selection.endLine,
+          comment: "  Please explain this.  ",
+        }
+      );
+      expect(res.statusCode).toBe(200);
+      const location = `example.ts · ${selection.startLine === selection.endLine ? `Line ${selection.startLine}` : `Lines ${selection.startLine}-${selection.endLine}`}`;
+      expect(res.json().block.text).toBe(
+        selection.code === null
+          ? `${location}\n\nPlease explain this.`
+          : "Please explain this."
+      );
+      expect(res.json().block.attachments).toEqual(
+        selection.code === null
+          ? []
+          : [
+              {
+                type: "code",
+                path: location,
+                code: selection.code,
+              },
+            ]
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ to: agent.id, allowInert: false })
+      );
+    } finally {
+      diff.mockRestore();
+      send.mockRestore();
+    }
+  });
+
   it("returns 404 for unknown agent", async () => {
     const res = await authedInject(
       "POST",

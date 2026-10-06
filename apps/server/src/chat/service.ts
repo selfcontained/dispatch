@@ -817,7 +817,9 @@ export class StreamService {
       to?: string | null;
       text: string;
       replyTo?: string | null;
-      attachments?: ChatUserAttachmentInput[];
+      attachments?: Array<
+        ChatUserAttachmentInput | Extract<ChatAttachment, { type: "code" }>
+      >;
       /** External captures address the selected agent; page text cannot redirect them. */
       resolveMentions?: boolean;
       /** A review left by hand: the block is a `review` with these findings. */
