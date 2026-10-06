@@ -916,7 +916,7 @@ describe("createMcpHandlers", () => {
           "--- DISPATCH POST (id: post-1, from: user) ---",
           created.initialPrompt,
           "--- END DISPATCH POST ---",
-          "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
+          `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "post-1", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
         ].join("\n")
       );
       expect(turn).toContain('You were launched by Dispatch agent "agt_test1"');

@@ -194,7 +194,7 @@ export function buildPostEnvelope(input: {
   // Another agent's post: only post reaches it, in its thread when it has one.
   const routing =
     input.from.kind === "user"
-      ? `Your reply appears ${input.threadId ? "in this thread" : "in the stream"} as you write it. Use post only for a question with options, a file, a link, or to reach another agent${replyArgs ? ` (with ${replyArgs} to keep it in this thread)` : ""}.`
+      ? `Your reply appears ${input.threadId ? "in this thread" : "in the stream"} as you write it. Use post for a question with options, a file, a link, or to reach another agent${replyArgs ? ` (with ${replyArgs} to keep it in this thread)` : ""}.${input.threadId ? "" : ` For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${input.blockId}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`}`
       : `From another agent. Reply with post (to: "${input.from.agentId}"${replyArgs ? `, ${replyArgs}` : ""}) only if a reply is needed; routine updates need no acknowledgement.`;
   return [
     `--- DISPATCH POST (id: ${input.blockId}, from: ${senderLabel(input.from)}) ---`,

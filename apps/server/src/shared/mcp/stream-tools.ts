@@ -182,7 +182,8 @@ const POST_DESCRIPTION =
   "With `to: <agentId>` it is addressed to that agent for prompt delivery; the user still sees it in the stream. A successful post records the block, not proof of pickup or an answer. " +
   "Your ordinary replies already appear in the stream as you write them, so use post for what plain text cannot do: " +
   'a question with options (`question`), a form (`form`), a file (`attachments: [{ type: "file", path }]`), a link (`link`), a review of another agent\'s work (`review`, with `to`), a checklist (`tasks`), ' +
-  "or a message to another agent (`to`). `replyTo` threads the block under another (use the id from a DISPATCH POST envelope or a post result). " +
+  "a scoped threaded answer (`replyTo` with `text`), or a message to another agent (`to`). `replyTo` threads the block under another (use the id from a DISPATCH POST envelope or a post result). " +
+  "Use threads for self-contained side questions or follow-ups tied to a specific post; keep main-task progress, broader decisions, and final results in the main conversation. Do not thread every answer or repeat a threaded answer in ordinary prose. Replies to a user already in a thread stream there automatically. " +
   "`notify: true` also sends the browser/Slack notification. Returns { id, createdAt } (a review also returns its findings' ids); keep the id to update the block later.";
 
 const UPDATE_DESCRIPTION =
@@ -246,7 +247,12 @@ export function registerStreamTools(
             .optional()
             .describe("Agent id to deliver to. Omit for your own stream."),
           text: textSchema.optional(),
-          replyTo: z.uuid().optional(),
+          replyTo: z
+            .uuid()
+            .optional()
+            .describe(
+              "Exact block id from a DISPATCH POST envelope or post result. Use with text for a scoped side answer; omit for ordinary replies in the current conversation."
+            ),
           question: questionSchema.optional(),
           form: formSchema.optional(),
           link: linkSchema.optional(),
