@@ -35,6 +35,8 @@ describe("Files syntax highlighting", () => {
     ["module.exports = {};", "eslint.config.cjs", "javascript"],
     ["export const a: number = 1;", "src/index.mts", "typescript"],
     ["FROM node:22", "apps/server/Dockerfile", "dockerfile"],
+    ["FROM node:22", "Dockerfile.dev", "dockerfile"],
+    ["API_URL=http://localhost", ".env.example", "bash"],
     ["all:\n\techo hi", "Makefile", "makefile"],
     ["$a: 1px;", "theme.scss", "scss"],
   ])("resolves a grammar for %s in %s", (source, fileName, language) => {

@@ -180,6 +180,9 @@ const FILENAME_TO_LANG: Record<string, string> = {
 
 function languageForFileName(fileName: string): string | undefined {
   const baseName = (fileName.split("/").pop() ?? "").toLowerCase();
+  // Suffixed variants (Dockerfile.dev, .env.local) keep the stem's language.
+  if (/^(docker|container)file\./.test(baseName)) return "dockerfile";
+  if (baseName.startsWith(".env.")) return "bash";
   return FILENAME_TO_LANG[baseName] ?? EXT_TO_LANG[fileExtension(baseName)];
 }
 
