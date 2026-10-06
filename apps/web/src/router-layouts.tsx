@@ -2,11 +2,13 @@ import { Navigate, Outlet, useParams } from "react-router-dom";
 
 import { AuthContextProvider } from "@/contexts/auth-context-provider";
 import { useAuth } from "@/hooks/use-auth";
+import { RoutePendingIndicator } from "@/layouts/route-loading";
 
 export function RootLayout(): JSX.Element {
   const auth = useAuth();
   return (
     <AuthContextProvider value={auth}>
+      <RoutePendingIndicator />
       <Outlet />
     </AuthContextProvider>
   );

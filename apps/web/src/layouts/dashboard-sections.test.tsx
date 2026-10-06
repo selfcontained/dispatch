@@ -9,20 +9,16 @@ import {
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AutomationsRoute,
-  ActivityRoute,
-  SettingsRoute,
-  serviceDotClass,
-} from "./dashboard-sections";
+import { AutomationsRoute } from "./automations-route";
+import { ActivityRoute } from "./activity-route";
+import { SettingsRoute, serviceDotClass } from "./settings-route";
 
-// dashboard-sections.tsx is route-wiring, not markup: SectionShell owns the
+// Section routes handle wiring, not markup: SectionShell owns the
 // sidebar-open/close branching shared by every route, and the individual
 // route components own navigation guards and the mobile-sidebar-close side
 // effects. Every child it renders is replaced by a marker that records the
 // props it received and (where the route drives a callback) exposes buttons
-// to invoke them, so what's under test is the wiring dashboard-sections.tsx
-// itself contributes.
+// to invoke them, so these tests cover the wiring the route modules contribute.
 const { H, record, stubModule } = vi.hoisted(() => {
   const props = new Map<string, Record<string, unknown>>();
   const record = (name: string, received: Record<string, unknown>) => {
