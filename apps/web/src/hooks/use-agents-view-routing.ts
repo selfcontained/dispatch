@@ -20,6 +20,7 @@ export function useAgentsViewRouting({
   const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
   const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");
   const changesMatch = useMatch("/agents/:agentId/changes");
+  const filesMatch = useMatch("/agents/:agentId/files");
   const chatMatch = useMatch("/agents/:agentId/chat");
 
   useEffect(() => {
@@ -71,6 +72,7 @@ export function useAgentsViewRouting({
 
   return {
     changesMatch: !!changesMatch,
+    filesMatch: !!filesMatch,
     /**
      * False while a legacy /chat route is about to be replaced. The center
      * pane renders nothing tab-specific until this is true.

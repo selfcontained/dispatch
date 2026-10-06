@@ -74,7 +74,7 @@ function TextViewer({
     // Scroll container: must stay mounted across an in-place content
     // refresh (see useFetchedText) — that's what preserves scrollTop.
     // Don't key this on src/content.
-    <LogStream className="min-h-full overflow-auto p-0">
+    <LogStream className="syntax-surface min-h-full overflow-auto p-0">
       {highlightedHtml ? (
         <pre className="p-4 text-sm leading-relaxed">
           <code

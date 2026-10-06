@@ -4,7 +4,7 @@ import { agentChangesRoute, agentRoute } from "@/lib/agent-routes";
  * The center-pane tabs. **Agent** is the Chat feed at `/agents/:id`;
  * Changes has a route of its own.
  */
-export type CenterTab = "agent" | "changes";
+export type CenterTab = "agent" | "changes" | "files";
 
 export type CenterTabDef = {
   id: CenterTab;
@@ -20,6 +20,7 @@ export type CenterTabDef = {
 export const CENTER_TABS: readonly CenterTabDef[] = [
   { id: "agent", label: "Agent", route: agentRoute },
   { id: "changes", label: "Changes", route: agentChangesRoute },
+  { id: "files", label: "Files", route: (id) => `/agents/${id}/files` },
 ];
 
 const BY_ID: ReadonlyMap<CenterTab, CenterTabDef> = new Map(

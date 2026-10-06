@@ -1,5 +1,17 @@
 import { PendingInputsButton } from "./chat/pending-inputs-button";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+const FilesPane = lazy(() =>
+  import("./files-pane").then((module) => ({ default: module.FilesPane }))
+);
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { useAtom } from "jotai";
 
@@ -99,13 +111,12 @@ export function AgentsView({
     agentVisualState,
   } = useAgents(true, routeAgentId ?? null);
 
-  const { changesMatch, centerTabResolved, onTabChange } = useAgentsViewRouting(
-    {
+  const { changesMatch, filesMatch, centerTabResolved, onTabChange } =
+    useAgentsViewRouting({
       routeAgentId,
       agentsLoaded,
       validatedSelectedAgentId,
-    }
-  );
+    });
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -143,7 +154,11 @@ export function AgentsView({
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
-  const activeTab: CenterTab = changesMatch ? "changes" : "agent";
+  const activeTab: CenterTab = filesMatch
+    ? "files"
+    : changesMatch
+      ? "changes"
+      : "agent";
 
   const {
     splitState,
@@ -409,6 +424,33 @@ export function AgentsView({
     [noAgentOnMobile, setMobileLeftOpen]
   );
 
+  const filesVisible = isSplit
+    ? splitState.left === "files" || splitState.right === "files"
+    : filesMatch;
+  const filesWorkspace =
+    focusedAgent?.workspacePath ??
+    focusedAgent?.worktreePath ??
+    focusedAgent?.cwd ??
+    null;
+  const filesElement = filesVisible ? (
+    <Suspense
+      fallback={
+        <div role="status" className="p-4 text-sm text-muted-foreground">
+          Loading files…
+        </div>
+      }
+    >
+      <FilesPane
+        key={`${focusedAgentId}:${filesWorkspace}`}
+        agentId={focusedAgentId}
+        workspace={filesWorkspace}
+        onOpenBeside={() => handleDropOnZone("agent", "left")}
+        isSplit={isSplit}
+        isMobile={isMobile}
+      />
+    </Suspense>
+  ) : null;
+
   const changesElement = changesVisible ? (
     <ChangesTab
       agentId={focusedAgentId}
@@ -427,7 +469,7 @@ export function AgentsView({
   const agentPaneVisible =
     !routeAgentPending &&
     (!isSplit
-      ? centerTabResolved && !changesMatch
+      ? centerTabResolved && !changesMatch && !filesMatch
       : splitState.left === "agent" || splitState.right === "agent");
   const agentPaneProps = {
     agentId: focusedAgentId,
@@ -575,6 +617,7 @@ export function AgentsView({
                     splitLeftRef={splitLeftRef}
                     splitButtonRef={splitButtonRef}
                     changesElement={changesElement}
+                    filesElement={filesElement}
                     agentElement={splitAgentElement}
                     agentHeaderAccessory={splitAgentHeaderAccessory}
                     isMobile={isMobile}
@@ -594,6 +637,7 @@ export function AgentsView({
                     </div>
                     <Routes>
                       <Route path="changes" element={changesElement} />
+                      <Route path="files" element={filesElement} />
                     </Routes>
                   </>
                 )}

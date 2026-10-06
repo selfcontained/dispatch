@@ -923,144 +923,98 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
-/* ── Syntax highlighting (highlight.js) ─────────────────────────────
-   Uses Dispatch theme variables so colors adapt to every theme. */
+/* Shared by Files, stream code blocks and shared-file previews.
+   Exactly two mode-selected palettes; Changes uses its separate Prism rules.
+   Dark colors retain Monokai's pink/green/cyan accents on neutral near-black. */
+:root {
+  --syntax-bg: #101114;
+  --syntax-fg: #f1f1ed;
+  --syntax-keyword: #ff6b9d;
+  --syntax-string: #e6db74;
+  --syntax-number: #b99aff;
+  --syntax-comment: #96968e;
+  --syntax-type: #66d9ef;
+  --syntax-title: #a6e22e;
+  --syntax-meta: #fdad66;
+  --syntax-border: #303239;
+}
+[data-theme-mode="light"] {
+  --syntax-bg: #fafafa;
+  --syntax-fg: #24292f;
+  --syntax-keyword: #a62659;
+  --syntax-string: #37651e;
+  --syntax-number: #7040a0;
+  --syntax-comment: #626870;
+  --syntax-type: #006b7a;
+  --syntax-title: #795000;
+  --syntax-meta: #934619;
+  --syntax-border: #d8dce1;
+}
+:root .syntax-surface,
+:root .syntax-surface pre,
+:root .syntax-surface code,
 .hljs {
-  background: hsl(var(--surface));
-  color: hsl(var(--foreground));
+  background: var(--syntax-bg);
+  color: var(--syntax-fg);
+}
+.syntax-surface .files-gutter {
+  color: var(--syntax-comment);
+  border-color: var(--syntax-border);
 }
 .hljs-keyword,
 .hljs-selector-tag,
+.hljs-name,
+.hljs-tag,
 .hljs-deletion {
-  color: hsl(var(--primary));
+  color: var(--syntax-keyword);
 }
 .hljs-string,
 .hljs-doctag,
-.hljs-regexp,
-.hljs-addition {
-  color: hsl(var(--status-working));
+.hljs-regexp {
+  color: var(--syntax-string);
 }
 .hljs-number,
-.hljs-literal {
-  color: hsl(var(--status-done));
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--syntax-number);
 }
 .hljs-comment,
 .hljs-quote {
-  color: hsl(var(--muted-foreground));
+  color: var(--syntax-comment);
   font-style: italic;
 }
 .hljs-type,
-.hljs-built_in {
-  color: hsl(var(--status-waiting));
+.hljs-built_in,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--syntax-type);
 }
 .hljs-title,
-.hljs-title\.class_,
-.hljs-title\.function_ {
-  color: hsl(var(--ring));
+.hljs-section,
+.hljs-addition {
+  color: var(--syntax-title);
 }
 .hljs-attr,
 .hljs-attribute {
-  color: hsl(var(--primary));
-  opacity: 0.85;
+  color: var(--syntax-type);
 }
 .hljs-variable,
-.hljs-template-variable {
-  color: hsl(var(--foreground));
+.hljs-template-variable,
+.hljs-params,
+.hljs-punctuation {
+  color: var(--syntax-fg);
 }
 .hljs-meta,
 .hljs-meta .hljs-keyword {
-  color: hsl(var(--destructive));
-}
-.hljs-symbol,
-.hljs-bullet {
-  color: hsl(var(--status-done));
-}
-.hljs-section {
-  color: hsl(var(--ring));
-  font-weight: bold;
-}
-.hljs-name,
-.hljs-tag {
-  color: hsl(var(--primary));
-}
-.hljs-params {
-  color: hsl(var(--foreground));
-  opacity: 0.8;
-}
-.hljs-punctuation {
-  color: hsl(var(--muted-foreground));
+  color: var(--syntax-meta);
 }
 .hljs-emphasis {
   font-style: italic;
 }
-.hljs-strong {
+.hljs-strong,
+.hljs-section {
   font-weight: bold;
-}
-
-/* Midnight: blue primary, pink destructive — lean into blues and pinks */
-[data-theme="midnight"] .hljs-keyword,
-[data-theme="midnight"] .hljs-selector-tag,
-[data-theme="midnight"] .hljs-deletion {
-  color: hsl(var(--primary)); /* blue */
-}
-[data-theme="midnight"] .hljs-string,
-[data-theme="midnight"] .hljs-doctag,
-[data-theme="midnight"] .hljs-regexp,
-[data-theme="midnight"] .hljs-addition {
-  color: hsl(var(--destructive)); /* pink */
-}
-[data-theme="midnight"] .hljs-title,
-[data-theme="midnight"] .hljs-title\.class_,
-[data-theme="midnight"] .hljs-title\.function_ {
-  color: hsl(var(--status-waiting)); /* yellow */
-}
-[data-theme="midnight"] .hljs-attr,
-[data-theme="midnight"] .hljs-attribute {
-  color: hsl(var(--primary));
-  opacity: 0.75;
-}
-[data-theme="midnight"] .hljs-name,
-[data-theme="midnight"] .hljs-tag {
-  color: hsl(var(--destructive)); /* pink for tags */
-}
-[data-theme="midnight"] .hljs-meta,
-[data-theme="midnight"] .hljs-meta .hljs-keyword {
-  color: hsl(var(--status-working)); /* green for meta only */
-}
-
-/* OLED Black: green primary is too monochrome — use blue/yellow/red accents */
-[data-theme="oled-black"] .hljs-keyword,
-[data-theme="oled-black"] .hljs-selector-tag,
-[data-theme="oled-black"] .hljs-deletion {
-  color: hsl(var(--status-done)); /* blue */
-}
-[data-theme="oled-black"] .hljs-string,
-[data-theme="oled-black"] .hljs-doctag,
-[data-theme="oled-black"] .hljs-regexp,
-[data-theme="oled-black"] .hljs-addition {
-  color: hsl(var(--destructive)); /* red */
-}
-[data-theme="oled-black"] .hljs-title,
-[data-theme="oled-black"] .hljs-title\.class_,
-[data-theme="oled-black"] .hljs-title\.function_ {
-  color: hsl(var(--status-waiting)); /* yellow */
-}
-[data-theme="oled-black"] .hljs-type,
-[data-theme="oled-black"] .hljs-built_in {
-  color: hsl(var(--primary)); /* green — just for types */
-}
-[data-theme="oled-black"] .hljs-attr,
-[data-theme="oled-black"] .hljs-attribute {
-  color: hsl(var(--status-done)); /* blue */
-  opacity: 0.8;
-}
-[data-theme="oled-black"] .hljs-name,
-[data-theme="oled-black"] .hljs-tag {
-  color: hsl(var(--status-done)); /* blue */
-}
-[data-theme="oled-black"] .hljs-meta,
-[data-theme="oled-black"] .hljs-meta .hljs-keyword {
-  color: hsl(var(--status-waiting)); /* yellow for meta */
 }
 
 @keyframes sidebar-nav-pulse {

@@ -1,10 +1,9 @@
 import { Children, isValidElement, memo, type ReactNode } from "react";
-import { Check, Copy } from "lucide-react";
+import { CopyButton } from "./copy-button";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { highlightCodeLanguage } from "@/components/app/file-lightbox-syntax";
-import { useCopyText } from "@/hooks/use-copy";
 import { MermaidBlock } from "@/components/ui/markdown-mermaid";
 import { useMermaidTheme } from "@/components/ui/markdown-mermaid-theme";
 import { cn } from "@/lib/utils";
@@ -53,27 +52,16 @@ function CodeBlock({
   code: string;
   children: ReactNode;
 }): JSX.Element {
-  const [copied, copyText] = useCopyText();
   return (
     <div className="group/code relative" data-testid="markdown-code-block">
-      <pre>{children}</pre>
-      <button
-        type="button"
-        className={cn(
-          "absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded border border-border/60 bg-background/80 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/code:opacity-100 [@media(pointer:coarse)]:opacity-100",
-          copied && "text-status-working opacity-100"
-        )}
-        onClick={() => copyText(code)}
-        title={copied ? "Copied" : "Copy code"}
-        aria-label={copied ? "Code copied" : "Copy code"}
+      <pre className="syntax-surface">{children}</pre>
+      <CopyButton
+        text={code}
+        label="Copy code"
+        copiedLabel="Code copied"
+        className="absolute right-1.5 top-1.5 h-6 w-6 rounded border border-border/60 bg-background/80 opacity-0 focus-visible:opacity-100 group-hover/code:opacity-100 [@media(pointer:coarse)]:opacity-100"
         data-testid="markdown-copy-code"
-      >
-        {copied ? (
-          <Check className="h-3 w-3" aria-hidden="true" />
-        ) : (
-          <Copy className="h-3 w-3" aria-hidden="true" />
-        )}
-      </button>
+      />
     </div>
   );
 }
@@ -435,7 +423,7 @@ function MarkdownDefault({
             return block ? (
               <CodeBlock code={block.code}>{children}</CodeBlock>
             ) : (
-              <pre>{children}</pre>
+              <pre className="syntax-surface">{children}</pre>
             );
           },
         }}
