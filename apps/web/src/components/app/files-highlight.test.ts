@@ -31,6 +31,17 @@ describe("Files syntax highlighting", () => {
   });
 
   it.each([
+    ["export default {};", "vite.config.mjs", "javascript"],
+    ["module.exports = {};", "eslint.config.cjs", "javascript"],
+    ["export const a: number = 1;", "src/index.mts", "typescript"],
+    ["FROM node:22", "apps/server/Dockerfile", "dockerfile"],
+    ["all:\n\techo hi", "Makefile", "makefile"],
+    ["$a: 1px;", "theme.scss", "scss"],
+  ])("resolves a grammar for %s in %s", (source, fileName, language) => {
+    expect(highlightFile(source, fileName).language).toBe(language);
+  });
+
+  it.each([
     ["untyped text", "notes.txt"],
     ["x".repeat(4001), "minified.js"],
     ["a\n".repeat(131073), "huge.ts"],
