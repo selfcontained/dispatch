@@ -52,7 +52,8 @@ const CHIP_CLASS =
 
 /**
  * Controls beside the recipients under the composer: which model the session runs (a picker)
- * and what it has used (context, cost, tokens, and the plan's limits).
+ * and what it has used (context, cost, tokens, and the plan's limits). With no
+ * agent selected, the usage chip still opens the plans' limits.
  */
 export function ComposerMeta({
   agentId,
@@ -61,7 +62,7 @@ export function ComposerMeta({
   turnRunning,
   turnKey,
 }: {
-  agentId: string;
+  agentId: string | null;
   agent: Agent | null;
   active: boolean;
   turnRunning: boolean;
@@ -71,17 +72,23 @@ export function ComposerMeta({
   const usage = useAgentUsage(agentId, active, turnRunning);
   const { refresh } = usage;
   useEffect(() => {
-    void refresh();
+    if (agentId) void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new turn state only
   }, [turnKey]);
-  if (!agent) return null;
+  if (agentId && !agent) return null;
   return (
     <div
       className="composer-meta min-w-0 items-center gap-3"
       data-testid="composer-meta"
     >
-      <ModelChip agentId={agentId} agent={agent} active={active} />
-      <UsageChip agent={agent} usage={usage.data} />
+      {agentId && agent ? (
+        <>
+          <ModelChip agentId={agentId} agent={agent} active={active} />
+          <UsageChip agent={agent} usage={usage.data} />
+        </>
+      ) : (
+        <UsageChip agent={null} usage={undefined} />
+      )}
     </div>
   );
 }
@@ -235,11 +242,12 @@ function ConfigSelect({
   );
 }
 
+/** With no agent, only the plans' limits: there is no session to report. */
 function UsageChip({
   agent,
   usage,
 }: {
-  agent: Agent;
+  agent: Agent | null;
   usage: AgentUsageResponse | undefined;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -251,7 +259,11 @@ function UsageChip({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(CHIP_CLASS, "shrink-0 tabular-nums")}
+          className={cn(
+            CHIP_CLASS,
+            "shrink-0 tabular-nums",
+            !agent && "col-start-2"
+          )}
           title="Usage"
           aria-label={
             cost
@@ -286,8 +298,10 @@ function UsageChip({
         )}
         data-testid="composer-usage-panel"
       >
-        <UsageDetails usage={usage} agentType={agent.type ?? null} />
-        <PlanLimits engine={agent.type ?? ""} enabled={open} />
+        {agent ? (
+          <UsageDetails usage={usage} agentType={agent.type ?? null} />
+        ) : null}
+        <PlanLimits engine={agent?.type ?? ""} enabled={open} />
       </PopoverContent>
     </Popover>
   );

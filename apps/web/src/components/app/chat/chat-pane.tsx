@@ -1323,7 +1323,7 @@ export function ChatPane({
                 />
               }
               footer={
-                agentId && agent ? (
+                !agentId || agent ? (
                   <ComposerMeta
                     agentId={agentId}
                     agent={agent}
