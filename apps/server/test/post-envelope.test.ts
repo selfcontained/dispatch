@@ -58,7 +58,7 @@ describe("buildPostEnvelope", () => {
         `--- DISPATCH POST (id: ${ID}, from: user) ---`,
         "hello",
         "--- END DISPATCH POST ---",
-        "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
+        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${ID}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
       ].join("\n")
     );
   });
@@ -135,7 +135,7 @@ describe("buildPostEnvelope", () => {
       "Yes",
       `This answers your question ${QUESTION}. In the thread under ${THREAD}.`,
       "--- END DISPATCH POST ---",
-      `Your reply appears in this thread as you write it. Use post only for a question with options, a file, a link, or to reach another agent (with replyTo: "${THREAD}" to keep it in this thread).`,
+      `Your reply appears in this thread as you write it. Use post for a question with options, a file, a link, or to reach another agent (with replyTo: "${THREAD}" to keep it in this thread).`,
     ]);
     const form = buildPostEnvelope({
       blockId: ID,

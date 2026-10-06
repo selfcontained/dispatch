@@ -1585,7 +1585,7 @@ describe("StreamService.sendUserPost", () => {
         `--- DISPATCH POST (id: ${res.block.id}, from: user) ---`,
         "do the thing",
         "--- END DISPATCH POST ---",
-        "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
+        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.block.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
       ].join("\n"),
     });
     expect(events).toHaveLength(2);
@@ -1720,7 +1720,7 @@ describe("StreamService.sendUserPost", () => {
         "- file: /files-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
         "- link: https://example.com/spec — Spec",
         "--- END DISPATCH POST ---",
-        "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
+        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.block.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
       ].join("\n")
     );
   });
@@ -1953,7 +1953,7 @@ describe("StreamService.answerQuestion", () => {
         "Yes",
         `This answers your question ${q.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.`,
+        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.reply.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
       ].join("\n")
     );
     // Value-less options match on their label; but the question is taken.
@@ -2197,7 +2197,7 @@ describe("StreamService.submitForm", () => {
         "Name: Ada\nCount: 2\nReady: true",
         `This answers your form ${form.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.`,
+        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.reply.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
       ].join("\n")
     );
     await expect(

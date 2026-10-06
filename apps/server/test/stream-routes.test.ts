@@ -1490,7 +1490,7 @@ describe("stream routes with a deliverable engine", () => {
         `--- DISPATCH POST (id: ${body.block.id}, from: user) ---`,
         "please do X",
         "--- END DISPATCH POST ---",
-        "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
+        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${body.block.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
       ].join("\n")
     );
     // Pending first, then the same row once delivery settled it.

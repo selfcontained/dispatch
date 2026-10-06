@@ -1,6 +1,6 @@
 ---
 name: communicate
-description: Pick the shape for something you are about to tell the user — a plain reply, a question they answer in one click, a form, a file, a link, or a checklist. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
+description: Pick the shape for something you are about to tell the user — a plain or threaded reply, a question they answer in one click, a form, a file, a link, or a checklist. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
 ---
 
 # Reaching the user
@@ -23,6 +23,7 @@ the same stream; the rows differ in what the user can _do_ with it.
 | What you have                                                 | Send it as                                                      | Depth       |
 | ------------------------------------------------------------- | --------------------------------------------------------------- | ----------- |
 | A short explanation, answer, or result                        | your ordinary reply — it streams; do not repeat it with `post`  | —           |
+| A scoped side answer under a specific post                    | `post` with `replyTo` and `text`; do not repeat in prose        | below       |
 | A plan, design, or analysis longer than a screen              | `post` with a `.md` file attachment, summary in the reply       | `sharing`   |
 | A question with a finite set of answers                       | `post` with `question`                                          | below       |
 | Several related values, or anything they must fill in         | `post` with `form`                                              | below       |
@@ -39,6 +40,30 @@ Take the narrowest row that fits. A `code` attachment is not a substitute for a
 form, and a `tasks` block is overkill for one URL. When two rows could work, the
 plainer one wins: the user is already reading the stream. The one exception is
 length: anything longer than a screen goes in a file, however plain it is.
+
+## Main conversation or thread?
+
+Keep the main task, progress updates, broader decisions, and final result in
+the main conversation. Use a thread for a self-contained side question,
+clarification, or follow-up tied to a specific post when the exchange would
+interrupt the ongoing conversation — similar to good Slack etiquette.
+
+For example, while implementing a feature, “What does SSE mean?” can be
+answered under that question; “Change the feature to use polling” steers the
+main task and belongs in the main conversation. A question mark alone is not
+a reason to start a thread.
+
+To answer a scoped question in a thread, use
+`post({ replyTo: "<question post id>", text: "<answer>" })`. Use the exact id
+from its DISPATCH POST envelope or a post result; no `question` payload is
+needed for an answer. Do not repeat the answer in your ordinary reply.
+Continue the main task there, surfacing any consequence of the side exchange
+that changes its scope, approach, or outcome.
+
+If the user already wrote in a thread, ordinary replies land there
+automatically. Stay in that thread without an extra `post` just to thread the
+answer. Do not move every reply into a thread or create a new thread for each
+follow-up.
 
 ## Asking
 

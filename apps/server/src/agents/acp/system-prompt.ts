@@ -6,7 +6,7 @@ const SLASH_RULE =
   'A user message that begins with "/<name>" names a slash command or skill: run it, treating the rest of the message as its input. If none has that name, say so briefly.';
 
 export const CHAT_RULE =
-  'The user reads your stream. Your replies appear there as you write them, so answer in plain text and never repeat a reply through post. Use post for what plain text cannot do: a question with options, a form, a file (attachments: [{ type: "file", path }]), a link, a review of another agent\'s work, a checklist, or a message to another agent (to). Reply to a DISPATCH POST from another agent only when it asks for one.';
+  'The user reads your stream. Your replies appear there as you write them, so answer in plain text and never repeat a reply through post. Use post for what plain text cannot do: a question with options, a form, a file (attachments: [{ type: "file", path }]), a link, a review of another agent\'s work, a checklist, a scoped threaded answer (replyTo with text), or a message to another agent (to). Use threads for self-contained side questions or follow-ups tied to a specific post; keep main-task progress, broader decisions, and final results in the main conversation. Do not thread every answer or duplicate a threaded answer in ordinary prose. User messages already in a thread receive ordinary replies there automatically. Reply to a DISPATCH POST from another agent only when it asks for one.';
 
 /**
  * Pull a `--append-system-prompt <value>` pair out of stored agent args.
