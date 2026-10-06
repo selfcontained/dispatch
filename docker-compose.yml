@@ -11,7 +11,8 @@ services:
       POSTGRES_PASSWORD: dispatch
       POSTGRES_DB: dispatch_${DISPATCH_DB_NAME:-dev}
     ports:
-      - "${DISPATCH_DB_PORT:-5433}:5432"
+      # Only local dev/test services need direct database access.
+      - "127.0.0.1:${DISPATCH_DB_PORT:-5433}:5432"
     volumes:
       # A named volume, so the data belongs to the stack rather than to the
       # container: `dispatch-dev down` can remove the container and give it

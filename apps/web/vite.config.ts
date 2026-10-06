@@ -146,7 +146,8 @@ export default defineConfig({
         target:
           process.env.VITE_API_TARGET ??
           `http://127.0.0.1:${process.env.DISPATCH_PORT}`,
-        changeOrigin: true,
+        // Preserve the browser-facing Host so API origin checks work on LAN previews.
+        changeOrigin: false,
         ws: true,
       },
     },

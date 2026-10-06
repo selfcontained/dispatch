@@ -18,6 +18,7 @@ import {
   type TemplateRecord,
 } from "./store.js";
 import { templateWorktreeConfig } from "./worktree-config.js";
+import { assertAccessCeiling } from "../shared/access-ceiling.js";
 
 export type AddTemplateInput = {
   name: string;
@@ -65,7 +66,11 @@ export class TemplateService {
     this.store = new TemplateStore(pool);
   }
 
-  async addTemplate(input: AddTemplateInput): Promise<TemplateRecord> {
+  async addTemplate(
+    input: AddTemplateInput,
+    callerFullAccess?: boolean
+  ): Promise<TemplateRecord> {
+    assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const template = await this.store.createTemplate({
       name: input.name.trim(),
       directory: input.directory,
@@ -85,10 +90,15 @@ export class TemplateService {
 
   async updateTemplate(
     id: string,
-    input: Partial<AddTemplateInput>
+    input: Partial<AddTemplateInput>,
+    callerFullAccess?: boolean
   ): Promise<TemplateRecord> {
     const existing = await this.store.getTemplate(id);
     if (!existing) throw new Error(`Template "${id}" not found.`);
+    assertAccessCeiling(
+      existing.fullAccess || input.fullAccess === true,
+      callerFullAccess
+    );
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)

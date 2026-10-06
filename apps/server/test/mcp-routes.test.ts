@@ -314,3 +314,45 @@ describe("usage callback wiring", () => {
     }
   );
 });
+
+describe("job access ceiling wiring", () => {
+  it.each([
+    ["/api/mcp/agt_test1", false],
+    ["/api/mcp/agt_test1", true],
+    ["/api/mcp/jobs/run_1/agt_test1", false],
+    ["/api/mcp/jobs/run_1/agt_test1", true],
+  ] as const)("passes caller access for %s (%s)", async (url, fullAccess) => {
+    const agent = await deps.agentManager.getAgent();
+    deps.agentManager.getAgent.mockResolvedValue({
+      ...agent,
+      fullAccess,
+    } as never);
+    await app.inject({ method: "POST", url, payload: {} });
+    const callbacks = vi
+      .mocked(handleMcpRequest)
+      .mock.calls.at(-1)?.[3]?.crudTools;
+    expect(callbacks).toBeDefined();
+    const input = { name: "job", directory: "/tmp" };
+    await callbacks!.createJob(input);
+    await callbacks!.updateJob(input);
+    await callbacks!.runJob(input.name, input.directory);
+    await callbacks!.createTemplate(input);
+    await callbacks!.updateTemplate("tpl_1", input);
+    expect(deps.jobService.addJob).toHaveBeenCalledWith(input, fullAccess);
+    expect(deps.jobService.updateJob).toHaveBeenCalledWith(input, fullAccess);
+    expect(deps.jobService.runJob).toHaveBeenCalledWith({
+      ...input,
+      wait: false,
+      callerFullAccess: fullAccess,
+    });
+    expect(deps.templateService.addTemplate).toHaveBeenCalledWith(
+      input,
+      fullAccess
+    );
+    expect(deps.templateService.updateTemplate).toHaveBeenCalledWith(
+      "tpl_1",
+      input,
+      fullAccess
+    );
+  });
+});

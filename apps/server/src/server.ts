@@ -35,6 +35,7 @@ import {
   validateJobMcpToken,
 } from "./auth.js";
 import { loadConfig } from "./config.js";
+import { registerBrowserOriginProtection } from "./browser-origin.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadLearnedAgentModels } from "./agents/engine-models.js";
@@ -585,11 +586,14 @@ async function registerRoutes() {
   // ---------------------------------------------------------------------------
   // Auth hook — runs before every /api/ route except auth + health endpoints
   // ---------------------------------------------------------------------------
+  registerBrowserOriginProtection(app, process.env.DISPATCH_ALLOWED_ORIGINS);
   app.addHook("onRequest", async (request, reply) => {
-    const url = request.url.split("?")[0];
+    // Authorize the matched route, not its potentially percent-encoded URL.
+    // Keep the existing auth response for unmatched /api paths as well.
+    const url = request.routeOptions.url ?? request.url.split("?")[0];
 
     // Static files, auth endpoints, health check, and WebSocket endpoints are always open.
-    if (!url.startsWith("/api/")) return;
+    if (!url?.startsWith("/api/")) return;
     if (url.startsWith("/api/v1/auth/")) return;
     if (url === "/api/v1/health") return;
     if (url === "/api/v1/app/branding") return;
