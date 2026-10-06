@@ -52,9 +52,31 @@ the virtual viewport.
   **262,144 text characters**, lines over **4,000 characters**, or excessive
   highlighted output fall back to plain text. Very long displayed lines are
   clipped, with full text still available through Copy/Download.
-- Symlinks are not followed. Parent traversal and access outside the agent's
-  workspace are rejected. Files is read-only; there are no rename/delete/edit
-  operations.
+- Files is read-only; there are no rename/delete/edit operations.
+
+## Filesystem trust boundary
+
+Files reads with the Dispatch server's OS permissions. Path validation rejects
+parent traversal and detected symlinks, and opening paths includes identity
+rechecks. These checks are defense in depth, not a filesystem sandbox: a process
+deliberately racing directory replacements inside the workspace can redirect a
+listing or preview outside it, despite the rechecks.
+
+This race is an accepted limitation of the local MVP, not a fixed vulnerability.
+The security review found no additional read capability in the reviewed default
+execution and authentication configurations. Files uses the existing HTTP API
+authentication; agent-scoped MCP credentials alone do not authorize this route.
+The server's no-password mode also applies to Files. Preview contents are not
+automatically sent to agents, but an operator could copy outside content shown
+under a misleading workspace path.
+
+Custom runtime sandbox policies were not exhaustively verified. Do not rely on
+Files to enforce a read restriction imposed on another process. Reassess this
+acceptance before introducing restricted OS identities or read sandboxes,
+agent-accessible Files APIs or automatic preview-to-agent context, multi-user
+authorization, write operations, or share links. Those changes may require
+descriptor-relative filesystem access that cannot be redirected by pathname
+replacement.
 
 ## Sharing and scope
 
