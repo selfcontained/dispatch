@@ -999,26 +999,54 @@ describe("conversation-authoritative delivery", () => {
     await Promise.all([work.settled, awaited.settled, later.settled]);
   });
 
-  it("background agent events cannot steer even in the same conversation", async () => {
+  it("steers another agent's post into the open turn, whatever conversation it is in", async () => {
     const host = await heldTurnHost("injected");
     const runtime = await attached(host.stateRoot);
     const work = runtime.prompt(agentId, "work", inThread(0, null));
     await work.accepted;
-    const background = runtime.prompt(
-      agentId,
-      "review event",
-      inThread(1, null, false),
-      { delivery: "auto" }
-    );
-    const user = runtime.prompt(agentId, "user", inThread(2, null), {
+    const { conversation: _none, ...agentPost } = inThread(1, null, false);
+    const advice = runtime.prompt(agentId, "advice", agentPost, {
       delivery: "auto",
     });
-    await withinSeconds(user.accepted, "user steering");
-    expect(host.steers).toEqual(["user"]);
+    await withinSeconds(advice.accepted, "agent post steering");
+    const elsewhere = runtime.prompt(
+      agentId,
+      "advice elsewhere",
+      inThread(2, "thread-a", false),
+      { delivery: "auto" }
+    );
+    await withinSeconds(elsewhere.accepted, "other-thread agent post");
+    expect(host.steers).toEqual(["advice", "advice elsewhere"]);
     host.settle();
-    await withinSeconds(background.accepted, "background turn");
+    await Promise.all([work.settled, advice.settled, elsewhere.settled]);
+  });
+
+  it("an agent post sent with queue waits for the turn to finish", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work", inThread(0, null));
+    await work.accepted;
+    const later = runtime.prompt(agentId, "later", inThread(1, null, false), {
+      delivery: "queue",
+    });
+    const system = runtime.prompt(
+      agentId,
+      "nudge",
+      { source: "system", text: "nudge" },
+      { delivery: "auto" }
+    );
     host.settle();
-    await background.settled;
+    await withinSeconds(later.accepted, "queued agent post");
+    host.settle();
+    await withinSeconds(system.accepted, "system prompt");
+    expect(host.steers).toEqual([]);
+    expect(host.prompts.map((item) => item.text)).toEqual([
+      "work",
+      "later",
+      "nudge",
+    ]);
+    host.settle();
+    await Promise.all([work.settled, later.settled, system.settled]);
   });
 
   it("rechecks against the newly started turn when the previous turn settles", async () => {
