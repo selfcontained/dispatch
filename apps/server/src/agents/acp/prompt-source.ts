@@ -9,8 +9,8 @@ export type PromptSource = {
   /** Server-resolved answer location, retained through the host journal. */
   conversation?: PromptConversation;
   /**
-   * A person's post, which steers only the conversation it was posted in;
-   * another agent's post steers whatever turn is open.
+   * A person's post. With a conversation, a prompt steers only that
+   * conversation; another agent's post without one steers any open turn.
    */
   userMessage?: boolean;
   /**

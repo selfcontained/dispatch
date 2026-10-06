@@ -1002,23 +1002,45 @@ describe("conversation-authoritative delivery", () => {
   it("steers another agent's post into the open turn, whatever conversation it is in", async () => {
     const host = await heldTurnHost("injected");
     const runtime = await attached(host.stateRoot);
-    const work = runtime.prompt(agentId, "work", inThread(0, null));
+    const work = runtime.prompt(agentId, "work", inThread(0, "thread-a"));
     await work.accepted;
     const { conversation: _none, ...agentPost } = inThread(1, null, false);
     const advice = runtime.prompt(agentId, "advice", agentPost, {
       delivery: "auto",
     });
     await withinSeconds(advice.accepted, "agent post steering");
-    const elsewhere = runtime.prompt(
+    expect(host.steers).toEqual(["advice"]);
+    host.settle();
+    await Promise.all([work.settled, advice.settled]);
+  });
+
+  it("an agent's answer resuming a conversation steers only that conversation", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work", inThread(0, "thread-a"));
+    await work.accepted;
+    const other = runtime.prompt(
       agentId,
-      "advice elsewhere",
+      "answer elsewhere",
+      inThread(1, "thread-b", false),
+      { delivery: "auto" }
+    );
+    const same = runtime.prompt(
+      agentId,
+      "answer here",
       inThread(2, "thread-a", false),
       { delivery: "auto" }
     );
-    await withinSeconds(elsewhere.accepted, "other-thread agent post");
-    expect(host.steers).toEqual(["advice", "advice elsewhere"]);
+    await withinSeconds(same.accepted, "same-conversation answer");
+    expect(host.steers).toEqual(["answer here"]);
     host.settle();
-    await Promise.all([work.settled, advice.settled, elsewhere.settled]);
+    await withinSeconds(other.accepted, "other conversation turn");
+    expect(host.prompts.map((item) => item.text)).toEqual([
+      "work",
+      "answer elsewhere",
+    ]);
+    host.settle();
+    await Promise.all([work.settled, same.settled, other.settled]);
   });
 
   it("an agent post sent with queue waits for the turn to finish", async () => {
