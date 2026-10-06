@@ -126,16 +126,20 @@ describe("registerAgentLaunchTools", () => {
 
     // The handler copies named keys only, so a key it forgets never reaches
     // launchAgent: a persona launch silently became a plain agent.
-    it("passes persona and includeDiff through, false included", async () => {
+    it("passes the persona and briefing through without a diff option", async () => {
       const ctx = baseContext();
       registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
 
       const tool = server.tools.find((t) => t.name === "launch_agent")!;
+      expect(Object.keys(tool.config.inputSchema as object)).not.toContain(
+        "includeDiff"
+      );
       const result = (await tool.handler({
+        includeDiff: true, // stale callers cannot enable automatic diff injection
+
         name: "reviewer",
         prompt: "Review the diff",
         persona: "code-review",
-        includeDiff: false,
       })) as { content: Array<{ text: string }> };
       expect(result.content[0]?.text).toContain(
         "Dispatch will send you a new prompt"
@@ -145,20 +149,17 @@ describe("registerAgentLaunchTools", () => {
         name: "reviewer",
         prompt: "Review the diff",
         persona: "code-review",
-        includeDiff: false,
       });
 
       await tool.handler({
         name: "reviewer-2",
         prompt: "Again",
         persona: "security-review",
-        includeDiff: true,
       });
       expect(ctx.launchAgent).toHaveBeenLastCalledWith(AGENT_ID, {
         name: "reviewer-2",
         prompt: "Again",
         persona: "security-review",
-        includeDiff: true,
       });
     });
 

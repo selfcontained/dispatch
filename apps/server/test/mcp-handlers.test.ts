@@ -30,13 +30,8 @@ vi.mock("../src/personas/loader.js", () => ({
     prompt: "Review for security",
   })),
   assemblePersonaPrompt: vi.fn(() => "assembled-prompt"),
-}));
-
-vi.mock("../src/personas/review-diff.js", () => ({
-  buildPersonaReviewDiff: vi.fn(async () => ({
-    diff: "diff content",
-    stats: {},
-  })),
+  buildStandardFeedbackGuidance: vi.fn(() => "protected-review-guidance"),
+  MAX_PERSONA_PROMPT_BYTES: 64 * 1024,
 }));
 
 vi.mock("../src/agent-type-settings.js", () => ({
@@ -470,6 +465,26 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("keeps task content out of protected guidance and reports file-backed overflow", async () => {
+      const context = "Persona rule\n".repeat(6000) + "FINAL RULE";
+      vi.mocked(assemblePersonaPrompt).mockReturnValueOnce(context);
+      const result = await handlers.launchPersonaAgent("agt_test1", {
+        persona: "security",
+        context: "Review",
+      });
+      const input = deps.agentManager.createAgent.mock.calls.at(-1)?.[0];
+      expect(input.agentArgs).toEqual(
+        expect.arrayContaining([
+          "--append-system-prompt",
+          "protected-review-guidance",
+          "--dispatch-persona-context",
+          context,
+        ])
+      );
+      expect(input.initialPrompt).not.toContain(context);
+      expect(result.warnings?.[0]).toContain("No content is trimmed");
+    });
+
     it("refuses a persona launched from a child agent", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_child",
@@ -490,7 +505,7 @@ describe("createMcpHandlers", () => {
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
-    it("passes the Cursor runtime to persona prompt assembly for Cursor review agents", async () => {
+    it("keeps engine selection separate from persona context assembly", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",
         name: "test",
@@ -511,9 +526,7 @@ describe("createMcpHandlers", () => {
 
       expect(assemblePersonaPrompt).toHaveBeenCalledWith(
         expect.anything(),
-        "review this PR",
-        expect.anything(),
-        expect.objectContaining({ agentType: "cursor" })
+        "review this PR"
       );
       expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "cursor" })
@@ -553,9 +566,7 @@ describe("createMcpHandlers", () => {
           slug: GENERIC_REVIEW_PERSONA_SLUG,
           name: "General Code Review",
         }),
-        "review",
-        expect.anything(),
-        expect.anything()
+        "review"
       );
       expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ persona: GENERIC_REVIEW_PERSONA_SLUG })
@@ -675,20 +686,18 @@ describe("createMcpHandlers", () => {
       expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     });
 
-    it("skips diff when includeDiff is false", async () => {
-      const { buildPersonaReviewDiff } =
-        await import("../src/personas/review-diff.js");
+    it("does not resolve a diff base for ordinary persona reviews", async () => {
+      const { resolveBaseRef, refreshRemoteBaseRef } =
+        await import("../src/shared/git/base-ref.js");
       await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
-        context: "review",
-        includeDiff: false,
+        context: "Review the supplied document",
       });
-      expect(buildPersonaReviewDiff).not.toHaveBeenCalled();
+      expect(resolveBaseRef).not.toHaveBeenCalled();
+      expect(refreshRemoteBaseRef).not.toHaveBeenCalled();
       expect(assemblePersonaPrompt).toHaveBeenCalledWith(
         expect.anything(),
-        "review",
-        null,
-        expect.objectContaining({ includeDiff: false })
+        "Review the supplied document"
       );
     });
 

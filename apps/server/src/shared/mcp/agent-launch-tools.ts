@@ -6,6 +6,7 @@ import { describeAgentModelCatalog } from "../agent-models.js";
 import { toToolError } from "./tool-error.js";
 
 export type LaunchAgentResult = {
+  warnings?: string[];
   agentId: string;
   name: string;
   /** Set when a template arg was left empty. */
@@ -28,12 +29,10 @@ export type LaunchAgentInput = {
   child?: boolean;
   /**
    * A persona slug: the new agent runs with that persona's instructions
-   * appended to its system prompt and `prompt` as the briefing it is given.
+   * and `prompt` as its briefing, delivered with the first message.
    * `list_personas` names the available ones.
    */
   persona?: string;
-  /** With `persona`: include a map of your changes vs the base branch (default true). */
-  includeDiff?: boolean;
 };
 
 export type AgentLaunchToolsContext = {
@@ -73,13 +72,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Persona slug from list_personas. The agent gets the persona's instructions; prompt becomes its briefing (what was built, what to look at, what is out of scope)."
-          ),
-        includeDiff: z
-          .boolean()
-          .optional()
-          .describe(
-            "With persona: include a file-level map of your changes against the base branch (default true)."
+            "Persona slug from list_personas. The agent gets the persona's instructions; prompt becomes its briefing (the review target, relevant base branch for code changes, what to look at, and what is out of scope). The reviewer inspects relevant material itself."
           ),
         name: z
           .string()
@@ -188,8 +181,6 @@ export function registerAgentLaunchTools(
         if (args.cwd !== undefined) input.cwd = args.cwd;
         if (args.child !== undefined) input.child = args.child;
         if (args.persona !== undefined) input.persona = args.persona;
-        if (args.includeDiff !== undefined)
-          input.includeDiff = args.includeDiff;
 
         const result = await launchAgent(agentId, input);
         const text = `Launched agent "${result.name}" (${result.agentId}).`;
@@ -200,7 +191,7 @@ export function registerAgentLaunchTools(
           content: [
             {
               type: "text",
-              text: `${text}${reviewHandoff}${result.note ? ` ${result.note}` : ""}`,
+              text: `${text}${reviewHandoff}${result.note ? ` ${result.note}` : ""}${result.warnings?.length ? ` ${result.warnings.join(" ")}` : ""}`,
             },
           ],
           structuredContent: result,

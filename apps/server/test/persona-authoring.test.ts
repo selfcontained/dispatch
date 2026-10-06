@@ -27,6 +27,22 @@ describe("persona authoring", () => {
     );
   });
 
+  it("warns about large multibyte personas before the inline budget is reached", async () => {
+    const root = await makeRoot();
+    await upsertPersona({
+      root,
+      slug: "large",
+      name: "Large",
+      description: "Review",
+      instructions: "é".repeat(24 * 1024),
+    });
+    const [result] = await validatePersonas(root);
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes("48KiB"))).toBe(
+      true
+    );
+  });
+
   async function makeRoot(): Promise<string> {
     const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-personas-"));
     roots.push(root);

@@ -154,7 +154,7 @@ export async function registerAgentLifecycleRoutes(
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      return { agent };
+      return { agent: deps.withStreamFlag(agent) };
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }
@@ -184,7 +184,7 @@ export async function registerAgentLifecycleRoutes(
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      return { agent };
+      return { agent: deps.withStreamFlag(agent) };
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }

@@ -1,3 +1,4 @@
+import { agentForClient } from "../src/server/agent-client-view.js";
 import { EventEmitter } from "node:events";
 
 import type { FastifyInstance } from "fastify";
@@ -21,7 +22,7 @@ function createRouteHarness(listAgents: () => Promise<any[]>) {
     appLog: { warn: vi.fn() },
     subscribeUiEvents: (stream) => broker.subscribe(stream),
     sendUiSnapshot,
-    withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
+    withStreamFlag: (agent) => agentForClient(agent, false),
   } as any).then(() => ({
     broker,
     sendUiSnapshot,
@@ -47,6 +48,39 @@ function createReply() {
 afterEach(() => vi.useRealTimers());
 
 describe("GET /api/v1/events", () => {
+  it("omits private persona metadata from snapshots and upserts without mutating the launch record", async () => {
+    vi.useFakeTimers();
+    const context = "PRIVATE_CONTEXT_SENTINEL".repeat(4000);
+    const agent = {
+      id: "reviewer",
+      agentArgs: [
+        "--dispatch-persona-context",
+        context,
+        "--dangerously-skip-permissions",
+      ],
+    } as any;
+    const harness = await createRouteHarness(async () => [agent]);
+    const request = createRequest();
+    const reply = createReply();
+    try {
+      await harness.handler(request, reply);
+      harness.broker.publish({
+        type: "agent.upsert",
+        agent: agentForClient(agent, true),
+      });
+      const wire = reply.raw.write.mock.calls
+        .map(([chunk]) => String(chunk))
+        .join("");
+      expect(wire).toContain("agent.upsert");
+      expect(wire).toContain("--dangerously-skip-permissions");
+      expect(wire).not.toContain("PRIVATE_CONTEXT_SENTINEL");
+      expect(wire).not.toContain("--dispatch-persona-context");
+      expect(agent.agentArgs[1]).toBe(context);
+    } finally {
+      request.raw.emit("close");
+    }
+  });
+
   it("closes a connection whose snapshot failed so the browser can reconcile on retry", async () => {
     vi.useFakeTimers();
     const harness = await createRouteHarness(async () => {

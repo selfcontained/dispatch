@@ -17,7 +17,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
@@ -56,8 +55,6 @@ export function PersonaLauncherDialog({
   setCodeownersSelected,
   note,
   setNote,
-  includeDiff,
-  setIncludeDiff,
   launchError,
   isLaunching,
   onResetLaunchError,
@@ -87,9 +84,6 @@ export function PersonaLauncherDialog({
   setCodeownersSelected: (selected: boolean) => void;
   note: string;
   setNote: Dispatch<SetStateAction<string>>;
-  /** Hand each persona the agent's current diff in its briefing. */
-  includeDiff: boolean;
-  setIncludeDiff: (include: boolean) => void;
   /** Error message from the last launch attempt, or null. */
   launchError: string | null;
   /** True while a launch request is in flight. */
@@ -409,18 +403,6 @@ export function PersonaLauncherDialog({
                     Added to the briefing each persona receives.
                   </p>
                 </div>
-
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-                  <Checkbox
-                    checked={includeDiff}
-                    onCheckedChange={(checked) => {
-                      setIncludeDiff(checked === true);
-                      onResetLaunchError();
-                    }}
-                    data-testid="launch-reviewer-include-diff"
-                  />
-                  Include the current diff in the briefing
-                </label>
               </div>
             </div>
 

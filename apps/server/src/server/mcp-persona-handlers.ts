@@ -10,6 +10,8 @@ import {
 import { getBuiltInPersona } from "../personas/built-in.js";
 import {
   assemblePersonaPrompt,
+  buildStandardFeedbackGuidance,
+  MAX_PERSONA_PROMPT_BYTES,
   loadPersonaBySlug,
   loadPersonas,
   type PersonaDefinition,
@@ -21,7 +23,6 @@ import {
   resolveCodeowners,
   type OwnerReviewResult,
 } from "../personas/codeowners.js";
-import { buildPersonaReviewDiff } from "../personas/review-diff.js";
 import {
   refreshRemoteBaseRef,
   resolveBaseRef,
@@ -34,6 +35,8 @@ import { validateAgentModel } from "../shared/agent-models.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
+
+import { PERSONA_CONTEXT_ARG } from "../agents/acp/persona-context.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -50,11 +53,7 @@ export type PersonaLaunchOptions = {
   /** The briefing the launcher wrote: what was built, what to look at. */
   context: string;
   agentType?: (typeof CLI_AGENT_TYPES)[number];
-  /** Include a file-level map of the parent's changes (default true). */
-  includeDiff?: boolean;
   model?: string;
-  /** Internal: pin every owner in a batch to the selected review base. */
-  reviewBaseRef?: string;
   /** Internal: launch the exact checkout-local persona validated by the batch. */
   resolvedPersona?: PersonaDefinition;
   /** Display name; defaults to `<persona>-<parent suffix>`. */
@@ -63,7 +62,7 @@ export type PersonaLaunchOptions = {
 
 export type PreparedPersonaLaunch = {
   persona: PersonaDefinition;
-  /** The persona's instructions, briefing and change map, as a system prompt. */
+  /** The persona's instructions and briefing, delivered with the first ACP message. */
   prompt: string;
   agentType: (typeof CLI_AGENT_TYPES)[number];
   model: string | undefined;
@@ -74,7 +73,7 @@ export type PreparedPersonaLaunch = {
 /**
  * A persona is a profile: instructions plus defaults, applied to an ordinary
  * launch. This resolves the profile against the parent's worktree (repo
- * personas win over built-ins), builds the change map when asked, and
+ * personas win over built-ins), assembles the briefing, and
  * returns everything `createAgent` needs. Nothing here is review-specific:
  * a QA persona, a docs persona and a reviewer all take this path.
  */
@@ -162,20 +161,14 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       );
     }
 
-    const includeDiff = opts.includeDiff !== false;
-    let diffResult = null;
-    if (includeDiff) {
-      const baseRef =
-        opts.reviewBaseRef ?? (await resolveReviewBase(parent, parentCwd));
-      diffResult = await buildPersonaReviewDiff(parentCwd, baseRef, runCommand);
-    }
-    const prompt = assemblePersonaPrompt(persona, opts.context, diffResult, {
-      includeDiff,
-      agentType,
-      parentAgentId: parent.id,
-    });
+    const prompt = assemblePersonaPrompt(persona, opts.context);
 
-    const agentArgs: string[] = ["--append-system-prompt", prompt];
+    const agentArgs: string[] = [
+      "--append-system-prompt",
+      buildStandardFeedbackGuidance(parent.id),
+      PERSONA_CONTEXT_ARG,
+      prompt,
+    ];
     if (parent.fullAccess) {
       const fullAccessArg =
         agentType === "claude"
@@ -196,7 +189,12 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   async function launchPersonaAgent(
     parentId: string,
     opts: PersonaLaunchOptions
-  ): Promise<{ agentId: string; name: string; persona: string }> {
+  ): Promise<{
+    agentId: string;
+    name: string;
+    persona: string;
+    warnings?: string[];
+  }> {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
     if (parent.parentAgentId) {
@@ -230,7 +228,18 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       type: "agent.upsert",
       agent: withStreamFlag(fresh ?? agent),
     });
-    return { agentId: agent.id, name: agent.name, persona: opts.persona };
+    return {
+      agentId: agent.id,
+      name: agent.name,
+      persona: opts.persona,
+      ...(Buffer.byteLength(prepared.prompt, "utf8") > MAX_PERSONA_PROMPT_BYTES
+        ? {
+            warnings: [
+              "Persona launch context exceeds 64KiB; the complete context will be delivered through a private file that the reviewer is instructed to read. No content is trimmed.",
+            ],
+          }
+        : {}),
+    };
   }
 
   async function launchOwnerReviews(
@@ -278,7 +287,6 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         context,
         agentType: opts.agentType,
         model: opts.model,
-        reviewBaseRef: baseRef,
         resolvedPersona: selectedPersonas.get(persona),
       })
     );
@@ -306,7 +314,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
 /** The first turn a persona agent receives: begin, and where to report. */
 export function buildPersonaKickoffPrompt(parentAgentId: string): string {
   return [
-    "Begin now. Your persona instructions, the launcher's briefing, and (when included) a map of the changes are already in your context.",
+    "Begin now. Your persona instructions and the launcher's briefing are already in your context. Inspect the relevant material according to that scope.",
     `When you are done, post your result to the agent that launched you: post with to: "${parentAgentId}". A reviewer posts one \`review\` block (summary, findings); any other persona posts what its instructions say.`,
     "Later replies in that thread arrive as new prompts; answer in the thread (post with replyTo).",
   ].join("\n");

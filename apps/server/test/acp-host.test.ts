@@ -226,6 +226,55 @@ describe("agent host", () => {
       await first.runtime.stop(id, true);
     }
   }, 30_000);
+  it.each(["claude", "codex", "opencode"] as const)(
+    "%s host delivers oversized context through a complete launch file, including after restart",
+    async (engine) => {
+      const id = `agt_p_${engine}`;
+      const context = "Persona rule\n".repeat(6000) + "FINAL BRIEFING RULE";
+      let resumeSessionId: string | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+        const session = await runtime.launch({
+          ...launchFor(id, cwd),
+          engine,
+          personaContext: context,
+          resumeSessionId,
+        });
+        resumeSessionId = session.sessionId;
+        try {
+          const file = path.join(stateRoot, id, "persona-context.md");
+          expect(readFileSync(file, "utf8")).toBe(context);
+          const launch = JSON.parse(
+            readFileSync(path.join(stateRoot, id, "launch.json"), "utf8")
+          );
+          expect(launch.systemPrompt).toBe("Be brief.");
+          expect(launch.personaContext).toContain(JSON.stringify(file));
+          await runtime.prompt(id, "Begin the review.").settled;
+          await until(() =>
+            seen.some(
+              ({ event }) => event.type === "turn" && event.state === "settled"
+            )
+          );
+          const answer = seen
+            .flatMap(({ event }) =>
+              event.type === "update" &&
+              event.update.sessionUpdate === "agent_message_chunk" &&
+              event.update.content.type === "text"
+                ? [event.update.content.text]
+                : []
+            )
+            .join("");
+          expect(answer).toContain("read the entire UTF-8 launch context file");
+          expect(answer).toContain(file);
+          expect(answer).toContain("Begin the review.");
+        } finally {
+          await runtime.stop(id);
+        }
+      }
+    },
+    30_000
+  );
+
   it("delivers the full Codex launch bundle through the host, not just the recorded system prompt", async () => {
     const id = "agt_host_guidance";
     const { runtime, seen } = runtimeWith(stateRoot, () => 0);

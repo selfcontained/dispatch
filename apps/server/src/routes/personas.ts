@@ -32,7 +32,6 @@ export function personaLaunchRequest(input: {
   codeowners?: boolean;
   agentType: string;
   model?: string;
-  includeDiff?: boolean;
   note?: string;
 }): string {
   const modelArgs = input.model ? [`model: "${input.model}"`] : [];
@@ -41,13 +40,12 @@ export function personaLaunchRequest(input: {
       `persona: "${persona}"`,
       `type: "${input.agentType}"`,
       ...modelArgs,
-      ...(input.includeDiff === false ? ["includeDiff: false"] : []),
     ];
     return `- launch_agent({ ${args.join(", ")}, prompt: <your briefing> })`;
   });
   if (input.codeowners) {
     // The owner tool names the runtime `agentType` where launch_agent says
-    // `type`. Owner reviews always carry the change map; includeDiff has no say.
+    // `type`. Owner reviews receive their matched file scope.
     const args = [`agentType: "${input.agentType}"`, ...modelArgs];
     lines.unshift(
       `- launch_owner_reviews({ ${args.join(", ")}, context: <your briefing> }) — the code owners for your changed files, selected from .dispatch/codeowners.json`
@@ -72,7 +70,7 @@ export function personaLaunchRequest(input: {
           "Run launch_owner_reviews first and read its `launched` list; skip the launch_agent line for any persona it already launched (a persona in `failures` is still yours to launch).",
         ]
       : []),
-    "Write the briefing yourself: what you changed and why, the files that matter, what to scrutinize, and what is out of scope. Each reviewer posts one review back to you; answer every finding under it, and its reviewer resolves it.",
+    "Write the briefing yourself: the review target and purpose, the material that matters, what to scrutinize, and what is out of scope. For code-change reviews, include the relevant base branch so reviewers can inspect diffs locally. Each reviewer posts one review back to you; answer every finding under it, and its reviewer resolves it.",
     ...(input.note?.trim() ? ["", `From the user: ${input.note.trim()}`] : []),
   ].join("\n");
 }
@@ -140,7 +138,6 @@ export async function registerPersonaRoutes(
       personas?: unknown;
       codeowners?: unknown;
       agentType?: unknown;
-      includeDiff?: unknown;
       model?: unknown;
       note?: unknown;
     } | null;
@@ -196,14 +193,6 @@ export async function registerPersonaRoutes(
       });
     }
     if (
-      body.includeDiff !== undefined &&
-      typeof body.includeDiff !== "boolean"
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "includeDiff must be a boolean when provided." });
-    }
-    if (
       body.model !== undefined &&
       body.model !== null &&
       typeof body.model !== "string"
@@ -250,9 +239,6 @@ export async function registerPersonaRoutes(
         codeowners,
         agentType: body.agentType as string,
         ...(model !== undefined ? { model } : {}),
-        ...(body.includeDiff !== undefined
-          ? { includeDiff: body.includeDiff }
-          : {}),
         ...(typeof body.note === "string" ? { note: body.note } : {}),
       });
       // Start the agent's turn with its own review instructions. The stream

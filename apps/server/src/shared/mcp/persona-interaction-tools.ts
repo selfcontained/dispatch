@@ -157,16 +157,23 @@ export function registerPersonaInteractionTools(
         try {
           const personas = await validatePersonas(personaRoot);
           const valid = personas.every((persona) => persona.valid);
+          const warnings = personas.flatMap((persona) =>
+            persona.warnings.map((warning) => `${persona.slug}: ${warning}`)
+          );
+          const summary =
+            personas.length === 0
+              ? "No persona files found."
+              : valid
+                ? `All ${personas.length} persona file(s) are valid.`
+                : `${personas.filter((persona) => !persona.valid).length} invalid persona file(s) found.`;
           return {
             content: [
               {
                 type: "text",
-                text:
-                  personas.length === 0
-                    ? "No persona files found."
-                    : valid
-                      ? `All ${personas.length} persona file(s) are valid.`
-                      : `${personas.filter((persona) => !persona.valid).length} invalid persona file(s) found.`,
+                text: [
+                  summary,
+                  ...warnings.map((warning) => `Warning: ${warning}`),
+                ].join("\n"),
               },
             ],
             structuredContent: { valid, personas },
@@ -240,6 +247,11 @@ export function registerPersonaInteractionTools(
       async (args) => {
         try {
           const result = await launchOwnerReviews(agentId, args);
+          const warnings = result.launched.flatMap((owner) =>
+            (owner.warnings ?? []).map(
+              (warning) => `${owner.persona}: ${warning}`
+            )
+          );
           const status = args.dryRun
             ? `Selected ${result.owners.length} code owner reviewer(s); no reviewers launched.`
             : `Launched ${result.launched.length} code owner reviewer(s); ${result.failures.length} launch failure(s).`;
@@ -247,7 +259,7 @@ export function registerPersonaInteractionTools(
             content: [
               {
                 type: "text",
-                text: `${status} ${result.uncoveredFiles.length} file(s) lack an explicit owner.${result.launched.length ? "\nEnd this turn after launching all reviewers. Do not poll or wait; Dispatch will deliver each posted review automatically." : ""}`,
+                text: `${status} ${result.uncoveredFiles.length} file(s) lack an explicit owner.${warnings.length ? `\n${warnings.join("\n")}` : ""}${result.launched.length ? "\nEnd this turn after launching all reviewers. Do not poll or wait; Dispatch will deliver each posted review automatically." : ""}`,
               },
             ],
             structuredContent: result,

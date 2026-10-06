@@ -17,15 +17,11 @@ export function PersonasContent() {
           An agent calls <Code>launch_agent</Code> with{" "}
           <Code>persona: &lt;slug&gt;</Code>; the <Code>prompt</Code> is the
           persona&apos;s briefing. Dispatch loads the persona definition from
-          the repo and spawns a child agent with the persona&apos;s
-          instructions, the briefing, and (by default) a diff of the current
-          changes against the agent&apos;s base branch. Reviewers always get the
-          exact local <Code>git diff</Code> commands to reproduce what they are
-          seeing. Small diffs are also included inline; large diffs (over ~15
-          KB) are replaced with a file-level summary plus those commands so the
-          reviewer can inspect specific files in the worktree. Pass{" "}
-          <Code>includeDiff: false</Code> for non-code work (PRDs, docs, images)
-          where the git diff is not the subject.
+          the repo and spawns a child agent with the persona&apos;s instructions
+          and the briefing. Reviewers inspect the relevant material themselves:
+          code reviewers can read local diffs, while reviews of PRDs, docs, or
+          images follow the supplied target. Code owner reviews also receive
+          their matched file list and review base.
         </P>
         <P>
           Persona agents run as <Code>claude</Code>, <Code>codex</Code>, or{" "}
@@ -43,8 +39,7 @@ export function PersonasContent() {
           remembered per repo and agent type). An optional{" "}
           <strong>focus note</strong> — free text like &quot;focus on the auth
           changes&quot; — is folded into the briefing every selected persona
-          receives, and the <strong>Include the current diff</strong> toggle
-          maps to <Code>includeDiff</Code>.
+          receives.
         </P>
         <P>
           Persona agents share files and screenshots the same way every agent
@@ -81,10 +76,11 @@ export function PersonasContent() {
           <Code>.dispatch/personas/</Code>. The filename (without extension)
           becomes the persona slug used when launching. Files use YAML
           frontmatter for metadata and the body is the persona&apos;s
-          instructions. Dispatch automatically appends the briefing and the
-          current diff, plus a standard block of guidance on posting the review
-          — persona files should not include their own context or diff
-          placeholders.
+          instructions. Dispatch delivers the persona and briefing with the
+          first message, while keeping standard review guidance separate. Launch
+          context over 64KiB is preserved in a private file that the reviewer is
+          instructed to read in full. Persona files should not include their own
+          context or diff placeholders.
         </P>
         <CodeBlock>{`
 # .dispatch/personas/security-review.md

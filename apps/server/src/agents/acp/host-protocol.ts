@@ -26,6 +26,8 @@ export type HostLaunch = {
   model: string | null;
   /** Delivered as `_meta.systemPrompt.append` for engines that take one. */
   systemPrompt: string | null;
+  /** Persona task context delivered with the first ordinary prompt, including on resume. */
+  personaContext?: string | null;
   mcp: { url: string; token: string };
   /** Environment the engine child gets on top of the host's own. */
   env: Record<string, string>;

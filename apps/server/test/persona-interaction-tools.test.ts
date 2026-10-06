@@ -215,7 +215,12 @@ describe("launch_owner_reviews MCP tool", () => {
       owners: [],
       uncoveredFiles: [],
       launched: [
-        { persona: "owner", agentId: "reviewer", files: ["src/a.ts"] },
+        {
+          persona: "owner",
+          agentId: "reviewer",
+          files: ["src/a.ts"],
+          warnings: ["Complete context delivered through a private file."],
+        },
       ],
       failures: [
         { persona: "other", error: "unavailable", files: ["src/a.ts"] },
@@ -236,6 +241,9 @@ describe("launch_owner_reviews MCP tool", () => {
     expect(launchOwnerReviews).toHaveBeenCalledWith("parent", args);
     expect(response.structuredContent).toEqual(result);
     expect(response.content[0].text).toContain("1 launch failure(s)");
+    expect(response.content[0].text).toContain(
+      "owner: Complete context delivered through a private file."
+    );
     expect(response.content[0].text).toContain("End this turn");
   });
   it("returns a tool error when routing fails", async () => {

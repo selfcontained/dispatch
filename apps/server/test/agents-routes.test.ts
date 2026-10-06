@@ -42,6 +42,41 @@ async function createAgent(
   return agent;
 }
 
+it("keeps complete persona launch metadata in storage but out of create, list, detail and lifecycle responses", async () => {
+  const context =
+    "Private persona instructions\n".repeat(4000) + "FINAL_CONTEXT_SENTINEL";
+  const args = [
+    "--dispatch-persona-context",
+    context,
+    "--dangerously-bypass-approvals-and-sandbox",
+  ];
+  const created = await createAgent({ agentArgs: args });
+  const id = created.id;
+  const detail = await authedInject("GET", `/api/v1/agents/${id}`);
+  const list = await authedInject("GET", "/api/v1/agents");
+  const stopped = await authedInject("POST", `/api/v1/agents/${id}/stop`);
+  const started = await authedInject("POST", `/api/v1/agents/${id}/start`);
+  expect(stopped.statusCode).toBe(200);
+  expect(started.statusCode).toBe(200);
+  for (const agent of [
+    stopped.json().agent,
+    started.json().agent,
+    created,
+    detail.json().agent,
+    list.json().agents.find((agent: { id: string }) => agent.id === id),
+  ]) {
+    expect(agent.agentArgs).toEqual([
+      "--dangerously-bypass-approvals-and-sandbox",
+    ]);
+    expect(JSON.stringify(agent)).not.toContain("FINAL_CONTEXT_SENTINEL");
+  }
+  const stored = await ctx.pool.query(
+    "SELECT agent_args FROM agents WHERE id = $1",
+    [id]
+  );
+  expect(stored.rows[0].agent_args).toEqual(args);
+});
+
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM job_runs");
   await ctx.pool.query("DELETE FROM jobs");
