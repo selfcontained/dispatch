@@ -34,6 +34,7 @@ import {
   type TemplateRecord,
 } from "../templates/store.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
+import { assertAccessCeiling } from "../shared/access-ceiling.js";
 import {
   getNextRun,
   validateCronExpression,
@@ -43,6 +44,8 @@ import {
 export type JobRunCallback = (run: JobRunRecord) => void;
 
 type RunJobInput = {
+  /** Agent callers must pass their access flag; omitted for trusted triggers. */
+  callerFullAccess?: boolean;
   name: string;
   directory: string;
   wait?: boolean;
@@ -145,6 +148,7 @@ export class JobService {
       ? await this.templateStore.getTemplate(job.templateId)
       : null;
     const agentConfig = template ?? job;
+    assertAccessCeiling(agentConfig.fullAccess, input.callerFullAccess);
     const agentType = agentConfig.agentType as JobAgentType;
 
     const rawPrompt = agentConfig.prompt;
@@ -597,7 +601,11 @@ export class JobService {
     return await this.store.logForAgent(agentId, input);
   }
 
-  async addJob(input: AddJobInput): Promise<JobRecord> {
+  async addJob(
+    input: AddJobInput,
+    callerFullAccess?: boolean
+  ): Promise<JobRecord> {
+    assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const displayName = input.displayName?.trim() || input.name;
     const schedule = input.schedule === "" ? null : (input.schedule ?? null);
     assertScheduleValid({
@@ -675,8 +683,24 @@ export class JobService {
     return job;
   }
 
-  async updateJob(input: AddJobInput): Promise<JobRecord> {
+  async updateJob(
+    input: AddJobInput,
+    callerFullAccess?: boolean
+  ): Promise<JobRecord> {
     const existing = await this.getJobOrThrow(input.directory, input.name);
+    // Editing a prompt or enabling a schedule can also cause privileged work.
+    // Check both stored flags: a missing template falls back to the job row.
+    if (callerFullAccess === false) {
+      const template = existing.templateId
+        ? await this.templateStore.getTemplate(existing.templateId)
+        : null;
+      assertAccessCeiling(
+        existing.fullAccess ||
+          template?.fullAccess === true ||
+          input.fullAccess === true,
+        callerFullAccess
+      );
+    }
 
     const schedule = input.schedule === "" ? null : input.schedule;
     const nextSchedule =

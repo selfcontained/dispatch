@@ -144,6 +144,7 @@ declare module "fastify" {
   interface FastifyContextConfig {
     /** Route authenticates with its own scoped browser-extension bearer token. */
     browserExtensionBearer?: boolean;
+    browserExtensionPairing?: boolean;
   }
 
   interface FastifyRequest {
@@ -481,7 +482,12 @@ export async function registerBrowserExtensionRoutes(
 
   app.post(
     "/api/v1/auth/browser-extension/pairings",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    {
+      config: {
+        browserExtensionPairing: true,
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
+    },
     async (request, reply) => {
       const input = parseInput(PairingBodySchema, request.body, reply);
       if (!input) return;
@@ -515,7 +521,12 @@ export async function registerBrowserExtensionRoutes(
 
   app.post(
     "/api/v1/auth/browser-extension/pairings/:id/exchange",
-    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    {
+      config: {
+        browserExtensionPairing: true,
+        rateLimit: { max: 30, timeWindow: "1 minute" },
+      },
+    },
     async (request, reply) => {
       const input = parseInput(PairingExchangeBodySchema, request.body, reply);
       if (!input) return;

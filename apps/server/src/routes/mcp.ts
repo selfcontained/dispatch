@@ -96,7 +96,10 @@ type McpRouteDeps = {
   >;
 };
 
-function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
+function buildCrudCallbacks(
+  deps: McpRouteDeps,
+  callerFullAccess: boolean
+): CrudToolCallbacks {
   return {
     listJobs: async (directory) => {
       const jobs = await deps.jobService.listJobs();
@@ -107,12 +110,19 @@ function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
     getJobByName: (directory, name) =>
       deps.jobService.getJobByName(directory, name),
-    createJob: (input) => deps.jobService.addJob(input as AddJobInput),
-    updateJob: (input) => deps.jobService.updateJob(input as AddJobInput),
+    createJob: (input) =>
+      deps.jobService.addJob(input as AddJobInput, callerFullAccess),
+    updateJob: (input) =>
+      deps.jobService.updateJob(input as AddJobInput, callerFullAccess),
     deleteJob: (name, directory) =>
       deps.jobService.removeJob({ name, directory }),
     runJob: (name, directory) =>
-      deps.jobService.runJob({ name, directory, wait: false }),
+      deps.jobService.runJob({
+        name,
+        directory,
+        wait: false,
+        callerFullAccess,
+      }),
     listTemplates: async (directory) => {
       const templates = await deps.templateService.listTemplates();
       if (!directory) return templates;
@@ -124,11 +134,15 @@ function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
     getTemplateByName: (directory, name) =>
       deps.templateService.getTemplateByName(directory, name),
     createTemplate: (input) =>
-      deps.templateService.addTemplate(input as AddTemplateInput),
+      deps.templateService.addTemplate(
+        input as AddTemplateInput,
+        callerFullAccess
+      ),
     updateTemplate: (templateId, input) =>
       deps.templateService.updateTemplate(
         templateId,
-        input as Partial<AddTemplateInput>
+        input as Partial<AddTemplateInput>,
+        callerFullAccess
       ),
     deleteTemplate: (templateId) =>
       deps.templateService.removeTemplate(templateId),
@@ -250,7 +264,7 @@ export async function registerMcpRoutes(
         >,
       toolScope: run ? "job" : "agent",
       jobTools,
-      crudTools: buildCrudCallbacks(deps),
+      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,
@@ -333,7 +347,7 @@ export async function registerMcpRoutes(
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
-      crudTools: buildCrudCallbacks(deps),
+      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,

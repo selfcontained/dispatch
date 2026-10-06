@@ -261,79 +261,90 @@ describe("JobService", () => {
   });
 
   describe("error paths", () => {
-    it("runJob creates a job agent with the production-generated default name", async () => {
-      const service = new JobService(
-        pool,
-        mockAgentManager,
-        mockLog,
-        mockConfig
-      );
-      const store = new JobStore(pool);
+    it.each([
+      { callerFullAccess: undefined, fullAccess: false },
+      { callerFullAccess: false, fullAccess: false },
+      { callerFullAccess: true, fullAccess: false },
+      { callerFullAccess: true, fullAccess: true },
+    ])(
+      "runJob launches an allowed job ($callerFullAccess -> $fullAccess)",
+      async ({ callerFullAccess, fullAccess }) => {
+        const service = new JobService(
+          pool,
+          mockAgentManager,
+          mockLog,
+          mockConfig
+        );
+        const store = new JobStore(pool);
 
-      const job = await makeJob(store, {
-        name: "Rename Test",
-        directory: "/tmp/test-rename",
-      });
+        const job = await makeJob(store, {
+          name: "Rename Test",
+          directory: "/tmp/test-rename",
+        });
 
-      vi.mocked(mockAgentManager.createAgent).mockImplementation(
-        async (_input, options) => {
-          const createdAt = new Date().toISOString();
-          await pool.query(
-            `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
+        await store.updateJobConfig(job.id, { fullAccess });
+        vi.mocked(mockAgentManager.createAgent).mockImplementation(
+          async (_input, options) => {
+            const createdAt = new Date().toISOString();
+            await pool.query(
+              `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
            VALUES ('agt_job_rename', 'job-Rename_Test-placeholder', 'claude', 'running', '/tmp/test-rename', '[]'::jsonb, false)`
-          );
-          await options?.beforeLaunch?.("agt_job_rename");
-          return {
-            id: "agt_job_rename",
-            name: "job-Rename_Test-placeholder",
-            type: "claude",
-            status: "running",
-            cwd: "/tmp/test-rename",
-            createdAt,
-            updatedAt: createdAt,
-            metadata: null,
-            codexArgs: [],
-            claudeArgs: [],
-            opencodeArgs: [],
+            );
+            await options?.beforeLaunch?.("agt_job_rename");
+            return {
+              id: "agt_job_rename",
+              name: "job-Rename_Test-placeholder",
+              type: "claude",
+              status: "running",
+              cwd: "/tmp/test-rename",
+              createdAt,
+              updatedAt: createdAt,
+              metadata: null,
+              codexArgs: [],
+              claudeArgs: [],
+              opencodeArgs: [],
 
-            fullAccess: false,
-            useWorktree: false,
-            worktreePath: null,
-            worktreeBranch: null,
-            setupPhase: null,
-            parentAgentId: null,
-            persona: null,
-            baseBranch: null,
-          } as Awaited<ReturnType<AgentManager["createAgent"]>>;
-        }
-      );
+              fullAccess: false,
+              useWorktree: false,
+              worktreePath: null,
+              worktreeBranch: null,
+              setupPhase: null,
+              parentAgentId: null,
+              persona: null,
+              baseBranch: null,
+            } as Awaited<ReturnType<AgentManager["createAgent"]>>;
+          }
+        );
 
-      const result = await service.runJob({
-        name: "Rename Test",
-        directory: "/tmp/test-rename",
-        wait: false,
-      });
+        const result = await service.runJob({
+          name: "Rename Test",
+          directory: "/tmp/test-rename",
+          wait: false,
+          callerFullAccess,
+        });
 
-      expect(result.status).toBe("running");
-      expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          jobRunId: result.runId,
-          name: `job-Rename_Test-${result.runId.slice(0, 8)}`,
-          // The Chat launch post gets only the user-authored job prompt.
-          launchContext: {
-            prompt: "Test prompt",
-          },
-        }),
-        expect.objectContaining({ beforeLaunch: expect.any(Function) })
-      );
+        expect(result.status).toBe("running");
+        expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            jobRunId: result.runId,
+            fullAccess,
+            name: `job-Rename_Test-${result.runId.slice(0, 8)}`,
+            // The Chat launch post gets only the user-authored job prompt.
+            launchContext: {
+              prompt: "Test prompt",
+            },
+          }),
+          expect.objectContaining({ beforeLaunch: expect.any(Function) })
+        );
 
-      await service.completeRunForAgent("agt_job_rename", {
-        status: "completed",
-        summary: "done",
-        tasks: [],
-      });
-      await service.shutdown();
-    });
+        await service.completeRunForAgent("agt_job_rename", {
+          status: "completed",
+          summary: "done",
+          tasks: [],
+        });
+        await service.shutdown();
+      }
+    );
 
     it("runJob throws when job has no prompt", async () => {
       const service = new JobService(

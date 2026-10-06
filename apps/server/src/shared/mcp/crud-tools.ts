@@ -53,6 +53,8 @@ function loopItemsFromText(value: unknown): string[] {
 function withLoopFields(job: unknown) {
   if (!job || typeof job !== "object") return job;
   const {
+    // A webhook credential would let an agent bypass run_job's access check.
+    webhookSecret: _webhookSecret,
     continuationEnabled,
     maxIterations,
     completionCriteria,
@@ -71,7 +73,7 @@ function withLoopFields(job: unknown) {
 /**
  * Job listing: same prompt trim, minus the webhook secret. A listing is for
  * picking a job to inspect or run; the secret is a credential the caller has no
- * use for there, and get_job still returns the full record.
+ * use for there. get_job also omits this credential.
  */
 function toJobListing(job: unknown) {
   if (!job || typeof job !== "object") return job;

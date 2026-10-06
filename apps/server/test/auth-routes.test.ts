@@ -4,6 +4,53 @@ import { useInjectApp } from "./helpers/inject-app.js";
 
 const ctx = useInjectApp();
 
+describe("encoded API paths", () => {
+  it.each([
+    "/%61pi/v1/templates",
+    "/a%70i/v1/templates",
+    "/%61%70%69/v1/templates?x=1",
+  ])("requires authentication for %s", async (url) => {
+    for (const method of ["GET", "POST"] as const) {
+      const res = await ctx.app.inject({
+        method,
+        url,
+        ...(method === "POST" ? { payload: {} } : {}),
+      });
+      expect(res.statusCode).toBe(401);
+    }
+    const authorized = await ctx.app.inject({
+      method: "GET",
+      url,
+      headers: { cookie: await ctx.sessionCookie() },
+    });
+    expect(authorized.statusCode).toBe(200);
+  });
+
+  it("preserves public routes and scoped MCP authentication", async () => {
+    const health = await ctx.app.inject({
+      method: "GET",
+      url: "/%61pi/v1/health",
+    });
+    expect(health.statusCode).toBe(200);
+    const invalidToken = await ctx.app.inject({
+      method: "POST",
+      url: "/%61pi/mcp/nonexistent",
+      headers: { authorization: "Bearer invalid" },
+      payload: {},
+    });
+    expect(invalidToken.statusCode).toBe(403);
+    const secret = await ctx.auth.getOrCreateAuthToken(ctx.pool);
+    const validToken = ctx.auth.createAgentMcpToken(secret, "nonexistent");
+    const scoped = await ctx.app.inject({
+      method: "POST",
+      url: "/%61pi/mcp/nonexistent",
+      headers: { authorization: `Bearer ${validToken}` },
+      payload: {},
+    });
+    expect(scoped.statusCode).toBe(404);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // GET /api/v1/auth/status
 // ---------------------------------------------------------------------------
