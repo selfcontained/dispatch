@@ -264,7 +264,7 @@ export function registerStreamTools(
             .enum(["auto", "queue"])
             .optional()
             .describe(
-              "auto (default): a busy recipient reads the post during its current turn, an idle one starts a turn. queue: wait for the recipient's current turn to finish. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
+              "auto (default): a busy recipient reads the post during its current turn when its engine supports that (posts with images wait); an idle one starts a turn. queue: always wait for the recipient's current turn to finish. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
             ),
         }),
       },
