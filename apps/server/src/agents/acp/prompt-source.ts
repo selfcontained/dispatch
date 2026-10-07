@@ -8,7 +8,10 @@ import type { PromptConversation } from "@dispatch/shared";
 export type PromptSource = {
   /** Server-resolved answer location, retained through the host journal. */
   conversation?: PromptConversation;
-  /** Only an actual user message can steer the active conversation. */
+  /**
+   * A person's post. With a conversation, a prompt steers only that
+   * conversation; another agent's post without one steers any open turn.
+   */
   userMessage?: boolean;
   /** Agent-authored scheduled content, explicitly eligible for steering. */
   scheduleId?: string;
