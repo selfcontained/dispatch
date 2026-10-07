@@ -1,3 +1,4 @@
+import { createClientId } from "@/lib/client-id";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
 import { reloadApp } from "@/lib/pwa-update";
@@ -127,9 +128,7 @@ export function useReleaseStream(
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const clientIdRef = useRef<string>(
-    globalThis.crypto?.randomUUID?.() ?? `release-${Date.now()}`
-  );
+  const clientIdRef = useRef<string>(createClientId());
 
   const fetchStatus = useCallback(async () => {
     try {

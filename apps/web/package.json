@@ -12,7 +12,7 @@
     "postbuild": "cp ../browser-extension/dist/dispatch-browser-feedback.zip dist/dispatch-browser-feedback.zip",
     "preview": "vite preview",
     "check": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "node --test eslint-security.test.mjs && eslint src",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },

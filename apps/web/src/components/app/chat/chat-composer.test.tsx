@@ -19,6 +19,7 @@ import { ChatComposer } from "@/components/app/chat/chat-composer";
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 function renderComposer(
@@ -42,6 +43,31 @@ function renderComposer(
 }
 
 describe("ChatComposer", () => {
+  it("keeps sending usable when ID creation throws, then retries", async () => {
+    const { onSend, input } = renderComposer();
+    const random = vi
+      .spyOn(crypto, "getRandomValues")
+      .mockImplementationOnce(() => {
+        throw new Error("Random source unavailable");
+      });
+    fireEvent.change(input, { target: { value: "keep this draft" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("keep this draft");
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "Random source unavailable"
+    );
+    expect(
+      (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
+    ).toBe(false);
+    random.mockRestore();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith("keep this draft", [])
+    );
+    expect(input.value).toBe("");
+  });
+
   it("sends on Enter and clears the input once the send succeeds", async () => {
     const { onSend, input } = renderComposer();
     fireEvent.change(input, { target: { value: "  hello  " } });
