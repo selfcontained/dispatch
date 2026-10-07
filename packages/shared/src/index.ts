@@ -190,3 +190,11 @@ export type {
 } from "./conversation-delivery.js";
 
 export { qualifyExternalMentions } from "./agent-mentions.js";
+
+export type {
+  ScheduledMessage,
+  ScheduledMessageStatus,
+} from "./scheduled-messages.js";
+export type { ScheduledMessagePresentation } from "./scheduled-messages.js";
+
+export { scheduledMessageCadence } from "./scheduled-messages.js";

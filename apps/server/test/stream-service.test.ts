@@ -5331,6 +5331,64 @@ describe("StreamService delivery that is never taken", () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.retryDelivery", () => {
+  it.each([true, false, null])(
+    "keeps scheduled delivery outcome %s under scheduler recovery and rejects generic retries",
+    async (outcome) => {
+      const { svc, injected } = build();
+      const block = await svc.scheduledNotice(
+        A,
+        crypto.randomUUID(),
+        "Scheduled body",
+        true
+      );
+      if (outcome !== null)
+        await svc.scheduledNoticeOutcome(block.id, A, outcome);
+      await svc.store.sweepPendingDeliveries();
+      expect((await svc.store.getById(block.id))!.delivered).toBe(outcome);
+      await expect(svc.retryDelivery(block.streamId, block.id)).rejects.toThrow(
+        "Scheduled deliveries are not retried"
+      );
+      expect(injected).toHaveLength(0);
+    }
+  );
+  it("resets a scheduled retry to pending before submission", async () => {
+    const { svc } = build();
+    const block = await svc.scheduledNotice(
+      A,
+      crypto.randomUUID(),
+      "Scheduled body",
+      true
+    );
+    await svc.scheduledNoticeOutcome(block.id, A, false, "waiting");
+    await svc.scheduledNoticePending(block.id, A);
+    const pending = (await svc.store.getById(block.id))!;
+    expect(pending.delivered).toBeNull();
+    expect(pending.delivery).toEqual([{ agentId: A, state: "pending" }]);
+    expect(
+      pending.kind === "text" && pending.data?.scheduledDeliveryStatus
+    ).toBe("waiting");
+  });
+  it("protects Dispatch scheduled records from agent content updates", async () => {
+    const { svc } = build();
+    for (const delivery of [false, true]) {
+      const block = await svc.scheduledNotice(
+        A,
+        crypto.randomUUID(),
+        "Trusted record",
+        delivery
+      );
+      for (const patch of [
+        { text: "Rewrite" },
+        { data: {} },
+        { attachments: [] },
+      ]) {
+        await expect(svc.update(A, block.id, patch)).rejects.toThrow(
+          "A scheduled-message record is written by Dispatch"
+        );
+      }
+      expect((await svc.store.getById(block.id))!.text).toBe("Trusted record");
+    }
+  });
   it.each([
     "user",
     "user-thread",

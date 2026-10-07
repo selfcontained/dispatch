@@ -1956,6 +1956,21 @@ describe("AgentManager", () => {
     });
   });
   describe("stopAgent", () => {
+    it("keeps lifecycle controls working when schedule cancellation fails", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      manager.attachScheduleCancellation(async () => {
+        throw new Error("scheduler unavailable");
+      });
+      await manager.cancelTurn(agent.id);
+      expect(runtime.cancel).toHaveBeenCalledWith(agent.id);
+      const stopped = await manager.stopAgent(agent.id, { force: true });
+      expect(stopped.status).toBe("stopped");
+      const archived = await manager.beginArchive(agent.id);
+      expect(archived.status).toBe("archiving");
+    });
     it("should stop the host and settle open turns", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",

@@ -215,6 +215,10 @@ export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
 export type BlockTextData = {
+  /** Server-authored scheduler provenance; ordinary post/update cannot set it. */
+  scheduledMessageId?: string;
+  scheduledMessage?: import("./scheduled-messages.js").ScheduledMessagePresentation;
+  scheduledDeliveryStatus?: "waiting" | "discarded" | "uncertain" | "accepted";
   /** Delivery record rendered on its question/form, never as a thread reply. */
   inlineAnswer?: boolean;
   /** Resolved destination for queue controls on an inline answer. */
