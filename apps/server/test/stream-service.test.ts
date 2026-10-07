@@ -7077,3 +7077,81 @@ describe("bounded message context", () => {
     });
   });
 });
+
+describe("shown-block context boundaries", () => {
+  const C = "agt_context_third";
+  beforeEach(async () => {
+    await pool.query(
+      `INSERT INTO agents(id,name,cwd,status,parent_agent_id) VALUES($1,'Third','/tmp','running',$2)`,
+      [C, A]
+    );
+  });
+  afterEach(async () => {
+    await pool.query("DELETE FROM agents WHERE id=$1", [C]);
+  });
+  function setup() {
+    return build({
+      deps: {
+        getAgent: async (id) =>
+          id === C
+            ? { id: C, name: "Third", filesDir: null, status: "running" }
+            : getAgent(id),
+      },
+    });
+  }
+  it("does not grant an enclosing launch thread to a foreign review recipient, including automatic context", async () => {
+    const { svc, injected } = setup();
+    const launch = await svc.ensureLaunchBlock(C);
+    await svc.store.update(launch.id, { text: "Private launch briefing" });
+    const detail = await svc.post(C, {
+      text: "Unrelated launch-thread detail",
+    });
+    const review = await svc.post(C, {
+      to: B,
+      review: {
+        summary: "Review for B",
+        findings: [
+          { severity: "minor", title: "Long finding", body: "f".repeat(3000) },
+        ],
+      },
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect((await svc.getThread(B, review.id)).root.id).toBe(review.id);
+    const finding = (await svc.getReview(C, review.id)).findings[0];
+    expect((await svc.getThread(B, finding.id)).root.id).toBe(finding.id);
+    await expect(svc.getThread(B, launch.id)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.getMessage(B, detail.id)).rejects.toThrow(
+      "Message not found"
+    );
+    const prompt = injected.find((i) => i.agentId === B)!.text;
+    expect(prompt).not.toContain("Private launch briefing");
+    expect(prompt).not.toContain("Unrelated launch-thread detail");
+  });
+  it("allows full finding content from an invited review but keeps its discussion separately scoped", async () => {
+    const { svc } = setup();
+    const review = await svc.post(B, {
+      to: C,
+      review: {
+        summary: "Review",
+        findings: [
+          { severity: "minor", title: "Long finding", body: "f".repeat(3000) },
+        ],
+      },
+    });
+    await svc.post(B, { to: A, replyTo: review.id, text: "Join this review" });
+    await svc.waitForInFlightDeliveries(1000);
+    const finding = (await svc.getReview(B, review.id)).findings[0];
+    const page = await svc.getThread(A, review.id);
+    expect(
+      page.messages.find((m) => m.id === finding.id)?.nextOffset
+    ).not.toBeNull();
+    expect((await svc.getMessage(A, finding.id, 1000)).content).toContain(
+      "f".repeat(100)
+    );
+    await expect(svc.getThread(A, finding.id)).rejects.toThrow(
+      "Message not found"
+    );
+  });
+});

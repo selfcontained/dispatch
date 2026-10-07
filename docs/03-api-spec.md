@@ -672,7 +672,7 @@ Reading never creates a home launch card, marks a message read, or delivers a
 prompt. All readers require the calling agent's scoped MCP identity. Message
 and thread reads permit the agent's own shared stream, or a particular outside
 thread the agent authored in, launched, or was addressed in; unrelated foreign
-threads remain inaccessible.
+threads remain inaccessible. A review/finding displayed inside another card opens its own discussion: being addressed in that review does not grant access to the enclosing launch thread. An authorized thread page may expose a displayed child card; get_message can finish reading that card, but get_thread still requires access to its separate discussion. Automatic excerpts use these same access checks.
 
 Ordinary threaded delivery includes only the distinct direct parent and thread
 root, parent first, within a 4,000-character serialized excerpt budget. No recent

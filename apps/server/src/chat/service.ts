@@ -1758,7 +1758,11 @@ export class StreamService {
   // Agents (MCP)
   // -------------------------------------------------------------------------
 
-  private async readableMessage(agentId: string, id: string): Promise<Block> {
+  private async readableMessage(
+    agentId: string,
+    id: string,
+    allowShownContent = false
+  ): Promise<Block> {
     await this.requireAgent(agentId);
     const block = await this.store.getById(id);
     if (!block) throw new StreamNotFoundError("Message not found.");
@@ -1767,7 +1771,18 @@ export class StreamService {
       block.streamId !== (await this.streamOf(agentId)) &&
       !(await this.store.hasContextAddress(host, agentId))
     ) {
-      throw new StreamNotFoundError("Message not found.");
+      const container =
+        allowShownContent && host === block.id && block.threadId
+          ? await this.store.getById(block.threadId)
+          : null;
+      if (
+        !container ||
+        container.streamId !== block.streamId ||
+        !shownIdsOf(container).includes(block.id) ||
+        !(await this.store.hasContextAddress(container.id, agentId))
+      ) {
+        throw new StreamNotFoundError("Message not found.");
+      }
     }
     return block;
   }
@@ -1783,7 +1798,7 @@ export class StreamService {
   async getMessage(agentId: string, id: string, offset = 0) {
     if (!Number.isInteger(offset) || offset < 0)
       throw new StreamValidationError("Invalid offset.");
-    const block = await this.readableMessage(agentId, id);
+    const block = await this.readableMessage(agentId, id, true);
     return messageExcerpt(await this.contextBlock(block), offset);
   }
 
@@ -1854,8 +1869,14 @@ export class StreamService {
     ];
     let remaining = AUTO_CONTEXT_CHARS;
     for (const id of ids) {
-      const candidate = await this.store.getById(id);
-      if (!candidate || candidate.streamId !== block.streamId) continue;
+      let candidate: Block;
+      try {
+        candidate = await this.readableMessage(agentId, id, true);
+      } catch (error) {
+        if (error instanceof StreamNotFoundError) continue;
+        throw error;
+      }
+      if (candidate.streamId !== block.streamId) continue;
       if (
         candidate.author.kind === "agent" &&
         candidate.author.agentId === agentId

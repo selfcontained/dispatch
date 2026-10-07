@@ -826,11 +826,13 @@ export class BlockStore {
   }
 
   async hasContextAddress(rootId: string, agentId: string): Promise<boolean> {
+    const root = await this.getById(rootId);
+    if (!root) return false;
     const result = await this.db.query(
-      `SELECT 1 FROM blocks WHERE (id = $1 OR thread_id = $1)
+      `SELECT 1 FROM blocks WHERE (id = $1 OR (thread_id = $1 AND NOT (id = ANY($3::uuid[]))))
        AND (to_agent_id = $2 OR author_agent_id = $2 OR launched_by_agent_id = $2
          OR data->'mentions' ? $2 OR data->'recipients' ? $2) LIMIT 1`,
-      [rootId, agentId]
+      [rootId, agentId, shownIdsOf(root)]
     );
     return result.rows.length > 0;
   }
