@@ -1,3 +1,4 @@
+import { AUTO_CONTEXT_CHARS, messageExcerpt } from "./context.js";
 import { qualifyExternalMentions } from "@dispatch/shared";
 import { createHash, randomUUID } from "node:crypto";
 import type { DriverEvent } from "../agents/acp/driver.js";
@@ -1757,6 +1758,150 @@ export class StreamService {
   // Agents (MCP)
   // -------------------------------------------------------------------------
 
+  private async readableMessage(
+    agentId: string,
+    id: string,
+    allowShownContent = false
+  ): Promise<Block> {
+    await this.requireAgent(agentId);
+    const block = await this.store.getById(id);
+    if (!block) throw new StreamNotFoundError("Message not found.");
+    const host = await this.threadHostFor(block);
+    if (
+      block.streamId !== (await this.streamOf(agentId)) &&
+      !(await this.store.hasContextAddress(host, agentId))
+    ) {
+      const container =
+        allowShownContent && host === block.id && block.threadId
+          ? await this.store.getById(block.threadId)
+          : null;
+      if (
+        !container ||
+        container.streamId !== block.streamId ||
+        !shownIdsOf(container).includes(block.id) ||
+        !(await this.store.hasContextAddress(container.id, agentId))
+      ) {
+        throw new StreamNotFoundError("Message not found.");
+      }
+    }
+    return block;
+  }
+
+  private async contextBlock(block: Block): Promise<Block> {
+    if (block.origin !== "turn") return block;
+    return (
+      (await loadBlockEntry(this.store.db, block.streamId, block.id))?.block ??
+      block
+    );
+  }
+
+  async getMessage(agentId: string, id: string, offset = 0) {
+    if (!Number.isInteger(offset) || offset < 0)
+      throw new StreamValidationError("Invalid offset.");
+    const block = await this.readableMessage(agentId, id, true);
+    return messageExcerpt(await this.contextBlock(block), offset);
+  }
+
+  async getThread(agentId: string, id: string, before?: string, limit = 5) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10)
+      throw new StreamValidationError("limit must be 1 to 10.");
+    const block = await this.readableMessage(agentId, id);
+    const hostId = await this.threadHostFor(block);
+    // A cursor must belong to this exact thread, not an unrelated guessed id.
+    if (before) {
+      const cursor = await this.store.getById(before);
+      if (!cursor || cursor.threadId !== hostId)
+        throw new StreamNotFoundError("Cursor not found.");
+    }
+    const root = await this.store.getById(hostId);
+    if (!root || root.streamId !== block.streamId)
+      throw new StreamNotFoundError("Thread not found.");
+    const rows = await this.store.contextReplies(hostId, before, limit + 1);
+    const page = rows.slice(0, limit);
+    const messages = await Promise.all(
+      page.map(async (row) =>
+        messageExcerpt(await this.contextBlock(row), 0, 1000)
+      )
+    );
+    return {
+      root: messageExcerpt(await this.contextBlock(root), 0, 2000),
+      messages: messages.reverse(),
+      before: rows.length > limit ? page[page.length - 1].id : null,
+      note: "Latest replies first by page; messages within each page are chronological. Use get_message with nextOffset for truncated content. Reads do not deliver prompts or mark anything read.",
+    };
+  }
+
+  async getConversationContext(agentId: string) {
+    await this.requireAgent(agentId);
+    const streamId = await this.streamOf(agentId);
+    const home = {
+      streamId,
+      threadId: streamId === agentId ? null : launchBlockId(agentId),
+    };
+    const active = await this.turns.openTurn(agentId);
+    const id = active?.payload.blockId;
+    const turn = typeof id === "string" ? await this.store.getById(id) : null;
+    return {
+      home,
+      current: turn
+        ? { streamId: turn.streamId, threadId: turn.threadId }
+        : null,
+      activeTurnId: turn?.id ?? null,
+      note: "current is null when no recorded output turn is open; post defaults to home outside a turn.",
+    };
+  }
+
+  private async automaticContext(
+    block: Block,
+    agentId: string
+  ): Promise<string> {
+    if (!block.replyTo && !block.threadId) return "";
+    const stored = await this.store.deliveryContext(block.id, agentId);
+    if (stored !== null) return stored;
+    const sections: string[] = [];
+    // Parent first. No recent-reply history is automatically replayed.
+    const ids = [
+      ...new Set(
+        [block.replyTo, block.threadId].filter(
+          (id): id is string => !!id && id !== block.id
+        )
+      ),
+    ];
+    let remaining = AUTO_CONTEXT_CHARS;
+    for (const id of ids) {
+      let candidate: Block;
+      try {
+        candidate = await this.readableMessage(agentId, id, true);
+      } catch (error) {
+        if (error instanceof StreamNotFoundError) continue;
+        throw error;
+      }
+      if (candidate.streamId !== block.streamId) continue;
+      if (
+        candidate.author.kind === "agent" &&
+        candidate.author.agentId === agentId
+      )
+        continue;
+      const hydrated = await this.contextBlock(candidate);
+      const budget = Math.min(2000, remaining);
+      let length = Math.min(1800, budget);
+      let serialized: string;
+      do {
+        serialized = JSON.stringify(messageExcerpt(hydrated, 0, length));
+        if (serialized.length <= budget) break;
+        length = Math.floor(length / 2);
+      } while (length > 0);
+      if (serialized.length > budget) continue;
+      sections.push(serialized);
+      remaining -= serialized.length + 1;
+    }
+    return this.store.saveDeliveryContext(
+      block.id,
+      agentId,
+      sections.join("\n")
+    );
+  }
+
   /** Read a review without delivering a prompt or changing unread state. */
   async getReview(agentId: string, id?: string) {
     await this.requireAgent(agentId);
@@ -3034,6 +3179,9 @@ export class StreamService {
             blockId: block.id,
             from,
             text: envelopeText(block),
+            quotedContext: closes
+              ? undefined
+              : await this.automaticContext(block, agentId),
             attachmentLines: own.attachmentLines ?? [],
             threadId: structuredAnswer
               ? (deliverySource.conversation?.threadId ?? null)

@@ -809,6 +809,58 @@ export class BlockStore {
    * blocks the root shows are left out — the root carries them — and so is
    * anything that is not a reply to it.
    */
+  /** Bounded chronological pages, including structured/inline answers. */
+  async contextReplies(
+    rootId: string,
+    beforeId: string | undefined,
+    limit: number
+  ): Promise<Block[]> {
+    const result = await this.db.query<BlockRow>(
+      `SELECT b.* FROM blocks b WHERE b.thread_id = $1
+       AND ($2::uuid IS NULL OR (b.created_at, b.id) <
+         (SELECT created_at, id FROM blocks WHERE id = $2))
+       ORDER BY b.created_at DESC, b.id DESC LIMIT $3`,
+      [rootId, beforeId ?? null, limit]
+    );
+    return result.rows.map(toBlock);
+  }
+
+  async hasContextAddress(rootId: string, agentId: string): Promise<boolean> {
+    const root = await this.getById(rootId);
+    if (!root) return false;
+    const result = await this.db.query(
+      `SELECT 1 FROM blocks WHERE (id = $1 OR (thread_id = $1 AND NOT (id = ANY($3::uuid[]))))
+       AND (to_agent_id = $2 OR author_agent_id = $2 OR launched_by_agent_id = $2
+         OR data->'mentions' ? $2 OR data->'recipients' ? $2) LIMIT 1`,
+      [rootId, agentId, shownIdsOf(root)]
+    );
+    return result.rows.length > 0;
+  }
+
+  async deliveryContext(
+    blockId: string,
+    agentId: string
+  ): Promise<string | null> {
+    const result = await this.db.query<{ context: string }>(
+      `SELECT context FROM block_delivery_context WHERE block_id = $1 AND agent_id = $2`,
+      [blockId, agentId]
+    );
+    return result.rows[0]?.context ?? null;
+  }
+
+  async saveDeliveryContext(
+    blockId: string,
+    agentId: string,
+    context: string
+  ): Promise<string> {
+    await this.db.query(
+      `INSERT INTO block_delivery_context (block_id, agent_id, context) VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [blockId, agentId, context]
+    );
+    return (await this.deliveryContext(blockId, agentId))!;
+  }
+
   async listThread(
     rootId: string
   ): Promise<{ root: Block; replies: Block[] } | null> {

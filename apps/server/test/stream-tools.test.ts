@@ -680,3 +680,46 @@ describe("post and update reject fields they do not declare", () => {
     }
   });
 });
+
+describe("context reader tools", () => {
+  it("binds readers to the caller and forwards bounded pagination inputs", async () => {
+    const server = createMockServer();
+    const getMessage = vi.fn(async () => ({ id: BLOCK, content: "Message" }));
+    const getThread = vi.fn(async () => ({
+      root: { id: BLOCK },
+      messages: [],
+      before: null,
+    }));
+    const getConversationContext = vi.fn(async () => ({
+      home: { streamId: AGENT_ID, threadId: null },
+      current: null,
+    }));
+    registerStreamTools(
+      server as never,
+      new Set(["get_message", "get_thread", "get_conversation_context"]),
+      {
+        agentId: AGENT_ID,
+        streams: { getMessage, getThread, getConversationContext } as never,
+      }
+    );
+    const find = (name: string) => server.tools.find((t) => t.name === name)!;
+    await find("get_message").handler({ id: BLOCK, offset: 8000 });
+    expect(getMessage).toHaveBeenCalledWith(AGENT_ID, BLOCK, 8000);
+    await find("get_thread").handler({ id: BLOCK, before: OTHER, limit: 3 });
+    expect(getThread).toHaveBeenCalledWith(AGENT_ID, BLOCK, OTHER, 3);
+    await find("get_conversation_context").handler({});
+    expect(getConversationContext).toHaveBeenCalledWith(AGENT_ID);
+    expect(
+      (find("get_thread").config.inputSchema.limit as Schema).safeParse(11)
+        .success
+    ).toBe(false);
+    expect(
+      (find("get_message").config.inputSchema.offset as Schema).safeParse(-1)
+        .success
+    ).toBe(false);
+    getMessage.mockRejectedValueOnce(new Error("Message not found."));
+    expect(await find("get_message").handler({ id: OTHER })).toMatchObject({
+      isError: true,
+    });
+  });
+});

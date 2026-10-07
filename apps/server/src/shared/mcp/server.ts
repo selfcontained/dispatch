@@ -96,6 +96,9 @@ const AGENT_TOOLS = new Set([
   "update",
   "react",
   "get_review",
+  "get_message",
+  "get_thread",
+  "get_conversation_context",
   "get_feedback_summary",
   "get_usage",
   "brain_get_object",
@@ -142,6 +145,9 @@ const JOB_TOOLS = new Set([
   "update",
   "react",
   "get_review",
+  "get_message",
+  "get_thread",
+  "get_conversation_context",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -215,7 +221,14 @@ export type McpRequestContext = UsageCallbacks & {
   /** The stream: post / update / react. */
   chat?: Pick<
     StreamService,
-    "post" | "update" | "getReview" | "addReaction" | "removeReaction"
+    | "post"
+    | "update"
+    | "getReview"
+    | "addReaction"
+    | "removeReaction"
+    | "getMessage"
+    | "getThread"
+    | "getConversationContext"
   >;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   issueLoginLink?: () => string | Promise<string>;
