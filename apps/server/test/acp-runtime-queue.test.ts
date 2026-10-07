@@ -999,6 +999,61 @@ describe("conversation-authoritative delivery", () => {
     await Promise.all([work.settled, awaited.settled, later.settled]);
   });
 
+  it("scheduled messages steer without cancelling, while cancelled queued schedules never submit", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work", inThread(0, null));
+    await work.accepted;
+    const scheduled = runtime.prompt(
+      agentId,
+      "timer",
+      { source: "system", text: "timer", scheduleId: "schedule" },
+      { delivery: "auto", beforeSubmit: async () => true }
+    );
+    await withinSeconds(scheduled.accepted, "scheduled steering");
+    expect(host.steers).toEqual(["timer"]);
+    const controller = new AbortController();
+    const cancelled = runtime.prompt(
+      agentId,
+      "cancelled timer",
+      { source: "system", text: "timer", scheduleId: "schedule2" },
+      {
+        delivery: "queue",
+        signal: controller.signal,
+        beforeSubmit: async () => false,
+      }
+    );
+    controller.abort();
+    await expect(cancelled.accepted).rejects.toThrow("cancelled");
+    host.settle();
+    await Promise.all([work.settled, scheduled.settled, cancelled.settled]);
+    expect(host.prompts).toHaveLength(1);
+  });
+
+  it("does not requeue a scheduled message cancelled as steering is declined", async () => {
+    const host = await heldTurnHost("promptRequired");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work", inThread(0, null));
+    await work.accepted;
+    const controller = new AbortController();
+    const scheduled = runtime.prompt(
+      agentId,
+      "timer",
+      { source: "system", text: "timer", scheduleId: "schedule" },
+      {
+        delivery: "auto",
+        signal: controller.signal,
+        beforeSubmit: async () => true,
+        onDeferred: async () => controller.abort(),
+      }
+    );
+    await expect(scheduled.accepted).rejects.toThrow("cancelled");
+    await scheduled.settled;
+    host.settle();
+    await work.settled;
+    expect(host.prompts).toHaveLength(1);
+  });
+
   it("background agent events cannot steer even in the same conversation", async () => {
     const host = await heldTurnHost("injected");
     const runtime = await attached(host.stateRoot);

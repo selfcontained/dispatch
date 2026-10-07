@@ -10,6 +10,9 @@ export type PromptSource = {
   conversation?: PromptConversation;
   /** Only an actual user message can steer the active conversation. */
   userMessage?: boolean;
+  /** Agent-authored scheduled content, explicitly eligible for steering. */
+  scheduleId?: string;
+  scheduleDeliveryId?: string;
   /**
    * The recipient is waiting on this: a review it launched, a finding
    * thread it is a side of, a finding settled or reopened. It joins the
@@ -58,6 +61,11 @@ export type QueuedPrompt = {
 export type PromptImage = { path: string; mimeType: string };
 export type PromptOptions = {
   alone?: boolean;
+  /** Checked immediately before submission, including queued release. */
+  beforeSubmit?: () => Promise<boolean>;
+  /** A steering attempt was definitively declined and is now queued. */
+  onDeferred?: () => Promise<void>;
+  signal?: AbortSignal;
   images?: PromptImage[];
   delivery?: "auto" | "queue" | "interrupt";
 };

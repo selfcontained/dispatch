@@ -1,3 +1,4 @@
+import { ScheduledMessageEntry } from "./scheduled-message-entry";
 import { isUserInputBlock, qualifyExternalMentions } from "@dispatch/shared";
 import { Link } from "react-router-dom";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
@@ -1643,6 +1644,30 @@ export const BlockView = memo(function BlockView({
             turn={block.turn}
             ctx={ctx}
             folded={folded}
+          />
+        ) : block.author.kind === "agent" &&
+          typeof (block.data as { scheduledMessageId?: unknown } | null)
+            ?.scheduledMessageId === "string" ? (
+          <ScheduledMessageEntry
+            agentId={block.author.agentId}
+            scheduleId={
+              (block.data as { scheduledMessageId: string }).scheduledMessageId
+            }
+            delivery={block.toAgentId !== null}
+            deliveryStatus={
+              block.kind === "text" &&
+              typeof block.data?.scheduledDeliveryStatus === "string"
+                ? block.data.scheduledDeliveryStatus
+                : undefined
+            }
+            fallbackText={block.text ?? ""}
+            presentation={
+              (
+                block.data as {
+                  scheduledMessage?: import("@dispatch/shared").ScheduledMessagePresentation;
+                }
+              ).scheduledMessage
+            }
           />
         ) : block.text && block.kind !== "launch" ? (
           <Markdown

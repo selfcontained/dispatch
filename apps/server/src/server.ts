@@ -1,3 +1,5 @@
+import { ScheduledMessageService } from "./scheduled-messages/service.js";
+import { registerScheduledMessageRoutes } from "./routes/scheduled-messages.js";
 import { agentForClient } from "./server/agent-client-view.js";
 import path from "node:path";
 import { listenAdditionalHosts } from "./multi-listener.js";
@@ -415,11 +417,24 @@ const streamService = new StreamService({
   },
   log: app.log,
 });
+const scheduledMessages = new ScheduledMessageService(
+  pool,
+  agentManager,
+  streamService,
+  app.log
+);
+agentManager.attachScheduleCancellation((id) =>
+  scheduledMessages.cancelForAgent(id)
+);
 agentManager.attachLaunchContextRecorder(streamService);
 agentManager.attachTurnBlocks({
   responseStarted: (input) => streamService.recordResponseStarted(input),
   responseSplit: (input) => streamService.recordResponseSplit(input),
-  steering: (event) => streamService.recordSteering(event),
+  steering: async (event) => {
+    await streamService.recordSteering(event);
+    if (event.type === "steering_picked_up")
+      await scheduledMessages.receipt(event);
+  },
   started: (input) => streamService.recordTurnStarted(input),
   settled: (input) => streamService.recordTurnSettled(input),
 });
@@ -487,6 +502,7 @@ const updateRecoveryRuntime = createUpdateRecoveryRuntime({
     stopRetentionSweep = null;
     authRuntime.stopSessionCleanupTimer();
     autoCheckRuntime.stopScheduler();
+    scheduledMessages.stop();
     streamManager.stopAll();
     await Promise.race([
       jobService.shutdown(),
@@ -709,8 +725,10 @@ async function registerRoutes() {
     mcpJobLog: mcpHandlers.jobLog,
     mcpMethodNotAllowed,
     chat: streamService,
+    scheduledMessages,
   });
 
+  await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
     pool,
     localCertificateTrust:
@@ -912,6 +930,7 @@ export async function initializeApp(options?: {
     await agentLifecycleRuntime.restorePendingContinuations(jobService);
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
+    await scheduledMessages.start();
     // Warm the diff-stats cache so the first sidebar expand doesn't get a
     // cold-cache `null`. Fire-and-forget per agent — the refresher's 3s
     // freshness window dedupes any overlap with SSE-driven signals from
@@ -1030,6 +1049,7 @@ async function cleanupAppResources(): Promise<void> {
   stopRetentionSweep = null;
   authRuntime.stopSessionCleanupTimer();
   autoCheckRuntime.stopScheduler();
+  scheduledMessages.stop();
   await serviceResources.shutdown();
 
   notificationRuntime.clearPendingWebNotifications();

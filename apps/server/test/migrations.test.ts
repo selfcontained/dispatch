@@ -51,8 +51,11 @@ describe("block_reactions uniqueness migration", () => {
       `ALTER TABLE block_reactions
          ADD UNIQUE NULLS NOT DISTINCT (block_id, author_kind, author_agent_id, emoji)`
     );
+    // Remove the later migration too: the runner rejects replaying an older
+    // migration beneath an already-applied successor.
+    await pool.query("DROP TABLE scheduled_messages");
     await pool.query(
-      `DELETE FROM pgmigrations WHERE name = '0016_block_reactions_pg14_unique'`
+      `DELETE FROM pgmigrations WHERE name IN ('0016_block_reactions_pg14_unique', '0017_scheduled_messages')`
     );
 
     await runTestMigrations();

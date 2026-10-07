@@ -1,3 +1,4 @@
+import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { PendingInputsButton } from "./chat/pending-inputs-button";
 import {
   lazy,
@@ -495,6 +496,10 @@ export function AgentsView({
           key={focusedAgentId}
           agentId={focusedAgentId}
           showChildAgents={showChildAgents}
+        />
+        <ScheduledMessagesButton
+          key={`schedules-${focusedAgentId}`}
+          agentId={focusedAgentId}
         />
         <ChatFiltersButton
           showChildAgents={showChildAgents}

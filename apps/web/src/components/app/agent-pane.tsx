@@ -1,3 +1,4 @@
+import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { useAtom } from "jotai";
 import { chatShowLastMessageAtom } from "@/lib/store";
 import { useEffect, useState } from "react";
@@ -188,6 +189,10 @@ export function AgentPane({
               key={agentId}
               agentId={agentId}
               showChildAgents={showChildAgents}
+            />
+            <ScheduledMessagesButton
+              key={`schedules-${agentId}`}
+              agentId={agentId}
             />
             <ChatFiltersButton
               showChildAgents={showChildAgents}

@@ -52,6 +52,10 @@ function DeliveryStatus({
   onRetryDelivery,
 }: DeliveryMetaProps): JSX.Element | null {
   if (block.toAgentId === null || !block.delivery?.length) return null;
+  if (
+    (block.data as { scheduledMessageId?: string } | null)?.scheduledMessageId
+  )
+    return null;
   const several = block.delivery.length > 1;
   const interrupt =
     block.kind === "text" && block.data?.delivery === "interrupt";
@@ -187,12 +191,14 @@ export function DeliveryIndicator({
   const freshReceipt = useReceiptFlash(block);
   const pendingKey = inState(block, "pending").join(",");
   const [showSending, setShowSending] = useState(false);
+  const scheduled =
+    block.kind === "text" && typeof block.data?.scheduledMessageId === "string";
   useEffect(() => {
     setShowSending(false);
-    if (!pendingKey) return;
+    if (!pendingKey || scheduled) return;
     const timer = setTimeout(() => setShowSending(true), 500);
     return () => clearTimeout(timer);
-  }, [block.id, pendingKey]);
+  }, [block.id, pendingKey, scheduled]);
 
   const deliveries = block.delivery ?? [];
   const received = deliveries.filter(

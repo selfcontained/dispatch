@@ -187,6 +187,9 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 /** A prompt waiting for the turn ahead of it to settle. */
 type Waiting = {
   text: string;
+  beforeSubmit?: () => Promise<boolean>;
+  onDeferred?: () => Promise<void>;
+  signal?: AbortSignal;
   images?: PromptImage[];
   source?: PromptSource;
   /** Not to be combined with others: an interrupting post, a job's nudge. */
@@ -262,7 +265,7 @@ function takeBatch(waiting: Waiting[]): Waiting[] {
  * otherwise sit behind the work that is waiting for it.
  */
 function steers(w: Waiting, entry: Pick<Live, "conversation">): boolean {
-  if (w.source?.awaited === true) return true;
+  if (w.source?.scheduleId || w.source?.awaited === true) return true;
   return (
     w.source?.userMessage === true &&
     sameConversation(w.source.conversation, entry.conversation)
@@ -459,14 +462,47 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         };
         entry.settleWaiters.push(onSettle);
         try {
+          if (
+            batch.some((w) => w.signal?.aborted) ||
+            (batch[0]?.beforeSubmit && !(await batch[0].beforeSubmit()))
+          ) {
+            entry.settleWaiters = entry.settleWaiters.filter(
+              (w) => w !== onSettle
+            );
+            for (const w of batch) {
+              w.rejectAccepted(
+                Object.assign(
+                  new Error("Scheduled delivery cancelled before submission."),
+                  { name: "ScheduledDeliveryCancelledError" }
+                )
+              );
+              w.resolveSettled();
+            }
+            continue;
+          }
           if (steering) {
             const outcome = await entry.client.steer(id, text, source);
             if (outcome === "promptRequired") {
+              await batch[0]?.onDeferred?.();
               // The engine won the idle race. The message was not consumed;
               // wait for its terminal event, then start an ordinary tracked turn.
               entry.settleWaiters = entry.settleWaiters.filter(
                 (w) => w !== onSettle
               );
+              if (batch[0]?.signal?.aborted) {
+                for (const w of batch) {
+                  w.rejectAccepted(
+                    Object.assign(
+                      new Error(
+                        "Scheduled delivery cancelled before submission."
+                      ),
+                      { name: "ScheduledDeliveryCancelledError" }
+                    )
+                  );
+                  w.resolveSettled();
+                }
+                continue;
+              }
               for (const w of batch) {
                 w.taken = false;
                 w.delivery = "queue";
@@ -833,6 +869,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       });
       const own: Waiting = {
         text,
+        ...(opts?.beforeSubmit ? { beforeSubmit: opts.beforeSubmit } : {}),
+        ...(opts?.onDeferred ? { onDeferred: opts.onDeferred } : {}),
+        ...(opts?.signal ? { signal: opts.signal } : {}),
         ...(opts?.images?.length ? { images: opts.images } : {}),
         ...(source ? { source } : {}),
         alone:
@@ -870,6 +909,27 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         entry.waiting.push(own);
       }
       entry.pending += 1;
+      if (opts?.signal) {
+        const discard = () => {
+          if (own.taken) return;
+          const index = entry.waiting.indexOf(own);
+          if (index < 0) return;
+          entry.waiting.splice(index, 1);
+          own.cancelled = true;
+          own.rejectAccepted(
+            Object.assign(
+              new Error("Scheduled delivery cancelled before submission."),
+              { name: "ScheduledDeliveryCancelledError" }
+            )
+          );
+          own.resolveSettled();
+        };
+        opts.signal.addEventListener("abort", discard, { once: true });
+        void settled.finally(() =>
+          opts.signal?.removeEventListener("abort", discard)
+        );
+        if (opts.signal.aborted) discard();
+      }
       accepted.catch(() => {});
       void pump(agentId, entry);
       return { accepted, settled };

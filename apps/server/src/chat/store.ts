@@ -675,6 +675,7 @@ export class BlockStore {
                         FROM jsonb_each(deliveries) AS e(k, v))
               END
         WHERE to_agent_id IS NOT NULL AND delivered IS NULL
+          AND NOT (COALESCE(data, '{}'::jsonb) ? 'scheduledMessageId')
         RETURNING stream_id`
     );
     return [...new Set(result.rows.map((row) => row.stream_id))];
