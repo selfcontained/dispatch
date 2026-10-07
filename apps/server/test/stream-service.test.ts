@@ -6981,28 +6981,69 @@ describe("bounded message context", () => {
     const snapshot = await svc.store.deliveryContext(reply.id, B);
     expect(snapshot!.length).toBeLessThanOrEqual(4000);
     expect(snapshot).not.toContain("Edited after delivery");
+    const excerpts = snapshot!.split("\n").map((line) => JSON.parse(line));
+    expect(excerpts.map((excerpt) => excerpt.relation)).toEqual([
+      "parent",
+      "thread-start",
+    ]);
+    expect(Object.keys(excerpts[0]).sort()).toEqual([
+      "author",
+      "content",
+      "id",
+      "kind",
+      "nextOffset",
+      "relation",
+      "totalChars",
+    ]);
   });
 
-  it("bounds long quoted content, exposes truncation, and pages full content on demand", async () => {
-    const { svc, injected } = build();
-    const root = await svc.post(A, { text: "x".repeat(18000) });
-    const reply = await svc.post(A, {
-      to: B,
-      replyTo: root.id,
-      text: "Please inspect",
-    });
-    await svc.waitForInFlightDeliveries(1000);
-    const snapshot = await svc.store.deliveryContext(reply.id, B);
-    expect(snapshot!.length).toBeLessThanOrEqual(4000);
-    expect(snapshot).toContain('"nextOffset":');
-    expect(injected.at(-1)!.text).toContain("Quoted history for context only");
-    const first = await svc.getMessage(B, root.id);
-    expect(first.content).toHaveLength(8000);
-    expect(first.nextOffset).toBe(8000);
-    expect(
-      (await svc.getMessage(B, root.id, first.nextOffset!)).content
-    ).toHaveLength(8000);
-  });
+  it.each(["x", '"\n\\', "🚀"])(
+    "fits quoted content efficiently and pages it on demand (%s)",
+    async (unit) => {
+      const { svc, injected } = build();
+      const root = await svc.post(A, {
+        text: unit.repeat(18000).slice(0, 18000),
+      });
+      const reply = await svc.post(A, {
+        to: B,
+        replyTo: root.id,
+        text: "Please inspect",
+      });
+      await svc.waitForInFlightDeliveries(1000);
+      const snapshot = await svc.store.deliveryContext(reply.id, B);
+      expect(snapshot!.length).toBeLessThanOrEqual(4000);
+      expect(snapshot).toContain('"nextOffset":');
+      const excerpt = JSON.parse(snapshot!);
+      expect(excerpt.relation).toBe("parent-and-thread-start");
+      expect(snapshot!.length).toBeLessThanOrEqual(2000);
+      expect(excerpt.content.length).toBeLessThanOrEqual(1800);
+      expect(excerpt.nextOffset).toBe(excerpt.content.length);
+      expect(
+        excerpt.content +
+          (await svc.getMessage(B, root.id, excerpt.nextOffset)).content
+      ).toBe(root.text.slice(0, excerpt.nextOffset + 8000));
+      if (excerpt.content.length < 1800) {
+        const nextLength = Array.from(root.text.slice(excerpt.nextOffset))[0]!
+          .length;
+        const oneMore = {
+          ...excerpt,
+          content: root.text.slice(0, excerpt.nextOffset + nextLength),
+          nextOffset: excerpt.nextOffset + nextLength,
+        };
+        expect(JSON.stringify(oneMore).length).toBeGreaterThan(2000);
+      }
+
+      expect(injected.at(-1)!.text).toContain(
+        "Quoted history for context only"
+      );
+      const first = await svc.getMessage(B, root.id);
+      expect(first.content).toHaveLength(8000);
+      expect(first.nextOffset).toBe(8000);
+      expect(
+        (await svc.getMessage(B, root.id, first.nextOffset!)).content
+      ).toHaveLength(8000);
+    }
+  );
 
   it("keeps foreign access confined to the addressed thread, validates cursors, and has no read side effects", async () => {
     const { svc, injected, events } = build();
