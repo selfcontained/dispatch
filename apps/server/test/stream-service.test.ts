@@ -6925,3 +6925,155 @@ describe("steering response boundaries", () => {
     expect((await service.turnEntry(A))?.id).toBe(before?.id);
   });
 });
+
+describe("bounded message context", () => {
+  it("gives a newly mentioned agent the proposal, not recent unrelated replies", async () => {
+    const { svc, injected } = build({ withDelivery: true });
+    const root = await svc.post(A, {
+      text: "Proposal the user is referring to",
+    });
+    await svc.post(A, { text: "Unrelated recent tangent", replyTo: root.id });
+    const result = await svc.sendUserPost(A, {
+      text: "@Peer can you handle this?",
+      replyTo: root.id,
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect(result.block.toAgentId).toBe(B);
+    const prompt = injected.find((i) => i.agentId === B)!.text;
+    expect(prompt).toContain("Proposal the user is referring to");
+    expect(prompt).not.toContain("Unrelated recent tangent");
+    expect(prompt.match(/Proposal the user is referring to/g)).toHaveLength(1);
+  });
+
+  it("does not quote an agent's own authored parent back to it", async () => {
+    const { svc, injected } = build({ withDelivery: true });
+    const root = await svc.post(B, { text: "My own proposal" });
+    await svc.sendUserPost(B, {
+      text: "@Peer please continue",
+      replyTo: root.id,
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect(injected.at(-1)!.text).not.toContain("My own proposal");
+    expect(injected.at(-1)!.text).not.toContain("Quoted history");
+  });
+
+  it("delivers parent/root only, snapshots retry history, and does not repeat an author's own message", async () => {
+    const { svc, injected } = build({ fail: true });
+    const root = await svc.post(A, { text: "Original proposal" });
+    const parent = await svc.post(A, {
+      replyTo: root.id,
+      text: "Specific detail",
+    });
+    const reply = await svc.post(A, {
+      to: B,
+      replyTo: parent.id,
+      text: "Can you handle this?",
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    const original = injected.at(-1)!.text;
+    expect(original).toContain('"content":"Specific detail"');
+    expect(original).toContain('"content":"Original proposal"');
+    await svc.update(A, parent.id, { text: "Edited after delivery" });
+    await svc.retryDelivery(A, reply.id);
+    await svc.waitForInFlightDeliveries(1000);
+    expect(injected.at(-1)!.text).toBe(original);
+    // The quote is captured separately, never materialized as new stream posts.
+    const snapshot = await svc.store.deliveryContext(reply.id, B);
+    expect(snapshot!.length).toBeLessThanOrEqual(4000);
+    expect(snapshot).not.toContain("Edited after delivery");
+  });
+
+  it("bounds long quoted content, exposes truncation, and pages full content on demand", async () => {
+    const { svc, injected } = build();
+    const root = await svc.post(A, { text: "x".repeat(18000) });
+    const reply = await svc.post(A, {
+      to: B,
+      replyTo: root.id,
+      text: "Please inspect",
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    const snapshot = await svc.store.deliveryContext(reply.id, B);
+    expect(snapshot!.length).toBeLessThanOrEqual(4000);
+    expect(snapshot).toContain('"nextOffset":');
+    expect(injected.at(-1)!.text).toContain("Quoted history for context only");
+    const first = await svc.getMessage(B, root.id);
+    expect(first.content).toHaveLength(8000);
+    expect(first.nextOffset).toBe(8000);
+    expect(
+      (await svc.getMessage(B, root.id, first.nextOffset!)).content
+    ).toHaveLength(8000);
+  });
+
+  it("keeps foreign access confined to the addressed thread, validates cursors, and has no read side effects", async () => {
+    const { svc, injected, events } = build();
+    const root = await svc.post(A, { text: "Accessible proposal" });
+    const secret = await svc.post(A, { text: "Other conversation" });
+    await expect(svc.getMessage(B, root.id)).rejects.toThrow(
+      "Message not found"
+    );
+    const reply = await svc.post(A, {
+      to: B,
+      replyTo: root.id,
+      text: "Join here",
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    const deliveryCount = injected.length;
+    const eventCount = events.length;
+    expect((await svc.getThread(B, reply.id)).root.id).toBe(root.id);
+    await expect(svc.getMessage(B, secret.id)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.getThread(B, root.id, secret.id)).rejects.toThrow(
+      "Cursor not found"
+    );
+    expect(injected).toHaveLength(deliveryCount);
+    expect(events).toHaveLength(eventCount);
+    expect((await svc.store.getById(root.id))?.readAt).toBeNull();
+  });
+
+  it("returns bounded chronological pages including structured and inline answers", async () => {
+    const { svc } = build();
+    const root = await svc.post(A, { text: "Discussion" });
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const row = await svc.store.insert({
+        streamId: A,
+        author: { kind: "user" },
+        threadId: root.id,
+        replyTo: root.id,
+        text: `Reply ${i}`,
+        data: { inlineAnswer: i === 0 },
+      });
+      ids.push(row.id);
+    }
+    const first = await svc.getThread(A, root.id, undefined, 3);
+    expect(first.messages.map((m) => m.id)).toEqual(ids.slice(4));
+    const second = await svc.getThread(A, root.id, first.before!, 10);
+    expect(second.messages.map((m) => m.id)).toEqual(ids.slice(0, 4));
+    expect(second.before).toBeNull();
+  });
+
+  it("exposes question choices and resolutions but never launch system instructions", async () => {
+    const { svc } = build();
+    const question = await svc.post(A, {
+      text: "Choose",
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
+    expect((await svc.getMessage(A, question.id)).content).toContain(
+      '"label":"Yes"'
+    );
+    const launch = await svc.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      kind: "launch",
+      text: "Briefing",
+      state: { instructions: "PRIVATE SYSTEM INSTRUCTIONS" },
+    });
+    const result = await svc.getMessage(A, launch.id);
+    expect(result.content).toBe("Briefing");
+    expect(await svc.getConversationContext(A)).toMatchObject({
+      home: { streamId: A, threadId: null },
+      current: null,
+    });
+  });
+});

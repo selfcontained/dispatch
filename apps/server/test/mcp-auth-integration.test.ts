@@ -116,6 +116,18 @@ describe("MCP auth integration", () => {
         content: [{ type: "text", text: "Review not found." }],
       });
 
+      for (const name of ["get_message", "get_thread"]) {
+        expect((await call(parent, name, { id: reviewId })).isError).not.toBe(
+          true
+        );
+        expect(await call(stranger, name, { id: reviewId })).toMatchObject({
+          isError: true,
+        });
+      }
+      expect(
+        (await call(child, "get_conversation_context", {})).isError
+      ).not.toBe(true);
+
       // An archive must not make a child's reports unreadable.
       await ctx.pool.query(
         "UPDATE agents SET deleted_at = NOW() WHERE id = $1",

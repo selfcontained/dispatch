@@ -53,9 +53,10 @@ describe("block_reactions uniqueness migration", () => {
     );
     // Remove the later migration too: the runner rejects replaying an older
     // migration beneath an already-applied successor.
+    await pool.query("DROP TABLE block_delivery_context");
     await pool.query("DROP TABLE scheduled_messages");
     await pool.query(
-      `DELETE FROM pgmigrations WHERE name IN ('0016_block_reactions_pg14_unique', '0017_scheduled_messages')`
+      `DELETE FROM pgmigrations WHERE name IN ('0016_block_reactions_pg14_unique', '0017_scheduled_messages', '0018_message_context')`
     );
 
     await runTestMigrations();

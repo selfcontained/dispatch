@@ -650,3 +650,36 @@ recipients; `to` remains explicit. `replyTo` selects a specific discussion inste
 and cannot combine with placement. Questions, forms, and reviews reject explicit
 placement to preserve their existing workflow routing. The receipt includes
 `streamId`, `threadId`, and `replyTo` alongside the block ID, kind, and timestamp.
+
+### Agent message context readers
+
+`get_message({ id, offset? })` returns conversational content in chunks of at
+most 8,000 characters, with `nextOffset`, total character count, author, kind,
+origin IDs, and timestamps. `content` includes structured question/form/finding
+state and attachment metadata. It excludes launch system instructions and tool
+traces. File metadata does not grant filesystem access or inline image bytes.
+
+`get_thread({ id, before?, limit? })` resolves a message or finding to its thread
+host. It returns a root excerpt (2,000 content characters) and the newest five
+replies by default (maximum ten, 1,000 content characters each). Replies within
+one page are chronological. The returned `before` block ID fetches older pages;
+a cursor from another thread is rejected. Truncated content can be read with
+`get_message`. Inline answers and structured findings are included.
+
+`get_conversation_context()` reports reporting home and the currently recorded
+output turn/location. `current: null` means no recorded output turn is open.
+Reading never creates a home launch card, marks a message read, or delivers a
+prompt. All readers require the calling agent's scoped MCP identity. Message
+and thread reads permit the agent's own shared stream, or a particular outside
+thread the agent authored in, launched, or was addressed in; unrelated foreign
+threads remain inaccessible.
+
+Ordinary threaded delivery includes only the distinct direct parent and thread
+root, parent first, within a 4,000-character serialized excerpt budget. No recent
+reply history is added automatically; an agent's own authored messages are not
+quoted back to it. Top-level posts and structured answer/cancellation deliveries add no history. Quoted context is explicitly
+historical and escaped with the existing envelope rules. The trigger stays in
+full under its existing limits. Each recipient's excerpts are persisted before
+injection, and failed-delivery retries reuse that snapshot even if source posts
+change. On-demand reads return the current content. This does not change
+recipient selection, steering/queue policy, or ordinary output placement.
