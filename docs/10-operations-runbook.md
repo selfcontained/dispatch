@@ -2,7 +2,7 @@
 
 This runbook is for running Dispatch reliably across agent/session boundaries and host restarts.
 
-`<state>` below is the install's state directory (`DISPATCH_STATE_DIR`): `~/.local/share/dispatch` for an installer-managed server, `~/.dispatch-mac-preview` for the Mac app. Service names are the 1.x ones the installer writes (`dispatch-server` on Linux, `dev.dispatch.server` on macOS, via `DISPATCH_SERVICE_NAME`). A Dispatch 0.x install keeps `~/.dispatch`, `dispatch.service` and `com.dispatch.server`; 1.x never touches them.
+`<state>` below is the install's state directory (`DISPATCH_STATE_DIR`): `~/.local/share/dispatch` for an installer-managed server, `~/.dispatch-mac` for the Mac app. Service names are the 1.x ones the installer writes (`dispatch-server` on Linux, `dev.dispatch.server` on macOS, via `DISPATCH_SERVICE_NAME`). A Dispatch 0.x install keeps `~/.dispatch`, `dispatch.service` and `com.dispatch.server`; 1.x never touches them.
 
 ## Architecture Overview
 
@@ -85,22 +85,19 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
   -d '{"versionType":"patch"}'
 ```
 
-To release the unmerged `acp-runtime` branch, open GitHub Actions → Release →
-Run workflow, select `acp-runtime` in the branch dropdown, and choose a version
-bump. Equivalently:
+Release from `main` only, through Settings → Releases or GitHub Actions →
+Release → Run workflow. Equivalently:
 
 ```bash
-gh workflow run release.yml --repo selfcontained/dispatch --ref acp-runtime -f version=patch
+gh workflow run release.yml --repo selfcontained/dispatch --ref main -f version=patch
 ```
 
-The workflow must be pushed to `acp-runtime` before running it. The Settings
-release button uses GitHub's default branch; use Actions or the CLI for this
-branch release. Releases from either branch publish to preview; promotion to
-stable remains a separate action.
+Every release publishes to Preview. Promotion to Stable is a separate action
+after the published build updates successfully on the designated hosts.
 
-The **release workflow** (`.github/workflows/release.yml`) runs on that dispatch or on a pushed `vX.Y.Z` tag (which must point at `main` or `acp-runtime` and match `package.json`):
+The **release workflow** (`.github/workflows/release.yml`) runs on that dispatch or on a pushed `vX.Y.Z` tag (which must point at `main` and match `package.json`):
 
-- **Prepare** (dispatch only): bumps the version in every workspace manifest, the browser-extension manifest and the lockfile; generates `release-notes/current.md`; commits to the selected branch (`main` or `acp-runtime`) and tags it.
+- **Prepare** (dispatch only): bumps the version in every workspace manifest, the browser-extension manifest and the lockfile; generates `release-notes/current.md`; commits to `main` and tags it.
 - **Verify**: type check, web lint, and unit tests against an ephemeral Postgres (the full `pnpm run ci` runs on the PRs that feed `main`).
 - **Build**: Bun binaries for every platform/arch packed into `dispatch-server.tar.gz`, plus the signed, notarized Mac app (`dispatch-macos-<build>-arm64.zip`).
 - **Smoke test**: boots the packed binary on Linux and macOS runners against an ephemeral Postgres.
@@ -108,44 +105,51 @@ The **release workflow** (`.github/workflows/release.yml`) runs on that dispatch
 
 **Promoting** a release to stable (`.github/workflows/promote-release.yml`, or Settings → Releases → Promote, which dispatches it) removes the appcast entry's channel tag and marks the GitHub release non-prerelease and latest. Nothing is rebuilt. Linux installs and the standalone updater follow the GitHub prerelease flag; see [macOS releases](macos-releases.md) for the app side.
 
-## Update To A Tag
+## Updates and recovery
+
+Dispatch 1.x requires a fresh install and a new database. Updating an existing
+1.x installation is supported; migrating a 0.x database is not.
+
+The installer records `DISPATCH_SERVICE_NAME` in the private configuration.
+Standalone macOS service updates refuse missing or blank service names before
+downloading or replacing the executable; repair the installation configuration
+instead of guessing a service name. Normal startup does not require this setting.
+
+Use **Settings → Updates** to follow the install's Stable or Preview channel.
+For a standalone server, an operator can request a specific compatible tag:
 
 ```bash
-# Update to a specific tag (also used for rollback)
 curl -X POST http://127.0.0.1:6767/api/v1/release/update \
   -H 'Content-Type: application/json' \
   -d '{"tag":"v1.2.3"}'
 ```
 
-The server update flow operates on `<state>/server/` and:
+Linux protected updates require an enrolled, dedicated local database and the
+independent recovery startup gate. The updater verifies the published artifact
+and target recovery capability, fences new work, and defers while work is busy.
+It verifies a database/state recovery point before activation. The independent
+helper trials the new process, confirms readiness, and commits only after
+successful probation. A failed trial restores the verified prior executable,
+database and state; unresolved recovery remains fenced with evidence retained.
+Existing services without enrollment, external databases and unsupported state
+paths require an explicit operator procedure; they are not silently treated as
+protected installations.
 
-1. **Confirms** the tag exists in GitHub Releases.
-2. **Checks agent survival (Linux).** Refuses to continue unless `systemctl --user show dispatch-server.service -p KillMode` reports `KillMode=process`, so the restart leaves agent hosts running.
-3. **Deploys from the release artifact.** Downloads `dispatch-server.tar.gz` via direct HTTPS into the tarball cache (`<state>/cache/release-<tag>.tar.gz`), validates it, verifies the platform binary checksum, and atomically replaces `<state>/server/dispatch`. The previous executable is retained as `dispatch.previous`.
-4. **Records a candidate** for the newly restarted process to promote into `<state>/release.json` after it is healthy.
-5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/dev.dispatch.server` (or `systemctl --user restart dispatch-server` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Hit `/api/v1/health` to confirm.
+The native Mac app owns its updates through Sparkle. It uses an independent
+signed recovery helper and a verified snapshot of the app and private managed
+database/state, retaining the intended running/stopped state. External database
+configurations fail closed rather than claiming automatic recovery.
 
-If the update fails mid-flight (e.g. archive extraction error, missing binary), the job's phase is set to `failed` with the error in the SSE stream and the active job state. There is **no automatic rollback** — re-issue the update against the previous tag, or copy `dispatch.previous` back over `dispatch` and restart the service.
+See [the recovery implementation](update-backup-recovery-spec.md#recovery-implementation)
+and [native Mac recovery](macos-native-recovery.md) for supported prerequisites,
+recovery evidence and troubleshooting. Preserve recovery journals and snapshots
+when recovery is incomplete. Do not manually replace an executable or install an
+old tag against a database whose schema has changed; that is not a coordinated
+rollback.
 
-## Rollback
-
-```bash
-# Roll back to a previously deployed tag
-curl -X POST http://127.0.0.1:6767/api/v1/release/update \
-  -H 'Content-Type: application/json' \
-  -d '{"tag":"v1.2.2"}'
-```
-
-Rollback is just an `update` to an older tag. The currently deployed tag is whatever was last written to `<state>/release.json`:
-
-```bash
-cat <state>/release.json
-```
-
-**MCP tool renames do not roll back cleanly.** Agents hold the tool list they
-fetched at session start, so after rolling back past a release that renamed an
-MCP tool, already-running agents call a name the older server does not register.
-Stop and start those agents so they refetch `tools/list`.
+A GitHub release promotion is separate from an installation's recovery commit:
+promotion makes the same tested assets available to Stable, whereas the helper
+commits a particular host's healthy update transaction.
 
 ## CI Pipeline
 

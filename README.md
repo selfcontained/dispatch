@@ -7,16 +7,19 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 **macOS:** download the Dispatch app ZIP (`dispatch-macos-*-arm64.zip`) from the
 newest [release](https://github.com/selfcontained/dispatch/releases), unzip it,
 and move `Dispatch.app` to Applications. The app bundles its own PostgreSQL and
-updates itself from the menu bar.
+updates itself from the menu bar. The native app defaults to Stable; before
+the first Stable promotion, it offers no update on that channel. Select Preview
+in Settings → Support → Updates to receive Preview builds.
 
 **Linux:** install and start PostgreSQL 14+, then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/acp-runtime/bin/install-dispatch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash
 ```
 
-> **Preview:** while 1.x is in preview, install from the `acp-runtime` branch
-> as shown. The installer on `main` is still 0.x, which installs to `~/.dispatch`.
+> **Preview releases:** before the first 1.x Stable promotion, install with
+> `bash -s -- --channel preview` in place of `bash` above. An explicit
+> `--channel stable` requires a promoted 1.x release.
 
 The installer picks the newest release on a channel: **stable** (promoted
 releases) or **preview** (every release as soon as it ships). It uses stable,
@@ -37,14 +40,13 @@ go to the systemd journal: `journalctl --user -u dispatch-server`.
 
 The service listens on `127.0.0.1:6767`, or the next free port above it (the
 installer prints the URL; `--port` picks one). Pass `--host 0.0.0.0` to accept
-LAN or Tailscale connections, as a 0.x install configured with
-`DISPATCH_HOST=0.0.0.0` did. Updates come from
-**Settings → Updates**, which follows the same channel: they atomically replace
-the executable and restart the service without stopping running agents.
+LAN or Tailscale connections. Updates come from
+**Settings → Updates**, which follows the same channel: protected updates defer while work is active, then back up the database and
+state before replacing the executable and restarting the service.
 
-An existing Dispatch 0.x install (`~/.dispatch`, `dispatch.service`) is left
-alone: 1.x uses its own directory, service and database, and never reads or
-upgrades 0.x data. Remove 0.x yourself once you no longer need it.
+Dispatch 1.x requires a fresh installation and a new database. There is no
+upgrade or database migration from 0.x. Existing 0.x installations are left
+untouched and are unsupported.
 
 <img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
 

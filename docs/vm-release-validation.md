@@ -34,37 +34,46 @@ existing VM will be modified, and cleanup intent before proceeding.
 
 ## Recommended matrix
 
-| Scenario                   | Purpose                         | Minimum evidence                                                                                 |
-| -------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Fresh Linux install        | Installer and user systemd unit | Healthy service, fixed `ExecStart`, `KillMode=process`, channel in `.env`, release promoted      |
-| Fresh macOS install        | Installer and LaunchAgent       | Healthy service, fixed `ProgramArguments`, log file, initialized state                           |
-| In-app update on a channel | Normal artifact update          | Picks the channel's newest release, checksum, atomic replacement, `.previous`, health, promotion |
-| Linux update with an agent | Agent survival                  | An agent host inside `dispatch.service` survives the update's restart and the server reattaches  |
+| Scenario                   | Purpose                         | Minimum evidence                                                                                                       |
+| -------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Fresh Linux install        | Installer and user systemd unit | Healthy `dispatch-server.service`, fixed `ExecStart`, recovery startup gate, channel in `.env`, dedicated new database |
+| Fresh macOS install        | Native app and owned service    | Signed arm64 app, healthy owned service/private database, separate state, intended channel                             |
+| In-app update on a channel | Published artifact update       | Correct eligible release, verified artifact identity, verified recovery point, successful probation and helper commit  |
+| Update with an agent       | Safe activity boundary          | Active work defers installation; idle host quiescence and post-update session behavior match the recovery contract     |
+| Failed trial               | Coordinated recovery            | Prior executable/app and database/state restored together, or unresolved recovery fenced with evidence retained        |
 
 Run only the rows relevant to the change. Unit tests do not replace a
-service-manager restart.
+service-manager restart. Dispatch 1.x is a fresh install with a new database;
+0.x-to-1.x migration is not a supported validation scenario.
 
 ## Linux update procedure
 
 1. Start from a disposable Ubuntu VM with a user systemd session. Install a
-   preview release with `bin/install-dispatch.sh --channel preview --tag
-<older tag>` and record the unit file, `MainPID`, `release.json`, and
-   health.
-2. Launch a harmless agent through the running service (the API or the UI)
-   and record its host pid from `~/.dispatch/agents/<agentId>/host.pid`.
-   Confirm that pid's cgroup is `dispatch.service`; a host started from a
-   shell is not a valid substitute.
-3. From **Settings → Updates**, check for updates and apply the newer
-   preview release.
-4. Confirm all of the following after the restart:
-   - the agent host pid is unchanged and alive, the server reattached to it,
-     and the agent is `running` with its stream intact;
-   - systemd is active and the health endpoint reports `ok`;
-   - `ExecStart` invokes the fixed runtime path and the running process
-     reports the target version (`X-Dispatch-Version`);
-   - `release.json` was promoted by the healthy target binary;
-   - `dispatch.previous` exists and is a usable rollback asset.
-5. Stop and archive the test agent and verify one final healthy boot.
+   published 1.x Preview source release into its own new database. Verify
+   recovery enrollment before attempting an update. Record the service unit,
+   running version, instance identity and release record.
+2. Launch a harmless agent through the service. While it has active work,
+   request the newer published Preview release from **Settings → Updates**.
+   Verify installation is deferred and the active turn is not interrupted.
+3. Once work is idle, retry through the supported flow. Verify the authenticated
+   maintenance fence, quiescence and verified recovery point precede activation.
+4. After helper probation and commit, confirm:
+   - `dispatch-server.service` is active, the instance-matched health endpoint
+     reports `ok`, and the running binary is the exact target version;
+   - the service keeps its fixed runtime path, recovery startup gate and
+     `KillMode=process`;
+   - the durable transaction records successful commit and the release record
+     reflects the target only after successful readiness;
+   - agent session state and stream history are retained and sessions can resume.
+     Idle hosts may be quiesced and reconstructed; an unchanged host PID is not
+     the protected-update success criterion;
+   - the verified recovery material remains available under the supported
+     retention policy. An executable `.previous` alone is not a database rollback.
+5. Exercise a controlled failed trial on a separate disposable fixture. Verify
+   coordinated restoration or a fenced recovery-required state, not a healthy
+   binary paired with the wrong database. Retain private evidence without
+   exporting credentials.
+6. Stop/archive the harmless test agent and verify one final healthy boot.
 
 ## Release decision
 

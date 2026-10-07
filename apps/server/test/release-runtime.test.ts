@@ -28,6 +28,7 @@ const tempDirs: string[] = [];
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -86,6 +87,7 @@ function tarRunCommand(command: string, args: string[]) {
 
 describe("agent host survival gate", () => {
   it("requires the loaded Linux user service to use KillMode=process", async () => {
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "dispatch-server");
     const runCommand = vi.fn().mockResolvedValue({
       stdout: "KillMode=process\n",
       stderr: "",
@@ -97,7 +99,7 @@ describe("agent host survival gate", () => {
     expect(runCommand).toHaveBeenCalledWith("systemctl", [
       "--user",
       "show",
-      "dispatch.service",
+      "dispatch-server.service",
       "-p",
       "KillMode",
     ]);
@@ -182,6 +184,54 @@ describe("release runtime stream targeting", () => {
 });
 
 describe("artifact activation", () => {
+  it.each([undefined, "", "   "])(
+    "refuses missing service configuration before download or activation (%s)",
+    async (value) => {
+      vi.stubEnv("DISPATCH_SERVICE_NAME", value);
+      const root = mkdtempSync(
+        path.join(tmpdir(), "dispatch-missing-service-")
+      );
+      tempDirs.push(root);
+      const livePath = path.join(root, "dispatch");
+      writeFileSync(livePath, "old runtime");
+      const ensureCachedTarball = vi.fn();
+      const writeCandidate = vi.fn();
+      const runCommand = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              tag_name: "v9.9.9",
+              published_at: "2026-01-01T00:00:00Z",
+              html_url: "https://example.test/releases/9.9.9",
+            })
+          )
+        )
+      );
+      const runtime = createReleaseRuntime({
+        serverDir: root,
+        runCommand,
+        readReleaseStore: vi.fn(),
+        writeReleaseStore: vi.fn(),
+        ensureCachedTarball,
+        pruneCacheExcept: vi.fn(),
+        unlinkCachedTarball: vi.fn(),
+        createReleaseLogStreamProcessor: vi.fn(),
+        writeReleaseCandidate: writeCandidate,
+      });
+      const job = updateJob();
+      runtime.setActiveUpdateJob(job);
+      await runtime.runUpdateJob(job);
+      expect(job.phase).toBe("failed");
+      expect(job.error).toContain("DISPATCH_SERVICE_NAME is missing");
+      expect(ensureCachedTarball).not.toHaveBeenCalled();
+      expect(runCommand).not.toHaveBeenCalled();
+      expect(writeCandidate).not.toHaveBeenCalled();
+      expect(readFileSync(livePath, "utf8")).toBe("old runtime");
+    }
+  );
+
   it("refuses an unsafe service restart before staging the executable", async () => {
     const tag = "v9.9.9";
     const ensureCachedTarball = vi.fn();

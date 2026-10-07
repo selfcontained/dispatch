@@ -14,6 +14,9 @@ final class UpdateChannelTests: XCTestCase {
         XCTAssertEqual(UpdateChannel.current(defaults: store, buildDefault: "preview"), .preview)
         XCTAssertEqual(UpdateChannel.current(defaults: store, buildDefault: nil), .stable)
         XCTAssertEqual(UpdateChannel.current(defaults: store, buildDefault: "nightly"), .stable)
+        XCTAssertEqual(UpdateChannel.current(defaults: store, buildDefault: "stable"), .stable)
+        UpdateChannel.preview.save(defaults: store)
+        XCTAssertEqual(UpdateChannel.current(defaults: store, buildDefault: "stable"), .preview)
         UpdateChannel.stable.save(defaults: store)
         XCTAssertEqual(UpdateChannel.current(defaults: store, buildDefault: "preview"), .stable)
     }

@@ -6,6 +6,7 @@ import {
   getGitHubRepo,
   createCheckIsAdmin,
   fetchReleaseMetadata,
+  fetchGitHubReleases,
   resolveAuthoringRepoDir,
   createAuthoringRemoteRefresher,
   serviceName,
@@ -455,10 +456,60 @@ describe("fetchReleaseMetadata", () => {
 describe("serviceName", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("uses the installer's name, else the 0.x defaults", () => {
-    expect(serviceName("linux")).toBe("dispatch");
-    expect(serviceName("darwin")).toBe("com.dispatch.server");
-    vi.stubEnv("DISPATCH_SERVICE_NAME", "dispatch-server");
-    expect(serviceName("linux")).toBe("dispatch-server");
+  it("uses the explicit service name", () => {
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "  custom-dispatch  ");
+    expect(serviceName()).toBe("custom-dispatch");
+  });
+
+  it.each([undefined, "", "   "])(
+    "refuses missing service configuration (%s)",
+    (value) => {
+      vi.stubEnv("DISPATCH_SERVICE_NAME", value);
+      expect(() => serviceName()).toThrow("DISPATCH_SERVICE_NAME is missing");
+    }
+  );
+});
+
+describe("release generation isolation", () => {
+  it("accepts only new server artifacts even when a legacy release is stable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                tag_name: "v1.1.1",
+                prerelease: true,
+                assets: [{ name: "dispatch-server.tar.gz" }],
+              },
+              {
+                tag_name: "v0.38.13",
+                prerelease: false,
+                assets: [{ name: "dispatch-release.tar.gz" }],
+              },
+            ])
+          )
+      )
+    );
+    try {
+      const releases = await fetchGitHubReleases();
+      expect(
+        releases.map(({ tag, hasDispatchArtifact }) => ({
+          tag,
+          hasDispatchArtifact,
+        }))
+      ).toEqual([
+        { tag: "v1.1.1", hasDispatchArtifact: true },
+        { tag: "v0.38.13", hasDispatchArtifact: false },
+      ]);
+      expect(
+        releases.filter(
+          (release) => release.hasDispatchArtifact && !release.prerelease
+        )
+      ).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

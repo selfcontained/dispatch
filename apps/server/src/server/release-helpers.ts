@@ -154,12 +154,14 @@ export function fixedRuntimePath(serverDir: string): string {
 /**
  * The service manager's name for this install: the systemd user unit on
  * Linux, the LaunchAgent label on macOS. The installer writes
- * DISPATCH_SERVICE_NAME; the defaults are the 0.x names.
+ * DISPATCH_SERVICE_NAME. Refuse service operations if it is missing.
  */
-export function serviceName(platform: string = process.platform): string {
+export function serviceName(): string {
   const configured = process.env.DISPATCH_SERVICE_NAME?.trim();
   if (configured) return configured;
-  return platform === "linux" ? "dispatch" : "com.dispatch.server";
+  throw new Error(
+    "DISPATCH_SERVICE_NAME is missing. Repair the installation configuration before updating Dispatch."
+  );
 }
 
 export function createCheckIsAdmin(

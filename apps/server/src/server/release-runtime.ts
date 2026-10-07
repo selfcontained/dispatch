@@ -114,7 +114,7 @@ export async function assertHostSurvivalOnRestart(
   runCommand: RunCommand
 ): Promise<void> {
   if (platform !== "linux") return;
-  const unit = `${serviceName(platform)}.service`;
+  const unit = `${serviceName()}.service`;
   let loaded: string;
   try {
     loaded = (
@@ -147,22 +147,25 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   const getGitHubRepo = getGitHubRepoImpl;
   const checkIsAdmin = createCheckIsAdmin(deps.runCommand, deps.serverDir);
   const fetchReleaseMetadata = fetchReleaseMetadataImpl;
-  const restartService =
-    deps.restartService ??
-    (() => {
+  function prepareServiceRestart(): () => void {
+    if (deps.restartService) return deps.restartService;
+    // Resolve before activation and retain the exact name for the restart.
+    const name = serviceName();
+    return () => {
       if (process.platform === "linux") {
-        spawn("systemctl", ["--user", "restart", serviceName()], {
+        spawn("systemctl", ["--user", "restart", name], {
           detached: true,
           stdio: "ignore",
         }).unref();
         return;
       }
       const uid = process.getuid?.() ?? 501;
-      spawn("launchctl", ["kickstart", "-k", `gui/${uid}/${serviceName()}`], {
+      spawn("launchctl", ["kickstart", "-k", `gui/${uid}/${name}`], {
         detached: true,
         stdio: "ignore",
       }).unref();
-    });
+    };
+  }
   const recordReleaseCandidate =
     deps.writeReleaseCandidate ?? writeReleaseCandidate;
 
@@ -425,6 +428,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
     setReleasePhase(job, "deploying");
     appendReleaseLog(job, `==> deploying ${tag}`);
+    const restartService = prepareServiceRestart();
 
     // Refuse before replacing the live executable if a restart would kill
     // agent hosts. An injected check replaces the real one outright; `??`

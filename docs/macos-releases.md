@@ -23,8 +23,10 @@ downgrade. One archive serves both channels; promotion never rebuilds.
 The channel is a per-install setting (Settings → Support → Updates, stored as
 the `DispatchUpdateChannel` user default). Until someone picks one, the app
 follows the build's `DispatchDefaultUpdateChannel` Info.plist value, set from
-the repository variable `MACOS_DEFAULT_UPDATE_CHANNEL` (default `preview`).
-Set that variable to `stable` once 1.0 is promoted.
+the repository variable `MACOS_DEFAULT_UPDATE_CHANNEL` (default `stable`). Before the first Stable
+promotion, the Stable channel offers no update. Test hosts must explicitly
+choose Preview to receive candidate builds; publishing a Preview build does
+not make it eligible for Stable.
 
 The retired `/updates/macos/preview/appcast-arm64.xml` compatibility feed is
 no longer published. Older builds using it need a manual installation of the
@@ -41,9 +43,9 @@ stable only promoted ones (see the installer's `--channel`).
 ## Workflows
 
 **Release** (`.github/workflows/release.yml`) runs on a manual dispatch
-(bump `patch`/`minor`/`major`, commit, tag the selected branch) or on a pushed
-`vX.Y.Z` tag that points at `main` or `acp-runtime` and matches `package.json`. Select
-`acp-runtime` in the Actions branch dropdown to release it before merging.
+(bump `patch`/`minor`/`major`, commit, tag `main`) or on a pushed
+`vX.Y.Z` tag that points at `main` and matches `package.json`. Manual dispatch
+is allowed only from `main`.
 It verifies, builds the Bun binaries and the Mac app, smoke-tests both, creates one GitHub **prerelease**
 with both assets, and only then adds the Mac build to the appcast on the
 preview channel. The Mac build number is `github.run_id.github.run_attempt`;

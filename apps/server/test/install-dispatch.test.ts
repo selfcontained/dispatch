@@ -66,7 +66,8 @@ interface InstallerRun {
  */
 async function runInstallerPreflight(
   args: string[],
-  stubs: { psql: string; sudo?: string }
+  stubs: { psql: string; sudo?: string; curl?: string },
+  discoverRelease = false
 ): Promise<InstallerRun> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "dispatch-installer-"));
   try {
@@ -77,6 +78,7 @@ async function runInstallerPreflight(
     for (const [name, body] of Object.entries({
       psql: stubs.psql,
       sudo: stubs.sudo ?? "exit 1",
+      ...(stubs.curl ? { curl: stubs.curl } : {}),
     })) {
       await writeFile(path.join(bin, name), `#!/bin/sh\n${body}\n`);
       await chmod(path.join(bin, name), 0o755);
@@ -85,10 +87,14 @@ async function runInstallerPreflight(
       "bash",
       [
         path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
-        "--tag",
-        "v1.0.0",
-        "--release-url",
-        `file://${dir}/missing.tar.gz`,
+        ...(discoverRelease
+          ? []
+          : [
+              "--tag",
+              "v1.0.0",
+              "--release-url",
+              `file://${dir}/missing.tar.gz`,
+            ]),
         "--no-service",
         "--port",
         "7999",
@@ -187,5 +193,25 @@ describe("install-dispatch database preflight", () => {
       "utf8"
     );
     expect(script).toContain('"DISPATCH_HOST=$HOST"');
+  });
+});
+
+describe("install-dispatch release discovery", () => {
+  it("does not fall back to Preview or legacy assets when Stable is selected", async () => {
+    const run = await runInstallerPreflight(
+      ["--channel", "stable"],
+      {
+        psql: adminPsql(170000),
+        curl: `case "$*" in
+          *releases/latest*) echo '{"tag_name":"v0.38.13","assets":[{"browser_download_url":"https://github.com/selfcontained/dispatch/releases/download/v0.38.13/dispatch-release.tar.gz"}]}' ;;
+          *) echo 'unexpected Preview lookup or download' >&2; exit 99 ;;
+        esac`,
+      },
+      true
+    );
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("no stable release found");
+    expect(run.stderr).not.toContain("unexpected Preview lookup or download");
+    expect(run.stdout).not.toContain("using the preview channel");
   });
 });
