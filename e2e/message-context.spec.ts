@@ -43,9 +43,9 @@ test("an addressed agent can retrieve a proposal and its thread without reading 
         text: "Separate conversation outside this request.",
       })
     ).value;
-    expect(
-      (await call(reader.id, "get_message", { id: proposal.id })).error
-    ).toBe(true);
+    await expect(
+      call(reader.id, "get_message", { id: proposal.id })
+    ).rejects.toThrow("Message not found.");
     await call(author.id, "post", {
       to: reader.id,
       replyTo: proposal.id,
@@ -60,9 +60,9 @@ test("an addressed agent can retrieve a proposal and its thread without reading 
     expect(
       thread.value.messages.map((m: { content: string }) => m.content)
     ).toContain("Can you handle this?");
-    expect((await call(reader.id, "get_message", { id: other.id })).error).toBe(
-      true
-    );
+    await expect(
+      call(reader.id, "get_message", { id: other.id })
+    ).rejects.toThrow("Message not found.");
     await page.goto(`/agents/${author.id}?thread=${proposal.id}`, {
       waitUntil: "domcontentloaded",
     });
