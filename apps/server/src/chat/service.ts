@@ -105,11 +105,13 @@ export type BlockAttachmentInput =
 
 /** What an agent hands `post`. */
 export type PostInput = {
-  /** The agent to deliver to; omitted = the author's own stream, for people. */
+  /** Explicit recipient; omitted posts are for people unless replyTo infers a recipient. */
   to?: string | null;
   kind?: BlockKind;
   text?: string;
   replyTo?: string | null;
+  /** Display location only; does not change recipients or the active turn. */
+  placement?: "current" | "home" | "root";
   question?: BlockQuestionData | null;
   form?: BlockFormData | null;
   link?: BlockLinkData | null;
@@ -1907,17 +1909,35 @@ export class StreamService {
       );
     }
     const replyTo = input.replyTo ?? null;
+    if (input.placement !== undefined) {
+      if (!["current", "home", "root"].includes(input.placement)) {
+        throw new StreamValidationError(
+          "placement must be current, home, or root."
+        );
+      }
+      if (replyTo !== null) {
+        throw new StreamValidationError(
+          "placement and replyTo cannot be combined."
+        );
+      }
+      if (!["text", "link", "tasks"].includes(kind)) {
+        throw new StreamValidationError(
+          "placement is supported only for text, attachments, links, and tasks. Questions, forms, and reviews use their existing routing."
+        );
+      }
+    }
     let toAgentId = input.to ?? null;
     if (toAgentId === agentId) {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    let home = await this.homeOf(agentId);
+    let home = input.placement === "root" ? null : await this.homeOf(agentId);
     const active = await this.turns.openTurn(agentId);
     const turnId = active?.payload.blockId;
     const turn =
       typeof turnId === "string" ? await this.store.getById(turnId) : null;
     if (
+      (input.placement === undefined || input.placement === "current") &&
       turn?.author.kind === "agent" &&
       turn.author.agentId === agentId &&
       (kind !== "review" || turn.streamId !== streamId)

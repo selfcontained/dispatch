@@ -178,13 +178,14 @@ const textSchema = z
   .describe(`Markdown body, up to ${BLOCK_TEXT_MAX_CHARS} characters.`);
 
 const POST_DESCRIPTION =
-  "Post a block into a stream. Without `to` it goes where your current turn is answering; outside a turn, a child agent's posts go to its launch-card thread. " +
+  "Post a block into a stream. By default it goes where your current turn is answering; outside a turn, a child agent's posts go to its launch-card thread. " +
   "With `to: <agentId>` it is addressed to that agent for prompt delivery; the user still sees it in the stream. A successful post records the block, not proof of pickup or an answer. " +
   "Your ordinary replies already appear in the stream as you write them, so use post for what plain text cannot do: " +
   'a question with options (`question`), a form (`form`), a file (`attachments: [{ type: "file", path }]`), a link (`link`), a review of another agent\'s work (`review`, with `to`), a checklist (`tasks`), ' +
   "a scoped threaded answer (`replyTo` with `text`), or a message to another agent (`to`). `replyTo` threads the block under another (use the id from a DISPATCH POST envelope or a post result). " +
-  "Use threads for self-contained side questions or follow-ups tied to a specific post; keep main-task progress, broader decisions, and final results in the main conversation. Do not thread every answer or repeat a threaded answer in ordinary prose. Replies to a user already in a thread stream there automatically. " +
-  "`notify: true` also sends the browser/Slack notification. Returns { id, createdAt } (a review also returns its findings' ids); keep the id to update the block later.";
+  "Use threads for self-contained side questions or follow-ups tied to a specific post; keep broader primary-task progress, decisions, and overall results visible at home. Do not thread every answer or repeat a threaded answer in ordinary prose. Replies to a user already in a thread stream there automatically. " +
+  'Use `placement: "home"` for a brief primary-task update or outcome when working in a side thread; children normally report in their launch threads. `placement: "root"` deliberately surfaces a broader update at the top of your own shared stream, including for children. Neither changes where subsequent ordinary replies appear or notifies another agent without `to`. A task contained entirely in a thread can finish there. Do not duplicate the full threaded answer. Explicit placement is unavailable for questions, forms, and reviews and cannot combine with `replyTo`. ' +
+  "`notify: true` also sends the browser/Slack notification. Returns { id, kind, streamId, threadId, replyTo, createdAt } naming the actual post location (a review also returns its findings' ids); keep the id to update the block later.";
 
 const UPDATE_DESCRIPTION =
   "Revise a block you posted (text, data, attachments, state) or change the state of a block addressed to you " +
@@ -253,6 +254,12 @@ export function registerStreamTools(
             .describe(
               "Exact block id from a DISPATCH POST envelope or post result. Use with text for a scoped side answer; omit for ordinary replies in the current conversation."
             ),
+          placement: z
+            .enum(["current", "home", "root"])
+            .optional()
+            .describe(
+              "Display location for text, attachments, links, and tasks only. current (default): active turn location, falling back to home. home: your own stream root, or your launch-card thread if you are a child. root: top level of your own shared stream, even for a child. Cannot combine with replyTo, question, form, or review. Does not move subsequent ordinary replies or deliver to another agent; use to for delivery."
+            ),
           question: questionSchema.optional(),
           form: formSchema.optional(),
           link: linkSchema.optional(),
@@ -274,6 +281,7 @@ export function registerStreamTools(
             to: args.to ?? null,
             text: args.text,
             replyTo: args.replyTo ?? null,
+            placement: args.placement,
             question: args.question ?? null,
             form: args.form ?? null,
             link: args.link ?? null,
@@ -291,6 +299,9 @@ export function registerStreamTools(
           const result = {
             id: block.id,
             kind: block.kind,
+            streamId: block.streamId,
+            threadId: block.threadId,
+            replyTo: block.replyTo,
             createdAt: block.createdAt,
             ...(findings.length > 0 ? { findings } : {}),
           };

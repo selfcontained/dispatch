@@ -3333,6 +3333,141 @@ describe("StreamService review threads", () => {
     void before;
   });
 
+  it("explicit placement escapes a child's active thread without moving it or delivering implicitly", async () => {
+    try {
+      const { svc, injected } = build();
+      const discussion = await svc.post(A, { text: "Review discussion" });
+      const turn = await svc.store.insert({
+        streamId: A,
+        author: { kind: "agent", agentId: B },
+        kind: "text",
+        origin: "turn",
+        text: "Working",
+        threadId: discussion.id,
+        replyTo: discussion.id,
+      });
+      await pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload) VALUES ($1, 1, 'turn', $2)`,
+        [B, JSON.stringify({ state: "started", blockId: turn.id })]
+      );
+      const current = await svc.post(B, {
+        text: "Thread detail",
+        placement: "current",
+      });
+      const home = await svc.post(B, {
+        text: "Subtask result",
+        placement: "home",
+      });
+      const root = await svc.post(B, {
+        text: "Broader result",
+        placement: "root",
+        attachments: [
+          { type: "pr", url: "https://github.com/example/repo/pull/1" },
+        ],
+      });
+      expect(current).toMatchObject({ streamId: A, threadId: discussion.id });
+      expect(home).toMatchObject({
+        streamId: A,
+        threadId: launchBlockId(B),
+        toAgentId: null,
+      });
+      expect(root).toMatchObject({
+        streamId: A,
+        threadId: null,
+        replyTo: null,
+        toAgentId: null,
+      });
+      await svc.waitForInFlightDeliveries(1000);
+      expect(injected).toEqual([]);
+      expect(await svc.post(B, { text: "Still discussing" })).toMatchObject({
+        threadId: discussion.id,
+      });
+      expect(await svc.store.getById(turn.id)).toMatchObject({
+        threadId: discussion.id,
+      });
+      const told = await svc.post(B, {
+        text: "Parent action needed",
+        placement: "root",
+        to: A,
+      });
+      await settled(svc, told.id);
+      expect(injected.map((x) => x.agentId)).toEqual([A]);
+    } finally {
+      await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+        B,
+      ]);
+    }
+  });
+
+  it("home and root escape a root agent's thread for links and checklists", async () => {
+    try {
+      const { svc } = build();
+      const discussion = await svc.post(A, { text: "Discussion" });
+      const turn = await svc.store.insert({
+        streamId: A,
+        author: { kind: "agent", agentId: A },
+        kind: "text",
+        origin: "turn",
+        text: "Working",
+        threadId: discussion.id,
+        replyTo: discussion.id,
+      });
+      await pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload) VALUES ($1, 1, 'turn', $2)`,
+        [A, JSON.stringify({ state: "started", blockId: turn.id })]
+      );
+      expect(
+        await svc.post(A, {
+          placement: "home",
+          link: { url: "https://example.com" },
+        })
+      ).toMatchObject({ streamId: A, threadId: null });
+      expect(
+        await svc.post(A, {
+          placement: "root",
+          tasks: { items: [{ id: "done", text: "Validated" }] },
+        })
+      ).toMatchObject({ streamId: A, threadId: null });
+      expect(await svc.post(A, { text: "Next detail" })).toMatchObject({
+        threadId: discussion.id,
+      });
+    } finally {
+      await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+        A,
+      ]);
+    }
+  });
+
+  it("rejects ambiguous placement and workflow blocks before creating posts", async () => {
+    const { svc } = build();
+    const target = await svc.post(A, { text: "Target" });
+    for (const placement of ["current", "home", "root"] as const) {
+      await expect(
+        svc.post(B, { text: "Invalid", placement, replyTo: target.id })
+      ).rejects.toThrow("placement and replyTo");
+      for (const payload of [
+        { question: { options: [{ label: "Yes" }] } },
+        {
+          form: {
+            fields: [{ id: "name", label: "Name", type: "text" as const }],
+          },
+        },
+        { review: { summary: "Review", findings: [] } },
+      ]) {
+        await expect(
+          svc.post(B, { text: "Invalid", placement, ...payload })
+        ).rejects.toThrow("placement is supported only");
+      }
+    }
+    expect(
+      (
+        await pool.query(
+          `SELECT count(*)::int AS n FROM blocks WHERE text = 'Invalid'`
+        )
+      ).rows[0].n
+    ).toBe(0);
+  });
+
   it("puts a child's own post in its launch thread, and delivers it only to whom it names", async () => {
     const { svc, injected } = build();
     const quiet = await svc.post(B, { text: "Starting the pass." });
@@ -4958,6 +5093,17 @@ describe("StreamService @mentions", () => {
       expect(events).toContainEqual({ type: "stream.changed", agentId: A });
       const post = await svc.post(external, { text: "Here is my answer" });
       expect(post).toMatchObject({ streamId: A, threadId: opener.threadId });
+      for (const placement of ["home", "root"] as const) {
+        expect(
+          await svc.post(external, { text: "Own stream update", placement })
+        ).toMatchObject({ streamId: external, threadId: null });
+      }
+      expect(
+        await svc.post(external, {
+          text: "Still answering here",
+          placement: "current",
+        })
+      ).toMatchObject({ streamId: A, threadId: opener.threadId });
       const explicit = await svc.post(external, {
         text: "Explicit reply",
         replyTo: opener.id,

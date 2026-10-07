@@ -637,3 +637,16 @@ Agent-scoped and job-scoped MCP both load repo tools from `.dispatch/tools.json`
 | 422  | Request was well-formed but rejected by configuration (e.g., no CLI agent type enabled)  |
 | 500  | Internal server error                                                                    |
 | 503  | Transient dependency failure (e.g., release tarball download/parse during gate eval)     |
+
+### Explicit agent post placement
+
+MCP `post` accepts `placement: "current" | "home" | "root"` for text (including
+attachments), links, and tasks. Omission/current keeps the active turn's location,
+falling back to home. Home is the agent's own root stream or a child's launch
+thread. Root is the top level of that same shared stream, including for children.
+Incoming cross-stream messages do not redefine home/root. Placement affects only
+the new block, not the active turn or subsequent prose. It does not infer delivery
+recipients; `to` remains explicit. `replyTo` selects a specific discussion instead
+and cannot combine with placement. Questions, forms, and reviews reject explicit
+placement to preserve their existing workflow routing. The receipt includes
+`streamId`, `threadId`, and `replyTo` alongside the block ID, kind, and timestamp.

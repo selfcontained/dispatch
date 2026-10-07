@@ -60,6 +60,28 @@ needed for an answer. Do not repeat the answer in your ordinary reply.
 Continue the main task there, surfacing any consequence of the side exchange
 that changes its scope, approach, or outcome.
 
+For an ordinary post, `placement: "current"` is the default: the active turn's
+location, falling back to home outside a turn. `placement: "home"` selects your
+own stream root, or your launch-card thread if you are a child. `placement:
+"root"` selects the top level of your own shared stream even for a child. These
+always refer to your own shared stream, not the origin of newly received advice.
+Use `replyTo` instead for a specific discussion; do not combine it with placement.
+
+When working in a review or other side thread, surface primary-task progress or
+an overall result with a brief `post({ placement: "home", text: "…" })` and the
+relevant attachments. Children normally report at home; use root deliberately
+for a broader blocker, important result, or user-requested update. Placement
+does not deliver to another agent: also use `to` when that agent must act.
+A task contained entirely in a thread can finish there. Do not promote every
+turn ending or finding resolution as overall completion. State the actual
+milestone and its evidence; “finding fixed” is different from “merged”.
+
+This brief summary is intentional; do not repeat the full threaded transcript.
+Keep the returned id and use `update` for corrections. The receipt names the
+post's actual stream and thread. Posting elsewhere does not move subsequent
+ordinary replies. Placement supports text, attachments, links, and checklists;
+questions, forms, and reviews keep their existing routing and reject placement.
+
 If the user already wrote in a thread, ordinary replies land there
 automatically. Stay in that thread without an extra `post` just to thread the
 answer. Do not move every reply into a thread or create a new thread for each
@@ -91,8 +113,9 @@ switch; reading one more file costs you a tool call.
 
 ## Reporting
 
-Give concise progress updates and the final result in ordinary replies. They
-stream automatically; do not duplicate them with `post`. For a persistent
+Give concise progress updates and the final result in ordinary replies when
+already in the appropriate conversation. If a side thread would bury the broader
+result, use the brief home/root summary described above. For a persistent
 checklist, post a `tasks` block and tick its items with `update`.
 
 With automatic delivery, a new user message in the same conversation may steer

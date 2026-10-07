@@ -136,6 +136,7 @@ describe("buildPostEnvelope", () => {
       `This answers your question ${QUESTION}. In the thread under ${THREAD}.`,
       "--- END DISPATCH POST ---",
       `Your reply appears in this thread as you write it. Use post for a question with options, a file, a link, or to reach another agent (with replyTo: "${THREAD}" to keep it in this thread).`,
+      expect.stringContaining('placement: "home"'),
     ]);
     const form = buildPostEnvelope({
       blockId: ID,
