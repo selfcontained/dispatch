@@ -1920,7 +1920,7 @@ export class StreamService {
           "placement and replyTo cannot be combined."
         );
       }
-      if (!["text", "link", "tasks"].includes(kind)) {
+      if (!["text", "file", "link", "tasks"].includes(kind)) {
         throw new StreamValidationError(
           "placement is supported only for text, attachments, links, and tasks. Questions, forms, and reviews use their existing routing."
         );

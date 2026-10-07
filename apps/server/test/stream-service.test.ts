@@ -3438,6 +3438,41 @@ describe("StreamService review threads", () => {
     }
   });
 
+  it.each(["current", "home", "root"] as const)(
+    "supports file attachments with and without text at %s",
+    async (placement) => {
+      const { svc, injected } = build();
+      for (const text of [undefined, "Overall result"]) {
+        const fileId = await seedFiles(
+          B,
+          text ? "report.md" : "screenshot.png"
+        );
+        const block = await svc.post(B, {
+          placement,
+          text,
+          attachments: [{ type: "file", fileId }],
+        });
+        expect(block).toMatchObject({
+          kind: "file",
+          streamId: A,
+          threadId: placement === "root" ? null : launchBlockId(B),
+          toAgentId: null,
+          text: text ?? "",
+          attachments: [
+            expect.objectContaining({ type: "file", fileId, ownerAgentId: B }),
+          ],
+        });
+        expect(await svc.store.getById(block.id)).toMatchObject({
+          kind: "file",
+          threadId: block.threadId,
+          attachments: block.attachments,
+        });
+      }
+      await svc.waitForInFlightDeliveries(1000);
+      expect(injected).toEqual([]);
+    }
+  );
+
   it("rejects ambiguous placement and workflow blocks before creating posts", async () => {
     const { svc } = build();
     const target = await svc.post(A, { text: "Target" });
