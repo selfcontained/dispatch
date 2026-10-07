@@ -1,33 +1,84 @@
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
-const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
-
-const { app, shutdown, start } = await import("./server.js");
-
-if (shellEnvironment.state === "resolved") {
-  app.log.info({ shellEnvironment }, "Shell environment restored");
+// Modes of this binary, checked before anything else so none of them
+// touches the server's environment restoration, database, or config:
+//
+// - `agent-host --state <dir>` runs one agent's ACP host.
+// - `claude-acp` / `codex-acp` run the engine's ACP adapter over stdio.
+//   The adapters ship inside this binary rather than as a global npm
+//   install, so there is nothing for anyone to install or configure; each
+//   one drives the engine CLI the user already has (see engine-spec.ts).
+if (process.argv[2]?.startsWith("recovery-")) {
+  try {
+    const { runRecoveryCli } = await import("./update-recovery/cli.js");
+    await runRecoveryCli(process.argv.slice(2));
+  } catch {
+    // Never print raw command, database or configuration errors with secrets.
+    console.error(
+      "Dispatch update recovery could not complete; installation remains fenced."
+    );
+    process.exitCode = 2;
+  }
+} else if (process.argv[2] === "init-local-tls") {
+  if (
+    process.env.DISPATCH_UPDATE_OWNER !== "macos-app" ||
+    process.env.DISPATCH_LOCAL_TLS !== "1"
+  ) {
+    throw new Error(
+      "Local TLS initialization requires the Mac app environment."
+    );
+  }
+  const { ensureLocalTls } = await import("./local-tls.js");
+  const { statePath } = await import("./state-dir.js");
+  const { parseListenHosts } = await import("./multi-listener.js");
+  ensureLocalTls(
+    statePath("tls"),
+    parseListenHosts(process.env.DISPATCH_LISTEN_HOSTS) ?? [
+      process.env.DISPATCH_HOST ?? "127.0.0.1",
+    ]
+  );
+} else if (process.argv[2] === "agent-host") {
+  await import("./agents/acp/host/main.js");
+} else if (process.argv[2] === "claude-acp") {
+  // The CLI entry, not the package's `main`: that one is a library whose
+  // import starts nothing, and the adapter would sit there reading no stdin.
+  await import("@agentclientprotocol/claude-agent-acp/dist/index.js");
+} else if (process.argv[2] === "codex-acp") {
+  await import("@agentclientprotocol/codex-acp/dist/index.js");
+} else {
+  await serve();
 }
 
-// Global error handlers — prevent silent crashes from background tasks
-process.on("unhandledRejection", (reason) => {
-  app.log.error({ err: reason }, "Unhandled promise rejection");
-});
+async function serve(): Promise<void> {
+  const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
-process.on("uncaughtException", async (err) => {
-  setTimeout(() => process.exit(1), 5_000).unref();
-  app.log.error({ err }, "Uncaught exception — shutting down");
-  await shutdown(1);
-});
+  const { app, shutdown, start } = await import("./server.js");
 
-start().catch(async (error) => {
-  app.log.error(error);
-  await shutdown(1);
-});
+  if (shellEnvironment.state === "resolved") {
+    app.log.info({ shellEnvironment }, "Shell environment restored");
+  }
 
-process.on("SIGINT", async () => {
-  await shutdown(0);
-});
+  // Global error handlers — prevent silent crashes from background tasks
+  process.on("unhandledRejection", (reason) => {
+    app.log.error({ err: reason }, "Unhandled promise rejection");
+  });
 
-process.on("SIGTERM", async () => {
-  await shutdown(0);
-});
+  process.on("uncaughtException", async (err) => {
+    setTimeout(() => process.exit(1), 5_000).unref();
+    app.log.error({ err }, "Uncaught exception — shutting down");
+    await shutdown(1);
+  });
+
+  start().catch(async (error) => {
+    app.log.error(error);
+    await shutdown(1);
+  });
+
+  process.on("SIGINT", async () => {
+    await shutdown(0);
+  });
+
+  process.on("SIGTERM", async () => {
+    await shutdown(0);
+  });
+}

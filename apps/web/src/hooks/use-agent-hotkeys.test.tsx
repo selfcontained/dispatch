@@ -51,12 +51,6 @@ function pressHotkey(
   act(() => entry.handler(new KeyboardEvent("keydown")));
 }
 
-function hotkeyOptions(id: string): UseHotkeyOptions {
-  const entry = registeredHotkeys.get(id);
-  if (!entry) throw new Error(`hotkey ${id} was never registered`);
-  return entry.options;
-}
-
 function makeAgent(id: string, overrides: Partial<Agent> = {}): Agent {
   return {
     id,
@@ -65,10 +59,9 @@ function makeAgent(id: string, overrides: Partial<Agent> = {}): Agent {
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     agentArgs: [],
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     ...overrides,
   } as Agent;
 }
@@ -90,10 +83,8 @@ function defaultArgs(overrides: Partial<HookArgs> = {}): HookArgs {
     isMobile: false,
     sidebarAgentId: null,
     validatedSelectedAgentId: null,
-    canFocusTerminal: false,
-    focusTerminal: vi.fn(),
-    mediaOpen: false,
-    setMediaOpen: vi.fn(),
+    drawerOpen: false,
+    setDrawerOpen: vi.fn(),
     leftPanelOpen: true,
     handleSetLeftPanelOpen: vi.fn(),
     openCreateDialog: vi.fn(),
@@ -262,7 +253,7 @@ describe("useAgentHotkeys", () => {
 
     it("skips plain children, not just review agents", () => {
       // The sidebar renders every child inside its parent's card, so cycling
-      // must skip a child launched by dispatch_launch_agent too.
+      // must skip a child launched by launch_agent too.
       const plainChild = makeAgent("agt_plain_child", {
         parentAgentId: "agt_1",
       });
@@ -336,79 +327,47 @@ describe("useAgentHotkeys", () => {
     });
   });
 
-  describe("focus-terminal-input", () => {
-    it("registers enabled and calls focusTerminal on desktop when focusable", () => {
-      const focusTerminal = vi.fn();
-      renderAgentHotkeys(
-        defaultArgs({ isMobile: false, canFocusTerminal: true, focusTerminal })
-      );
-
-      expect(hotkeyOptions("focus-terminal-input").enabled).toBe(true);
-      pressHotkey("focus-terminal-input");
-      expect(focusTerminal).toHaveBeenCalledTimes(1);
-    });
-
-    it("registers disabled on mobile even when the terminal is focusable", () => {
-      renderAgentHotkeys(
-        defaultArgs({ isMobile: true, canFocusTerminal: true })
-      );
-      expect(hotkeyOptions("focus-terminal-input").enabled).toBe(false);
-    });
-
-    it("registers disabled and guards the handler when the terminal is not focusable", () => {
-      const focusTerminal = vi.fn();
-      renderAgentHotkeys(
-        defaultArgs({ isMobile: false, canFocusTerminal: false, focusTerminal })
-      );
-
-      expect(hotkeyOptions("focus-terminal-input").enabled).toBe(false);
-      // The handler itself also guards, independent of the enabled option.
-      pressHotkey("focus-terminal-input", { bypassEnabled: true });
-      expect(focusTerminal).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("toggle-media-sidebar", () => {
+  describe("toggle-drawer", () => {
     it("is a no-op on desktop with no sidebar agent", () => {
-      const setMediaOpen = vi.fn();
+      const setDrawerOpen = vi.fn();
       renderAgentHotkeys(
-        defaultArgs({ isMobile: false, sidebarAgentId: null, setMediaOpen })
+        defaultArgs({ isMobile: false, sidebarAgentId: null, setDrawerOpen })
       );
 
-      pressHotkey("toggle-media-sidebar");
-      expect(setMediaOpen).not.toHaveBeenCalled();
+      pressHotkey("toggle-drawer");
+      expect(setDrawerOpen).not.toHaveBeenCalled();
     });
 
     it("toggles on desktop when a sidebar agent is present", () => {
-      const setMediaOpen = vi.fn();
+      const setDrawerOpen = vi.fn();
       renderAgentHotkeys(
         defaultArgs({
           isMobile: false,
           sidebarAgentId: "agt_1",
-          mediaOpen: false,
-          setMediaOpen,
+          drawerOpen: false,
+          setDrawerOpen,
         })
       );
 
-      pressHotkey("toggle-media-sidebar");
-      expect(setMediaOpen).toHaveBeenCalledTimes(1);
-      expect(setMediaOpen).toHaveBeenCalledWith(true);
+      pressHotkey("toggle-drawer");
+      expect(setDrawerOpen).toHaveBeenCalledTimes(1);
+      expect(setDrawerOpen).toHaveBeenCalledWith(true);
     });
 
     it("toggles closed on mobile even without a sidebar agent", () => {
-      const setMediaOpen = vi.fn();
+      const setDrawerOpen = vi.fn();
       renderAgentHotkeys(
         defaultArgs({
           isMobile: true,
           sidebarAgentId: null,
-          mediaOpen: true,
-          setMediaOpen,
+          drawerOpen: true,
+          setDrawerOpen,
         })
       );
 
-      pressHotkey("toggle-media-sidebar");
-      expect(setMediaOpen).toHaveBeenCalledTimes(1);
-      expect(setMediaOpen).toHaveBeenCalledWith(false);
+      pressHotkey("toggle-drawer");
+      expect(setDrawerOpen).toHaveBeenCalledTimes(1);
+      expect(setDrawerOpen).toHaveBeenCalledWith(false);
     });
   });
 

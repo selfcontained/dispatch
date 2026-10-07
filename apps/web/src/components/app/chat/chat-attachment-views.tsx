@@ -1,29 +1,53 @@
 /**
- * The blocks a chat post hangs under itself: files, links, PRs, code and
- * pins. Presentational leaves — each takes an attachment and renders it;
+ * The attachments a post hangs under itself: files, links, PRs and code.
+ * Presentational leaves — each takes an attachment and renders it;
  * none of them reads the feed beyond the three fields `AttachmentCtx`
  * names. Split out of chat-entries.tsx, which composes them into posts.
  */
 import { type ReactNode } from "react";
-import type { ChatAttachment } from "@dispatch/shared";
-import { ExternalLink, FileText, GitPullRequest } from "lucide-react";
+import {
+  CHAT_GALLERY_MAX_TILES,
+  layoutAttachments,
+  type Block,
+  type ChatAttachment,
+  type ChatFileAttachment,
+} from "@dispatch/shared";
+import {
+  ArrowUpRight,
+  ExternalLink,
+  FileText,
+  GitPullRequest,
+} from "lucide-react";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { FeedImage } from "@/components/app/chat/feed-image";
-import { usePinShortcuts } from "@/components/app/chat/pin-shortcut-context";
-import { PinItem } from "@/components/app/pin-item";
+import { stripTimestamp } from "@/components/app/file-utils";
 import { formatBytes } from "@/components/app/service-resources-format";
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
-import { isImageFile } from "../../../../../server/src/shared/media-file-types";
-
 /** What the attachment views read off the feed they are rendered in. */
-type AttachmentCtx = Pick<FeedContext, "agentId" | "agentName" | "onOpenMedia">;
+type AttachmentCtx = Pick<FeedContext, "agentId" | "agentName" | "onOpenFile">;
 
-/** The URL a media file is served from. */
-export function mediaFileUrl(agentId: string, fileName: string): string {
-  return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
+/** The URL a file is served from. */
+export function fileUrl(agentId: string, fileName: string): string {
+  return `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`;
+}
+
+/**
+ * The agent whose files directory holds a post's file. Attachments carry
+ * it; ones written before they did fall back to what the post implies —
+ * an agent posts its own files, a person's post holds the files of the
+ * agent it was sent to.
+ */
+export function fileOwnerOf(
+  attachment: Extract<ChatAttachment, { type: "file" }>,
+  block: Pick<Block, "author" | "toAgentId">,
+  pageAgentId: string
+): string {
+  if (attachment.ownerAgentId) return attachment.ownerAgentId;
+  if (block.author.kind === "agent") return block.author.agentId;
+  return block.toAgentId ?? pageAgentId;
 }
 
 function hostOf(url: string): string {
@@ -34,21 +58,29 @@ function hostOf(url: string): string {
   }
 }
 
-/** The left-accented block Slack hangs under a post. */
+/**
+ * A card under a post: what the post hands over, boxed so it reads as a
+ * thing (a file, a pull request, a link) and not as more of the text.
+ */
 export function AttachmentBlock({
   children,
   className,
-  accent = "border-border",
+  accent,
   ...rest
 }: {
   children: ReactNode;
   className?: string;
+  /** Extra border classes, for a card that wants a colour of its own. */
   accent?: string;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
   return (
     <div
-      className={cn("border-l-[3px] py-0.5 pl-3", accent, className)}
+      className={cn(
+        "w-fit max-w-full overflow-hidden rounded-md border border-border/70 bg-muted/25",
+        accent,
+        className
+      )}
       {...rest}
     >
       {children}
@@ -56,7 +88,19 @@ export function AttachmentBlock({
   );
 }
 
-function LinkAttachment({
+/** The squared tile at the left of a card: an icon, or a file's extension. */
+function Tile({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-foreground/80">
+      {children}
+    </span>
+  );
+}
+
+const CARD_ROW =
+  "flex min-w-[14rem] max-w-md items-center gap-3 p-2 pr-3 text-left transition-colors hover:bg-muted/50";
+
+export function LinkAttachment({
   href,
   title,
   icon,
@@ -74,72 +118,91 @@ function LinkAttachment({
         href={href}
         target="_blank"
         rel="noreferrer"
-        className="group/link flex min-w-0 items-start gap-2"
+        className={cn("group/link", CARD_ROW)}
         title={href}
       >
-        <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-foreground underline-offset-2 group-hover/link:underline">
+        <Tile>{icon}</Tile>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">
             {title ?? href}
           </span>
-          {title && host ? (
-            <span className="block truncate text-[11px] text-muted-foreground">
-              {host}
-            </span>
-          ) : null}
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {title && host ? host : "Opens in a new tab"}
+          </span>
         </span>
+        <ArrowUpRight
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
+          aria-hidden="true"
+        />
       </a>
     </AttachmentBlock>
   );
 }
 
+/** "md", "pdf": short enough to be the tile itself; longer ones get the icon. */
+function extensionOf(fileName: string): string | null {
+  const match = /\.([a-z0-9]{1,4})$/i.exec(fileName);
+  return match ? match[1]!.toLowerCase() : null;
+}
+
 function FileAttachment({
   attachment,
+  ownerAgentId,
   ctx,
 }: {
-  attachment: Extract<ChatAttachment, { type: "file" }>;
+  attachment: ChatFileAttachment;
+  ownerAgentId: string;
   ctx: AttachmentCtx;
 }): JSX.Element {
-  const url = mediaFileUrl(ctx.agentId, attachment.fileName);
-  const open = () => ctx.onOpenMedia(attachment.mediaId);
-  // By stored name or by the media row's type: a file shared without an
-  // extension still renders as the image it is.
-  const isImage =
-    isImageFile(attachment.fileName) ||
-    (attachment.mimeType?.startsWith("image/") ?? false);
-  if (isImage) {
+  const url = fileUrl(ownerAgentId, attachment.fileName);
+  const open = () => ctx.onOpenFile(attachment.fileId);
+  if (attachment.media === "image") {
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
-        <div className="mb-1 truncate text-[11px] text-muted-foreground">
-          {attachment.fileName} · {formatBytes(attachment.sizeBytes)}
-        </div>
         <button
           type="button"
           onClick={open}
-          className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
+          className="block max-w-xs text-left"
           title={attachment.fileName}
         >
-          <FeedImage
-            src={url}
-            alt={attachment.fileName}
-            width={attachment.width}
-            height={attachment.height}
-            maxHeightPx={224}
-          />
+          <span className="block border-b border-border/70 bg-background/60">
+            <FeedImage
+              src={url}
+              alt={attachment.fileName}
+              width={attachment.width}
+              height={attachment.height}
+              maxHeightPx={224}
+            />
+          </span>
+          <span className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <span className="min-w-0 truncate">{attachment.fileName}</span>
+            <span className="ml-auto shrink-0">
+              {formatBytes(attachment.sizeBytes)}
+            </span>
+          </span>
         </button>
       </AttachmentBlock>
     );
   }
+  const extension = extensionOf(attachment.fileName);
   return (
     <AttachmentBlock data-testid="chat-attachment-file">
       <button
         type="button"
         onClick={open}
-        className="flex min-w-0 max-w-full items-start gap-2 text-left"
+        className={CARD_ROW}
         title={attachment.fileName}
       >
-        <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0">
+        <Tile>
+          {extension ? (
+            <span className="font-mono text-[10px] font-semibold uppercase leading-none">
+              {extension}
+            </span>
+          ) : (
+            <FileText className="h-4 w-4" aria-hidden="true" />
+          )}
+        </Tile>
+        <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-foreground">
             {attachment.fileName}
           </span>
@@ -160,104 +223,37 @@ function CodeAttachment({
   const fence = "```";
   const source = `${fence}${attachment.language ?? ""}\n${attachment.code}\n${fence}`;
   return (
-    <AttachmentBlock data-testid="chat-attachment-code">
+    <AttachmentBlock className="w-full" data-testid="chat-attachment-code">
       {attachment.path ? (
-        <div className="mb-1 truncate font-mono text-[11px] text-muted-foreground">
+        <div className="truncate border-b border-border/70 px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
           {attachment.path}
         </div>
       ) : null}
-      <Markdown className="text-xs">{source}</Markdown>
+      <div className="p-1.5 [&_pre]:my-0">
+        <Markdown className="text-xs">{source}</Markdown>
+      </div>
     </AttachmentBlock>
-  );
-}
-
-/**
- * A pin rendered live from the agent's current pins — the sidebar's own
- * `PinItem`, so the stream and the sidebar never disagree, and a shortcut
- * fires from either place. `label` names a pin that is no longer there.
- */
-export function LivePin({
-  pinId,
-  label,
-  ctx,
-  testId,
-}: {
-  pinId: string;
-  label?: string;
-  ctx: AttachmentCtx;
-  testId: string;
-}): JSX.Element {
-  const shortcuts = usePinShortcuts();
-  const pin = shortcuts.pins.find((p) => p.id === pinId);
-  if (!pin) {
-    return (
-      <AttachmentBlock
-        className="text-xs italic text-muted-foreground"
-        data-testid={`${testId}-missing`}
-      >
-        {label ? (
-          <>
-            <span className="not-italic font-medium">{label}</span> · pin no
-            longer available
-          </>
-        ) : (
-          "Pin no longer available"
-        )}
-      </AttachmentBlock>
-    );
-  }
-  // A card rather than the accent bar the other attachments use: a pin's
-  // copy button sits at the right edge of its own box, and without a drawn
-  // edge that box is invisible — the button reads as floating somewhere
-  // short of where the post's copy action lives. A shortcut is already a
-  // button, so it gets no card; it is a sidebar-width button (w-full) that
-  // in the channel's wide measure would stretch into a banner, so here it
-  // hugs its label up to a cap instead.
-  return (
-    <div
-      className={
-        pin.type === "shortcut"
-          ? "w-fit max-w-[20rem]"
-          : "max-w-md rounded-md border border-border bg-card/60 px-3 py-2"
-      }
-      data-testid={testId}
-    >
-      <PinItem
-        pin={pin}
-        workspaceRoot={shortcuts.workspaceRoot}
-        inGroup
-        agentIsRunning={shortcuts.agentIsRunning}
-        onRunShortcut={shortcuts.onRunShortcut}
-        pendingPinId={shortcuts.pendingPinId}
-        agentName={ctx.agentName ?? null}
-        buttonRef={shortcuts.registerShortcutButton}
-      />
-    </div>
-  );
-}
-
-function PinAttachment({
-  attachment,
-  ctx,
-}: {
-  attachment: Extract<ChatAttachment, { type: "pin" }>;
-  ctx: AttachmentCtx;
-}): JSX.Element {
-  return (
-    <LivePin pinId={attachment.pinId} ctx={ctx} testId="chat-attachment-pin" />
   );
 }
 
 function AttachmentView({
   attachment,
+  block,
   ctx,
 }: {
   attachment: ChatAttachment;
+  block: AttachmentBlockOf;
   ctx: AttachmentCtx;
 }): JSX.Element {
   switch (attachment.type) {
     case "file":
-      return <FileAttachment attachment={attachment} ctx={ctx} />;
+      return (
+        <FileAttachment
+          attachment={attachment}
+          ownerAgentId={fileOwnerOf(attachment, block, ctx.agentId)}
+          ctx={ctx}
+        />
+      );
     case "link":
       return (
         <LinkAttachment
@@ -278,24 +274,108 @@ function AttachmentView({
       );
     case "code":
       return <CodeAttachment attachment={attachment} />;
-    case "pin":
-      return <PinAttachment attachment={attachment} ctx={ctx} />;
   }
 }
 
-export function AttachmentList({
-  attachments,
+/**
+ * A post's images, laid out by `layoutAttachments`, as square tiles cropped to fill: a 2-column grid that
+ * spans a phone's width, a wrapping row of fixed tiles on anything wider.
+ * Every tile's size is set by the layout alone, so the gallery reserves its
+ * full height before a single image loads. The file's name and size move to
+ * the tile's tooltip and label; the lightbox shows the whole picture.
+ */
+function ImageGallery({
+  images,
+  block,
   ctx,
 }: {
-  attachments: ChatAttachment[];
+  images: ChatFileAttachment[];
+  block: AttachmentBlockOf;
+  ctx: AttachmentCtx;
+}): JSX.Element {
+  const overflow =
+    images.length > CHAT_GALLERY_MAX_TILES
+      ? images.length - (CHAT_GALLERY_MAX_TILES - 1)
+      : 0;
+  const shown = overflow ? images.slice(0, CHAT_GALLERY_MAX_TILES) : images;
+  // Prev/next in the lightbox walk this post's images, so "+N" leads on to
+  // the ones it stands for.
+  const order = images.map((image) => image.fileId);
+  return (
+    <div
+      className="grid w-full max-w-md grid-cols-2 gap-1.5 sm:flex sm:max-w-none sm:flex-wrap"
+      data-testid="chat-attachment-gallery"
+    >
+      {shown.map((attachment, index) => {
+        const more = overflow > 0 && index === shown.length - 1 ? overflow : 0;
+        const label = `${stripTimestamp(attachment.fileName)} (${formatBytes(attachment.sizeBytes)})`;
+        return (
+          <button
+            key={`${attachment.fileId}-${index}`}
+            type="button"
+            onClick={() => ctx.onOpenFile(attachment.fileId, order)}
+            className="relative aspect-square overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-40"
+            title={label}
+            aria-label={more ? `${label}, and ${more - 1} more` : label}
+            data-testid="chat-attachment-gallery-tile"
+          >
+            <img
+              src={fileUrl(
+                fileOwnerOf(attachment, block, ctx.agentId),
+                attachment.fileName
+              )}
+              // The button's label names the tile; the image adds nothing.
+              alt=""
+              // From the top: a tall screenshot keeps the header that
+              // identifies the screen.
+              className="h-full w-full object-cover object-top"
+              loading="lazy"
+            />
+            {more ? (
+              <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xl font-semibold text-white">
+                +{more}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** What the list reads off the post its attachments hang under. */
+type AttachmentBlockOf = Pick<Block, "author" | "toAgentId" | "attachments">;
+
+export function AttachmentList({
+  block,
+  ctx,
+}: {
+  block: AttachmentBlockOf;
   ctx: AttachmentCtx;
 }): JSX.Element | null {
-  if (attachments.length === 0) return null;
+  if (block.attachments.length === 0) return null;
   return (
-    <div className="mt-2 flex flex-col gap-2">
-      {attachments.map((attachment, index) => (
-        <AttachmentView key={index} attachment={attachment} ctx={ctx} />
-      ))}
+    // clear-both: start below the post's floated actions, so attachments get
+    // the column's full width rather than whatever the float leaves beside it
+    // (on a phone that made one post's gallery narrower than the next).
+    <div className="clear-both mt-2 flex flex-col gap-2">
+      {layoutAttachments(block.attachments).map((group, index) =>
+        group.kind === "gallery" ? (
+          <ImageGallery
+            key={index}
+            images={group.images}
+            block={block}
+            ctx={ctx}
+          />
+        ) : (
+          <AttachmentView
+            key={index}
+            attachment={group.attachment}
+            block={block}
+            ctx={ctx}
+          />
+        )
+      )}
     </div>
   );
 }

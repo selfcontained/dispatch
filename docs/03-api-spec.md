@@ -18,10 +18,8 @@
   "role": "standard",
   "cwd": "/home/user/projects/myproject",
   "effectiveCwd": "/home/user/projects/myproject/.dispatch/worktrees/fix-auth-bug",
-  "tmuxSession": "dispatch_agt_01abc2def345",
   "fullAccess": true,
   "setupPhase": null,
-  "latestEvent": { "type": "working", "message": "Running tests" },
   "parentAgentId": null,
   "persona": null,
   "worktreePath": "/home/user/projects/myproject/.dispatch/worktrees/fix-auth-bug",
@@ -73,25 +71,15 @@
 }
 ```
 
-`type` is one of `claude`, `codex`, `cursor`, `opencode`, or `terminal` and defaults to `codex` if omitted. The type must be enabled in app settings. Terminal-type agents have no CLI to drive — `fullAccess`, `autoReview`, and `initialPrompt` are stored as off/empty regardless of what's posted.
+`type` is the engine, `claude` or `codex`, and defaults to `codex` if omitted. The type must be enabled in app settings.
 
 `model` optionally pins the agent to an id from the curated per-type catalog (`GET /agent-models`); ids outside the catalog are rejected with 400, and omitting the field uses the CLI default. When `model` is set, any explicit `--model`/`-m` flags in `agentArgs` are stripped in its favor. The model persists with the agent and is reused on resume.
 
-`useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch named `worktreeBranch` forks from `baseBranch`, or `baseBranch` itself is checked out in the worktree — in which case `worktreeBranch` is ignored. Placement (sibling vs. `.dispatch/worktrees/`) comes from the instance-wide setting at `/agents/settings`, not from this payload. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
+`useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch named `worktreeBranch` forks from `baseBranch`, or `baseBranch` itself is checked out in the worktree — in which case `worktreeBranch` is ignored. Placement (sibling vs. `.dispatch/worktrees/`) comes from the instance-wide setting at `/agents/settings`, not from this payload. `autoReview` adds the Autonomous Review rule to the agent's launch guidance: before finishing it opens a draft PR, launches reviewer personas with `launch_agent`, and works the `review` blocks they post back. `initialPrompt` is piped into the agent CLI as its first user turn.
 
 This endpoint also accepts `multipart/form-data` to attach up to 10 startup files (20 MB each); array/boolean fields like `agentArgs` and `fullAccess` are accepted as JSON-encoded strings in that form.
 
-For persona agents (launched via `dispatch_launch_persona`):
-
-```json
-{
-  "cwd": "/path/to/repo",
-  "type": "claude",
-  "persona": "backend-security-review",
-  "parentAgentId": "agt_01abc2def345",
-  "personaContext": "Review the auth middleware changes..."
-}
-```
+Persona agents are not created through this endpoint. An agent launches one with the `launch_agent` MCP tool and `persona: <slug>` (or the UI does through `POST /agents/:id/launch-persona`); the record carries `persona`, `parentAgentId`, and the briefing as `personaContext`.
 
 ### `POST /agents/:id/stop`
 
@@ -129,141 +117,93 @@ Used during agent initialization to track setup progress.
 { "message": "Could not create worktree: branch is checked out elsewhere." }
 ```
 
-Marks the agent as `stopped` with `last_error` set to `message` (defaults to `"Setup failed."` if omitted) and surfaces a blocked latest-event in the UI.
+Marks the agent as `stopped` with `last_error` set to `message` (defaults to `"Setup failed."` if omitted) and records the setup failure.
 
 ## Agent Events & State
 
 | Method | Path                          | Description                                                 |
 | ------ | ----------------------------- | ----------------------------------------------------------- |
-| POST   | `/agents/:id/latest-event`    | Update agent's latest status event                          |
 | POST   | `/focus`                      | Track which agent the user is viewing                       |
 | GET    | `/events`                     | SSE stream of real-time UI events                           |
 | GET    | `/agents/git-context`         | Get git context for agents (filtered by `ids` query param)  |
 | GET    | `/agents/:id/worktree-status` | Check worktree for unmerged commits and uncommitted changes |
 
-### `POST /agents/:id/latest-event`
-
-```json
-{
-  "type": "working",
-  "message": "Running E2E tests",
-  "metadata": {}
-}
-```
-
-Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`
+The sidebar's current step comes from the live ACP turn stream. Open questions and failed turns trigger attention notifications directly from those actions.
 
 ### `GET /events` (SSE)
 
 Server-Sent Events stream. Used by the frontend for real-time UI updates. Event types:
 
-| Event type                     | Payload                                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------------------- |
-| `snapshot`                     | Full agent list (sent on initial connection)                                            |
-| `agent.upsert`                 | Single agent record (created or updated)                                                |
-| `agent.terminal_state_changed` | Terminal UI state for an agent                                                          |
-| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)                                        |
-| `agent.injection_hold_changed` | Agent ID + injection hold state (`held`, `pendingCount`, `quietMs`)                     |
-| `agent.deleted`                | Agent ID that was deleted                                                               |
-| `media.changed`                | Agent ID whose media list changed                                                       |
-| `media.seen`                   | Agent ID + array of media keys marked seen                                              |
-| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                                     |
-| `chat.changed`                 | Agent ID whose Chat feed changed (any `agent_chat_messages` write)                      |
-| `agent.tool_invoked`           | `{ agentId, tool, at }` — an agent called an MCP tool (ephemeral; not `dispatch_event`) |
-| `stream.started`               | Agent ID whose live stream started                                                      |
-| `stream.stopped`               | Agent ID whose live stream stopped                                                      |
-| `feedback.created`             | Agent ID + new feedback record                                                          |
-| `feedback.updated`             | Agent ID + updated feedback record                                                      |
-| `job.changed`                  | (no payload) — job config or run state changed                                          |
-| `template.changed`             | (no payload) — template created, updated, or deleted                                    |
-| `notification`                 | Web notification payload (id, agent, event, message)                                    |
-| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)                                                |
-
-## Terminal
-
-| Method | Path                                      | Description                                                        |
-| ------ | ----------------------------------------- | ------------------------------------------------------------------ |
-| POST   | `/agents/:id/terminal/token`              | Issue short-lived terminal access token                            |
-| WS     | `/agents/:id/terminal/ws?token=...`       | WebSocket for interactive terminal I/O                             |
-| GET    | `/agents/:id/terminal/state`              | Current tmux terminal state (copy mode / live)                     |
-| POST   | `/agents/:id/terminal/copy-mode/exit`     | Leave tmux copy mode and return the pane to live input             |
-| POST   | `/agents/:id/terminal/interaction`        | Record a user terminal interaction (`{ "interaction": "scroll" }`) |
-| POST   | `/agents/:id/terminal/inject-text`        | Paste typed text into the session (mobile fullscreen input)        |
-| POST   | `/agents/:id/terminal/inject-pin/:pinId`  | Run a shortcut pin — delivers the prompt stored on that pin        |
-| POST   | `/agents/:id/terminal/release-injections` | Deliver every prompt currently held by the quiet gate              |
-
-The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session. Keystrokes and `interaction` messages also feed the injection quiet gate — see `/app/settings/injection-hold`. The state, copy-mode, interaction, and injection endpoints return `409` when the agent has no tmux session.
-
-`inject-text` takes `text` (required, max 10,000 characters) and optional `submit` (default `true` — sends Enter after pasting). `inject-pin` takes no body: the prompt is read server-side from the agent's own pin, so a client can only fire prompts the agent pinned. It returns `404` for an unknown pin id and `400` when the pin isn't a shortcut or has been disabled. Both deliver through the tmux paste buffer and, being user-initiated, skip the quiet gate while still serializing against in-flight automated injections.
+| Event type                    | Payload                                                           |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `snapshot`                    | Full agent list (sent on initial connection)                      |
+| `agent.upsert`                | Single agent record (created or updated)                          |
+| `agent.diff_state_changed`    | Diff stats for an agent (or `null` when cleared)                  |
+| `agent.deleted`               | Agent ID that was deleted                                         |
+| `files.changed`               | Agent ID whose file list changed                                  |
+| `files.seen`                  | Agent ID + array of file keys marked seen                         |
+| `stream.entry`                | Agent ID + one feed entry to upsert (a block, with its reactions) |
+| `stream.changed`              | Agent ID whose stream changed; refetch the feed                   |
+| `stream.read`                 | Agent ID + the read boundary after `POST /streams/:rootId/read`   |
+| `agent.tool_invoked`          | `{ agentId, tool, at }` — an agent called an MCP tool (ephemeral) |
+| `stream.started`              | Agent ID whose live stream started                                |
+| `stream.stopped`              | Agent ID whose live stream stopped                                |
+| `job.changed`                 | (no payload) — job config or run state changed                    |
+| `template.changed`            | (no payload) — template created, updated, or deleted              |
+| `notification`                | Web notification payload (id, agent, event, message)              |
+| `release.cached_info_changed` | Latest release-info snapshot (or `null`)                          |
 
 ## Quick Phrases
 
-Reusable text snippets that can be injected into agent terminal sessions.
+Reusable text snippets that can be sent to an agent as a prompt.
 
-| Method | Path                                 | Description                                         |
-| ------ | ------------------------------------ | --------------------------------------------------- |
-| GET    | `/quick-phrases`                     | List all phrases (with parsed template args)        |
-| POST   | `/quick-phrases`                     | Create a phrase (`text` required, `label` optional) |
-| PATCH  | `/quick-phrases/:id`                 | Update phrase `text` and/or `label`                 |
-| DELETE | `/quick-phrases/:id`                 | Delete a phrase                                     |
-| POST   | `/agents/:id/terminal/inject-phrase` | Inject a phrase into an agent's tmux session        |
+| Method | Path                         | Description                                                 |
+| ------ | ---------------------------- | ----------------------------------------------------------- |
+| GET    | `/quick-phrases`             | List all phrases (with parsed template args)                |
+| POST   | `/quick-phrases`             | Create a phrase (`text` required, `label` optional)         |
+| PATCH  | `/quick-phrases/:id`         | Update phrase `text` and/or `label`                         |
+| DELETE | `/quick-phrases/:id`         | Delete a phrase                                             |
+| POST   | `/agents/:id/prompts/phrase` | Render a phrase with its args and queue it as the next turn |
 
-The inject-phrase endpoint accepts `phraseId`, optional `args` (key-value map for template variables), and optional `submit` (default `true` — sends Enter after pasting; `false` pastes only). Text is capped at 1000 chars per phrase, 2000 chars per arg value, and 10000 chars after variable substitution.
+The phrase endpoint accepts `phraseId`, optional `args` (key-value map for template variables), and optional `submit` (default `true`; `false` only renders the text and returns it). Text is capped at 1000 chars per phrase, 2000 chars per arg value, and 10000 chars after variable substitution.
 
-## Media
+## Files
 
-| Method | Path                      | Description                                                |
-| ------ | ------------------------- | ---------------------------------------------------------- |
-| GET    | `/agents/:id/media`       | List media files with seen/unseen status                   |
-| GET    | `/agents/:id/media/:file` | Download a media file                                      |
-| POST   | `/agents/:id/media`       | Upload media (multipart form: file + source + description) |
-| POST   | `/agents/:id/media/seen`  | Mark media files as seen                                   |
+| Method | Path                      | Description                                                 |
+| ------ | ------------------------- | ----------------------------------------------------------- |
+| GET    | `/agents/:id/files`       | List files with seen/unseen status                          |
+| GET    | `/agents/:id/files/:file` | Download a file                                             |
+| POST   | `/agents/:id/files`       | Upload a file (multipart form: file + source + description) |
+| POST   | `/agents/:id/files/seen`  | Mark files as seen                                          |
 
-## Chat
+## Streams
 
-The Chat tab feed (`docs/chat-surface-plan.md`). Wire types live in `packages/shared/src/chat-types.ts`. The routes work regardless of the `chat_surface_enabled` flag — the flag only controls the web UI and the launch-guidance rule.
+Every agent's product is a stream of blocks (`docs/design/blocks.md`). Wire types live in `packages/shared/src/block-types.ts`. `:rootId` is the stream's root agent; a child's posts land in its parent's stream.
 
-| Method | Path                                                    | Description                                                                                  |
-| ------ | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| GET    | `/chat/unread`                                          | Per-agent `{ unread, pendingQuestions }` for every live agent with a non-zero count          |
-| GET    | `/agents/:id/chat?cursor=<c>&limit=<n>`                 | Feed: chat messages, status events, cross-agent messages, media, time ascending              |
-| POST   | `/agents/:id/chat/messages`                             | Persist a user message (`{ text, attachments? }`), then inject it into the pane              |
-| POST   | `/agents/:id/chat/messages/:messageId/answer`           | Answer a question message (`{ value, label?, attachments? }`); injects the answer as a reply |
-| POST   | `/agents/:id/chat/read`                                 | Mark agent messages read (`{ upTo? }` message id); returns `{ unreadCount }`                 |
-| POST   | `/agents/:id/chat/messages/:messageId/reactions`        | React to an agent message (`{ emoji }`); injects a reaction envelope into the pane           |
-| DELETE | `/agents/:id/chat/messages/:messageId/reactions/:emoji` | Take the user's reaction back off (chip only; nothing is injected)                           |
+| Method | Path                                                | Description                                                                                           |
+| ------ | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| GET    | `/chat/unread`                                      | Per-agent `{ unread, pendingQuestions }` for every live agent with a non-zero count                   |
+| GET    | `/streams/:rootId/blocks?cursor=<c>&limit=<n>`      | Feed: blocks (with reactions and thread reply counts), turns, and system status marks, time ascending |
+| GET    | `/streams/:rootId/blocks/:blockId/thread`           | A top-level block and the replies under it                                                            |
+| POST   | `/streams/:rootId/blocks`                           | A user post (`{ id?, to?, text, replyTo?, attachments? }`), delivered to the agent as a prompt        |
+| POST   | `/streams/:rootId/blocks/:blockId/answer`           | Answer a `question` block (`{ value, label?, attachments? }`); creates the reply and sets `state`     |
+| POST   | `/streams/:rootId/blocks/:blockId/submit`           | Submit a `form` block (`{ values }`); creates the reply and sets `state`                              |
+| PATCH  | `/streams/:rootId/blocks/:blockId/state`            | Merge into a block's `state` (`{ state }`): resolve, reopen, tick                                     |
+| POST   | `/streams/:rootId/blocks/:blockId/reactions`        | React to a block (`{ emoji }`); a user reaction is injected into the agent as a reaction envelope     |
+| DELETE | `/streams/:rootId/blocks/:blockId/reactions/:emoji` | Take the user's reaction back off (chip only; nothing is injected)                                    |
+| POST   | `/streams/:rootId/read`                             | Mark agent blocks read (`{ upTo? }` block id); returns `{ unreadCount }`                              |
 
-The feed is composed at read time from `agent_chat_messages`, `agent_events`, `agent_messages` (both directions), and `media`. `limit` defaults to 200 (max 500); the response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards (it encodes the boundary row's exact timestamp, source, and id, so rows sharing a timestamp are never dropped or repeated). The two write routes return `409` when the agent has no tmux session (same rule as `inject-text`); they respond as soon as the message is queued, with `delivered: null` (pending) until the pane write settles, at which point the row flips to `true`/`false` and `chat.changed` fires. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered; its optional `attachments` take the same shape and cap (`CHAT_ATTACHMENTS_MAX`, 20) as `messages`, are resolved the same way (`400` for an unknown `mediaId` or pin), and are stored on the reply message and listed in its envelope. `read` accepts an optional `upTo` message id (`400` if present but not a UUID). Every write publishes the `chat.changed` SSE event. Agents post to the feed with the `dispatch_chat_post` / `dispatch_chat_update` MCP tools; `file` attachments name a `fileName` returned by `dispatch_share_file`.
+The feed is composed at read time from `blocks` and the agent's turns. The response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards. A block with `to_agent_id` is a prompt for that agent: the write routes respond as soon as it is queued, with `delivered: null` until delivery settles, at which point the row flips to `true`/`false`. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered; `submit` does the same for a form. Every write publishes a `stream.entry` (one entry upserted) or `stream.changed` (refetch) SSE event; `read` publishes `stream.read`.
 
-Reactions go both ways: the user reacts to agent messages through the routes above, and the agent reacts to user messages with the `dispatch_chat_react` MCP tool (`{ messageId, emoji, remove? }`). Each shows on its message as `reactions: [{ id, authorKind, emoji, delivered, createdAt }]` (absent when there are none), one per author and emoji, capped at `CHAT_REACTIONS_MAX` (20) per message; every change republishes the message as a `chat.entry`. A user reaction is delivered like a user message — `delivered: null` while pending, `false` with no pane — in a `--- DISPATCH CHAT REACTION (message id: …) ---` envelope that names the message by id, kind, and position among the agent's posts ("latest", or "3 posts ago"), and quotes its opening — about 100 characters for the latest post, up to 300 for an older one — rather than the whole post. Agent reactions are display-only (`delivered` is always `null`). Adding an emoji already there is a no-op; removing a reaction never notifies the other side. Reacting to your own side's message, or a message on another agent's feed, is `404`; an `emoji` that is not a single emoji sequence is `400`.
+Agents write to the stream with the `post` / `update` / `react` MCP tools. `post` without `to` goes to the agent's own stream; `to: <agentId>` addresses another agent, and `notify: true` also sends the browser/Slack notification. `kind` defaults from the data given (`question`, `form`, `link`, `review`, `tasks`) and otherwise to `text`; a file is an attachment (`{ type: "file", path }`, uploaded on post). `update` on the author's own block may change `text`, `data`, `attachments` and `state`; on a block addressed to the agent, `state` only. `react` takes a block id and an emoji.
 
-Launching an agent with context records one launch post in its feed: a user message with `origin: "launch"`, `delivered: true`, the initial prompt as `text`, and attachments for each startup file (`file`), startup link (`link`), and initial pin (`pin`; a url pin made from one of the links is not repeated). Both `origin` and `launchedByAgentId` are absent on every other message. When another agent created the agent (`dispatch_launch_agent`), `launchedByAgentId` names it and the web attributes the post to that agent; the MCP path stores the prompt as the launcher wrote it, without the launch header the CLI receives. A launch with no prompt, files, links, or pins, and any terminal agent, records nothing. With the `chat_surface_enabled` flag on, the CLI's first user turn is that post wrapped in the same `--- DISPATCH CHAT (id: …) ---` envelope a Chat message is injected with — the post's id, its attachment lines, and the trailer pointing the agent at `dispatch_chat_post` — so an agent launched from the Chat tab replies there. With the flag off, on a job run (whose prompt is a system-prompt append), or with no launch context, the first turn is the plain startup prompt as before.
+Reactions go both ways: the user reacts to agent blocks through the routes above, and the agent reacts to user blocks with `react`. Each shows on its block as `reactions: [{ id, authorKind, emoji, delivered, createdAt }]`, one per author and emoji; every change republishes the block as a `stream.entry`. A user reaction is delivered like a user post — `delivered: null` while pending — in a `--- DISPATCH REACTION ---` envelope naming the block. Agent reactions are display-only. Adding an emoji already there is a no-op; removing a reaction never notifies the other side.
 
-User messages take up to 20 `attachments` (`ChatUserAttachmentInput`): `{ type: "file", mediaId }` for a file uploaded first via `POST /agents/:id/media`, `{ type: "pin", pinId }` for one of the agent's pins, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown media or pins); `text` may be blank when at least one attachment is present. The stored message carries the resolved `ChatAttachment[]`, and the injected envelope lists each one after the text (`- file: <absolute media path> (<mime>, <size>)`, `- pin: <label> — <value>`, `- link: <url>`).
+Launching an agent with context records one launch post in its stream: a user block with `origin: "launch"`, the initial prompt as `text`, and attachments for each startup file (`file`) and startup link (`link`). When another agent created the agent (`launch_agent`), the post is attributed to that agent. The agent's first user turn is that post wrapped in the same `--- DISPATCH POST (id: …) ---` envelope any user post is delivered with, so an agent replies where it was launched. A launch with no prompt, files, or links records nothing.
 
-## Messages
+User posts take up to `BLOCK_ATTACHMENTS_MAX` attachments: `{ type: "file", fileId }` for a file uploaded first via `POST /agents/:id/files`, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown file ids); `text` may be blank when at least one attachment is present. The injected envelope lists each attachment after the text.
 
-Cross-agent messages sent with the `dispatch_send_message` MCP tool.
-
-| Method | Path                        | Description                                                 |
-| ------ | --------------------------- | ----------------------------------------------------------- |
-| GET    | `/agents/:id/messages`      | `{ messages, unreadCount }` — both directions, oldest first |
-| POST   | `/agents/:id/messages/read` | Mark messages addressed to the agent as read                |
-
-`delivered` is `null` while the pane write is queued (possibly behind the injection quiet gate), then `true`/`false` once it settles; `message.created` is published for the sender/recipient pair at insert and again at settlement, so clients refetch both times. Rows still pending when the server starts were abandoned by the previous process and are swept to `false` (no replay).
-
-## Whiteboard
-
-Per-agent shared Excalidraw canvas. The scene is stored as JSONB with an integer version for optimistic locking; agents edit it via the `whiteboard_*` MCP tools, the UI via these routes.
-
-| Method | Path                              | Description                                                                                    |
-| ------ | --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| GET    | `/agents/:id/whiteboard`          | Get the scene, version, and updated-at (empty scene if never set)                              |
-| PUT    | `/agents/:id/whiteboard`          | Save the scene (`scene` + `baseVersion`); `409` with the current scene and version on conflict |
-| POST   | `/agents/:id/whiteboard/snapshot` | Upload a PNG rendering of the board (multipart file field)                                     |
-| DELETE | `/agents/:id/whiteboard/snapshot` | Remove the PNG snapshot (used when the board is emptied)                                       |
-
-Scene saves are capped at 20,000 elements and an 8 MB body. The snapshot is written to the agent's media directory as `whiteboard.png` (not listed in the media pane) so agents can view the board via `whiteboard_get`.
+Agent-to-agent traffic is the same table: a block with `to_agent_id` set. There is no separate messages API.
 
 ## Streaming
 
@@ -277,10 +217,10 @@ Live Playwright browser streaming via Chrome DevTools Protocol.
 
 ## Personas
 
-| Method | Path                        | Description                                                                               |
-| ------ | --------------------------- | ----------------------------------------------------------------------------------------- |
-| GET    | `/personas`                 | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins)  |
-| POST   | `/agents/:id/launch-review` | Tell a CLI agent (via its tmux session) to call `dispatch_launch_persona` on its own work |
+| Method | Path                         | Description                                                                              |
+| ------ | ---------------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/personas`                  | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins) |
+| POST   | `/agents/:id/launch-persona` | Launch one or more persona agents as children of agent `:id`                             |
 
 ### `GET /personas`
 
@@ -288,27 +228,23 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
 
 Dispatch's built-in personas are appended after the repo's own, so the list is never empty — currently just `code-review` ("General Code Review"). A repo persona with the same slug replaces the built-in rather than appearing alongside it.
 
-### `POST /agents/:id/launch-review`
+The response also carries `codeowners: boolean` — whether the worktree root has a `.dispatch/codeowners.json`, so the UI can offer owner-routed reviews (see [Code owner reviews](code-owner-reviews.md)).
+
+### `POST /agents/:id/launch-persona`
 
 ```json
 {
-  "personas": ["backend-security-review", "frontend-ux-review"],
+  "personas": ["mcp-contract-owner", "review-lifecycle-owner"],
+  "codeowners": true,
   "agentType": "claude",
-  "includeDiff": true,
   "model": "opus",
   "note": "focus on the auth changes"
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool once per persona so it can tailor each context briefing. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. `note` is optional free text (max 2,000 characters, `null` allowed) describing what to focus on; the server collapses it to one line, strips quote characters and DISPATCH markers, and folds it into the briefing instruction for every selected persona. Each launched agent creates its review through `dispatch_review_submit` after completing its initial pass.
+Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of up to 20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `codeowners` (optional, default `false`) additionally asks the agent to call `launch_owner_reviews`, which routes reviewers by `.dispatch/codeowners.json` and the files it changed; with it set, `personas` may be empty. One of the two is required. `agentType` must be `claude` or `codex`. `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. Reviewers inspect the material described by the persona and briefing themselves; code owner reviews additionally receive their matched files and review base. `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
 
-### `PATCH /agents/:id/feedback/:feedbackId`
-
-```json
-{ "status": "fixed", "reason": "Resolved by tightening the JWT TTL check." }
-```
-
-Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`. `reason` is optional in general but **required** when `status` is `ignored` (max 10,000 characters). When `status` is `fixed` or `ignored`, the server captures the current HEAD SHA of the agent's working tree as `resolutionCommit` for round-trip review provenance.
+A reviewer persona finishes its pass by posting one `review` block (`{ summary, findings }`) to the parent; it lands on the reviewer's launch card, and each finding becomes a `finding` block whose thread is its discussion (a reply with `replyTo` = the finding). The reviewer (or a person, via `PATCH /streams/:rootId/blocks/:findingId/state` with `{ state: { status, note? } }`) resolves each finding as fixed or dismissed, or reopens it. There is no separate review API.
 
 ## Personalities
 
@@ -336,17 +272,6 @@ Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`. `reason` is
 
 Pass `{ "id": null }` to deactivate. Returns `404` if the ID doesn't match an existing personality.
 
-## Activity & Analytics
-
-| Method | Path                                | Description                                                 |
-| ------ | ----------------------------------- | ----------------------------------------------------------- |
-| GET    | `/activity/heatmap`                 | Activity heatmap data (configurable `days`, `timezone`)     |
-| GET    | `/activity/stats`                   | Aggregate stats (working/blocked/waiting time, busiest day) |
-| GET    | `/activity/daily-status`            | Daily status breakdown                                      |
-| GET    | `/activity/active-hours`            | Events marked as working/blocked/waiting_user               |
-| GET    | `/activity/agents-created`          | Agent creation counts over time                             |
-| GET    | `/activity/working-time-by-project` | Working time by project directory                           |
-
 ## Token Usage
 
 | Method | Path                         | Description                                                    |
@@ -365,7 +290,7 @@ All token endpoints accept `days` and `timezone` query params.
 | ------ | --------------------- | ----------------------------------------------------------- |
 | GET    | `/history/projects`   | List projects from archived agents (excludes active ones)   |
 | GET    | `/history/agents`     | Paginated archived-agent history with filtering and sorting |
-| GET    | `/history/agents/:id` | Detailed agent history including events, tokens, and media  |
+| GET    | `/history/agents/:id` | Detailed agent history including events, tokens, and files  |
 
 ### `GET /history/agents`
 
@@ -387,13 +312,13 @@ All fields are optional — the request updates only the fields it contains.
 ```json
 {
   "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
-  "notifyEvents": ["done", "waiting_user"],
+  "notifyEvents": ["waiting_user", "blocked"],
   "webNotifyEnabled": true,
-  "webNotifyEvents": ["done", "waiting_user", "blocked"]
+  "webNotifyEvents": ["waiting_user", "blocked"]
 }
 ```
 
-`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`done`, `waiting_user`, `blocked`). When a notable agent event fires, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there). Agents belonging to a job run are excluded from that Slack fallback — their status events reach browser notifications only.
+`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`waiting_user`, `blocked`). When an agent asks a question or a turn fails, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there). Agents belonging to a job run are excluded from that Slack fallback — their attention notifications reach browser notifications only.
 
 ### `POST /notifications/ack`
 
@@ -405,21 +330,23 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                                 | Description                                                                               |
-| ------ | ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| GET    | `/agents/settings`                   | Get agent settings (worktree location, icon color, instance name)                         |
-| POST   | `/agents/settings`                   | Update agent settings (all fields optional)                                               |
-| GET    | `/app/settings/agent-types`          | Get enabled agent types                                                                   |
-| POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`)             |
-| GET    | `/app/settings/ides`                 | Get enabled IDE integrations                                                              |
-| POST   | `/app/settings/ides`                 | Set enabled IDE integrations                                                              |
-| GET    | `/app/settings/cross-repo-messaging` | Whether agents may message agents in other repositories                                   |
-| POST   | `/app/settings/cross-repo-messaging` | Enable or disable cross-repo messaging (`{ "enabled": boolean }`)                         |
-| GET    | `/app/settings/injection-hold`       | Whether automated prompts wait for a typing pause (`{ "enabled": boolean }`)              |
-| POST   | `/app/settings/injection-hold`       | Enable or disable the injection quiet gate (`{ "enabled": boolean }`)                     |
-| GET    | `/app/settings/chat-surface`         | Whether the Chat tab is offered and the chat launch rule is on (`{ "enabled": boolean }`) |
-| POST   | `/app/settings/chat-surface`         | Enable or disable the chat surface (`{ "enabled": boolean }`)                             |
-| GET    | `/agent-models`                      | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)                     |
+| Method | Path                        | Description                                                           |
+| ------ | --------------------------- | --------------------------------------------------------------------- |
+| GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name)     |
+| POST   | `/agents/settings`          | Update agent settings (all fields optional)                           |
+| GET    | `/app/settings/agent-types` | Get enabled agent types                                               |
+| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`)                           |
+| GET    | `/app/settings/ides`        | Get enabled IDE integrations                                          |
+| POST   | `/app/settings/ides`        | Set enabled IDE integrations                                          |
+| GET    | `/agent-models`             | Curated per-type model catalog (`{ models: { claude: [...], ... } }`) |
+
+Avatar settings use authenticated GET/PUT `/app/settings/user-avatar`. Both return
+`{ avatar }`; PUT accepts the same envelope. An avatar is
+`{ kind: "builtin", id: "person" | "sun" | "cat" | "leaf" | "mountain" | "coffee" }`
+or `{ kind: "image", dataUrl: "data:image/webp;base64,..." }`. Images must be
+PNG/JPEG/WebP, square, at most 256 pixels per side and 100 KB decoded. Invalid
+values return 400. Saving the `person` preset resets the avatar. The setting is
+shared by all browsers connected to this instance.
 
 ## System
 
@@ -454,26 +381,22 @@ The Chrome extension (developer preview) pairs with Dispatch and submits page fe
 
 ## Release Management
 
-| Method | Path                        | Description                                                                          |
-| ------ | --------------------------- | ------------------------------------------------------------------------------------ |
-| GET    | `/release/status`           | Current deployed release tag and timestamp                                           |
-| GET    | `/release/info`             | Latest available version and unreleased commits                                      |
-| GET    | `/release/cached-info`      | Return the latest auto-check snapshot (or `null` if no check has run yet)            |
-| GET    | `/release/auto-update-mode` | Get automatic update-check mode (`off` or `check`)                                   |
-| POST   | `/release/auto-update-mode` | Set automatic update-check mode                                                      |
-| GET    | `/release/channel`          | Get current release channel (`stable` or `latest`)                                   |
-| POST   | `/release/channel`          | Set release channel                                                                  |
-| GET    | `/release/admin-check`      | Check if current instance is a release admin                                         |
-| POST   | `/release/promote`          | Promote a pre-release to stable (admin only)                                         |
-| GET    | `/releases`                 | List recent GitHub releases                                                          |
-| POST   | `/release`                  | Trigger new release (`versionType`: major/minor/patch)                               |
-| POST   | `/release/update`           | One-click update to a specific tag (gated — see below)                               |
-| POST   | `/release/assisted/launch`  | Launch a full-access agent on the production checkout to perform an assisted update  |
-| POST   | `/release/assisted/phase`   | Phase callback used by the assisted-update agent (token-authed, not for browser use) |
-| GET    | `/release/assisted/state`   | Read the current assisted-update state (tag, phase, notes, checks)                   |
-| DELETE | `/release/assisted/state`   | Clear the persisted assisted-update state                                            |
-| GET    | `/release/create/stream`    | SSE stream for release-creation progress (backs the admin Releases page)             |
-| GET    | `/release/update/stream`    | SSE stream for update-apply progress (backs the all-users Updates page)              |
+| Method | Path                        | Description                                                               |
+| ------ | --------------------------- | ------------------------------------------------------------------------- |
+| GET    | `/release/status`           | Current deployed release tag and timestamp                                |
+| GET    | `/release/info`             | Latest available version and unreleased commits                           |
+| GET    | `/release/cached-info`      | Return the latest auto-check snapshot (or `null` if no check has run yet) |
+| GET    | `/release/auto-update-mode` | Get automatic update-check mode (`off` or `check`)                        |
+| POST   | `/release/auto-update-mode` | Set automatic update-check mode                                           |
+| GET    | `/release/channel`          | Get current release channel (`stable` or `preview`)                       |
+| POST   | `/release/channel`          | Set release channel                                                       |
+| GET    | `/release/admin-check`      | Check if current instance is a release admin                              |
+| POST   | `/release/promote`          | Promote a pre-release to stable (admin only)                              |
+| GET    | `/releases`                 | List recent GitHub releases                                               |
+| POST   | `/release`                  | Trigger new release (`versionType`: major/minor/patch)                    |
+| POST   | `/release/update`           | One-click update to a specific tag                                        |
+| GET    | `/release/create/stream`    | SSE stream for release-creation progress (backs the admin Releases page)  |
+| GET    | `/release/update/stream`    | SSE stream for update-apply progress (backs the all-users Updates page)   |
 
 ### `POST /release/auto-update-mode`
 
@@ -486,49 +409,18 @@ The Chrome extension (developer preview) pairs with Dispatch and submits page fe
 ### `POST /release/update`
 
 ```json
-{ "tag": "v0.18.16" }
+{ "tag": "v1.0.1" }
 ```
 
-Returns `202 Accepted` and runs the update asynchronously. Returns `409 Conflict` with a structured error code when the path is gated:
+Returns `202 Accepted` and runs the update asynchronously: download and verify the release artifact, atomically replace the fixed executable (keeping `.previous`), then restart the service. Returns `409` if an update is already in progress, and `409 MAC_APP_MANAGED` on a Mac app install, which updates through the app instead. On Linux the job fails before replacing anything unless `dispatch.service` has `KillMode=process` loaded, so running agents survive the restart.
 
-| Error code                         | Reason                                                                                                     |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `ASSISTED_UPDATE_REQUIRED`         | Target release ships unapplied migrations or declares `mode: required` — caller must use `assisted/launch` |
-| `ASSISTED_UPDATE_METADATA_INVALID` | Target release's `dispatch-update` metadata block is malformed                                             |
-
-Also returns `503` with `MIGRATION_EVALUATION_UNAVAILABLE` when the target tarball can't be downloaded or parsed (transient — retry later).
-
-The assisted-update agent itself bypasses the gate by sending a bearer token (`Authorization: Bearer <token>`) bound to a specific tag.
-
-### `POST /release/assisted/launch`
+### `POST /release/channel`
 
 ```json
-{ "tag": "v0.18.16" }
+{ "channel": "preview" }
 ```
 
-Creates a full-access agent on the server's own checkout, attaches an assisted-update state record, and returns `201` with `{ agent, assisted }`. Subject to several conflict checks:
-
-- `409` if a release/update job is already in progress, if another assisted launch is racing, or if an assisted-update agent is already active on the production checkout.
-- `409 ASSISTED_UPDATE_MIGRATIONS_INVALID` if the target tarball's `update-migrations/*.yaml` manifests fail to parse.
-- `409 ASSISTED_UPDATE_METADATA_INVALID` if there are no migrations and the `dispatch-update` metadata block is malformed.
-- `422` if no CLI agent type is enabled in settings.
-
-### `POST /release/assisted/phase`
-
-```json
-{
-  "token": "<assisted-state token>",
-  "phase": "apply",
-  "note": "Running migration 0001-bun-cutover.",
-  "error": null
-}
-```
-
-Token-authenticated callback used only by the launched assisted-update agent to advance its phase machine. Phases: `inspect → prepare → apply → restarting → validate → done`, plus `blocked` and `rollback` for failure paths. When the agent reports `validate`, the server runs the metadata-declared `requiredChecks` and gates the success transition.
-
-### `GET /release/assisted/state`
-
-Returns `{ "state": <AssistedUpdateState> | null }`.
+`stable` follows promoted releases; `preview` follows every published release, prereleases included. When nothing has been saved, the installer's `DISPATCH_UPDATE_CHANNEL` decides, then `stable`. A saved pre-1.0 value of `latest` reads as `preview`.
 
 ## Jobs
 
@@ -575,7 +467,7 @@ Returns `{ "state": <AssistedUpdateState> | null }`.
 - `schedule` — cron expression for automatic runs (nullable; null means manual-only).
 - `timeoutMs` — maximum run duration in milliseconds.
 - `needsInputTimeoutMs` — how long a run can stay in `needs_input` before timing out.
-- `agentType` — one of `claude`, `codex`, `cursor`, `opencode`.
+- `agentType` — `claude` or `codex`.
 - `useWorktree` — run in a managed git worktree.
 - `baseBranch` — branch to fork worktrees from (nullable).
 - `branchName` — branch name for the worktree (nullable).
@@ -639,11 +531,11 @@ Query params: `name` (required), `directory` (required), `limit` (1–100, optio
   "branchName": "feature/{{feature_name}}",
   "fullAccess": true,
   "callable": false,
-  "allowMedia": true
+  "allowFiles": true
 }
 ```
 
-`name` and `directory` are required. All other fields are optional. `agentType` must be one of `claude`, `codex`, `cursor`, `opencode`. `callable` controls whether the template appears in the command palette for on-demand use. `allowMedia` (defaults `true`) enables media file attachments on launch. `~` in `directory` is expanded to the user's home directory.
+`name` and `directory` are required. All other fields are optional. `agentType` must be `claude` or `codex`. `callable` controls whether the template appears in the command palette for on-demand use. `allowFiles` (defaults `true`) enables file attachments on launch. `~` in `directory` is expanded to the user's home directory.
 
 Template prompts support `{{arg_name}}` placeholder syntax — arguments are parsed from the prompt and presented to the user in the launch dialog.
 
@@ -672,14 +564,14 @@ All fields are optional. `args` fills `{{placeholder}}` values in the template p
 
 **Multipart body (for startup files):**
 
-When `allowMedia` is enabled on the template, the launch endpoint accepts `multipart/form-data` with:
+When `allowFiles` is enabled on the template, the launch endpoint accepts `multipart/form-data` with:
 
 - `args` — JSON-encoded string of template arguments
 - `directory` — override directory
 - `agentType` — override agent type
 - `model` — override model; an empty string means the CLI default, and omitting the field keeps the template's saved model
 - `startupFiles` — up to 10 file uploads (images, video, documents, or text files)
-- `startupLinks` — JSON array of URLs to pin for the agent
+- `startupLinks` — JSON array of URLs, attached to the agent's launch post as links
 
 Returns `{ agent }` with the newly created agent record.
 

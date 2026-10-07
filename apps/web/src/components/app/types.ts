@@ -1,8 +1,8 @@
 import type {
-  AgentPin,
   AgentRecord,
   AgentStatus,
   DiffStats as ServerDiffStats,
+  FileMedia,
 } from "@dispatch/shared";
 
 /**
@@ -10,11 +10,7 @@ import type {
  * column added on one side can't be missed. Re-exported from here so the
  * components that already import them from this module keep resolving.
  */
-export type {
-  AgentPin,
-  AgentStatus,
-  PinShortcutVariant,
-} from "@dispatch/shared";
+export type { AgentStatus } from "@dispatch/shared";
 
 /**
  * Fields the client treats as optional even though the server always sends
@@ -31,8 +27,8 @@ type LenientAgentField =
   | "archiveCleanupMode"
   | "simulatorUdid"
   | "lastError"
-  | "latestEvent"
-  | "pins"
+  | "activity"
+  | "currentTurn"
   | "gitContext"
   | "gitContextStale"
   | "gitContextUpdatedAt"
@@ -41,10 +37,10 @@ type LenientAgentField =
   | "launchedByAgentId"
   | "personaContext"
   | "reviewAgentType"
-  | "submittedReviewId"
   | "baseBranch"
+  | "workspacePath"
+  | "workspaceBaseBranch"
   | "templateId"
-  | "autoReview"
   | "cliSessionId";
 
 /**
@@ -58,7 +54,7 @@ export type Agent = Omit<AgentRecord, LenientAgentField> &
     hasStream?: boolean;
   };
 
-export type MediaFile = {
+export type FileItem = {
   id: number;
   name: string;
   size: number;
@@ -66,19 +62,23 @@ export type MediaFile = {
   url: string;
   seen?: boolean;
   source?: "screenshot" | "stream" | "simulator" | "text" | "user";
+  /** Read from the file's bytes when it was stored. */
+  mimeType: string;
+  /** What the file is to a reader; the Files tab and lightbox switch on it. */
+  media: FileMedia;
   description?: string | null;
   /**
    * Stamped client-side, not returned by the API. The selected agent's panel
-   * also lists its sub agents' media, so a file has to say whose it is for
+   * also lists its sub agents' files, so a file has to say whose it is for
    * seen-tracking and the lightbox to address the right agent.
    */
   ownerAgentId?: string;
 };
 
 /**
- * A sub agent whose pins and media are grouped under the selected agent.
- * Carries the child's own workspace root so its filename pins resolve
- * against the child's worktree, not the parent's.
+ * A sub agent whose files are grouped under the selected agent. Carries the
+ * child's own workspace root so paths resolve against the child's worktree,
+ * not the parent's.
  */
 export type SubAgentRef = {
   id: string;
@@ -87,26 +87,17 @@ export type SubAgentRef = {
   workspaceRoot: string | null;
 };
 
-export type SubAgentMedia = {
+export type SubAgentFiles = {
   agent: SubAgentRef;
-  files: MediaFile[];
-  /** The child's media query state, so an unresolved fetch is not shown as "nothing shared". */
+  files: FileItem[];
+  /** The child's files query state, so an unresolved fetch is not shown as "nothing shared". */
   status: "pending" | "error" | "success";
 };
-export type SubAgentPins = { agent: SubAgentRef; pins: AgentPin[] };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";
 export type ServiceState = "ok" | "down" | "checking";
 export type AgentVisualState = "stopped" | "idle" | "active";
 export type AuthState = "loading" | "needs-login" | "authenticated" | "error";
-
-// Wire payloads shared with the server — re-exported from here so the
-// components that already import them from this module keep resolving.
-export type {
-  InjectionHoldState,
-  TerminalCopyMode,
-  TerminalUiState,
-} from "@dispatch/shared";
 
 /**
  * Wire shape of the server's diff stats. Derived from the shared contract

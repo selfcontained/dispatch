@@ -6,22 +6,6 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
-import {
-  isCrossRepoMessagingEnabled,
-  setCrossRepoMessagingEnabled,
-} from "../cross-repo-messaging-settings.js";
-import {
-  loadInjectionHoldEnabled,
-  setInjectionHoldEnabled,
-} from "../injection-hold-settings.js";
-import {
-  isTrimmedLaunchGuidanceEnabled,
-  setTrimmedLaunchGuidanceEnabled,
-} from "../launch-guidance-settings.js";
-import {
-  isChatSurfaceEnabled,
-  setChatSurfaceEnabled,
-} from "../chat-surface-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -36,12 +20,22 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
-import { AGENT_MODEL_OPTIONS } from "../shared/agent-models.js";
+import { agentModelCatalog } from "../shared/agent-models.js";
+import {
+  engineStatuses,
+  withEngineVersions,
+} from "../agents/engine-availability.js";
 import {
   getWorktreeLocation,
   isWorktreeLocation,
   WORKTREE_LOCATION_KEY,
 } from "../worktree-location-settings.js";
+
+import {
+  getUserAvatar,
+  parseUserAvatar,
+  setUserAvatar,
+} from "../user-avatar-settings.js";
 
 const INSTANCE_NAME_KEY = "instance_name";
 
@@ -53,22 +47,60 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
+  /** The configured engine CLIs, so this reports what a launch would run. */
+  maintenanceMode?: () => string;
+  engineBins: { claude: string; codex: string; opencode?: string };
+  localCertificateTrust?: boolean;
+  /** Update recovery helper protocol; omitted in tests that don't need it. */
 };
 
 export async function registerSystemRoutes(
   app: FastifyInstance,
   deps: SystemRouteDeps
 ): Promise<void> {
+  app.get("/api/v1/app/settings/user-avatar", async () => ({
+    avatar: await getUserAvatar(deps.pool),
+  }));
+  app.put(
+    "/api/v1/app/settings/user-avatar",
+    { bodyLimit: 140_000 },
+    async (request, reply) => {
+      const avatar = parseUserAvatar(
+        (request.body as { avatar?: unknown } | null)?.avatar
+      );
+      if (!avatar)
+        return reply.code(400).send({
+          error:
+            "The prepared avatar could not be saved. Please try selecting the photo again.",
+        });
+      await setUserAvatar(deps.pool, avatar);
+      return { avatar };
+    }
+  );
+
   app.get("/api/v1/app/branding", async () => {
     return { iconColor: deps.getCachedIconColor() };
   });
 
+  app.get("/api/v1/system/certificate-trust", async () => ({
+    available: deps.localCertificateTrust === true,
+  }));
+
   app.get("/api/v1/health", async () => {
     const result = await deps.pool.query("SELECT NOW() AS now");
+    const maintenance = deps.maintenanceMode?.() ?? "normal";
     return {
       status: "ok",
       db: "ok",
       now: result.rows[0]?.now,
+      // Not a readiness signal: the helper uses the signed readiness route.
+      ...(maintenance !== "normal" ? { maintenance } : {}),
+      ...(process.env.DISPATCH_UPDATE_OWNER === "macos-app"
+        ? {
+            updateOwner: "macos-app",
+            macInstanceId: process.env.DISPATCH_MAC_INSTANCE_ID ?? null,
+          }
+        : {}),
     };
   });
 
@@ -82,8 +114,14 @@ export async function registerSystemRoutes(
     };
   });
 
+  app.get("/api/v1/system/engines", async () => {
+    return {
+      engines: await withEngineVersions(await engineStatuses(deps.engineBins)),
+    };
+  });
+
   app.get("/api/v1/agent-models", async () => {
-    return { models: AGENT_MODEL_OPTIONS };
+    return { models: agentModelCatalog() };
   });
 
   app.get("/api/v1/system/path-info", async (request, reply) => {
@@ -425,67 +463,6 @@ export async function registerSystemRoutes(
 
     return { enabledIdes: await setEnabledIdes(deps.pool, uniqueIdes) };
   });
-
-  app.get("/api/v1/app/settings/injection-hold", async () => {
-    // Authoritative read: hits the DB and re-syncs the in-memory cache, so a
-    // failed boot load or interleaved POSTs self-heal whenever settings open.
-    // The injection hot path keeps using the sync cache.
-    return { enabled: await loadInjectionHoldEnabled(deps.pool) };
-  });
-
-  app.post("/api/v1/app/settings/injection-hold", async (request, reply) => {
-    const body = request.body as { enabled?: unknown } | null;
-    if (typeof body?.enabled !== "boolean") {
-      return reply.code(400).send({ error: "enabled must be a boolean." });
-    }
-    await setInjectionHoldEnabled(deps.pool, body.enabled);
-    return { enabled: body.enabled };
-  });
-
-  app.get("/api/v1/app/settings/chat-surface", async () => {
-    return { enabled: await isChatSurfaceEnabled(deps.pool) };
-  });
-
-  app.post("/api/v1/app/settings/chat-surface", async (request, reply) => {
-    const body = request.body as { enabled?: unknown } | null;
-    if (typeof body?.enabled !== "boolean") {
-      return reply.code(400).send({ error: "enabled must be a boolean." });
-    }
-    await setChatSurfaceEnabled(deps.pool, body.enabled);
-    return { enabled: body.enabled };
-  });
-
-  app.get("/api/v1/app/settings/launch-guidance-trim", async () => {
-    return { enabled: await isTrimmedLaunchGuidanceEnabled(deps.pool) };
-  });
-
-  app.post(
-    "/api/v1/app/settings/launch-guidance-trim",
-    async (request, reply) => {
-      const body = request.body as { enabled?: unknown } | null;
-      if (typeof body?.enabled !== "boolean") {
-        return reply.code(400).send({ error: "enabled must be a boolean." });
-      }
-      await setTrimmedLaunchGuidanceEnabled(deps.pool, body.enabled);
-      return { enabled: body.enabled };
-    }
-  );
-
-  app.get("/api/v1/app/settings/cross-repo-messaging", async () => {
-    return { enabled: await isCrossRepoMessagingEnabled(deps.pool) };
-  });
-
-  app.post(
-    "/api/v1/app/settings/cross-repo-messaging",
-    async (request, reply) => {
-      const body = request.body as { enabled?: unknown } | null;
-      if (typeof body?.enabled !== "boolean") {
-        return reply.code(400).send({ error: "enabled must be a boolean." });
-      }
-      await setCrossRepoMessagingEnabled(deps.pool, body.enabled);
-      return { enabled: body.enabled };
-    }
-  );
 
   app.post("/api/v1/energy-report", async (request, reply) => {
     try {

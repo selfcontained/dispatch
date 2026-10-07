@@ -24,6 +24,11 @@ type AgentTypeSelectProps = {
   /** Override when a page can render more than one of these, so ids stay
    * unique. */
   id?: string;
+  /**
+   * Engines whose CLI this machine does not have. They stay pickable (so a
+   * person can see what Dispatch supports) but say what to install.
+   */
+  missing?: Readonly<Record<string, { label: string; install: string }>>;
 };
 
 export function AgentTypeSelect({
@@ -33,6 +38,7 @@ export function AgentTypeSelect({
   onOpenChange,
   label = "Type",
   id = "agent-type-select",
+  missing,
 }: AgentTypeSelectProps): JSX.Element {
   const sortedTypes = useMemo(() => sortAgentTypes(agentTypes), [agentTypes]);
   const [open, setOpen] = useState(false);
@@ -116,12 +122,30 @@ export function AgentTypeSelect({
                       )}
                     />
                     {AGENT_TYPE_LABELS[agentType]}
+                    {missing?.[agentType] ? (
+                      <span
+                        className="ml-auto pl-2 text-[11px] text-muted-foreground"
+                        data-testid="agent-type-missing"
+                      >
+                        not installed
+                      </span>
+                    ) : null}
                   </CommandItem>
                 ))}
               </CommandGroup>
             </CommandList>
           </Command>
         </div>
+      ) : null}
+      {missing?.[value] ? (
+        <p
+          className="text-xs text-status-waiting"
+          data-testid="agent-type-missing-note"
+        >
+          {missing[value]!.label} is not installed. Run{" "}
+          <code className="font-mono">{missing[value]!.install}</code> and sign
+          in.
+        </p>
       ) : null}
     </div>
   );

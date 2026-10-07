@@ -101,7 +101,6 @@ beforeEach(async () => {
   vi.mocked(mockAgentManager.getAgent).mockResolvedValue({
     id: "mock",
     status: "running",
-    tmuxSession: null,
   } as Awaited<ReturnType<AgentManager["getAgent"]>>);
 });
 
@@ -135,7 +134,7 @@ describe("JobService", () => {
       // Create a real agent record to satisfy FK constraint
       const agentId = `agt_cb_${Date.now()}`;
       await pool.query(
-        `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+        `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
          VALUES ($1, 'cb-test-agent', 'claude', 'running', '/tmp', '[]'::jsonb, false)`,
         [agentId]
       );
@@ -262,77 +261,90 @@ describe("JobService", () => {
   });
 
   describe("error paths", () => {
-    it("runJob creates a job agent with the production-generated default name", async () => {
-      const service = new JobService(
-        pool,
-        mockAgentManager,
-        mockLog,
-        mockConfig
-      );
-      const store = new JobStore(pool);
-
-      const job = await makeJob(store, {
-        name: "Rename Test",
-        directory: "/tmp/test-rename",
-      });
-
-      vi.mocked(mockAgentManager.createAgent).mockImplementation(async () => {
-        const createdAt = new Date().toISOString();
-        await pool.query(
-          `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
-           VALUES ('agt_job_rename', 'job-Rename_Test-placeholder', 'claude', 'running', '/tmp/test-rename', '[]'::jsonb, false)`
+    it.each([
+      { callerFullAccess: undefined, fullAccess: false },
+      { callerFullAccess: false, fullAccess: false },
+      { callerFullAccess: true, fullAccess: false },
+      { callerFullAccess: true, fullAccess: true },
+    ])(
+      "runJob launches an allowed job ($callerFullAccess -> $fullAccess)",
+      async ({ callerFullAccess, fullAccess }) => {
+        const service = new JobService(
+          pool,
+          mockAgentManager,
+          mockLog,
+          mockConfig
         );
-        return {
-          id: "agt_job_rename",
-          name: "job-Rename_Test-placeholder",
-          type: "claude",
-          status: "running",
-          cwd: "/tmp/test-rename",
-          tmuxSession: null,
-          createdAt,
-          updatedAt: createdAt,
-          metadata: null,
-          codexArgs: [],
-          claudeArgs: [],
-          opencodeArgs: [],
-          latestEvent: null,
-          fullAccess: false,
-          useWorktree: false,
-          worktreePath: null,
-          worktreeBranch: null,
-          setupPhase: null,
-          parentAgentId: null,
-          persona: null,
-          autoReview: false,
-          baseBranch: null,
-        } as Awaited<ReturnType<AgentManager["createAgent"]>>;
-      });
+        const store = new JobStore(pool);
 
-      const result = await service.runJob({
-        name: "Rename Test",
-        directory: "/tmp/test-rename",
-        wait: false,
-      });
+        const job = await makeJob(store, {
+          name: "Rename Test",
+          directory: "/tmp/test-rename",
+        });
 
-      expect(result.status).toBe("running");
-      expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          jobRunId: result.runId,
-          name: `job-Rename_Test-${result.runId.slice(0, 8)}`,
-          // The Chat launch post gets only the user-authored job prompt.
-          launchContext: {
-            prompt: "Test prompt",
-          },
-        })
-      );
+        await store.updateJobConfig(job.id, { fullAccess });
+        vi.mocked(mockAgentManager.createAgent).mockImplementation(
+          async (_input, options) => {
+            const createdAt = new Date().toISOString();
+            await pool.query(
+              `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
+           VALUES ('agt_job_rename', 'job-Rename_Test-placeholder', 'claude', 'running', '/tmp/test-rename', '[]'::jsonb, false)`
+            );
+            await options?.beforeLaunch?.("agt_job_rename");
+            return {
+              id: "agt_job_rename",
+              name: "job-Rename_Test-placeholder",
+              type: "claude",
+              status: "running",
+              cwd: "/tmp/test-rename",
+              createdAt,
+              updatedAt: createdAt,
+              metadata: null,
+              codexArgs: [],
+              claudeArgs: [],
+              opencodeArgs: [],
 
-      await service.completeRunForAgent("agt_job_rename", {
-        status: "completed",
-        summary: "done",
-        tasks: [],
-      });
-      await service.shutdown();
-    });
+              fullAccess: false,
+              useWorktree: false,
+              worktreePath: null,
+              worktreeBranch: null,
+              setupPhase: null,
+              parentAgentId: null,
+              persona: null,
+              baseBranch: null,
+            } as Awaited<ReturnType<AgentManager["createAgent"]>>;
+          }
+        );
+
+        const result = await service.runJob({
+          name: "Rename Test",
+          directory: "/tmp/test-rename",
+          wait: false,
+          callerFullAccess,
+        });
+
+        expect(result.status).toBe("running");
+        expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            jobRunId: result.runId,
+            fullAccess,
+            name: `job-Rename_Test-${result.runId.slice(0, 8)}`,
+            // The Chat launch post gets only the user-authored job prompt.
+            launchContext: {
+              prompt: "Test prompt",
+            },
+          }),
+          expect.objectContaining({ beforeLaunch: expect.any(Function) })
+        );
+
+        await service.completeRunForAgent("agt_job_rename", {
+          status: "completed",
+          summary: "done",
+          tasks: [],
+        });
+        await service.shutdown();
+      }
+    );
 
     it("runJob throws when job has no prompt", async () => {
       const service = new JobService(
@@ -524,38 +536,39 @@ describe("JobService", () => {
       });
 
       const agentId = `agt_wh_${Date.now()}`;
-      vi.mocked(mockAgentManager.createAgent).mockImplementation(async () => {
-        const createdAt = new Date().toISOString();
-        await pool.query(
-          `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+      vi.mocked(mockAgentManager.createAgent).mockImplementation(
+        async (_input, options) => {
+          const createdAt = new Date().toISOString();
+          await pool.query(
+            `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
            VALUES ($1, 'wh-test-agent', 'claude', 'running', '/tmp/test-wh-run', '[]'::jsonb, false)`,
-          [agentId]
-        );
-        return {
-          id: agentId,
-          name: "wh-test-agent",
-          type: "claude",
-          status: "running",
-          cwd: "/tmp/test-wh-run",
-          tmuxSession: null,
-          createdAt,
-          updatedAt: createdAt,
-          metadata: null,
-          codexArgs: [],
-          claudeArgs: [],
-          opencodeArgs: [],
-          latestEvent: null,
-          fullAccess: false,
-          useWorktree: false,
-          worktreePath: null,
-          worktreeBranch: null,
-          setupPhase: null,
-          parentAgentId: null,
-          persona: null,
-          autoReview: false,
-          baseBranch: null,
-        } as Awaited<ReturnType<AgentManager["createAgent"]>>;
-      });
+            [agentId]
+          );
+          await options?.beforeLaunch?.(agentId);
+          return {
+            id: agentId,
+            name: "wh-test-agent",
+            type: "claude",
+            status: "running",
+            cwd: "/tmp/test-wh-run",
+            createdAt,
+            updatedAt: createdAt,
+            metadata: null,
+            codexArgs: [],
+            claudeArgs: [],
+            opencodeArgs: [],
+
+            fullAccess: false,
+            useWorktree: false,
+            worktreePath: null,
+            worktreeBranch: null,
+            setupPhase: null,
+            parentAgentId: null,
+            persona: null,
+            baseBranch: null,
+          } as Awaited<ReturnType<AgentManager["createAgent"]>>;
+        }
+      );
 
       const result = await service.runJobByWebhook(job.webhookSecret!);
 

@@ -1,22 +1,20 @@
 import {
   Archive,
-  ClipboardCheck,
   ClipboardList,
-  Eye,
   MoreVertical,
   Pause,
   Pencil,
   Play,
-  Terminal,
+  MessageSquare,
   Unplug,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 
-import { describeAgentStatus } from "@/components/app/agent-event-utils";
-import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { AgentActivityLabel } from "@/components/app/agent-activity";
+import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { TipSpot } from "@/components/tips/tip-spot";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,38 +27,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-/**
- * Wraps the REVIEW badge in the "open review from the menu" tip once its
- * review is ready to open — otherwise renders the badge plain. A tiny local
- * component (rather than an inline ternary) so TipSpot's own eligibility
- * check still only ever mounts for a badge that's actually ready.
- */
-function ReviewBadge({
-  tip,
-  children,
-}: {
-  tip: boolean;
-  children: ReactNode;
-}): JSX.Element {
-  if (!tip) return <>{children}</>;
-  return (
-    <TipSpot tipId="review-row-open" side="bottom" align="center">
-      {children}
-    </TipSpot>
-  );
-}
+import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
+import { agentRoute, THREAD_PARAM } from "@/lib/agent-routes";
 
 export type ChildAgentRowProps = {
   agent: Agent;
+  /** Its seat in the tree, as the stream numbers it. */
+  seat: number | null;
   state: AgentVisualState;
   isInitialReviewActive: boolean;
-  attachToAgent: (agent: Agent) => Promise<void>;
-  detachTerminal: () => void;
+  openAgent: (agent: Agent) => Promise<void>;
+  closeAgent: () => void;
   startAgent: (agent: Agent) => Promise<void>;
-  openSubmittedReview: (agent: Agent) => void;
   setStopTarget: (agent: Agent | null) => void;
   setStopConfirmOpen: (open: boolean) => void;
   setDeleteTarget: (agent: Agent | null) => void;
@@ -72,12 +51,12 @@ export type ChildAgentRowProps = {
 
 export function ChildAgentRow({
   agent,
+  seat,
   state,
   isInitialReviewActive,
-  attachToAgent,
-  detachTerminal,
+  openAgent,
+  closeAgent,
   startAgent,
-  openSubmittedReview,
   setStopTarget,
   setStopConfirmOpen,
   setDeleteTarget,
@@ -86,6 +65,7 @@ export function ChildAgentRow({
   onRequestClose,
   closeOnSessionAction = false,
 }: ChildAgentRowProps): JSX.Element {
+  const navigate = useNavigate();
   const isStopped = state === "stopped";
   // Not the raw isConnected/connectedAgentId-equality prop: that stays true
   // through a mid-reconnect or a dropped socket, which would make a click
@@ -99,40 +79,36 @@ export function ChildAgentRow({
   const menuItemClass =
     "flex min-h-11 items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0";
   const isReviewAgent = agent.role === "review";
-  const canOpenSubmittedReview =
-    isReviewAgent && agent.submittedReviewId != null;
+  // Persona reviewers are ordinary agents; a submitted review identifies
+  // them regardless of their launch role.
+  const reviewSummary = useAgentReviewSummary();
+  const review = reviewSummary.data?.agents[agent.id];
   const showReviewActivity =
-    isReviewAgent && agent.status === "running" && isInitialReviewActive;
-  // canOpenSubmittedReview is just "no submission yet" — much broader than
-  // "actively working," so a paused or errored reviewer needs its own
-  // wording rather than a blanket "Review in progress."
+    isReviewAgent &&
+    agent.status === "running" &&
+    isInitialReviewActive &&
+    !review;
+  // A paused or errored reviewer needs its own wording rather than a
+  // blanket "Review in progress."
   const reviewPendingLabel =
     agent.status === "error"
-      ? "Review agent — no review submitted"
+      ? "Review agent — stopped with an error"
       : isStopped
-        ? "Review agent — paused, no review submitted"
+        ? "Review agent — paused"
         : "Review in progress";
   const displayName = agent.persona ?? agent.name;
-  const { label: statusLabel, colorClass: statusColor } = describeAgentStatus(
-    agent,
-    isStopped
-  );
 
   const row = (
     <div
       data-testid={`child-agent-row-${agent.id}`}
       data-agent-role={agent.role ?? "standard"}
       data-review-active={showReviewActivity ? "true" : "false"}
-      data-review-ready={canOpenSubmittedReview ? "true" : "false"}
       onClick={(event) => {
-        // Mirrors the top-level agent card's row-click-to-attach/detach
+        // Mirrors the top-level agent card's row-click-to-open/close
         // (agent-card-header.tsx): a data-agent-control="true" marker plus
         // closest() lets interactive descendants (the overflow menu, the
         // resume button) opt out of the row's own click, the same
-        // convention that file uses instead of stopPropagation. Opening a
-        // submitted review is a separate action, reached through the
-        // overflow menu and the badge below — not tied to this click at
-        // all, so there's no race between the two actions' navigation.
+        // convention that file uses instead of stopPropagation.
         const target = event.target as HTMLElement;
         // Radix (DropdownMenuContent, TipSpot's Popover, Tooltip content)
         // portals its content to document.body — outside this row's real
@@ -144,11 +120,11 @@ export function ChildAgentRow({
         if (target.closest("[data-agent-control='true']")) return;
         if (isStopped) return;
         if (isConnectedActive) {
-          detachTerminal();
+          closeAgent();
           return;
         }
         if (closeOnSessionAction) onRequestClose?.();
-        void attachToAgent(agent);
+        void openAgent(agent);
       }}
       className={cn(
         // Rounded on every corner, like an ordinary pill, with a normal
@@ -165,25 +141,21 @@ export function ChildAgentRow({
         // top-level agent card uses for "this is what's connected"
         // (agents-view.tsx's borderForAgentState), so the signal reads
         // consistently across both list levels — and, being the only state
-        // that thickens this edge at all, exclusively means "connected." A
-        // ready-to-open review no longer has its own border treatment at
-        // all (that signal now lives on the review indicator's icon/color
-        // swap below), so it can't compete with or dilute this one. state ===
-        // "active" (not the bare isConnected prop) so this exactly matches
+        // that thickens this edge at all, exclusively means "connected."
+        // state === "active" (not the bare isConnected prop) so this exactly matches
         // the top-level card's own condition (use-agents.ts's
         // agentVisualState: running/creating AND actually connected).
         state === "active" && "border-r-4 border-r-status-done",
         isStopped && "opacity-65",
-        canOpenSubmittedReview && "opacity-100",
         showReviewActivity && "child-agent-review-active-row"
       )}
     >
-      <AgentTypeIcon
+      <AgentSeatBadge
+        seat={seat}
+        name={displayName}
         type={agent.type}
-        eventType={
-          agent.status === "running" ? agent.latestEvent?.type : undefined
-        }
-        className="h-4.5 w-4.5 shrink-0"
+        size="sm"
+        data-testid={`child-agent-avatar-${agent.id}`}
       />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -194,20 +166,15 @@ export function ChildAgentRow({
             {displayName}
           </span>
         </div>
-        <div className="mt-0.5 flex min-w-0 items-center text-[10px]">
-          <span className={cn("font-medium", statusColor)}>{statusLabel}</span>
-          {agent.latestEvent?.updatedAt ? (
-            <>
-              <span className="mx-1 text-muted-foreground/50">•</span>
-              <span className="truncate text-muted-foreground/70">
-                {formatRelativeTime(agent.latestEvent.updatedAt)}
-              </span>
-            </>
-          ) : null}
-        </div>
+        <AgentActivityLabel
+          agent={agent}
+          linkToTurn
+          onNavigate={closeOnSessionAction ? onRequestClose : undefined}
+          className="mt-0.5 text-[10px]"
+        />
       </div>
       {/*
-        Right-side action cluster: REVIEW badge, resume button (stopped
+        Right-side action cluster: reviewer badge, resume button (stopped
         agents only), overflow menu. Grouped in one shrink-0 flex container
         (rather than the badge living inside the shrinking label) so the
         label is the only thing that gives way to a long name — this
@@ -221,56 +188,14 @@ export function ChildAgentRow({
           agentId={agent.id}
           className="h-4 px-1 text-[10px] leading-none"
         />
-        {isReviewAgent ? (
-          <ReviewBadge tip={canOpenSubmittedReview}>
-            {canOpenSubmittedReview ? (
-              // A real button, not inert decoration: it's the one element
-              // in the row that visibly lights up (a filled clipboard-check
-              // in the "done" green, distinct from the connected accent's
-              // blue so the two signals never compete), so it's also the
-              // thing a user is most likely to click or tap aiming to open
-              // the review — including on a stopped row, whose
-              // click-to-connect is otherwise a dead end. Its own trigger
-              // (not the row's) so it can't race attachToAgent's navigate
-              // the way a combined click used to.
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost-primary"
-                    data-agent-control="true"
-                    data-testid={`child-agent-open-review-badge-${agent.id}`}
-                    aria-label={`Open submitted review from ${displayName}`}
-                    onClick={() => {
-                      if (closeOnSessionAction) onRequestClose?.();
-                      openSubmittedReview(agent);
-                    }}
-                    className="h-11 w-11 sm:h-7 sm:w-7"
-                  >
-                    <ClipboardCheck
-                      className="h-3.5 w-3.5"
-                      aria-hidden="true"
-                    />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Open submitted review</TooltipContent>
-              </Tooltip>
-            ) : (
-              // Decorative only — the row's own status line already says
-              // "Working"/etc.; this just marks the agent as a reviewer with
-              // no submission yet. Label follows the same stopped/error
-              // condition the status line uses, not a blanket "in progress"
-              // that would misdescribe a paused or errored reviewer.
-              <span
-                role="img"
-                aria-label={reviewPendingLabel}
-                title={reviewPendingLabel}
-                className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground sm:h-7 sm:w-7"
-              >
-                <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-              </span>
-            )}
-          </ReviewBadge>
+        {review || isReviewAgent ? (
+          <AgentReviewIndicator
+            agentId={agent.id}
+            pendingLabel={reviewPendingLabel}
+            review={review}
+            isLoading={reviewSummary.isLoading}
+            isError={reviewSummary.isError}
+          />
         ) : null}
         {/*
           Attach/detach no longer have their own buttons — clicking
@@ -301,11 +226,9 @@ export function ChildAgentRow({
           </Tooltip>
         ) : null}
         {/*
-          Session lifecycle controls. A sub agent used to offer only terminal
-          attach and resume, so moving plain children into this section would
-          have stripped the pause/rename/archive an agent card carries in its
-          footer. They live behind an overflow menu because the row has one
-          action slot.
+          Session lifecycle controls: the pause/rename/archive an agent card
+          carries in its footer. They live behind an overflow menu because the
+          row has one action slot.
         */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -331,41 +254,43 @@ export function ChildAgentRow({
           */}
           <DropdownMenuContent align="end" data-agent-control="true">
             {!isStopped ? (
-              // The keyboard/screen-reader path to connect — the row's own
-              // click-to-attach has no non-mouse equivalent, so this is the
-              // only accessible way to reach a sub agent's terminal. Label
-              // and action both follow isConnectedActive, matching what the
-              // row's own accent and click already mean by "connected."
+              // The keyboard/screen-reader path to open the sub agent's page
+              // (the row's own click has no non-mouse equivalent). Label and
+              // action both follow isConnectedActive, matching what the row's
+              // own accent and click already mean by "open."
               <DropdownMenuItem
                 className={menuItemClass}
-                data-testid={`child-agent-terminal-${agent.id}`}
+                data-testid={`child-agent-open-${agent.id}`}
                 onSelect={() => {
                   if (isConnectedActive) {
-                    detachTerminal();
+                    closeAgent();
                     return;
                   }
                   if (closeOnSessionAction) onRequestClose?.();
-                  void attachToAgent(agent);
+                  void openAgent(agent);
                 }}
               >
                 {isConnectedActive ? (
                   <Unplug className="h-3.5 w-3.5" />
                 ) : (
-                  <Terminal className="h-3.5 w-3.5" />
+                  <MessageSquare className="h-3.5 w-3.5" />
                 )}
-                {isConnectedActive ? "Detach" : "View terminal"}
+                {isConnectedActive ? "Close" : "Open"}
               </DropdownMenuItem>
             ) : null}
-            {canOpenSubmittedReview ? (
+            {review ? (
               <DropdownMenuItem
                 className={menuItemClass}
                 data-testid={`child-agent-open-review-${agent.id}`}
                 onSelect={() => {
                   if (closeOnSessionAction) onRequestClose?.();
-                  openSubmittedReview(agent);
+                  navigate({
+                    pathname: agentRoute(review.streamId),
+                    search: `?${new URLSearchParams({ [THREAD_PARAM]: review.threadId })}`,
+                  });
                 }}
               >
-                <Eye className="h-3.5 w-3.5" />
+                <ClipboardList className="h-3.5 w-3.5" />
                 Open review
               </DropdownMenuItem>
             ) : null}

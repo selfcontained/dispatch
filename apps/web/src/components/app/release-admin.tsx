@@ -32,6 +32,7 @@ export function ReleasesAdmin(): JSX.Element {
     releases,
     releasesLoading,
     promotingTag,
+    promotionUrl,
     confirmPromoteTag,
     promoteError,
     setConfirmPromoteTag,
@@ -188,6 +189,7 @@ export function ReleasesAdmin(): JSX.Element {
         releasesLoading={releasesLoading}
         promoteError={promoteError}
         promotingTag={promotingTag}
+        promotionUrl={promotionUrl}
         confirmPromoteTag={confirmPromoteTag}
         onConfirmPromoteTagChange={setConfirmPromoteTag}
         onPromote={(tag) => void promote(tag)}

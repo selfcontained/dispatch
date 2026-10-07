@@ -1,19 +1,26 @@
 import type { FastifyInstance } from "fastify";
+import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../../agent-type-settings.js";
-import {
-  AGENT_LATEST_EVENT_TYPES,
-  isAgentLatestEventType,
-} from "../../agents/latest-event.js";
-import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
-import { shouldSuggestSessionRename } from "../../agents/tmux/session-name.js";
+import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
+import { agentDiffTarget } from "../../agents/workspace-target.js";
+import { StreamServiceError } from "../../chat/service.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
 import { getDiffStats } from "../../shared/git/diff-stats.js";
 import type { AgentRouteDeps } from "./shared.js";
+
+/**
+ * What the sidebar's "name this session" button sends. Dispatch no longer
+ * nudges on its own — the launch guidance already asks for a name, and
+ * saying it twice cost a turn and a line in the stream — so this is only
+ * ever sent because someone asked for it.
+ */
+const RENAME_PROMPT =
+  "Please call the `rename_session` MCP tool with a short, descriptive name for this session's topic. If the session already has a meaningful name, keep it. This request is only to name the session; it does not ask you to start or resume other work.";
 
 export async function registerAgentLifecycleRoutes(
   app: FastifyInstance,
@@ -66,65 +73,31 @@ export async function registerAgentLifecycleRoutes(
     }
   });
 
-  app.post("/api/v1/agents/:id/latest-event", async (request, reply) => {
+  app.patch("/api/v1/agents/:id/workspace", async (request, reply) => {
     const params = request.params as { id?: string };
+    const id = params.id ?? "";
     const body = request.body as {
-      type?: unknown;
-      message?: unknown;
-      metadata?: unknown;
-    };
-    const id = params.id ?? "";
+      path?: unknown;
+      baseBranch?: unknown;
+    } | null;
 
-    if (!isAgentLatestEventType(body?.type)) {
-      return reply.code(400).send({
-        error: `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`,
-      });
+    const path = body?.path ?? null;
+    const baseBranch = body?.baseBranch ?? null;
+    if (path !== null && typeof path !== "string") {
+      return reply.code(400).send({ error: "path must be a string or null." });
     }
-
-    if (typeof body.message !== "string" || !body.message.trim()) {
+    if (baseBranch !== null && typeof baseBranch !== "string") {
       return reply
         .code(400)
-        .send({ error: "message must be a non-empty string." });
+        .send({ error: "baseBranch must be a string or null." });
     }
-
-    if (
-      body.metadata !== undefined &&
-      (body.metadata === null ||
-        typeof body.metadata !== "object" ||
-        Array.isArray(body.metadata))
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "metadata must be an object when provided." });
-    }
-
-    const agent = await deps.agentManager.upsertLatestEvent(id, {
-      type: body.type,
-      message: body.message.trim(),
-      metadata: body.metadata as Record<string, unknown> | undefined,
-    });
-
-    deps.publishUiEvent({
-      type: "agent.upsert",
-      agent: deps.withStreamFlag(agent),
-    });
-    return { agent };
-  });
-
-  app.post("/api/v1/agents/:id/setup/error", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const body = request.body as { message?: unknown };
-    const id = params.id ?? "";
-    const message =
-      typeof body?.message === "string" ? body.message : "Setup failed.";
 
     try {
-      const agent = await deps.agentManager.markSetupFailed(id, message);
-      deps.publishUiEvent({
-        type: "agent.upsert",
-        agent: deps.withStreamFlag(agent),
+      const agent = await deps.agentManager.setWorkspace(id, {
+        path,
+        baseBranch,
       });
-      return { ok: true };
+      return { agent: deps.withStreamFlag(agent) };
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }
@@ -160,31 +133,12 @@ export async function registerAgentLifecycleRoutes(
     }
   });
 
-  app.post("/api/v1/agents/:id/setup/complete", async (request, reply) => {
+  app.post("/api/v1/agents/:id/runtime/cancel", async (request, reply) => {
     const params = request.params as { id?: string };
-    const body = request.body as {
-      effectiveCwd?: unknown;
-      worktreePath?: unknown;
-      worktreeBranch?: unknown;
-    };
     const id = params.id ?? "";
-
-    if (typeof body?.effectiveCwd !== "string") {
-      return reply.code(400).send({ error: "effectiveCwd must be a string." });
-    }
-
     try {
-      const agent = await deps.agentManager.completeSetup(id, {
-        effectiveCwd: body.effectiveCwd,
-        worktreePath:
-          typeof body.worktreePath === "string" ? body.worktreePath : null,
-        worktreeBranch:
-          typeof body.worktreeBranch === "string" ? body.worktreeBranch : null,
-      });
-      deps.publishUiEvent({
-        type: "agent.upsert",
-        agent: deps.withStreamFlag(agent),
-      });
+      await deps.agentManager.getTerminalAccess(id);
+      await deps.agentManager.cancelTurn(id);
       return { ok: true };
     } catch (error) {
       return deps.handleAgentError(reply, error);
@@ -201,8 +155,7 @@ export async function registerAgentLifecycleRoutes(
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      await deps.onAgentStarted(id);
-      return { agent };
+      return { agent: deps.withStreamFlag(agent) };
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }
@@ -232,7 +185,7 @@ export async function registerAgentLifecycleRoutes(
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      return { agent };
+      return { agent: deps.withStreamFlag(agent) };
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }
@@ -280,17 +233,10 @@ export async function registerAgentLifecycleRoutes(
           .code(409)
           .send({ error: "Agent must be running to receive a rename prompt." });
       }
-      // Mirror the gates the auto-listener and the sidebar UI apply, so a
+      // Mirror the gates the launch guidance and the sidebar UI apply, so a
       // direct API caller can't paste the rename prompt into an agent that
-      // wouldn't be eligible via the UI: terminal agents have no Claude
-      // session to read the prompt (it would land in the user's shell),
-      // and personas / job agents / already-renamed agents already carry a
-      // meaningful name.
-      if (agent.type === "terminal") {
-        return reply
-          .code(409)
-          .send({ error: "Terminal agents cannot be prompted to rename." });
-      }
+      // wouldn't be eligible via the UI: personas / job agents / already-
+      // renamed agents already carry a meaningful name.
       if (
         !shouldSuggestSessionRename(agent.name, agent.id, {
           persona: agent.persona,
@@ -300,9 +246,19 @@ export async function registerAgentLifecycleRoutes(
           .code(409)
           .send({ error: "Agent already has a custom session name." });
       }
-      await deps.sendAgentPrompt(id, RENAME_PROMPT);
-      return reply.code(204).send();
+      const posted = await deps.chat.sendUserPost(
+        await deps.chat.streamOf(id),
+        {
+          to: id,
+          text: RENAME_PROMPT,
+          allowInert: false,
+        }
+      );
+      return reply.code(202).send(posted);
     } catch (error) {
+      if (error instanceof StreamServiceError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
       return deps.handleAgentError(reply, error);
     }
   });
@@ -332,18 +288,10 @@ export async function registerAgentLifecycleRoutes(
       "false";
 
     if (!includeUncommitted) {
-      const gitContextWorktreePath = agent.gitContext?.isWorktree
-        ? agent.gitContext.worktreePath
-        : null;
-      const worktreePath =
-        agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-      if (!worktreePath) return { diffStats: null };
-
-      const baseRef =
-        agent.baseBranch ??
-        (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+      const target = agentDiffTarget(agent);
+      if (!target) return { diffStats: null };
       return {
-        diffStats: await getDiffStats(worktreePath, baseRef, {
+        diffStats: await getDiffStats(target.path, target.baseRef, {
           includeUncommitted: false,
         }),
       };
@@ -368,20 +316,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
 
     try {
       const query = request.query as {
@@ -427,20 +368,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
 
     try {
       const ignoreWhitespace = query.ignoreWhitespace !== "false";
@@ -493,20 +427,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
     const includeUncommitted = query.includeUncommitted !== "false";
 
     try {
@@ -583,20 +510,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
 
     let fileDiff;
     try {
@@ -623,33 +543,41 @@ export async function registerAgentLifecycleRoutes(
       body.startLine === body.endLine
         ? `Line ${body.startLine}`
         : `Lines ${body.startLine}-${body.endLine}`;
-    const codeBlock =
-      lines.length > 0
-        ? "\n" + lines.map((l) => `│ ${l}`).join("\n") + "\n"
-        : "";
-
-    const prompt = [
-      "--- DISPATCH: Code Comment ---",
-      `File: ${body.filePath}`,
-      `${lineLabel}:`,
-      codeBlock,
-      `Comment: ${body.comment.trim()}`,
-      "--- END ---",
-    ].join("\n");
+    // The comment is a post in the agent's stream, like anything else a
+    // person says to it: it reads in the Chat and reaches the agent as a
+    // prompt, quoting the lines it is about.
+    const location = `${body.filePath} · ${lineLabel}`;
+    const selectedCode = lines.join("\n");
+    const truncatedNote = "\n… (truncated)";
+    const code =
+      selectedCode.length > BLOCK_TEXT_MAX_CHARS
+        ? selectedCode.slice(0, BLOCK_TEXT_MAX_CHARS - truncatedNote.length) +
+          truncatedNote
+        : selectedCode;
+    const text =
+      code.length > 0
+        ? body.comment.trim()
+        : `${location}\n\n${body.comment.trim()}`;
 
     try {
-      await deps.sendAgentPrompt(id, prompt);
+      const streamId = await deps.chat.streamOf(id);
+      const posted = await deps.chat.sendUserPost(streamId, {
+        to: id,
+        text,
+        attachments:
+          code.length > 0 ? [{ type: "code", path: location, code }] : [],
+        allowInert: false,
+      });
+      return { delivered: true, block: posted.block };
     } catch (error) {
       deps.appLog.warn(
         { err: error, agentId: id },
-        "Diff comment: tmux delivery failed"
+        "Diff comment: delivery failed"
       );
       return reply
         .code(500)
         .send({ error: "Failed to deliver comment to agent." });
     }
-
-    return { delivered: true };
   });
 }
 
@@ -660,7 +588,7 @@ function extractNewFileLines(
 ): string[] {
   const lines: string[] = [];
   const diffLines = diffText.split("\n");
-  let newLineNum = 0;
+  let newLineNum: number | null = null;
 
   for (const line of diffLines) {
     const hunkMatch = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
@@ -669,7 +597,7 @@ function extractNewFileLines(
       continue;
     }
 
-    if (newLineNum === 0) continue;
+    if (newLineNum === null) continue;
 
     if (line.startsWith("-")) continue;
 

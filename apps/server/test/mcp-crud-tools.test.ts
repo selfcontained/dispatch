@@ -21,9 +21,8 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM jobs");
   await ctx.pool.query("DELETE FROM templates");
   await ctx.pool.query("DELETE FROM agent_token_usage");
-  await ctx.pool.query("DELETE FROM agent_events");
-  await ctx.pool.query("DELETE FROM media_seen");
-  await ctx.pool.query("DELETE FROM media");
+  await ctx.pool.query("DELETE FROM files_seen");
+  await ctx.pool.query("DELETE FROM files");
   await ctx.pool.query("DELETE FROM agents");
   await ctx.pool.query("DELETE FROM sessions");
   sessionCookie = await ctx.sessionCookie();
@@ -157,24 +156,6 @@ describe("MCP CRUD tools", () => {
         expect(response.body).toContain(tool);
       }
     });
-
-    it("does NOT expose CRUD tools for review agents", async () => {
-      await ctx.pool.query(
-        `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
-         VALUES
-         ('agt_crud_parent', 'parent', 'claude', 'standard', 'running', '/tmp', null, null, false),
-         ('agt_crud_persona', 'persona', 'claude', 'review', 'running', '/tmp', 'security-review', 'agt_crud_parent', false)`
-      );
-      const response = await mcpToolsList(
-        "/api/mcp/agt_crud_persona",
-        ctx.auth.createAgentMcpToken(authToken, "agt_crud_persona")
-      );
-
-      expect(response.statusCode).toBe(200);
-      for (const tool of CRUD_TOOL_NAMES) {
-        expect(response.body).not.toContain(`"${tool}"`);
-      }
-    });
   });
 
   // ── Job-scoped route CRUD ────────────────────────────────────────
@@ -256,6 +237,144 @@ describe("MCP CRUD tools", () => {
          VALUES ($1, 'job-crud-test', 'claude', 'running', '/tmp', false)`,
         [agentId]
       );
+    });
+
+    async function privilegedJob() {
+      await ctx.pool.query(
+        "UPDATE agents SET full_access = true WHERE id = $1",
+        [agentId]
+      );
+      const response = await mcpToolCall(agentId, "create_job", {
+        name: "privileged",
+        directory: "/tmp",
+        prompt: "Original prompt",
+        fullAccess: true,
+      });
+      const job = JSON.parse(parseToolText(response.body));
+      expect(job.id).toBeTruthy();
+      await ctx.pool.query(
+        "UPDATE agents SET full_access = false WHERE id = $1",
+        [agentId]
+      );
+      return job;
+    }
+
+    it.each(["create_job", "create_template"])(
+      "rejects restricted %s with full access",
+      async (tool) => {
+        const response = await mcpToolCall(agentId, tool, {
+          name: "escape",
+          directory: "/tmp",
+          prompt: "Run privileged",
+          fullAccess: true,
+          enabled: true,
+          schedule: "0 0 * * *",
+        });
+        expect(parseToolText(response.body)).toContain("Permission denied");
+        expect(
+          (await ctx.pool.query("SELECT id FROM templates")).rows
+        ).toHaveLength(0);
+        expect((await ctx.pool.query("SELECT id FROM jobs")).rows).toHaveLength(
+          0
+        );
+      }
+    );
+
+    it.each(["backing template", "legacy job"])(
+      "rejects a privileged run using the %s flag before creating a run",
+      async (source) => {
+        const job = await privilegedJob();
+        if (source === "backing template") {
+          await ctx.pool.query(
+            "UPDATE jobs SET full_access = false WHERE id = $1",
+            [job.id]
+          );
+        } else {
+          await ctx.pool.query(
+            "UPDATE jobs SET template_id = NULL WHERE id = $1",
+            [job.id]
+          );
+        }
+        const response = await mcpToolCall(agentId, "run_job", {
+          name: "privileged",
+          directory: "/tmp",
+        });
+        expect(parseToolText(response.body)).toContain("Permission denied");
+        expect(
+          (await ctx.pool.query("SELECT id FROM job_runs")).rows
+        ).toHaveLength(0);
+      }
+    );
+
+    it("blocks scheduled-job and backing-template mutation bypasses", async () => {
+      const job = await privilegedJob();
+      for (const change of [
+        { enabled: true, schedule: "0 0 * * *" },
+        { prompt: "Replacement prompt" },
+        { fullAccess: false, prompt: "Replacement prompt" },
+      ]) {
+        const response = await mcpToolCall(agentId, "update_job", {
+          name: "privileged",
+          directory: "/tmp",
+          ...change,
+        });
+        expect(parseToolText(response.body)).toContain("Permission denied");
+      }
+      const response = await mcpToolCall(agentId, "update_template", {
+        templateId: job.templateId,
+        prompt: "Replacement prompt",
+      });
+      expect(parseToolText(response.body)).toContain("Permission denied");
+      const saved = await ctx.pool.query(
+        "SELECT prompt, enabled FROM jobs WHERE id = $1",
+        [job.id]
+      );
+      expect(saved.rows[0]).toMatchObject({
+        prompt: "Original prompt",
+        enabled: false,
+      });
+      const template = await ctx.pool.query(
+        "SELECT prompt FROM templates WHERE id = $1",
+        [job.templateId]
+      );
+      expect(template.rows[0].prompt).toBe("Original prompt");
+    });
+
+    it("blocks upgrading restricted jobs and templates to full access", async () => {
+      const response = await mcpToolCall(agentId, "create_job", {
+        name: "restricted",
+        directory: "/tmp",
+        prompt: "Original prompt",
+      });
+      const job = JSON.parse(parseToolText(response.body));
+      for (const [tool, args] of [
+        [
+          "update_job",
+          { name: "restricted", directory: "/tmp", fullAccess: true },
+        ],
+        ["update_template", { templateId: job.templateId, fullAccess: true }],
+      ] as const) {
+        const result = await mcpToolCall(agentId, tool, args);
+        expect(parseToolText(result.body)).toContain("Permission denied");
+      }
+    });
+
+    it("does not disclose webhook credentials through job lookups", async () => {
+      const job = await privilegedJob();
+      await ctx.pool.query(
+        "UPDATE jobs SET webhook_enabled = true, webhook_secret = 'test-private-credential' WHERE id = $1",
+        [job.id]
+      );
+      for (const args of [
+        { jobId: job.id },
+        { name: "privileged", directory: "/tmp" },
+      ]) {
+        const response = await mcpToolCall(agentId, "get_job", args);
+        const result = JSON.parse(parseToolText(response.body));
+        expect(result.id).toBe(job.id);
+        expect(result).not.toHaveProperty("webhookSecret");
+        expect(response.body).not.toContain("test-private-credential");
+      }
     });
 
     it("creates, lists, gets, updates, and deletes a job", async () => {
@@ -401,7 +520,7 @@ describe("MCP CRUD tools", () => {
         )
       );
       expect(afterCreate.callable).toBe(true);
-      expect(afterCreate.allowMedia).toBe(true);
+      expect(afterCreate.allowFiles).toBe(true);
 
       // list_templates — scoped to /tmp
       const listRes = await mcpToolCall(agentId, "list_templates", {

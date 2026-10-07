@@ -6,30 +6,16 @@
  * apps/web/src/hooks/use-agent-history.ts.
  */
 
-export type HistoryLatestEvent = {
-  type: string;
-  message: string;
-  updatedAt: string;
-  metadata: Record<string, unknown> | null;
-};
+import type { FileMedia } from "@dispatch/shared";
 
 export type HistoryChildAgent = {
   id: string;
   name: string;
   persona: string | null;
   status: string;
-  latestEvent: HistoryLatestEvent | null;
   totalTokens: number;
   createdAt: string;
   updatedAt: string;
-};
-
-export type HistoryEvent = {
-  id: number;
-  event_type: string;
-  message: string;
-  metadata: Record<string, unknown>;
-  created_at: string;
 };
 
 export type HistoryTokenTotals = {
@@ -50,13 +36,16 @@ export type HistoryTokenUsage = HistoryTokenTotals & {
   by_model: HistoryTokenByModel[];
 };
 
-export type HistoryMedia = {
+export type HistoryFile = {
   id: number;
   file_name: string;
   source: string;
   size_bytes: number;
   description: string | null;
   created_at: string;
+  mime_type: string;
+  /** Derived from `mime_type` by the route; see `fileMedia`. */
+  media: FileMedia;
 };
 
 export type HistoryFeedbackItem = {
@@ -68,7 +57,7 @@ export type HistoryFeedbackItem = {
   lineNumber: number | null;
   description: string;
   suggestion: string | null;
-  mediaRef: string | null;
+  fileRef: string | null;
   status: string;
   createdAt: string;
 };

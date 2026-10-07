@@ -39,13 +39,6 @@ import {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function getAgentActivityAt(agent: {
-  latestEvent?: { updatedAt: string } | null;
-  updatedAt: string;
-}): string {
-  return agent.latestEvent?.updatedAt ?? agent.updatedAt;
-}
-
 // ── List View ───────────────────────────────────────────────────────
 
 type SortKey = "created_at" | "name" | "updated_at";
@@ -148,7 +141,6 @@ function AgentHistoryList({
               <SelectItem value="__all__">All types</SelectItem>
               <SelectItem value="claude">Claude</SelectItem>
               <SelectItem value="codex">Codex</SelectItem>
-              <SelectItem value="opencode">OpenCode</SelectItem>
             </SelectContent>
           </Select>
 
@@ -321,7 +313,7 @@ function AgentHistoryList({
                       )}
                     </td>
                     <td className="px-2 py-2.5 pr-3 text-muted-foreground sm:pr-5">
-                      {formatRelativeTime(getAgentActivityAt(agent))}
+                      {formatRelativeTime(agent.updatedAt)}
                     </td>
                   </tr>
                   {hasChildren &&
@@ -351,7 +343,7 @@ function AgentHistoryList({
                             : "—"}
                         </td>
                         <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-5">
-                          {formatRelativeTime(getAgentActivityAt(child))}
+                          {formatRelativeTime(child.updatedAt)}
                         </td>
                       </tr>
                     ))}

@@ -12,7 +12,7 @@ test.describe("App shell", () => {
     await loadApp(page);
 
     await expect(page.getByTestId("agent-sidebar")).toBeVisible();
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
     await expect(page.getByTestId("status-footer")).toHaveCount(0);
     await expect(page.getByTestId("app-header")).toHaveCount(0);
   });
@@ -22,9 +22,9 @@ test.describe("App shell", () => {
   }) => {
     await loadApp(page);
 
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
-    await expect(page.getByTestId("terminal-empty-state")).toContainText(
-      "Tap an agent row to focus it."
+    await expect(page.getByTestId("chat-empty")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting."
     );
   });
 
@@ -44,32 +44,6 @@ test.describe("App shell", () => {
 
     const dbStatus = sidebar.getByTestId("service-status-db");
     await expect(dbStatus).toContainText("ok", { timeout: 10_000 });
-  });
-
-  test("bottom bar collapses, persists across reload, and expands back", async ({
-    page,
-  }) => {
-    await loadApp(page);
-
-    const toggle = page.getByTestId("bottom-bar-toggle");
-    await expect(page.getByTestId("bottom-bar")).toBeVisible();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-
-    await toggle.click();
-    await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(toggle).toBeFocused();
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
-    await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-bar-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false"
-    );
-
-    await page.getByTestId("bottom-bar-toggle").click();
-    await expect(page.getByTestId("bottom-bar")).toBeVisible();
   });
 
   test("sidebar shows the Dispatch logo", async ({ page }) => {

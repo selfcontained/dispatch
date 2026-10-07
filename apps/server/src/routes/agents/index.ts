@@ -4,8 +4,12 @@ import type { AgentRouteDeps } from "./shared.js";
 import { registerAgentCrudRoutes } from "./crud-routes.js";
 import { registerAgentEventRoutes } from "./events-routes.js";
 import { registerAgentLifecycleRoutes } from "./lifecycle-routes.js";
+import { registerAgentPromptRoutes } from "./prompt-routes.js";
 import { registerAgentStreamingRoutes } from "./streaming-routes.js";
-import { registerAgentTerminalRoutes } from "./terminal-routes.js";
+import { registerAgentPermissionRoutes } from "./permission-routes.js";
+import { registerAgentUsageRoutes } from "./usage-routes.js";
+
+import { registerAgentWorkspaceRoutes } from "./workspace-routes.js";
 
 export type { AgentRouteDeps } from "./shared.js";
 
@@ -13,9 +17,12 @@ export async function registerAgentRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
+  await registerAgentWorkspaceRoutes(app, deps);
   await registerAgentEventRoutes(app, deps);
   await registerAgentCrudRoutes(app, deps);
   await registerAgentLifecycleRoutes(app, deps);
   await registerAgentStreamingRoutes(app, deps);
-  await registerAgentTerminalRoutes(app, deps);
+  await registerAgentPromptRoutes(app, deps);
+  await registerAgentUsageRoutes(app, deps);
+  await registerAgentPermissionRoutes(app, deps);
 }

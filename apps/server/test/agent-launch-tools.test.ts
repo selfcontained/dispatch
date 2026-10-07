@@ -47,14 +47,14 @@ describe("registerAgentLaunchTools", () => {
   });
 
   describe("conditional registration", () => {
-    it("registers dispatch_launch_agent when allowed and context is complete", () => {
+    it("registers launch_agent when allowed and context is complete", () => {
       registerAgentLaunchTools(
         server as never,
-        new Set(["dispatch_launch_agent"]),
+        new Set(["launch_agent"]),
         baseContext()
       );
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["dispatch_launch_agent"]);
+      expect(names).toEqual(["launch_agent"]);
     });
 
     it("registers nothing when allowed set is empty", () => {
@@ -65,27 +65,17 @@ describe("registerAgentLaunchTools", () => {
     it("skips when launchAgent callback is missing", () => {
       const ctx = baseContext();
       delete (ctx as Record<string, unknown>).launchAgent;
-      registerAgentLaunchTools(
-        server as never,
-        new Set(["dispatch_launch_agent"]),
-        ctx
-      );
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
       expect(server.tools).toHaveLength(0);
     });
   });
 
-  describe("dispatch_launch_agent handler", () => {
+  describe("launch_agent handler", () => {
     it("calls launchAgent with name and prompt", async () => {
       const ctx = baseContext();
-      registerAgentLaunchTools(
-        server as never,
-        new Set(["dispatch_launch_agent"]),
-        ctx
-      );
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
 
-      const tool = server.tools.find(
-        (t) => t.name === "dispatch_launch_agent"
-      )!;
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
       const result = await tool.handler({
         name: "test-child",
         prompt: "Do stuff",
@@ -108,15 +98,9 @@ describe("registerAgentLaunchTools", () => {
 
     it("passes optional parameters through", async () => {
       const ctx = baseContext();
-      registerAgentLaunchTools(
-        server as never,
-        new Set(["dispatch_launch_agent"]),
-        ctx
-      );
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
 
-      const tool = server.tools.find(
-        (t) => t.name === "dispatch_launch_agent"
-      )!;
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
       await tool.handler({
         name: "isolated-worker",
         prompt: "Do stuff in isolation",
@@ -140,6 +124,45 @@ describe("registerAgentLaunchTools", () => {
       });
     });
 
+    // The handler copies named keys only, so a key it forgets never reaches
+    // launchAgent: a persona launch silently became a plain agent.
+    it("passes the persona and briefing through without a diff option", async () => {
+      const ctx = baseContext();
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
+
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
+      expect(Object.keys(tool.config.inputSchema as object)).not.toContain(
+        "includeDiff"
+      );
+      const result = (await tool.handler({
+        includeDiff: true, // stale callers cannot enable automatic diff injection
+
+        name: "reviewer",
+        prompt: "Review the diff",
+        persona: "code-review",
+      })) as { content: Array<{ text: string }> };
+      expect(result.content[0]?.text).toContain(
+        "Dispatch will send you a new prompt"
+      );
+      expect(result.content[0]?.text).toContain("do not poll list_agents");
+      expect(ctx.launchAgent).toHaveBeenCalledWith(AGENT_ID, {
+        name: "reviewer",
+        prompt: "Review the diff",
+        persona: "code-review",
+      });
+
+      await tool.handler({
+        name: "reviewer-2",
+        prompt: "Again",
+        persona: "security-review",
+      });
+      expect(ctx.launchAgent).toHaveBeenLastCalledWith(AGENT_ID, {
+        name: "reviewer-2",
+        prompt: "Again",
+        persona: "security-review",
+      });
+    });
+
     // Worktree placement is an instance-wide, operator-owned setting. The tool
     // must not offer a per-call override, at either layer: the schema has no
     // such key (so the SDK's z.object strips it off the wire), and the handler
@@ -147,28 +170,20 @@ describe("registerAgentLaunchTools", () => {
     it("does not declare a worktreeLocation input", () => {
       registerAgentLaunchTools(
         server as never,
-        new Set(["dispatch_launch_agent"]),
+        new Set(["launch_agent"]),
         baseContext()
       );
 
-      const tool = server.tools.find(
-        (t) => t.name === "dispatch_launch_agent"
-      )!;
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
       const inputSchema = tool.config.inputSchema as Record<string, unknown>;
       expect(Object.keys(inputSchema)).not.toContain("worktreeLocation");
     });
 
     it("drops a caller-supplied worktreeLocation", async () => {
       const ctx = baseContext();
-      registerAgentLaunchTools(
-        server as never,
-        new Set(["dispatch_launch_agent"]),
-        ctx
-      );
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
 
-      const tool = server.tools.find(
-        (t) => t.name === "dispatch_launch_agent"
-      )!;
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
       await tool.handler({
         name: "child",
         prompt: "work",
@@ -188,15 +203,9 @@ describe("registerAgentLaunchTools", () => {
       (ctx.launchAgent as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error("Agent type disabled")
       );
-      registerAgentLaunchTools(
-        server as never,
-        new Set(["dispatch_launch_agent"]),
-        ctx
-      );
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
 
-      const tool = server.tools.find(
-        (t) => t.name === "dispatch_launch_agent"
-      )!;
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
       const result = (await tool.handler({
         name: "child",
         prompt: "hello",

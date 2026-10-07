@@ -48,17 +48,14 @@ export function AutomationsContent() {
             <Code>{"{{D:Arg Name|required|multiline}}"}</Code> (see below).
           </li>
           <li>
-            <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-            <Code>codex</Code>, <Code>cursor</Code>, <Code>opencode</Code>, or{" "}
-            <Code>terminal</Code>. Terminal templates launch a plain shell
-            session and skip the prompt, worktree, full access, media, and
-            self-improve fields below.
+            <strong>Agent type</strong> — <Code>claude</Code> or{" "}
+            <Code>codex</Code>.
           </li>
           <li>
             <strong>Model</strong> — shown for CLI types with a curated model
-            catalog (<Code>claude</Code>, <Code>codex</Code>). Launches pin the
-            agent to that model; leave <strong>Default</strong> to use the CLI's
-            own setting.
+            catalog (<Code>claude</Code>, <Code>codex</Code>,{" "}
+            <Code>opencode</Code>). Launches pin the agent to that model; leave{" "}
+            <strong>Default</strong> to use the CLI's own setting.
           </li>
           <li>
             <strong>Use worktree</strong> — give each launch its own git
@@ -73,7 +70,7 @@ export function AutomationsContent() {
             appears in the <Code>Mod+K</Code> palette for quick access.
           </li>
           <li>
-            <strong>Allow media attachments on launch</strong> — when on (the
+            <strong>Allow file attachments on launch</strong> — when on (the
             default), the launch dialog shows a Context section where you can
             attach files (images, PDFs, text) or paste links. These are pinned
             to the agent and available from the start of the session.
@@ -153,7 +150,7 @@ export function AutomationsContent() {
           itself.
         </P>
         <P>
-          When a template has <strong>Allow media attachments</strong> enabled,
+          When a template has <strong>Allow file attachments</strong> enabled,
           the launch dialog includes a <strong>Context</strong> section for
           attaching files or links. You can drag-and-drop files, use the{" "}
           <em>Add</em> menu to pick files or enter URLs, paste from the
@@ -211,15 +208,14 @@ export function AutomationsContent() {
             can save the schedule without firing it yet.
           </li>
           <li>
-            <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-            <Code>codex</Code>, <Code>cursor</Code>, or <Code>opencode</Code>.
-            Terminal-type agents can't run jobs.
+            <strong>Agent type</strong> — <Code>claude</Code> or{" "}
+            <Code>codex</Code>.
           </li>
           <li>
             <strong>Model</strong> — shown for agent types with a curated model
-            catalog (<Code>claude</Code>, <Code>codex</Code>). Runs pin the
-            spawned agent to that model; leave <strong>Default</strong> to use
-            the CLI's own setting.
+            catalog (<Code>claude</Code>, <Code>codex</Code>,{" "}
+            <Code>opencode</Code>). Runs pin the spawned agent to that model;
+            leave <strong>Default</strong> to use the CLI's own setting.
           </li>
           <li>
             <strong>Prompt</strong> — the instructions sent as the agent's first
@@ -355,11 +351,10 @@ export function AutomationsContent() {
             shape.
           </li>
           <li>
-            <Code>job_needs_input</Code> — pause the run and surface the
-            question on its History entry. Answer the agent in its own terminal
-            session; the run stays in <Code>needs_input</Code> until the agent
-            calls a terminal tool or a timeout fires. There is no answer box in
-            the Jobs UI.
+            <Code>job_needs_input</Code> — pause the run and show the question
+            on its History entry. Answer the agent in its Chat; the run stays in{" "}
+            <Code>needs_input</Code> until the agent reports again or a timeout
+            fires. There is no answer box in the Jobs UI.
           </li>
         </ul>
         <P>
@@ -368,8 +363,7 @@ export function AutomationsContent() {
           <Code>timed_out</Code>, and <Code>crashed</Code>. A run that exceeds
           its run timeout without reaching a terminal tool is force-stopped as{" "}
           <Code>timed_out</Code>; one whose agent session ends first — stopped,
-          errored, or its tmux session gone — is recorded as{" "}
-          <Code>crashed</Code>.
+          errored, or its process gone — is recorded as <Code>crashed</Code>.
         </P>
       </Section>
 
@@ -382,42 +376,23 @@ export function AutomationsContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Status &amp; comms</strong> — <Code>dispatch_event</Code>,{" "}
-            <Code>dispatch_pin</Code>, <Code>dispatch_pins</Code>,{" "}
-            <Code>dispatch_list_pins</Code>, <Code>dispatch_delete_pin</Code>,{" "}
-            <Code>dispatch_share_file</Code>, <Code>dispatch_list_media</Code>,{" "}
-            <Code>dispatch_delete_media</Code>,{" "}
-            <Code>dispatch_rename_session</Code>, and{" "}
-            <Code>dispatch_notify</Code> all behave the same as for standard
-            agents. Renaming the session is handy when the job's prompt is
-            generic but each run has a more specific topic.
+            <strong>The stream</strong> — <Code>post</Code>, <Code>update</Code>
+            , and <Code>react</Code> behave the same as for standard agents: a
+            link for the PR a run opened, a file for a report,{" "}
+            <Code>notify: true</Code> for a post that should page you.{" "}
+            <Code>list_files</Code>, <Code>delete_file</Code>, and{" "}
+            <Code>rename_session</Code> are there too — renaming the session is
+            handy when the job's prompt is generic but each run has a more
+            specific topic.
           </li>
           <li>
-            <strong>Pull requests</strong> — <Code>create_pr</Code> opens a PR
-            from the current branch and <Code>get_pr_status</Code> polls CI.
-            Useful for jobs that ship a routine change (cleanup PRs, dep bumps,
-            doc audits).
-          </li>
-          <li>
-            <strong>Discovery &amp; messaging</strong> —{" "}
-            <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
-            <Code>dispatch_launch_agent</Code>,{" "}
-            <Code>dispatch_archive_agent</Code>, <Code>list_personas</Code>,{" "}
-            <Code>persona_templates</Code>, <Code>persona_upsert</Code>,{" "}
-            <Code>persona_validate</Code>, <Code>get_activity_summary</Code> and{" "}
+            <strong>Discovery &amp; coordination</strong> —{" "}
+            <Code>list_agents</Code>, <Code>launch_agent</Code> (with{" "}
+            <Code>persona</Code>), <Code>archive_agent</Code>,{" "}
+            <Code>list_personas</Code>, <Code>persona_templates</Code>,{" "}
+            <Code>persona_upsert</Code>, <Code>persona_validate</Code>,{" "}
             <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
-          </li>
-          <li>
-            <strong>Tracked reviews</strong> —{" "}
-            <Code>dispatch_launch_persona</Code>,{" "}
-            <Code>dispatch_review_list_feedback</Code>,{" "}
-            <Code>dispatch_review_get_feedback</Code>,{" "}
-            <Code>dispatch_review_add_message</Code>,{" "}
-            <Code>dispatch_review_resolve</Code>, and{" "}
-            <Code>dispatch_review_reopen</Code>. The same family covers findings
-            a persona filed and feedback a human left on the Changes tab — read
-            them, reply in the item thread, and set each outcome. See below.
           </li>
           <li>
             <strong>Brain (shared memory)</strong> —{" "}
@@ -447,11 +422,11 @@ export function AutomationsContent() {
         <P>
           Because job agents can launch personas and act on their findings, a
           recurring job can self-review its own work without a human in the
-          loop: open a PR with <Code>create_pr</Code>, launch a persona with{" "}
-          <Code>dispatch_launch_persona</Code>, read any findings with{" "}
-          <Code>dispatch_review_list_feedback</Code>, converse in item threads,
-          and set each outcome with <Code>dispatch_review_resolve</Code>. A
-          clean approval is recorded with its summary and requires no follow-up.
+          loop: open a PR, launch a reviewer with <Code>launch_agent</Code> and{" "}
+          <Code>persona</Code>, read the <Code>review</Code> block it posts
+          back, and answer each finding in its thread; the reviewer resolves
+          each one. A clean pass arrives as a review with no findings and
+          requires no follow-up.
         </P>
       </Section>
 

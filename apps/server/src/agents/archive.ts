@@ -1,6 +1,9 @@
+import { realpath } from "node:fs/promises";
+
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
+import { normalizePath } from "../shared/git/git-context.js";
 import { cleanupGitWorktree } from "../shared/git/worktree.js";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import {
@@ -24,13 +27,15 @@ export type ArchiveDeps = {
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
-  harvestAgentTokens: (agent: AgentRecord) => Promise<void>;
   setAgentStatus: (
     id: string,
     status: AgentStatus,
-    lastError: string | null,
-    tmuxSession?: string
+    lastError: string | null
   ) => Promise<void>;
+  /** The stop about to happen is deliberate: the turn it cuts is not a failure. */
+  beginStopStream: (id: string) => void;
+  /** Settle stream rows the stopped host left open, as stopped. */
+  settleStream: (id: string) => Promise<number>;
   setArchivePhase: (id: string, phase: ArchivePhase) => Promise<void>;
 };
 
@@ -105,15 +110,23 @@ async function cleanupAgentWorktree(
 
   const run = async () => {
     // No uniqueness constraint on either column, so two live rows can name one
-    // worktree; removing it would take the other agent's work.
+    // worktree; removing it would take the other agent's work. Another agent
+    // that moved its workspace into this worktree counts too. Workspaces are
+    // stored as real paths while worktree_path keeps the path it was created
+    // under, so match both spellings (/tmp vs /private/tmp, symlinked roots).
+    const worktreeSpellings = [
+      ...new Set([worktreePath, await realpathOrSelf(worktreePath)]),
+    ];
     const coOwner = await pool.query<{ id: string }>(
       `SELECT id
        FROM agents
        WHERE deleted_at IS NULL
          AND id <> $1
-         AND (worktree_path = $2 OR ($3::text IS NOT NULL AND worktree_branch = $3))
+         AND (worktree_path = $2
+              OR workspace_path = ANY($4::text[])
+              OR ($3::text IS NOT NULL AND worktree_branch = $3))
        LIMIT 1`,
-      [id, worktreePath, agent.worktreeBranch]
+      [id, worktreePath, agent.worktreeBranch, worktreeSpellings]
     );
     if ((coOwner.rowCount ?? 0) > 0) {
       logger.warn(
@@ -261,17 +274,12 @@ export async function executeArchive(
           "Stop hook failed during archive; continuing"
         )
       );
-      if (agent.tmuxSession && (await runtime.hasSession(agent.tmuxSession))) {
-        await runtime.stopSession(agent.tmuxSession, true);
-      }
-      deps
-        .harvestAgentTokens(agent)
-        .catch((err) =>
-          logger.warn(
-            { err, agentId: id },
-            "Token harvest failed during archive"
-          )
-        );
+      deps.beginStopStream(id);
+      await runtime.stop(id, true);
+      await deps.settleStream(id);
+      // The state directory holds the launch file with the MCP token; the
+      // stream is already in the database.
+      await runtime.discard(id);
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -302,24 +310,6 @@ export async function executeArchive(
     await publishPhase("finalizing");
 
     const tDb = Date.now();
-    await pool.query(
-      `UPDATE agent_surfaces SET lifecycle = 'frozen', revision = revision + 1, updated_at = NOW()
-       WHERE agent_id = $1 AND deleted_at IS NULL AND lifecycle = 'active'`,
-      [id]
-    );
-    await pool.query(
-      `UPDATE agent_surface_interactions SET status = 'orphaned', resolved_at = NOW()
-       WHERE agent_id = $1 AND status IN ('queued', 'notified', 'claimed')`,
-      [id]
-    );
-    await pool
-      .query(
-        `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-         SELECT $1, 'idle', 'Agent deleted.', '{"source":"system"}'::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-         FROM agents WHERE id = $1`,
-        [id]
-      )
-      .catch((err) => logger.warn({ err }, "Failed to insert delete event"));
 
     await pool.query(
       "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1",
@@ -391,9 +381,6 @@ export async function deleteAgentDirect(
   const deleteStart = Date.now();
   const durations: Record<string, number> = {};
   const agent = await deps.getRequiredAgent(id);
-  const sessionExists = agent.tmuxSession
-    ? await runtime.hasSession(agent.tmuxSession)
-    : false;
 
   // Claim before any teardown — an agent's own archive and an ancestor's
   // cascade can reach it at once. Same CAS `beginArchive` takes.
@@ -423,17 +410,12 @@ export async function deleteAgentDirect(
           "Stop hook failed during delete; continuing"
         )
       );
-      if (agent.tmuxSession && sessionExists) {
-        await runtime.stopSession(agent.tmuxSession, true);
-      }
-      deps
-        .harvestAgentTokens(agent)
-        .catch((err) =>
-          logger.warn(
-            { err, agentId: id },
-            "Token harvest failed during delete"
-          )
-        );
+      deps.beginStopStream(id);
+      await runtime.stop(id, true);
+      await deps.settleStream(id);
+      // The state directory holds the launch file with the MCP token; the
+      // stream is already in the database.
+      await runtime.discard(id);
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -444,25 +426,7 @@ export async function deleteAgentDirect(
   }
 
   const tDb = Date.now();
-  await pool
-    .query(
-      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-       SELECT $1, 'idle', 'Agent deleted.', '{"source":"system"}'::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-       FROM agents WHERE id = $1`,
-      [id]
-    )
-    .catch((err) => logger.warn({ err }, "Failed to insert delete event"));
 
-  await pool.query(
-    `UPDATE agent_surfaces SET lifecycle = 'frozen', revision = revision + 1, updated_at = NOW()
-     WHERE agent_id = $1 AND deleted_at IS NULL AND lifecycle = 'active'`,
-    [id]
-  );
-  await pool.query(
-    `UPDATE agent_surface_interactions SET status = 'orphaned', resolved_at = NOW()
-     WHERE agent_id = $1 AND status IN ('queued', 'notified', 'claimed')`,
-    [id]
-  );
   // Keeping it would leave a worktree no agent record can reach.
   await cleanupAgentWorktree(
     pool,
@@ -511,4 +475,12 @@ export async function deleteAgentDirect(
   logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
 
   return deletedIds;
+}
+
+async function realpathOrSelf(dir: string): Promise<string> {
+  try {
+    return normalizePath(await realpath(dir));
+  } catch {
+    return dir;
+  }
 }

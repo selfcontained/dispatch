@@ -2,17 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import type {
   HistoryChildAgent,
-  HistoryEvent,
-  HistoryFeedbackItem,
-  HistoryLatestEvent,
-  HistoryMedia,
+  HistoryFile,
   HistoryTokenUsage,
 } from "../../../server/src/routes/activity/history-wire";
 
 import { api } from "@/lib/api";
 import { getRangeBounds, type ActivityRange } from "@/hooks/use-activity";
-import { type AgentPin } from "@/components/app/types";
-import { type AgentMessage } from "@/hooks/use-agent-messages";
 
 const HISTORY_QUERY_OPTIONS = {
   staleTime: 60_000,
@@ -20,13 +15,7 @@ const HISTORY_QUERY_OPTIONS = {
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type {
-  HistoryChildAgent,
-  HistoryEvent,
-  HistoryFeedbackItem,
-  HistoryMedia,
-  HistoryTokenUsage,
-};
+export type { HistoryChildAgent, HistoryFile, HistoryTokenUsage };
 
 export type HistoryAgent = {
   id: string;
@@ -36,7 +25,6 @@ export type HistoryAgent = {
   cwd: string;
   worktreePath: string | null;
   worktreeBranch: string | null;
-  latestEvent: HistoryLatestEvent | null;
   gitContext: {
     repoRoot: string;
     branch: string;
@@ -60,15 +48,9 @@ export type HistoryAgentsResponse = {
 };
 
 export type HistoryAgentDetail = {
-  agent: Omit<HistoryAgent, "durationMs" | "totalTokens"> & {
-    pins: AgentPin[];
-  };
-  events: HistoryEvent[];
+  agent: Omit<HistoryAgent, "durationMs" | "totalTokens">;
   tokenUsage: HistoryTokenUsage;
-  media: HistoryMedia[];
-  feedback: HistoryFeedbackItem[];
-  messages: AgentMessage[];
-  stateDurations: Record<string, number>;
+  files: HistoryFile[];
 };
 
 // ── Filters ────────────────────────────────────────────────────────

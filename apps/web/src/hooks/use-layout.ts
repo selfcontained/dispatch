@@ -12,7 +12,7 @@ export function useLayout() {
       : false
   );
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
-  const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   const leftPanelOpen = isMobile ? mobileLeftOpen : leftOpen;
 
@@ -29,14 +29,14 @@ export function useLayout() {
   useEffect(() => {
     if (!isMobile) {
       setMobileLeftOpen(false);
-      setMobileMediaOpen(false);
+      setMobileDrawerOpen(false);
     }
   }, [isMobile]);
 
   const handleSetLeftPanelOpen = useCallback(
     (open: boolean) => {
       if (isMobile) {
-        if (open) setMobileMediaOpen(false);
+        if (open) setMobileDrawerOpen(false);
         setMobileLeftOpen(open);
         return;
       }
@@ -51,10 +51,10 @@ export function useLayout() {
       leftOpen,
       leftPanelOpen,
       mobileLeftOpen,
-      mobileMediaOpen,
+      mobileDrawerOpen,
       setLeftOpen,
       setMobileLeftOpen,
-      setMobileMediaOpen,
+      setMobileDrawerOpen,
       handleSetLeftPanelOpen,
     }),
     [
@@ -62,7 +62,7 @@ export function useLayout() {
       leftOpen,
       leftPanelOpen,
       mobileLeftOpen,
-      mobileMediaOpen,
+      mobileDrawerOpen,
       setLeftOpen,
       handleSetLeftPanelOpen,
     ]

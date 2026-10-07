@@ -133,10 +133,10 @@ describe("copyTruncateFile", () => {
 });
 
 describe("createDiagnosticsRecorder shape", () => {
-  // Sanity check that the factory exposes only the three documented
-  // entry points — guards against accidentally widening the public
+  // Sanity check that the factory exposes only the documented
+  // entry point — guards against accidentally widening the public
   // surface in a future refactor.
-  it("exposes exactly the three documented methods", async () => {
+  it("exposes exactly the documented methods", async () => {
     const { createDiagnosticsRecorder } = await import("../src/diagnostics.js");
     const noopLogger = {
       info: () => {},
@@ -151,11 +151,7 @@ describe("createDiagnosticsRecorder shape", () => {
     } as unknown as import("fastify").FastifyBaseLogger;
 
     const recorder = createDiagnosticsRecorder(noopLogger);
-    expect(Object.keys(recorder).sort()).toEqual([
-      "captureMissingSessionIncident",
-      "maybeCaptureTmuxInventory",
-      "maybeMaintenanceLogs",
-    ]);
+    expect(Object.keys(recorder).sort()).toEqual(["maybeMaintenanceLogs"]);
   });
 
   it("returns independent recorders (throttle clocks live in separate closures)", async () => {
@@ -178,6 +174,6 @@ describe("createDiagnosticsRecorder shape", () => {
     const a = createDiagnosticsRecorder(noopLogger);
     const b = createDiagnosticsRecorder(noopLogger);
     expect(a).not.toBe(b);
-    expect(a.maybeCaptureTmuxInventory).not.toBe(b.maybeCaptureTmuxInventory);
+    expect(a.maybeMaintenanceLogs).not.toBe(b.maybeMaintenanceLogs);
   });
 });

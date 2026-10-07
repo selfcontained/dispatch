@@ -13,9 +13,6 @@ const H = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/hooks/use-chat-surface-enabled", () => ({
-  useChatSurfaceEnabled: () => ({ enabled: H.enabled, loaded: true }),
-}));
 vi.mock("@/lib/api", () => ({
   api: vi.fn(async () => H.summary),
 }));

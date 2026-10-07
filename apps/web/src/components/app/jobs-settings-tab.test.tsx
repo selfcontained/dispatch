@@ -112,7 +112,7 @@ function renderTab(job: Job) {
     <QueryClientProvider client={client}>
       <SettingsTab
         job={job}
-        enabledAgentTypes={["claude", "codex", "terminal"]}
+        enabledAgentTypes={["claude", "codex"]}
         onUpdateJob={onUpdateJob}
         onRemoveJob={onRemoveJob}
         isUpdating={false}
@@ -125,7 +125,7 @@ function renderTab(job: Job) {
       <QueryClientProvider client={client}>
         <SettingsTab
           job={nextJob}
-          enabledAgentTypes={["claude", "codex", "terminal"]}
+          enabledAgentTypes={["claude", "codex"]}
           onUpdateJob={onUpdateJob}
           onRemoveJob={onRemoveJob}
           isUpdating={false}

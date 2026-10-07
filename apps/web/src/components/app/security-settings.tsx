@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { CertificateTrustSettings } from "./certificate-trust-settings";
 
 type SecuritySettingsProps = {
   onLogout: () => void;
@@ -110,6 +111,7 @@ export function SecuritySettings({
 
   return (
     <div className="flex flex-col gap-8 p-6">
+      <CertificateTrustSettings />
       <div>
         <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           {passwordSet ? "Change Password" : "Set Password"}

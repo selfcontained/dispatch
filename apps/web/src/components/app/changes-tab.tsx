@@ -1,10 +1,20 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BlockFindingPatch, BlockReviewSeverity } from "@dispatch/shared";
+import { reviewFindings } from "@dispatch/shared";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
-import { FileDiff, Loader2 } from "lucide-react";
+import { FileDiff, Loader2, MessageSquarePlus } from "lucide-react";
 import { parseDiff } from "react-diff-view";
 
 import { useAgentDiff } from "@/hooks/use-agent-diff";
+import { useRootAgentId } from "@/hooks/use-agent-tree";
+import { useDrawerRoute } from "@/hooks/use-drawer-route";
+import { useSetBlockState } from "@/hooks/use-stream";
+import { useInbox } from "@/hooks/use-inbox";
+import type {
+  DiffFinding,
+  DiffFindingsProps,
+} from "@/components/app/diff-review-annotation-props";
 import {
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
@@ -14,8 +24,13 @@ import {
   reviewDraftAtomFamily,
 } from "@/lib/store";
 import { useVisibleDiffFiles } from "@/hooks/use-visible-diff";
+import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { ReviewModeBar } from "@/components/app/review-mode";
-import { useAllReviewFeedbackItems } from "@/hooks/use-agent-reviews";
+import { type Agent } from "@/components/app/types";
+import { Button } from "@/components/ui/button";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { type AgentType } from "@/lib/agent-types";
+import { FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import {
   findLastChangeKeyInRange,
   type LineSelection,
@@ -25,23 +40,153 @@ import { DiffPane } from "@/components/app/changes-diff-section";
 
 type ChangesTabProps = {
   agentId: string | null;
+  agent: Agent | null;
+  enabledAgentTypes: AgentType[];
   active: boolean;
   isMobile?: boolean;
-  onReviewSubmitted?: (reviewId: number) => void;
+  /** A hand-written review was posted as a review block. */
+  onReviewPosted?: (blockId: string) => void;
+  /** Names an agent in the tree, for who left a finding. */
+  agentNameById?: (agentId: string) => string;
 };
+
+/**
+ * The toolbar above the diff: launch personas (reviewers) as children of
+ * this agent, or review the diff by hand and post it as a review block.
+ */
+function ChangesToolbar({
+  agent,
+  enabledAgentTypes,
+  onStartReview,
+}: {
+  agent: Agent;
+  enabledAgentTypes: AgentType[];
+  onStartReview: () => void;
+}): JSX.Element {
+  const isStopped = agent.status !== "running";
+  // The launcher's disabled and error states are tooltips, and the tab has
+  // no provider of its own above it (the sidebar card's footer does).
+  return (
+    <TooltipProvider delayDuration={200}>
+      <div
+        className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5"
+        data-testid="changes-toolbar"
+      >
+        <span className="text-xs font-medium text-muted-foreground">
+          Review
+        </span>
+        <div className="flex-1" />
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          data-testid="changes-start-review"
+          onClick={onStartReview}
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" />
+          Leave a review
+        </Button>
+        <PersonaLauncher
+          agent={agent}
+          enabledAgentTypes={enabledAgentTypes}
+          label="Launch personas"
+          disabled={isStopped || agent.status === "archiving"}
+          disabledReason={
+            isStopped
+              ? "Agent is stopped — start it before launching a persona."
+              : agent.status === "archiving"
+                ? "Agent is archiving."
+                : undefined
+          }
+        />
+      </div>
+    </TooltipProvider>
+  );
+}
 
 export const ChangesTab = memo(function ChangesTab({
   agentId,
+  agent,
+  enabledAgentTypes,
   active,
   isMobile,
-  onReviewSubmitted,
+  onReviewPosted,
+  agentNameById,
 }: ChangesTabProps): JSX.Element {
+  // A hand-written review is a block in the agent's stream: the root's.
+  // Nothing is fetched while the tab is inactive.
+  const rootId = useRootAgentId(active ? agentId : null);
+
+  // The reviews of this agent's work, from the stream the Chat tab holds:
+  // each finding with a path is placed in the diff at its line.
+  const inbox = useInbox(active ? agentId : null);
+  const nameOf = useCallback(
+    (id: string) =>
+      id === agentId
+        ? (agent?.name ?? "Agent")
+        : (agentNameById?.(id) ?? "Agent"),
+    [agent?.name, agentId, agentNameById]
+  );
+  const findingItems = useMemo<DiffFinding[]>(
+    () =>
+      inbox.reviews.flatMap((block) =>
+        reviewFindings(block)
+          .filter((finding) => finding.data.path)
+          .map((finding) => ({
+            key: finding.id,
+            block,
+            findingId: finding.id,
+            finding: finding.data,
+            record: finding.state ?? null,
+            reviewerName:
+              block.author.kind === "agent"
+                ? nameOf(block.author.agentId)
+                : "You",
+          }))
+      ),
+    [nameOf, inbox.reviews]
+  );
+  const [focusedFindingKey, setFocusedFindingKey] = useState<string | null>(
+    null
+  );
+  const onFindingFocusComplete = useCallback((key: string) => {
+    setFocusedFindingKey((current) => (current === key ? null : current));
+  }, []);
+  const { openThread } = useDrawerRoute();
+  const { mutate: setBlockStateNow } = useSetBlockState(rootId);
+  const onSetFindingState = useCallback(
+    (findingId: string, patch: BlockFindingPatch) =>
+      setBlockStateNow({ blockId: findingId, state: patch }),
+    [setBlockStateNow]
+  );
+  const findings = useMemo<DiffFindingsProps | undefined>(
+    () =>
+      findingItems.length > 0
+        ? {
+            items: findingItems,
+            focusedKey: focusedFindingKey,
+            onFocusComplete: onFindingFocusComplete,
+            onOpen: openThread,
+            onSetState: onSetFindingState,
+            disabled: !agent || agent.status !== "running",
+            nameOf,
+          }
+        : undefined,
+    [
+      agent,
+      findingItems,
+      focusedFindingKey,
+      nameOf,
+      onFindingFocusComplete,
+      onSetFindingState,
+      openThread,
+    ]
+  );
   const storedViewType = useAtomValue(diffViewTypeAtom);
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
   const hideTestFiles = useAtomValue(diffHideTestFilesAtom);
   const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
-  const feedbackItems = useAllReviewFeedbackItems(agentId, active);
   const [viewState, setViewState] = useAtom(
     diffViewStateAtomFamily(agentId ?? "")
   );
@@ -103,6 +248,16 @@ export const ChangesTab = memo(function ChangesTab({
     [setReviewState]
   );
 
+  const setDraftSeverity = useCallback(
+    (id: string, severity: BlockReviewSeverity) => {
+      setReviewState((prev) => ({
+        ...prev,
+        drafts: prev.drafts.map((d) => (d.id === id ? { ...d, severity } : d)),
+      }));
+    },
+    [setReviewState]
+  );
+
   const clearDrafts = useCallback(() => {
     setReviewState((prev) => ({
       ...prev,
@@ -146,14 +301,6 @@ export const ChangesTab = memo(function ChangesTab({
   );
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [focusedFeedbackItemId, setFocusedFeedbackItemId] = useState<
-    number | null
-  >(null);
-  const handleFeedbackFocusComplete = useCallback((feedbackItemId: number) => {
-    setFocusedFeedbackItemId((current) =>
-      current === feedbackItemId ? null : current
-    );
-  }, []);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(
     null
   );
@@ -169,7 +316,12 @@ export const ChangesTab = memo(function ChangesTab({
   const [searchParams, setSearchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
   const navLineTarget = searchParams.get("line");
-  const navFeedbackTarget = searchParams.get("feedback");
+  // `?thread=<review's thread>&finding=<id>` beside `file`: the finding to
+  // open in place. Those two stay in the URL; they are the drawer's page.
+  const navFindingKey =
+    searchParams.get(THREAD_PARAM) && searchParams.get(FINDING_PARAM)
+      ? searchParams.get(FINDING_PARAM)
+      : null;
 
   const files = useVisibleDiffFiles(data, navFileTarget);
 
@@ -194,17 +346,20 @@ export const ChangesTab = memo(function ChangesTab({
     if (!navFileTarget || files.length === 0) return;
     const targetFile = files.find((f) => f.path === navFileTarget);
     if (isMobile) setFileTreeOpen(false);
-    const feedbackItemId = navFeedbackTarget ? Number(navFeedbackTarget) : null;
-    setFocusedFeedbackItemId(
-      feedbackItemId != null && Number.isInteger(feedbackItemId)
-        ? feedbackItemId
-        : null
+    setFocusedFindingKey(navFindingKey);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("file");
+        next.delete("line");
+        return next;
+      },
+      { replace: true }
     );
-    setSearchParams({}, { replace: true });
     if (targetFile) {
       requestAnimationFrame(() => {
         scrollToFile(navFileTarget);
-        if (!navFeedbackTarget && navLineTarget && targetFile.diff) {
+        if (!navFindingKey && navLineTarget && targetFile.diff) {
           const lineNum = Number(navLineTarget);
           if (Number.isInteger(lineNum) && lineNum > 0) {
             requestAnimationFrame(() => {
@@ -237,7 +392,7 @@ export const ChangesTab = memo(function ChangesTab({
   }, [
     navFileTarget,
     navLineTarget,
-    navFeedbackTarget,
+    navFindingKey,
     files,
     isMobile,
     scrollToFile,
@@ -296,42 +451,62 @@ export const ChangesTab = memo(function ChangesTab({
 
   if (!active) return <div />;
 
+  const toolbar =
+    agent && agentId ? (
+      reviewMode ? (
+        <ReviewModeBar
+          agentId={agentId}
+          rootId={rootId}
+          drafts={draftComments}
+          onClearDrafts={clearDrafts}
+          onRemoveDraft={removeDraft}
+          onSetDraftSeverity={setDraftSeverity}
+          onExitReview={() => setReviewMode(false)}
+          onReviewPosted={(blockId) => {
+            setReviewMode(false);
+            onReviewPosted?.(blockId);
+          }}
+        />
+      ) : (
+        <ChangesToolbar
+          agent={agent}
+          enabledAgentTypes={enabledAgentTypes}
+          onStartReview={() => setReviewMode(true)}
+        />
+      )
+    ) : null;
+
   if (isLoading && !data) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        <span className="text-sm">Loading changes…</span>
+      <div className="flex h-full min-h-0 flex-col">
+        {toolbar}
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <span className="text-sm">Loading changes…</span>
+        </div>
       </div>
     );
   }
 
   if (files.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-        <FileDiff className="h-8 w-8" />
-        <p className="text-sm">
-          {hideTestFiles && data?.files.length
-            ? "No non-test changes"
-            : "No changes yet"}
-        </p>
+      <div className="flex h-full min-h-0 flex-col">
+        {toolbar}
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+          <FileDiff className="h-8 w-8" />
+          <p className="text-sm">
+            {hideTestFiles && data?.files.length
+              ? "No non-test changes"
+              : "No changes yet"}
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {reviewMode && agentId && (
-        <ReviewModeBar
-          agentId={agentId}
-          drafts={draftComments}
-          onClearDrafts={clearDrafts}
-          onExitReview={() => setReviewMode(false)}
-          onReviewSubmitted={(reviewId) => {
-            setReviewMode(false);
-            onReviewSubmitted?.(reviewId);
-          }}
-        />
-      )}
+      {toolbar}
       <div className="flex min-h-0 flex-1">
         <FileTree
           files={files}
@@ -362,9 +537,7 @@ export const ChangesTab = memo(function ChangesTab({
           onRemoveDraft={removeDraft}
           onUpdateDraft={updateDraft}
           onStartReview={() => setReviewMode(true)}
-          feedbackItems={feedbackItems}
-          focusedFeedbackItemId={focusedFeedbackItemId}
-          onFeedbackFocusComplete={handleFeedbackFocusComplete}
+          findings={findings}
         />
       </div>
     </div>

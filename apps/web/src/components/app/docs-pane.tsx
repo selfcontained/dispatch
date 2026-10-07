@@ -8,7 +8,6 @@ import {
   GitBranch,
   Image,
   Keyboard,
-  LayoutPanelLeft,
   Monitor,
   MousePointerClick,
   PlugZap,
@@ -21,12 +20,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import {
-  AgentSurfacesContent,
   AgentsContent,
   AutomationsContent,
   BrowserFeedbackContent,
   EventsContent,
-  MediaContent,
+  FilesContent,
   NotificationsContent,
   PersonalitiesContent,
   PersonasContent,
@@ -47,8 +45,7 @@ export type DocsSection =
   | "worktrees"
   | "personas"
   | "events"
-  | "media"
-  | "agent-surfaces"
+  | "files"
   | "browser-feedback"
   | "plugin"
   | "notifications"
@@ -121,18 +118,11 @@ const SECTIONS: SectionDef[] = [
     content: <EventsContent />,
   },
   {
-    id: "media",
-    label: "Media",
+    id: "files",
+    label: "Files",
     icon: Image,
-    title: "Media & Sharing",
-    content: <MediaContent />,
-  },
-  {
-    id: "agent-surfaces",
-    label: "Agent Surfaces",
-    icon: LayoutPanelLeft,
-    title: "Agent Surfaces",
-    content: <AgentSurfacesContent />,
+    title: "Files & Sharing",
+    content: <FilesContent />,
   },
   {
     id: "browser-feedback",

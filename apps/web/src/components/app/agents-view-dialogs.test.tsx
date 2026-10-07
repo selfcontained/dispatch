@@ -34,11 +34,10 @@ function makeAgent(id: string, name: string): Agent {
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: `dispatch-${id}`,
     agentArgs: [],
     model: null,
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
   };
@@ -61,7 +60,7 @@ function makeTemplate(overrides: Partial<Template> = {}): Template {
     branchName: null,
     fullAccess: false,
     callable: false,
-    allowMedia: false,
+    allowFiles: false,
     selfImprove: false,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
@@ -80,7 +79,7 @@ function baseProps(): Props {
     paletteGroups: [],
     launchTemplate: null,
     setLaunchTemplateId: vi.fn(),
-    enabledAgentTypes: ["claude", "codex", "terminal"],
+    enabledAgentTypes: ["claude", "codex"],
     createOpen: false,
     initialAgentType: null,
     onCreateOpenChange: vi.fn(),
@@ -96,9 +95,9 @@ function baseProps(): Props {
     setStopConfirmOpen: vi.fn(),
     setStopTarget: vi.fn(),
     onStop: vi.fn().mockResolvedValue(undefined),
-    lightboxMediaId: null,
-    lightboxMediaIds: [],
-    setLightboxMediaId: vi.fn(),
+    lightboxFileId: null,
+    lightboxFileIds: [],
+    setLightboxFileId: vi.fn(),
   };
 }
 
@@ -132,7 +131,7 @@ describe("AgentsViewDialogs", () => {
   it("renders nothing when every dialog is closed", () => {
     renderDialogs();
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryByTestId("media-lightbox")).toBeNull();
+    expect(screen.queryByTestId("file-lightbox")).toBeNull();
   });
 
   it("routes the delete state to the archive dialog, not the stop dialog", async () => {
@@ -188,27 +187,22 @@ describe("AgentsViewDialogs", () => {
     expect(props.setLaunchTemplateId).toHaveBeenCalledWith(null);
   });
 
-  it("offers only CLI agent types in the launch dialog", async () => {
+  it("offers the enabled agent types in the launch dialog", async () => {
     renderDialogs({
       launchTemplate: makeTemplate(),
-      enabledAgentTypes: ["claude", "codex", "cursor", "opencode", "terminal"],
+      enabledAgentTypes: ["claude", "codex"],
     });
 
     fireEvent.click(screen.getByRole("combobox", { name: /agent type/i }));
 
     const options = await screen.findAllByRole("option");
     const labels = options.map((option) => option.textContent);
-    expect(labels).toContain("Claude");
-    expect(labels).toContain("Codex");
-    expect(labels).toContain("Cursor");
-    expect(labels).toContain("OpenCode");
-    // Terminal agents have no CLI to drive — the wrapper must filter them out.
-    expect(labels).not.toContain("Terminal");
+    expect(labels).toEqual(["Claude", "Codex"]);
   });
 
-  it("wires media IDs into the lightbox so navigation lands correctly", () => {
+  it("wires file IDs into the lightbox so navigation lands correctly", () => {
     apiMock.mockResolvedValue({
-      media: {
+      file: {
         id: 2,
         ownerAgentId: "agt_a",
         name: "shot.png",
@@ -216,21 +210,21 @@ describe("AgentsViewDialogs", () => {
         updatedAt: "2026-07-15T12:00:00.000Z",
         source: "screenshot",
         description: "shot",
-        url: "/api/media/shot.png",
+        url: "/api/files/shot.png",
       },
     });
     const props = renderDialogs({
-      lightboxMediaId: 2,
-      lightboxMediaIds: [1, 2, 3],
+      lightboxFileId: 2,
+      lightboxFileIds: [1, 2, 3],
     });
 
-    expect(screen.getByTestId("media-lightbox")).toBeTruthy();
+    expect(screen.getByTestId("file-lightbox")).toBeTruthy();
 
     // ArrowRight advances to the next stable ID.
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(props.setLightboxMediaId).toHaveBeenCalledWith(3);
+    expect(props.setLightboxFileId).toHaveBeenCalledWith(3);
 
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(props.setLightboxMediaId).toHaveBeenCalledWith(null);
+    expect(props.setLightboxFileId).toHaveBeenCalledWith(null);
   });
 });

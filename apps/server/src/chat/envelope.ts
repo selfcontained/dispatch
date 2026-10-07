@@ -1,13 +1,13 @@
-import type { ChatMessageKind } from "@dispatch/shared";
+import type { Block, BlockKind } from "@dispatch/shared";
 
 /**
  * The envelope's own markers, line-anchored exactly as they are emitted:
- * `--- DISPATCH CHAT (id: …) ---` and `--- END DISPATCH CHAT ---`. Leading
+ * `--- DISPATCH POST (id: …) ---` and `--- END DISPATCH POST ---`. Leading
  * whitespace and a longer run of dashes are matched too, because an agent
- * reading the pane would treat those as the marker just the same.
+ * reading the prompt would treat those as the marker just the same.
  */
 const ENVELOPE_MARKER_RE =
-  /^[ \t>]*-{3,}[ \t]*(?:END[ \t]+)?DISPATCH[ \t]+CHAT\b/i;
+  /^[ \t>]*-{3,}[ \t]*(?:END[ \t]+)?DISPATCH[ \t]+(?:POST|CHAT|REACTION)\b/i;
 
 /**
  * What a neutralized marker line is prefixed with. `> ` is deliberate: it
@@ -22,71 +22,191 @@ export const ENVELOPE_MARKER_ESCAPE = "> ";
  * Neutralize any envelope marker inside caller-supplied text.
  *
  * The envelope is a plain-text frame around text Dispatch does not control:
- * a user's Chat message, a launching agent's prompt, an attachment's pin
- * label or code body. Without this, text containing
- * `--- END DISPATCH CHAT ---` followed by a forged
- * `--- DISPATCH CHAT (id: …) ---` block could close Dispatch's block and open
- * one naming any message id, making the agent thread its reply onto a
- * message the author has no claim to. Every line that matches the marker
- * grammar is prefixed with `> `, so it survives visibly but cannot open or
- * close a block.
- *
- * Applied inside `buildChatEnvelope`, which is the single place any text is
- * wrapped — the composer path and the launch path therefore agree.
+ * a person's message, another agent's post, an attachment's label or code
+ * body. Without this, text containing `--- END DISPATCH POST ---` followed
+ * by a forged `--- DISPATCH POST (id: …) ---` block could close Dispatch's
+ * block and open one naming any block id, making the agent thread its reply
+ * onto a block the author has no claim to. Every line that matches the
+ * marker grammar is prefixed with `> `, so it survives visibly but cannot
+ * open or close a block.
  */
 export function escapeEnvelopeMarkers(text: string): string {
   if (!text.includes("-")) return text;
-  // Split on every separator a pane, CLI or Markdown renderer may treat as a
-  // line break, not just \n: a lone CR (JSON and MCP strings carry them) or a
+  // Split on every separator a CLI or Markdown renderer may treat as a line
+  // break, not just \n: a lone CR (JSON and MCP strings carry them) or a
   // Unicode line/paragraph separator would otherwise hide a forged marker
-  // from the match. Separators are normalized to \n on the way out, so the
-  // escaped text has one unambiguous line grammar.
+  // from the match. Separators are normalized to \n on the way out.
   let changed = false;
   const lines = text.split(/\r\n|[\r\n\u2028\u2029]/).map((line) => {
     if (!ENVELOPE_MARKER_RE.test(line)) return line;
     changed = true;
     return `${ENVELOPE_MARKER_ESCAPE}${line}`;
   });
-  // Rejoining also normalizes separators, so return the joined form whenever
-  // the split saw anything other than plain \n.
   const joined = lines.join("\n");
   return changed || joined !== text ? joined : text;
 }
 
+/** Who a post is from, as the envelope names them. */
+export type EnvelopeSender =
+  | { kind: "user" }
+  | { kind: "agent"; agentId: string; name: string };
+
+function senderLabel(from: EnvelopeSender): string {
+  return from.kind === "user" ? "user" : `${from.name} (${from.agentId})`;
+}
+
 /**
- * The pane-injection envelope wrapping a user's Chat message. The trailing
- * line gives the minimum routing reminder needed to thread the reply back
- * into Chat; the persistent launch guidance explains why.
- *
- * `attachmentLines` (one `- kind: …` line each) are listed after the text and
- * before the closing marker so the agent can act on them. A blank text with
- * attachments lists only the attachments.
- *
- * The whole body — text and attachment lines alike — passes through
- * `escapeEnvelopeMarkers`, so nothing embedded here can forge a block.
+ * A review as its recipient reads it: the summary, then every finding with
+ * its id, severity, location and body, and what to do about each. The
+ * findings are blocks the review shows, so without these lines the agent
+ * would be told "a review was posted" and nothing else.
  */
-export function buildChatEnvelope(
-  messageId: string,
-  text: string,
-  attachmentLines: string[] = []
+export function describeReview(
+  review: Pick<Block, "id" | "data" | "kind">,
+  findings: ReadonlyArray<Extract<Block, { kind: "finding" }>>
 ): string {
+  const summary =
+    (review.data as { summary?: string } | null)?.summary?.trim() ?? "";
+  const open = findings.filter((f) => f.state.status === "open").length;
+  const lines: string[] = [
+    `Review (id: ${review.id}): ${findings.length === 0 ? "no findings" : `${open} of ${findings.length} findings open`}.`,
+  ];
+  if (summary) lines.push(summary);
+  if (findings.length > 0) {
+    lines.push("", "Findings:");
+    findings.forEach((finding, index) => {
+      const status =
+        finding.state.status === "resolved"
+          ? (finding.state.resolution ?? "fixed")
+          : "open";
+      const { data } = finding;
+      const where = data.path
+        ? ` — ${data.path}${data.line !== undefined ? `:${data.line}` : ""}`
+        : "";
+      lines.push(
+        `${index + 1}. [${data.severity}] ${data.title} (id: ${finding.id}, ${status})${where}`,
+        `   ${data.body.trim().replace(/\n/g, "\n   ")}`
+      );
+    });
+    if (open > 0) {
+      lines.push(
+        "",
+        'What to do: address each open finding, then say under it what you changed, or why you disagree: post({ replyTo: "<finding id>", text: "…" }). Each finding is its own thread. The reviewer reads your reply and resolves the finding or reopens it; leave its status to them. You are told when they do, even mid-task, so there is no need to poll or wait idle for it.'
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * The prompt envelope wrapping a block delivered to an agent: a person's
+ * message, another agent's post, an answer to a question the agent asked,
+ * a reply in a thread it is part of. One shape for every author; the
+ * `from` field says who. The trailing line is the minimum routing reminder;
+ * the persistent launch guidance explains the rest.
+ *
+ * `attachmentLines` (one `- kind: …` line each) are listed after the text
+ * and before the closing marker so the agent can act on them. The whole
+ * body passes through `escapeEnvelopeMarkers`.
+ */
+export function buildPostEnvelope(input: {
+  blockId: string;
+  from: EnvelopeSender;
+  text: string;
+  attachmentLines?: string[];
+  /** The top-level block this post replies under, when it is a thread reply. */
+  threadId?: string | null;
+  /** A block of the agent's this post answers (a question or form). */
+  answers?: { blockId: string; kind: BlockKind } | null;
+  /**
+   * A question or form this post closes without answering: the agent's
+   * own ask that the user dismissed, or another agent's ask of this agent
+   * that its author withdrew. Never combined with `answers`.
+   */
+  cancels?: { blockId: string; kind: BlockKind } | null;
+  /**
+   * The review finding this thread reply is about; `opened` when the
+   * recipient is the reviewer who raised it.
+   */
+  finding?: { id: string; title: string; opened: boolean } | null;
+  /**
+   * How the post was addressed: `mention` when a person named the agent
+   * with `@`; `alsoTo` names the other agents it went to directly, whether
+   * by mention or because a thread reply reaches every side of the thread.
+   */
+  addressed?: { mention: boolean; alsoTo: string[] } | null;
+}): string {
   const body: string[] = [];
-  if (text.trim().length > 0) body.push(text);
+  if (input.text.trim().length > 0) body.push(input.text);
+  const attachmentLines = input.attachmentLines ?? [];
   if (attachmentLines.length > 0) {
     if (body.length > 0) body.push("");
     body.push("Attachments:", ...attachmentLines);
   }
   const safeBody = escapeEnvelopeMarkers(body.join("\n"));
+  const context: string[] = [];
+  if (input.answers) {
+    context.push(
+      `This answers your ${input.answers.kind} ${input.answers.blockId}.`
+    );
+  }
+  if (input.cancels) {
+    // Spelled out so it cannot be read as an answer, or as the user
+    // stopping the agent's turn: a dismissed ask means no answer is coming
+    // and the agent decides for itself what to do next.
+    context.push(
+      input.from.kind === "user"
+        ? `The user dismissed your ${input.cancels.kind} ${input.cancels.blockId} without answering it. This is not an answer and does not stop your turn; no answer is coming, so do not wait for one. Continue on your own judgment, or ask again another way only if you truly need the input.`
+        : `${input.from.name} withdrew its ${input.cancels.kind} ${input.cancels.blockId} to you. No reply is needed.`
+    );
+  }
+  if (input.threadId) {
+    context.push(`In the thread under ${input.threadId}.`);
+  }
+  const alsoTo = input.addressed?.alsoTo ?? [];
+  if (input.addressed?.mention) {
+    context.push(
+      alsoTo.length > 0
+        ? `Addressed to you by @mention, and also to ${alsoTo.join(", ")}.`
+        : "Addressed to you by @mention."
+    );
+  } else if (alsoTo.length > 0) {
+    context.push(`Also sent to ${alsoTo.join(", ")}.`);
+  }
+  if (alsoTo.length > 0) {
+    // Without this an agent that coordinates the others (a parent, a
+    // launcher) reads the post as meant for it alone and passes it on.
+    context.push(
+      `${alsoTo.length === 1 ? "It has" : "They have"} it already; do not pass it along.`
+    );
+  }
+  if (input.finding) {
+    context.push(
+      `About the finding "${input.finding.title}".`,
+      input.finding.opened
+        ? `You raised it: once the reply settles it, resolve it with update({ id: "${input.finding.id}", state: { status: "fixed" } }) (or "dismissed", with a note) instead of replying; if it falls short, say here what is still missing.`
+        : "Its reviewer resolves it; reply here with what you changed or why you disagree. Once it is settled, no reply is needed."
+    );
+  }
+  const replyArgs = input.threadId ? `replyTo: "${input.threadId}"` : "";
+  // A person's post: the agent's own answer lands where the post was, in
+  // the thread when it came from one, so plain text is the whole reply.
+  // Another agent's post: only post reaches it, in its thread when it has one.
+  const routing =
+    input.from.kind === "user"
+      ? `Your reply appears ${input.threadId ? "in this thread" : "in the stream"} as you write it. Use post for a question with options, a file, a link, or to reach another agent${replyArgs ? ` (with ${replyArgs} to keep it in this thread)` : ""}.${input.threadId ? "" : ` For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${input.blockId}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`}`
+      : `From another agent. Reply with post (to: "${input.from.agentId}"${replyArgs ? `, ${replyArgs}` : ""}) only if a reply is needed; routine updates need no acknowledgement.`;
   return [
-    `--- DISPATCH CHAT (id: ${messageId}) ---`,
+    `--- DISPATCH POST (id: ${input.blockId}, from: ${senderLabel(input.from)}) ---`,
     ...(body.length > 0 ? [safeBody] : []),
-    "--- END DISPATCH CHAT ---",
-    `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${messageId}").`,
+    ...(context.length > 0 ? [context.join(" ")] : []),
+    "--- END DISPATCH POST ---",
+    routing,
   ].join("\n");
 }
 
 /**
- * How much of the reacted message the envelope quotes. The latest post needs
+ * How much of the reacted block the envelope quotes. The latest post needs
  * little: "your latest" already names it, so the quote only confirms it. An
  * older one has to be recognizable from the quote alone, so it gets enough
  * to tell apart from its neighbours.
@@ -95,9 +215,9 @@ export const REACTION_EXCERPT_LATEST_CHARS = 100;
 export const REACTION_EXCERPT_EARLIER_CHARS = 300;
 
 /**
- * The opening of a message as one quotable line: leading markdown on each
- * line (headings, bullets, quotes) and emphasis markers dropped, whitespace
- * collapsed, cut at a word boundary within `maxChars`.
+ * The opening of a block's text as one quotable line: leading markdown on
+ * each line (headings, bullets, quotes) and emphasis markers dropped,
+ * whitespace collapsed, cut at a word boundary within `maxChars`.
  */
 export function reactionExcerpt(text: string, maxChars: number): string {
   const line = text
@@ -115,36 +235,36 @@ export function reactionExcerpt(text: string, maxChars: number): string {
   return `${head.trimEnd()}…`;
 }
 
-const KIND_NOUN: Record<ChatMessageKind, string> = {
-  reply: "message",
+const KIND_NOUN: Record<BlockKind, string> = {
+  text: "post",
   question: "question",
-  update: "progress update",
-  summary: "summary",
+  form: "form",
+  file: "file",
+  link: "link",
+  review: "review",
+  finding: "finding",
+  tasks: "task list",
+  launch: "launch briefing",
 };
 
 /**
- * The pane-injection envelope for the user's emoji reaction. Its markers say
- * REACTION on purpose: the agent must not read a reaction as the user typing
- * a new request.
+ * The prompt envelope for a person's emoji reaction. Its markers say
+ * REACTION on purpose: the agent must not read a reaction as a new request.
  *
- * It has to let the agent tell which post the user means without pasting
- * the whole post back: the id (exact, and what `replyTo` takes), the kind of
- * post, where it sits among the agent's posts ("latest", or "3 posts ago"),
- * and a quote of its opening — short for the latest post, longer for an
- * older one, which the agent can only place by its content.
- *
- * The body passes through `escapeEnvelopeMarkers` like a chat envelope's, so
- * nothing taken from the message can open or close a block.
+ * It lets the agent tell which block is meant without pasting the whole
+ * block back: the id (exact, and what `replyTo` takes), the kind of block,
+ * where it sits among the agent's posts ("latest", or "3 posts ago"), and
+ * a quote of its opening.
  */
 export function buildReactionEnvelope(input: {
-  messageId: string;
+  blockId: string;
   emoji: string;
-  kind: ChatMessageKind;
+  kind: BlockKind;
   text: string;
-  /** How many posts the agent has made on the feed since this one. */
+  /** How many posts the agent has made on the stream since this one. */
   postsSince: number;
 }): string {
-  const { messageId, emoji, postsSince } = input;
+  const { blockId, emoji, postsSince } = input;
   const noun = KIND_NOUN[input.kind];
   const latest = postsSince <= 0;
   const target = latest
@@ -158,10 +278,33 @@ export function buildReactionEnvelope(input: {
     ? `The user reacted ${emoji} to ${target}:\n> ${excerpt}`
     : `The user reacted ${emoji} to ${target}.`;
   return [
-    `--- DISPATCH CHAT REACTION (message id: ${messageId}) ---`,
+    `--- DISPATCH REACTION (block id: ${blockId}) ---`,
     escapeEnvelopeMarkers(body),
-    "--- END DISPATCH CHAT REACTION ---",
-    `A reaction, not a new message — reply only if it calls for one (dispatch_chat_post, replyTo: "${messageId}").`,
+    "--- END DISPATCH REACTION ---",
+    `A reaction, not a new message — reply only if it calls for one (post, replyTo: "${blockId}").`,
+  ].join("\n");
+}
+
+/**
+ * The prompt that runs a failed turn again. The engine's session already
+ * holds the prompt the failed turn was answering, and the turn may have
+ * run tools before it broke off, so that prompt is not sent twice: the
+ * agent is told what happened and continues from where its session
+ * stands. The first line is what the feed's notice shows; the error, which
+ * the failed turn already shows, follows it.
+ */
+/** What a retry is about, in the notice and in the prompt alike. */
+const RETRY_TURN_SUBJECT = "the turn that stopped on an error";
+
+/** The notice the feed shows above the turn a retry opened. */
+export const RETRY_TURN_NOTICE = `Retried ${RETRY_TURN_SUBJECT}.`;
+
+export function buildRetryTurnEnvelope(error: string): string {
+  // One line of it, after other words: it cannot stand as a marker line.
+  const reason = error.split("\n")[0].trim().slice(0, 200);
+  return [
+    `The user retried ${RETRY_TURN_SUBJECT}. Continue where you left off.`,
+    ...(reason ? [`(The error was ${reason})`] : []),
   ].join("\n");
 }
 

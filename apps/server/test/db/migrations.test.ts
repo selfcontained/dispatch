@@ -20,6 +20,13 @@ afterAll(async () => {
 });
 
 describe("migrations", () => {
+  it("uses a unique numeric prefix for each migration", () => {
+    const prefixes = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith(".sql"))
+      .map((name) => name.split("_", 1)[0]);
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+
   it("should apply cleanly to a fresh database", async () => {
     await runTestMigrations();
 
@@ -32,8 +39,8 @@ describe("migrations", () => {
       (r: { table_name: string }) => r.table_name
     );
     expect(tableNames).toContain("agents");
-    expect(tableNames).toContain("media");
-    expect(tableNames).toContain("media_seen");
+    expect(tableNames).toContain("files");
+    expect(tableNames).toContain("files_seen");
     expect(tableNames).toContain("simulator_reservations");
     expect(tableNames).toContain("jobs");
     expect(tableNames).toContain("job_runs");
@@ -46,6 +53,23 @@ describe("migrations", () => {
   it("should be idempotent (run twice without error)", async () => {
     // First run already happened above; run again
     await expect(runTestMigrations()).resolves.not.toThrow();
+  });
+
+  it("accepts databases that ran launch guidance cleanup under its old name", async () => {
+    await runTestMigrations();
+    const renamedBack = await pool.query(
+      `UPDATE pgmigrations
+       SET name = '0010_remove_launch_guidance_setting'
+       WHERE name = '0011_remove_launch_guidance_setting'`
+    );
+    expect(renamedBack.rowCount).toBe(1);
+    await expect(runTestMigrations()).resolves.not.toThrow();
+    const migrations = await pool.query<{ name: string }>(
+      `SELECT name FROM pgmigrations WHERE name LIKE '%launch_guidance_setting'`
+    );
+    expect(migrations.rows.map((row) => row.name)).toEqual([
+      "0011_remove_launch_guidance_setting",
+    ]);
   });
 
   it("should have all expected columns on agents", async () => {
@@ -63,18 +87,13 @@ describe("migrations", () => {
       "type",
       "status",
       "cwd",
-      "tmux_session",
       "simulator_udid",
-      "media_dir",
-      "codex_args",
+      "files_dir",
+      "agent_args",
       "full_access",
       "last_error",
       "created_at",
       "updated_at",
-      "latest_event_type",
-      "latest_event_message",
-      "latest_event_metadata",
-      "latest_event_updated_at",
       "git_context",
       "git_context_stale",
       "git_context_updated_at",
@@ -85,7 +104,6 @@ describe("migrations", () => {
       "persona",
       "parent_agent_id",
       "persona_context",
-      "pins",
       "archive_phase",
       "archive_cleanup_mode",
     ];
@@ -93,44 +111,55 @@ describe("migrations", () => {
     for (const col of expected) {
       expect(colNames).toContain(col);
     }
+    for (const col of [
+      "latest_event_type",
+      "latest_event_message",
+      "latest_event_metadata",
+      "latest_event_updated_at",
+    ]) {
+      expect(colNames).not.toContain(col);
+    }
   });
 
-  it("should have ON DELETE CASCADE for media foreign keys", async () => {
-    // Insert a test agent, then media, then delete the agent — media should cascade
+  it("removes the obsolete agent event history", async () => {
+    const table = await pool.query(
+      "SELECT to_regclass('public.agent_events') AS name"
+    );
+    expect(table.rows[0]?.name).toBeNull();
+  });
+
+  it("should have ON DELETE CASCADE for files foreign keys", async () => {
+    // Insert a test agent, then a file, then delete the agent — files should cascade
     await pool.query(
       `INSERT INTO agents (id, name, status, cwd) VALUES ('test-cascade', 'Cascade Test', 'stopped', '/tmp')`
     );
     await pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes) VALUES ('test-cascade', 'test.png', 'screenshot', 1024)`
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type) VALUES ('test-cascade', 'test.png', 'screenshot', 1024, 'image/png')`
     );
     await pool.query(
-      `INSERT INTO media_seen (agent_id, media_key) VALUES ('test-cascade', 'test.png')`
+      `INSERT INTO files_seen (agent_id, file_key) VALUES ('test-cascade', 'test.png')`
     );
 
     // Delete the agent
     await pool.query(`DELETE FROM agents WHERE id = 'test-cascade'`);
 
     // Child rows should be gone
-    const media = await pool.query(
-      `SELECT * FROM media WHERE agent_id = 'test-cascade'`
+    const remaining = await pool.query(
+      `SELECT * FROM files WHERE agent_id = 'test-cascade'`
     );
     const seen = await pool.query(
-      `SELECT * FROM media_seen WHERE agent_id = 'test-cascade'`
+      `SELECT * FROM files_seen WHERE agent_id = 'test-cascade'`
     );
-    expect(media.rowCount).toBe(0);
+    expect(remaining.rowCount).toBe(0);
     expect(seen.rowCount).toBe(0);
   });
 
-  it("should index chat attachments for the feed's containment lookup", async () => {
-    // The feed hides a media file that already renders as a post attachment,
-    // with a correlated `@>` check against every message on the agent. Without
-    // this index that is media x messages: measured past 20s at 5,000 media and
-    // 15,000 messages, against 97ms with it. jsonb_path_ops because `@>` is the
-    // only operator used here.
+  it("should index block attachments for containment lookups", async () => {
+    // jsonb_path_ops because `@>` is the only operator used against it.
     const index = await pool.query<{ indexdef: string }>(
       `SELECT indexdef FROM pg_indexes
-        WHERE tablename = 'agent_chat_messages'
-          AND indexname = 'agent_chat_messages_attachments_gin'`
+        WHERE tablename = 'blocks'
+          AND indexname = 'blocks_attachments_gin'`
     );
     expect(index.rowCount).toBe(1);
     expect(index.rows[0].indexdef).toContain("USING gin");

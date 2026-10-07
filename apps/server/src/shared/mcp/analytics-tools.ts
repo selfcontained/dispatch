@@ -5,9 +5,7 @@ import type { JobTools } from "./job-tools.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
-export type AnalyticsCallbacks = Partial<
-  Pick<JobTools, "getActivitySummary" | "getFeedbackSummary">
->;
+export type AnalyticsCallbacks = Partial<Pick<JobTools, "getFeedbackSummary">>;
 
 /**
  * A summary answers "where are the patterns"; the finding descriptions behind
@@ -63,56 +61,6 @@ export function registerAnalyticsTools(
   allowed: Set<string>,
   callbacks: AnalyticsCallbacks
 ): void {
-  if (allowed.has("get_activity_summary") && callbacks.getActivitySummary) {
-    const fn = callbacks.getActivitySummary;
-    server.registerTool(
-      "get_activity_summary",
-      {
-        description:
-          "Get a high-level summary of agent activity in Dispatch over a time range — working time, session counts, outcomes, and top agents by project. Use this for activity digests and dashboards.",
-        inputSchema: {
-          start: z
-            .string()
-            .datetime({ offset: true })
-            .optional()
-            .describe(
-              "Start of time range (ISO 8601 with timezone). Defaults to 7 days ago."
-            ),
-          end: z
-            .string()
-            .datetime({ offset: true })
-            .optional()
-            .describe(
-              "End of time range (ISO 8601 with timezone). Defaults to now."
-            ),
-          project: z
-            .string()
-            .optional()
-            .describe(
-              "Filter to a specific project directory (exact match). If omitted, returns all projects."
-            ),
-        },
-      },
-      async (args) => {
-        try {
-          const end = args.end ? new Date(args.end) : new Date();
-          const start = args.start
-            ? new Date(args.start)
-            : new Date(end.getTime() - 7 * 86_400_000);
-          if (start >= end)
-            return toToolError(new Error("start must be before end"));
-          const result = await fn({ start, end, project: args.project });
-          return {
-            content: [{ type: "text", text: jsonText(result) }],
-            structuredContent: result,
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
   if (allowed.has("get_feedback_summary") && callbacks.getFeedbackSummary) {
     const fn = callbacks.getFeedbackSummary;
     server.registerTool(

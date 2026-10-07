@@ -3,21 +3,21 @@ import Base from "../layouts/Base.astro";
 import PageIntro from "../components/PageIntro.astro";
 ---
 <Base title="Documentation">
-  <PageIntro eyebrow="Documentation" title="Run a shared workspace on your own machine.">Dispatch runs locally, keeps agent processes alive in tmux, and uses the tools already present in a repository. It gives people and agents a durable place to return to the same terminals, worktrees, and shared context. Installation retrieves a released Bun binary; a production host does not need Node or pnpm to run Dispatch.</PageIntro>
+  <PageIntro eyebrow="Documentation" title="Run a shared workspace on your own machine.">Dispatch runs locally, keeps each agent alive in its own durable host process, and uses the tools already present in a repository. It gives people and agents a durable place to return to the same agents, worktrees, and shared context. Installation retrieves a released Bun binary; a production host does not need Node or pnpm to run Dispatch.</PageIntro>
   <article class="reading accent-yellow">
     <h2>Install</h2>
-    <p>Start PostgreSQL 14+ first, then install the latest stable release with one command:</p>
+    <p>On macOS, download the Dispatch app ZIP from the newest <a href="https://github.com/selfcontained/dispatch/releases">release</a>; it bundles PostgreSQL and follows Stable by default. Before the first Stable promotion, select Preview under Settings → Support → Updates to receive candidate updates. On Linux, start PostgreSQL 14+ first, then install with one command:</p>
     <pre class="diagram">curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash</pre>
-    <p>The installer works on macOS and Linux. It downloads a tagged release artifact, creates local database credentials when it can administer PostgreSQL, writes private configuration, and registers a user service. It does not clone the repository or require Node, pnpm, Bun, or a hand-written env file.</p>
-    <p>For a managed database, append <code>-- --database-url 'postgres://…'</code> to the command. Existing installations are moved to this layout by the assisted-update migration; the fresh installer intentionally refuses to overwrite them.</p>
-    <p>Dispatch runs the platform-matching Bun binary inside <code>dispatch-release.tar.gz</code>. The service manager always invokes one fixed executable path; normal updates atomically replace that executable and restart the service.</p>
+    <p>The installer downloads the newest release on the stable channel (or preview, while no stable release exists; choose with <code>--channel</code>), creates and owns a private local database (through <code>sudo</code>, so run it from a terminal), writes private configuration, and registers a user service. It does not clone the repository or require Node, pnpm, Bun, or a hand-written env file.</p>
+    <p>Dispatch 1.x requires a fresh installation and a new database; there is no upgrade or database migration from 0.x. Older installations are left untouched and are unsupported. The new installation uses <code>~/.local/share/dispatch</code> and listens on port 6767, or the next free port above it.</p>
+    <p>Dispatch runs the platform-matching Bun binary inside <code>dispatch-server.tar.gz</code>. The service manager always invokes one fixed executable path; protected updates wait until work is idle, back up the database and state, then replace that executable and restart the service.</p>
     <h2>Agent CLI support</h2>
     <p><strong>Codex and Claude are the recommended paths today.</strong> They are the CLIs Dispatch is most often exercised against and the best choice for a first installation.</p>
-    <p>Cursor and OpenCode are supported as agent types, but they still have integration gaps. They can be useful when they match an existing setup; expect the experience to be less complete than Codex or Claude. A plain terminal is also available when the work does not need a coding-agent CLI.</p>
+    <p>Each engine runs through its Agent Client Protocol adapter, so what an agent does—its turns, tool calls, plans, and questions—shows up in Dispatch as it happens rather than as a scraped transcript.</p>
     <h2>Three concepts to begin with</h2>
-    <section class="principle"><span class="number">01</span><div><h3>Durable sessions</h3><p>Agents run in tmux so their work can survive a browser tab, a network interruption, or the time between two decisions.</p></div></section>
+    <section class="principle"><span class="number">01</span><div><h3>Durable agents</h3><p>Each agent runs in its own host process that outlives the server, so its work can survive a browser tab, a network interruption, a Dispatch restart, or the time between two decisions.</p></div></section>
     <section class="principle"><span class="number">02</span><div><h3>Isolated changes</h3><p>Worktrees let an agent investigate or implement a change without borrowing the working directory another person is using.</p></div></section>
-    <section class="principle"><span class="number">03</span><div><h3>Shared context</h3><p>Messages, pins, media, reviews, and agent events preserve the information that should outlast a terminal transcript.</p></div></section>
+    <section class="principle"><span class="number">03</span><div><h3>Shared context</h3><p>One stream per agent—replies, questions, files, links, reviews with findings—plus files and Brain preserve the information that should outlast a session.</p></div></section>
     <p>For implementation details, read the <a href="/architecture">architecture overview</a> and the repository’s <a href="https://github.com/selfcontained/dispatch">README ↗</a>.</p>
   </article>
 </Base>

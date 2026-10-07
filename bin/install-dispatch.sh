@@ -1,69 +1,83 @@
 #!/usr/bin/env bash
-# Fresh, artifact-only Dispatch installer. Existing installations migrate via
-# the assisted-update flow; this command intentionally refuses to overwrite
-# one.
+# Fresh, artifact-only Dispatch installer. It intentionally refuses to
+# overwrite an existing installation.
+#
+# Dispatch 1.x keeps its state, service and database apart from a 0.x
+# install (~/.dispatch, dispatch.service / com.dispatch.server, the
+# `dispatch` database), which it never reads or changes.
 set -euo pipefail
 
 REPO="${DISPATCH_GITHUB_REPO:-selfcontained/dispatch}"
 HOME_DIR="${HOME:?HOME must be set}"
-INSTALL_DIR="${DISPATCH_INSTALL_DIR:-$HOME_DIR/.dispatch/server}"
+STATE_DIR="${DISPATCH_STATE_DIR:-${XDG_DATA_HOME:-$HOME_DIR/.local/share}/dispatch}"
+INSTALL_DIR="${DISPATCH_INSTALL_DIR:-$STATE_DIR/server}"
 RUNTIME_PATH=""
-PORT="6767"
+PORT=""
+HOST=""
 TAG=""
+CHANNEL=""
 RELEASE_URL="${DISPATCH_RELEASE_URL:-}"
-DATABASE_URL="${DATABASE_URL:-}"
 NO_SERVICE=0
-ALLOW_PRERELEASE=0
 INSTALL_SUCCEEDED=0
 SERVICE_REGISTERED=0
 GENERATED_DATABASE=0
 GENERATED_ROLE=""
 GENERATED_DB=""
-MIGRATIONS_TMP=""
+PSQL=""
+# Oldest supported PostgreSQL (server_version_num). Keep in sync with the
+# README and the oldest Postgres CI runs the server suite against.
+MIN_PG_VERSION_NUM=140000
 
 usage() {
   cat <<'EOF'
 Usage: install-dispatch.sh [options]
 
-Installs the latest stable Dispatch release for the current platform.
-  --tag TAG             Install this stable release tag
-  --allow-prerelease    Permit an explicitly selected prerelease tag
+Installs the newest Dispatch release on a channel for the current platform.
+  --channel CHANNEL     stable (promoted releases) or preview (every release).
+                        Default: stable, or preview while no stable release exists
+  --tag TAG             Install this release tag instead of the channel's newest
   --release-url URL     Artifact URL (testing/air-gapped installs)
-  --install-dir PATH    Install directory (default: ~/.dispatch/server)
+  --install-dir PATH    Install directory (default: ~/.local/share/dispatch/server)
   --runtime-path PATH   Fixed executable path (default: INSTALL_DIR/dispatch)
-  --database-url URL    Use an existing PostgreSQL database
-  --port PORT           HTTP port (default: 6767)
+  --port PORT           HTTP port (default: 6767, or the next free port above it)
+  --host ADDR           Listen address: 127.0.0.1 (default) or 0.0.0.0 for LAN/Tailscale
   --no-service          Install files/configuration without a service or active-release record
 EOF
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --channel) CHANNEL="$2"; shift 2 ;;
     --tag) TAG="$2"; shift 2 ;;
-    --allow-prerelease) ALLOW_PRERELEASE=1; shift ;;
     --release-url) RELEASE_URL="$2"; shift 2 ;;
     --install-dir) INSTALL_DIR="$2"; shift 2 ;;
     --runtime-path) RUNTIME_PATH="$2"; shift 2 ;;
-    --database-url) DATABASE_URL="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
+    --host) HOST="$2"; shift 2 ;;
     --no-service) NO_SERVICE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-case "$PORT" in *[!0-9]*|'') echo "error: --port must be numeric" >&2; exit 2;; esac
+case "$PORT" in '') ;; *[!0-9]*) echo "error: --port must be numeric" >&2; exit 2;; esac
+# Update recovery reaches the server on 127.0.0.1, so it must listen there.
+case "$HOST" in ''|127.0.0.1|0.0.0.0) ;; *) echo "error: --host must be 127.0.0.1 or 0.0.0.0 (use 0.0.0.0 for LAN/Tailscale access)" >&2; exit 2;; esac
+case "$CHANNEL" in ''|stable|preview) ;; *) echo "error: --channel must be stable or preview" >&2; exit 2;; esac
 case "$(uname -s)" in Darwin) PLATFORM=darwin;; Linux) PLATFORM=linux;; *) echo "unsupported OS" >&2; exit 1;; esac
 case "$(uname -m)" in arm64|aarch64) ARCH=arm64;; x86_64|amd64) ARCH=x64;; *) echo "unsupported architecture" >&2; exit 1;; esac
 
 RUNTIME_PATH="${RUNTIME_PATH:-$INSTALL_DIR/dispatch}"
-STATE_DIR="$HOME_DIR/.dispatch"
 ENV_FILE="$INSTALL_DIR/.env"
-LABEL="com.dispatch.server"
-UNIT="$HOME_DIR/.config/systemd/user/dispatch.service"
+# Not the 0.x names (dispatch.service, com.dispatch.server), so both can exist.
+SERVICE="dispatch-server"
+LABEL="dev.dispatch.server"
+UNIT="$HOME_DIR/.config/systemd/user/$SERVICE.service"
 PLIST="$HOME_DIR/Library/LaunchAgents/$LABEL.plist"
+OLD_UNIT="$HOME_DIR/.config/systemd/user/dispatch.service"
+OLD_PLIST="$HOME_DIR/Library/LaunchAgents/com.dispatch.server.plist"
 
-for service_path in "$INSTALL_DIR" "$RUNTIME_PATH" "$ENV_FILE"; do
+for service_path in "$STATE_DIR" "$INSTALL_DIR" "$RUNTIME_PATH" "$ENV_FILE"; do
   case "$service_path" in
     *" "*|*$'\t'*|*$'\n'*|*'&'*|*'<'*|*'>'*|*'"'*|*"'"*)
       echo "error: install and runtime paths cannot contain whitespace or XML-special characters" >&2
@@ -73,55 +87,121 @@ done
 
 for command in curl tar; do command -v "$command" >/dev/null || { echo "error: $command is required" >&2; exit 1; }; done
 if [ -e "$RUNTIME_PATH" ] || [ -e "$ENV_FILE" ] || { [ "$PLATFORM" = linux ] && [ -e "$UNIT" ]; } || { [ "$PLATFORM" = darwin ] && [ -e "$PLIST" ]; }; then
-  echo "error: an existing Dispatch installation or service was found; use the assisted-update migration" >&2
+  echo "error: Dispatch is already installed at $INSTALL_DIR; update it from Settings → Updates" >&2
   exit 1
 fi
+if [ -e "$OLD_UNIT" ] || [ -e "$OLD_PLIST" ] || [ -d "$HOME_DIR/.dispatch/server" ]; then
+  echo "==> found Dispatch 0.x (~/.dispatch); it is left untouched and keeps its own data"
+  if [ -z "$HOST" ] && grep -Eqs '^DISPATCH_HOST="?0\.0\.0\.0"?$' "$HOME_DIR/.dispatch/server/.env" "$HOME_DIR/.dispatch/env"; then
+    echo "==> Dispatch 0.x listens on all interfaces; this install listens on 127.0.0.1 only (rerun with --host 0.0.0.0 to keep LAN access)"
+  fi
+fi
+HOST="${HOST:-127.0.0.1}"
 
-latest_tag() {
-  curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/latest" || {
-    echo "error: unable to reach api.github.com while finding the latest stable release" >&2; return 1;
-  }
+# Something already answers on 127.0.0.1:PORT (often a 0.x Dispatch on 6767).
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+if [ -n "$PORT" ]; then
+  if [ "$NO_SERVICE" = 0 ] && port_in_use "$PORT"; then
+    echo "error: port $PORT is already in use; choose another with --port" >&2; exit 1
+  fi
+else
+  PORT=6767
+  while port_in_use "$PORT"; do
+    PORT=$((PORT + 1))
+    [ "$PORT" -le 6867 ] || { echo "error: no free port between 6767 and 6867; choose one with --port" >&2; exit 1; }
+  done
+  [ "$PORT" = 6767 ] || echo "==> port 6767 is in use; Dispatch will listen on $PORT"
+fi
+
+github_api() {
+  curl -fsSL -H 'Accept: application/vnd.github+json' \
+    ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
+    "https://api.github.com/repos/$REPO/$1"
 }
-latest_tag_name() {
-  latest_tag |
-    sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+# Newest release carrying the platform artifact. The list is newest-first and
+# excludes drafts; preview includes prereleases, stable only the promoted one.
+# 0.x releases are the pre-ACP runtime and are never selected automatically.
+newest_artifact_tag() {
+  case "$1" in
+    stable) github_api releases/latest ;;
+    preview) github_api 'releases?per_page=100' ;;
+  esac | { grep -oE "releases/download/v[1-9][0-9]*\.[0-9]+\.[0-9]+/dispatch-server\.tar\.gz" || true; } |
+    awk -F/ 'NR == 1 { print $3 }'
 }
 if [ -n "$RELEASE_URL" ] && [ -z "$TAG" ]; then
   echo "error: --release-url requires --tag" >&2; exit 2
 fi
-TAG="${TAG:-$(latest_tag_name)}"
-[ -n "$TAG" ] || { echo "error: no stable release found for $REPO" >&2; exit 1; }
-if [ "$ALLOW_PRERELEASE" = 0 ] && [ -z "$RELEASE_URL" ]; then
-  release_json="$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/tags/$TAG")" || {
-    echo "error: unable to inspect release $TAG" >&2; exit 1;
-  }
+if [ -z "$TAG" ]; then
+  if [ -z "$CHANNEL" ]; then
+    TAG="$(newest_artifact_tag stable 2>/dev/null || true)"
+    if [ -n "$TAG" ]; then CHANNEL=stable; else CHANNEL=preview; echo "==> no stable release yet; using the preview channel"; fi
+  fi
+  if [ -z "$TAG" ]; then
+    TAG="$(newest_artifact_tag "$CHANNEL")" || {
+      echo "error: unable to reach api.github.com to find the newest $CHANNEL release (set GITHUB_TOKEN if rate limited)" >&2; exit 1;
+    }
+  fi
+  [ -n "$TAG" ] || { echo "error: no $CHANNEL release found for $REPO" >&2; exit 1; }
+elif [ -z "$RELEASE_URL" ]; then
+  release_json="$(github_api "releases/tags/$TAG")" || { echo "error: unable to inspect release $TAG" >&2; exit 1; }
   if printf '%s' "$release_json" | grep -Eq '"prerelease"[[:space:]]*:[[:space:]]*true'; then
-    echo "error: $TAG is a prerelease; pass --allow-prerelease to install it" >&2
-    exit 1
+    [ "$CHANNEL" = stable ] && { echo "error: $TAG is a preview release; use --channel preview" >&2; exit 1; }
+    CHANNEL=preview
   fi
 fi
+CHANNEL="${CHANNEL:-stable}"
 MEMBER="dist/bun/dispatch-${TAG#v}-bun-$PLATFORM-$ARCH"
-RELEASE_URL="${RELEASE_URL:-https://github.com/$REPO/releases/download/$TAG/dispatch-release.tar.gz}"
+RELEASE_URL="${RELEASE_URL:-https://github.com/$REPO/releases/download/$TAG/dispatch-server.tar.gz}"
+
+# Dispatch creates and owns its database. Find a way to administer local
+# PostgreSQL and check its version before anything is downloaded or changed;
+# the database itself waits for a verified runtime below.
+for command in psql openssl; do command -v "$command" >/dev/null || { echo "error: $command is required; install PostgreSQL $((MIN_PG_VERSION_NUM / 10000)) or newer" >&2; exit 1; }; done
+# A login alone isn't enough. Only a superuser can create a role and then a
+# database it owns without first being granted membership in that role.
+ADMIN_SQL="SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+if [ "$(psql -d postgres -Atqc "$ADMIN_SQL" 2>/dev/null)" = t ]; then PSQL="psql -d postgres";
+elif [ "$PLATFORM" = linux ] && [ "$(sudo -n -u postgres psql -d postgres -Atqc "$ADMIN_SQL" 2>/dev/null)" = t ]; then PSQL="sudo -n -u postgres psql -d postgres";
+elif [ "$PLATFORM" = linux ] && command -v sudo >/dev/null && (exec </dev/tty) 2>/dev/null; then
+  # `curl | bash` leaves stdin on the pipe, so sudo asks on the terminal.
+  echo "==> creating Dispatch's database as the postgres user; sudo may ask for your password" >/dev/tty
+  if [ "$(sudo -u postgres psql -d postgres -Atqc "$ADMIN_SQL" </dev/tty)" = t ]; then PSQL="sudo -u postgres psql -d postgres"; fi
+fi
+if [ -z "$PSQL" ]; then
+  if [ "$PLATFORM" = linux ]; then
+    echo "error: creating Dispatch's database needs sudo access to the postgres user; run the installer from a terminal so sudo can ask for your password" >&2
+  else
+    echo "error: creating Dispatch's database needs 'psql -d postgres' to work as $(id -un); check that PostgreSQL is running" >&2
+  fi
+  exit 1
+fi
+PG_VERSION_NUM="$($PSQL -Atqc "SELECT current_setting('server_version_num')" 2>/dev/null || true)"
+case "$PG_VERSION_NUM" in
+  ''|*[!0-9]*) echo "warning: could not read the PostgreSQL server version; continuing" >&2 ;;
+  *) [ "$PG_VERSION_NUM" -ge "$MIN_PG_VERSION_NUM" ] || {
+       echo "error: PostgreSQL $((PG_VERSION_NUM / 10000)) is not supported; Dispatch needs PostgreSQL $((MIN_PG_VERSION_NUM / 10000)) or newer" >&2
+       exit 1
+     } ;;
+esac
+SUFFIX="$(openssl rand -hex 6 2>/dev/null || date +%s)"
+ROLE="dispatch_$SUFFIX"; DB="dispatch_$SUFFIX"; PASSWORD="$(openssl rand -hex 24)"
 
 PARENT="$(dirname "$RUNTIME_PATH")"
 mkdir -p "$PARENT" "$INSTALL_DIR" "$STATE_DIR"
 HAD_RELEASE_STORE=0; [ -e "$STATE_DIR/release.json" ] && HAD_RELEASE_STORE=1
-HAD_MIGRATIONS_STORE=0; [ -e "$STATE_DIR/applied-migrations.json" ] && HAD_MIGRATIONS_STORE=1
 HAD_CANDIDATE_STORE=0; [ -e "$STATE_DIR/release-candidate.json" ] && HAD_CANDIDATE_STORE=1
 TMP="$(mktemp "$PARENT/.dispatch-install.XXXXXX")"
 RELEASE_STORE_BACKUP="$TMP.release.json.prior"
-MIGRATIONS_STORE_BACKUP="$TMP.applied-migrations.json.prior"
 CANDIDATE_STORE_BACKUP="$TMP.release-candidate.json.prior"
 [ "$HAD_RELEASE_STORE" = 1 ] && cp "$STATE_DIR/release.json" "$RELEASE_STORE_BACKUP"
-[ "$HAD_MIGRATIONS_STORE" = 1 ] && cp "$STATE_DIR/applied-migrations.json" "$MIGRATIONS_STORE_BACKUP"
 [ "$HAD_CANDIDATE_STORE" = 1 ] && cp "$STATE_DIR/release-candidate.json" "$CANDIDATE_STORE_BACKUP"
 cleanup() {
   status=$?
-  rm -f "$TMP" "$TMP.binary" "$MIGRATIONS_TMP"
+  rm -f "$TMP" "$TMP.binary"
   if [ "$status" -ne 0 ] && [ "$INSTALL_SUCCEEDED" = 0 ]; then
     if [ "$SERVICE_REGISTERED" = 1 ]; then
       if [ "$PLATFORM" = linux ]; then
-        systemctl --user disable --now dispatch.service >/dev/null 2>&1 || true
+        systemctl --user disable --now "$SERVICE.service" >/dev/null 2>&1 || true
         rm -f "$UNIT"
         systemctl --user daemon-reload >/dev/null 2>&1 || true
       else
@@ -131,19 +211,18 @@ cleanup() {
     fi
     rm -f "$RUNTIME_PATH" "$ENV_FILE"
     if [ "$HAD_RELEASE_STORE" = 1 ]; then mv "$RELEASE_STORE_BACKUP" "$STATE_DIR/release.json"; else rm -f "$STATE_DIR/release.json"; fi
-    if [ "$HAD_MIGRATIONS_STORE" = 1 ]; then mv "$MIGRATIONS_STORE_BACKUP" "$STATE_DIR/applied-migrations.json"; else rm -f "$STATE_DIR/applied-migrations.json"; fi
     if [ "$HAD_CANDIDATE_STORE" = 1 ]; then mv "$CANDIDATE_STORE_BACKUP" "$STATE_DIR/release-candidate.json"; else rm -f "$STATE_DIR/release-candidate.json"; fi
     if [ "$GENERATED_DATABASE" = 1 ]; then
       echo "The generated PostgreSQL database was retained for retry:" >&2
       echo "  role: $GENERATED_ROLE  database: $GENERATED_DB" >&2
-      echo "  cleanup: psql -d postgres -c 'DROP DATABASE $GENERATED_DB' -c 'DROP ROLE $GENERATED_ROLE'" >&2
+      echo "  cleanup: ${PSQL/sudo -n /sudo } -c 'DROP DATABASE $GENERATED_DB' -c 'DROP ROLE $GENERATED_ROLE'" >&2
     fi
   fi
-  rm -f "$RELEASE_STORE_BACKUP" "$MIGRATIONS_STORE_BACKUP" "$CANDIDATE_STORE_BACKUP"
+  rm -f "$RELEASE_STORE_BACKUP" "$CANDIDATE_STORE_BACKUP"
   exit "$status"
 }
 trap cleanup EXIT
-echo "==> downloading $TAG"
+echo "==> downloading $TAG ($CHANNEL channel)"
 curl -fL --retry 3 -o "$TMP" "$RELEASE_URL"
 
 LISTING="$(tar tzf "$TMP")"
@@ -159,59 +238,40 @@ if command -v sha256sum >/dev/null; then ACTUAL="$(sha256sum "$TMP.binary" | awk
 chmod 755 "$TMP.binary"
 mv "$TMP.binary" "$RUNTIME_PATH"
 
-if [ -z "$DATABASE_URL" ]; then
-  for command in psql openssl; do command -v "$command" >/dev/null || { echo "error: $command is required to create a local PostgreSQL database; rerun with --database-url" >&2; exit 1; }; done
-  SUFFIX="$(openssl rand -hex 6 2>/dev/null || date +%s)"
-  ROLE="dispatch_$SUFFIX"; DB="dispatch_$SUFFIX"; PASSWORD="$(openssl rand -hex 24)"
-  if psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="psql -d postgres";
-  elif [ "$PLATFORM" = linux ] && sudo -n -u postgres psql -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then PSQL="sudo -n -u postgres psql -d postgres";
-  else echo "error: cannot administer local PostgreSQL; rerun with --database-url" >&2; exit 1; fi
-  # Names and password are installer-generated hex, never user interpolation.
-  $PSQL -v ON_ERROR_STOP=1 -f - <<EOF
-CREATE ROLE $ROLE LOGIN PASSWORD '$PASSWORD';
+# Names and password are installer-generated hex, never user interpolation.
+$PSQL -v ON_ERROR_STOP=1 -f - <<EOF
+CREATE ROLE $ROLE LOGIN CREATEDB PASSWORD '$PASSWORD';
 CREATE DATABASE $DB OWNER $ROLE;
 \\connect $DB
 GRANT ALL ON SCHEMA public TO $ROLE;
 EOF
-  DATABASE_URL="postgres://$ROLE:$PASSWORD@127.0.0.1:5432/$DB"
-  GENERATED_DATABASE=1; GENERATED_ROLE="$ROLE"; GENERATED_DB="$DB"
-  PGPASSWORD="$PASSWORD" psql "postgres://$ROLE@127.0.0.1:5432/$DB" -Atqc 'SELECT 1' >/dev/null || {
-    echo "error: generated database URL is not connectable; rerun with --database-url" >&2; exit 1;
-  }
-fi
+DATABASE_URL="postgres://$ROLE:$PASSWORD@127.0.0.1:5432/$DB"
+GENERATED_DATABASE=1; GENERATED_ROLE="$ROLE"; GENERATED_DB="$DB"
+PGPASSWORD="$PASSWORD" psql "postgres://$ROLE@127.0.0.1:5432/$DB" -Atqc 'SELECT 1' >/dev/null || {
+  echo "error: Dispatch's database was created but 127.0.0.1:5432 refuses its password login; check pg_hba.conf allows password (scram-sha-256/md5) logins" >&2; exit 1;
+}
 
 umask 077
-printf '%s\n' "DATABASE_URL=$DATABASE_URL" "DISPATCH_HOST=127.0.0.1" "DISPATCH_PORT=$PORT" "DISPATCH_SERVER_DIR=$INSTALL_DIR" "DISPATCH_RUNTIME_PATH=$RUNTIME_PATH" "DISPATCH_RELEASE_STORE_PATH=$STATE_DIR/release.json" "DISPATCH_APPLIED_MIGRATIONS_STORE_PATH=$STATE_DIR/applied-migrations.json" "DISPATCH_RELEASE_CANDIDATE_STORE_PATH=$STATE_DIR/release-candidate.json" "DISPATCH_ASSISTED_UPDATE_STORE_PATH=$STATE_DIR/assisted-update.json" > "$ENV_FILE"
+printf '%s\n' "DATABASE_URL=$DATABASE_URL" "DISPATCH_HOST=$HOST" "DISPATCH_PORT=$PORT" "DISPATCH_STATE_DIR=$STATE_DIR" "DISPATCH_SERVER_DIR=$INSTALL_DIR" "DISPATCH_RUNTIME_PATH=$RUNTIME_PATH" "DISPATCH_SERVICE_NAME=$([ "$PLATFORM" = linux ] && echo "$SERVICE" || echo "$LABEL")" "DISPATCH_UPDATE_CHANNEL=$CHANNEL" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
+
+if [ "$PLATFORM" = linux ] && [ "$NO_SERVICE" = 0 ]; then
+  command -v flock >/dev/null || { echo "error: flock is required for protected Linux updates" >&2; exit 1; }
+  # The retained helper and journal live outside the state tree restored on
+  # rollback.
+  "$RUNTIME_PATH" recovery-enroll "$ENV_FILE"
+fi
 
 if [ "$NO_SERVICE" = 0 ]; then
   NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  # Keep this JSON shape in sync with the server-owned applied-migrations store.
-  MIGRATIONS_TMP="$STATE_DIR/.applied-migrations.json.$$"
-  {
-    printf '{\n  "appliedMigrations": {'
-    first=1
-    while IFS= read -r migration; do
-      [ -n "$migration" ] || continue
-      migration_id="$(tar xOf "$TMP" "$migration" | sed -n 's/^id:[[:space:]]*//p' | head -n 1 | tr -d '\r')"
-      case "$migration_id" in *[!a-z0-9-]*|'') echo "error: invalid migration id in $migration" >&2; exit 1 ;; esac
-      [ "$first" = 1 ] || printf ','
-      printf '\n    "%s": { "appliedAt": "%s", "targetTag": "%s" }' "$migration_id" "$NOW" "$TAG"
-      first=0
-    done <<EOF
-$(printf '%s\n' "$LISTING" | grep -E '^update-migrations/[0-9]+-[a-z0-9-]+\.yaml$' || true)
-EOF
-    printf '\n  }\n}\n'
-  } > "$MIGRATIONS_TMP"
-  mv "$MIGRATIONS_TMP" "$STATE_DIR/applied-migrations.json"
   # Keep this shape in sync with apps/server/src/release-candidate-store.ts.
   # The newly healthy binary, not this installer, promotes it to release.json.
   printf '{\n  "tag": "%s",\n  "previousTag": null,\n  "activatedAt": "%s"\n}\n' "$TAG" "$NOW" > "$STATE_DIR/release-candidate.json"
   if [ "$PLATFORM" = linux ]; then
     mkdir -p "$(dirname "$UNIT")"
-    printf '[Unit]\nDescription=Dispatch\n[Service]\nWorkingDirectory=%s\nEnvironmentFile=%s\nEnvironment=PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\nExecStart=%s\nRestart=on-failure\nRestartSec=3\n# Keep tmux-backed agents alive across a Dispatch service restart.\nKillMode=process\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$ENV_FILE" "$RUNTIME_PATH" > "$UNIT"
+    printf '[Unit]\nDescription=Dispatch\n[Service]\nWorkingDirectory=%s\nEnvironmentFile=%s\nEnvironmentFile=-%s.recovery/launch.env\nEnvironment=PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\nExecStartPre=%s.recovery/dispatch-recovery recovery-serve %s.recovery/installation.json\nExecStart=%s\nRestart=on-failure\nRestartSec=3\n# Keep agent host processes alive across a Dispatch service restart.\nKillMode=process\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$ENV_FILE" "$STATE_DIR" "$STATE_DIR" "$STATE_DIR" "$RUNTIME_PATH" > "$UNIT"
     SERVICE_REGISTERED=1
-    systemctl --user daemon-reload; systemctl --user enable --now dispatch.service
+    systemctl --user daemon-reload; systemctl --user enable --now "$SERVICE.service"
     if command -v loginctl >/dev/null && ! loginctl show-user "$USER" -p Linger --value 2>/dev/null | grep -qx yes; then
       if loginctl enable-linger "$USER" 2>/dev/null; then
         echo "==> enabled systemd lingering so Dispatch starts without a login"
@@ -226,8 +286,19 @@ EOF
     SERVICE_REGISTERED=1
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
   fi
-  for _ in $(seq 1 30); do curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null && break; sleep 1; done
-  curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null || { echo "error: Dispatch did not become healthy${LOG_FILE:+; see $LOG_FILE}" >&2; exit 1; }
+  HEALTH_URL="http://127.0.0.1:$PORT/api/v1/health"
+  for _ in $(seq 1 30); do curl -fs "$HEALTH_URL" >/dev/null 2>&1 && break; sleep 1; done
+  if ! curl -fsS "$HEALTH_URL" >/dev/null; then
+    if [ "$PLATFORM" = linux ]; then
+      echo "error: Dispatch did not become healthy; last service log lines:" >&2
+      journalctl --user -u "$SERVICE" -n 20 --no-pager >&2 2>/dev/null || true
+      echo "full log: journalctl --user -u $SERVICE -n 200" >&2
+    else
+      echo "error: Dispatch did not become healthy; see $LOG_FILE" >&2
+      tail -n 20 "$LOG_FILE" >&2 2>/dev/null || true
+    fi
+    exit 1
+  fi
 fi
 
 if [ "$NO_SERVICE" = 0 ]; then
@@ -240,3 +311,9 @@ if [ "$NO_SERVICE" = 0 ]; then
 fi
 INSTALL_SUCCEEDED=1
 echo "Dispatch $TAG installed at $RUNTIME_PATH"
+echo "  channel: $CHANNEL (change it in Settings → Updates)"
+if [ "$NO_SERVICE" = 0 ]; then
+  echo "  open: http://127.0.0.1:$PORT"
+  if [ "$HOST" = 0.0.0.0 ]; then echo "  listening on: 0.0.0.0:$PORT (all interfaces)"; fi
+  if [ "$PLATFORM" = linux ]; then echo "  logs: journalctl --user -u $SERVICE"; fi
+fi

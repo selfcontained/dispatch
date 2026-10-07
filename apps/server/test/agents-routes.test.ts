@@ -1,3 +1,7 @@
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -31,8 +35,47 @@ async function createAgent(
     ...overrides,
   });
   expect(res.statusCode).toBe(201);
-  return res.json().agent;
+  const agent = res.json().agent;
+  // The launch post is written once the workspace is ready, in the
+  // background launch; wait for it before reading the stream.
+  await ctx.awaitLaunched(agent.id);
+  return agent;
 }
+
+it("keeps complete persona launch metadata in storage but out of create, list, detail and lifecycle responses", async () => {
+  const context =
+    "Private persona instructions\n".repeat(4000) + "FINAL_CONTEXT_SENTINEL";
+  const args = [
+    "--dispatch-persona-context",
+    context,
+    "--dangerously-bypass-approvals-and-sandbox",
+  ];
+  const created = await createAgent({ agentArgs: args });
+  const id = created.id;
+  const detail = await authedInject("GET", `/api/v1/agents/${id}`);
+  const list = await authedInject("GET", "/api/v1/agents");
+  const stopped = await authedInject("POST", `/api/v1/agents/${id}/stop`);
+  const started = await authedInject("POST", `/api/v1/agents/${id}/start`);
+  expect(stopped.statusCode).toBe(200);
+  expect(started.statusCode).toBe(200);
+  for (const agent of [
+    stopped.json().agent,
+    started.json().agent,
+    created,
+    detail.json().agent,
+    list.json().agents.find((agent: { id: string }) => agent.id === id),
+  ]) {
+    expect(agent.agentArgs).toEqual([
+      "--dangerously-bypass-approvals-and-sandbox",
+    ]);
+    expect(JSON.stringify(agent)).not.toContain("FINAL_CONTEXT_SENTINEL");
+  }
+  const stored = await ctx.pool.query(
+    "SELECT agent_args FROM agents WHERE id = $1",
+    [id]
+  );
+  expect(stored.rows[0].agent_args).toEqual(args);
+});
 
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM job_runs");
@@ -93,7 +136,7 @@ describe("POST /api/v1/agents (create)", () => {
     const agent = await createAgent();
     expect(agent.id).toBeTruthy();
     expect(agent.cwd).toBe("/tmp");
-    expect(agent.type).toBe("codex");
+    expect(agent.type).toBe("claude");
   });
 
   it("creates an agent with a name and type", async () => {
@@ -170,11 +213,6 @@ describe("POST /api/v1/agents (create)", () => {
     expect(res.json().error).toContain("baseBranch");
   });
 
-  it("creates a terminal agent", async () => {
-    const agent = await createAgent({ type: "terminal" });
-    expect(agent.type).toBe("terminal");
-  });
-
   it("applies fullAccess arg for claude type", async () => {
     const agent = await createAgent({
       type: "claude",
@@ -197,18 +235,9 @@ describe("POST /api/v1/agents (create)", () => {
     expect(res.json().error).toContain("disabled");
   });
 
-  it("does not apply fullAccess for terminal agents", async () => {
-    const agent = await createAgent({
-      type: "terminal",
-      fullAccess: true,
-    });
-    expect(agent.type).toBe("terminal");
-    expect(agent.fullAccess).toBe(false);
-  });
-
-  it("defaults type to codex when omitted", async () => {
+  it("defaults type to claude when omitted", async () => {
     const agent = await createAgent({});
-    expect(agent.type).toBe("codex");
+    expect(agent.type).toBe("claude");
   });
 
   it("applies fullAccess arg for codex type", async () => {
@@ -227,18 +256,21 @@ describe("POST /api/v1/agents (create)", () => {
       initialPrompt: "Look like the parent wrote this",
     });
     expect(child.parentAgentId).toBe(parent.id);
+    // The launch post is written once the workspace is ready, in the
+    // background launch the create route detaches.
+    await ctx.awaitLaunched(child.id);
     const posts = await ctx.pool.query(
-      `SELECT author_kind, text, origin, launched_by_agent_id
-         FROM agent_chat_messages WHERE agent_id = $1`,
+      `SELECT author_kind, text, kind, launched_by_agent_id
+         FROM blocks WHERE to_agent_id = $1 AND kind = 'launch'`,
       [child.id]
     );
-    // The post is the user's own; only the agent-authenticated launch paths
+    // The card is the user's own; only the agent-authenticated launch paths
     // (which set launchedByAgentId) may attribute it to an agent.
     expect(posts.rows).toEqual([
       {
         author_kind: "user",
         text: "Look like the parent wrote this",
-        origin: "launch",
+        kind: "launch",
         launched_by_agent_id: null,
       },
     ]);
@@ -273,79 +305,6 @@ describe("GET /api/v1/agents/:id/repo-icon", () => {
     );
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toContain("No repo icon");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/latest-event
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/latest-event", () => {
-  it("sets a working event on an agent", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "Compiling" }
-    );
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.agent.latestEvent.type).toBe("working");
-    expect(body.agent.latestEvent.message).toBe("Compiling");
-  });
-
-  it("accepts all valid event types", async () => {
-    const agent = await createAgent();
-    for (const type of ["working", "blocked", "waiting_user", "done", "idle"]) {
-      const res = await authedInject(
-        "POST",
-        `/api/v1/agents/${agent.id}/latest-event`,
-        { type, message: `Status: ${type}` }
-      );
-      expect(res.statusCode).toBe(200);
-    }
-  });
-
-  it("rejects invalid event type", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "exploding", message: "boom" }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("type must be");
-  });
-
-  it("rejects empty message", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "   " }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("message");
-  });
-
-  it("rejects non-object metadata", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "hi", metadata: "bad" }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("metadata");
-  });
-
-  it("accepts valid metadata object", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "done", message: "finished", metadata: { tool: "vitest" } }
-    );
-    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -403,45 +362,6 @@ describe("POST /api/v1/notifications/ack", () => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/error
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/error", () => {
-  it("marks agent setup as failed", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      { message: "npm install failed" }
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
-
-    const getRes = await authedInject("GET", `/api/v1/agents/${agent.id}`);
-    expect(getRes.json().agent.status).toBe("stopped");
-  });
-
-  it("uses default message when none provided", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      {}
-    );
-    expect(res.statusCode).toBe(200);
-  });
-
-  it("returns error for non-existent agent", async () => {
-    const res = await authedInject(
-      "POST",
-      "/api/v1/agents/agt_nonexistent/setup/error",
-      { message: "fail" }
-    );
-    // markSetupFailed does not guard against missing agents before updating
-    expect(res.statusCode).toBe(500);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // POST /api/v1/agents/:id/setup/phase
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/setup/phase", () => {
@@ -479,52 +399,56 @@ describe("POST /api/v1/agents/:id/setup/phase", () => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/complete
+// PATCH /api/v1/agents/:id/workspace
 // ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/complete", () => {
-  it("completes setup for an agent in creating state", async () => {
+describe("PATCH /api/v1/agents/:id/workspace", () => {
+  it("moves the workspace to another directory and back", async () => {
     const agent = await createAgent();
-    // Inert runtime puts agents in running; reset to creating for this test
-    await ctx.pool.query(
-      `UPDATE agents SET status = 'creating', setup_phase = 'session' WHERE id = $1`,
-      [agent.id]
-    );
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      { effectiveCwd: "/tmp/worktree" }
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
+    const other = await mkdtemp(path.join(os.tmpdir(), "dispatch-ws-route-"));
+    try {
+      const moved = await authedInject(
+        "PATCH",
+        `/api/v1/agents/${agent.id}/workspace`,
+        { path: other }
+      );
+      expect(moved.statusCode).toBe(200);
+      expect(moved.json().agent.workspacePath).toBe(await realpath(other));
+      expect(moved.json().agent.cwd).toBe("/tmp");
+
+      const back = await authedInject(
+        "PATCH",
+        `/api/v1/agents/${agent.id}/workspace`,
+        { path: null }
+      );
+      expect(back.statusCode).toBe(200);
+      expect(back.json().agent.workspacePath).toBeNull();
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
   });
 
-  it("rejects when agent is already running", async () => {
+  it("rejects relative and missing paths and non-string bodies", async () => {
     const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      { effectiveCwd: "/tmp/worktree" }
-    );
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).toContain("creating");
+    for (const body of [
+      { path: "relative" },
+      { path: "/definitely/not/here" },
+      { path: 42 },
+      { path: "/tmp", baseBranch: ["main"] },
+    ]) {
+      const res = await authedInject(
+        "PATCH",
+        `/api/v1/agents/${agent.id}/workspace`,
+        body
+      );
+      expect(res.statusCode).toBe(400);
+    }
   });
 
-  it("rejects missing effectiveCwd", async () => {
-    const agent = await createAgent();
+  it("404s for an unknown agent", async () => {
     const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      {}
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("effectiveCwd");
-  });
-
-  it("returns error for non-existent agent", async () => {
-    const res = await authedInject(
-      "POST",
-      "/api/v1/agents/agt_nonexistent/setup/complete",
-      { effectiveCwd: "/tmp" }
+      "PATCH",
+      "/api/v1/agents/agt_missing/workspace",
+      { path: "/tmp" }
     );
     expect(res.statusCode).toBe(404);
   });
@@ -789,27 +713,43 @@ describe("POST /api/v1/agents/:id/prompt-rename", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/terminal/token (inert mode)
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/terminal/token", () => {
-  it("returns inert mode for agents in inert runtime", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/terminal/token`,
-      {}
-    );
+describe("agent permissions API", () => {
+  it("reports an unattached engine and rejects stale decisions", async () => {
+    const agent = await createAgent({ fullAccess: false });
+    const url = `/api/v1/agents/${agent.id}/permissions`;
+    const res = await authedInject("GET", url);
     expect(res.statusCode).toBe(200);
-    expect(res.json().mode).toBe("inert");
+    expect(res.json()).toEqual({ connected: false, requests: [] });
+    for (const body of [{}, { optionId: true }, { optionId: "" }]) {
+      expect(
+        (await authedInject("POST", `${url}/request`, body)).statusCode
+      ).toBe(400);
+    }
+    expect(
+      (await authedInject("POST", `${url}/request`, { optionId: "allow" }))
+        .statusCode
+    ).toBe(409);
+    expect(
+      (await authedInject("GET", "/api/v1/agents/missing/permissions"))
+        .statusCode
+    ).toBe(404);
   });
 
-  it("returns error for non-existent agent", async () => {
-    const res = await authedInject(
-      "POST",
-      "/api/v1/agents/agt_nonexistent/terminal/token",
-      {}
+  it("requires user authentication; an agent cannot approve itself with its MCP token", async () => {
+    const agent = await createAgent({ fullAccess: false });
+    const url = `/api/v1/agents/${agent.id}/permissions/request`;
+    const token = ctx.auth.createAgentMcpToken(
+      await ctx.auth.getOrCreateAuthToken(ctx.pool),
+      String(agent.id)
     );
-    expect(res.statusCode).toBe(404);
+    for (const headers of [{}, { authorization: `Bearer ${token}` }]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url,
+        headers,
+        payload: { optionId: "allow" },
+      });
+      expect(res.statusCode).toBe(401);
+    }
   });
 });

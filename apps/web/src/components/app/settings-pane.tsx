@@ -1,12 +1,9 @@
 import { Database, Server, Settings } from "lucide-react";
 
+import { UserAvatarSettings } from "@/components/app/user-avatar/user-avatar-settings";
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
 import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
-import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
-import { ChatSurfaceSettings } from "@/components/app/chat-surface-settings";
-import { InjectionHoldSettings } from "@/components/app/injection-hold-settings";
-import { LaunchGuidanceSettings } from "@/components/app/launch-guidance-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
@@ -180,6 +177,9 @@ export function SettingsContent({
               <InstanceNameSettings />
             </div>
             <div className="border-t border-border">
+              <UserAvatarSettings />
+            </div>
+            <div className="border-t border-border">
               <AppearanceSettings
                 theme={theme}
                 setTheme={setTheme}
@@ -190,49 +190,43 @@ export function SettingsContent({
                 clearIconColorError={clearIconColorError}
               />
             </div>
-            <div className="border-t border-border">
-              <SecuritySettings onLogout={onLogout} />
-            </div>
           </div>
         )}
         {activeSection === "agents" && (
           <div className="flex flex-col">
-            <PersonalitySettings />
+            <AgentTypeSettings
+              enabledAgentTypes={enabledAgentTypes}
+              onChange={onEnabledAgentTypesChange}
+            />
             <div className="border-t border-border">
-              <AgentTypeSettings
-                enabledAgentTypes={enabledAgentTypes}
-                onChange={onEnabledAgentTypesChange}
-              />
+              <PersonalitySettings />
             </div>
-            <div className="border-t border-border">
+          </div>
+        )}
+        {activeSection === "workspace" && (
+          <div className="flex flex-col">
+            <div>
               <IdeSettings
                 enabledIdes={enabledIdes}
                 onChange={onEnabledIdesChange}
               />
-            </div>
-            <div className="border-t border-border">
-              <LaunchGuidanceSettings />
-            </div>
-            <PluginUpdateSettings />
-            <div className="border-t border-border">
-              <InjectionHoldSettings />
-            </div>
-            <div className="border-t border-border">
-              <CrossRepoMessagingSettings />
-            </div>
-            <div className="border-t border-border">
-              <ChatSurfaceSettings />
             </div>
             <div className="px-6 pb-6">
               <WorktreeLocationSettings />
             </div>
           </div>
         )}
+        {activeSection === "security" && (
+          <SecuritySettings onLogout={onLogout} />
+        )}
         {activeSection === "notifications" && <NotificationSettings />}
         {activeSection === "connections" && <BrowserExtensionSettings />}
         {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (
-          <UpdatesSection stream={updateStream} />
+          <div className="flex flex-col">
+            <UpdatesSection stream={updateStream} />
+            <PluginUpdateSettings />
+          </div>
         )}
         {activeSection === "help" && (
           <DocsContent

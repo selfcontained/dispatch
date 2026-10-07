@@ -42,7 +42,7 @@ const config = {
 
 async function addAgent(id: string) {
   await pool.query(
-    `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+    `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
      VALUES ($1, $1, 'claude', 'running', '/tmp', '[]'::jsonb, false)`,
     [id]
   );
@@ -109,7 +109,6 @@ beforeEach(async () => {
   vi.mocked(agents.getAgent).mockResolvedValue({
     id: "mock",
     status: "running",
-    tmuxSession: null,
   } as Awaited<ReturnType<AgentManager["getAgent"]>>);
 });
 
@@ -189,9 +188,15 @@ describe("continuation jobs", () => {
       service.runJob({ name: record.name, directory: record.directory })
     ).rejects.toThrow("pending continuation");
     await addAgent("agt_cont_second");
-    vi.mocked(agents.createAgent).mockResolvedValue({
-      id: "agt_cont_second",
-    } as never);
+    vi.mocked(agents.createAgent).mockImplementation(
+      async (_input, options) => {
+        await options?.beforeLaunch?.("agt_cont_second");
+        expect(
+          await store.getActiveRunForAgent("agt_cont_second")
+        ).toMatchObject({ status: "running" });
+        return { id: "agt_cont_second" } as never;
+      }
+    );
     const successor = await service.launchPendingContinuation(first.id);
     expect(successor).toMatchObject({
       agentId: "agt_cont_second",
@@ -384,9 +389,12 @@ describe("continuation jobs", () => {
 
     const service = new JobService(pool, agents, logger, config);
     await addAgent("agt_cont_recovery");
-    vi.mocked(agents.createAgent).mockResolvedValue({
-      id: "agt_cont_recovery",
-    } as never);
+    vi.mocked(agents.createAgent).mockImplementation(
+      async (_input, options) => {
+        await options?.beforeLaunch?.("agt_cont_recovery");
+        return { id: "agt_cont_recovery" } as never;
+      }
+    );
     const successor = await service.launchPendingContinuation(crash.id);
     expect(successor).toMatchObject({
       agentId: "agt_cont_recovery",
@@ -621,9 +629,12 @@ describe("continuation jobs", () => {
 
     const service = new JobService(pool, agents, logger, config);
     await addAgent("agt_cont_worktree_2");
-    vi.mocked(agents.createAgent).mockResolvedValue({
-      id: "agt_cont_worktree_2",
-    } as never);
+    vi.mocked(agents.createAgent).mockImplementation(
+      async (_input, options) => {
+        await options?.beforeLaunch?.("agt_cont_worktree_2");
+        return { id: "agt_cont_worktree_2" } as never;
+      }
+    );
     const successor = await service.launchPendingContinuation(first.id);
     expect(successor).toMatchObject({ agentId: "agt_cont_worktree_2" });
     expect(vi.mocked(agents.createAgent).mock.calls[0]?.[0]).toMatchObject({
@@ -677,9 +688,12 @@ describe("continuation jobs", () => {
 
     const service = new JobService(pool, agents, logger, config);
     await addAgent("agt_cont_pinned_2");
-    vi.mocked(agents.createAgent).mockResolvedValue({
-      id: "agt_cont_pinned_2",
-    } as never);
+    vi.mocked(agents.createAgent).mockImplementation(
+      async (_input, options) => {
+        await options?.beforeLaunch?.("agt_cont_pinned_2");
+        return { id: "agt_cont_pinned_2" } as never;
+      }
+    );
     const successor = await service.launchPendingContinuation(first.id);
     expect(vi.mocked(agents.createAgent).mock.calls[0]?.[0]).toMatchObject({
       useWorktree: true,

@@ -168,7 +168,7 @@ describe("delegationChain", () => {
 
 describe("sanitizeAgentNameForPrompt", () => {
   it("strips control characters a name could smuggle in", () => {
-    // dispatch_rename_session accepts embedded newlines and nothing downstream
+    // rename_session accepts embedded newlines and nothing downstream
     // strips them, so an unsanitized name could forge envelope delimiters in
     // the recipient's terminal.
     expect(

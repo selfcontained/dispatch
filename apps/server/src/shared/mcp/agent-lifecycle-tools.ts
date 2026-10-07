@@ -6,10 +6,10 @@ import { jsonText, LIST_STRING_MAX, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 /**
- * One row of a media listing. `ownerAgentId` is always present: a listing can
+ * One row of a file listing. `ownerAgentId` is always present: a listing can
  * mix owners once family reads exist, so every row says whose it is.
  */
-export type ListedMediaItem = {
+export type ListedFileItem = {
   ownerAgentId: string;
   fileName: string;
   filePath: string;
@@ -19,16 +19,24 @@ export type ListedMediaItem = {
   createdAt: string;
 };
 
+export type SetWorkspaceResult = {
+  workspacePath: string;
+  moved: boolean;
+  repoRoot: string | null;
+  branch: string | null;
+  baseBranch: string | null;
+};
+
 export type AgentLifecycleContext = {
   agentId: string;
-  upsertEvent?: (
-    agentId: string,
-    event: { type: string; message: string; metadata?: Record<string, unknown> }
-  ) => Promise<void>;
   renameSession?: (
     agentId: string,
     name: string
   ) => Promise<{ id: string; name: string }>;
+  setWorkspace?: (
+    agentId: string,
+    input: { path: string | null; baseBranch?: string | null }
+  ) => Promise<SetWorkspaceResult>;
   sendNotify?: (
     agentId: string,
     input: NotifyInput
@@ -36,17 +44,11 @@ export type AgentLifecycleContext = {
     sent: boolean;
     reason?: string;
   }>;
-  listMedia?: (
+  listFiles?: (
     agentId: string,
     opts: { source?: string; ownerAgentId?: string }
-  ) => Promise<ListedMediaItem[]>;
-  deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
-  listPins?: (
-    agentId: string,
-    opts?: { ownerAgentId?: string }
-  ) => Promise<
-    Array<{ id: string; label: string; value: string; type: string }>
-  >;
+  ) => Promise<ListedFileItem[]>;
+  deleteFile?: (agentId: string, fileName: string) => Promise<void>;
 };
 
 export function registerAgentLifecycleTools(
@@ -56,56 +58,12 @@ export function registerAgentLifecycleTools(
 ): void {
   const { agentId } = context;
 
-  // ── dispatch_event ────────────────────────────────────────────────
-  if (allowed.has("dispatch_event") && context.upsertEvent) {
-    const upsertEvent = context.upsertEvent;
-
-    server.registerTool(
-      "dispatch_event",
-      {
-        description:
-          "Report agent status to Dispatch. Must be called at the start of each turn (working), when stuck and unable to proceed (blocked), waiting for user input (waiting_user), and before the final response (done or idle).",
-        inputSchema: {
-          type: z
-            .enum(["working", "blocked", "waiting_user", "done", "idle"])
-            .describe("The status event type."),
-          message: z
-            .string()
-            .describe("A short description of what is happening."),
-          metadata: z
-            .record(z.string(), z.unknown())
-            .optional()
-            .describe("Optional metadata object."),
-        },
-      },
-      async (args) => {
-        try {
-          await upsertEvent(agentId, {
-            type: args.type,
-            message: args.message,
-            metadata: args.metadata as Record<string, unknown> | undefined,
-          });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Updated ${agentId}: ${args.type} - ${args.message}`,
-              },
-            ],
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  // ── dispatch_rename_session ───────────────────────────────────────
-  if (allowed.has("dispatch_rename_session") && context.renameSession) {
+  // ── rename_session ───────────────────────────────────────
+  if (allowed.has("rename_session") && context.renameSession) {
     const renameSession = context.renameSession;
 
     server.registerTool(
-      "dispatch_rename_session",
+      "rename_session",
       {
         description:
           "Update the current session's display name. Use this to rename a default-generated session to a short goal or topic, or when the user explicitly asks for a rename.",
@@ -133,63 +91,51 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  // ── dispatch_notify ───────────────────────────────────────────────
-  if (allowed.has("dispatch_notify") && context.sendNotify) {
-    const sendNotify = context.sendNotify;
+  // ── set_workspace ────────────────────────────────────────
+  if (allowed.has("set_workspace") && context.setWorkspace) {
+    const setWorkspace = context.setWorkspace;
 
     server.registerTool(
-      "dispatch_notify",
+      "set_workspace",
       {
         description:
-          "Send a Slack notification. Use this to proactively share summaries, results, or important updates " +
-          "with the user via Slack. The message supports Slack mrkdwn formatting. " +
-          "Requires a Slack webhook to be configured in Dispatch settings. " +
-          "Rate limited to 5 messages per minute.",
+          "Tell Dispatch which directory you are working in when it is no longer the one you launched in — for example a git worktree you created yourself, or a different repo. Dispatch's diff view, branch, repo tools and brain follow it; your shell's working directory does not change. Omit path to return to the launch directory.",
         inputSchema: {
-          message: z
+          path: z
             .string()
-            .max(3000)
-            .describe(
-              "The notification message body. Supports Slack mrkdwn formatting (bold, links, lists, code blocks, etc). Max 3000 characters."
-            ),
-          title: z
-            .string()
-            .max(150)
+            .min(1)
             .optional()
             .describe(
-              "Optional title displayed above the message. Defaults to 'Notification from <agent>'. Max 150 characters."
+              "Absolute path of the directory you now work in. Inside a git checkout, its root is used."
             ),
-          level: z
-            .enum(["info", "success", "warning", "error"])
-            .default("info")
+          baseBranch: z
+            .string()
+            .min(1)
+            .optional()
             .describe(
-              "Notification level — controls the color and emoji. info (blue), success (green), warning (amber), error (red)."
-            ),
-          respectFocus: z
-            .boolean()
-            .default(false)
-            .describe(
-              "When true, the notification is suppressed if the user is actively viewing this agent in Dispatch. Default false — notifications are always sent."
+              "Branch the diff compares against. Defaults to the launch base in the same repo, else the repo's default branch."
             ),
         },
       },
       async (args) => {
         try {
-          const result = await sendNotify(agentId, {
-            message: args.message,
-            title: args.title,
-            level: args.level as NotifyInput["level"],
-            respectFocus: args.respectFocus,
+          const result = await setWorkspace(agentId, {
+            path: args.path ?? null,
+            baseBranch: args.baseBranch ?? null,
           });
+          const where = result.branch
+            ? `${result.workspacePath} (${result.branch}${result.baseBranch ? ` vs ${result.baseBranch}` : ""})`
+            : result.workspacePath;
           return {
             content: [
               {
                 type: "text",
-                text: result.sent
-                  ? "Notification sent to Slack."
-                  : `Notification not sent: ${result.reason}`,
+                text: result.moved
+                  ? `Workspace set to ${where}.`
+                  : `Workspace is back on the launch directory ${where}.`,
               },
             ],
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
@@ -198,34 +144,35 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  // ── dispatch_list_media ──────────────────────────────────────────
-  if (allowed.has("dispatch_list_media") && context.listMedia) {
-    const listMedia = context.listMedia;
+  // ── notify ───────────────────────────────────────────────
+  // ── list_files ──────────────────────────────────────────
+  if (allowed.has("list_files") && context.listFiles) {
+    const listFiles = context.listFiles;
 
     server.registerTool(
-      "dispatch_list_media",
+      "list_files",
       {
         description:
-          "List media files shared with or by this agent, or by its parent or one of its direct children when ownerAgentId is supplied (read-only; an archived one still lists). Returns metadata only — use file reading tools to access content via filePath.",
+          "List files shared with or by this agent, or by its parent or one of its direct children when ownerAgentId is supplied (read-only; an archived one still lists). Returns metadata only — use file reading tools to access content via filePath.",
         inputSchema: {
           source: z
             .string()
             .optional()
             .describe(
-              'Optional source filter (e.g. "user", "screenshot", "text", "simulator", "stream"). Omit to list all media.'
+              'Optional source filter (e.g. "user", "screenshot", "text", "simulator", "stream"). Omit to list all files.'
             ),
           ownerAgentId: z
             .string()
             .min(1)
             .optional()
             .describe(
-              "Whose media to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
+              "Whose files to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
             ),
         },
       },
       async (args) => {
         try {
-          const items = await listMedia(agentId, {
+          const items = await listFiles(agentId, {
             source: args.source,
             ownerAgentId: args.ownerAgentId,
           });
@@ -239,81 +186,25 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  if (allowed.has("dispatch_delete_media") && context.deleteMedia) {
-    const deleteMedia = context.deleteMedia;
+  if (allowed.has("delete_file") && context.deleteFile) {
+    const deleteFile = context.deleteFile;
     server.registerTool(
-      "dispatch_delete_media",
+      "delete_file",
       {
         description:
-          "Permanently remove one of this agent's shared media files. Call dispatch_list_media first to identify the exact fileName. This removes both the stored file and its Dispatch media record.",
+          "Permanently remove one of this agent's shared files. Call list_files first to identify the exact fileName. This removes both the stored file and its Dispatch file record.",
         inputSchema: {
           fileName: z
             .string()
-            .describe("Exact fileName returned by dispatch_list_media."),
+            .describe("Exact fileName returned by list_files."),
         },
       },
       async (args) => {
         try {
-          await deleteMedia(agentId, args.fileName);
+          await deleteFile(agentId, args.fileName);
           return {
             content: [
-              { type: "text", text: `Deleted media \"${args.fileName}\".` },
-            ],
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  if (allowed.has("dispatch_list_pins") && context.listPins) {
-    const listPins = context.listPins;
-    server.registerTool(
-      "dispatch_list_pins",
-      {
-        description:
-          "List this agent's current Dispatch sidebar pins, or — with ownerAgentId — the pins of its parent or one of its direct children, read-only. Use dispatch_delete_pin with a returned id to remove a stale pin of your own. " +
-          `Pin values longer than ${LIST_STRING_MAX} characters are truncated (marked with the number of characters dropped). ` +
-          "Pass an id to get that one pin back in full instead — that is how you read a long shortcut pin's whole prompt.",
-        inputSchema: {
-          id: z
-            .string()
-            .min(1)
-            .optional()
-            .describe(
-              "Return only this pin, untruncated. Omit to list every pin."
-            ),
-          ownerAgentId: z
-            .string()
-            .min(1)
-            .optional()
-            .describe(
-              "Whose pins to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
-            ),
-        },
-      },
-      async (args) => {
-        try {
-          const pins = await listPins(agentId, {
-            ownerAgentId: args.ownerAgentId,
-          });
-          if (args.id !== undefined) {
-            const pin = pins.find((candidate) => candidate.id === args.id);
-            if (!pin) {
-              return toToolError(new Error(`Pin ${args.id} not found.`));
-            }
-            // A request for one pin is the detail read, so it is not truncated.
-            return {
-              content: [{ type: "text" as const, text: jsonText(pin) }],
-            };
-          }
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: jsonText(truncateLongStrings(pins, LIST_STRING_MAX)),
-              },
+              { type: "text", text: `Deleted file \"${args.fileName}\".` },
             ],
           };
         } catch (error) {

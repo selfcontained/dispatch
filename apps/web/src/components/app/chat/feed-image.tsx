@@ -97,7 +97,7 @@ export function FeedImage({
 }: {
   src: string;
   alt: string;
-  /** Natural size from the media row, absent when it could not be read. */
+  /** Natural size from the file row, absent when it could not be read. */
   width?: number;
   height?: number;
   /** Tallest the image is allowed to be, and the fallback's fixed height. */

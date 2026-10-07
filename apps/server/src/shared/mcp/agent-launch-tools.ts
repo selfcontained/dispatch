@@ -6,6 +6,7 @@ import { describeAgentModelCatalog } from "../agent-models.js";
 import { toToolError } from "./tool-error.js";
 
 export type LaunchAgentResult = {
+  warnings?: string[];
   agentId: string;
   name: string;
   /** Set when a template arg was left empty. */
@@ -26,6 +27,12 @@ export type LaunchAgentInput = {
   templateArgs?: Record<string, string>;
   cwd?: string;
   child?: boolean;
+  /**
+   * A persona slug: the new agent runs with that persona's instructions
+   * and `prompt` as its briefing, delivered with the first message.
+   * `list_personas` names the available ones.
+   */
+  persona?: string;
 };
 
 export type AgentLaunchToolsContext = {
@@ -41,22 +48,32 @@ export function registerAgentLaunchTools(
   allowed: Set<string>,
   context: AgentLaunchToolsContext
 ): void {
-  if (!allowed.has("dispatch_launch_agent") || !context.launchAgent) return;
+  if (!allowed.has("launch_agent") || !context.launchAgent) return;
 
   const agentId = context.agentId;
   const launchAgent = context.launchAgent;
 
   server.registerTool(
-    "dispatch_launch_agent",
+    "launch_agent",
     {
       description:
-        "Launch a new agent to work on a task. The new agent runs independently " +
-        "— use dispatch_send_message to coordinate and list_agents to check status. " +
+        "Launch a new agent to work on a task. Call get_usage first and launch on the type it suggests: " +
+        "quotas are per provider login, so a type near its limit stalls every agent on it. The new agent runs independently " +
+        "— it shares your stream: post with to set to its id to coordinate, and list_agents to check status. " +
         "By default the new agent is your child and appears under your card in the sidebar; " +
         "pass child: false to launch it as its own top-level agent instead. " +
-        "A child's pins and media are readable here via ownerAgentId on dispatch_list_pins / dispatch_list_media, " +
-        "and it can read yours the same way — neither side needs to relay file paths or URLs.",
+        "A child's files are readable here via ownerAgentId on list_files, " +
+        "and it can read yours the same way — neither side needs to relay file paths. " +
+        "Pass persona (a slug from list_personas) to launch it as that persona — a reviewer, a QA tester, whatever the persona defines — " +
+        "with prompt as its briefing; a reviewer persona posts one review block back to you when done. " +
+        "Dispatch delivers that review as a new prompt, so do not poll list_agents or keep this turn open just to wait for it.",
       inputSchema: {
+        persona: z
+          .string()
+          .optional()
+          .describe(
+            "Persona slug from list_personas. The agent gets the persona's instructions; prompt becomes its briefing (the review target, relevant base branch for code changes, what to look at, and what is out of scope). The reviewer inspects relevant material itself."
+          ),
         name: z
           .string()
           .min(1)
@@ -73,7 +90,8 @@ export function registerAgentLaunchTools(
           .enum(CLI_AGENT_TYPES)
           .optional()
           .describe(
-            "Agent type. Defaults to the same type as the launching agent."
+            "Agent type. Defaults to the same type as the launching agent — which may be the one running low. " +
+              "Pass the type get_usage suggests when it names one."
           ),
         model: z
           .string()
@@ -162,14 +180,18 @@ export function registerAgentLaunchTools(
           input.templateArgs = args.templateArgs;
         if (args.cwd !== undefined) input.cwd = args.cwd;
         if (args.child !== undefined) input.child = args.child;
+        if (args.persona !== undefined) input.persona = args.persona;
 
         const result = await launchAgent(agentId, input);
         const text = `Launched agent "${result.name}" (${result.agentId}).`;
+        const reviewHandoff = args.persona
+          ? " Dispatch will send you a new prompt when this persona posts its result. After launching any other intended reviewers and finishing independent work, end this turn; do not poll list_agents, sleep, or wait here for the result. Work through any review findings when that prompt arrives."
+          : "";
         return {
           content: [
             {
               type: "text",
-              text: result.note ? `${text} ${result.note}` : text,
+              text: `${text}${reviewHandoff}${result.note ? ` ${result.note}` : ""}${result.warnings?.length ? ` ${result.warnings.join(" ")}` : ""}`,
             },
           ],
           structuredContent: result,

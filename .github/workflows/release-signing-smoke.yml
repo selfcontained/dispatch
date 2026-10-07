@@ -30,7 +30,7 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 9.15.9
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -103,7 +103,7 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 9.15.9
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -158,7 +158,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Pack smoke artifact
-        run: bin/pack-release --output dispatch-release.tar.gz
+        run: bin/pack-release --output dispatch-server.tar.gz
 
       - name: Upload smoke bundle
         uses: actions/upload-artifact@v7
@@ -167,7 +167,7 @@ jobs:
           if-no-files-found: error
           path: |
             dist/bun/
-            dispatch-release.tar.gz
+            dispatch-server.tar.gz
             release-notes/current.md
           retention-days: 7
 
@@ -192,7 +192,7 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 9.15.9
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -269,7 +269,7 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 9.15.9
 
       - uses: oven-sh/setup-bun@v2
         with:

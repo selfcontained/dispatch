@@ -13,8 +13,7 @@
 // the binding works across keyboard layouts where the physical position of
 // the symbol differs.
 //
-// Hotkeys fire from anywhere in the page, including text inputs and the
-// terminal. To suppress firing inside a particular subtree (e.g. an open
+// Hotkeys fire from anywhere in the page, including text inputs. To suppress firing inside a particular subtree (e.g. an open
 // modal that owns its own keyboard shortcuts), mark that subtree's root
 // with `data-hotkey-disable="true"`.
 
@@ -24,13 +23,9 @@ export type HotkeyDef = {
 };
 
 export const HOTKEYS = {
-  "focus-terminal-input": {
-    combo: "mod+shift+space",
-    description: "Focus terminal input",
-  },
-  "toggle-media-sidebar": {
+  "toggle-drawer": {
     combo: "mod+shift+>",
-    description: "Toggle media sidebar",
+    description: "Toggle drawer",
   },
   "toggle-agent-sidebar": {
     combo: "mod+shift+<",
@@ -43,6 +38,10 @@ export const HOTKEYS = {
   "focus-next-agent": {
     combo: "mod+shift+down",
     description: "Focus next agent",
+  },
+  "focus-composer": {
+    combo: "mod+shift+space",
+    description: "Focus the visible message composer",
   },
   "open-command-palette": {
     combo: "mod+k",

@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import type { ChatFeedEntry, ChatMessage } from "@dispatch/shared";
+vi.mock(
+  "@/components/app/chat/composer-input",
+  () => import("@/test-utils/composer-input")
+);
+import type { ChatTurnEntry, StreamEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -10,16 +14,27 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
+import {
+  block,
+  blockEntry,
+  FILE_BODY,
+  launchBlock,
+  questionBody,
+  turnEntry as turnRow,
+} from "@/test-utils/blocks";
+import { api } from "@/lib/api";
 
 import {
   ChatPane,
   clearChatScrollMemory,
-  filterChildAgentMessages,
-  questionExcerpt,
+  entryOwner,
+  filterStreamView,
+  isMainColumnEntry,
+  type StreamView,
   readChatScrollPosition,
   REMEMBER_THROTTLE_MS,
   rememberChatScrollPosition,
@@ -40,18 +55,35 @@ const H = vi.hoisted(() => ({
   answerNow: vi.fn(),
   sendNow: vi.fn(),
   markRead: vi.fn(),
+  /** What the thread panel shows for whichever thread is open. */
+  threadRoot: null as unknown,
+  /** The agents list the peers query resolves to. */
+  agents: [] as unknown[],
+  /** The lineage the pane reads: the page agent's root, and what sits under it. */
+  rootId: null as string | null,
+  descendants: new Set<string>() as ReadonlySet<string>,
+  /** Every root id the feed was asked for, in order. */
+  streamIds: [] as Array<string | null>,
 }));
 
 // No real request may be in flight under a test: the pane's peers query
 // (`GET /api/v1/agents`) would otherwise hit whatever answers the jsdom
 // origin, and a resolved directory re-renders every post.
 vi.mock("@/lib/api", () => ({
-  api: vi.fn(async () => ({ agents: [] })),
+  api: vi.fn(async () => ({ agents: H.agents })),
 }));
 
-vi.mock("@/hooks/use-chat", () => ({
-  useChatFeed: () => ({
-    entries: H.entries,
+vi.mock("@/hooks/use-agent-tree", () => ({
+  useDeliveryAgents: () => H.agents,
+  useRootAgentId: (agentId: string | null) => H.rootId ?? agentId,
+  useDescendantAgentIds: () => H.descendants,
+  useAgentRecord: (agentId: string | null) =>
+    (H.agents as Agent[]).find((a) => a.id === agentId) ?? null,
+}));
+
+vi.mock("@/hooks/use-stream", () => ({
+  useStreamFeed: (rootId: string | null) => ({
+    entries: (H.streamIds.push(rootId), H.entries),
     unreadCount: H.unreadCount,
     hasOlder: false,
     isLoading: H.isLoading,
@@ -60,22 +92,52 @@ vi.mock("@/hooks/use-chat", () => ({
     loadOlder: vi.fn(),
     refetch: H.refetch,
   }),
-  useSendChatMessage: () => ({
+  usePostBlock: () => ({
     mutate: H.sendNow,
     mutateAsync: H.send,
     isPending: false,
     variables: undefined,
   }),
-  useAnswerChatQuestion: () => ({
+  useMarkThreadRead: () => ({ mutate: vi.fn(), isPending: false }),
+  useAnswerQuestion: () => ({
     mutate: H.answerNow,
     mutateAsync: H.answer,
     isPending: false,
     variables: undefined,
   }),
-  useMarkChatRead: () => H.markRead,
+  useSubmitForm: (() => {
+    const mutate = vi.fn();
+    const mutateAsync = vi.fn();
+    return () => ({
+      mutate,
+      mutateAsync,
+      isPending: false,
+      variables: undefined,
+    });
+  })(),
+  useRetryDelivery: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate, isPending: false, variables: undefined });
+  })(),
+  useRetryTurn: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate, isPending: false, variables: undefined });
+  })(),
+  useSetBlockState: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate, isPending: false, variables: undefined });
+  })(),
+  useMarkStreamRead: () => H.markRead,
+  useThread: () => ({
+    root: H.threadRoot,
+    replies: [],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   // One mutate for the whole file: the feed's rows are memoised on a context
   // built from it.
-  useToggleChatReaction: (() => {
+  useToggleReaction: (() => {
     const mutate = vi.fn();
     return () => ({ mutate });
   })(),
@@ -103,43 +165,13 @@ const agent: Agent = {
   cwd: "/tmp",
   worktreePath: null,
   worktreeBranch: null,
-  tmuxSession: null,
   agentArgs: [],
   model: null,
   fullAccess: false,
-  mediaDir: null,
+  filesDir: null,
   createdAt: "2026-09-02T09:00:00.000Z",
   updatedAt: "2026-09-02T10:00:00.000Z",
-  latestEvent: {
-    type: "working",
-    message: "Running tests",
-    updatedAt: "2026-09-02T10:00:00.000Z",
-    metadata: null,
-  },
 };
-
-function message(overrides: Partial<ChatMessage>): ChatMessage {
-  return {
-    id: "m",
-    agentId: "agt_1",
-    authorKind: "agent",
-    kind: "reply",
-    text: "hi",
-    replyTo: null,
-    question: null,
-    answer: null,
-    attachments: [],
-    delivered: null,
-    readAt: null,
-    createdAt: "2026-09-02T10:00:00.000Z",
-    updatedAt: "2026-09-02T10:00:00.000Z",
-    ...overrides,
-  };
-}
-
-function chat(m: ChatMessage): ChatFeedEntry {
-  return { type: "chat", id: m.id, at: m.createdAt, message: m };
-}
 
 function Wrapper({ children }: { children: ReactNode }) {
   // One client per mounted tree: a rerender must not hand the pane a fresh
@@ -162,16 +194,82 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
     <ChatPane
       agentId="agt_1"
       agent={agent}
-      terminalMode="tmux"
       active={true}
       showChildAgents={true}
-      childAgentIds={[]}
       onShowChildAgentsChange={vi.fn()}
       openLightbox={vi.fn()}
       isMobile={false}
       {...props}
     />,
     { wrapper: Wrapper }
+  );
+}
+
+/**
+ * A turn run by `agentId`, settled, with a couple of steps: its answer
+ * block ("answer <id>") with the turn attached. The prompt ("prompt <id>")
+ * is the turn's own record; the user's block is a row of its own.
+ */
+function turnEntry(
+  id: string,
+  agentId: string,
+  at: string,
+  overrides: Partial<ChatTurnEntry> = {}
+): StreamEntry {
+  return turnRow({
+    id,
+    author: { kind: "agent", agentId },
+    text: `answer ${id}`,
+    createdAt: at,
+    turn: {
+      prompt: { source: "chat", text: `prompt ${id}`, attachments: [] },
+      trace: {
+        startedAt: at,
+        endedAt: at,
+        finalResult: "ok",
+        steps: [
+          {
+            id: `${id}:s1`,
+            kind: "execute",
+            label: "pnpm test",
+            status: "ok",
+            startedAt: at,
+            endedAt: at,
+            detail: { input: { command: "pnpm test" } },
+          },
+          {
+            id: `${id}:s2`,
+            kind: "read",
+            label: "read a.ts",
+            status: "ok",
+            startedAt: at,
+            endedAt: at,
+            detail: { locations: [{ path: "a.ts" }] },
+          },
+        ],
+      },
+      ...overrides,
+    },
+  });
+}
+
+/** A block from `from` (an agent) addressed to `to`. */
+function agentPost(
+  id: string,
+  from: string,
+  to: string | null,
+  text: string,
+  at = "2026-09-02T10:00:00.000Z"
+): StreamEntry {
+  return blockEntry(
+    block({
+      id,
+      author: { kind: "agent", agentId: from },
+      toAgentId: to,
+      text,
+      delivered: true,
+      createdAt: at,
+    })
   );
 }
 
@@ -191,6 +289,11 @@ beforeEach(() => {
   H.send.mockReset();
   H.answer.mockReset();
   H.markRead.mockReset();
+  H.threadRoot = null;
+  H.agents = [];
+  H.rootId = null;
+  H.descendants = new Set();
+  H.streamIds = [];
   Element.prototype.scrollTo = vi.fn();
   clearChatScrollMemory();
 });
@@ -199,115 +302,219 @@ afterEach(() => {
   cleanup();
 });
 
-describe("questionExcerpt", () => {
-  it("takes the first meaningful line, stripped of markdown, and truncates", () => {
-    expect(questionExcerpt("## Ship it?\n\nMore detail")).toBe("Ship it?");
-    expect(questionExcerpt("**Bold** question")).toBe("Bold question");
-    expect(questionExcerpt("x".repeat(100), 10)).toBe("xxxxxxxxx…");
-  });
-});
-
-describe("filterChildAgentMessages", () => {
-  const childMessage = (
-    id: string,
-    senderAgentId: string,
-    recipientAgentId: string
-  ): ChatFeedEntry => ({
-    type: "agent_message",
-    id,
-    direction: senderAgentId === "agt_1" ? "out" : "in",
-    senderAgentId,
-    senderName: senderAgentId,
-    recipientAgentId,
-    recipientName: recipientAgentId,
-    content: id,
-    delivered: true,
-    at: "2026-09-02T10:00:00.000Z",
-  });
-
-  const entries = [
-    childMessage("from-child", "agt_child", "agt_1"),
-    childMessage("to-child", "agt_1", "agt_child"),
-    childMessage("other-agent", "agt_other", "agt_1"),
-    chat(message({ id: "human-chat" })),
+describe("entryOwner / filterStreamView", () => {
+  const T = "2026-09-02T10:00:00.000Z";
+  const rootView: StreamView = {
+    agentId: "agt_1",
+    rootId: "agt_1",
+    descendants: new Set(["agt_child", "agt_grandchild"]),
+  };
+  const childView: StreamView = {
+    agentId: "agt_child",
+    rootId: "agt_1",
+    descendants: new Set(["agt_grandchild"]),
+  };
+  const entries: StreamEntry[] = [
+    turnEntry("root-turn", "agt_1", T),
+    turnEntry("child-turn", "agt_child", T),
+    turnEntry("grandchild-turn", "agt_grandchild", T),
+    turnEntry("sibling-turn", "agt_sibling", T),
+    blockEntry(block({ id: "human-chat", authorKind: "user" })),
+    agentPost("root-reply", "agt_1", null, "for people"),
+    agentPost("child-reply", "agt_child", null, "child for people"),
+    agentPost("from-child", "agt_child", "agt_1", "to root"),
+    agentPost("to-child", "agt_1", "agt_child", "to child"),
+    agentPost("to-grandchild", "agt_child", "agt_grandchild", "launch"),
+    blockEntry(launchBlock({ id: "child-launch", toAgentId: "agt_child" })),
+    blockEntry(
+      launchBlock({
+        id: "grandchild-launch",
+        toAgentId: "agt_grandchild",
+        launchedByAgentId: "agt_child",
+      })
+    ),
   ];
+  const ids = (list: StreamEntry[]) => list.map((entry) => entry.id);
 
-  it("keeps all entries while child agents are shown", () => {
-    expect(
-      filterChildAgentMessages(entries, new Set(["agt_child"]), true)
-    ).toHaveLength(4);
+  it("gives the root's page everything, with descendants' rows as child activity", () => {
+    expect(ids(filterStreamView(entries, rootView, true))).toEqual(
+      ids(entries)
+    );
+    // A descendant's launch card is the parent's record of starting it: it
+    // stays with child activity hidden.
+    expect(ids(filterStreamView(entries, rootView, false))).toEqual([
+      "root-turn",
+      "sibling-turn",
+      "human-chat",
+      "root-reply",
+      "to-child",
+      "child-launch",
+      "grandchild-launch",
+    ]);
   });
 
-  it("hides both directions of child-agent messages only", () => {
-    expect(
-      filterChildAgentMessages(entries, new Set(["agt_child"]), false).map(
-        (entry) => entry.id
-      )
-    ).toEqual(["other-agent", "human-chat"]);
+  it("keeps a child response's source visible on its own page with child activity hidden", () => {
+    const source = blockEntry(
+      block({
+        id: "child-source",
+        authorKind: "user",
+        toAgentId: "agt_child",
+        threadId: null,
+      })
+    );
+    expect(filterStreamView([source], rootView, false)).toEqual([]);
+    expect(filterStreamView([source], childView, false)).toEqual([source]);
   });
 
-  it("uses feed lineage when an archived child is absent from the live list", () => {
-    const archivedChild = {
-      ...childMessage("archived-child", "agt_archived", "agt_1"),
-      involvesChildAgent: true,
-    };
-    expect(
-      filterChildAgentMessages(
-        [...entries, archivedChild],
-        new Set(),
-        false
-      ).map((entry) => entry.id)
-    ).toEqual(["from-child", "to-child", "other-agent", "human-chat"]);
+  it("filters a child's page to its own turns and the posts by or to it", () => {
+    expect(ids(filterStreamView(entries, childView, false))).toEqual([
+      "child-turn",
+      "child-reply",
+      "from-child",
+      "to-child",
+      "to-grandchild",
+      "child-launch",
+      "grandchild-launch",
+    ]);
+    // Its own children fold in below it, as on the root's page.
+    expect(ids(filterStreamView(entries, childView, true))).toEqual([
+      "child-turn",
+      "grandchild-turn",
+      "child-reply",
+      "from-child",
+      "to-child",
+      "to-grandchild",
+      "child-launch",
+      "grandchild-launch",
+    ]);
+  });
+
+  it("keeps a launch card with the agent it launched or a parent of it", () => {
+    const cardFor = (to: string) =>
+      blockEntry(launchBlock({ id: `card-${to}`, toAgentId: to }));
+    // The page's own card.
+    expect(entryOwner(cardFor("agt_child"), childView)).toBe("own");
+    // A descendant's card, on an ancestor's page.
+    expect(entryOwner(cardFor("agt_grandchild"), rootView)).toBe("own");
+    expect(entryOwner(cardFor("agt_grandchild"), childView)).toBe("own");
+    // A sibling's card is not the child's.
+    expect(entryOwner(cardFor("agt_sibling"), childView)).toBe("other");
+  });
+
+  it("names whose a row is", () => {
+    expect(entryOwner(entries[0]!, rootView)).toBe("own");
+    expect(entryOwner(entries[1]!, rootView)).toBe("child");
+    // A turn is its agent's block like any other: one by an agent outside
+    // the tree, for people, is the stream's and so the root's, and no
+    // child's.
+    expect(entryOwner(entries[3]!, rootView)).toBe("own");
+    expect(entryOwner(entries[3]!, childView)).toBe("other");
   });
 });
 
 describe("ChatPane", () => {
-  it("removes child-agent messages from the rendered feed when filtered", () => {
+  it("reads the root's stream and posts to the page's agent", async () => {
+    H.rootId = "agt_root";
+    H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
+    renderPane({ agentId: "agt_child", agent: { ...agent, id: "agt_child" } });
+    expect(H.streamIds).toContain("agt_root");
+    expect(H.streamIds).not.toContain("agt_child");
+
+    typeAndSend("do this");
+    await waitFor(() => expect(H.send).toHaveBeenCalled());
+    expect(H.send.mock.calls[0]![0]).toMatchObject({
+      text: "do this",
+      to: "agt_child",
+    });
+  });
+
+  it("posts to the root with no recipient from the root's own page", async () => {
+    H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
+    renderPane();
+    typeAndSend("do this");
+    await waitFor(() => expect(H.send).toHaveBeenCalled());
+    expect(H.send.mock.calls[0]![0]).not.toHaveProperty("to");
+  });
+
+  it("shows a child's page the root stream filtered to the child", () => {
+    H.rootId = "agt_1";
     H.entries = [
-      {
-        type: "agent_message",
-        id: "from-child",
-        direction: "in",
-        senderAgentId: "agt_child",
-        senderName: "child",
-        recipientAgentId: "agt_1",
-        recipientName: "demo",
-        content: "child update",
-        delivered: true,
-        at: "2026-09-02T10:00:00.000Z",
-      },
-      chat(message({ id: "human-chat", text: "visible reply" })),
+      turnEntry("root-turn", "agt_1", "2026-09-02T10:00:00.000Z"),
+      turnEntry("child-turn", "agt_child", "2026-09-02T10:01:00.000Z"),
+      agentPost("to-child", "agt_1", "agt_child", "please review"),
+      agentPost("root-reply", "agt_1", null, "for people"),
+    ];
+    renderPane({
+      agentId: "agt_child",
+      agent: { ...agent, id: "agt_child", name: "reviewer" },
+    });
+    expect(screen.queryByText("answer root-turn")).toBeNull();
+    expect(screen.queryByText("for people")).toBeNull();
+    expect(screen.getByText("answer child-turn")).toBeTruthy();
+    expect(screen.getByText("please review")).toBeTruthy();
+  });
+
+  it("shows a child's turn as a post under the child's name, like the parent's", async () => {
+    H.agents = [
+      { ...agent, id: "agt_1", name: "demo" },
+      { ...agent, id: "agt_child", name: "reviewer", parentAgentId: "agt_1" },
+    ];
+    H.descendants = new Set(["agt_child"]);
+    H.entries = [
+      turnEntry("root-turn", "agt_1", "2026-09-02T10:00:00.000Z"),
+      turnEntry("child-turn", "agt_child", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderPane();
+    // Both answers are in full; the child's under its own name.
+    expect(screen.getByText("answer root-turn")).toBeTruthy();
+    expect(screen.getByText("answer child-turn")).toBeTruthy();
+    const posts = screen.getAllByTestId("chat-message");
+    const childPost = posts.find(
+      (post) => post.getAttribute("data-block-id") === "child-turn"
+    )!;
+    expect(childPost.getAttribute("data-author")).toBe("peer");
+    expect(childPost.getAttribute("data-origin")).toBe("turn");
+    await waitFor(() =>
+      expect(
+        childPost.querySelector('[data-testid="chat-post-author"]')?.textContent
+      ).toBe("reviewer")
+    );
+    // Its steps fold under the answer, as the parent's do.
+    expect(childPost.querySelector('[data-testid="chat-turn"]')).not.toBeNull();
+  });
+
+  it("removes child activity from the rendered feed when filtered", () => {
+    H.descendants = new Set(["agt_child"]);
+    H.entries = [
+      agentPost("from-child", "agt_child", "agt_1", "child update"),
+      turnEntry("child-turn", "agt_child", "2026-09-02T10:00:30.000Z"),
+      blockEntry(block({ id: "human-chat", text: "visible reply" })),
     ];
 
-    renderPane({ showChildAgents: false, childAgentIds: ["agt_child"] });
+    renderPane({ showChildAgents: false });
 
     expect(screen.queryByText("child update")).toBeNull();
+    expect(screen.queryByText("answer child-turn")).toBeNull();
     expect(screen.getByText("visible reply")).toBeTruthy();
   });
 
-  it("does not treat filtering or hidden child messages as visible appends", () => {
-    const childEntry: ChatFeedEntry = {
-      type: "agent_message",
-      id: "from-child",
-      direction: "in",
-      senderAgentId: "agt_child",
-      senderName: "child",
-      recipientAgentId: "agt_1",
-      recipientName: "demo",
-      content: "child update",
-      delivered: true,
-      at: "2026-09-02T10:01:00.000Z",
-    };
+  it("does not treat filtering or hidden child activity as visible appends", () => {
+    H.descendants = new Set(["agt_child"]);
+    const childEntry = agentPost(
+      "from-child",
+      "agt_child",
+      "agt_1",
+      "child update",
+      "2026-09-02T10:01:00.000Z"
+    );
     H.entries = [
-      chat(message({ id: "human-chat", text: "visible reply" })),
+      blockEntry(block({ id: "human-chat", text: "visible reply" })),
       childEntry,
     ];
     const baseProps = {
       agentId: "agt_1",
       agent,
-      terminalMode: "tmux" as const,
       active: true,
-      childAgentIds: ["agt_child"],
       onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
       isMobile: false,
@@ -317,6 +524,8 @@ describe("ChatPane", () => {
       { wrapper: Wrapper }
     );
     const scroll = screen.getByTestId("chat-scroll");
+    // The feed scrolls through repeated controls: no backdrop blur in here.
+    expect(scroll.classList.contains("stream-surfaces-flat")).toBe(true);
     Object.defineProperties(scroll, {
       scrollHeight: { configurable: true, value: 1_000 },
       clientHeight: { configurable: true, value: 200 },
@@ -325,27 +534,39 @@ describe("ChatPane", () => {
     fireEvent.scroll(scroll);
 
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
-    expect(screen.queryByText("New messages")).toBeNull();
+    // Scrolled up, the way back is offered; nothing new is marked on it.
+    expect(
+      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
+    ).toBeFalsy();
 
     H.entries = [
       ...H.entries,
-      { ...childEntry, id: "new-hidden-child", content: "still hidden" },
+      agentPost(
+        "new-hidden-child",
+        "agt_child",
+        "agt_1",
+        "still hidden",
+        "2026-09-02T10:02:00.000Z"
+      ),
     ];
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
-    expect(screen.queryByText("New messages")).toBeNull();
+    // Scrolled up, the way back is offered; nothing new is marked on it.
+    expect(
+      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
+    ).toBeFalsy();
     expect(screen.queryByText("still hidden")).toBeNull();
   });
 
-  it("offers the New messages pill for a live row that lands mid-feed", () => {
-    const first = chat(
-      message({
+  it("offers the jump-to-bottom button, marked, for a live row that lands mid-feed", () => {
+    const first = blockEntry(
+      block({
         id: "a1",
         text: "first",
         createdAt: "2026-09-02T10:00:00.000Z",
       })
     );
-    const last = chat(
-      message({ id: "a2", text: "last", createdAt: "2026-09-02T10:05:00.000Z" })
+    const last = blockEntry(
+      block({ id: "a2", text: "last", createdAt: "2026-09-02T10:05:00.000Z" })
     );
     H.entries = [first, last];
     const { rerender } = renderPane();
@@ -356,41 +577,43 @@ describe("ChatPane", () => {
       scrollTop: { configurable: true, value: 100, writable: true },
     });
     fireEvent.scroll(scroll);
-    expect(screen.queryByText("New messages")).toBeNull();
+    // Scrolled up, the way back is offered; nothing new is marked on it.
+    expect(
+      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
+    ).toBeFalsy();
 
     H.entries = [
       first,
-      {
-        type: "status",
-        id: "event:late",
-        eventType: "working",
-        message: "Late status",
-        at: "2026-09-02T10:03:00.000Z",
-      },
+      agentPost(
+        "from-child",
+        "agt_child",
+        "agt_1",
+        "landed late",
+        "2026-09-02T10:03:00.000Z"
+      ),
       last,
     ];
     rerender(
       <ChatPane
         agentId="agt_1"
         agent={agent}
-        terminalMode="tmux"
         active={true}
         showChildAgents={true}
-        childAgentIds={[]}
         onShowChildAgentsChange={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
       />
     );
-    expect(screen.getByText("New messages")).toBeTruthy();
+    expect(
+      screen.getByTestId("chat-jump-to-bottom").getAttribute("data-pending")
+    ).toBe("true");
   });
 
   it("does not re-render memoised posts when the pane re-renders with equal data", async () => {
-    H.entries = [chat(message({ id: "a", text: "**bold** body" }))];
+    H.entries = [blockEntry(block({ id: "a", text: "**bold** body" }))];
     const stable = {
       onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
-      childAgentIds: [] as string[],
     };
     const { rerender } = renderPane(stable);
     // Let mount-time queries (peers, injection hold) settle, then take the
@@ -403,8 +626,7 @@ describe("ChatPane", () => {
     rerender(
       <ChatPane
         agentId="agt_1"
-        agent={{ ...agent, pins: [...(agent.pins ?? [])] }}
-        terminalMode="tmux"
+        agent={{ ...agent }}
         active={true}
         showChildAgents={true}
         isMobile={false}
@@ -414,62 +636,103 @@ describe("ChatPane", () => {
     expect(markdownRenders.count).toBe(settled);
   });
 
-  it("explains a filter-only empty feed and can show child messages again", () => {
+  it("explains a filter-only empty feed and can show child activity again", () => {
     const onShowChildAgentsChange = vi.fn();
-    H.entries = [
-      {
-        type: "agent_message",
-        id: "from-child",
-        direction: "in",
-        senderAgentId: "agt_child",
-        senderName: "child",
-        recipientAgentId: "agt_1",
-        recipientName: "demo",
-        content: "child update",
-        delivered: true,
-        at: "2026-09-02T10:00:00.000Z",
-      },
-    ];
+    H.descendants = new Set(["agt_child"]);
+    H.entries = [agentPost("from-child", "agt_child", "agt_1", "child update")];
 
-    renderPane({
-      showChildAgents: false,
-      childAgentIds: ["agt_child"],
-      onShowChildAgentsChange,
-    });
+    renderPane({ showChildAgents: false, onShowChildAgentsChange });
 
     const empty = screen.getByTestId("chat-empty");
     expect(empty.classList.contains("h-full")).toBe(true);
-    expect(empty.textContent).toContain("Child-agent messages are hidden");
+    expect(empty.textContent).toContain("Child-agent activity is hidden");
     expect(empty.textContent).not.toContain("No messages yet");
     fireEvent.click(screen.getByRole("button", { name: "Show child agents" }));
     expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
   });
 
-  it("shows the empty state when there are no chat messages, keeping other entries", () => {
-    H.entries = [
-      {
-        type: "status",
-        id: "event:1",
-        eventType: "working",
-        message: "Booting",
-        at: "2026-09-02T10:00:00.000Z",
-      },
-    ];
+  it("shows no empty prompt while an agent's feed has no blocks", () => {
+    H.entries = [];
     renderPane();
-    const empty = screen.getByTestId("chat-empty");
-    expect(empty.textContent).toContain("Send the first one below");
-    expect(empty.textContent).toContain("before Chat was enabled");
-    expect(screen.getByTestId("chat-status").textContent).toContain("Booting");
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
+    expect(screen.queryByTestId("chat-message")).toBeNull();
   });
 
-  it("hides the empty state once a chat message exists", () => {
-    H.entries = [chat(message({ id: "a1", text: "hello" }))];
+  it("shows no empty prompt under a launch card with no briefing", () => {
+    H.entries = [
+      blockEntry(
+        launchBlock({
+          id: "l1",
+          toAgentId: "agt_1",
+          launchState: {
+            startup: {
+              steps: [
+                {
+                  phase: "worktree",
+                  label: "Creating git worktree",
+                  startedAt: "2026-09-02T10:00:00.000Z",
+                  status: "running",
+                },
+              ],
+            },
+          },
+        })
+      ),
+    ];
     renderPane();
     expect(screen.queryByTestId("chat-empty")).toBeNull();
   });
 
+  it("counts a launch card with a briefing as the start of the conversation", () => {
+    H.entries = [
+      blockEntry(
+        launchBlock({ id: "l1", toAgentId: "agt_1", text: "Build the widget" })
+      ),
+    ];
+    renderPane();
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
+  });
+
+  it("hides the empty state once a chat message exists", () => {
+    H.entries = [blockEntry(block({ id: "a1", text: "hello" }))];
+    renderPane();
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
+  });
+
+  it("draws the prompt as the user's own row above the turn's answer", () => {
+    H.entries = [
+      blockEntry(
+        block({
+          id: "u1",
+          authorKind: "user",
+          text: "run the tests",
+          delivered: true,
+          createdAt: "2026-09-02T10:00:00.000Z",
+        })
+      ),
+      turnEntry("t1", "agt_1", "2026-09-02T10:00:05.000Z"),
+    ];
+    renderPane();
+    const posts = screen.getAllByTestId("chat-message");
+    expect(
+      posts.map((post) => [
+        post.getAttribute("data-author"),
+        post.getAttribute("data-origin"),
+      ])
+    ).toEqual([
+      ["user", null],
+      ["agent", "turn"],
+    ]);
+    expect(posts[0]!.textContent).toContain("run the tests");
+    expect(posts[1]!.textContent).toContain("answer t1");
+    expect(posts[1]!.textContent).not.toContain("prompt t1");
+    expect(screen.getByTestId("chat-turn").getAttribute("data-turn-id")).toBe(
+      "t1"
+    );
+  });
+
   it("sends a plain message when no free-text question is open", () => {
-    H.entries = [chat(message({ id: "a1" }))];
+    H.entries = [blockEntry(block({ id: "a1" }))];
     renderPane();
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
     typeAndSend("hello there");
@@ -480,28 +743,29 @@ describe("ChatPane", () => {
     expect(H.answer).not.toHaveBeenCalled();
   });
 
-  it("treats status-only history as empty but any written entry as a conversation", () => {
+  it("treats any block, even a bare file post, as a conversation", () => {
     H.entries = [
-      {
-        type: "status",
-        id: "event:1",
-        eventType: "working",
-        message: "Booting",
-        at: "2026-09-02T10:00:00.000Z",
-      },
-      {
-        type: "media",
-        id: "media:1",
-        mediaId: 1,
-        fileName: "shot.png",
-        sizeBytes: 10,
-        description: null,
-        at: "2026-09-02T10:00:01.000Z",
-      },
+      blockEntry(
+        block({
+          id: "file:1",
+          text: "",
+          body: FILE_BODY,
+          attachments: [
+            {
+              type: "file",
+              fileId: 1,
+              fileName: "shot.png",
+              sizeBytes: 10,
+              media: "image",
+            },
+          ],
+          createdAt: "2026-09-02T10:00:01.000Z",
+        })
+      ),
     ];
     renderPane();
     expect(screen.queryByTestId("chat-empty")).toBeNull();
-    expect(screen.getByTestId("chat-media")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-image")).toBeTruthy();
   });
 
   it("offers a retry and blocks sending while the feed failed to load", () => {
@@ -530,141 +794,248 @@ describe("ChatPane", () => {
     expect(screen.queryByTestId("chat-empty")).toBeNull();
   });
 
-  it("answers the newest open free-text question with what was typed", () => {
+  it("does not let an open question capture an unrelated main-stream message", () => {
     H.entries = [
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
-          text: "Which branch should I use?",
-          question: { options: [{ label: "main" }], allowFreeform: true },
-        })
-      ),
-    ];
-    renderPane();
-    expect(screen.getByTestId("chat-reply-context").textContent).toContain(
-      "Which branch should I use?"
-    );
-    typeAndSend("release/2.0");
-    expect(H.answer).toHaveBeenCalledWith({
-      messageId: "q1",
-      value: "release/2.0",
-      attachments: [],
-    });
-    expect(H.send).not.toHaveBeenCalled();
-  });
-
-  it("answers a free-text question through the answer route even with attachments", async () => {
-    H.entries = [
-      chat(
-        message({
-          id: "q1",
-          kind: "question",
-          text: "Which spec?",
-          question: { options: [{ label: "main" }], allowFreeform: true },
-        })
-      ),
-    ];
-    H.answer.mockImplementation(async () => {
-      // The answered question comes back from the server; the pane then
-      // has nothing left to reply to.
-      H.entries = [
-        chat(
-          message({
-            id: "q1",
-            kind: "question",
-            text: "Which spec?",
-            question: { options: [{ label: "main" }], allowFreeform: true },
-            answer: {
-              value: "this one",
-              replyMessageId: "r1",
-              answeredAt: "2026-09-02T10:01:00.000Z",
-            },
-          })
-        ),
-      ];
-      return {} as never;
-    });
-    const { rerender } = renderPane();
-    const input = screen.getByTestId("chat-composer-input");
-    fireEvent.paste(input, {
-      clipboardData: { items: [], getData: () => "https://example.com/spec" },
-    });
-    expect(screen.getByTestId("chat-reply-context")).toBeTruthy();
-    typeAndSend("this one");
-    expect(H.answer).toHaveBeenCalledWith({
-      messageId: "q1",
-      value: "this one",
-      attachments: [{ type: "link", url: "https://example.com/spec" }],
-    });
-    expect(H.send).not.toHaveBeenCalled();
-
-    await waitFor(() =>
-      expect(
-        (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
-      ).toBe("")
-    );
-    rerender(
-      <ChatPane
-        agentId="agt_1"
-        agent={agent}
-        terminalMode="tmux"
-        active={true}
-        showChildAgents={true}
-        childAgentIds={[]}
-        onShowChildAgentsChange={vi.fn()}
-        openLightbox={vi.fn()}
-        isMobile={false}
-      />
-    );
-    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
-    expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
-  });
-
-  it("sends a plain message after the reply context is dismissed", () => {
-    H.entries = [
-      chat(
-        message({
-          id: "q1",
-          kind: "question",
           text: "Which branch?",
-          question: { options: [{ label: "main" }], allowFreeform: true },
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
         })
       ),
     ];
     renderPane();
-    fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
-    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
-    typeAndSend("unrelated note");
+    typeAndSend("@reviewer check this");
     expect(H.send).toHaveBeenCalledWith({
-      text: "unrelated note",
+      text: "@reviewer check this",
       attachments: [],
     });
     expect(H.answer).not.toHaveBeenCalled();
   });
 
+  it("answers a child's mirrored question inline without changing the composer recipient", () => {
+    H.rootId = "agt_1";
+    H.agents = [agent, { ...agent, id: "agt_child", parentAgentId: "agt_1" }];
+    H.entries = [
+      blockEntry(
+        block({
+          id: "child-ask",
+          author: { kind: "agent", agentId: "agt_child" },
+          threadId: "child-home",
+          text: "Which channel?",
+          body: questionBody([{ label: "Stable" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    renderPane();
+    expect(screen.queryByTestId("chat-pending-question")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-question-write"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer" }), {
+      target: { value: "Beta please" },
+    });
+    fireEvent.submit(
+      screen.getByRole("textbox", { name: "Your answer" }).closest("form")!
+    );
+    expect(H.answerNow).toHaveBeenCalledWith(
+      { blockId: "child-ask", value: "Beta please", label: "Beta please" },
+      expect.any(Object)
+    );
+    expect(H.send).not.toHaveBeenCalled();
+    expect(
+      screen
+        .getByTestId("chat-composer-recipient")
+        .getAttribute("data-agent-id")
+    ).toBe("agt_1");
+  });
+
+  it("keeps a custom draft on its question when a newer question arrives", () => {
+    H.entries = [
+      blockEntry(
+        block({
+          id: "q1",
+          text: "Branch?",
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    const { rerender } = renderPane();
+    fireEvent.click(screen.getByTestId("chat-question-write"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer" }), {
+      target: { value: "release/2.0" },
+    });
+    H.entries = [
+      ...H.entries,
+      blockEntry(
+        block({
+          id: "q2",
+          text: "Platform?",
+          body: questionBody([{ label: "web" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={agent}
+        active={true}
+        showChildAgents={true}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    fireEvent.submit(
+      screen.getByRole("textbox", { name: "Your answer" }).closest("form")!
+    );
+    expect(H.answerNow).toHaveBeenCalledWith(
+      { blockId: "q1", value: "release/2.0", label: "release/2.0" },
+      expect.any(Object)
+    );
+    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
+  });
+
   it("does not offer the reply context for an option-only question", () => {
     H.entries = [
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
           text: "Pick one",
-          question: { options: [{ label: "A" }, { label: "B" }] },
+          body: questionBody([{ label: "A" }, { label: "B" }]),
         })
       ),
     ];
     renderPane();
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
   });
+});
 
-  it("lets an inert agent collect messages in its stream", () => {
-    renderPane({ terminalMode: "inert" });
+describe("ChatPane running turn", () => {
+  /** The newest turn's block: empty text until it settles. */
+  function turn(
+    overrides: Partial<ChatTurnEntry> = {},
+    text = ""
+  ): StreamEntry {
+    return turnRow({
+      id: "turn:1",
+      text,
+      createdAt: "2026-09-02T10:00:00.000Z",
+      turn: {
+        updatedAt: "2026-09-02T10:00:05.000Z",
+        prompt: { source: "chat", text: "run the tests", attachments: [] },
+        trace: {
+          startedAt: "2026-09-02T10:00:00.000Z",
+          steps: [],
+        },
+        result: { text: "", streaming: true },
+        settled: false,
+        interrupted: false,
+        ...overrides,
+      },
+    });
+  }
+
+  it("offers Stop for the server's open turn, and cancels it through the runtime", async () => {
+    H.entries = [turn()];
+    renderPane({
+      agent: { ...agent, currentTurn: { blockId: "turn:1", threadId: null } },
+    });
+    const stop = screen.getByTestId("chat-stop-turn");
+    vi.mocked(api).mockClear();
+    fireEvent.click(stop);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/v1/agents/agt_1/runtime/cancel", {
+        method: "POST",
+      })
+    );
+  });
+
+  it("uses the same composer control to choose between active agents", async () => {
+    const current = {
+      ...agent,
+      currentTurn: { blockId: "turn:1", threadId: null },
+    };
+    const other = {
+      ...agent,
+      id: "agt_2",
+      name: "Second agent",
+      currentTurn: { blockId: "turn:2", threadId: null },
+    };
+    renderPane({ agent: current, agents: [current, other] });
+    vi.mocked(api).mockClear();
+    fireEvent.pointerDown(
+      screen.getByTestId("chat-stop-turn"),
+      new MouseEvent("pointerdown", { bubbles: true, button: 0 })
+    );
     expect(
-      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
-        .disabled
-    ).toBe(false);
-    expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
+      (await screen.findByTestId("chat-stop-agent-agt_1")).textContent
+    ).toContain("current");
+    expect(screen.getByTestId("chat-stop-agent-agt_2").textContent).toContain(
+      "Second agent"
+    );
+    expect(api).not.toHaveBeenCalledWith(
+      "/api/v1/agents/agt_1/runtime/cancel",
+      { method: "POST" }
+    );
+    fireEvent.click(screen.getByTestId("chat-stop-agent-agt_2"));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/v1/agents/agt_2/runtime/cancel", {
+        method: "POST",
+      })
+    );
+  });
+
+  it("disables Stop once the newest turn has settled", () => {
+    H.entries = [
+      turn(
+        {
+          settled: true,
+          trace: {
+            startedAt: "2026-09-02T10:00:00.000Z",
+            endedAt: "2026-09-02T10:00:05.000Z",
+            steps: [],
+          },
+          result: { text: "done", streaming: false },
+        },
+        "done"
+      ),
+    ];
+    renderPane();
+    const stop = screen.getByTestId("chat-stop-turn") as HTMLButtonElement;
+    expect(stop.disabled).toBe(true);
+    expect(stop.getAttribute("aria-haspopup")).toBeNull();
+    expect(screen.getByText("done")).toBeTruthy();
+  });
+
+  it("does not offer Stop for a stale unsettled row after the server closed its turn", () => {
+    H.entries = [turn()];
+    renderPane({ agent: { ...agent, currentTurn: null } });
+    expect(
+      screen.getByTestId("chat-stop-turn").getAttribute("aria-label")
+    ).toBe("No active turns");
+    expect(
+      (screen.getByTestId("chat-stop-turn") as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
+  it("shows the newest turn's plan above the composer while work is left", () => {
+    H.entries = [
+      turn({
+        plan: [
+          {
+            content: "write the test",
+            status: "completed",
+            priority: "medium",
+          },
+          {
+            content: "make it pass",
+            status: "in_progress",
+            priority: "medium",
+          },
+        ],
+      }),
+    ];
+    renderPane();
+    expect(screen.getByTestId("harness-tasks")).toBeTruthy();
   });
 });
 
@@ -694,9 +1065,9 @@ describe("ChatPane scroll memory", () => {
 
   it("records the rows on screen when the reader leaves", () => {
     H.entries = [
-      chat(message({ id: "m1", text: "one" })),
-      chat(message({ id: "m2", text: "two" })),
-      chat(message({ id: "m3", text: "three" })),
+      blockEntry(block({ id: "m1", text: "one" })),
+      blockEntry(block({ id: "m2", text: "two" })),
+      blockEntry(block({ id: "m3", text: "three" })),
     ];
     const { unmount } = renderPane();
     const scroll = stubLayout(250);
@@ -715,9 +1086,9 @@ describe("ChatPane scroll memory", () => {
     vi.useFakeTimers();
     try {
       H.entries = [
-        chat(message({ id: "m1", text: "one" })),
-        chat(message({ id: "m2", text: "two" })),
-        chat(message({ id: "m3", text: "three" })),
+        blockEntry(block({ id: "m1", text: "one" })),
+        blockEntry(block({ id: "m2", text: "two" })),
+        blockEntry(block({ id: "m3", text: "three" })),
       ];
       const { unmount } = renderPane();
       // One unbroken fling: every event resets the trailing timer, so it
@@ -740,7 +1111,7 @@ describe("ChatPane scroll memory", () => {
   });
 
   it("stays following when the reader leaves from the bottom", () => {
-    H.entries = [chat(message({ id: "m1", text: "one" }))];
+    H.entries = [blockEntry(block({ id: "m1", text: "one" }))];
     const { unmount } = renderPane();
     const scroll = stubLayout(800);
     fireEvent.scroll(scroll);
@@ -755,8 +1126,8 @@ describe("ChatPane scroll memory", () => {
       anchors: [{ entryId: "m2", offset: -50 }],
     });
     H.entries = [
-      chat(message({ id: "m1", text: "one" })),
-      chat(message({ id: "m2", text: "two" })),
+      blockEntry(block({ id: "m1", text: "one" })),
+      blockEntry(block({ id: "m2", text: "two" })),
     ];
 
     renderPane();
@@ -767,8 +1138,8 @@ describe("ChatPane scroll memory", () => {
   });
 
   it("falls back to a lower row when the top one no longer exists", () => {
-    // What a collapsed run of `working` events does: the status row the
-    // reader was on now carries a newer event's id.
+    // The row the reader was on is gone (rolled off the loaded page, or
+    // deleted); the next remembered row below it stands in.
     rememberChatScrollPosition("agt_1", {
       following: false,
       anchors: [
@@ -777,8 +1148,8 @@ describe("ChatPane scroll memory", () => {
       ],
     });
     H.entries = [
-      chat(message({ id: "m1", text: "one" })),
-      chat(message({ id: "m2", text: "two" })),
+      blockEntry(block({ id: "m1", text: "one" })),
+      blockEntry(block({ id: "m2", text: "two" })),
     ];
 
     renderPane();
@@ -792,11 +1163,21 @@ describe("ChatPane scroll memory", () => {
       following: false,
       anchors: [{ entryId: "rolled-off", offset: -50 }],
     });
-    H.entries = [chat(message({ id: "m1", text: "one" }))];
+    H.entries = [blockEntry(block({ id: "m1", text: "one" }))];
 
     renderPane();
 
     expect(Element.prototype.scrollTo).toHaveBeenCalled();
+  });
+
+  it("keeps the position in local storage, so a reload finds it", () => {
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [{ entryId: "m1", offset: 12 }],
+    });
+    expect(
+      JSON.parse(window.localStorage.getItem("dispatch:chat-scroll:agt_1")!)
+    ).toEqual({ following: false, anchors: [{ entryId: "m1", offset: 12 }] });
   });
 
   it("forgets the agents nobody has looked at in longest", () => {
@@ -811,5 +1192,297 @@ describe("ChatPane scroll memory", () => {
     expect(readChatScrollPosition("agt_9")).toBeNull();
     expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
     expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
+  });
+});
+
+describe("isMainColumnEntry", () => {
+  it("shows threaded user asks even when child activity is hidden", () => {
+    const ask = blockEntry(
+      block({
+        id: "ask",
+        author: { kind: "agent", agentId: "child" },
+        threadId: "launch",
+        replyTo: "launch",
+        body: questionBody([{ label: "Yes" }]),
+      })
+    );
+    expect(isMainColumnEntry(ask)).toBe(true);
+    expect(
+      filterStreamView(
+        [ask],
+        { agentId: "root", rootId: "root", descendants: new Set(["child"]) },
+        false
+      )
+    ).toEqual([ask]);
+    expect(
+      isMainColumnEntry({
+        ...ask,
+        block: { ...ask.block, kind: "text", data: {} },
+      } as StreamEntry)
+    ).toBe(false);
+  });
+
+  it("leaves a turn a thread reply opened to the drawer", () => {
+    const plain = turnEntry("turn:1", "agt_1", "2026-09-02T10:00:00.000Z");
+    expect(isMainColumnEntry(plain)).toBe(true);
+    // Its answer block lands in the thread, as any reply does.
+    expect(
+      isMainColumnEntry({
+        ...plain,
+        block: { ...plain.block, threadId: "root", replyTo: "r1" },
+      })
+    ).toBe(false);
+  });
+});
+
+describe("ChatPane threads", () => {
+  function LocationProbe() {
+    const location = useLocation();
+    return <div data-testid="location-search">{location.search}</div>;
+  }
+
+  function renderWithUrl(search: string) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/agents/agt_1${search}`]}>
+          <ChatPane
+            agentId="agt_1"
+            agent={agent}
+            active={true}
+            showChildAgents={true}
+            onShowChildAgentsChange={vi.fn()}
+            openLightbox={vi.fn()}
+            isMobile={false}
+          />
+          <LocationProbe />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  const root = block({
+    id: "root",
+    text: "Plan",
+    replyCount: 3,
+    lastReplyAt: "2026-09-02T10:05:00.000Z",
+    unreadReplies: 2,
+    repliers: [{ kind: "user" }, { kind: "agent", agentId: "agt_1" }],
+  });
+
+  it("shows a reply line on a threaded block and puts the thread into the URL for the drawer", () => {
+    H.entries = [blockEntry(root)];
+    H.threadRoot = root;
+    renderWithUrl("");
+    const line = screen.getByTestId("chat-thread-line");
+    expect(line.textContent).toContain("3 replies");
+    expect(line.textContent).toContain("last");
+    // The row shows who wrote in the thread and what is new in it.
+    expect(
+      line.querySelectorAll('[data-testid="chat-thread-replier"]')
+    ).toHaveLength(2);
+    expect(screen.getByTestId("chat-thread-unread").textContent).toBe("2 new");
+    fireEvent.click(line);
+    expect(screen.getByTestId("location-search").textContent).toBe(
+      "?thread=root"
+    );
+    // The thread itself is the drawer's, not the pane's.
+    expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
+  });
+
+  it("leaves the composer unfocused while a thread is open in the drawer", () => {
+    H.entries = [blockEntry(root)];
+    H.threadRoot = root;
+    renderWithUrl("?thread=root&finding=f1");
+    expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
+    expect(document.activeElement).not.toBe(
+      screen.getByTestId("chat-composer-input")
+    );
+  });
+
+  it("keeps replies out of the main column", () => {
+    H.entries = [
+      blockEntry(root),
+      blockEntry(
+        block({
+          id: "r1",
+          authorKind: "user",
+          text: "a reply",
+          threadId: "root",
+          replyTo: "root",
+          createdAt: "2026-09-02T10:05:00.000Z",
+        })
+      ),
+    ];
+    renderWithUrl("");
+    expect(
+      screen
+        .getAllByTestId("chat-message")
+        .map((p) => p.getAttribute("data-block-id"))
+    ).toEqual(["root"]);
+  });
+});
+
+describe("ChatPane jump to a block", () => {
+  /** A turn still running with nothing to say: the feed's status line. */
+  function pendingTurn(id: string, agentId: string, at: string): StreamEntry {
+    return turnRow({
+      id,
+      author: { kind: "agent", agentId },
+      text: "",
+      createdAt: at,
+      turn: {
+        prompt: { source: "chat", text: `prompt ${id}`, attachments: [] },
+        settled: false,
+        trace: { startedAt: at, steps: [] },
+      },
+    });
+  }
+
+  /** Navigates like a sidebar row does: the URL plus a fresh nonce. */
+  let jump: ((blockId: string) => void) | null = null;
+  function JumpProbe() {
+    const navigate = useNavigate();
+    jump = (blockId: string) =>
+      navigate(
+        { pathname: "/agents/agt_1", search: `?block=${blockId}` },
+        { state: { blockJump: `${Math.random()}` } }
+      );
+    return null;
+  }
+
+  function renderAt(search: string) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const pane = () => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/agents/agt_1${search}`]}>
+          <ChatPane
+            agentId="agt_1"
+            agent={agent}
+            active={true}
+            showChildAgents={true}
+            onShowChildAgentsChange={vi.fn()}
+            openLightbox={vi.fn()}
+            isMobile={false}
+          />
+          <JumpProbe />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const result = render(pane());
+    // A fresh element each time, so the pane renders again and reads the
+    // feed as it now is.
+    return { ...result, rerenderPane: () => result.rerender(pane()) };
+  }
+
+  /** Rows 100px tall in a 200px view; the feed has no layout otherwise. */
+  function stubLayout() {
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+    });
+    scroll.getBoundingClientRect = () => ({ top: 0, bottom: 200 }) as DOMRect;
+    return scroll;
+  }
+
+  function rowOf(id: string): HTMLElement {
+    return document.querySelector<HTMLElement>(`[data-chat-entry-id="${id}"]`)!;
+  }
+
+  function placeRow(id: string, top: number, scroll: HTMLElement) {
+    rowOf(id).getBoundingClientRect = () =>
+      ({
+        top: top - scroll.scrollTop,
+        bottom: top + 40 - scroll.scrollTop,
+        height: 40,
+      }) as DOMRect;
+  }
+
+  const older = [
+    blockEntry(block({ id: "m1", text: "one" })),
+    blockEntry(block({ id: "m2", text: "two" })),
+  ];
+
+  it("scrolls to a running turn's status line and marks it", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderAt("");
+    const scroll = stubLayout();
+    scroll.scrollTop = 0;
+    placeRow("t1", 500, scroll);
+    expect(screen.getByTestId("chat-pending-turn")).toBeTruthy();
+
+    act(() => jump!("t1"));
+
+    // Centred: 500px down, a 40px row in a 200px view.
+    expect(scroll.scrollTop).toBe(500 - 80);
+    expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+  });
+
+  it("jumps from a link on a cold load", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderAt("?block=t1");
+    expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+    // Not pinned to the newest message after the jump.
+    expect(screen.queryByTestId("chat-jump-to-bottom")).toBeNull();
+  });
+
+  it("waits for a target that is not in the feed yet", () => {
+    H.entries = [...older];
+    const { rerenderPane } = renderAt("?block=t1");
+    expect(document.querySelector("[data-jump-flash]")).toBeNull();
+
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    rerenderPane();
+
+    expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+  });
+
+  it("jumps again when the same row is clicked again", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderAt("");
+    const scroll = stubLayout();
+    placeRow("t1", 500, scroll);
+    act(() => jump!("t1"));
+    expect(scroll.scrollTop).toBe(420);
+
+    // The reader scrolls away; the same URL is asked for again.
+    scroll.scrollTop = 0;
+    placeRow("t1", 500, scroll);
+    act(() => jump!("t1"));
+    expect(scroll.scrollTop).toBe(420);
+  });
+
+  it("does not jump again on its own once the reader moved on", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    const { rerenderPane } = renderAt("");
+    const scroll = stubLayout();
+    placeRow("t1", 500, scroll);
+    act(() => jump!("t1"));
+    scroll.scrollTop = 0;
+
+    // A live update re-renders the feed; the request was already served.
+    H.entries = [...H.entries];
+    rerenderPane();
+    expect(scroll.scrollTop).toBe(0);
   });
 });

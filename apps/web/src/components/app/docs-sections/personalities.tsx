@@ -8,17 +8,17 @@ export function PersonalitiesContent() {
         regular agent's system prompt at launch. Use it for voice (
         <em>"keep replies brief and sardonic"</em>) or standing preferences (
         <em>"prefer pnpm over npm; never run dev servers in the foreground"</em>
-        ). Personalities are unrelated to <strong>Reviewers</strong> — those are
-        full prompt definitions for one-off review agents and are managed
+        ). Personalities are unrelated to <strong>Personas</strong> — those are
+        full launch profiles for one-off child agents and are managed
         separately.
       </P>
 
       <Section>
         <H3>Managing personalities</H3>
         <P>
-          Open <strong>Settings → Agents</strong>. The Personalities list is at
-          the top of the pane. Click <strong>New personality</strong> to add
-          one. Each entry has:
+          Open <strong>Settings → Agents</strong>. The Personalities list is
+          below Agent types. Click <strong>New personality</strong> to add one.
+          Each entry has:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
@@ -62,13 +62,10 @@ export function PersonalitiesContent() {
         <H3>What it applies to</H3>
         <P>
           The active personality is looked up fresh each time a standard agent
-          launches or resumes: it goes into Claude's{" "}
-          <Code>--append-system-prompt</Code> flag and into the launch prompt
-          for Codex, Cursor, and OpenCode. The one exception is Codex on resume
-          — <Code>codex resume</Code> continues the existing session without a
-          new prompt, so a resumed Codex agent keeps whatever personality it
-          launched with. Terminal agents have no CLI to inject into, so the
-          personality is silently skipped.
+          launches or resumes: it goes into Claude's system prompt and into the
+          launch prompt for Codex. The one exception is Codex on resume — a
+          resumed Codex session continues without a new prompt, so it keeps
+          whatever personality it launched with.
         </P>
         <P>
           Three flows intentionally <em>don't</em> get the personality, since
@@ -77,16 +74,13 @@ export function PersonalitiesContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Persona reviewers</strong> launched via{" "}
-            <Code>dispatch_launch_persona</Code> or the Reviewers UI.
+            <strong>Persona agents</strong> launched via{" "}
+            <Code>launch_agent</Code> with a <Code>persona</Code>, or from the
+            Changes tab.
           </li>
           <li>
             <strong>Job runs</strong> spawned by the scheduler or a manual{" "}
             <strong>Run now</strong>.
-          </li>
-          <li>
-            <strong>Agent-assisted update</strong> agents created from the
-            Updates pane.
           </li>
         </ul>
       </Section>

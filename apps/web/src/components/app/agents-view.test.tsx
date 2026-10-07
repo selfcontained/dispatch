@@ -1,3 +1,6 @@
+vi.mock("./chat/pending-inputs-button", () => ({
+  PendingInputsButton: () => null,
+}));
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
 import {
@@ -9,12 +12,6 @@ import {
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getDefaultStore } from "jotai";
-
-import {
-  agentPaneViewAtomFamily,
-  whiteboardAgentDrewAtomFamily,
-} from "@/lib/store";
 import type { Agent } from "@/components/app/types";
 
 import { AgentsView } from "./agents-view";
@@ -25,7 +22,7 @@ import { AgentsView } from "./agents-view";
 // controls, the children by markers that record the props they were handed.
 // What is left under test is the part AgentsView actually owns: which agent is
 // "focused", the navigation its callbacks perform, and the effects that open
-// the media sidebar, attach, and detach.
+// the drawer.
 const { H, stubModule, stubWrapper } = vi.hoisted(() => {
   const props = new Map<string, Record<string, unknown>>();
   const record = (name: string, received: Record<string, unknown>) => {
@@ -81,13 +78,10 @@ vi.mock("framer-motion", async (importOriginal) => {
 });
 
 vi.mock("@/components/app/changes-tab", stubModule("ChangesTab"));
-// Components stubbed, but the fade duration is a real value AgentsView hands
-// to framer — the stub has to carry it or the toolbar row cannot animate.
-vi.mock("@/components/app/agent-pane", async () => ({
-  ...(await stubModule("AgentPane", "AgentViewToggle")()),
-  PANE_FADE_SECONDS: 0.2,
-}));
-vi.mock("@/components/app/whiteboard-pane", stubModule("WhiteboardPane"));
+vi.mock(
+  "@/components/app/agent-pane",
+  stubModule("AgentPane", "ChatFiltersButton")
+);
 vi.mock("@/components/app/split-drop-zones", stubModule("SplitDropZones"));
 // The real split renders whichever panes it is handed into its two slots, so
 // the stub does too — otherwise the elements AgentsView builds are only ever
@@ -100,11 +94,9 @@ vi.mock("@/components/app/center-pane-split", async () => {
       const slot = (tab: string) =>
         tab === "changes"
           ? (received.changesElement as never)
-          : tab === "whiteboard"
-            ? (received.whiteboardElement as never)
-            : tab === "agent"
-              ? (received.agentElement as never)
-              : null;
+          : tab === "agent"
+            ? (received.agentElement as never)
+            : null;
       const splitState = received.splitState as { left: string; right: string };
       return React.createElement(
         "div",
@@ -130,19 +122,10 @@ vi.mock(
   stubModule("AgentsViewDialogs")
 );
 vi.mock(
-  "@/components/app/media-sidebar",
-  stubModule("MediaSidebar", "MediaSidebarContent")
+  "@/components/app/drawer",
+  stubModule("Drawer", "DrawerContent", "DrawerFrame")
 );
-vi.mock("@/components/app/bottom-bar", stubModule("BottomBar"));
-vi.mock(
-  "@/components/app/terminal-copy-mode-banner",
-  stubModule("TerminalCopyModeBannerLayer")
-);
-vi.mock(
-  "@/components/app/mobile-terminal-toolbar",
-  stubModule("MobileTerminalToolbar")
-);
-vi.mock("@/components/app/terminal-pane", stubModule("TerminalPane"));
+vi.mock("@/components/app/thread-drawer", stubModule("ThreadDrawer"));
 vi.mock("@/components/app/sidebar-shell", stubWrapper("SidebarShell"));
 // Recorded rather than left real: the mobile slide-over can only ever call
 // onOpenChange(false) from its backdrop, so the open branch of AgentsView's
@@ -161,30 +144,19 @@ vi.mock("@/components/ui/glass-sidebar", async () => {
   };
 });
 
-vi.mock("@/lib/media-upload", () => ({
-  uploadAgentMedia: vi.fn(async () => undefined),
+vi.mock("@/lib/file-upload", () => ({
+  uploadAgentFile: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/hooks/use-agents", () => ({
-  useAgents: (
-    sharedConnectedAgentId: string | null,
-    sharedConnState: string,
-    enabled: boolean,
-    routeAgentId: string | null
-  ) => {
-    H.record("useAgents", {
-      sharedConnectedAgentId,
-      sharedConnState,
-      enabled,
-      routeAgentId,
-    });
+  useAgents: (enabled: boolean, routeAgentId: string | null) => {
+    H.record("useAgents", { enabled, routeAgentId });
     const s = H.state;
     return {
       agents: s.agents,
       agentsLoaded: s.agentsLoaded,
       validatedSelectedAgentId: s.validatedSelectedAgentId,
       selectedAgent: s.selectedAgent,
-      connectedAgent: s.connectedAgent,
       overflowAgentId: null,
       setOverflowAgentId: s.setOverflowAgentId,
       agentVisualState: s.agentVisualState,
@@ -199,18 +171,10 @@ vi.mock("@/hooks/use-agents-view-routing", () => ({
     const s = H.state;
     return {
       changesMatch: s.changesMatch,
-      whiteboardMatch: s.whiteboardMatch,
       centerTabResolved: s.centerTabResolved ?? true,
       onTabChange: s.onTabChange,
     };
   },
-}));
-
-vi.mock("@/hooks/use-chat-surface-enabled", () => ({
-  useChatSurfaceEnabled: () => ({
-    enabled: H.state.chatEnabled ?? false,
-    loaded: true,
-  }),
 }));
 
 vi.mock("@/hooks/use-chat-unread-summary", () => ({
@@ -229,47 +193,18 @@ vi.mock("@/hooks/use-expanded-agent", () => ({
   useExpandedAgentSync: vi.fn(),
 }));
 
-vi.mock("@/hooks/use-media-sidebar-state", () => ({
-  useMediaSidebarState: (args: unknown) => {
-    H.record("useMediaSidebarState", args as Record<string, unknown>);
+vi.mock("@/hooks/use-drawer-state", () => ({
+  useDrawerState: (args: unknown) => {
+    H.record("useDrawerState", args as Record<string, unknown>);
     const s = H.state;
     return {
-      mediaOpen: s.mediaOpen,
-      mediaPanelOpen: s.mediaPanelOpen,
-      mediaActiveTab: s.mediaActiveTab,
-      mediaPinned: false,
-      deferMediaResize: false,
-      mediaResizeSettleKey: 0,
-      setMediaOpen: s.setMediaOpen,
-      setMediaActiveTab: s.setMediaActiveTab,
-      toggleMediaPinned: s.toggleMediaPinned,
-      finishMediaResizeSettle: s.finishMediaResizeSettle,
-    };
-  },
-}));
-
-vi.mock("@/hooks/use-terminal", () => ({
-  useTerminal: (args: unknown) => {
-    H.record("useTerminal", args as Record<string, unknown>);
-    const s = H.state;
-    return {
-      connState: s.connState,
-      connectedAgentId: s.connectedAgentId,
-      terminalMode: s.terminalMode,
-      terminalPlaceholderMessage: null,
-      copyMode: s.copyMode,
-      statusMessage: "",
-      terminalHostRef: s.terminalHostRef,
-      ctrlPendingRef: s.ctrlPendingRef,
-      focusTerminal: s.focusTerminal,
-      ensureTerminalConnected: s.ensureTerminalConnected,
-      detachTerminal: s.detachTerminal,
-      sendTerminalInput: s.sendTerminalInput,
-      exitCopyMode: s.exitCopyMode,
-      resyncing: s.resyncing,
-      draggingFiles: false,
-      uploadingFiles: false,
-      terminalInputAtRef: s.terminalInputAtRef,
+      drawerOpen: s.drawerOpen,
+      drawerPanelOpen: s.drawerPanelOpen,
+      drawerActiveTab: s.drawerActiveTab,
+      drawerPinned: false,
+      setDrawerOpen: s.setDrawerOpen,
+      setDrawerActiveTab: s.setDrawerActiveTab,
+      toggleDrawerPinned: s.toggleDrawerPinned,
     };
   },
 }));
@@ -285,9 +220,6 @@ vi.mock("@/hooks/use-center-pane-layout", () => ({
       isDraggingTab: false,
       splitLeftRef: s.splitLeftRef,
       splitButtonRef: s.splitButtonRef,
-      defaultTerminalSlotRef: s.defaultTerminalSlotRef,
-      splitTerminalSlotRef: s.splitTerminalSlotRef,
-      stableTerminalContainer: s.stableTerminalContainer,
       handleContentDragOver: s.unused,
       handleContentDragLeave: s.unused,
       handleContentDrop: s.unused,
@@ -297,52 +229,33 @@ vi.mock("@/hooks/use-center-pane-layout", () => ({
   },
 }));
 
-vi.mock("@/hooks/use-media", () => ({
-  useMedia: (agentId: string | null, panelOpen: boolean) => {
-    H.record("useMedia", { agentId, panelOpen });
+vi.mock("@/hooks/use-files", () => ({
+  useFiles: (agentId: string | null, panelOpen: boolean) => {
+    H.record("useFiles", { agentId, panelOpen });
     const s = H.state;
     return {
-      mediaFiles: s.mediaFiles,
-      animatingMediaKeys: new Set<string>(),
-      unseenMediaCount: 0,
-      lightboxMediaId: null,
-      lightboxMediaIds: [],
-      setLightboxMediaId: s.unused,
+      files: s.files,
+      animatingFileKeys: new Set<string>(),
+      unseenFileCount: 0,
+      lightboxFileId: null,
+      lightboxFileIds: [],
+      setLightboxFileId: s.unused,
       openLightbox: s.unused,
-      mediaViewportRef: s.mediaViewportRef,
-      refreshMedia: s.refreshMedia,
+      drawerViewportRef: s.drawerViewportRef,
+      refreshFiles: s.refreshFiles,
     };
   },
 }));
 
-vi.mock("@/hooks/use-agent-messages", () => ({
-  useAgentUnreadCount: () => 0,
-  useMarkMessagesRead: (agentId: string | null) => {
-    H.record("useMarkMessagesRead", { agentId });
-    return H.state.markMessagesRead;
-  },
-}));
-
-vi.mock("@/hooks/use-agent-surfaces", () => ({
-  useAgentSurfaces: (agentId: string | null) => {
-    H.record("useAgentSurfaces", { agentId });
+vi.mock("@/hooks/use-inbox", () => ({
+  useInbox: (agentId: string | null) => {
+    H.record("useInbox", { agentId });
     const s = H.state;
     return {
-      surfaces: (s.agentSurfaces as Array<{ id: string }>) ?? [],
+      rootId: agentId,
+      inputs: (s.inboxInputs as unknown[]) ?? [],
+      links: [],
       isLoading: false,
-      isError: false,
-      refetch: s.unused,
-    };
-  },
-}));
-
-vi.mock("@/components/app/agent-surfaces/use-surface-seen", () => ({
-  useSurfaceSeen: (agentId: string | null) => {
-    H.record("useSurfaceSeen", { agentId });
-    const seen = (H.state.surfaceSeenIds as string[]) ?? [];
-    return {
-      isNew: (id: string) => !seen.includes(id),
-      markSeen: H.state.unused,
     };
   },
 }));
@@ -365,12 +278,12 @@ vi.mock("@/hooks/use-agent-actions", () => ({
     H.record("useAgentActions", args as Record<string, unknown>);
     const s = H.state;
     return {
-      attachToAgent: s.unused,
+      openAgent: s.unused,
       startAgent: s.unused,
       stopAgent: s.unused,
       deleteAgent: s.unused,
       handleAgentCreated: s.unused,
-      detachAndClearSelection: s.unused,
+      closeAgentAndClearSelection: s.unused,
     };
   },
 }));
@@ -397,11 +310,10 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
     cwd: `/repos/${overrides.id}`,
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     agentArgs: [],
     model: null,
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -453,20 +365,9 @@ function hookArgs(name: string): Record<string, unknown> {
   return received;
 }
 
-function terminalContainer(): HTMLElement {
-  return document.getElementById("stable-terminal")!;
-}
-
 beforeEach(() => {
   H.clearProps();
-  // Per-agent view atoms live in the default store and cache their first
-  // localStorage read; drop them so a Console pick in one test cannot leak.
   window.localStorage.clear();
-  agentPaneViewAtomFamily.remove("a1");
-  agentPaneViewAtomFamily.remove("a2");
-  const container = document.createElement("div");
-  container.id = "stable-terminal";
-  document.body.appendChild(container);
   H.state = {
     // One stable placeholder for the callbacks no assertion reads. Named so a
     // future `toHaveBeenCalled` on it is obviously meaningless.
@@ -475,48 +376,28 @@ beforeEach(() => {
     agentsLoaded: true,
     validatedSelectedAgentId: null,
     selectedAgent: null,
-    connectedAgent: null,
     setOverflowAgentId: vi.fn(),
     agentVisualState: () => "idle",
     resortAgents: vi.fn(),
     changesMatch: false,
-    whiteboardMatch: false,
     onTabChange: vi.fn(),
     expandedAgentId: null,
     setExpandedAgentId: vi.fn(),
     toggleAgentDetails: vi.fn(),
-    mediaOpen: false,
-    mediaPanelOpen: false,
-    mediaActiveTab: "media",
-    setMediaOpen: vi.fn(),
-    setMediaActiveTab: vi.fn(),
-    toggleMediaPinned: vi.fn(),
-    finishMediaResizeSettle: vi.fn(),
-    connState: "disconnected",
-    connectedAgentId: null,
-    terminalMode: "tmux",
-    copyMode: "off",
-    terminalHostRef: { current: null },
-    ctrlPendingRef: { current: false },
-    terminalInputAtRef: { current: 0 },
-    focusTerminal: vi.fn(),
-    ensureTerminalConnected: vi.fn(),
-    detachTerminal: vi.fn(),
-    sendTerminalInput: vi.fn(),
-    exitCopyMode: vi.fn(),
-    resyncing: false,
-    splitState: { left: "terminal", right: "terminal" },
+    drawerOpen: false,
+    drawerPanelOpen: false,
+    drawerActiveTab: "files",
+    setDrawerOpen: vi.fn(),
+    setDrawerActiveTab: vi.fn(),
+    toggleDrawerPinned: vi.fn(),
+    splitState: { left: "agent", right: "agent" },
     isSplit: false,
     exitSplit: vi.fn(),
     splitLeftRef: { current: null },
     splitButtonRef: { current: null },
-    defaultTerminalSlotRef: { current: null },
-    splitTerminalSlotRef: { current: null },
-    stableTerminalContainer: container,
-    mediaFiles: [],
-    mediaViewportRef: { current: null },
-    refreshMedia: vi.fn(),
-    markMessagesRead: vi.fn(),
+    files: [],
+    drawerViewportRef: { current: null },
+    refreshFiles: vi.fn(),
     agentSurfaces: [] as Array<{ id: string }>,
     surfaceSeenIds: [] as string[],
   };
@@ -524,7 +405,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  document.getElementById("stable-terminal")?.remove();
   vi.useRealTimers();
 });
 
@@ -538,14 +418,13 @@ function mount({
     enabledAgentTypes: ["claude"],
     enabledIdes: ["vscode"],
     isMobile: false,
-    theme: "cool-navy",
     leftOpen: true,
     leftPanelOpen: true,
     mobileLeftOpen: false,
-    mobileMediaOpen: false,
+    mobileDrawerOpen: false,
     setLeftOpen: vi.fn(),
     setMobileLeftOpen: vi.fn(),
-    setMobileMediaOpen: vi.fn(),
+    setMobileDrawerOpen: vi.fn(),
     handleSetLeftPanelOpen: vi.fn(),
     pulsingNavItem: null,
     triggerNavAnimation: vi.fn(),
@@ -569,137 +448,34 @@ function tree(path: string, props: ViewProps): JSX.Element {
 }
 
 describe("AgentsView focused agent", () => {
-  it("follows the connected agent, not the selected one, while attached", () => {
+  it("follows the selected agent", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a2",
+      validatedSelectedAgentId: "a2",
     });
-    mount();
+    mount({ path: "/agents/a2" });
 
     expect(propsOf("AgentsViewHeader").focusedAgentId).toBe("a2");
     expect(propsOf("AgentsViewHeader").focusedAgentName).toBe("agent a2");
-    expect(propsOf("MediaSidebar").selectedAgentId).toBe("a2");
-  });
-
-  it("counts unseen agent-authored surfaces into the header's closed-sidebar badge", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      agentSurfaces: [{ id: "s1" }, { id: "s2" }, { id: "s3" }],
-      surfaceSeenIds: ["s2"],
-    });
-    mount();
-
-    // s1 and s3 are unseen; s2 was already viewed — reuses the same
-    // seen-state atom the tab strip itself reads, no duplicate server state.
-    expect(propsOf("AgentsViewHeader").unseenSurfaceCount).toBe(2);
-  });
-
-  it("pins focus to the selected agent while the terminal is resyncing", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a2",
-      resyncing: true,
-    });
-    mount();
-
-    expect(propsOf("AgentsViewHeader").focusedAgentId).toBe("a1");
-  });
-
-  it("falls back to the selected agent while reconnecting with nothing attached", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "reconnecting",
-      connectedAgentId: null,
-    });
-    mount();
-
-    expect(propsOf("AgentsViewHeader").focusedAgentId).toBe("a1");
-  });
-
-  it("has no focused agent while disconnected, even with one selected", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "disconnected",
-      connectedAgentId: "a1",
-    });
-    mount();
-
-    expect(propsOf("AgentsViewHeader").focusedAgentId).toBeNull();
-    expect(propsOf("AgentsViewHeader").focusedAgentName).toBeNull();
-    // hasActiveAgent is derived from the selection, not from focus, so the
-    // header still reports an active agent while the terminal is detached.
-    expect(propsOf("AgentsViewHeader").hasActiveAgent).toBe(true);
+    expect(propsOf("Drawer").selectedAgentId).toBe("a2");
   });
 });
 
 describe("AgentsView agent pane", () => {
-  function focusOn(agentId: string, chatEnabled = true) {
+  function focusOn(agentId: string) {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
       validatedSelectedAgentId: agentId,
-      connState: "connected",
-      connectedAgentId: agentId,
-      chatEnabled,
     });
   }
 
-  it("hosts the terminal slot in the Agent pane, with the chat surface on or off", () => {
-    // The pane is always rendered in single mode so the terminal slot keeps
-    // its DOM identity across a flag change; with the flag off it is told so
-    // and renders as the bare terminal.
-    focusOn("a1", false);
-    const view = mount({ path: "/agents/a1" });
-    expect(propsOf("AgentPane").chatEnabled).toBe(false);
+  it("renders the Agent pane with its header for the focused agent", () => {
+    focusOn("a1");
+    mount({ path: "/agents/a1" });
     expect(propsOf("AgentPane").header).toBe(true);
-    expect(propsOf("AgentPane").terminalSlotRef).toBe(
-      H.state.defaultTerminalSlotRef
-    );
-
-    focusOn("a1", true);
-    view.rerender(tree("/agents/a1", view.props));
-    expect(propsOf("AgentPane").chatEnabled).toBe(true);
     expect(propsOf("AgentPane").agentId).toBe("a1");
     expect(propsOf("AgentPane").active).toBe(true);
-  });
-
-  it("keeps the empty workspace Console-only even when Chat is enabled", () => {
-    Object.assign(H.state, {
-      agents: [],
-      validatedSelectedAgentId: null,
-      connState: "disconnected",
-      connectedAgentId: null,
-      chatEnabled: true,
-    });
-    mount({ path: "/agents" });
-
-    expect(propsOf("AgentsViewHeader").chatEnabled).toBe(false);
-    expect(propsOf("AgentPane").chatEnabled).toBe(false);
-  });
-
-  it("keeps terminal agents Console-only and omits the split view switch", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "terminal-1", type: "terminal" })],
-      validatedSelectedAgentId: "terminal-1",
-      connState: "connected",
-      connectedAgentId: "terminal-1",
-      chatEnabled: true,
-      isSplit: true,
-      splitState: { left: "agent", right: "changes" },
-    });
-    mount({ path: "/agents/terminal-1" });
-
-    expect(propsOf("AgentsViewHeader").chatEnabled).toBe(false);
-    expect(propsOf("AgentPane").chatEnabled).toBe(false);
-    expect(propsOf("CenterPaneSplit").agentHeaderAccessory).toBeNull();
+    expect(propsOf("AgentsViewHeader").activeTab).toBe("agent");
   });
 
   it("keeps the pane mounted but inactive under the Changes tab", () => {
@@ -710,65 +486,28 @@ describe("AgentsView agent pane", () => {
     expect(renderedChildren()).toContain("ChangesTab");
   });
 
-  it("defaults the view to Chat and remembers a Console pick per agent", () => {
+  it("holds the pane inactive until the center tab is resolved", () => {
     focusOn("a1");
-    const view = mount({ path: "/agents/a1" });
-    expect(propsOf("AgentPane").view).toBe("chat");
-
-    act(() => {
-      (propsOf("AgentPane").onViewChange as (v: string) => void)("console");
-    });
-    expect(propsOf("AgentPane").view).toBe("console");
-    expect(
-      JSON.parse(window.localStorage.getItem("dispatch:agentPaneView:a1")!)
-    ).toBe("console");
-
-    // Another agent starts on its own default.
-    focusOn("a2");
-    view.rerender(tree("/agents/a2", view.props));
-    expect(propsOf("AgentPane").agentId).toBe("a2");
-    expect(propsOf("AgentPane").view).toBe("chat");
+    H.state.centerTabResolved = false;
+    mount({ path: "/agents/a1/chat" });
+    expect(propsOf("AgentPane").active).toBe(false);
+    expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(false);
   });
 
-  it("focuses the terminal a tick after a flip to Console, unless the flip is undone first", () => {
-    vi.useFakeTimers();
-    try {
-      focusOn("a1");
-      const view = mount({ path: "/agents/a1" });
-      const flip = (v: string) =>
-        act(() => {
-          (propsOf("AgentPane").onViewChange as (v: string) => void)(v);
-        });
-
-      flip("console");
-      expect(H.state.focusTerminal).not.toHaveBeenCalled();
-      act(() => {
-        vi.advanceTimersByTime(0);
-      });
-      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
-
-      // Back to Chat before the tick lands: the composer keeps its focus.
-      flip("chat");
-      flip("console");
-      flip("chat");
-      act(() => {
-        vi.advanceTimersByTime(0);
-      });
-      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
-
-      // Unmounting with a tick pending drops it too.
-      flip("console");
-      view.unmount();
-      act(() => {
-        vi.advanceTimersByTime(0);
-      });
-      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("holds the pane inactive while a routed agent's list is still loading", () => {
+    H.state.agentsLoaded = false;
+    mount({ path: "/agents/a1" });
+    expect(propsOf("AgentPane").agentId).toBeNull();
+    expect(propsOf("AgentPane").active).toBe(false);
   });
 
-  it("hands the Agent pane to the split slot with the split's terminal slot", () => {
+  it("shows the pane with no agent routed before the list loads", () => {
+    H.state.agentsLoaded = false;
+    mount({ path: "/agents" });
+    expect(propsOf("AgentPane").active).toBe(true);
+  });
+
+  it("hands the Agent pane and the chat filters to the split slot", () => {
     focusOn("a1");
     Object.assign(H.state, {
       isSplit: true,
@@ -776,9 +515,6 @@ describe("AgentsView agent pane", () => {
     });
     mount({ path: "/agents/a1" });
     expect(propsOf("AgentPane").header).toBe(false);
-    expect(propsOf("AgentPane").terminalSlotRef).toBe(
-      H.state.splitTerminalSlotRef
-    );
     expect(propsOf("CenterPaneSplit").agentElement).not.toBeNull();
     expect(propsOf("CenterPaneSplit").agentHeaderAccessory).not.toBeNull();
   });
@@ -787,7 +523,7 @@ describe("AgentsView agent pane", () => {
     focusOn("a1");
     Object.assign(H.state, {
       isSplit: true,
-      splitState: { left: "whiteboard", right: "changes" },
+      splitState: { left: "changes", right: "changes" },
     });
     mount({ path: "/agents/a1" });
     expect(propsOf("CenterPaneSplit").agentElement).toBeNull();
@@ -800,14 +536,12 @@ describe("AgentsView file navigation", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
     });
     return mount(overrides);
   }
 
   function navigateToFile(...args: unknown[]) {
-    const handler = propsOf("MediaSidebar").onNavigateToFile as (
+    const handler = propsOf("AgentPane").onOpenPath as (
       ...a: unknown[]
     ) => void;
     act(() => handler(...args));
@@ -824,22 +558,12 @@ describe("AgentsView file navigation", () => {
     expect(navigationType()).toBe("REPLACE");
   });
 
-  it("omits the line and carries a feedback item when one is given", () => {
-    mountWithFocus();
-
-    navigateToFile("src/app.ts", null, 7);
-
-    expect(locationHref()).toBe(
-      "/agents/a1/changes?file=src%2Fapp.ts&feedback=7"
-    );
-  });
-
-  it("closes the mobile media sidebar it navigated out of", () => {
+  it("closes the mobile drawer it navigated out of", () => {
     const { props } = mountWithFocus({ isMobile: true });
 
     navigateToFile("src/app.ts", 1);
 
-    expect(props.setMobileMediaOpen).toHaveBeenCalledWith(false);
+    expect(props.setMobileDrawerOpen).toHaveBeenCalledWith(false);
   });
 
   it("leaves the mobile sidebar alone on desktop", () => {
@@ -847,311 +571,59 @@ describe("AgentsView file navigation", () => {
 
     navigateToFile("src/app.ts", 1);
 
-    expect(props.setMobileMediaOpen).not.toHaveBeenCalled();
+    expect(props.setMobileDrawerOpen).not.toHaveBeenCalled();
   });
 
   it("does not navigate when nothing is focused", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "disconnected",
+      validatedSelectedAgentId: null,
     });
-    mount();
+    mount({ path: "/agents" });
 
     navigateToFile("src/app.ts", 42);
 
-    expect(locationHref()).toBe("/agents/a1");
+    expect(locationHref()).toBe("/agents");
   });
 });
 
-describe("AgentsView review navigation", () => {
-  it("opens the reviews tab on the focused agent after a review is submitted", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      changesMatch: true,
-    });
-    mount({ path: "/agents/a1/changes" });
-
-    act(() =>
-      (propsOf("ChangesTab").onReviewSubmitted as (id: number) => void)(31)
-    );
-
-    expect(locationHref()).toBe("/agents/a1?expandReview=31");
-    expect(navigationType()).toBe("REPLACE");
-    expect(H.state.setMediaOpen).toHaveBeenCalledWith(true);
-    expect(H.state.setMediaActiveTab).toHaveBeenCalledWith("reviews");
-  });
-
-  it("jumps from a reviewer to its parent's review, keeping the reviewer in history", () => {
-    const reviewer = makeAgent({
-      id: "rev1",
-      parentAgentId: "a1",
-      submittedReviewId: 9,
-    });
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" }), reviewer],
-      validatedSelectedAgentId: "rev1",
-      connState: "connected",
-      connectedAgentId: "rev1",
-    });
-    const { props } = mount({ path: "/agents/rev1", isMobile: true });
-
-    act(() =>
-      (propsOf("AgentListContent").openSubmittedReview as (a: Agent) => void)(
-        reviewer
-      )
-    );
-
-    expect(locationHref()).toBe("/agents/a1?expandReview=9");
-    // Unlike a submit, this is a jump to a different agent: Back must return
-    // the user to the reviewer they came from.
-    expect(navigationType()).toBe("PUSH");
-    expect(H.state.setExpandedAgentId).toHaveBeenCalledWith("a1");
-    expect(H.state.setMediaActiveTab).toHaveBeenCalledWith("reviews");
-    expect(props.setMobileLeftOpen).toHaveBeenCalledWith(false);
-  });
-
-  it("ignores a reviewer that has not submitted a review yet", () => {
-    const reviewer = makeAgent({
-      id: "rev1",
-      parentAgentId: "a1",
-      submittedReviewId: null,
-    });
-    Object.assign(H.state, {
-      agents: [reviewer],
-      validatedSelectedAgentId: "rev1",
-      connState: "connected",
-      connectedAgentId: "rev1",
-    });
-    mount({ path: "/agents/rev1" });
-
-    act(() =>
-      (propsOf("AgentListContent").openSubmittedReview as (a: Agent) => void)(
-        reviewer
-      )
-    );
-
-    expect(locationHref()).toBe("/agents/rev1");
-    expect(H.state.setExpandedAgentId).not.toHaveBeenCalled();
-    expect(H.state.setMediaOpen).not.toHaveBeenCalled();
-  });
-
-  it("ignores a review agent with no parent to jump back to", () => {
-    const orphan = makeAgent({
-      id: "rev1",
-      parentAgentId: null,
-      submittedReviewId: 9,
-    });
-    Object.assign(H.state, {
-      agents: [orphan],
-      validatedSelectedAgentId: "rev1",
-      connState: "connected",
-      connectedAgentId: "rev1",
-    });
-    mount({ path: "/agents/rev1" });
-
-    act(() =>
-      (propsOf("AgentListContent").openSubmittedReview as (a: Agent) => void)(
-        orphan
-      )
-    );
-
-    expect(locationHref()).toBe("/agents/rev1");
-    expect(H.state.setMediaActiveTab).not.toHaveBeenCalled();
-  });
-});
-
-describe("AgentsView media sidebar", () => {
+describe("AgentsView drawer", () => {
   it("opens the sidebar when the focused agent starts streaming", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1", hasStream: false })],
       validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
     });
     const { rerender, props } = mount();
-    expect(H.state.setMediaOpen).not.toHaveBeenCalled();
+    expect(H.state.setDrawerOpen).not.toHaveBeenCalled();
 
     H.state.agents = [makeAgent({ id: "a1", hasStream: true })];
     rerender(tree("/agents/a1", props));
 
-    expect(H.state.setMediaOpen).toHaveBeenCalledWith(true);
+    expect(H.state.setDrawerOpen).toHaveBeenCalledWith(true);
   });
 
   it("does not re-open the sidebar for a stream that was already running", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1", hasStream: true })],
       validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
     });
     mount();
 
-    expect(H.state.setMediaOpen).not.toHaveBeenCalled();
-    expect(propsOf("MediaSidebar").hasStream).toBe(true);
-    expect(propsOf("MediaSidebar").streamUrl).toBe("/api/v1/agents/a1/stream");
+    expect(H.state.setDrawerOpen).not.toHaveBeenCalled();
+    expect(propsOf("Drawer").hasStream).toBe(true);
+    expect(propsOf("Drawer").streamUrl).toBe("/api/v1/agents/a1/stream");
   });
 
   it("keeps the sidebar shut when no agent is selected", () => {
     Object.assign(H.state, {
       agents: [],
       validatedSelectedAgentId: null,
-      mediaOpen: true,
+      drawerOpen: true,
     });
     mount({ path: "/agents" });
 
-    expect(propsOf("MediaSidebar").mediaOpen).toBe(false);
-    expect(propsOf("MediaSidebar").streamUrl).toBeNull();
-  });
-
-  it("marks messages read only while the panel is open on the messages tab", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      mediaPanelOpen: true,
-      mediaActiveTab: "media",
-    });
-    mount();
-    expect(H.state.markMessagesRead).not.toHaveBeenCalled();
-
-    cleanup();
-    H.clearProps();
-    H.state.mediaActiveTab = "messages";
-    mount();
-    expect(H.state.markMessagesRead).toHaveBeenCalled();
-
-    cleanup();
-    H.clearProps();
-    (H.state.markMessagesRead as ReturnType<typeof vi.fn>).mockClear();
-    H.state.mediaPanelOpen = false;
-    mount();
-    expect(H.state.markMessagesRead).not.toHaveBeenCalled();
-  });
-});
-
-describe("AgentsView terminal attachment", () => {
-  it("auto-attaches to the agent named in the route, taking over the terminal", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "disconnected",
-      connectedAgentId: null,
-    });
-    mount();
-
-    // Both flags matter: the first forces the attach even though the terminal
-    // is idle, the second lets it take over a session already attached
-    // elsewhere. A deep-link that only "connects if free" silently no-ops.
-    expect(H.state.ensureTerminalConnected).toHaveBeenCalledWith(
-      true,
-      true,
-      "a1"
-    );
-  });
-
-  it("does not re-attach to the agent it is already connected to", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-    });
-    mount();
-
-    expect(H.state.ensureTerminalConnected).not.toHaveBeenCalled();
-  });
-
-  it("detaches when the route leaves the agents list with a terminal attached", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: null,
-      connState: "connected",
-      connectedAgentId: "a1",
-    });
-    mount({ path: "/agents" });
-
-    expect(H.state.detachTerminal).toHaveBeenCalled();
-  });
-
-  it("does not detach when the route has no agent and nothing is attached", () => {
-    Object.assign(H.state, {
-      agents: [],
-      validatedSelectedAgentId: null,
-      connState: "disconnected",
-      connectedAgentId: null,
-    });
-    mount({ path: "/agents" });
-
-    expect(H.state.detachTerminal).not.toHaveBeenCalled();
-  });
-
-  it("keeps the terminal attached while the route still names an agent", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-    });
-    mount();
-
-    expect(H.state.detachTerminal).not.toHaveBeenCalled();
-  });
-
-  it("refocuses the terminal shortly after a side panel closes", () => {
-    vi.useFakeTimers();
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-    });
-    const { rerender, props } = mount({ leftPanelOpen: true });
-    expect(H.state.focusTerminal).not.toHaveBeenCalled();
-
-    const closedProps = { ...props, leftPanelOpen: false };
-    rerender(tree("/agents/a1", closedProps));
-    // The refocus is deferred so it lands after the panel's width transition
-    // has released the terminal's space.
-    expect(H.state.focusTerminal).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(50);
-    expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
-  });
-
-  it("reports the archive phase only for an agent that is archiving", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      selectedAgent: makeAgent({
-        id: "a1",
-        status: "running",
-        archivePhase: "finalizing",
-      }),
-    });
-    mount();
-    // The pane is portalled out of the React tree, so confirm it really landed
-    // in the shared container before reading the props it recorded.
-    expect(
-      terminalContainer().querySelector("[data-testid='stub-TerminalPane']")
-    ).not.toBeNull();
-    expect(propsOf("TerminalPane").archivePhase).toBeNull();
-
-    cleanup();
-    H.clearProps();
-    H.state.selectedAgent = makeAgent({
-      id: "a1",
-      status: "archiving",
-      archivePhase: "worktree-cleanup",
-    });
-    mount();
-    expect(propsOf("TerminalPane").archivePhase).toBe("worktree-cleanup");
+    expect(propsOf("Drawer").drawerOpen).toBe(false);
+    expect(propsOf("Drawer").streamUrl).toBeNull();
   });
 });
 
@@ -1160,28 +632,20 @@ describe("AgentsView center pane", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
       isSplit: true,
-      splitState: { left: "terminal", right: "changes" },
+      splitState: { left: "agent", right: "changes" },
     });
     mount({ path: "/agents/a1" });
 
     expect(renderedChildren()).toContain("ChangesTab");
-    // The whiteboard is checked at the source, not in the DOM: the split's
-    // slots decide what mounts, so an element built from a stale match would
-    // be absent from the document either way.
-    expect(propsOf("CenterPaneSplit").whiteboardElement).toBeNull();
   });
 
   it("renders the changes pane from the split layout's left slot", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
       isSplit: true,
-      splitState: { left: "changes", right: "terminal" },
+      splitState: { left: "changes", right: "agent" },
     });
     mount({ path: "/agents/a1" });
 
@@ -1189,96 +653,21 @@ describe("AgentsView center pane", () => {
     expect(propsOf("ChangesTab").agentId).toBe("a1");
   });
 
-  it("renders the whiteboard from the split layout's left slot", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      isSplit: true,
-      splitState: { left: "whiteboard", right: "terminal" },
-    });
-    mount({ path: "/agents/a1" });
-
-    expect(renderedChildren()).toContain("WhiteboardPane");
-    expect(propsOf("CenterPaneSplit").changesElement).toBeNull();
-  });
-
   it("ignores the route matches while split, so a stale route cannot double-render", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
       isSplit: true,
-      splitState: { left: "terminal", right: "terminal" },
+      splitState: { left: "agent", right: "agent" },
       changesMatch: true,
-      whiteboardMatch: true,
     });
     mount({ path: "/agents/a1/changes" });
 
     expect(renderedChildren()).not.toContain("ChangesTab");
-    expect(renderedChildren()).not.toContain("WhiteboardPane");
-    // The split's own slots decide what is mounted, so the panes have to be
+    // The split's own slots decide what is mounted, so the pane has to be
     // absent at the source: a pane built from a stale route match would be
     // handed to the split and appear the moment a slot switched to it.
     expect(propsOf("CenterPaneSplit").changesElement).toBeNull();
-    expect(propsOf("CenterPaneSplit").whiteboardElement).toBeNull();
-  });
-
-  // Regression: opening an agent with the chat flag on used to paint the
-  // Console for a frame before the Chat redirect landed. The terminal pane
-  // must not mount at all until the routing hook has settled on a tab.
-  it("does not mount the terminal until the center tab is resolved", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      centerTabResolved: false,
-    });
-    mount({ path: "/agents/a1" });
-
-    expect(renderedChildren()).not.toContain("TerminalPane");
-    // The Agent pane is mounted (it hosts the slot) but hidden and inactive.
-    expect(propsOf("AgentPane").active).toBe(false);
-    // The tab bar waits too, so "Terminal" is never highlighted first.
-    expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(false);
-  });
-
-  it("mounts the terminal once resolved and keeps it across a later redirect", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      centerTabResolved: true,
-    });
-    const { rerender, props } = mount({ path: "/agents/a1" });
-    expect(renderedChildren()).toContain("TerminalPane");
-    expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(true);
-
-    // Switching agents puts the bare route through the redirect again; the
-    // terminal is hidden for that render but its DOM (and tmux link) must
-    // survive, so it stays mounted.
-    H.state.centerTabResolved = false;
-    rerender(tree("/agents/a1", props));
-    expect(renderedChildren()).toContain("TerminalPane");
-  });
-
-  it("renders the whiteboard inline when its route matches and nothing is split", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      whiteboardMatch: true,
-    });
-    mount({ path: "/agents/a1/whiteboard" });
-
-    expect(renderedChildren()).toContain("WhiteboardPane");
-    expect(propsOf("WhiteboardPane").agentId).toBe("a1");
-    expect(renderedChildren()).not.toContain("CenterPaneSplit");
   });
 });
 
@@ -1288,7 +677,6 @@ describe("AgentsView dialogs", () => {
       agents: [makeAgent({ id: "a3", cwd: "/repos/newest" })],
       validatedSelectedAgentId: "a1",
       selectedAgent: makeAgent({ id: "a1", cwd: "/repos/selected" }),
-      connectedAgent: makeAgent({ id: "a2", cwd: "/repos/connected" }),
     });
     mount();
 
@@ -1297,21 +685,12 @@ describe("AgentsView dialogs", () => {
     expect(resolve()).toBe("/repos/selected");
   });
 
-  it("falls back to the connected agent, then the newest one, then nothing", () => {
+  it("falls back to the newest agent, then nothing", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a3", cwd: "/repos/newest" })],
       validatedSelectedAgentId: null,
       selectedAgent: null,
-      connectedAgent: makeAgent({ id: "a2", cwd: "/repos/connected" }),
     });
-    mount({ path: "/agents" });
-    expect(
-      (propsOf("AgentsViewDialogs").resolveCreateDefaultCwd as () => string)()
-    ).toBe("/repos/connected");
-
-    cleanup();
-    H.clearProps();
-    H.state.connectedAgent = null;
     mount({ path: "/agents" });
     expect(
       (propsOf("AgentsViewDialogs").resolveCreateDefaultCwd as () => string)()
@@ -1324,6 +703,22 @@ describe("AgentsView dialogs", () => {
     expect(
       (propsOf("AgentsViewDialogs").resolveCreateDefaultCwd as () => string)()
     ).toBe("");
+  });
+
+  it("prefers the last created directory over the newest agent when no agent is selected", () => {
+    window.localStorage.setItem(
+      "dispatch:lastUsedAgentCwd",
+      "/repos/last-used"
+    );
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a3", cwd: "/repos/newest" })],
+      validatedSelectedAgentId: null,
+      selectedAgent: null,
+    });
+    mount({ path: "/agents" });
+    expect(
+      (propsOf("AgentsViewDialogs").resolveCreateDefaultCwd as () => string)()
+    ).toBe("/repos/last-used");
   });
 
   it("clears a requested agent type when the create dialog closes", () => {
@@ -1373,74 +768,14 @@ describe("AgentsView dialogs", () => {
 });
 
 describe("AgentsView mobile chrome", () => {
-  it("mounts the mobile toolbar and reports it connected only when attached", () => {
+  it("mounts the desktop chrome on a wide screen", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
-      connState: "reconnecting",
-      connectedAgentId: "a1",
-    });
-    mount({ isMobile: true });
-
-    expect(renderedChildren()).toContain("MobileTerminalToolbar");
-    expect(propsOf("MobileTerminalToolbar").isConnected).toBe(false);
-    // The copy-mode banner and bottom bar are desktop-only chrome.
-    expect(renderedChildren()).not.toContain("TerminalCopyModeBannerLayer");
-    expect(renderedChildren()).not.toContain("BottomBar");
-  });
-
-  it("hands the mobile terminal toolbar to the pane as Console chrome with the chat surface on", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      chatEnabled: true,
-    });
-    const view = mount({ path: "/agents/a1", isMobile: true });
-    // Not a sibling row any more: the pane hosts it inside the Console layer,
-    // so its height never lands on the Chat view or the header.
-    expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
-    expect(propsOf("AgentPane").consoleFooter).toBeTruthy();
-
-    // It stays handed over across the flip — mounting it on the view change
-    // is what used to resize the pane mid-transition.
-    act(() => {
-      (propsOf("AgentPane").onViewChange as (v: string) => void)("console");
-    });
-    expect(propsOf("AgentPane").consoleFooter).toBeTruthy();
-
-    // Other tabs hide the pane, and the toolbar with it.
-    H.state.changesMatch = true;
-    view.rerender(tree("/agents/a1/changes", view.props));
-    expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
-  });
-
-  it("keeps the mobile terminal toolbar on every tab with the chat surface off", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-      changesMatch: true,
-    });
-    mount({ path: "/agents/a1/changes", isMobile: true });
-    expect(renderedChildren()).toContain("MobileTerminalToolbar");
-  });
-
-  it("mounts the desktop chrome and no mobile toolbar on a wide screen", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
     });
     mount({ isMobile: false });
 
-    expect(renderedChildren()).toContain("BottomBar");
-    expect(renderedChildren()).toContain("TerminalCopyModeBannerLayer");
-    expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
-    expect(renderedChildren()).not.toContain("MediaSidebarContent");
+    expect(renderedChildren()).not.toContain("DrawerContent");
   });
 
   it("colors only the active agent's row border", () => {
@@ -1455,46 +790,25 @@ describe("AgentsView mobile chrome", () => {
 });
 
 describe("AgentsView hook wiring", () => {
-  it("feeds the live connection back into the agents list", () => {
+  it("hands the route's agent to the agents list", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
       validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a2",
     });
     mount();
 
-    // useAgents sorts and validates against what the terminal is actually
-    // attached to, so a stale or hard-coded state here reorders the sidebar
-    // and can invalidate the selection.
-    expect(hookArgs("useAgents").sharedConnectedAgentId).toBe("a2");
-    expect(hookArgs("useAgents").sharedConnState).toBe("connected");
     expect(hookArgs("useAgents").routeAgentId).toBe("a1");
   });
 
-  it("re-sorts the list when the terminal attaches somewhere new", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-    });
-    mount();
-
-    expect(H.state.resortAgents).toHaveBeenCalled();
-  });
-
-  it("keys the media sidebar off the attached agent, not the selected one", () => {
+  it("keys the drawer off the selected agent", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a2",
+      validatedSelectedAgentId: "a2",
     });
-    mount();
+    mount({ path: "/agents/a2" });
 
-    expect(hookArgs("useMediaSidebarState").sidebarAgentId).toBe("a2");
-    expect(hookArgs("useMediaSidebarState").agentIds).toEqual(["a1", "a2"]);
+    expect(hookArgs("useDrawerState").sidebarAgentId).toBe("a2");
+    expect(hookArgs("useDrawerState").agentIds).toEqual(["a1", "a2"]);
   });
 
   it("withholds the agent ids until the list has actually loaded", () => {
@@ -1507,58 +821,7 @@ describe("AgentsView hook wiring", () => {
 
     // Handing over ids from an unsettled list would let the sidebar prune
     // per-agent state for agents that simply have not arrived yet.
-    expect(hookArgs("useMediaSidebarState").agentIds).toEqual([]);
-  });
-
-  it("marks messages read for the focused agent, not the selected one", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a2",
-    });
-    mount();
-
-    expect(hookArgs("useMarkMessagesRead").agentId).toBe("a2");
-  });
-
-  it("offers the focus-terminal hotkey only for a tmux agent in focus", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-    });
-    mount();
-    expect(hookArgs("useAgentHotkeys").canFocusTerminal).toBe(true);
-
-    cleanup();
-    H.clearProps();
-    H.state.terminalMode = "none";
-    mount();
-    expect(hookArgs("useAgentHotkeys").canFocusTerminal).toBe(false);
-
-    cleanup();
-    H.clearProps();
-    H.state.terminalMode = "tmux";
-    H.state.connState = "disconnected";
-    mount();
-    expect(hookArgs("useAgentHotkeys").canFocusTerminal).toBe(false);
-  });
-
-  it("reads the whiteboard hint for the focused agent", () => {
-    const store = getDefaultStore();
-    store.set(whiteboardAgentDrewAtomFamily("a2"), true);
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a2",
-    });
-    mount();
-
-    expect(propsOf("AgentsViewHeader").whiteboardAgentDrew).toBe(true);
-    store.set(whiteboardAgentDrewAtomFamily("a2"), false);
+    expect(hookArgs("useDrawerState").agentIds).toEqual([]);
   });
 
   it("swaps the left sidebar's close target between mobile and desktop", () => {
@@ -1585,7 +848,7 @@ describe("AgentsView hook wiring", () => {
     expect(mobile.props.setLeftOpen).not.toHaveBeenCalled();
   });
 
-  it("closes the mobile media sidebar when the nav sidebar opens over it", () => {
+  it("closes the mobile drawer when the nav sidebar opens over it", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
@@ -1598,7 +861,7 @@ describe("AgentsView hook wiring", () => {
 
     // Both slide-overs are full-screen on mobile, so opening one has to shut
     // the other or the user ends up with a hidden sidebar behind the visible.
-    expect(props.setMobileMediaOpen).toHaveBeenCalledWith(false);
+    expect(props.setMobileDrawerOpen).toHaveBeenCalledWith(false);
     expect(props.setMobileLeftOpen).toHaveBeenCalledWith(true);
   });
 
@@ -1618,21 +881,7 @@ describe("AgentsView hook wiring", () => {
     );
 
     expect(props.setLeftOpen).toHaveBeenCalledWith(false);
-    expect(props.setMobileMediaOpen).not.toHaveBeenCalled();
+    expect(props.setMobileDrawerOpen).not.toHaveBeenCalled();
     expect(props.setMobileLeftOpen).not.toHaveBeenCalled();
-  });
-
-  it("closes the mobile media sidebar after one of its shortcuts runs", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      connState: "connected",
-      connectedAgentId: "a1",
-    });
-    const { props } = mount({ isMobile: true });
-
-    act(() => (propsOf("MediaSidebarContent").onShortcutRun as () => void)());
-
-    expect(props.setMobileMediaOpen).toHaveBeenCalledWith(false);
   });
 });

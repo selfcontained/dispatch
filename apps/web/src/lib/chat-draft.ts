@@ -54,8 +54,7 @@ export function isEmptyChatDraft(draft: ChatComposerDraft): boolean {
 
 /**
  * Stored values are user-editable localStorage; anything off-shape reads as
- * empty. Unknown fields are tolerated — an older draft carried a `pinIds`
- * list, which is simply ignored (see `readChatComposerDraft`).
+ * empty. Unknown fields are ignored (see `readChatComposerDraft`).
  */
 export function isChatComposerDraft(
   value: unknown
@@ -71,8 +70,7 @@ export function isChatComposerDraft(
 
 /**
  * The draft a stored value stands for: the known fields of a well-formed
- * value, nothing else (so a legacy `pinIds` never reaches the composer or
- * goes back to storage), and the empty draft for anything off-shape. A
+ * value, nothing else, and the empty draft for anything off-shape. A
  * value that is already exactly the shape comes back as the same object, so
  * a caller can tell an unchanged draft by identity and skip a write.
  */

@@ -69,7 +69,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
         directory: templateDir,
         prompt: "Say hello and stop.",
         callable: true,
-        allowMedia: false,
+        allowFiles: false,
         agentType: "claude",
         useWorktree: true,
       },
@@ -150,7 +150,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
         directory: templateDir,
         prompt: "Say hello and stop.",
         callable: true,
-        allowMedia: false,
+        allowFiles: false,
         agentType: "claude",
         useWorktree: false,
       },
@@ -188,7 +188,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
         prompt:
           "Summarize {{D:Summary|required|multiline}} for {{D:Audience}}.",
         callable: true,
-        allowMedia: false,
+        allowFiles: false,
         agentType: "claude",
         useWorktree: false,
       },
@@ -227,24 +227,5 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     await launchButton.click();
 
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
-  });
-
-  test("command palette disables global terminal-focus hotkey", async ({
-    page,
-  }) => {
-    await loadApp(page);
-
-    await page.keyboard.press(`${MOD_KEY}+k`);
-    const palette = page.getByRole("dialog", { name: "Command palette" });
-    await expect(palette).toBeVisible({ timeout: 3_000 });
-
-    const input = palette.getByRole("combobox");
-    await expect(input).toBeFocused();
-
-    await page.keyboard.press(`${MOD_KEY}+Shift+Space`);
-
-    await expect(palette).toBeVisible();
-    await expect(input).toBeFocused();
-    await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
   });
 });

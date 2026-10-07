@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Routes, Route, useNavigate, useParams } from "react-router-dom";
-import { useAtom, useAtomValue } from "jotai";
-
+import { ScheduledMessagesButton } from "./scheduled-messages-button";
+import { PendingInputsButton } from "./chat/pending-inputs-button";
 import {
-  type AgentPaneView,
-  bottomBarCollapsedAtom,
-  chatShowChildAgentsAtom,
-  type CenterTab,
-  whiteboardAgentDrewAtomFamily,
-} from "@/lib/store";
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import { AgentPane, AgentViewToggle } from "@/components/app/agent-pane";
+const FilesPane = lazy(() =>
+  import("./files-pane").then((module) => ({ default: module.FilesPane }))
+);
+import { Routes, Route, useNavigate, useParams } from "react-router-dom";
+import { useAtom } from "jotai";
+
+import { chatShowChildAgentsAtom, type CenterTab } from "@/lib/store";
+
+import { AgentPane, ChatFiltersButton } from "@/components/app/agent-pane";
 import { ChangesTab } from "@/components/app/changes-tab";
-import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
 import { useVisibleDiffStats } from "@/hooks/use-agent-diff-stats";
@@ -27,42 +33,25 @@ import {
   readLastUsedAgentType,
 } from "@/components/app/agents-view-utils";
 import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
-import {
-  MediaSidebar,
-  MediaSidebarContent,
-} from "@/components/app/media-sidebar";
-import { BottomBar } from "@/components/app/bottom-bar";
-import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
-import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
-import { NavigationSidebar } from "@/components/app/navigation-sidebar";
+import { Drawer, DrawerContent, DrawerFrame } from "@/components/app/drawer";
+import { drawerPinnedReserve } from "@/components/app/drawer-constants";
+import { ThreadDrawer } from "@/components/app/thread-drawer";
+import { glassPanel } from "@/lib/glass";
 import { type NavSection } from "@/components/app/sidebar-shell";
-import { TerminalPane } from "@/components/app/terminal-pane";
-import {
-  type Agent,
-  type AgentVisualState,
-  type ConnState,
-} from "@/components/app/types";
+import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
-import { uploadAgentMedia } from "@/lib/media-upload";
+import { NavigationSidebar } from "@/components/app/navigation-sidebar";
+import { uploadAgentFile } from "@/lib/file-upload";
 import { type AgentType } from "@/lib/agent-types";
-import { agentSupportsChat, terminalHostTab } from "@/lib/center-tabs";
 import { type IdeType } from "@/lib/ide-types";
-import { type ThemeId } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
-import { useAgentPaneView } from "@/hooks/use-agent-pane-view";
-import {
-  useAgentUnreadCount,
-  useMarkMessagesRead,
-} from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
-import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
-import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
-import { useSurfaceSeen } from "@/components/app/agent-surfaces/use-surface-seen";
-import { useMedia } from "@/hooks/use-media";
-import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
-import { useTerminal } from "@/hooks/use-terminal";
+import { useFiles } from "@/hooks/use-files";
+import { useInbox } from "@/hooks/use-inbox";
+import { useDrawerRoute } from "@/hooks/use-drawer-route";
+import { useDrawerState } from "@/hooks/use-drawer-state";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
@@ -75,14 +64,13 @@ type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
   enabledIdes: IdeType[];
   isMobile: boolean;
-  theme: ThemeId;
   leftOpen: boolean;
   leftPanelOpen: boolean;
   mobileLeftOpen: boolean;
-  mobileMediaOpen: boolean;
+  mobileDrawerOpen: boolean;
   setLeftOpen: (open: boolean) => void;
   setMobileLeftOpen: (open: boolean) => void;
-  setMobileMediaOpen: (open: boolean) => void;
+  setMobileDrawerOpen: (open: boolean) => void;
   handleSetLeftPanelOpen: (open: boolean) => void;
   pulsingNavItem: string | null;
   triggerNavAnimation: (navItem: string) => void;
@@ -93,14 +81,13 @@ export function AgentsView({
   enabledAgentTypes,
   enabledIdes,
   isMobile,
-  theme,
   leftOpen,
   leftPanelOpen,
   mobileLeftOpen,
-  mobileMediaOpen,
+  mobileDrawerOpen,
   setLeftOpen,
   setMobileLeftOpen,
-  setMobileMediaOpen,
+  setMobileDrawerOpen,
   handleSetLeftPanelOpen,
   pulsingNavItem,
   triggerNavAnimation,
@@ -109,11 +96,6 @@ export function AgentsView({
   const { agentId: routeAgentId } = useParams();
   const navTo = useNavigate();
 
-  const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
-    string | null
-  >(null);
-  const [sharedConnState, setSharedConnState] =
-    useState<ConnState>("disconnected");
   const [showChildAgents, setShowChildAgents] = useAtom(
     chatShowChildAgentsAtom
   );
@@ -123,33 +105,17 @@ export function AgentsView({
     agentsLoaded,
     validatedSelectedAgentId,
     selectedAgent,
-    connectedAgent,
     overflowAgentId,
     setOverflowAgentId,
     agentVisualState,
-    resortAgents,
-  } = useAgents(
-    sharedConnectedAgentId,
-    sharedConnState,
-    true,
-    routeAgentId ?? null
-  );
+  } = useAgents(true, routeAgentId ?? null);
 
-  const { changesMatch, whiteboardMatch, centerTabResolved, onTabChange } =
+  const { changesMatch, filesMatch, centerTabResolved, onTabChange } =
     useAgentsViewRouting({
       routeAgentId,
       agentsLoaded,
       validatedSelectedAgentId,
-      routeAgentType: selectedAgent?.type ?? null,
     });
-  const { enabled: chatSurfaceEnabled } = useChatSurfaceEnabled();
-  // The terminal DOM stays mounted (hidden) across tab switches so tmux
-  // output keeps flowing into it, but it must not mount at all until the
-  // route has settled on a tab: on a fresh navigation the Console would
-  // otherwise paint for a frame before the Chat redirect lands. Once armed
-  // it stays armed — a later agent switch must not tear xterm down.
-  const [terminalArmed, setTerminalArmed] = useState(false);
-  if (centerTabResolved && !terminalArmed) setTerminalArmed(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -164,96 +130,34 @@ export function AgentsView({
   const { expandedAgentId, setExpandedAgentId, toggleAgentDetails } =
     useExpandedAgent();
 
-  const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
-  const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
+  const sidebarAgentId = validatedSelectedAgentId;
   const agentIds = useMemo(() => agents.map((a) => a.id), [agents]);
   const {
-    mediaOpen,
-    mediaPanelOpen,
-    mediaActiveTab,
-    mediaPinned,
-    deferMediaResize,
-    mediaResizeSettleKey,
-    setMediaOpen,
-    setMediaActiveTab,
-    toggleMediaPinned,
-    finishMediaResizeSettle,
-  } = useMediaSidebarState({
+    drawerOpen,
+    drawerPanelOpen,
+    drawerActiveTab,
+    drawerPinned,
+    setDrawerOpen: setDrawerOpenState,
+    setDrawerActiveTab,
+    toggleDrawerPinned,
+  } = useDrawerState({
     sidebarAgentId,
     isMobile,
     agentIds: agentsLoaded ? agentIds : [],
-    mobileMediaOpen,
+    mobileDrawerOpen,
     setMobileLeftOpen,
-    setMobileMediaOpen,
+    setMobileDrawerOpen,
   });
 
-  const {
-    connState,
-    connectedAgentId,
-    terminalMode,
-    terminalPlaceholderMessage,
-    copyMode,
-    statusMessage,
-    terminalHostRef,
-    ctrlPendingRef,
-    focusTerminal,
-    ensureTerminalConnected,
-    detachTerminal,
-    sendTerminalInput,
-    exitCopyMode,
-    resyncing,
-    draggingFiles,
-    uploadingFiles,
-    terminalInputAtRef,
-  } = useTerminal({
-    authState: "authenticated",
-    agents,
-    selectedAgentId: validatedSelectedAgentId,
-    theme,
-    isMobile,
-    leftOpen,
-    deferMediaResize,
-    mediaResizeSettleKey,
-  });
-
-  useEffect(() => {
-    setSharedConnectedAgentId(connectedAgentId);
-  }, [connectedAgentId]);
-
-  useEffect(() => {
-    setSharedConnState(connState);
-  }, [connState]);
-
-  useEffect(() => {
-    resortAgents();
-  }, [connectedAgentId, resortAgents]);
-
-  const focusedAgentId = resyncing
-    ? validatedSelectedAgentId
-    : connState === "connected" || connState === "reconnecting"
-      ? (connectedAgentId ?? validatedSelectedAgentId)
-      : null;
+  const focusedAgentId = validatedSelectedAgentId;
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
-  // The flag as it applies to the agent in focus: a terminal session has no
-  // CLI to chat with, so it keeps the plain Terminal tab and Console-only
-  // pane however the flag is set. An empty workspace likewise has no Chat
-  // target and should not render the Agent-pane view switch.
-  const chatEnabled =
-    chatSurfaceEnabled &&
-    focusedAgent !== null &&
-    agentSupportsChat(focusedAgent.type);
-  const activeTab: CenterTab = changesMatch
-    ? "changes"
-    : whiteboardMatch
-      ? "whiteboard"
-      : terminalHostTab(chatEnabled);
-
-  const whiteboardAgentDrew = useAtomValue(
-    whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
-  );
-  const bottomBarCollapsed = useAtomValue(bottomBarCollapsedAtom);
+  const activeTab: CenterTab = filesMatch
+    ? "files"
+    : changesMatch
+      ? "changes"
+      : "agent";
 
   const {
     splitState,
@@ -262,9 +166,6 @@ export function AgentsView({
     isDraggingTab,
     splitLeftRef,
     splitButtonRef,
-    defaultTerminalSlotRef,
-    splitTerminalSlotRef,
-    stableTerminalContainer,
     handleContentDragOver,
     handleContentDragLeave,
     handleContentDrop,
@@ -274,13 +175,12 @@ export function AgentsView({
     focusedAgentId,
     isMobile,
     activeTab,
-    chatEnabled,
   });
 
-  // The focused agent's direct children, whose pins and media the sidebar
-  // groups under it. Direct children only — the same family the server's
+  // The focused agent's direct children, whose files the drawer groups
+  // under it. Direct children only — the same family the server's
   // ownerAgentId reads allow — and live ones only, since this is the live
-  // agent list; an archived child's media stays reachable from its history.
+  // agent list; an archived child's files stay reachable from its history.
   const focusedSubAgents = useMemo(
     () =>
       focusedAgentId
@@ -290,63 +190,43 @@ export function AgentsView({
               id: agent.id,
               name: agent.name,
               status: agent.status,
-              workspaceRoot: agent.worktreePath ?? agent.cwd ?? null,
+              workspaceRoot:
+                agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null,
             }))
         : [],
     [agents, focusedAgentId]
   );
-  const focusedSubAgentIds = useMemo(
-    () => focusedSubAgents.map((agent) => agent.id),
-    [focusedSubAgents]
-  );
-  const focusedSubAgentPins = useMemo(
-    () =>
-      focusedSubAgents.map((agent) => ({
-        agent,
-        pins: agents.find((a) => a.id === agent.id)?.pins ?? [],
-      })),
-    [agents, focusedSubAgents]
-  );
-
   const {
-    mediaFiles,
-    visibleMediaFiles,
-    subAgentMedia,
-    mediaOwnerId,
-    setMediaOwnerId,
-    animatingMediaKeys,
-    unseenMediaCount,
-    lightboxMediaId,
-    lightboxMediaIds,
-    setLightboxMediaId,
+    files,
+    visibleFiles,
+    subAgentFiles,
+    filesOwnerId,
+    setFilesOwnerId,
+    animatingFileKeys,
+    unseenFileCount,
+    lightboxFileId,
+    lightboxFileIds,
+    setLightboxFileId,
     openLightbox,
-    mediaViewportRef,
-    refreshMedia,
-  } = useMedia(focusedAgentId, mediaPanelOpen, focusedSubAgents);
+    drawerViewportRef,
+    refreshFiles,
+  } = useFiles(focusedAgentId, drawerPanelOpen, focusedSubAgents);
 
-  const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
-  // No Chat view, no unread badge: a terminal session's feed is never read.
-  const chatUnreadCountRaw = useAgentChatUnread(focusedAgentId).unread;
-  const chatUnreadCount = chatEnabled ? chatUnreadCountRaw : 0;
-  const markMessagesRead = useMarkMessagesRead(focusedAgentId);
+  const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
 
-  // Closed-sidebar external signal for #2019: reuses the same surfaces query
-  // and seen-state atom the tab strip itself reads (see SurfaceTabRow), so a
-  // new agent-authored decision/input surface is visible from the header
-  // toggle without opening the sidebar first.
-  const { surfaces: agentSurfaces } = useAgentSurfaces(focusedAgentId);
-  const { isNew: isSurfaceNew } = useSurfaceSeen(focusedAgentId);
-  const unseenSurfaceCount = agentSurfaces.filter((surface) =>
-    isSurfaceNew(surface.id)
-  ).length;
-
-  // Only mark read when the sidebar is actually open on the Messages tab.
-  // MediaSidebarContent stays mounted while closed and the active tab is
-  // persisted per-agent, so gating on the tab alone would silently clear
-  // unread state for agents whose last-used tab was Messages.
-  useEffect(() => {
-    if (mediaPanelOpen && mediaActiveTab === "messages") markMessagesRead();
-  }, [mediaPanelOpen, mediaActiveTab, markMessagesRead]);
+  // The Inbox: open questions and forms, derived from the stream feed the
+  // Chat tab holds. Its count shows on the closed sidebar's toggle so an
+  // agent waiting on the user is visible without opening the sidebar.
+  const inbox = useInbox(focusedAgentId);
+  const inboxDisabledReason =
+    focusedAgent && focusedAgent.status !== "running"
+      ? "The agent is not running. Start it to answer."
+      : null;
+  const agentNameById = useCallback(
+    (agentId: string) =>
+      agents.find((agent) => agent.id === agentId)?.name ?? "Agent",
+    [agents]
+  );
 
   const focusedAgentHasStream = focusedAgent?.hasStream ?? false;
   const focusedAgentStreamUrl = focusedAgentId
@@ -359,8 +239,8 @@ export function AgentsView({
       !prevFocusedAgentHasStreamRef.current && focusedAgentHasStream;
     prevFocusedAgentHasStreamRef.current = focusedAgentHasStream;
     if (!streamStarted) return;
-    setMediaOpen(true);
-  }, [focusedAgentHasStream, setMediaOpen]);
+    setDrawerOpenState(true);
+  }, [focusedAgentHasStream, setDrawerOpenState]);
 
   useAgentFocus(focusedAgentId, "authenticated");
 
@@ -375,76 +255,82 @@ export function AgentsView({
     changesVisible
   );
 
-  const prevLeftOpenRef = useRef(leftPanelOpen);
-  const prevMediaOpenRef = useRef(mediaPanelOpen);
-  useEffect(() => {
-    const leftClosed = prevLeftOpenRef.current && !leftPanelOpen;
-    const mediaClosed = prevMediaOpenRef.current && !mediaPanelOpen;
-    prevLeftOpenRef.current = leftPanelOpen;
-    prevMediaOpenRef.current = mediaPanelOpen;
-    if (leftClosed || mediaClosed) {
-      const timer = window.setTimeout(focusTerminal, 50);
-      return () => window.clearTimeout(timer);
-    }
-  }, [leftPanelOpen, mediaPanelOpen, focusTerminal]);
-
   const uploadFile = useCallback(async (agentId: string, file: File) => {
-    await uploadAgentMedia(agentId, file);
+    await uploadAgentFile(agentId, file);
   }, []);
 
-  const handleNavigateToFile = useCallback(
-    (filePath: string, lineStart: number | null, feedbackItemId?: number) => {
+  /**
+   * Opens the Changes tab on a file, at a line when one is given. The
+   * drawer's pages stay in the URL, so a finding opened from the drawer
+   * is the one the diff scrolls to and expands.
+   */
+  const handleOpenPath = useCallback(
+    (filePath: string, line: number | null) => {
       if (!focusedAgentId) return;
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(window.location.search);
       params.set("file", filePath);
-      if (lineStart != null) params.set("line", String(lineStart));
-      if (feedbackItemId != null) {
-        params.set("feedback", String(feedbackItemId));
-      }
+      if (line != null) params.set("line", String(line));
+      else params.delete("line");
       navTo(`/agents/${focusedAgentId}/changes?${params.toString()}`, {
         replace: true,
       });
-      if (isMobile) setMobileMediaOpen(false);
+      if (isMobile) setMobileDrawerOpen(false);
     },
-    [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
+    [focusedAgentId, isMobile, navTo, setMobileDrawerOpen]
   );
 
-  /**
-   * Show one review: the Reviews sidebar, opened on that review. Reached
-   * from the Changes tab after submitting one, and from a review card in
-   * the Chat feed.
-   */
-  const handleOpenReview = useCallback(
-    (reviewId: number) => {
+  // A thread (or a review, or a child's turn) lives in the URL and opens
+  // in a drawer of its own, in the sidebar's slot. The sidebar keeps its
+  // own open state underneath: closing the thread gives the slot back.
+  const hasActiveAgent = Boolean(validatedSelectedAgentId);
+  const drawerRoute = useDrawerRoute();
+  const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
+    drawerRoute;
+  const threadDrawerOpen = drawerRoute.depth > 0 && hasActiveAgent;
+  const pinnedReserve = drawerPinnedReserve(leftOpen);
+  // On a phone with no agent selected the center pane is an empty prompt,
+  // so the sidebar opens in its place. Only on entering that state, so
+  // closing the sidebar by hand still sticks; and a sheet opened this way
+  // closes again once a route (Forward, a link) selects an agent.
+  const noAgentOnMobile = isMobile && agentsLoaded && !hasActiveAgent;
+  const sidebarAutoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (noAgentOnMobile) {
+      sidebarAutoOpenedRef.current = true;
+      setMobileLeftOpen(true);
+    } else if (sidebarAutoOpenedRef.current) {
+      sidebarAutoOpenedRef.current = false;
+      setMobileLeftOpen(false);
+    }
+  }, [noAgentOnMobile, setMobileLeftOpen]);
+  // On a phone the two are sheets over the same edge: a thread opening
+  // takes the sidebar's sheet down.
+  useEffect(() => {
+    if (isMobile && threadDrawerOpen && mobileDrawerOpen) {
+      setMobileDrawerOpen(false);
+    }
+  }, [isMobile, mobileDrawerOpen, setMobileDrawerOpen, threadDrawerOpen]);
+  const closeDrawer = useCallback(() => {
+    setDrawerOpenState(false);
+  }, [setDrawerOpenState]);
+  const setDrawerOpen = setDrawerOpenState;
+
+  /** Pushes a block's thread (or a review) onto the drawer; from the Inbox. */
+  const handleOpenBlock = useCallback(
+    (blockId: string) => {
       if (!focusedAgentId) return;
-      navTo(`/agents/${focusedAgentId}?expandReview=${reviewId}`, {
-        replace: true,
-      });
-      setMediaOpen(true);
-      setMediaActiveTab("reviews");
+      openDrawerThread(blockId);
     },
-    [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]
+    [focusedAgentId, openDrawerThread]
   );
 
-  const handleOpenSubmittedReview = useCallback(
-    (reviewer: Agent) => {
-      if (!reviewer.parentAgentId || reviewer.submittedReviewId == null) return;
-      navTo(
-        `/agents/${reviewer.parentAgentId}?expandReview=${reviewer.submittedReviewId}`
-      );
-      setExpandedAgentId(reviewer.parentAgentId);
-      setMediaOpen(true);
-      setMediaActiveTab("reviews");
-      if (isMobile) setMobileLeftOpen(false);
+  /** After a review is posted from the Changes tab, show it in the drawer. */
+  const handleReviewPosted = useCallback(
+    (blockId: string) => {
+      if (!focusedAgentId) return;
+      openDrawerThread(blockId);
     },
-    [
-      isMobile,
-      navTo,
-      setExpandedAgentId,
-      setMediaActiveTab,
-      setMediaOpen,
-      setMobileLeftOpen,
-    ]
+    [focusedAgentId, openDrawerThread]
   );
 
   useExpandedAgentSync(
@@ -454,55 +340,33 @@ export function AgentsView({
     setExpandedAgentId
   );
 
-  useEffect(() => {
-    pendingAutoAttachAgentIdRef.current = routeAgentId ?? null;
-  }, [routeAgentId]);
-
-  useEffect(() => {
-    if (!validatedSelectedAgentId) return;
-    if (connectedAgentId === validatedSelectedAgentId) {
-      pendingAutoAttachAgentIdRef.current = null;
-      return;
-    }
-    if (pendingAutoAttachAgentIdRef.current !== validatedSelectedAgentId)
-      return;
-    pendingAutoAttachAgentIdRef.current = null;
-    void ensureTerminalConnected(true, true, validatedSelectedAgentId);
-  }, [connectedAgentId, ensureTerminalConnected, validatedSelectedAgentId]);
-
-  useEffect(() => {
-    if (routeAgentId) return;
-    if (!connectedAgentId) return;
-    detachTerminal();
-  }, [connectedAgentId, detachTerminal, routeAgentId]);
-
   const {
-    attachToAgent,
+    openAgent,
     startAgent,
     stopAgent,
     deleteAgent,
     handleAgentCreated,
-    detachAndClearSelection,
+    closeAgentAndClearSelection,
   } = useAgentActions({
-    connectedAgentId,
     routeAgentId,
     setExpandedAgentId,
     setCreateOpen,
     setRequestedCreateType,
     setLastUsedAgentType,
-    ensureTerminalConnected,
-    detachTerminal,
-    refreshMedia,
+    refreshFiles,
   });
 
   const resolveCreateDefaultCwd = useCallback((): string => {
-    const activeCwd =
-      agentProjectRoot(selectedAgent) || agentProjectRoot(connectedAgent);
+    const activeCwd = agentProjectRoot(selectedAgent);
     if (activeCwd) return activeCwd;
+    const lastUsedCwd = window.localStorage
+      .getItem("dispatch:lastUsedAgentCwd")
+      ?.trim();
+    if (lastUsedCwd) return lastUsedCwd;
     const latestAgentCwd = agentProjectRoot(agents[0]);
     if (latestAgentCwd) return latestAgentCwd;
     return "";
-  }, [agents, connectedAgent, selectedAgent]);
+  }, [agents, selectedAgent]);
 
   const openCreateDialog = useCallback((typeOverride?: AgentType) => {
     setRequestedCreateType(typeOverride ?? null);
@@ -521,10 +385,8 @@ export function AgentsView({
     isMobile,
     sidebarAgentId,
     validatedSelectedAgentId,
-    canFocusTerminal: terminalMode === "tmux" && !!focusedAgentId,
-    focusTerminal,
-    mediaOpen,
-    setMediaOpen,
+    drawerOpen,
+    setDrawerOpen: setDrawerOpenState,
     leftPanelOpen,
     handleSetLeftPanelOpen,
     openCreateDialog,
@@ -544,139 +406,104 @@ export function AgentsView({
     [isMobile, setMobileLeftOpen]
   );
 
-  const handleCreateOpenChange = useCallback((open: boolean) => {
-    if (!open) {
-      setRequestedCreateType(null);
-    }
-    setCreateOpen(open);
-  }, []);
-
-  const isAttached = connState === "connected" && Boolean(connectedAgentId);
-  const hasActiveAgent = Boolean(validatedSelectedAgentId);
-
-  const terminalElement = (
-    <TerminalPane
-      isAttached={isAttached}
-      connState={connState}
-      statusMessage={statusMessage}
-      terminalMode={terminalMode}
-      terminalPlaceholderMessage={terminalPlaceholderMessage}
-      terminalHostRef={terminalHostRef}
-      resyncing={resyncing}
-      draggingFiles={draggingFiles}
-      uploadingFiles={uploadingFiles}
-      archivePhase={
-        selectedAgent?.status === "archiving"
-          ? selectedAgent.archivePhase
-          : null
+  const handleCreateOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        setRequestedCreateType(null);
+        // Create closes the mobile sheet on the way in; cancelling it with
+        // no agent selected would leave the empty pane, so the sheet
+        // comes back.
+        if (noAgentOnMobile) {
+          sidebarAutoOpenedRef.current = true;
+          setMobileLeftOpen(true);
+        }
       }
-      holdBadgeAgentId={focusedAgentId}
-      terminalInputAtRef={terminalInputAtRef}
-    />
+      setCreateOpen(open);
+    },
+    [noAgentOnMobile, setMobileLeftOpen]
   );
+
+  const filesVisible = isSplit
+    ? splitState.left === "files" || splitState.right === "files"
+    : filesMatch;
+  const filesWorkspace =
+    focusedAgent?.workspacePath ??
+    focusedAgent?.worktreePath ??
+    focusedAgent?.cwd ??
+    null;
+  const filesElement = filesVisible ? (
+    <Suspense
+      fallback={
+        <div role="status" className="p-4 text-sm text-muted-foreground">
+          Loading files…
+        </div>
+      }
+    >
+      <FilesPane
+        key={`${focusedAgentId}:${filesWorkspace}`}
+        agentId={focusedAgentId}
+        workspace={filesWorkspace}
+        onOpenBeside={() => handleDropOnZone("agent", "left")}
+        isSplit={isSplit}
+        isMobile={isMobile}
+      />
+    </Suspense>
+  ) : null;
 
   const changesElement = changesVisible ? (
     <ChangesTab
       agentId={focusedAgentId}
+      agent={focusedAgent}
+      enabledAgentTypes={enabledAgentTypes}
       active={true}
       isMobile={isMobile}
-      onReviewSubmitted={handleOpenReview}
+      onReviewPosted={handleReviewPosted}
+      agentNameById={agentNameById}
     />
   ) : null;
 
-  const whiteboardVisible =
-    (isSplit &&
-      (splitState.left === "whiteboard" ||
-        splitState.right === "whiteboard")) ||
-    (!isSplit && whiteboardMatch);
-  const whiteboardElement = whiteboardVisible ? (
-    <WhiteboardPane agentId={focusedAgentId} active={true} />
-  ) : null;
-
-  // The Agent pane's Chat | Console choice, remembered per agent. On desktop,
-  // flipping to the Console hands it focus once it has been unhidden: the
-  // focus is deferred a tick, and a flip back (or an unmount) before it lands
-  // drops it, so the Chat composer's own focus is never stolen. Mobile opts
-  // out — focusing xterm there raises the software keyboard, which resizes the
-  // viewport out from under the cross-fade; the toolbar's keyboard button is
-  // how a phone asks for input. Same reasoning as the foreground-focus guard
-  // in useTerminal.
-  const [agentView, setAgentViewRaw] = useAgentPaneView(focusedAgentId);
-  const consoleFocusTimerRef = useRef<number | null>(null);
-  const cancelConsoleFocus = useCallback(() => {
-    if (consoleFocusTimerRef.current === null) return;
-    window.clearTimeout(consoleFocusTimerRef.current);
-    consoleFocusTimerRef.current = null;
-  }, []);
-  useEffect(() => cancelConsoleFocus, [cancelConsoleFocus]);
-  const setAgentView = useCallback(
-    (view: AgentPaneView) => {
-      setAgentViewRaw(view);
-      cancelConsoleFocus();
-      if (view === "console" && !isMobile) {
-        consoleFocusTimerRef.current = window.setTimeout(() => {
-          consoleFocusTimerRef.current = null;
-          focusTerminal();
-        }, 0);
-      }
-    },
-    [cancelConsoleFocus, focusTerminal, isMobile, setAgentViewRaw]
-  );
-  const agentPaneVisible = !isSplit
-    ? centerTabResolved && !changesMatch && !whiteboardMatch
-    : splitState.left === "agent" || splitState.right === "agent";
+  // A URL naming an agent selects nothing until the agent list loads; the
+  // pane waits for it rather than flashing "Select an agent".
+  const routeAgentPending = Boolean(routeAgentId) && !agentsLoaded;
+  const agentPaneVisible =
+    !routeAgentPending &&
+    (!isSplit
+      ? centerTabResolved && !changesMatch && !filesMatch
+      : splitState.left === "agent" || splitState.right === "agent");
   const agentPaneProps = {
     agentId: focusedAgentId,
     agent: focusedAgent,
-    terminalMode,
-    chatEnabled,
-    view: agentView,
-    onViewChange: setAgentView,
-    chatUnreadCount,
+    agents,
     showChildAgents,
     onShowChildAgentsChange: setShowChildAgents,
-    childAgentIds: focusedSubAgentIds,
-    // Console-only chrome, hosted inside the Console layer so the flip does
-    // not resize the pane. Mobile only; a split pane is desktop-only, so both
-    // AgentPane call sites can be handed the same node.
-    consoleFooter:
-      isMobile && chatEnabled ? (
-        <MobileTerminalToolbar
-          agentId={connectedAgentId}
-          onSendInput={sendTerminalInput}
-          onExitCopyMode={() => {
-            void exitCopyMode();
-          }}
-          ctrlPendingRef={ctrlPendingRef}
-          isConnected={connState === "connected" && Boolean(connectedAgentId)}
-          copyMode={copyMode}
-        />
-      ) : null,
     openLightbox,
-    onOpenReview: handleOpenReview,
+    onOpenPath: handleOpenPath,
     isMobile,
   };
   // Only in a split: the single-pane Agent pane is always rendered (hidden
-  // under Changes/Whiteboard) so the terminal slot keeps its DOM identity —
-  // see AgentPane.
+  // under Changes) so its draft and scroll position survive a tab
+  // switch.
   const splitAgentElement =
     isSplit && agentPaneVisible ? (
-      <AgentPane
-        {...agentPaneProps}
-        active={true}
-        terminalSlotRef={splitTerminalSlotRef}
-        header={false}
-      />
+      <AgentPane {...agentPaneProps} active={true} header={false} />
     ) : null;
   const splitAgentHeaderAccessory =
-    isSplit && agentPaneVisible && chatEnabled ? (
-      <AgentViewToggle
-        view={agentView}
-        onViewChange={setAgentView}
-        chatUnreadCount={chatUnreadCount}
-        showChildAgents={showChildAgents}
-        onShowChildAgentsChange={setShowChildAgents}
-      />
+    isSplit && agentPaneVisible ? (
+      <div className="flex items-center gap-1">
+        <PendingInputsButton
+          key={focusedAgentId}
+          agentId={focusedAgentId}
+          showChildAgents={showChildAgents}
+        />
+        <ScheduledMessagesButton
+          key={`schedules-${focusedAgentId}`}
+          agentId={focusedAgentId}
+        />
+        <ChatFiltersButton
+          showChildAgents={showChildAgents}
+          onShowChildAgentsChange={setShowChildAgents}
+        />
+      </div>
     ) : null;
 
   return (
@@ -688,7 +515,7 @@ export function AgentsView({
           mobileLeftOpen={mobileLeftOpen}
           setLeftOpen={setLeftOpen}
           setMobileLeftOpen={setMobileLeftOpen}
-          setMobileMediaOpen={setMobileMediaOpen}
+          setMobileDrawerOpen={setMobileDrawerOpen}
           pulsingNavItem={pulsingNavItem}
           triggerNavAnimation={triggerNavAnimation}
           activeSection="agents"
@@ -724,11 +551,10 @@ export function AgentsView({
             borderForAgentState={borderForAgentState}
             toggleAgentDetails={toggleAgentDetails}
             isFullAccessEnabled={isFullAccessEnabled}
-            detachTerminal={detachAndClearSelection}
-            attachToAgent={attachToAgent}
+            closeAgent={closeAgentAndClearSelection}
+            openAgent={openAgent}
             startAgent={startAgent}
-            openSubmittedReview={handleOpenSubmittedReview}
-            connectedAgentId={connectedAgentId}
+            connectedAgentId={validatedSelectedAgentId}
             onRequestClose={
               isMobile ? () => setMobileLeftOpen(false) : undefined
             }
@@ -748,34 +574,26 @@ export function AgentsView({
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
               <AgentsViewHeader
                 isMobile={isMobile}
-                connState={connState}
                 leftPanelOpen={leftPanelOpen}
                 handleSetLeftPanelOpen={handleSetLeftPanelOpen}
                 focusedAgentId={focusedAgentId}
                 focusedAgentName={focusedAgent?.name ?? null}
                 hasActiveAgent={hasActiveAgent}
-                focusTerminal={focusTerminal}
                 focusedDiffStats={focusedDiffStats}
                 activeTab={activeTab}
                 centerTabResolved={centerTabResolved}
-                chatEnabled={chatEnabled}
                 chatUnreadCount={chatUnreadCount}
                 isSplit={isSplit}
                 splitState={splitState}
                 exitSplit={exitSplit}
                 onTabChange={onTabChange}
-                whiteboardAgentDrew={whiteboardAgentDrew}
-                mediaPanelOpen={mediaPanelOpen}
-                setMediaOpen={setMediaOpen}
-                unseenMediaCount={unseenMediaCount}
-                unreadMessageCount={unreadMessageCount}
-                unseenSurfaceCount={unseenSurfaceCount}
+                drawerPanelOpen={drawerPanelOpen}
+                setDrawerOpen={setDrawerOpenState}
+                unseenFileCount={unseenFileCount}
+                openInputCount={inbox.inputs.length}
               />
               <div
-                className={cn(
-                  "relative min-h-0 flex-1",
-                  !isMobile && !bottomBarCollapsed && "pb-14"
-                )}
+                className="relative min-h-0 flex-1"
                 onDragOver={handleContentDragOver}
                 onDragLeave={handleContentDragLeave}
                 onDrop={handleContentDrop}
@@ -785,9 +603,8 @@ export function AgentsView({
                     splitState={splitState}
                     splitLeftRef={splitLeftRef}
                     splitButtonRef={splitButtonRef}
-                    splitTerminalSlotRef={splitTerminalSlotRef}
                     changesElement={changesElement}
-                    whiteboardElement={whiteboardElement}
+                    filesElement={filesElement}
                     agentElement={splitAgentElement}
                     agentHeaderAccessory={splitAgentHeaderAccessory}
                     isMobile={isMobile}
@@ -802,143 +619,133 @@ export function AgentsView({
                       <AgentPane
                         {...agentPaneProps}
                         active={agentPaneVisible}
-                        terminalSlotRef={defaultTerminalSlotRef}
                         header={true}
                       />
                     </div>
                     <Routes>
                       <Route path="changes" element={changesElement} />
+                      <Route path="files" element={filesElement} />
                     </Routes>
-                    {whiteboardElement}
                   </>
                 )}
-                {stableTerminalContainer && terminalArmed
-                  ? createPortal(terminalElement, stableTerminalContainer)
-                  : null}
                 <SplitDropZones
                   visible={isDraggingTab && !isMobile}
                   onDrop={handleDropOnZone}
                 />
-                {!isMobile ? <BottomBar /> : null}
               </div>
-
-              {!isMobile ? (
-                <div
-                  className={cn(
-                    "pointer-events-none absolute inset-x-2 z-20",
-                    bottomBarCollapsed ? "bottom-8" : "bottom-16"
-                  )}
-                >
-                  <TerminalCopyModeBannerLayer
-                    visible={copyMode === "copy" || copyMode === "exiting"}
-                    copyMode={copyMode}
-                    onExitCopyMode={() => {
-                      void exitCopyMode();
-                    }}
-                  />
-                </div>
-              ) : null}
             </div>
-
-            {/*
-              With the chat surface off there is no Chat to cross-fade to, so
-              the toolbar can stay a plain grid row of its own — and it keeps
-              following the terminal onto the Changes and Whiteboard tabs, as
-              it always has in that mode. With the surface on it moves inside
-              the pane instead (`consoleFooter`), where its height belongs to
-              the Console layer alone.
-            */}
-            {isMobile && !chatEnabled ? (
-              <MobileTerminalToolbar
-                agentId={connectedAgentId}
-                onSendInput={sendTerminalInput}
-                onExitCopyMode={() => {
-                  void exitCopyMode();
-                }}
-                ctrlPendingRef={ctrlPendingRef}
-                isConnected={
-                  connState === "connected" && Boolean(connectedAgentId)
-                }
-                copyMode={copyMode}
-              />
-            ) : null}
           </div>
         </main>
 
-        <div className="hidden shrink-0 md:block">
-          <MediaSidebar
-            mediaOpen={mediaOpen && hasActiveAgent}
-            mediaFiles={visibleMediaFiles}
+        <div className="hidden shrink-0 md:flex">
+          <DrawerFrame
+            open={threadDrawerOpen}
+            pinned={drawerPinned}
+            pinnedReserve={pinnedReserve}
+            testId="thread-drawer-wrapper"
+          >
+            <ThreadDrawer
+              selectedAgentId={focusedAgentId}
+              selectedAgentName={focusedAgent?.name ?? null}
+              rootId={inbox.rootId}
+              agentNameById={agentNameById}
+              agent={focusedAgent}
+              openLightbox={openLightbox}
+              onOpenPath={handleOpenPath}
+              isMobile={false}
+              className={cn(
+                "rounded-l-lg border-l",
+                !drawerPinned && "shadow-2xl",
+                glassPanel
+              )}
+            />
+          </DrawerFrame>
+          <Drawer
+            drawerOpen={drawerOpen && hasActiveAgent && !threadDrawerOpen}
+            files={visibleFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
-            selectedAgentWorkspaceRoot={
-              focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
-            }
-            selectedAgentPins={focusedAgent?.pins ?? []}
-            selectedAgentIsRunning={focusedAgent?.status === "running"}
-            subAgentPins={focusedSubAgentPins}
-            subAgentMedia={subAgentMedia}
-            ownMediaFiles={mediaFiles}
-            mediaOwnerId={mediaOwnerId}
-            onMediaOwnerChange={setMediaOwnerId}
-            animatingMediaKeys={animatingMediaKeys}
-            unseenMediaCount={unseenMediaCount}
-            unreadMessageCount={unreadMessageCount}
-            mediaViewportRef={mediaViewportRef}
-            setMediaOpen={setMediaOpen}
-            activeTab={mediaActiveTab}
-            setActiveTab={setMediaActiveTab}
-            pinned={mediaPinned}
-            onTogglePin={toggleMediaPinned}
-            onWidthTransitionEnd={finishMediaResizeSettle}
+            subAgentFiles={subAgentFiles}
+            ownFiles={files}
+            filesOwnerId={filesOwnerId}
+            onFilesOwnerChange={setFilesOwnerId}
+            animatingFileKeys={animatingFileKeys}
+            unseenFileCount={unseenFileCount}
+            drawerViewportRef={drawerViewportRef}
+            setDrawerOpen={setDrawerOpen}
+            activeTab={drawerActiveTab}
+            setActiveTab={setDrawerActiveTab}
+            pinned={drawerPinned}
+            onTogglePin={toggleDrawerPinned}
+            pinnedReserve={pinnedReserve}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
             onUploadFile={uploadFile}
-            onNavigateToFile={handleNavigateToFile}
+            inbox={inbox}
+            inboxDisabledReason={inboxDisabledReason}
+            agentNameById={agentNameById}
+            onOpenBlock={handleOpenBlock}
           />
         </div>
       </div>
 
       {isMobile ? (
         <GlassSidebar
-          open={mobileMediaOpen}
+          open={threadDrawerOpen}
           onOpenChange={(open) => {
-            if (open) setMobileLeftOpen(false);
-            setMobileMediaOpen(open);
+            if (!open) closeDrawerPages();
           }}
           side="right"
           mobile={true}
-          label="Media sidebar"
+          label="Thread"
         >
-          <MediaSidebarContent
-            mediaFiles={visibleMediaFiles}
+          <ThreadDrawer
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
-            selectedAgentWorkspaceRoot={
-              focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
-            }
-            selectedAgentPins={focusedAgent?.pins ?? []}
-            selectedAgentIsRunning={focusedAgent?.status === "running"}
-            subAgentPins={focusedSubAgentPins}
-            subAgentMedia={subAgentMedia}
-            ownMediaFiles={mediaFiles}
-            mediaOwnerId={mediaOwnerId}
-            onMediaOwnerChange={setMediaOwnerId}
-            onShortcutRun={() => setMobileMediaOpen(false)}
-            animatingMediaKeys={animatingMediaKeys}
-            unseenMediaCount={unseenMediaCount}
-            unreadMessageCount={unreadMessageCount}
-            mediaViewportRef={mediaViewportRef}
-            activeTab={mediaActiveTab}
-            setActiveTab={setMediaActiveTab}
-            isSidebarVisible={mobileMediaOpen}
+            rootId={inbox.rootId}
+            agentNameById={agentNameById}
+            agent={focusedAgent}
+            openLightbox={openLightbox}
+            onOpenPath={handleOpenPath}
+            isMobile
+          />
+        </GlassSidebar>
+      ) : null}
+
+      {isMobile ? (
+        <GlassSidebar
+          open={mobileDrawerOpen}
+          onOpenChange={(open) => {
+            if (open) setMobileLeftOpen(false);
+            setMobileDrawerOpen(open);
+          }}
+          side="right"
+          mobile={true}
+          label="Drawer"
+        >
+          <DrawerContent
+            files={visibleFiles}
+            selectedAgentId={focusedAgentId}
+            selectedAgentName={focusedAgent?.name ?? null}
+            subAgentFiles={subAgentFiles}
+            ownFiles={files}
+            filesOwnerId={filesOwnerId}
+            onFilesOwnerChange={setFilesOwnerId}
+            animatingFileKeys={animatingFileKeys}
+            unseenFileCount={unseenFileCount}
+            drawerViewportRef={drawerViewportRef}
+            activeTab={drawerActiveTab}
+            setActiveTab={setDrawerActiveTab}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
-            onRequestClose={() => setMobileMediaOpen(false)}
+            onRequestClose={closeDrawer}
             onUploadFile={uploadFile}
-            onNavigateToFile={handleNavigateToFile}
+            inbox={inbox}
+            inboxDisabledReason={inboxDisabledReason}
+            agentNameById={agentNameById}
+            onOpenBlock={handleOpenBlock}
           />
         </GlassSidebar>
       ) : null}
@@ -967,14 +774,10 @@ export function AgentsView({
         setStopConfirmOpen={setStopConfirmOpen}
         setStopTarget={setStopTarget}
         onStop={stopAgent}
-        lightboxMediaId={lightboxMediaId}
-        lightboxMediaIds={lightboxMediaIds}
-        setLightboxMediaId={setLightboxMediaId}
+        lightboxFileId={lightboxFileId}
+        lightboxFileIds={lightboxFileIds}
+        setLightboxFileId={setLightboxFileId}
       />
-
-      <div className="sr-only" aria-live="polite">
-        {statusMessage}
-      </div>
     </div>
   );
 }

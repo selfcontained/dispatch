@@ -3,13 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   bumpVersion,
   cleanError,
-  describeForceTriggers,
   formatAgo,
   formatBytes,
   formatInlineProgress,
   formatProgressLabel,
-  isAssistedPreferred,
-  isForceRequired,
   progressPercent,
 } from "./release-utils";
 
@@ -173,117 +170,6 @@ describe("progressPercent", () => {
     expect(
       progressPercent({ bytesReceived: 2000, totalBytes: 1000 } as never)
     ).toBe(100);
-  });
-});
-
-describe("describeForceTriggers", () => {
-  it("describes pending migrations (singular)", () => {
-    expect(describeForceTriggers({ pendingMigrations: ["m1"] } as never)).toBe(
-      "has 1 complex update step; safer with the agent"
-    );
-  });
-
-  it("describes pending migrations (plural)", () => {
-    expect(
-      describeForceTriggers({ pendingMigrations: ["m1", "m2", "m3"] } as never)
-    ).toBe("has 3 complex update steps; safer with the agent");
-  });
-
-  it("describes required assisted mode", () => {
-    expect(
-      describeForceTriggers({
-        pendingMigrations: [],
-        assisted: { mode: "required" },
-      } as never)
-    ).toBe("needs the agent for a safe update");
-  });
-
-  it("describes migrations error", () => {
-    expect(
-      describeForceTriggers({
-        pendingMigrations: [],
-        assisted: null,
-        migrationsError: "timeout",
-      } as never)
-    ).toBe("couldn't be checked for complex update steps");
-  });
-
-  it("returns generic fallback when no specific trigger matches", () => {
-    expect(
-      describeForceTriggers({
-        pendingMigrations: [],
-        assisted: { mode: "recommended" },
-        migrationsError: null,
-      } as never)
-    ).toBe("is gated by the assisted-update flow");
-  });
-});
-
-describe("isForceRequired", () => {
-  it("is true when the assisted flow is required", () => {
-    expect(
-      isForceRequired({
-        assistedRequired: true,
-        pendingMigrations: [],
-        assisted: null,
-      } as never)
-    ).toBe(true);
-  });
-
-  it("is true when migrations are pending", () => {
-    expect(
-      isForceRequired({
-        assistedRequired: false,
-        pendingMigrations: [{ id: "001" }],
-        assisted: null,
-      } as never)
-    ).toBe(true);
-  });
-
-  it("is false for a plain update, even a recommended-assisted one", () => {
-    expect(
-      isForceRequired({
-        assistedRequired: false,
-        pendingMigrations: [],
-        assisted: { mode: "recommended" },
-      } as never)
-    ).toBe(false);
-  });
-
-  it("treats missing pendingMigrations as none", () => {
-    expect(isForceRequired({ assistedRequired: false } as never)).toBe(false);
-  });
-});
-
-describe("isAssistedPreferred", () => {
-  it("is true whenever a force would be required", () => {
-    expect(
-      isAssistedPreferred({
-        assistedRequired: true,
-        pendingMigrations: [],
-        assisted: null,
-      } as never)
-    ).toBe(true);
-  });
-
-  it("is true when the release recommends the assisted flow", () => {
-    expect(
-      isAssistedPreferred({
-        assistedRequired: false,
-        pendingMigrations: [],
-        assisted: { mode: "recommended" },
-      } as never)
-    ).toBe(true);
-  });
-
-  it("is false for a normal release", () => {
-    expect(
-      isAssistedPreferred({
-        assistedRequired: false,
-        pendingMigrations: [],
-        assisted: { mode: "normal" },
-      } as never)
-    ).toBe(false);
   });
 });
 

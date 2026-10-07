@@ -1,15 +1,8 @@
 import React from "react";
-import {
-  AlarmClock,
-  ArrowDownToLine,
-  ChevronDown,
-  Play,
-  Repeat2,
-  Tag,
-} from "lucide-react";
+import { AlarmClock, ChevronDown, Play, Repeat2, Tag } from "lucide-react";
 import { toast } from "sonner";
 
-import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +17,6 @@ import { cn } from "@/lib/utils";
 
 function hasDefaultSessionName(agent: Agent): boolean {
   if (agent.persona) return false;
-  if (agent.type === "terminal") return false;
   if (agent.name.startsWith("job-")) return false;
   return agent.name.trim() === `agent-${agent.id.slice(-6)}`;
 }
@@ -34,18 +26,17 @@ export type AgentCardHeaderProps = {
   childAgents: Agent[];
   isExpanded: boolean;
   isStopped: boolean;
-  isTerminalAgent: boolean;
   connectedAgentId?: string | null;
   closeOnSessionAction: boolean;
   onRequestClose?: () => void;
-  detachTerminal: () => void;
-  attachToAgent: (agent: Agent) => Promise<void>;
+  closeAgent: () => void;
+  openAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
   toggleAgentDetails: (agentId: string) => void;
 };
 
 /**
- * The always-visible top row of an agent card: type icon, session name, status
+ * The always-visible top row of an agent card: avatar, session name, status
  * badges, resume control for stopped agents, and the expand toggle.
  */
 export function AgentCardHeader({
@@ -53,12 +44,11 @@ export function AgentCardHeader({
   childAgents,
   isExpanded,
   isStopped,
-  isTerminalAgent,
   connectedAgentId,
   closeOnSessionAction,
   onRequestClose,
-  detachTerminal,
-  attachToAgent,
+  closeAgent,
+  openAgent,
   startAgent,
   toggleAgentDetails,
 }: AgentCardHeaderProps): JSX.Element {
@@ -70,7 +60,6 @@ export function AgentCardHeader({
   const loopTooltip = agent.jobRun?.maxIterations
     ? `Loop iteration ${loopIteration} of ${agent.jobRun.maxIterations}`
     : `Loop iteration ${loopIteration}`;
-  const isAssistedUpdateAgent = agent.role === "assisted_update";
   const canPromptRename =
     agent.status === "running" && hasDefaultSessionName(agent);
 
@@ -81,7 +70,7 @@ export function AgentCardHeader({
       await api(`/api/v1/agents/${agent.id}/prompt-rename`, {
         method: "POST",
       });
-      toast.success("Asked the agent to set a session name.");
+      toast.success("Name request queued. Follow its delivery in the stream.");
     } catch (err) {
       toast.error("Couldn't reach the agent — try again in a moment.", {
         description: err instanceof Error ? err.message : undefined,
@@ -96,22 +85,19 @@ export function AgentCardHeader({
 
   return (
     <div
-      className={cn(
-        "flex items-center gap-1.5",
-        !isStopped && "cursor-pointer"
-      )}
+      className="flex items-center gap-1.5 cursor-pointer"
       data-testid={`agent-row-${agent.id}`}
       onClick={(event) => {
         const target = event.target as HTMLElement;
         if (target.closest("[data-agent-control='true']")) return;
-        if (isStopped) return;
+        // A stopped agent's Chat history stays readable.
         if (connectedAgentId === agent.id) {
-          detachTerminal();
+          closeAgent();
           if (isExpanded) toggleAgentDetails(agent.id);
           return;
         }
         if (closeOnSessionAction) onRequestClose?.();
-        void attachToAgent(agent);
+        void openAgent(agent);
       }}
     >
       <div className="flex flex-1 min-w-0 items-center gap-1.5">
@@ -119,19 +105,16 @@ export function AgentCardHeader({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="shrink-0">
-                <AgentTypeIcon
+                <AgentSeatBadge
+                  seat={null}
+                  name={agent.name}
                   type={agent.type}
-                  eventType={
-                    isTerminalAgent
-                      ? null
-                      : agent.status === "running"
-                        ? agent.latestEvent?.type
-                        : null
-                  }
+                  size="sm"
+                  data-testid={`agent-avatar-${agent.id}`}
                 />
               </span>
             </TooltipTrigger>
-            <TooltipContent>{agent.cwd}</TooltipContent>
+            <TooltipContent>{agent.workspacePath ?? agent.cwd}</TooltipContent>
           </Tooltip>
           <span
             data-testid={`agent-session-name-${agent.id}`}
@@ -162,7 +145,7 @@ export function AgentCardHeader({
               Ask agent to name session
               <br />
               <span className="text-muted-foreground">
-                Sends a prompt asking the agent to rename itself
+                Queues a name request in the agent's stream
               </span>
             </TooltipContent>
           </Tooltip>
@@ -206,16 +189,6 @@ export function AgentCardHeader({
         </Tooltip>
       ) : null}
 
-      {isAssistedUpdateAgent ? (
-        <Badge
-          className="border-blue-500/35 bg-blue-500/10 text-blue-400"
-          title="Agent-assisted Dispatch update"
-        >
-          <ArrowDownToLine className="mr-1 h-3 w-3" />
-          Update
-        </Badge>
-      ) : null}
-
       {isStopped && agent.status !== "archiving" ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -255,7 +228,7 @@ export function AgentCardHeader({
                 connectedAgentId &&
                 childAgents.some((c) => c.id === connectedAgentId)
               ) {
-                detachTerminal();
+                closeAgent();
               }
               toggleAgentDetails(agent.id);
             }}

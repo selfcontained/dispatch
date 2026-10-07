@@ -19,7 +19,7 @@ import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
-// Silence tmux side effects from AgentManager.
+// Silence shell side effects (git, hooks) from AgentManager.
 vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
@@ -80,13 +80,12 @@ const inertConfig = {
   port: 6767,
   databaseUrl: "",
   authToken: "test-token",
-  mediaRoot: "/tmp/dispatch-test-media",
+  filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp",
   codexBin: "echo",
   claudeBin: "echo",
   opencodeBin: "echo",
   agentRuntime: "inert",
-  sessionPrefix: "dispatch",
   tls: null,
 } satisfies import("../../src/config.js").AppConfig;
 
@@ -103,8 +102,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await pool.query("DELETE FROM media_seen");
-  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM files_seen");
+  await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
   cleanupGitWorktreeSpy.mockClear();
 });
@@ -244,27 +243,6 @@ describe("archive branch cleanup", () => {
     // Crucially: cleanupGitWorktree was NOT called, since the worktree was
     // never created in the first place.
     expect(cleanupGitWorktreeSpy).not.toHaveBeenCalled();
-  });
-
-  it("exposes markSetupFailed to surface tmux-side worktree failures (review #1160)", async () => {
-    const agent = await manager.createAgent({
-      cwd: "/tmp",
-      useWorktree: true,
-      createNewBranch: true,
-      worktreeBranch: "feat/auto",
-    });
-
-    await manager.markSetupFailed(
-      agent.id,
-      "git worktree add failed: branch 'feat/auto' is already checked out"
-    );
-
-    const row = await pool.query(
-      "SELECT status, last_error FROM agents WHERE id = $1",
-      [agent.id]
-    );
-    expect(row.rows[0].status).toBe("stopped");
-    expect(row.rows[0].last_error).toContain("git worktree add failed");
   });
 
   it("deletes the branch for legacy agents where baseBranch is unset (no confident way to tell otherwise)", async () => {

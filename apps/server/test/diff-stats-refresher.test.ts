@@ -544,4 +544,77 @@ describe("DiffStatsRefresher", () => {
       lastError: "Operation failed",
     });
   });
+
+  it("diffs a moved workspace against its recorded base", async () => {
+    const agents = setupAgents([
+      [
+        "a1",
+        {
+          worktreePath: "/tmp/wt",
+          cwd: "/tmp/wt",
+          baseBranch: "main",
+          workspacePath: "/repos/other",
+          workspaceBaseBranch: "develop",
+        },
+      ],
+    ]);
+    const compute = vi.fn(async () => null);
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: () => {},
+      computeDiffStats: compute,
+    });
+
+    await refresher.signal("a1");
+
+    expect(compute).toHaveBeenCalledWith("/repos/other", "develop");
+  });
+
+  it("discards a refresh the workspace moved out from under", async () => {
+    const agents = setupAgents([
+      ["a1", { worktreePath: "/tmp/a", cwd: null, baseBranch: "main" }],
+    ]);
+    const stats = (added: number): DiffStats => ({
+      added,
+      deleted: 0,
+      files: 1,
+      excludingTests: { added, deleted: 0, files: 1 },
+      computedAt: Date.now(),
+    });
+    const pending = new Map<string, (value: DiffStats) => void>();
+    const compute = vi.fn(
+      (path: string) =>
+        new Promise<DiffStats>((resolve) => pending.set(path, resolve))
+    );
+    const events: DiffStatsChangedEvent[] = [];
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: (event) => events.push(event),
+      computeDiffStats: compute,
+    });
+
+    const first = refresher.signal("a1");
+    await vi.waitFor(() => expect(pending.has("/tmp/a")).toBe(true));
+    // The workspace moves while the old directory is still being diffed.
+    agents.set("a1", {
+      worktreePath: "/tmp/a",
+      cwd: null,
+      baseBranch: "main",
+      workspacePath: "/tmp/b",
+      workspaceBaseBranch: "main",
+    });
+    refresher.clear("a1");
+    const second = refresher.signal("a1");
+    await vi.waitFor(() => expect(pending.has("/tmp/b")).toBe(true));
+
+    // The new directory finishes first; the old one lands late.
+    pending.get("/tmp/b")!(stats(2));
+    await second;
+    pending.get("/tmp/a")!(stats(99));
+    await first;
+
+    expect(refresher.getStats("a1")?.added).toBe(2);
+    expect(events.map((event) => event.diffStats?.added)).toEqual([2]);
+    expect(refresher.getMetrics().inFlight).toBe(0);
+  });
 });

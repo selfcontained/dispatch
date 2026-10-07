@@ -43,8 +43,7 @@ Keep the run's scope deliberately narrow. A small, correct PR every night beats 
 - Repo Tools
 - Worktrees
 - Reviewers (personas)
-- Status Events
-- Media & Sharing
+- Files & Sharing
 - Notifications
 
 For each section in scope, verify:
@@ -55,20 +54,6 @@ For each section in scope, verify:
 
 When the app's behavior has changed, update the JSX content in `docs-pane.tsx`. Keep the copy tight — match the existing tone.
 
-## Phase 2b: Check ambient tips for gaps
-
-Dispatch has a guided tips system that surfaces feature discovery hints in the UI. Tips are defined in `apps/web/src/lib/tips/tips.ts`. Each tip has an `id`, `title`, `body`, optional `docsSection` link, `since` version, and `surfaces` array.
-
-When your Phase 1 diff or deep-dive area touches a feature that has no corresponding ambient tip, consider whether adding one would genuinely help an end user discover or understand that feature. Not every feature needs a tip — only add one if:
-
-- The feature is non-obvious or easy to miss (e.g. a keyboard shortcut, a settings toggle, a capability that isn't surfaced in the main UI chrome).
-- A short sentence or two would meaningfully help someone who doesn't know the feature exists.
-- There isn't already a tip that covers the same ground.
-
-Do **not** add tips for internal implementation details, developer-facing APIs, or features that are self-evident from the UI. The bar is "would an end user benefit from being told about this?" — if the answer is marginal, skip it.
-
-When you do add a tip, follow the existing format in `tips.ts`. Set `since` to the current release version (check `package.json`). Use `surfaces: ["ambient"]` unless you're also wiring up an inline `TipSpot` placement (which is a separate code change). Keep the `body` concise — it renders in a small footer bar. Link `docsSection` to the matching in-app docs section if one exists.
-
 ## Phase 3: Audit secondary docs (only as needed)
 
 Only touch these if the Phase 1 diff points to them or they're explicitly in `next_focus`:
@@ -76,9 +61,8 @@ Only touch these if the Phase 1 diff points to them or they're explicitly in `ne
 - `README.md` — features list, setup commands, MCP tools summary, docs index, Quick Install prompt.
 - `CLAUDE.md` / `AGENTS.md` — project structure tree, scripts, paths. Keep these in sync with each other.
 - `docs/03-api-spec.md` — API endpoint reference (developer-facing, not duplicated in app).
-- `docs/04-agent-lifecycle.md` — state machine, tmux contract, reconciliation (developer-facing).
+- `docs/04-agent-lifecycle.md` — state machine, host contract, reconciliation (developer-facing).
 - `docs/10-operations-runbook.md` — service management, releases, diagnostics.
-- `docs/11-backend-compatibility-checklist.md` — dev checklist.
 - `docs/14-theming.md` — theme authoring guide.
 
 Do not rewrite docs for style. Fix factual drift only.
@@ -115,9 +99,9 @@ This phase is not done until **CI is green and the PR is merged**. Opening a PR 
 3. Verify any `docs/` links in `README.md` still resolve.
 4. Commit on a new branch. The PR should only contain code changes — Brain state is stored externally, not in git.
 5. Create a PR targeting `main` with a short body: what was audited, what changed, and what's deferred to next run.
-6. **Wait for CI.** Poll `get_pr_status` for this PR in a loop. Each check costs almost nothing; keep polling until the `ci` check's `status` leaves `IN_PROGRESS` and a `conclusion` appears. A typical CI run is 3-5 minutes — sleep ~60s between polls. Do not call `job_complete` while CI is still running.
+6. **Wait for CI.** Poll `gh pr checks <num>` for this PR in a loop. Each check costs almost nothing; keep polling until the `ci` check leaves pending and reports a conclusion. A typical CI run is 3-5 minutes — sleep ~60s between polls. Do not call `job_complete` while CI is still running.
 7. **Act on the CI result.**
-   - **`SUCCESS`** — merge the PR. Use the `create_pr` tool's companion merge path or shell out to `gh pr merge <num> --squash --delete-branch`. After merge, verify the PR's state is `MERGED` via `get_pr_status` before calling `job_complete`.
+   - **`SUCCESS`** — merge the PR with `gh pr merge <num> --squash --delete-branch`. After merge, verify the PR's state is `MERGED` (`gh pr view <num> --json state`) before calling `job_complete`.
    - **`FAILURE`** — read the failed job logs (`gh run view <id> --log-failed`). Classify the failure:
      - **Caused by your diff** (e.g. prettier drift you missed, broken markdown link, type error in a file you edited): fix it, push, and return to step 6. Stay in the loop — don't give up.
      - **Pre-existing flake or environmental problem** (failing tests in files you never touched; infra errors like a runner going offline; a known-flaky test that retries cleanly): first try `gh run rerun <id> --failed` and re-poll. If the retry also fails for the same unrelated reason, stop here and call `job_needs_input` with the run URL and a one-line summary of what failed. Do not merge a red PR. Do not silently abandon the PR either.

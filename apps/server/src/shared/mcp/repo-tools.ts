@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readFile, stat } from "node:fs/promises";
 
+import { repoCommandEnvironment } from "../lib/tool-environment.js";
 import { runCommand } from "../lib/run-command.js";
 
 const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
@@ -8,15 +9,7 @@ const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
 // Cache parsed hooks keyed by manifest path, invalidated by mtime.
 const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
 const REPO_TOOL_PREFIX = "repo_";
-const BUILTIN_TOOL_NAMES = new Set([
-  "create_pr",
-
-  "get_pr_status",
-  "dispatch_event",
-  "dispatch_share_file",
-  // Reserved alongside its replacement: still routed for older clients.
-  "dispatch_share",
-]);
+const BUILTIN_TOOL_NAMES = new Set(["post", "update", "react", "get_review"]);
 
 type RepoToolFile = {
   tools?: unknown;
@@ -109,9 +102,7 @@ export async function loadRepoTools(
 
         const result = await runCommand(command, args, {
           cwd: currentRepoRoot,
-          env: {
-            DISPATCH_AGENT_ID: agentId,
-          },
+          env: repoCommandEnvironment(agentId),
           // Allow all exit codes — the agent decides how to handle failures.
           // Throwing on non-zero hides useful diagnostic output (stderr, partial stdout).
           allowedExitCodes: Array.from({ length: 256 }, (_, i) => i),

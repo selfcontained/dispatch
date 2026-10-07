@@ -1,0 +1,569 @@
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
+// Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
+import {
+  type Dispatch,
+  memo,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { motion, useReducedMotion } from "framer-motion";
+import { ChevronDown, ChevronRight, Clock, Square, X } from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import { useTurnDetail } from "@/hooks/use-stream";
+
+import type { Step, Trace } from "./contracts";
+import { formatStepDuration } from "./format";
+import { arrive, burstIndex } from "./motion";
+import { activeStepLabel, runningTurnVerb } from "./registry";
+import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
+import { useStreamTicker } from "./use-stream-ticker";
+import { useChatRowState } from "../chat-row-state";
+import { turnTrace } from "./trace";
+
+/**
+ * The step list sits on the post's own background, no fill or frame of its
+ * own: a filled block read as a second post inside the post. Steps mask the
+ * guide line with the same color.
+ */
+const BLOCK_FILL = "bg-background";
+
+/**
+ * Whether a trace is worth a step list at all: a finished turn that ran no
+ * steps has nothing to show, so the block stays unmounted rather than
+ * rendering an empty fold.
+ */
+export function showsActivity(trace: Trace | null | undefined): trace is Trace {
+  if (!trace) return false;
+  return !(trace.endedAt != null && trace.steps.length === 0);
+}
+
+/** Narration being written right now opens so it can be read as it streams. */
+function openByDefault(step: Step): boolean {
+  return step.kind === "note" && step.status === "running";
+}
+
+/**
+ * One row of the step list, rendered again only when its own step changes:
+ * a turn's steps keep their identity across stream updates (see `turnStep`),
+ * so a step landing renders its row, not the whole list.
+ */
+const StepListRow = memo(function StepListRow({
+  step,
+  index,
+  open,
+  onToggle,
+}: {
+  step: Step;
+  index: number;
+  open: boolean;
+  onToggle: (step: Step) => void;
+}): JSX.Element {
+  return (
+    <StepRow
+      step={step}
+      index={index}
+      open={open}
+      onToggle={() => onToggle(step)}
+      maskClass={BLOCK_FILL}
+    />
+  );
+});
+
+function ActivityBlockImpl({
+  trace,
+  label,
+  details,
+}: {
+  trace: Trace;
+  /** Verb for the summary row, derived from the steps; "done" by default. */
+  label?: string;
+  /** A settled turn whose large edit diffs were omitted from the feed. */
+  details?: { rootId: string; blockId: string };
+}): JSX.Element {
+  const [blockOverride, setBlockOverride] = useChatRowState<boolean | null>(
+    "activity-open",
+    null
+  );
+  // One line, closed, at every moment of the turn: the step list under it is
+  // the reader's to open. Three agents working must not mean three lists
+  // unfolding and refolding in the column.
+  const open = blockOverride ?? false;
+  const reduced = useReducedMotion();
+  // A closed fold has no rows: every stream update re-renders the whole
+  // trace, so rows nobody can see would cost a render per step per update.
+  // They mount as it opens and go once it has finished folding shut.
+  const [listMounted, setListMounted] = useState(open);
+  if (open && !listMounted) setListMounted(true);
+  // Held here, not in the list: the list unmounts while the fold is shut,
+  // and a step whose detail you opened must still be open when it returns.
+  const [stepOverrides, setStepOverrides] = useChatRowState<
+    Record<string, boolean>
+  >("activity-steps", {});
+
+  // One container for the whole turn: the summary line is there from the
+  // first tick ("thinking") to the last ("ran 2 commands · 4 steps · 9s"),
+  // and the step list is a disclosure under it. Nothing swaps out.
+  return (
+    <div
+      className="w-full min-w-0 max-w-full [overflow-wrap:anywhere]"
+      data-testid="harness-activity-fold"
+    >
+      <div
+        className="w-full min-w-0 max-w-full"
+        data-testid="harness-activity"
+        data-open={open ? "true" : "false"}
+        data-final-result={trace.finalResult}
+      >
+        <SummaryRow
+          trace={trace}
+          label={label}
+          open={open}
+          onToggle={() => setBlockOverride(!open)}
+        />
+        <motion.div
+          initial={false}
+          animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+          transition={reduced ? { duration: 0 } : arrive()}
+          style={{ overflow: "hidden" }}
+          aria-hidden={!open}
+          onAnimationComplete={() => {
+            if (!open) setListMounted(false);
+          }}
+        >
+          {/* A closed fold renders no rows: see listMounted above. The
+              workspace block renders the same list on its own, always open. */}
+          {listMounted ? (
+            details ? (
+              <FullTraceStepList
+                rootId={details.rootId}
+                blockId={details.blockId}
+                compactTrace={trace}
+                disclosures={[stepOverrides, setStepOverrides]}
+              />
+            ) : (
+              <StepList
+                trace={trace}
+                disclosures={[stepOverrides, setStepOverrides]}
+                freshness
+              />
+            )
+          ) : null}
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+export const ActivityBlock = memo(ActivityBlockImpl);
+
+/** Fetch one full turn only after its compact activity is opened. */
+function FullTraceStepList({
+  rootId,
+  blockId,
+  compactTrace,
+  disclosures,
+}: {
+  rootId: string;
+  blockId: string;
+  compactTrace: Trace;
+  disclosures: [
+    Record<string, boolean>,
+    Dispatch<SetStateAction<Record<string, boolean>>>,
+  ];
+}): JSX.Element {
+  const { turn: fullTurn, isLoading, error } = useTurnDetail(rootId, blockId);
+  const trace = useMemo(
+    () => (fullTurn ? turnTrace(fullTurn) : null),
+    [fullTurn]
+  );
+  if (trace) return <StepList trace={trace} disclosures={disclosures} />;
+  return (
+    <>
+      <div className="py-2 text-xs text-muted-foreground" role="status">
+        {error
+          ? "Some details could not load. Close and reopen to try again."
+          : isLoading
+            ? "Loading full activity details…"
+            : "Some activity details are unavailable."}
+      </div>
+      <StepList trace={compactTrace} disclosures={disclosures} />
+    </>
+  );
+}
+
+/**
+ * The steps themselves: a 1px guide line at left:5.5px, with one row per
+ * step. What a turn folds under its summary line, and on its own what a
+ * workspace coming up shows — a few steps, each saying what it is, have no
+ * need of a line above them repeating the one that is running.
+ */
+export function StepList({
+  trace,
+  disclosures,
+  freshness = false,
+}: {
+  trace: Trace;
+  /** Head the list with how long a running turn has gone without output. */
+  freshness?: boolean;
+  /**
+   * Which steps are open, owned by something that outlives the list. A
+   * turn's list unmounts while its fold is closed, so its caller holds this;
+   * standalone (a workspace's steps) the list keeps its own.
+   */
+  disclosures?: [
+    Record<string, boolean>,
+    Dispatch<SetStateAction<Record<string, boolean>>>,
+  ];
+}): JSX.Element {
+  const own = useChatRowState<Record<string, boolean>>("activity-steps", {});
+  const [stepOverrides, setStepOverrides] = disclosures ?? own;
+  // Stream updates must not open and close details underneath the reader.
+  // Narration being written right now is the exception: it opens so it can
+  // be read as it streams, and folds like any note once it is finished.
+  const stepOpen = (step: Step): boolean =>
+    stepOverrides[step.id] ?? openByDefault(step);
+  // Stable across renders, so a row whose step did not change does not
+  // re-render on every stream update: the rows are memoised on their props.
+  const toggleStep = useCallback(
+    (step: Step) =>
+      setStepOverrides((prev) => ({
+        ...prev,
+        [step.id]: !(prev[step.id] ?? openByDefault(step)),
+      })),
+    [setStepOverrides]
+  );
+  return (
+    <div className="relative pb-1">
+      <span
+        aria-hidden="true"
+        className="absolute bottom-2 left-[5.5px] top-1 w-px bg-border"
+      />
+      <div role="list" aria-label="activity steps" className="relative">
+        {trace.steps.map((step, i) => (
+          <StepListRow
+            key={step.id}
+            step={step}
+            index={burstIndex(trace.steps, i)}
+            open={stepOpen(step)}
+            onToggle={toggleStep}
+          />
+        ))}
+        {showsThinking(trace) ? (
+          <ThinkingRow
+            since={trace.steps.reduce(
+              (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
+              trace.startedAt
+            )}
+            maskClass={BLOCK_FILL}
+          />
+        ) : null}
+      </div>
+      {/* Not a step, so outside the list: its count matches the summary's. */}
+      {freshness ? (
+        <ProgressFreshness trace={trace} maskClass={BLOCK_FILL} />
+      ) : null}
+    </div>
+  );
+}
+
+/** Nothing is running and nothing is being prepared: the model is between steps. */
+function showsThinking(trace: Trace): boolean {
+  return (
+    trace.endedAt == null &&
+    trace.steps.length > 0 &&
+    !activeStepLabel(trace.steps) &&
+    !runningTurnVerb(trace.steps, undefined, trace.lastProgressAt).startsWith(
+      "preparing "
+    )
+  );
+}
+
+/** What the summary row says of a turn at one moment. */
+export type TurnSummary = {
+  /** "thinking", "working", the verb from the steps, "done", "failed", "interrupted". */
+  verb: string;
+  /** "3 steps". */
+  steps: string;
+  /** Elapsed so far, or the turn's length once it ended. */
+  ms: number;
+  done: boolean;
+  /** Running with nothing to show yet. */
+  thinking: boolean;
+  failed: boolean;
+  interrupted: boolean;
+};
+
+/**
+ * The turn's work in a few words: the same reading whether the row is the
+ * fold's own summary or a child's turn folded in its parent's feed.
+ */
+export function turnSummary(
+  trace: Trace,
+  label?: string,
+  now: number = Date.now()
+): TurnSummary {
+  const done = trace.endedAt != null;
+  const thinking = !done && trace.steps.length === 0;
+  const failed = trace.finalResult === "error";
+  const interrupted = trace.finalResult === "interrupted";
+  const verb = done
+    ? failed
+      ? "failed"
+      : interrupted
+        ? "interrupted"
+        : (label ?? "done")
+    : thinking
+      ? "thinking"
+      : (label ?? "working");
+  const stepCount = trace.steps.length;
+  return {
+    verb,
+    steps: `${stepCount} step${stepCount === 1 ? "" : "s"}`,
+    ms: (trace.endedAt ?? now) - trace.startedAt,
+    done,
+    thinking,
+    failed,
+    interrupted,
+  };
+}
+
+/** The same braille spinner a running step shows in the step list, on the shared tick. */
+function RunningGlyph(): JSX.Element {
+  const { braille } = useStreamTicker(true);
+  return (
+    <span
+      className="text-[12px] leading-none text-status-working"
+      data-testid="harness-turn-live"
+      aria-hidden="true"
+    >
+      {braille}
+    </span>
+  );
+}
+
+/**
+ * The glyph for a turn's state: the step list's own spinner while it runs,
+ * nothing once it is done, a cross when it failed, a stop square when it
+ * was interrupted.
+ */
+export function TurnGlyph({
+  summary,
+}: {
+  summary: Pick<TurnSummary, "done" | "failed" | "interrupted">;
+}): JSX.Element | null {
+  if (!summary.done) return <RunningGlyph />;
+  if (summary.failed) {
+    return <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />;
+  }
+  if (summary.interrupted) {
+    return <Square className="h-2.5 w-2.5 fill-current text-status-waiting" />;
+  }
+  return null;
+}
+
+/**
+ * The one line that describes the turn's work at every moment, laid out so
+ * nothing shifts as it changes: a glyph slot (a slow-pulsing dot while the
+ * turn runs, a cross or a stop square after a failure or interruption, no
+ * slot at all once it is done), the current step or the verb (flexible,
+ * truncated, cross-fading in place), the count and time right-aligned in
+ * tabular figures, then the chevron.
+ */
+function SummaryRow({
+  trace,
+  label,
+  open,
+  onToggle,
+}: {
+  trace: Trace;
+  label?: string;
+  open: boolean;
+  onToggle: () => void;
+}): JSX.Element {
+  const done = trace.endedAt != null;
+  // Re-render on the shared tick while the turn runs, so the time counts
+  // between stream events rather than only when one lands.
+  useStreamTicker(!done);
+  const summary = turnSummary(trace, label);
+  const { steps, ms, thinking } = summary;
+  const verb = done
+    ? summary.verb
+    : runningTurnVerb(trace.steps, label, trace.lastProgressAt);
+  const slot = !done || summary.failed || summary.interrupted;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)} total, ${open ? "collapse" : "expand"} activity`}
+      data-testid="harness-activity-summary"
+      data-final-result={trace.finalResult}
+      className={cn(
+        "grid w-full min-w-0 items-center gap-2 rounded-md py-0.5 pl-0 pr-1 text-left text-muted-foreground",
+        slot
+          ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
+          : "grid-cols-[minmax(0,1fr)_auto_auto]",
+        "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
+      )}
+    >
+      {slot ? (
+        <span
+          className="flex w-3 shrink-0 items-center justify-center leading-none"
+          aria-hidden="true"
+        >
+          <TurnGlyph summary={summary} />
+        </span>
+      ) : null}
+      <span className="relative min-w-0 overflow-hidden text-[11.5px]">
+        {/* A new step name fades in over the old one's place: a keyed CSS
+            fade, no layout animation, so the timer ticking around it never
+            re-measures anything. */}
+        <span
+          key={verb}
+          className={cn(
+            "block truncate animate-chat-enter motion-reduce:animate-none",
+            !done && "text-status-working"
+          )}
+          title={verb}
+        >
+          {verb}
+        </span>
+      </span>
+      <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+        {thinking ? "" : `${steps} · `}
+        {formatStepDuration(ms)} total
+      </span>
+      <span
+        aria-hidden="true"
+        className="shrink-0 text-[9px] text-muted-foreground/70"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
+        )}
+      </span>
+    </button>
+  );
+}
+
+/** How long the step list waits with nothing running before it says "thinking". */
+const THINKING_DELAY_MS = 500;
+
+/**
+ * The model is between steps: reading a result, reasoning, or composing.
+ * Nothing in the stream is open, so without this the list's last row sits
+ * finished and the turn looks stalled. Timed from the last thing that ended.
+ */
+function ThinkingRow({
+  since,
+  maskClass,
+}: {
+  since: number;
+  maskClass: string;
+}): JSX.Element | null {
+  // Back-to-back tool calls leave a few dozen milliseconds between steps;
+  // showing the row for those makes the list flicker. Only a real pause
+  // earns it.
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    setShown(false);
+    const timer = setTimeout(() => setShown(true), THINKING_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [since]);
+  if (!shown) return null;
+  return (
+    <div
+      className="flex items-center gap-[9px] py-1"
+      role="listitem"
+      aria-label="thinking, running"
+      data-testid="harness-thinking-row"
+    >
+      <StatusGlyph status="running" maskClass={maskClass} />
+      <span className="shrink-0 text-[12px] font-medium text-status-working">
+        thinking
+      </span>
+      <LiveDuration startedAt={since} />
+      <span aria-hidden="true" className="invisible w-2 shrink-0 text-[9px]">
+        <ChevronRight className="h-3 w-3" />
+      </span>
+    </div>
+  );
+}
+
+/** How long output can pause before the summary says when it last arrived. */
+const FRESHNESS_DELAY_MS = 10_000;
+
+/** Slack between a step starting and the progress that start recorded. */
+const SAME_MOMENT_MS = 250;
+
+/**
+ * A quiet clock never claims a stalled operation succeeded or was cancelled.
+ * Undefined while output is still arriving (an age that keeps resetting says
+ * nothing) and whenever another row already times the same silence: a running
+ * step that has printed nothing since it started, or the thinking row.
+ */
+export function progressFreshness(
+  trace: Trace,
+  now = Date.now()
+): string | undefined {
+  const elapsed = Math.max(0, now - (trace.lastProgressAt ?? trace.startedAt));
+  if (elapsed < FRESHNESS_DELAY_MS) return undefined;
+  if (showsThinking(trace)) return undefined;
+  const last = trace.lastProgressAt;
+  if (
+    last !== undefined &&
+    trace.steps.some(
+      (s) => s.status === "running" && s.startedAt >= last - SAME_MOMENT_MS
+    )
+  ) {
+    return undefined;
+  }
+  const age = formatStepDuration(elapsed);
+  const quiet = elapsed >= 30_000 ? "quiet · " : "";
+  return trace.lastProgressAt === undefined
+    ? `${quiet}no output yet · ${age}`
+    : `${quiet}updated ${age} ago`;
+}
+
+/**
+ * How long a running turn has gone without output, at the foot of its open
+ * step list beside the work it describes. Kept off the summary line, where a
+ * second clock ticking beside the turn total read as noise.
+ */
+function ProgressFreshness({
+  trace,
+  maskClass,
+}: {
+  trace: Trace;
+  maskClass: string;
+}): JSX.Element | null {
+  const running = trace.endedAt == null;
+  useStreamTicker(running);
+  const freshness = running ? progressFreshness(trace) : undefined;
+  if (!freshness) return null;
+  return (
+    <div
+      className="flex items-center gap-2 py-1.5"
+      data-testid="harness-progress-freshness"
+    >
+      <span
+        className={cn(
+          "z-10 flex w-3 shrink-0 items-center justify-center text-muted-foreground",
+          maskClass
+        )}
+        aria-hidden="true"
+      >
+        <Clock className="h-3 w-3" />
+      </span>
+      <span className="min-w-0 truncate text-[11px] leading-5 tabular-nums text-muted-foreground">
+        <span className="sr-only">Activity: </span>
+        {freshness}
+      </span>
+    </div>
+  );
+}

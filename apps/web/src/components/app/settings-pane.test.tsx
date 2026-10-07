@@ -34,6 +34,10 @@ const { stubModule, lastProps, clearProps } = vi.hoisted(() => {
 });
 
 vi.mock(
+  "@/components/app/user-avatar/user-avatar-settings",
+  stubModule("UserAvatarSettings")
+);
+vi.mock(
   "@/components/app/agent-type-settings",
   stubModule("AgentTypeSettings")
 );
@@ -44,22 +48,6 @@ vi.mock(
 vi.mock(
   "@/components/app/browser-extension-settings",
   stubModule("BrowserExtensionSettings")
-);
-vi.mock(
-  "@/components/app/chat-surface-settings",
-  stubModule("ChatSurfaceSettings")
-);
-vi.mock(
-  "@/components/app/cross-repo-messaging-settings",
-  stubModule("CrossRepoMessagingSettings")
-);
-vi.mock(
-  "@/components/app/injection-hold-settings",
-  stubModule("InjectionHoldSettings")
-);
-vi.mock(
-  "@/components/app/launch-guidance-settings",
-  stubModule("LaunchGuidanceSettings")
 );
 vi.mock(
   "@/components/app/plugin-update-settings",
@@ -273,26 +261,15 @@ describe("SettingsContent", () => {
   it.each([
     [
       "general",
-      ["InstanceNameSettings", "AppearanceSettings", "SecuritySettings"],
+      ["InstanceNameSettings", "UserAvatarSettings", "AppearanceSettings"],
     ],
-    [
-      "agents",
-      [
-        "PersonalitySettings",
-        "AgentTypeSettings",
-        "IdeSettings",
-        "LaunchGuidanceSettings",
-        "PluginUpdateSettings",
-        "InjectionHoldSettings",
-        "CrossRepoMessagingSettings",
-        "ChatSurfaceSettings",
-        "WorktreeLocationSettings",
-      ],
-    ],
+    ["agents", ["AgentTypeSettings", "PersonalitySettings"]],
+    ["workspace", ["IdeSettings", "WorktreeLocationSettings"]],
+    ["security", ["SecuritySettings"]],
     ["notifications", ["NotificationSettings"]],
     ["connections", ["BrowserExtensionSettings"]],
     ["resources", ["ServiceResourcesSettings"]],
-    ["updates", ["UpdatesSection"]],
+    ["updates", ["UpdatesSection", "PluginUpdateSettings"]],
     ["help", ["DocsContent"]],
   ] as Array<[SettingsSection, string[]]>)(
     "routes the %s section to its own panels, in order",
@@ -310,7 +287,7 @@ describe("SettingsContent", () => {
   });
 
   it("hands the logout action to the security panel, not the appearance one", () => {
-    const { props } = renderContent({ activeSection: "general" });
+    const { props } = renderContent({ activeSection: "security" });
 
     (lastProps("SecuritySettings")!.onLogout as () => void)();
 
@@ -336,11 +313,12 @@ describe("SettingsContent", () => {
   });
 
   it("hands each enablement list to the panel that owns it", () => {
-    const { props } = renderContent({ activeSection: "agents" });
+    const { props, rerender } = renderContent({ activeSection: "agents" });
 
     expect(lastProps("AgentTypeSettings")!.enabledAgentTypes).toEqual([
       "claude",
     ]);
+    rerender(<SettingsContent {...props} activeSection="workspace" />);
     expect(lastProps("IdeSettings")!.enabledIdes).toEqual(["vscode"]);
 
     // Each panel's edits have to reach its own setter. Both round trips are
@@ -385,7 +363,10 @@ describe("SettingsContent", () => {
 
     // The same object, not merely an equal one: a stream rebuilt on the way
     // back would have dropped an in-flight update's restart poll.
-    expect(renderedPanels()).toEqual(["UpdatesSection"]);
+    expect(renderedPanels()).toEqual([
+      "UpdatesSection",
+      "PluginUpdateSettings",
+    ]);
     expect(lastProps("UpdatesSection")!.stream).toBe(opened);
   });
 

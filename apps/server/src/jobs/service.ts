@@ -34,6 +34,7 @@ import {
   type TemplateRecord,
 } from "../templates/store.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
+import { assertAccessCeiling } from "../shared/access-ceiling.js";
 import {
   getNextRun,
   validateCronExpression,
@@ -43,6 +44,8 @@ import {
 export type JobRunCallback = (run: JobRunRecord) => void;
 
 type RunJobInput = {
+  /** Agent callers must pass their access flag; omitted for trusted triggers. */
+  callerFullAccess?: boolean;
   name: string;
   directory: string;
   wait?: boolean;
@@ -145,6 +148,7 @@ export class JobService {
       ? await this.templateStore.getTemplate(job.templateId)
       : null;
     const agentConfig = template ?? job;
+    assertAccessCeiling(agentConfig.fullAccess, input.callerFullAccess);
     const agentType = agentConfig.agentType as JobAgentType;
 
     const rawPrompt = agentConfig.prompt;
@@ -187,21 +191,29 @@ export class JobService {
     const prompt = buildJobPrompt(jobLikeForPrompt, run);
 
     try {
-      const agent = await this.agentManager.createAgent({
-        name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
-        type: agentType,
-        model: agentConfig.model ?? undefined,
-        cwd: job.directory,
-        agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
-        // The CLI receives generated job-run scaffolding through agentArgs;
-        // Chat shows only the user-authored job prompt.
-        launchContext: { prompt: resolvedPrompt },
-        fullAccess: agentConfig.fullAccess,
-        ...templateWorktreeConfig(agentConfig),
-        jobRunId: run.id,
-      });
-      run = await this.store.attachAgent(run.id, agent.id);
-      this.emitRunStateChange(run);
+      const agent = await this.agentManager.createAgent(
+        {
+          name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
+          type: agentType,
+          model: agentConfig.model ?? undefined,
+          cwd: job.directory,
+          agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
+          // The CLI receives generated job-run scaffolding through agentArgs;
+          // Chat shows only the user-authored job prompt.
+          launchContext: { prompt: resolvedPrompt },
+          fullAccess: agentConfig.fullAccess,
+          ...templateWorktreeConfig(agentConfig),
+          jobRunId: run.id,
+        },
+        {
+          beforeLaunch: async (agentId) => {
+            run = await this.store.attachAgent(run.id, agentId);
+            this.emitRunStateChange(run);
+          },
+        }
+      );
+      // A fast first turn can already have completed the run.
+      run = (await this.store.getRun(run.id))!;
       this.startMonitor(run.id);
       if (input.wait !== false) {
         run = await this.waitForTerminal(run.id);
@@ -454,23 +466,30 @@ export class JobService {
       },
       run
     );
-    const agent = await this.agentManager.createAgent({
-      name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
-      type: agentConfig.agentType as JobAgentType,
-      model: agentConfig.model ?? undefined,
-      cwd: job.directory,
-      agentArgs: buildAgentArgs(
-        agentConfig.agentType as JobAgentType,
-        prompt,
-        agentConfig.fullAccess
-      ),
-      launchContext: { prompt: resolvedPrompt },
-      fullAccess: agentConfig.fullAccess,
-      ...templateWorktreeConfig(agentConfig),
-      jobRunId: run.id,
-    });
-    const attached = await this.store.attachAgent(run.id, agent.id);
-    this.emitRunStateChange(attached);
+    const agent = await this.agentManager.createAgent(
+      {
+        name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
+        type: agentConfig.agentType as JobAgentType,
+        model: agentConfig.model ?? undefined,
+        cwd: job.directory,
+        agentArgs: buildAgentArgs(
+          agentConfig.agentType as JobAgentType,
+          prompt,
+          agentConfig.fullAccess
+        ),
+        launchContext: { prompt: resolvedPrompt },
+        fullAccess: agentConfig.fullAccess,
+        ...templateWorktreeConfig(agentConfig),
+        jobRunId: run.id,
+      },
+      {
+        beforeLaunch: async (agentId) => {
+          const attached = await this.store.attachAgent(run.id, agentId);
+          this.emitRunStateChange(attached);
+        },
+      }
+    );
+    const attached = (await this.store.getRun(run.id))!;
     this.startMonitor(attached.id);
     const terminal = wait ? await this.waitForTerminal(attached.id) : attached;
     return {
@@ -582,7 +601,11 @@ export class JobService {
     return await this.store.logForAgent(agentId, input);
   }
 
-  async addJob(input: AddJobInput): Promise<JobRecord> {
+  async addJob(
+    input: AddJobInput,
+    callerFullAccess?: boolean
+  ): Promise<JobRecord> {
+    assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const displayName = input.displayName?.trim() || input.name;
     const schedule = input.schedule === "" ? null : (input.schedule ?? null);
     assertScheduleValid({
@@ -603,7 +626,7 @@ export class JobService {
       prompt: input.prompt ?? null,
       ...agentConfig,
       callable: false,
-      allowMedia: false,
+      allowFiles: false,
       selfImprove: input.selfImprove ?? false,
     });
 
@@ -660,8 +683,24 @@ export class JobService {
     return job;
   }
 
-  async updateJob(input: AddJobInput): Promise<JobRecord> {
+  async updateJob(
+    input: AddJobInput,
+    callerFullAccess?: boolean
+  ): Promise<JobRecord> {
     const existing = await this.getJobOrThrow(input.directory, input.name);
+    // Editing a prompt or enabling a schedule can also cause privileged work.
+    // Check both stored flags: a missing template falls back to the job row.
+    if (callerFullAccess === false) {
+      const template = existing.templateId
+        ? await this.templateStore.getTemplate(existing.templateId)
+        : null;
+      assertAccessCeiling(
+        existing.fullAccess ||
+          template?.fullAccess === true ||
+          input.fullAccess === true,
+        callerFullAccess
+      );
+    }
 
     const schedule = input.schedule === "" ? null : input.schedule;
     const nextSchedule =
@@ -1120,18 +1159,14 @@ export class JobService {
     return current;
   }
 
+  /**
+   * The host reports its own exit, so the agent's status is the whole
+   * signal: a run whose agent is stopped or in error will never report.
+   */
   private async agentSessionCrashed(agentId: string): Promise<boolean> {
     const agent = await this.agentManager.getAgent(agentId);
     if (!agent) return true;
-    if (agent.status === "error" || agent.status === "stopped") return true;
-    if (this.config.agentRuntime === "inert") return false;
-    if (!agent.tmuxSession) return false;
-    const tmux = await runCommand(
-      "tmux",
-      ["has-session", "-t", agent.tmuxSession],
-      { allowedExitCodes: [0, 1] }
-    );
-    return tmux.exitCode !== 0;
+    return agent.status === "error" || agent.status === "stopped";
   }
 
   private async markTimedOut(
@@ -1212,20 +1247,6 @@ export class JobService {
       sections.push(
         `Setup log tail:\n${setupLog.trim().split("\n").slice(-20).join("\n")}`
       );
-    }
-
-    const agent = await this.agentManager.getAgent(agentId);
-    if (agent?.tmuxSession) {
-      const pane = await runCommand(
-        "tmux",
-        ["capture-pane", "-pt", agent.tmuxSession],
-        { allowedExitCodes: [0, 1] }
-      );
-      if (pane.exitCode === 0 && pane.stdout.trim()) {
-        sections.push(
-          `Terminal pane tail:\n${pane.stdout.trim().split("\n").slice(-40).join("\n")}`
-        );
-      }
     }
 
     return sections.join("\n\n");

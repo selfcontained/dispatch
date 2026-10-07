@@ -93,7 +93,6 @@ describe("GET /api/v1/system/resources", () => {
         "api-server",
         "database",
         "agent-reconciliation",
-        "activity-monitor",
         "git-diff-refreshes",
       ])
     );
@@ -726,107 +725,6 @@ describe("POST /api/v1/app/settings/ides", () => {
   });
 });
 
-describe("GET /api/v1/app/settings/cross-repo-messaging", () => {
-  it("returns enabled status (defaults to false)", async () => {
-    const res = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ enabled: false });
-  });
-
-  it("reflects updated state after POST", async () => {
-    await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: { enabled: true },
-    });
-    const res = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ enabled: true });
-  });
-});
-
-describe("POST /api/v1/app/settings/cross-repo-messaging", () => {
-  it("enables cross-repo messaging", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: { enabled: true },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ enabled: true });
-  });
-
-  it("disables cross-repo messaging", async () => {
-    await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: { enabled: true },
-    });
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: { enabled: false },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ enabled: false });
-  });
-
-  it("rejects non-boolean enabled", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: { enabled: "yes" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/enabled must be a boolean/);
-  });
-
-  it("rejects missing enabled field", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: {},
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/enabled must be a boolean/);
-  });
-
-  it("rejects null body", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: null,
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("rejects numeric enabled", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/app/settings/cross-repo-messaging",
-      headers: { cookie: sessionCookie },
-      payload: { enabled: 1 },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/enabled must be a boolean/);
-  });
-});
-
 describe("POST /api/v1/energy-report", () => {
   it("accepts any body and returns 204", async () => {
     const res = await ctx.app.inject({
@@ -836,5 +734,55 @@ describe("POST /api/v1/energy-report", () => {
       payload: { cpu: 42, memory: 100 },
     });
     expect(res.statusCode).toBe(204);
+  });
+});
+
+describe("user avatar settings", () => {
+  const url = "/api/v1/app/settings/user-avatar";
+  it("persists presets, rejects invalid updates and allows resetting", async () => {
+    const headers = { cookie: sessionCookie };
+    const avatar = { kind: "builtin", id: "cat" };
+    expect(
+      (
+        await ctx.app.inject({
+          method: "PUT",
+          url,
+          headers,
+          payload: { avatar },
+        })
+      ).statusCode
+    ).toBe(200);
+    expect(
+      (await ctx.app.inject({ method: "GET", url, headers })).json()
+    ).toEqual({ avatar });
+    for (const invalid of [
+      { kind: "builtin", id: "unknown" },
+      { kind: "image", dataUrl: "https://example.com/photo.png" },
+      null,
+    ]) {
+      expect(
+        (
+          await ctx.app.inject({
+            method: "PUT",
+            url,
+            headers,
+            payload: { avatar: invalid },
+          })
+        ).statusCode
+      ).toBe(400);
+    }
+    expect(
+      (await ctx.app.inject({ method: "GET", url, headers })).json()
+    ).toEqual({ avatar });
+    expect(
+      (
+        await ctx.app.inject({
+          method: "PUT",
+          url,
+          headers,
+          payload: { avatar: { kind: "builtin", id: "person" } },
+        })
+      ).statusCode
+    ).toBe(200);
   });
 });

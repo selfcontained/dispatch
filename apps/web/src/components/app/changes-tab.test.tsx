@@ -14,8 +14,17 @@ import { Provider, createStore } from "jotai";
 import { MemoryRouter, useLocation, useNavigationType } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { StreamFeedResponse } from "@dispatch/shared";
+
+import type { Agent } from "@/components/app/types";
+import type { DiffFindingsProps } from "@/components/app/diff-review-annotation-props";
+import {
+  blockEntry,
+  findingBlock,
+  launchBlock,
+  reviewBlock,
+} from "@/test-utils/blocks";
 import type { DiffFile, FileDiffResponse } from "@/hooks/use-agent-diff";
-import type { ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
 import {
   diffFileTreeOpenAtom,
   diffHideTestFilesAtom,
@@ -51,6 +60,12 @@ vi.mock("framer-motion", async (importOriginal) => {
   return createFramerMotionMock(importOriginal);
 });
 
+// The persona launcher is its own component with its own suite; here it is
+// only a button in the toolbar.
+vi.mock("@/components/app/persona-launcher", () => ({
+  PersonaLauncher: () => null,
+}));
+
 vi.mock("@/components/app/unified-diff-view", async () => {
   const React = await import("react");
   const { computeNewLineNumber, getChangeKey, parseDiff } =
@@ -62,7 +77,6 @@ vi.mock("@/components/app/unified-diff-view", async () => {
       diffViewProps.set(filePath, props);
 
       const drafts = (props.draftComments ?? []) as { id: string }[];
-      const feedback = (props.feedbackItems ?? []) as { id: number }[];
       const selection = props.lineSelection as {
         filePath: string;
         startLine: number;
@@ -81,8 +95,6 @@ vi.mock("@/components/app/unified-diff-view", async () => {
           "data-review-mode": String(props.reviewMode ?? false),
           "data-comment-open": String(props.commentOpen),
           "data-drafts": drafts.map((d) => d.id).join(","),
-          "data-feedback": feedback.map((f) => f.id).join(","),
-          "data-focused-feedback": String(props.focusedFeedbackItemId ?? ""),
           "data-selection": selection
             ? `${selection.filePath}:${selection.startLine}`
             : "",
@@ -151,26 +163,6 @@ function diffFile(path: string, overrides: Partial<DiffFile> = {}): DiffFile {
   };
 }
 
-function feedbackItem(id: number, filePath: string): ReviewFeedbackItem {
-  return {
-    id,
-    reviewId: 1,
-    filePath,
-    lineStart: 2,
-    lineEnd: 3,
-    diffSnapshot: null,
-    baseRef: null,
-    status: "open",
-    resolution: null,
-    resolutionNote: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    messages: [],
-  };
-}
-
 type ScrollCall = { element: Element; options: unknown };
 let scrollCalls: ScrollCall[] = [];
 
@@ -189,27 +181,33 @@ function LocationProbe(): JSX.Element {
 function renderTab(
   options: {
     files?: DiffFile[];
-    feedbackItems?: ReviewFeedbackItem[];
     fileDiff?: FileDiffResponse | Promise<FileDiffResponse>;
     route?: string;
     isMobile?: boolean;
     active?: boolean;
     store?: ReturnType<typeof createStore>;
+    /** The agent's stream, where the reviews of its work are. */
+    feed?: StreamFeedResponse;
   } = {}
 ) {
   const {
     files = [diffFile("src/app.ts")],
-    feedbackItems = [],
     fileDiff,
     route = "/",
     isMobile,
     active = true,
     store = createStore(),
+    feed,
   } = options;
 
-  apiMock.mockImplementation((async (path: string) => {
-    if (path.includes("/reviews/feedback-items"))
-      return { items: feedbackItems };
+  apiMock.mockImplementation((async (path: string, init?: RequestInit) => {
+    if (path === "/api/v1/agents") return { agents: [] };
+    if (feed && path.startsWith(`/api/v1/streams/${AGENT_ID}/blocks?`)) {
+      return feed;
+    }
+    if (feed && init?.method === "PATCH") {
+      return { block: null };
+    }
     if (path.includes("/diff/file")) return await fileDiff;
     if (path.includes("/diff?")) return { baseRef: "main", files };
     throw new Error(`unexpected request: ${path}`);
@@ -218,7 +216,7 @@ function renderTab(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const onReviewSubmitted = vi.fn();
+  const onReviewPosted = vi.fn();
 
   const tree = (agentId: string) => (
     <QueryClientProvider client={queryClient}>
@@ -227,9 +225,11 @@ function renderTab(
           <LocationProbe />
           <ChangesTab
             agentId={agentId}
+            agent={{ id: agentId, status: "running" } as Agent}
+            enabledAgentTypes={["claude"]}
             active={active}
             isMobile={isMobile}
-            onReviewSubmitted={onReviewSubmitted}
+            onReviewPosted={onReviewPosted}
           />
         </MemoryRouter>
       </Provider>
@@ -241,7 +241,7 @@ function renderTab(
   return {
     ...view,
     store,
-    onReviewSubmitted,
+    onReviewPosted,
     // The tab is reused across agents rather than remounted per agent, which
     // is what makes the pending-scroll handoff below worth pinning.
     switchAgent: (agentId: string) => view.rerender(tree(agentId)),
@@ -320,13 +320,9 @@ describe("ChangesTab", () => {
     expect(screen.queryByText("Loading changes…")).toBeNull();
   });
 
-  it("sorts files by path and gives each one only its own drafts and feedback", async () => {
+  it("sorts files by path", async () => {
     renderTab({
       files: [diffFile("src/z.ts"), diffFile("src/a.ts")],
-      feedbackItems: [
-        feedbackItem(11, "src/a.ts"),
-        feedbackItem(12, "nope.ts"),
-      ],
     });
 
     await waitForFile("src/a.ts");
@@ -338,13 +334,6 @@ describe("ChangesTab", () => {
       "changes-file-section:src/a.ts",
       "changes-file-section:src/z.ts",
     ]);
-
-    expect(
-      screen.getByTestId("diff-view:src/a.ts").getAttribute("data-feedback")
-    ).toBe("11");
-    expect(
-      screen.getByTestId("diff-view:src/z.ts").getAttribute("data-feedback")
-    ).toBe("");
   });
 
   it("hides test files unless a deep link targets one", async () => {
@@ -437,75 +426,6 @@ describe("ChangesTab", () => {
         )
       ).toBe(true)
     );
-  });
-
-  it("focuses a feedback deep link instead of its line, and ignores a non-numeric id", async () => {
-    const focused = renderTab({
-      feedbackItems: [feedbackItem(7, "src/app.ts")],
-      route: "/?file=src/app.ts&line=3&feedback=7",
-    });
-    await waitForFile("src/app.ts");
-
-    await waitFor(() =>
-      expect(
-        screen
-          .getByTestId("diff-view:src/app.ts")
-          .getAttribute("data-focused-feedback")
-      ).toBe("7")
-    );
-    // A feedback link hands the scroll to the renderer, so the line target is
-    // ignored. Let both animation frames of the nav effect run before claiming
-    // the line scroll never happened.
-    await waitFor(() =>
-      expect(
-        scrollCalls.some(
-          (call) =>
-            (call.options as { block?: string } | null)?.block === "start"
-        )
-      ).toBe(true)
-    );
-    await act(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-        )
-    );
-    expect(
-      scrollCalls.some(
-        (call) =>
-          (call.options as { block?: string } | null)?.block === "center"
-      )
-    ).toBe(false);
-
-    // A late completion for an item that is no longer focused is ignored...
-    callDiffViewProp("src/app.ts", "onFeedbackFocusComplete", 999);
-    expect(
-      screen
-        .getByTestId("diff-view:src/app.ts")
-        .getAttribute("data-focused-feedback")
-    ).toBe("7");
-
-    // ...and the focus is cleared once the focused item reports it landed.
-    callDiffViewProp("src/app.ts", "onFeedbackFocusComplete", 7);
-    expect(
-      screen
-        .getByTestId("diff-view:src/app.ts")
-        .getAttribute("data-focused-feedback")
-    ).toBe("");
-    focused.unmount();
-
-    renderTab({ route: "/?file=src/app.ts&feedback=not-a-number" });
-    await waitForFile("src/app.ts");
-    await waitFor(() =>
-      expect(screen.getByTestId("location").getAttribute("data-search")).toBe(
-        ""
-      )
-    );
-    expect(
-      screen
-        .getByTestId("diff-view:src/app.ts")
-        .getAttribute("data-focused-feedback")
-    ).toBe("");
   });
 
   it("forces the unified view and closes the file tree on mobile", async () => {
@@ -809,5 +729,69 @@ describe("ChangesTab file diff content", () => {
         "Binary file or no textual diff available"
       )
     ).toBeTruthy();
+  });
+
+  it("places each finding block with a path in its file, and resolves it by its own id", async () => {
+    const reviewer = { kind: "agent", agentId: "agt_rev" } as const;
+    const onCard = reviewBlock({
+      id: "rv",
+      author: reviewer,
+      toAgentId: AGENT_ID,
+      threadId: "card",
+      replyTo: "card",
+      findings: [
+        findingBlock(
+          "f1",
+          {
+            severity: "major",
+            title: "Off by one",
+            body: "",
+            path: "src/app.ts",
+            line: 3,
+          },
+          { author: reviewer }
+        ),
+        findingBlock(
+          "f2",
+          { severity: "nit", title: "No place", body: "" },
+          { author: reviewer }
+        ),
+      ],
+    });
+    renderTab({
+      route: "/?file=src%2Fapp.ts&thread=card&finding=f1",
+      feed: {
+        entries: [
+          blockEntry(
+            launchBlock({ id: "card", toAgentId: "agt_rev", blocks: [onCard] })
+          ),
+        ],
+        hasMore: false,
+        nextCursor: null,
+        unreadCount: 0,
+      },
+    });
+    await waitForFile("src/app.ts");
+    await waitFor(() => expect(propsFor("src/app.ts").findings).toBeTruthy());
+    const findings = propsFor("src/app.ts").findings as DiffFindingsProps;
+    // Only the finding that names a place, keyed by its block's id.
+    expect(
+      findings.items.map((item) => [item.key, item.findingId, item.block.id])
+    ).toEqual([["f1", "f1", "rv"]]);
+    expect(findings.items[0]!.finding.title).toBe("Off by one");
+    expect(findings.items[0]!.record?.status).toBe("open");
+    // `?file=` with `?finding=` names the one to open in place.
+    expect(findings.focusedKey).toBe("f1");
+
+    act(() => findings.onSetState!("f1", { status: "fixed" }));
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(
+        `/api/v1/streams/${AGENT_ID}/blocks/f1/state`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ state: { status: "fixed" } }),
+        }
+      )
+    );
   });
 });

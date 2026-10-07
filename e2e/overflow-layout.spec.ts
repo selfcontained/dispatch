@@ -14,9 +14,8 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
-  setAgentLatestEventViaAPI,
-  setAgentPinsViaDB,
-  uploadMediaViaAPI,
+  seedBlockViaDB,
+  uploadFileViaAPI,
 } from "./helpers";
 
 const AUTH_HEADERS = {
@@ -99,10 +98,6 @@ async function seedOverflowAgents(
         // not discover repository or shared temporary-directory lifecycle hooks.
         cwd,
       });
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "working",
-        message: `Overflow validation task ${index + 1}`,
-      });
       return agent;
     })
   );
@@ -122,92 +117,93 @@ test.describe("Overflow layout", () => {
     await rm(overflowCwd, { recursive: true, force: true });
   });
 
-  test("agents workspace keeps sidebar, media, and terminal overflow isolated", async ({
+  test("agents workspace keeps sidebar, drawer, and agent pane overflow isolated", async ({
     page,
     request,
   }) => {
     const agents = await seedOverflowAgents(request, 24, overflowCwd);
     const focusAgent = agents[0]!;
 
-    await setAgentPinsViaDB(
-      focusAgent.id,
-      Array.from({ length: 24 }, (_, index) => ({
-        label: `Overflow pin ${index + 1}`,
-        type: "string" as const,
-        value: `Pinned value ${index + 1}\n${"detail ".repeat(18)}`,
-      }))
-    );
+    // Open questions fill the sidebar's Inbox the way pins used to.
+    for (let index = 0; index < 24; index += 1) {
+      await seedBlockViaDB({
+        streamId: focusAgent.id,
+        authorKind: "agent",
+        kind: "question",
+        text: `Overflow question ${index + 1}: ${"detail ".repeat(18)}`,
+        data: { options: [{ label: "Yes" }, { label: "No" }] },
+        state: {},
+      });
+    }
 
     await Promise.all(
       Array.from({ length: 14 }, (_, index) =>
-        uploadMediaViaAPI(
+        uploadFileViaAPI(
           request,
           focusAgent.id,
-          `Overflow media item ${index + 1}`,
-          `overflow-media-${index + 1}.png`
+          `Overflow file item ${index + 1}`,
+          `overflow-file-${index + 1}.png`
         )
       )
     );
 
     await loadApp(page);
     await clickAgentRow(page, focusAgent.id);
-    await page.getByTestId("toggle-media-sidebar").click();
+    await page.getByTestId("toggle-drawer").click();
 
     const agentSidebarScroll = page.getByTestId("agent-sidebar-scroll");
-    const pinsPanelScroll = page.getByTestId("pins-panel-scroll");
-    const terminalPane = page.getByTestId("terminal-pane");
-    const mediaSidebar = page.getByTestId("media-sidebar");
+    const inboxScroll = page.getByTestId("inbox");
+    const agentPane = page.getByTestId("agent-pane");
+    const drawer = page.getByTestId("drawer");
 
-    await mediaSidebar.getByRole("button", { name: "Pins" }).click();
+    await drawer.getByTestId("sidebar-tab-inbox").click();
 
     await expect(agentSidebarScroll).toBeVisible();
-    await expect(pinsPanelScroll).toBeVisible();
-    await expect(terminalPane).toBeVisible();
+    await expect(inboxScroll).toBeVisible();
+    await expect(agentPane).toBeVisible();
     await expect(page.getByTestId("automations-button")).toBeVisible();
 
     await expectOverflow(agentSidebarScroll);
-    await expectOverflow(pinsPanelScroll);
+    await expectOverflow(inboxScroll);
 
-    const terminalBoxBefore = await terminalPane.boundingBox();
-    expect(terminalBoxBefore).not.toBeNull();
-    expect(terminalBoxBefore!.height).toBeGreaterThan(280);
+    const agentBoxBefore = await agentPane.boundingBox();
+    expect(agentBoxBefore).not.toBeNull();
+    expect(agentBoxBefore!.height).toBeGreaterThan(280);
 
     await scrollToBottom(agentSidebarScroll);
-    await scrollToBottom(pinsPanelScroll);
+    await scrollToBottom(inboxScroll);
 
     await expect
       .poll(async () => (await getScrollMetrics(agentSidebarScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect
-      .poll(async () => (await getScrollMetrics(pinsPanelScroll)).scrollTop)
+      .poll(async () => (await getScrollMetrics(inboxScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect.poll(async () => getWindowScrollY(page)).toBe(0);
 
-    const terminalBoxAfterSidebarScroll = await terminalPane.boundingBox();
-    expect(terminalBoxAfterSidebarScroll).not.toBeNull();
+    const agentBoxAfterSidebarScroll = await agentPane.boundingBox();
+    expect(agentBoxAfterSidebarScroll).not.toBeNull();
     expect(
-      Math.abs(
-        terminalBoxAfterSidebarScroll!.height - terminalBoxBefore!.height
-      )
+      Math.abs(agentBoxAfterSidebarScroll!.height - agentBoxBefore!.height)
     ).toBeLessThan(2);
 
-    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await drawer.getByRole("button", { name: "Files" }).click();
 
-    const mediaPanelScroll = page.getByTestId("media-panel-scroll");
-    await expect(mediaPanelScroll).toBeVisible();
-    await expectOverflow(mediaPanelScroll);
+    const filesPanelScroll = page.getByTestId("files-panel-scroll");
+    await expect(filesPanelScroll).toBeVisible();
+    await expectOverflow(filesPanelScroll);
 
-    await scrollToBottom(mediaPanelScroll);
+    await scrollToBottom(filesPanelScroll);
 
     await expect
-      .poll(async () => (await getScrollMetrics(mediaPanelScroll)).scrollTop)
+      .poll(async () => (await getScrollMetrics(filesPanelScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect.poll(async () => getWindowScrollY(page)).toBe(0);
 
-    const terminalBoxAfterMediaScroll = await terminalPane.boundingBox();
-    expect(terminalBoxAfterMediaScroll).not.toBeNull();
+    const agentBoxAfterDrawerScroll = await agentPane.boundingBox();
+    expect(agentBoxAfterDrawerScroll).not.toBeNull();
     expect(
-      Math.abs(terminalBoxAfterMediaScroll!.height - terminalBoxBefore!.height)
+      Math.abs(agentBoxAfterDrawerScroll!.height - agentBoxBefore!.height)
     ).toBeLessThan(2);
   });
 

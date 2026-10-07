@@ -1,19 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import {
-  buildActiveHours,
-  type ActiveHourEvent,
-  type ActiveHoursCell,
-} from "@/lib/active-hours";
-
-export type { ActiveHoursCell } from "@/lib/active-hours";
-
 const ACTIVITY_QUERY_OPTIONS = {
   staleTime: 60_000,
   refetchOnMount: "always" as const,
 };
-
-type HeatmapDay = { day: string; count: number };
 
 export const ACTIVITY_RANGES = ["daily", "7d", "30d", "year", "all"] as const;
 export type ActivityRange = (typeof ACTIVITY_RANGES)[number];
@@ -85,81 +75,10 @@ function activityParams(range: ActivityRange, dailyDate?: string): string {
   return params.toString();
 }
 
-export type ActivityStats = {
-  totalWorkingMs: number;
-  avgBlockedMs: number;
-  avgWaitingMs: number;
-  busiestDay: string | null;
-  busiestDayCount: number;
-  stateDurations: Record<string, number>;
-};
-
-export type DailyStatusEntry = {
-  day: string;
-  working?: number;
-  blocked?: number;
-  waiting_user?: number;
-  done?: number;
-  idle?: number;
-};
-
 export type BucketedActivityResponse<T> = {
   days: T[];
   granularity: ActivityGranularity;
 };
-
-export function useActivityHeatmap(days = 365) {
-  return useQuery<HeatmapDay[]>({
-    queryKey: ["activity", "heatmap", days],
-    queryFn: async () => {
-      const params = new URLSearchParams({ days: String(days), tz: LOCAL_TZ });
-      const payload = await api<{ days: HeatmapDay[] }>(
-        `/api/v1/activity/heatmap?${params}`
-      );
-      return payload.days;
-    },
-    ...ACTIVITY_QUERY_OPTIONS,
-  });
-}
-
-export function useActivityStats(range: ActivityRange, dailyDate?: string) {
-  return useQuery<ActivityStats>({
-    queryKey: ["activity", "stats", range, dailyDate],
-    queryFn: () =>
-      api<ActivityStats>(
-        `/api/v1/activity/stats?${activityParams(range, dailyDate)}`
-      ),
-    ...ACTIVITY_QUERY_OPTIONS,
-  });
-}
-
-export function useDailyStatus(range: ActivityRange, dailyDate?: string) {
-  return useQuery<BucketedActivityResponse<DailyStatusEntry>>({
-    queryKey: ["activity", "daily-status", range, dailyDate],
-    queryFn: () =>
-      api<BucketedActivityResponse<DailyStatusEntry>>(
-        `/api/v1/activity/daily-status?${activityParams(range, dailyDate)}`
-      ),
-    ...ACTIVITY_QUERY_OPTIONS,
-  });
-}
-
-export function useActiveHours(range: ActivityRange, dailyDate?: string) {
-  return useQuery<ActiveHoursCell[]>({
-    queryKey: ["activity", "active-hours", range, dailyDate],
-    queryFn: async () => {
-      const { start, end } = getRangeBounds(range, dailyDate);
-      const params = new URLSearchParams({ tz: LOCAL_TZ });
-      if (start) params.set("start", start);
-      if (end) params.set("end", end);
-      const payload = await api<{ events: ActiveHourEvent[] }>(
-        `/api/v1/activity/active-hours?${params}`
-      );
-      return buildActiveHours(payload.events);
-    },
-    ...ACTIVITY_QUERY_OPTIONS,
-  });
-}
 
 // ── Token usage ───────────────────────────────────────────────────
 
@@ -238,47 +157,6 @@ export function useTokenByProject(range: ActivityRange, dailyDate?: string) {
     queryFn: async () => {
       const payload = await api<{ projects: TokenByProject[] }>(
         `/api/v1/activity/token-by-project?${activityParams(range, dailyDate)}`
-      );
-      return payload.projects;
-    },
-    ...ACTIVITY_QUERY_OPTIONS,
-  });
-}
-
-// ── Event-derived metrics ────────────────────────────────────────
-
-export type AgentsCreatedEntry = { day: string; count: number };
-export type AgentsCreatedResponse = {
-  days: AgentsCreatedEntry[];
-  total: number;
-  granularity: ActivityGranularity;
-};
-
-export function useAgentsCreated(range: ActivityRange, dailyDate?: string) {
-  return useQuery<AgentsCreatedResponse>({
-    queryKey: ["activity", "agents-created", range, dailyDate],
-    queryFn: () =>
-      api<AgentsCreatedResponse>(
-        `/api/v1/activity/agents-created?${activityParams(range, dailyDate)}`
-      ),
-    ...ACTIVITY_QUERY_OPTIONS,
-  });
-}
-
-export type WorkingTimeByProject = {
-  project_dir: string;
-  working_time_ms: number;
-};
-
-export function useWorkingTimeByProject(
-  range: ActivityRange,
-  dailyDate?: string
-) {
-  return useQuery<WorkingTimeByProject[]>({
-    queryKey: ["activity", "working-time-by-project", range, dailyDate],
-    queryFn: async () => {
-      const payload = await api<{ projects: WorkingTimeByProject[] }>(
-        `/api/v1/activity/working-time-by-project?${activityParams(range, dailyDate)}`
       );
       return payload.projects;
     },

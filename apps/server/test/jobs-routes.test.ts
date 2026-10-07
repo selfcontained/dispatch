@@ -315,15 +315,17 @@ describe("POST /api/v1/jobs/run", () => {
     const body = res.json();
     const posts = await ctx.pool.query(
       `SELECT author_kind, kind, text, delivered, origin, attachments
-         FROM agent_chat_messages WHERE agent_id = $1`,
+         FROM blocks WHERE stream_id = $1`,
       [body.agentId]
     );
+    // One launch card: the briefing, its startup and its instructions all
+    // land on it rather than on rows of their own.
     expect(posts.rows).toHaveLength(1);
     expect(posts.rows[0]).toMatchObject({
       author_kind: "user",
-      kind: "reply",
+      kind: "launch",
       delivered: true,
-      origin: "launch",
+      origin: null,
       attachments: [],
     });
     // Chat shows only the user-authored prompt, not generated job lifecycle
@@ -349,7 +351,7 @@ describe("POST /api/v1/jobs/run", () => {
     const cookie = await ctx.sessionCookie();
     // Create a job directly via DB to have no prompt
     const templateRes = await ctx.pool.query(
-      `INSERT INTO templates (id, name, directory, prompt, agent_type, use_worktree, full_access, callable, allow_media)
+      `INSERT INTO templates (id, name, directory, prompt, agent_type, use_worktree, full_access, callable, allow_files)
        VALUES ('tpl_no_prompt', 'no-prompt', '/tmp', NULL, 'claude', false, false, false, false)
        RETURNING id`
     );

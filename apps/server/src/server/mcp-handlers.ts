@@ -1,21 +1,20 @@
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import type { PinSpec } from "../agents/pin-write.js";
 import { AgentError } from "../agents/errors.js";
-import { mediaMetadataFromBuffer } from "../media/metadata.js";
-import type { AgentPin, WorktreeCleanupMode } from "../agents/types.js";
+import { agentWorkspaceDir } from "../agents/workspace-target.js";
+import { detectFileType } from "../files/file-type.js";
+import { fileMetadataFromBuffer } from "../files/metadata.js";
+import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
-import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
@@ -26,23 +25,6 @@ import type {
   SlackNotifier,
 } from "../notifications/slack.js";
 import {
-  AGENT_LATEST_EVENT_TYPES,
-  isAgentLatestEventType,
-} from "../agents/latest-event.js";
-import {
-  isPinType,
-  validatePinShortcutFields,
-  validatePinCaption,
-  validatePinValue,
-  type PinShortcutVariant,
-} from "../pins.js";
-import {
-  toPinListing,
-  toPinSummary,
-  type PinListing,
-  type PinSummary,
-} from "./pin-listing.js";
-import {
   createLineageIndex,
   delegationChain,
   formatDelegationChain,
@@ -52,21 +34,22 @@ import {
   type AgentRelation,
 } from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
-import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
-import type { ListedMediaItem } from "../shared/mcp/agent-lifecycle-tools.js";
+import { resolveFilesDir } from "../shared/files.js";
+import type {
+  ListedFileItem,
+  SetWorkspaceResult,
+} from "../shared/mcp/agent-lifecycle-tools.js";
 import type {
   LaunchAgentInput,
   LaunchAgentResult,
 } from "../shared/mcp/agent-launch-tools.js";
-import type { MediaResult, ShareMediaInput } from "../shared/mcp/server.js";
+import type { FileResult, ShareFileInput } from "../shared/mcp/server.js";
 import type {
   EnqueueAgentPrompt,
   PublishUiEvent,
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
-import { createReviewHandlers } from "./mcp-review-handlers.js";
-import { MessageStore } from "../messages/store.js";
-import { createWhiteboardHandlers } from "./mcp-whiteboard-handlers.js";
+import { createPersonaHandlers } from "./mcp-persona-handlers.js";
 import {
   activatePersonality,
   createPersonality,
@@ -86,25 +69,24 @@ function buildLaunchedAgentInitialPrompt(
 ): string {
   const header = child
     ? [
-        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent.`,
-        "Use that parent agent ID when coordinating back with dispatch_send_message.",
+        `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent.`,
+        "You share its stream: to coordinate back, post with to set to that parent agent id; your posts land in the thread under your launch block.",
         // Stated up front because the tool call fails at the point of use
         // otherwise, halfway through work the agent has already planned around.
         "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
-          "If you need to hand work off, launch an independent agent with dispatch_launch_agent's `child: false`.",
-        "Your parent's pins and media are readable: pass its id as ownerAgentId to dispatch_list_pins or " +
-          "dispatch_list_media. A dev-stack URL or PR link it pinned is there without asking for it.",
+          "If you need to hand work off, launch an independent agent with launch_agent's `child: false`.",
+        "Your parent's files are readable: pass its id as ownerAgentId to list_files.",
       ]
     : [
-        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent as an independent agent — you are not its child.`,
-        "Use that agent ID when coordinating back with dispatch_send_message.",
+        `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent as an independent agent — you are not its child.`,
+        "To coordinate back, post with to set to that agent id.",
       ];
   return [...header, "", prompt].join("\n");
 }
 
 type CreateMcpHandlersDeps = {
   pool: Pool;
-  mediaRoot: string;
+  filesRoot: string;
   agentManager: AgentManager;
   jobService: JobService;
   // Only the template lookup is needed here — the full TemplateService can
@@ -117,8 +99,8 @@ type CreateMcpHandlersDeps = {
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
   /**
-   * Enqueue-and-settle delivery for dispatch_send_message: the row records
-   * the real outcome once the pane write completes instead of "enqueued".
+   * Enqueue-and-settle delivery: the caller learns the real outcome once
+   * the prompt reaches the engine instead of "enqueued".
    */
   enqueueAgentPrompt: EnqueueAgentPrompt;
   appLog: FastifyBaseLogger;
@@ -158,7 +140,7 @@ export function mcpMethodNotAllowed(): {
 }
 
 /**
- * The set of agents a sender may address via dispatch_send_message and
+ * The set of agents a sender may address with post and
  * list_agents: every other agent (self excluded), scoped to the sender's git
  * repo root unless cross-repo messaging is enabled. Direct parent ↔ child
  * relationships always bypass repo-root scoping so spawned agents can
@@ -171,6 +153,7 @@ async function addressableAgents<
   T extends {
     id: string;
     cwd: string;
+    workspacePath?: string | null;
     parentAgentId?: string | null;
     launchedByAgentId?: string | null;
   },
@@ -204,7 +187,7 @@ async function addressableAgents<
       continue;
     }
     try {
-      const aRoot = await resolveRepoRoot(a.cwd);
+      const aRoot = await resolveRepoRoot(a.workspacePath ?? a.cwd);
       if (aRoot === senderRepoRoot) result.push(a);
     } catch {
       // agent cwd not in a git repo — skip
@@ -217,27 +200,6 @@ async function addressableAgents<
 // Extracted handler functions
 // ---------------------------------------------------------------------------
 
-async function handleUpsertEvent(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  event: { type: string; message: string; metadata?: Record<string, unknown> }
-): Promise<void> {
-  if (!isAgentLatestEventType(event.type)) {
-    throw new Error(
-      `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`
-    );
-  }
-  const agent = await deps.agentManager.upsertLatestEvent(agentId, {
-    type: event.type,
-    message: event.message.trim(),
-    metadata: event.metadata,
-  });
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-}
-
 async function handleSendNotify(
   deps: CreateMcpHandlersDeps,
   agentId: string,
@@ -248,171 +210,20 @@ async function handleSendNotify(
   return deps.slackNotifier.sendNotification(agent, input);
 }
 
-type PinInput = {
-  id?: string;
-  label: string;
-  value?: string;
-  type?: string;
-  caption?: string;
-  group?: string;
-  icon?: string;
-  variant?: string;
-  confirm?: boolean;
-  disabled?: boolean;
-};
-
-/**
- * Narrow one pin spec to a storable shape.
- *
- * Shared by the single and batch write paths so a pin the batch tool accepts
- * is exactly a pin `dispatch_pin` would have accepted — a batch must not
- * become a way to smuggle in a shape the single-pin validator rejects.
- *
- * An omitted `type` stays omitted rather than defaulting: the write layer
- * inherits the stored pin's type, so relabelling a shortcut cannot silently
- * demote it to a plain string and strip its icon. Validation of the value
- * happens there too, once the effective type is known.
- */
-function toValidatedPin(pin: PinInput): PinSpec {
-  if (pin.type !== undefined && !isPinType(pin.type)) {
-    throw new Error(`Invalid pin type: ${pin.type}`);
-  }
-  // Only a spec carrying both can be checked here; anything relying on an
-  // inherited type or value is validated in `pin-write` once merged.
-  if (pin.type !== undefined && pin.value !== undefined) {
-    validatePinValue(pin.type, pin.value);
-  }
-
-  // Captions and grouping are generic; button styling, confirmation, and the
-  // disabled state only mean anything for shortcut pins — silently dropping
-  // those elsewhere keeps stored pins honest. With no type given we cannot
-  // tell yet, so they ride along and `mergePin` strips them if the resolved
-  // type turns out not to be shortcut.
-  if (pin.caption !== undefined) {
-    validatePinCaption(pin.caption);
-  }
-  const isShortcut = pin.type === "shortcut";
-  if (isShortcut) {
-    validatePinShortcutFields(pin);
-  }
-  const keepShortcutFields = pin.type === undefined || isShortcut;
-
-  return {
-    ...(pin.id !== undefined ? { id: pin.id } : {}),
-    label: pin.label,
-    ...(pin.value !== undefined ? { value: pin.value } : {}),
-    ...(pin.type !== undefined ? { type: pin.type } : {}),
-    ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
-    ...(pin.group !== undefined ? { group: pin.group } : {}),
-    ...(keepShortcutFields && pin.icon !== undefined ? { icon: pin.icon } : {}),
-    ...(keepShortcutFields && pin.variant !== undefined
-      ? { variant: pin.variant as PinShortcutVariant }
-      : {}),
-    ...(keepShortcutFields && pin.confirm !== undefined
-      ? { confirm: pin.confirm }
-      : {}),
-    ...(keepShortcutFields && pin.disabled !== undefined
-      ? { disabled: pin.disabled }
-      : {}),
-  };
-}
-
-async function handleUpsertPin(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  pin: PinInput
-): Promise<{ pin: PinListing; created: boolean }> {
-  const result = await deps.agentManager.upsertPin(
-    agentId,
-    toValidatedPin(pin)
-  );
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(result.agent),
-  });
-  return { pin: toPinListing(result.pin), created: result.created };
-}
-
-async function handleUpsertPins(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  input: {
-    pins: PinInput[];
-    mode?: "merge" | "replace";
-    group?: string;
-  }
-): Promise<PinSummary[]> {
-  // Validate the whole batch before opening the transaction: a bad entry at
-  // position 19 should fail the call outright rather than leave the first
-  // eighteen applied. Replace mode files entries under the scoping group
-  // itself, so nothing needs stamping here.
-  const specs = input.pins.map(toValidatedPin);
-
-  const { agent } = await deps.agentManager.upsertPins(agentId, specs, {
-    ...(input.mode !== undefined ? { mode: input.mode } : {}),
-    ...(input.group !== undefined ? { group: input.group } : {}),
-  });
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-  // A thin projection, not the full listing: the point of the echo is to show
-  // what the batch produced and in what order, and 50 pins' worth of values
-  // (2000 chars each) would dwarf that. dispatch_list_pins serves full state.
-  return (agent.pins ?? []).map(toPinSummary);
-}
-
-async function handleDeletePin(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  input: { id?: string; ids?: string[]; group?: string }
-): Promise<void> {
-  const targets = [input.id, input.ids, input.group].filter(
-    (target) => target !== undefined
-  );
-  if (targets.length !== 1) {
-    throw new Error("Pass exactly one of id, ids, or group.");
-  }
-
-  const agent = input.group
-    ? await deps.agentManager.deletePinsByGroup(agentId, input.group)
-    : await deps.agentManager.deletePinsByIds(
-        agentId,
-        input.ids ?? [input.id!]
-      );
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-}
-
-async function handleDeletePinByLabel(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  label: string
-): Promise<void> {
-  const agent = await deps.agentManager.deletePinByLabel(agentId, label);
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-}
-
 type ReadableOwner = {
   id: string;
   name: string;
-  mediaDir: string | null;
-  pins: AgentPin[];
+  filesDir: string | null;
 };
 
 /**
- * The agent whose pins or media a read tool should return: the caller itself,
+ * The agent whose files a read tool should return: the caller itself,
  * or — when `ownerAgentId` is given — its parent or one of its direct children
- * (see `isFamily`). Anything else is "not found", the way surfaces answer a
- * non-child owner: the tool neither confirms nor denies the agent exists.
+ * (see `isFamily`). Anything else is "not found": the tool neither confirms
+ * nor denies the agent exists.
  *
  * Reads the table directly rather than through `agentManager.getAgent`, which
- * filters out archived rows. Media outlives an archive, and a parent that has
+ * filters out archived rows. Files outlive an archive, and a parent that has
  * already archived a finished child still needs that child's screenshots to
  * write its report — so a family read works on an archived owner too.
  */
@@ -425,11 +236,10 @@ async function resolveReadableOwner(
   const result = await deps.pool.query<{
     id: string;
     name: string;
-    media_dir: string | null;
-    pins: AgentPin[] | null;
+    files_dir: string | null;
     parent_agent_id: string | null;
   }>(
-    `SELECT id, name, media_dir, COALESCE(pins, '[]'::jsonb) AS pins, parent_agent_id
+    `SELECT id, name, files_dir, parent_agent_id
      FROM agents WHERE id = ANY($1::text[])`,
     [Array.from(new Set([requesterId, ownerId]))]
   );
@@ -453,20 +263,8 @@ async function resolveReadableOwner(
   return {
     id: owner.id,
     name: owner.name,
-    mediaDir: owner.media_dir,
-    pins: owner.pins ?? [],
+    filesDir: owner.files_dir,
   };
-}
-
-async function handleListPins(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  opts: { ownerAgentId?: string } = {}
-): Promise<PinListing[]> {
-  const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
-  // Decorations are listed too, so an agent can see what a pin already has
-  // (its group, caption, icon) before deciding what to change.
-  return owner.pins.map(toPinListing);
 }
 
 async function handleRenameSession(
@@ -480,6 +278,23 @@ async function handleRenameSession(
     agent: deps.withStreamFlag(agent),
   });
   return { id: agent.id, name: agent.name };
+}
+
+async function handleSetWorkspace(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: { path: string | null; baseBranch?: string | null }
+): Promise<SetWorkspaceResult> {
+  const agent = await deps.agentManager.setWorkspace(agentId, input);
+  return {
+    workspacePath: agentWorkspaceDir(agent) ?? agent.cwd,
+    moved: agent.workspacePath !== null,
+    repoRoot: agent.gitContext?.repoRoot ?? null,
+    branch: agent.gitContext?.branch ?? null,
+    baseBranch: agent.workspacePath
+      ? agent.workspaceBaseBranch
+      : agent.baseBranch,
+  };
 }
 
 async function handleJobComplete(
@@ -529,6 +344,30 @@ async function handleLaunchAgent(
 ): Promise<LaunchAgentResult> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+  if (input.persona) {
+    // A persona launch is an ordinary child launch with a profile applied:
+    // the persona's instructions ride in the first ACP message, the caller's
+    // prompt is its briefing, and it works in the parent's worktree.
+    const launched = await createPersonaHandlers({
+      pool: deps.pool,
+      agentManager: deps.agentManager,
+      publishUiEvent: deps.publishUiEvent,
+      withStreamFlag: deps.withStreamFlag,
+    }).launchPersonaAgent(agentId, {
+      persona: input.persona,
+      context: input.prompt,
+      name: input.name,
+      ...(input.type
+        ? { agentType: input.type as (typeof CLI_AGENT_TYPES)[number] }
+        : {}),
+      ...(input.model ? { model: input.model } : {}),
+    });
+    return {
+      agentId: launched.agentId,
+      name: launched.name,
+      ...(launched.warnings ? { warnings: launched.warnings } : {}),
+    };
+  }
   const child = input.child !== false;
   // Depth cap: the sidebar renders a child as a row inside its parent's card,
   // and that row has nowhere to render children of its own — a grandchild would
@@ -582,7 +421,7 @@ async function handleLaunchAgent(
 
   const fromTemplate = templateWorktreeConfig(template);
 
-  const parentCwd = parent.worktreePath ?? parent.cwd;
+  const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
   const useWorktree = input.useWorktree ?? fromTemplate.useWorktree;
   // Templates have no createNewBranch column, so the decision keys off where
   // the worktree came from: a template-supplied one follows the template's
@@ -600,7 +439,6 @@ async function handleLaunchAgent(
   // this the MCP path silently forced "sibling".
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
-  const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
   const model = validateAgentModel(
     agentType as (typeof CLI_AGENT_TYPES)[number],
     input.model
@@ -636,7 +474,6 @@ async function handleLaunchAgent(
     worktreeLocation,
     ...(child ? { parentAgentId: agentId } : {}),
     launchedByAgentId: agentId,
-    cliSessionId,
     initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),
     // The feed shows the prompt as the launcher wrote it, not the rendered
     // template instructions or the launch header.
@@ -696,7 +533,7 @@ async function handleArchiveAgent(
     target.launchedByAgentId !== agentId
   ) {
     throw new AgentError(
-      "You can only archive yourself or an agent you launched via dispatch_launch_agent or dispatch_launch_persona.",
+      "You can only archive yourself or an agent you launched via launch_agent.",
       403
     );
   }
@@ -741,21 +578,23 @@ async function handleArchiveAgent(
   return { agentId: target.id, name: archiving.name, archiving: true };
 }
 
-async function handleShareMedia(
+async function handleShareFile(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  opts: ShareMediaInput
-): Promise<MediaResult> {
+  opts: ShareFileInput
+): Promise<FileResult> {
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
-  if (!isMediaFile(opts.filePath)) {
-    throw new Error(
-      "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
-    );
-  }
+  const buffer = await readFile(opts.filePath);
+  // Typed against the name it will be stored and shown under.
+  const type = detectFileType(
+    buffer,
+    opts.update ?? opts.name ?? path.basename(opts.filePath)
+  );
+  if (!type.ok) throw new Error(type.error);
 
-  const isText = isTextFile(opts.filePath);
+  const isText = type.media === "text";
   const validSources = ["screenshot", "stream", "simulator", "text"];
   const source = isText
     ? "text"
@@ -763,32 +602,29 @@ async function handleShareMedia(
       ? opts.source
       : "screenshot";
 
-  const buffer = await readFile(opts.filePath);
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
-  await mkdir(mediaDir, { recursive: true });
+  const filesDir = resolveFilesDir(agentId, agent.filesDir, deps.filesRoot);
+  await mkdir(filesDir, { recursive: true });
 
   // Derived from the bytes we are about to write, not from the file on disk.
   // The dimensions and the bytes are the same object, so the row cannot come to
   // describe a shape its file does not have — there is nothing here for a
   // transaction to keep in sync.
-  const metadata = mediaMetadataFromBuffer(buffer);
+  const metadata = fileMetadataFromBuffer(buffer);
 
   if (opts.update) {
     const existing = await deps.pool.query<{ file_name: string }>(
-      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2`,
+      `SELECT file_name FROM files WHERE agent_id = $1 AND file_name = $2`,
       [agentId, opts.update]
     );
     if (existing.rows.length === 0) {
-      throw new Error(
-        "No media file found with the given fileName for this agent."
-      );
+      throw new Error("No file found with the given fileName for this agent.");
     }
 
     const fileName = existing.rows[0].file_name;
-    const filePath = path.join(mediaDir, fileName);
-    const resolvedMediaDir = path.resolve(mediaDir);
-    if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
-      throw new Error("Invalid media file path.");
+    const filePath = path.join(filesDir, fileName);
+    const resolvedFilesDir = path.resolve(filesDir);
+    if (!path.resolve(filePath).startsWith(resolvedFilesDir + path.sep)) {
+      throw new Error("Invalid file path.");
     }
 
     // Write the bytes, then describe them. The other order would let a failed
@@ -797,16 +633,23 @@ async function handleShareMedia(
     // replacement, which costs one image a stale reserved box and nothing else.
     await writeFile(filePath, buffer);
     await deps.pool.query(
-      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
-              metadata = $5
+      `UPDATE files SET size_bytes = $1, description = $2, updated_at = NOW(),
+              metadata = $5, mime_type = $6
        WHERE agent_id = $3 AND file_name = $4`,
-      [buffer.length, opts.description, agentId, fileName, metadata]
+      [
+        buffer.length,
+        opts.description,
+        agentId,
+        fileName,
+        metadata,
+        type.mimeType,
+      ]
     );
 
-    deps.publishUiEvent({ type: "media.changed", agentId });
+    deps.publishUiEvent({ type: "files.changed", agentId });
     return {
       fileName,
-      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+      url: `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`,
       sizeBytes: buffer.length,
       source,
       description: opts.description,
@@ -829,210 +672,29 @@ async function handleShareMedia(
   const base = path.basename(safeName, ext);
   const fileName = `${base}-${timestamp}${ext}`;
 
-  await writeFile(path.join(mediaDir, fileName), buffer);
+  await writeFile(path.join(filesDir, fileName), buffer);
   await deps.pool.query(
-    `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
-                        metadata)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [agentId, fileName, source, buffer.length, opts.description, metadata]
+    `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
+                        metadata, mime_type)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      agentId,
+      fileName,
+      source,
+      buffer.length,
+      opts.description,
+      metadata,
+      type.mimeType,
+    ]
   );
 
-  deps.publishUiEvent({ type: "media.changed", agentId });
+  deps.publishUiEvent({ type: "files.changed", agentId });
   return {
     fileName,
-    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+    url: `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`,
     sizeBytes: buffer.length,
     source,
     description: opts.description,
-  };
-}
-
-async function handleSendMessage(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  input: { target: string; message: string; senderRepoRoot: string | null }
-): Promise<{
-  delivered: boolean;
-  targetAgentId: string;
-  targetAgentName: string;
-}> {
-  const sender = await deps.agentManager.getAgent(agentId);
-  if (!sender) throw new Error("Sender agent not found.");
-
-  const senderRepoRoot = input.senderRepoRoot;
-  const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
-
-  const everyAgent = await deps.agentManager.listAgents();
-  const allAgents = await addressableAgents(
-    everyAgent,
-    agentId,
-    senderRepoRoot,
-    crossRepo
-  );
-
-  const isAgentId = input.target.startsWith("agt_");
-
-  let target: (typeof allAgents)[number] | undefined;
-  if (isAgentId) {
-    target = allAgents.find((a) => a.id === input.target);
-  } else {
-    const lowerTarget = input.target.toLowerCase();
-    const matches = allAgents.filter(
-      (a) =>
-        a.status === "running" && a.name.toLowerCase().includes(lowerTarget)
-    );
-    if (matches.length === 1) {
-      target = matches[0];
-    } else if (matches.length > 1) {
-      const list = matches.map((a) => `  ${a.id} "${a.name}"`).join("\n");
-      throw new Error(
-        `Multiple agents match "${input.target}". Use the agent ID:\n${list}`
-      );
-    }
-  }
-
-  if (!target) {
-    const running = allAgents
-      .filter((a) => a.status === "running")
-      .map((a) => `  ${a.id} "${a.name}"`)
-      .join("\n");
-    throw new Error(
-      `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
-    );
-  }
-
-  if (target.status !== "running") {
-    throw new Error(
-      `Agent "${target.name}" (${target.id}) is ${target.status}, not running.`
-    );
-  }
-
-  // Provenance: without this the recipient sees only a sender name, so a
-  // message from a grandchild is indistinguishable from one from a direct
-  // child. Resolved against every agent so an unaddressable intermediate still
-  // appears in the chain rather than collapsing two levels into one.
-  const lineage = createLineageIndex(everyAgent);
-  const senderRelation = relationTo(lineage, target.id, agentId);
-  const chain = delegationChain(lineage, agentId, target.id);
-
-  const envelope = JSON.stringify({
-    from: sender.name,
-    senderId: agentId,
-    senderRelation,
-    ...(chain.length > 1
-      ? { delegationChain: chain.map((node) => `${node.name} (${node.id})`) }
-      : {}),
-    message: input.message,
-    replyTarget: agentId,
-  });
-  // The prose line only fires when it tells the recipient something the sender
-  // name alone does not: that the sender is further down its tree than a direct
-  // child, or that the sender belongs to a tree the recipient is not part of.
-  // A direct child's chain is just [child, you], so it stays silent.
-  const recipientInChain = chain.some((node) => node.id === target.id);
-  const provenanceLine =
-    senderRelation === "descendant"
-      ? `\nProvenance: ${sanitizeAgentNameForPrompt(sender.name)} is not your direct child — delegation chain: ${formatDelegationChain(chain, target.id)}.`
-      : !recipientInChain && chain.length > 1
-        ? `\nProvenance: ${formatDelegationChain(chain, target.id)}.`
-        : "";
-  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
-
-  // Enqueue first: a persistence failure must never block delivery. The
-  // handler returns once the prompt is queued — awaiting gated delivery can
-  // exceed MCP client timeouts (~60s), and a timed-out sender retrying would
-  // inject the message twice. Session validation happens before this resolves.
-  let enqueued: Awaited<ReturnType<EnqueueAgentPrompt>> | null = null;
-  let deliveryError: unknown = null;
-  try {
-    enqueued = await deps.enqueueAgentPrompt(target.id, prompt);
-  } catch (err) {
-    deliveryError = err;
-    deps.appLog.error(
-      { err, senderId: agentId, targetId: target.id },
-      "dispatch_send_message: tmux delivery failed"
-    );
-  }
-  // Attach the outcome handler at once so a fast rejection can never surface
-  // as an unhandled rejection while the insert below is still in flight.
-  const outcome: Promise<boolean> | null = enqueued
-    ? enqueued.delivery.then(
-        () => true,
-        (err: unknown) => {
-          deps.appLog.warn(
-            { err, senderId: agentId, targetId: target.id },
-            "dispatch_send_message: pane delivery failed — agent may have exited"
-          );
-          return false;
-        }
-      )
-    : null;
-
-  // Record the message (including failed enqueues) so it is viewable. A row
-  // that was queued starts as delivered = null and settles below; the UI
-  // renders null as "Sending". Persistence must never block delivery, so a
-  // failed insert is swallowed and logged. Only announce message.created
-  // when the row actually landed, otherwise the UI would refetch and find
-  // nothing.
-  const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(() => null);
-  const messageStore = new MessageStore(deps.pool);
-  const persisted = await messageStore
-    .insertMessage({
-      senderAgentId: agentId,
-      recipientAgentId: target.id,
-      senderName: sender.name,
-      recipientName: target.name,
-      content: input.message,
-      delivered: enqueued ? null : false,
-      senderRepoRoot,
-      recipientRepoRoot,
-    })
-    .catch((err) => {
-      deps.appLog.error(
-        { err, senderId: agentId, targetId: target.id },
-        "dispatch_send_message: failed to persist message"
-      );
-      return null;
-    });
-
-  const announce = () =>
-    deps.publishUiEvent({
-      type: "message.created",
-      senderAgentId: agentId,
-      recipientAgentId: target.id,
-    });
-  if (persisted) announce();
-
-  if (persisted && outcome) {
-    // Settle the row once the pane write completes and announce the pair
-    // again so both sides' panels refetch the final state.
-    void outcome
-      .then(async (delivered) => {
-        await messageStore.setDelivered(persisted.id, delivered);
-        announce();
-      })
-      .catch((err: unknown) => {
-        deps.appLog.error(
-          { err, senderId: agentId, targetId: target.id },
-          "dispatch_send_message: failed to record delivery outcome"
-        );
-      });
-  }
-
-  if (!enqueued) {
-    throw deliveryError instanceof Error
-      ? deliveryError
-      : new Error(`Failed to deliver message to "${target.name}".`);
-  }
-
-  deps.appLog.info(
-    { senderId: agentId, targetId: target.id, held: enqueued.held },
-    "dispatch_send_message: queued for delivery"
-  );
-  return {
-    delivered: true,
-    targetAgentId: target.id,
-    targetAgentName: target.name,
   };
 }
 
@@ -1045,7 +707,6 @@ async function handleListAgentsForAgent(
     id: string;
     name: string;
     status: string;
-    latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
     launchedByAgentId?: string;
@@ -1053,7 +714,8 @@ async function handleListAgentsForAgent(
     relation: AgentRelation;
   }>
 > {
-  const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
+  // Listing stays scoped to the caller's repo and lineage; posting is not.
+  const crossRepo = false;
 
   const allAgents = await deps.agentManager.listAgents();
   const agents = await addressableAgents(
@@ -1083,7 +745,6 @@ async function handleListAgentsForAgent(
     id: string;
     name: string;
     status: string;
-    latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
     launchedByAgentId?: string;
@@ -1107,9 +768,6 @@ async function handleListAgentsForAgent(
       id: a.id,
       name: a.name,
       status: a.status,
-      latestEvent: a.latestEvent
-        ? { type: a.latestEvent.type, message: a.latestEvent.message }
-        : null,
       parentAgentId: visibleParentId,
       parentName,
       ...(launcherName && rawLauncherId
@@ -1121,16 +779,16 @@ async function handleListAgentsForAgent(
   return result;
 }
 
-async function handleListMedia(
+async function handleListFiles(
   deps: CreateMcpHandlersDeps,
   agentId: string,
   opts: { source?: string; ownerAgentId?: string }
-): Promise<ListedMediaItem[]> {
+): Promise<ListedFileItem[]> {
   const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
 
   // Files stay in the owner's directory; a family read hands back the owner's
-  // path and nothing is copied. Agents read media by path, never over HTTP.
-  const mediaDir = resolveMediaDir(owner.id, owner.mediaDir, deps.mediaRoot);
+  // path and nothing is copied. Agents read files by path, never over HTTP.
+  const filesDir = resolveFilesDir(owner.id, owner.filesDir, deps.filesRoot);
   const whereClause = opts.source
     ? `WHERE agent_id = $1 AND source = $2`
     : `WHERE agent_id = $1`;
@@ -1146,7 +804,7 @@ async function handleListMedia(
     created_at: Date;
   }>(
     `SELECT file_name, source, description, size_bytes, created_at
-     FROM media ${whereClause}
+     FROM files ${whereClause}
      ORDER BY created_at DESC LIMIT 100`,
     params
   );
@@ -1154,7 +812,7 @@ async function handleListMedia(
   return result.rows.map((row) => ({
     ownerAgentId: owner.id,
     fileName: row.file_name,
-    filePath: path.join(mediaDir, row.file_name),
+    filePath: path.join(filesDir, row.file_name),
     source: row.source,
     description: row.description ?? null,
     sizeBytes: row.size_bytes,
@@ -1162,7 +820,7 @@ async function handleListMedia(
   }));
 }
 
-async function handleDeleteMedia(
+async function handleDeleteFile(
   deps: CreateMcpHandlersDeps,
   agentId: string,
   fileName: string
@@ -1171,21 +829,19 @@ async function handleDeleteMedia(
   if (!agent) throw new Error("Agent not found.");
 
   const result = await deps.pool.query<{ file_name: string }>(
-    "SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2",
+    "SELECT file_name FROM files WHERE agent_id = $1 AND file_name = $2",
     [agentId, fileName]
   );
   if (result.rows.length === 0) {
-    throw new Error(
-      "No media file found with the given fileName for this agent."
-    );
+    throw new Error("No file found with the given fileName for this agent.");
   }
 
   const storedFileName = result.rows[0].file_name;
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
-  const filePath = path.join(mediaDir, storedFileName);
-  const resolvedMediaDir = path.resolve(mediaDir);
-  if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
-    throw new Error("Invalid media file path.");
+  const filesDir = resolveFilesDir(agentId, agent.filesDir, deps.filesRoot);
+  const filePath = path.join(filesDir, storedFileName);
+  const resolvedFilesDir = path.resolve(filesDir);
+  if (!path.resolve(filePath).startsWith(resolvedFilesDir + path.sep)) {
+    throw new Error("Invalid file path.");
   }
 
   try {
@@ -1204,10 +860,10 @@ async function handleDeleteMedia(
   }
 
   await deps.pool.query(
-    "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
+    "DELETE FROM files WHERE agent_id = $1 AND file_name = $2",
     [agentId, storedFileName]
   );
-  deps.publishUiEvent({ type: "media.changed", agentId });
+  deps.publishUiEvent({ type: "files.changed", agentId });
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,25 +871,17 @@ async function handleDeleteMedia(
 // ---------------------------------------------------------------------------
 
 export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
-  const reviewHandlers = createReviewHandlers({
+  const personaHandlers = createPersonaHandlers({
     pool: deps.pool,
     agentManager: deps.agentManager,
     publishUiEvent: deps.publishUiEvent,
     withStreamFlag: deps.withStreamFlag,
-    sendAgentPrompt: deps.sendAgentPrompt,
-    appLog: deps.appLog,
-  });
-
-  const whiteboardHandlers = createWhiteboardHandlers({
-    pool: deps.pool,
-    mediaRoot: deps.mediaRoot,
-    agentManager: deps.agentManager,
-    publishUiEvent: deps.publishUiEvent,
   });
 
   return {
-    ...reviewHandlers,
-    ...whiteboardHandlers,
+    listPersonas: personaHandlers.listPersonas,
+    launchPersonaAgent: personaHandlers.launchPersonaAgent,
+    launchOwnerReviews: personaHandlers.launchOwnerReviews,
 
     listPersonalities: async () => {
       const [personalities, activeId] = await Promise.all([
@@ -1275,39 +923,16 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     clearActivePersonality: () => setActivePersonalityId(deps.pool, null),
 
-    upsertEvent: (
-      agentId: string,
-      event: {
-        type: string;
-        message: string;
-        metadata?: Record<string, unknown>;
-      }
-    ) => handleUpsertEvent(deps, agentId, event),
-
     sendNotify: (agentId: string, input: NotifyInput) =>
       handleSendNotify(deps, agentId, input),
 
-    upsertPin: (agentId: string, pin: PinInput) =>
-      handleUpsertPin(deps, agentId, pin),
-
-    upsertPins: (
-      agentId: string,
-      input: { pins: PinInput[]; mode?: "merge" | "replace"; group?: string }
-    ) => handleUpsertPins(deps, agentId, input),
-
-    deletePin: (
-      agentId: string,
-      input: { id?: string; ids?: string[]; group?: string }
-    ) => handleDeletePin(deps, agentId, input),
-
-    deletePinByLabel: (agentId: string, label: string) =>
-      handleDeletePinByLabel(deps, agentId, label),
-
-    listPins: (agentId: string, opts?: { ownerAgentId?: string }) =>
-      handleListPins(deps, agentId, opts),
-
     renameSession: (agentId: string, name: string) =>
       handleRenameSession(deps, agentId, name),
+
+    setWorkspace: (
+      agentId: string,
+      input: { path: string | null; baseBranch?: string | null }
+    ) => handleSetWorkspace(deps, agentId, input),
 
     jobComplete: (agentId: string, report: unknown) =>
       handleJobComplete(deps, agentId, report),
@@ -1339,23 +964,18 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
     ) => handleArchiveAgent(deps, agentId, input),
 
-    shareMedia: (agentId: string, opts: ShareMediaInput) =>
-      handleShareMedia(deps, agentId, opts),
-
-    sendMessage: (
-      agentId: string,
-      input: { target: string; message: string; senderRepoRoot: string | null }
-    ) => handleSendMessage(deps, agentId, input),
+    shareFile: (agentId: string, opts: ShareFileInput) =>
+      handleShareFile(deps, agentId, opts),
 
     listAgentsForAgent: (agentId: string, senderRepoRoot: string | null) =>
       handleListAgentsForAgent(deps, agentId, senderRepoRoot),
 
-    listMedia: (
+    listFiles: (
       agentId: string,
       opts: { source?: string; ownerAgentId?: string }
-    ) => handleListMedia(deps, agentId, opts),
+    ) => handleListFiles(deps, agentId, opts),
 
-    deleteMedia: (agentId: string, fileName: string) =>
-      handleDeleteMedia(deps, agentId, fileName),
+    deleteFile: (agentId: string, fileName: string) =>
+      handleDeleteFile(deps, agentId, fileName),
   };
 }

@@ -42,10 +42,10 @@ function applyTestFileFilter(
 
 /**
  * Server-pushed diff stats for one agent. Live updates flow through
- * `agent.diff_state_changed` SSE whenever the agent emits a status event,
+ * `agent.diff_state_changed` SSE when ACP reports live activity,
  * which covers the common "agent is actively working" case. While the
  * panel is open we also poll on a slow cadence and refetch on tab focus
- * so the badge stays current during quiet periods (no agent events) and
+ * so the badge stays current during quiet periods (no ACP activity) and
  * after returning from another tab. `refresh()` is the tap-to-refresh
  * entry point. Polling stops automatically when `enabled` flips false.
  *

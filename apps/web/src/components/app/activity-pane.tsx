@@ -16,35 +16,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  formatDuration,
-  formatShortDate,
-  formatTokenCount,
-} from "@/lib/format";
+import { formatTokenCount } from "@/lib/format";
 import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
-  useActiveHours,
-  useActivityHeatmap,
-  useActivityStats,
-  useAgentsCreated,
-  useDailyStatus,
   useTokenStats,
   useTokenDaily,
   useTokenByModel,
   useTokenByProject,
-  useWorkingTimeByProject,
   rangeLabel,
   type ActivityRange,
 } from "@/hooks/use-activity";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
-import { DailyStackedBarChart } from "@/components/app/activity-status-chart";
 import { DailyTokenChart } from "@/components/app/activity-token-chart";
 import {
   ModelBreakdown,
   ProjectBreakdown,
 } from "@/components/app/activity-breakdowns";
-import { ActiveHoursGrid, Heatmap } from "@/components/app/activity-heatmaps";
 import type { TokenStats } from "@/hooks/use-activity";
 
 type ActivityTab = "metrics" | "history";
@@ -132,25 +120,10 @@ export function ActivityPane({
   const isDaily = range === "daily";
   const dailyDateParam = isDaily ? dailyDate : undefined;
 
-  const { data: heatmapData } = useActivityHeatmap();
-  const { data: stats } = useActivityStats(range, dailyDateParam);
-  const { data: dailyStatus } = useDailyStatus(range, dailyDateParam);
-  const { data: activeHours } = useActiveHours(range, dailyDateParam);
   const { data: tokenStats } = useTokenStats(range, dailyDateParam);
   const { data: tokenDaily } = useTokenDaily(range, dailyDateParam);
   const { data: tokenByModel } = useTokenByModel(range, dailyDateParam);
   const { data: tokenByProject } = useTokenByProject(range, dailyDateParam);
-  const { data: agentsCreated } = useAgentsCreated(range, dailyDateParam);
-  const { data: workingTimeByProject } = useWorkingTimeByProject(
-    range,
-    dailyDateParam
-  );
-
-  const hasData =
-    stats &&
-    (stats.totalWorkingMs > 0 ||
-      stats.avgBlockedMs > 0 ||
-      stats.avgWaitingMs > 0);
   const totalTokens = tokenStats
     ? tokenStats.total_input +
       tokenStats.total_cache_creation +
@@ -158,9 +131,6 @@ export function ActivityPane({
       tokenStats.total_output
     : 0;
   const hasTokenData = totalTokens > 0;
-  const hasActiveHourData =
-    activeHours?.some((cell) => cell.count > 0) ?? false;
-
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Header with range selector */}
@@ -236,12 +206,6 @@ export function ActivityPane({
                   value={tokenStats.total_sessions}
                   sub={`${tokenStats.total_messages} messages`}
                 />
-                {agentsCreated && agentsCreated.total > 0 && (
-                  <StatCard
-                    label="Agents created"
-                    value={agentsCreated.total}
-                  />
-                )}
               </div>
             )}
 
@@ -260,7 +224,6 @@ export function ActivityPane({
                 <DailyTokenChart
                   data={tokenDaily.days}
                   granularity={tokenDaily.granularity}
-                  agentsCreatedData={agentsCreated?.days}
                   dailyDate={dailyDateParam}
                 />
               </div>
@@ -282,98 +245,17 @@ export function ActivityPane({
                     <h2 className="mb-3 text-sm font-medium text-foreground">
                       By project
                     </h2>
-                    <ProjectBreakdown
-                      data={tokenByProject}
-                      workingTime={workingTimeByProject}
-                    />
+                    <ProjectBreakdown data={tokenByProject} />
                   </div>
                 )}
               </div>
             ) : null}
 
-            <div>
-              <h2 className="mb-3 text-sm font-medium text-foreground">
-                Activity this year
-              </h2>
-              {heatmapData ? (
-                <Heatmap data={heatmapData} />
-              ) : (
-                <div className="h-24 animate-pulse rounded-md bg-muted/30" />
-              )}
-            </div>
-
-            {activeHours && activeHours.length > 0 && hasActiveHourData && (
-              <div className="min-w-0">
-                <h2 className="mb-1 text-sm font-medium text-foreground">
-                  Active hours
-                </h2>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  {isDaily
-                    ? "Active-state events by weekday and hour for the selected day."
-                    : range === "7d"
-                      ? "Active-state events by weekday and hour for the last 7 days."
-                      : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
-                </p>
-                <ActiveHoursGrid data={activeHours} range={range} />
+            {!hasTokenData && (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                No token usage yet.
               </div>
             )}
-
-            {stats && hasData && (
-              <div className="flex flex-wrap gap-2 sm:gap-3">
-                <StatCard
-                  label="Total working time"
-                  value={formatDuration(stats.totalWorkingMs)}
-                />
-                <StatCard
-                  label="Avg blocked time"
-                  value={formatDuration(stats.avgBlockedMs)}
-                />
-                <StatCard
-                  label="Avg waiting time"
-                  value={formatDuration(stats.avgWaitingMs)}
-                />
-                <StatCard
-                  label="Busiest day"
-                  value={
-                    stats.busiestDay ? formatShortDate(stats.busiestDay) : "—"
-                  }
-                  sub={
-                    stats.busiestDayCount > 0
-                      ? `${stats.busiestDayCount} events`
-                      : undefined
-                  }
-                />
-              </div>
-            )}
-
-            {dailyStatus && dailyStatus.days.length > 0 && (
-              <div>
-                <h2 className="mb-3 text-sm font-medium text-foreground">
-                  Status breakdown (
-                  {isDaily
-                    ? new Date(dailyDate + "T00:00:00").toLocaleDateString(
-                        undefined,
-                        { month: "short", day: "numeric" }
-                      )
-                    : rangeLabel(range).toLowerCase()}
-                  )
-                </h2>
-                <DailyStackedBarChart
-                  data={dailyStatus.days}
-                  granularity={dailyStatus.granularity}
-                  dailyDate={dailyDateParam}
-                />
-              </div>
-            )}
-
-            {stats &&
-              !hasData &&
-              (!heatmapData || heatmapData.length === 0) &&
-              !hasTokenData && (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                  No activity yet. Stats will appear here as agents run.
-                </div>
-              )}
           </div>
         </ScrollArea>
       )}

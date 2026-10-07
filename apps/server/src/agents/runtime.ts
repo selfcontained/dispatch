@@ -1,174 +1,199 @@
+import type { AgentInputState } from "@dispatch/shared";
+import type { AgentPermissionsResponse } from "@dispatch/shared";
+import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../config.js";
-
-import { createTmuxRuntime } from "./tmux/runtime.js";
+import type { DriverEvent } from "./acp/driver.js";
+import type {
+  AvailableCommand,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
+import type { AcpEngineId, EngineBins } from "./acp/engine-spec.js";
+import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
 
 /**
- * What the manager hands to `runtime.launch()` to start (or restart) a
- * session. Two payload flavors:
- *
- * - `setup-script`: write a bash script and run it inside the session.
- *   Used by createAgent — the script handles worktree creation, .env
- *   copy, deps install, and finally execs into the agent CLI itself.
- * - `agent-command`: run a single bash command inside the session.
- *   Used by startAgent (restart) since the worktree already exists.
- *
- * Conspicuously absent from the payload: file paths, log paths, exit
- * files. Those are runtime-owned implementation details — the manager
- * supplies *what to run*, the runtime decides *where to write artifacts
- * and how to capture exit codes*. Diagnostic readouts come back through
- * `readSetupLogTail` / `readExitInfo`, which know the runtime's own
- * conventions.
+ * What the manager hands to `runtime.launch()` to start an agent's host.
+ * The workspace (worktree, deps) already exists; this is only about the
+ * process. See docs/design/acp-runtime.md.
  */
-export type LaunchInput = {
-  sessionName: string;
-  cwd: string;
+export type RuntimeLaunch = {
   agentId: string;
-  payload:
-    | { kind: "setup-script"; scriptContent: string }
-    | { kind: "agent-command"; command: string };
+  cwd: string;
+  engine: AcpEngineId;
+  /** Missing only in launch files written before permission support (full access). */
+  fullAccess?: boolean;
+  bins: EngineBins;
+  /** The model to select after the session opens; null keeps the engine's default. */
+  model: string | null;
+  systemPrompt: string | null;
+  /** Persona task context delivered with the first ordinary prompt, including on resume. */
+  personaContext?: string | null;
+  mcp: { url: string; token: string };
+  /** Environment additions for the engine child (DISPATCH_*, files dir). */
+  env: Record<string, string>;
+  /** Directories the engine child's PATH is prefixed with. */
+  pathPrefix: string[];
+  /** Resume this ACP session; null opens a new one. */
+  resumeSessionId: string | null;
 };
 
+export type RuntimeEventListener = (
+  agentId: string,
+  event: DriverEvent,
+  seq: number
+) => Promise<void> | void;
+
 /**
- * Abstraction over "where the agent's process lives." The two
- * implementations — `TmuxRuntime` and `InertRuntime` — let the manager
- * write a single launch/stop/inspect flow that doesn't have to branch
- * on `config.agentRuntime` at every call site.
- *
- * Methods report runtime *facts*, not policy. When a runtime can't
- * answer something honestly (e.g. inert mode has no session state, no
- * pid to walk), it returns `false` / `null` / `[]` rather than fabricating
- * a soft default. The manager applies its own fallback / reconciliation
- * policy on top — see `tracksSessions()` for the explicit capability
- * predicate the reconciler uses to decide when missing-session means
- * "agent died" vs. "this runtime has no notion of session state."
+ * Where an agent's process lives. The manager writes one launch, stop,
+ * prompt and reconcile flow against this and never branches on which
+ * implementation is behind it: `AcpRuntime` (a host process per agent) or
+ * `InertRuntime` (no processes; e2e and tests).
  */
+/** What a person can do to a post still waiting in an agent's queue. */
+export type QueuedPromptAction = "delete" | "send-now" | "interrupt";
+
 export type AgentRuntime = {
+  /** Whether hosts are real processes whose absence means the agent died. */
+  tracksProcesses(): boolean;
+  /** Spawn the host, connect, and wait for a running engine. Throws on failure. */
+  launch(
+    input: RuntimeLaunch
+  ): Promise<{ sessionId: string; resumed: boolean }>;
+  /** Reconnect to a host that outlived the server; false when it is gone. */
+  attach(agentId: string): Promise<boolean>;
+  isAlive(agentId: string): Promise<boolean>;
+  /** Commands the live ACP session advertises; null without a live host. */
+  getCommands(agentId: string): AvailableCommand[] | null;
+  /** The live session's config options (model, effort, mode); null without a live host. */
+  getConfigOptions(agentId: string): SessionConfigOption[] | null;
+  getPermissions(agentId: string): AgentPermissionsResponse;
+  answerPermission(
+    agentId: string,
+    requestId: string,
+    optionId: string | null
+  ): Promise<void>;
   /**
-   * Whether this runtime backs sessions with real OS state that can be
-   * polled. `true` for tmux (sessions are processes that can crash);
-   * `false` for inert (no sessions exist; the manager's DB is the only
-   * source of truth).
-   *
-   * The reconciler uses this to decide whether `hasSession() === false`
-   * means "agent died, transition to stopped" vs. "this runtime can't
-   * tell, leave the DB row alone." Synchronous because it's a static
-   * capability declared at runtime construction time, not state.
+   * Set one config option on the live session. Resolves with the engine's
+   * options once it took the value; the `config` event follows as usual.
    */
-  tracksSessions(): boolean;
-
-  /** Start (or fast-fail) a new session. Throws on launch failure. */
-  launch(input: LaunchInput): Promise<void>;
+  setConfigOption(
+    agentId: string,
+    configId: string,
+    value: string
+  ): Promise<SessionConfigOption[]>;
   /**
-   * Kill a session if one already exists at this name. No-op when the
-   * runtime has nothing to collide with.
+   * Queue one turn. `accepted` resolves when the engine has the prompt
+   * (after any turn already running); `settled` when the turn ends.
    */
-  ensureNoExistingSession(sessionName: string): Promise<void>;
+  prompt(
+    agentId: string,
+    text: string,
+    /**
+     * What the prompt is, for Dispatch's own bookkeeping: it comes back on
+     * the turn's started event, so the stream knows which block opened the
+     * turn without reading the envelope back out of the text.
+     */
+    source?: PromptSource,
+    /**
+     * `alone`: never combine this prompt with others waiting beside it. A
+     * post sent to interrupt is the point of its own turn.
+     */
+    opts?: PromptOptions
+  ): { accepted: Promise<void>; settled: Promise<void> };
   /**
-   * Tear down a session. When `force=false`, sends Ctrl-C and waits a
-   * short grace period before kill — gives the agent CLI a chance to
-   * flush state. `force=true` skips the grace.
+   * Atomically claim an unsent post at every recipient. `send-now` steers
+   * it into the running turn; `interrupt` stops that turn and gives the post
+   * its own turn next.
    */
-  stopSession(sessionName: string, force: boolean): Promise<void>;
-  /**
-   * Whether a session currently exists by this name. In runtimes that
-   * don't track session state (`tracksSessions() === false`), this
-   * returns `false` for everything — callers should consult
-   * `tracksSessions()` before drawing conclusions from a `false` result.
-   */
-  hasSession(sessionName: string): Promise<boolean>;
-  /**
-   * Best-effort current working directory of the agent process inside
-   * `sessionName`. Returns `null` when the runtime cannot determine the
-   * cwd (no session-state tracking, probe failed, no agent CLI in the
-   * pane, etc.) so callers can apply their own fallback explicitly.
-   */
-  getCurrentCwd(args: {
-    sessionName: string;
-    agentId: string;
-  }): Promise<string | null>;
-  /**
-   * List sessions whose names start with `prefix`. Used by the
-   * reconciler to find orphaned sessions. Returns `[]` in runtimes that
-   * don't track session state.
-   */
-  listSessions(
-    prefix: string
-  ): Promise<Array<{ name: string; createdAt: number }>>;
-  /** Kill a single session by name. Errors are swallowed. */
-  killSession(sessionName: string): Promise<void>;
-  /**
-   * Read the recorded exit code for a session that has terminated. The
-   * runtime owns the storage convention (e.g. tmux runtime captures
-   * `EXIT:N` to a temp file via the launch wrapper). Returns `null` if
-   * no record exists or the runtime doesn't capture exits.
-   */
-  readExitInfo(sessionName: string): Promise<number | null>;
-  /**
-   * Tail of the session's stderr log, formatted for inclusion in error
-   * messages. Returns the empty string when no log exists or the
-   * runtime doesn't capture stderr.
-   */
-  readSetupLogTail(idOrSession: string): Promise<string>;
+  controlQueuedPrompt(
+    agentIds: string[],
+    blockId: string,
+    action: QueuedPromptAction
+  ): boolean;
+  /** A turn is running or prompts are waiting behind one. */
+  isBusy(agentId: string): boolean;
+  /** A turn is actually running, excluding prompts waiting in the queue. */
+  hasOpenTurn(agentId: string): boolean;
+  inputState?(agentId: string): AgentInputState;
+  cancel(agentId: string): Promise<void>;
+  /** Shut the host down; `force` skips the graceful ACP close. */
+  stop(agentId: string, force: boolean): Promise<void>;
+  /** Agents with a live host, for the reconciler. */
+  listHosted(): Promise<string[]>;
+  /** The host's pid when it is alive; the root of the agent's process tree. */
+  hostPid(agentId: string): Promise<number | null>;
+  /** Events in seq order, each delivered once. Listeners run serially per agent. */
+  onEvent(listener: RuntimeEventListener): () => void;
+  /** Tail of the host's log, for error messages. */
+  readLogTail(agentId: string): Promise<string>;
+  /** Remove the agent's state directory (archive). */
+  discard(agentId: string): Promise<void>;
 };
 
-/**
- * Build the runtime appropriate for the current config. The factory
- * dispatches once at construction time so the manager doesn't have to
- * branch on `config.agentRuntime` afterward.
- */
 export function createAgentRuntime(
   config: AppConfig,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  deps: Pick<AcpRuntimeDeps, "hostSeq" | "syncJournal">
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {
     return createInertRuntime();
   }
-  return createTmuxRuntime(logger);
+  return createAcpRuntime({ config, logger, ...deps });
 }
 
 /**
- * Inert runtime: no real sessions, no process state, no exit codes.
- * Methods report runtime facts honestly — `hasSession` returns `false`
- * because no sessions exist; callers that want "agent is logically
- * registered" semantics should consult `tracksSessions()` first
- * (returns `false`) and fall back to the agent's DB row.
+ * Inert runtime: no hosts, no engines. Prompts resolve at once and are
+ * dropped; every agent reads as alive so the reconciler leaves the DB rows
+ * alone. What e2e runs against when no engine is installed.
  */
-function createInertRuntime(): AgentRuntime {
+export function createInertRuntime(): AgentRuntime {
   return {
-    tracksSessions(): boolean {
-      return false;
+    tracksProcesses: () => false,
+    async launch() {
+      return { sessionId: "inert", resumed: false };
     },
-    async launch(): Promise<void> {
-      // Nothing to do — the manager's inert-mode createAgent path does
-      // its workspace setup synchronously before reaching launch.
+    async attach() {
+      return true;
     },
-    async ensureNoExistingSession(): Promise<void> {
-      // No tmux state to collide with.
+    async isAlive() {
+      return true;
     },
-    async stopSession(): Promise<void> {
-      // No process to stop.
-    },
-    async hasSession(): Promise<boolean> {
-      // No real sessions exist in inert mode. The manager checks
-      // `tracksSessions()` before treating `false` as "agent died."
-      return false;
-    },
-    async getCurrentCwd(): Promise<string | null> {
+    getCommands() {
       return null;
     },
-    async listSessions(): Promise<Array<{ name: string; createdAt: number }>> {
+    getConfigOptions() {
+      return null;
+    },
+    getPermissions() {
+      return { connected: false, requests: [] };
+    },
+    async answerPermission() {
+      throw new Error("No engine is attached in this environment.");
+    },
+    async setConfigOption() {
+      throw new Error("No engine is attached in this environment.");
+    },
+    prompt() {
+      return { accepted: Promise.resolve(), settled: Promise.resolve() };
+    },
+    controlQueuedPrompt: () => false,
+    isBusy: () => false,
+    hasOpenTurn: () => false,
+    async cancel() {},
+    async stop() {},
+    async listHosted() {
       return [];
     },
-    async killSession(): Promise<void> {
-      // Nothing to kill.
-    },
-    async readExitInfo(): Promise<number | null> {
+    async hostPid() {
       return null;
     },
-    async readSetupLogTail(): Promise<string> {
+    onEvent() {
+      return () => {};
+    },
+    async readLogTail() {
       return "";
     },
+    async discard() {},
   };
 }

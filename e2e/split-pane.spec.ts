@@ -11,9 +11,7 @@ async function waitForAppShell(
   await page
     .getByTestId("agent-sidebar")
     .waitFor({ state: "visible", timeout });
-  await page
-    .getByTestId("terminal-pane")
-    .waitFor({ state: "visible", timeout });
+  await page.getByTestId("agent-pane").waitFor({ state: "visible", timeout });
   await page
     .getByTestId("agent-sidebar")
     .getByText(agentName)
@@ -37,7 +35,7 @@ async function seedSplitState(
       `dispatch:splitPaneV2:${id}`,
       JSON.stringify({
         mode: "split",
-        left: "terminal",
+        left: "agent",
         right: "changes",
         sizes: [50, 50],
       })
@@ -70,7 +68,7 @@ test.describe("Split pane", () => {
     await expect(page.getByTestId("unsplit-button")).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(page.getByTestId("agent-pane")).toBeVisible();
   });
 
   test("unsplit button exits split mode", async ({ page, request }) => {
@@ -89,13 +87,13 @@ test.describe("Split pane", () => {
     await expect(unsplitBtn).toBeVisible({ timeout: 10_000 });
 
     // While split, both tabs are rendered as panes — tab bar is empty.
-    await expect(page.getByTestId("center-tab-terminal")).not.toBeVisible();
+    await expect(page.getByTestId("center-tab-agent")).not.toBeVisible();
     await expect(page.getByTestId("center-tab-changes")).not.toBeVisible();
 
     await unsplitBtn.click();
 
     await expect(unsplitBtn).not.toBeVisible();
-    await expect(page.getByTestId("center-tab-terminal")).toBeVisible();
+    await expect(page.getByTestId("center-tab-agent")).toBeVisible();
     await expect(page.getByTestId("center-tab-changes")).toBeVisible();
   });
 
@@ -111,7 +109,7 @@ test.describe("Split pane", () => {
     await waitForAppShell(page, agent.name);
 
     // Before splitting, both tabs are visible in the center bar.
-    await expect(page.getByTestId("center-tab-terminal")).toBeVisible();
+    await expect(page.getByTestId("center-tab-agent")).toBeVisible();
     await expect(page.getByTestId("center-tab-changes")).toBeVisible();
 
     await seedSplitState(page, agent.id);
@@ -121,9 +119,9 @@ test.describe("Split pane", () => {
       timeout: 10_000,
     });
 
-    // Terminal and Changes are both placed in split panes (left + right),
+    // Agent and Changes are both placed in split panes (left + right),
     // so neither appears as a tab in the center bar.
-    await expect(page.getByTestId("center-tab-terminal")).not.toBeVisible();
+    await expect(page.getByTestId("center-tab-agent")).not.toBeVisible();
     await expect(page.getByTestId("center-tab-changes")).not.toBeVisible();
   });
 
@@ -131,12 +129,8 @@ test.describe("Split pane", () => {
     page,
     request,
   }) => {
-    // With only two center tabs (terminal/changes), a split always places
-    // both of them in panes, leaving the tab bar empty — so there is no
-    // visible tab to click "while split" to exercise the exitSplit() path
-    // through the tab bar's onClick handler. Instead, verify that once
-    // split mode is exited, the tab bar is restored and switching between
-    // tabs navigates as expected.
+    // Verify that once split mode is exited, the tab bar is restored and
+    // switching between tabs navigates as expected.
     const agent = await createAgentViaAPI(request, {
       name: `e2e-split-tabswitch-${Date.now()}`,
     });
@@ -153,18 +147,18 @@ test.describe("Split pane", () => {
     await unsplitBtn.click();
     await expect(unsplitBtn).not.toBeVisible();
 
-    const terminalTab = page.getByTestId("center-tab-terminal");
+    const agentTab = page.getByTestId("center-tab-agent");
     const changesTab = page.getByTestId("center-tab-changes");
-    await expect(terminalTab).toBeVisible();
+    await expect(agentTab).toBeVisible();
     await expect(changesTab).toBeVisible();
 
     await changesTab.click();
     await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}/changes$`));
     await expect(changesTab).toHaveAttribute("aria-selected", "true");
 
-    await terminalTab.click();
+    await agentTab.click();
     await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
-    await expect(terminalTab).toHaveAttribute("aria-selected", "true");
+    await expect(agentTab).toHaveAttribute("aria-selected", "true");
   });
 
   test("split mode is ignored on mobile viewport", async ({
@@ -186,8 +180,8 @@ test.describe("Split pane", () => {
 
     // The unsplit button should NOT appear — mobile forces single-pane mode.
     await expect(page.getByTestId("unsplit-button")).not.toBeVisible();
-    // Terminal pane should still be visible in single-pane mode.
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    // The Agent pane should still be visible in single-pane mode.
+    await expect(page.getByTestId("agent-pane")).toBeVisible();
   });
 
   test("drag tab to split and unsplit via button", async ({
@@ -237,11 +231,10 @@ test.describe("Split pane", () => {
     await page.evaluate(() => {
       const dt = (window as unknown as { __e2eDragDt: DataTransfer })
         .__e2eDragDt;
-      // Content area: two levels up from terminal-pane — past the
+      // Content area: two levels up from agent-pane — past the
       // tab-content wrapper to the container with the onDragOver handler.
-      const contentArea = document.querySelector(
-        '[data-testid="terminal-pane"]'
-      )?.parentElement?.parentElement as HTMLElement;
+      const contentArea = document.querySelector('[data-testid="agent-pane"]')
+        ?.parentElement?.parentElement as HTMLElement;
       const rect = contentArea.getBoundingClientRect();
       for (const type of ["dragenter", "dragover"]) {
         const event = new DragEvent(type, {
@@ -286,7 +279,7 @@ test.describe("Split pane", () => {
     await unsplitBtn.click();
     await expect(unsplitBtn).not.toBeVisible();
 
-    await expect(page.getByTestId("center-tab-terminal")).toBeVisible();
+    await expect(page.getByTestId("center-tab-agent")).toBeVisible();
     await expect(page.getByTestId("center-tab-changes")).toBeVisible();
   });
 });

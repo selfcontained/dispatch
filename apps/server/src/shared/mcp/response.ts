@@ -12,9 +12,9 @@
  * 2. A list-shaped tool returns a lean projection, and there is always an
  *    explicit way to read one entry in full. Exactly two shapes are sanctioned:
  *      - a separate single-item tool (`get_template`, `brain_get_object`,
- *        `brain_get_event`, `brain_get_list_item`, `dispatch_review_get_feedback`);
+ *        `brain_get_event`, `brain_get_list_item`, `review_get_feedback`);
  *      - an **identity selector** on the list tool itself — an input that names
- *        one entry and can mean nothing else (`dispatch_list_pins` with `id`,
+ *        one entry and can mean nothing else (`list_pins` with `id`,
  *        `get_feedback_summary` with `group`). This costs no extra tool.
  *    A *cardinality* control must never double as a detail read: `limit: 1`
  *    asks for a small response, not an unbounded one, and overloading it makes

@@ -5,10 +5,12 @@ import {
   type DispatchAgent,
   type WorkerRequest,
   type WorkerResponse,
+  type SubmissionReceipt,
 } from "./types";
 import { normalizeDispatchBaseUrl } from "./lib/dispatch-url";
 import { buildDeviceName } from "./lib/device-name";
 
+const SUBMISSION_KEY = "dispatchLastSubmission";
 const CONNECTION_KEY = "dispatchConnection";
 const DEVICE_NAME_KEY = "dispatchDeviceName";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -112,23 +114,28 @@ async function fetchJson<T>(
 
 async function authenticatedFetch<T>(
   path: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  expectedStatuses = [200]
 ): Promise<T> {
   const connection = await getConnection();
   if (!connection) throw new Error("Connect this extension to Dispatch first.");
 
   try {
-    return await fetchJson<T>(`${connection.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${connection.token}`,
-        "Content-Type": "application/json",
-        ...init.headers,
+    return await fetchJson<T>(
+      `${connection.baseUrl}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${connection.token}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
       },
-    });
+      expectedStatuses
+    );
   } catch (error) {
     if (error instanceof HttpStatusError && error.status === 401) {
-      await chrome.storage.local.remove(CONNECTION_KEY);
+      await chrome.storage.local.remove([CONNECTION_KEY, SUBMISSION_KEY]);
     }
     throw error;
   }
@@ -153,7 +160,7 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
       } catch {
         revokedRemotely = false;
       } finally {
-        await chrome.storage.local.remove(CONNECTION_KEY);
+        await chrome.storage.local.remove([CONNECTION_KEY, SUBMISSION_KEY]);
       }
       return { ok: true, data: { revokedRemotely } };
     }
@@ -192,6 +199,7 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
         }
       );
       if (result.status === "approved" && result.token) {
+        await chrome.storage.local.remove(SUBMISSION_KEY);
         await chrome.storage.local.set({
           [CONNECTION_KEY]: {
             baseUrl,
@@ -207,7 +215,36 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
       );
       return { ok: true, data: result };
     }
+    case "submission:latest": {
+      const connection = await getConnection();
+      const stored = await chrome.storage.local.get(SUBMISSION_KEY);
+      const latest = stored[SUBMISSION_KEY] as
+        | { baseUrl: string; clientId: string }
+        | undefined;
+      if (!connection || !latest || latest.baseUrl !== connection.baseUrl)
+        return { ok: true, data: null };
+      try {
+        const receipt = await authenticatedFetch<SubmissionReceipt>(
+          `/api/v1/browser-extension/submissions/${encodeURIComponent(latest.clientId)}`
+        );
+        return { ok: true, data: receipt };
+      } catch (error) {
+        if (error instanceof HttpStatusError && error.status === 404)
+          return { ok: true, data: null };
+        throw error;
+      }
+    }
     case "submission:create": {
+      const connection = await getConnection();
+      if (!connection)
+        throw new Error("Connect this extension to Dispatch first.");
+      // Save before sending: a lost HTTP response can be reconciled on reopen.
+      await chrome.storage.local.set({
+        [SUBMISSION_KEY]: {
+          baseUrl: connection.baseUrl,
+          clientId: request.clientSubmissionId,
+        },
+      });
       const body: {
         clientSubmissionId: string;
         agentId: string;
@@ -223,9 +260,10 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
         element: request.selection.element,
         ...(request.screenshot ? { screenshot: request.screenshot } : {}),
       };
-      const result = await authenticatedFetch<unknown>(
+      const result = await authenticatedFetch<SubmissionReceipt>(
         "/api/v1/browser-extension/submissions",
-        { method: "POST", body: JSON.stringify(body) }
+        { method: "POST", body: JSON.stringify(body) },
+        [200, 202]
       );
       return { ok: true, data: result };
     }

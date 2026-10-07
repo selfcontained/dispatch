@@ -14,7 +14,7 @@ import {
   type CreateAgentBody,
   type StartupFileUpload,
   MAX_STARTUP_FILE_COUNT,
-  createStartupPins,
+  validateStartupLinks,
   parseCreateAgentRequest,
   parseOptionalBooleanField,
   parseOptionalStringArrayField,
@@ -27,6 +27,7 @@ import {
   type AgentRouteDeps,
 } from "./shared.js";
 import { validateAgentModel } from "../../shared/agent-models.js";
+import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
 
 export async function registerAgentCrudRoutes(
   app: FastifyInstance,
@@ -82,7 +83,8 @@ export async function registerAgentCrudRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const iconRelPath = agent.gitContext?.repoIconPath;
+    const baseDir = agent.launchCwd ?? agent.gitContext?.repoRoot ?? agent.cwd;
+    const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir);
     if (!iconRelPath) {
       return reply.code(404).send({ error: "No repo icon." });
     }
@@ -92,8 +94,6 @@ export async function registerAgentCrudRoutes(
       return reply.code(400).send({ error: "Invalid icon extension." });
     }
 
-    const baseDir =
-      agent.gitContext?.worktreePath ?? agent.worktreePath ?? agent.cwd;
     const iconAbsPath = path.join(baseDir, iconRelPath);
 
     let realIconPath: string;
@@ -162,7 +162,6 @@ export async function registerAgentCrudRoutes(
     let fullAccess: boolean | undefined;
     let useWorktree: boolean | undefined;
     let createNewBranch: boolean | undefined;
-    let autoReview: boolean | undefined;
 
     try {
       parsedAgentArgs = parseOptionalStringArrayField(
@@ -190,11 +189,6 @@ export async function registerAgentCrudRoutes(
         "createNewBranch",
         parsedRequest.isMultipart
       );
-      autoReview = parseOptionalBooleanField(
-        body.autoReview,
-        "autoReview",
-        parsedRequest.isMultipart
-      );
     } catch (error) {
       return reply.code(400).send({
         error: errorMessage(error),
@@ -207,6 +201,15 @@ export async function registerAgentCrudRoutes(
     ) {
       return reply.code(400).send({
         error: `type must be ${AGENT_TYPES.join(", ")} when provided.`,
+      });
+    }
+
+    // The MCP launch tool calls this field agentType; here it is type. An
+    // engine named under the wrong key would otherwise be ignored and the
+    // agent quietly launched as the default engine.
+    if (body.agentType !== undefined) {
+      return reply.code(400).send({
+        error: "Name the engine with type, not agentType.",
       });
     }
 
@@ -252,7 +255,7 @@ export async function registerAgentCrudRoutes(
     const agentType: AgentType =
       body.type && AGENT_TYPES.includes(body.type as AgentType)
         ? (body.type as AgentType)
-        : "codex";
+        : "claude";
     const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
     if (!enabledAgentTypes.includes(agentType)) {
       return reply
@@ -260,7 +263,6 @@ export async function registerAgentCrudRoutes(
         .send({ error: `${agentType} agents are disabled in settings.` });
     }
 
-    const isTerminalAgent = agentType === "terminal";
     let model: string | undefined;
     try {
       model = validateAgentModel(
@@ -277,13 +279,13 @@ export async function registerAgentCrudRoutes(
           ? CODEX_FULL_ACCESS_ARG
           : null;
     const resolvedAgentArgs =
-      !isTerminalAgent && fullAccess === true && fullAccessArg
+      fullAccess === true && fullAccessArg
         ? Array.from(new Set([...(parsedAgentArgs ?? []), fullAccessArg]))
         : parsedAgentArgs;
 
-    let startupPins: ReturnType<typeof createStartupPins>;
+    let links: string[];
     try {
-      startupPins = createStartupPins(startupLinks ?? []);
+      links = validateStartupLinks(startupLinks ?? []);
     } catch (error) {
       return reply.code(400).send({
         error: errorMessage(error),
@@ -293,51 +295,52 @@ export async function registerAgentCrudRoutes(
     try {
       const worktreeLocation = await getWorktreeLocation(deps.pool);
 
-      const agent = await deps.agentManager.createAgent({
-        name: typeof body.name === "string" ? body.name : undefined,
-        type: agentType,
-        cwd: body.cwd,
-        agentArgs: resolvedAgentArgs,
-        model,
-        fullAccess: !isTerminalAgent && fullAccess === true,
-        useWorktree,
-        createNewBranch,
-        worktreeBranch:
-          typeof body.worktreeBranch === "string"
-            ? body.worktreeBranch
-            : undefined,
-        baseBranch:
-          typeof body.baseBranch === "string" ? body.baseBranch : undefined,
-        worktreeLocation,
-        persona: typeof body.persona === "string" ? body.persona : undefined,
-        parentAgentId:
-          typeof body.parentAgentId === "string"
-            ? body.parentAgentId
-            : undefined,
-        personaContext:
-          typeof body.personaContext === "string"
-            ? body.personaContext
-            : undefined,
-        autoReview: !isTerminalAgent && autoReview === true,
-        initialPrompt:
-          !isTerminalAgent && typeof body.initialPrompt === "string"
-            ? body.initialPrompt.trim() || undefined
-            : undefined,
-        launchContext: {
-          prompt:
-            !isTerminalAgent && typeof body.initialPrompt === "string"
+      const agent = await deps.agentManager.createAgent(
+        {
+          name: typeof body.name === "string" ? body.name : undefined,
+          type: agentType,
+          cwd: body.cwd,
+          agentArgs: resolvedAgentArgs,
+          model,
+          fullAccess: fullAccess === true,
+          useWorktree,
+          createNewBranch,
+          worktreeBranch:
+            typeof body.worktreeBranch === "string"
+              ? body.worktreeBranch
+              : undefined,
+          baseBranch:
+            typeof body.baseBranch === "string" ? body.baseBranch : undefined,
+          worktreeLocation,
+          persona: typeof body.persona === "string" ? body.persona : undefined,
+          parentAgentId:
+            typeof body.parentAgentId === "string"
+              ? body.parentAgentId
+              : undefined,
+          personaContext:
+            typeof body.personaContext === "string"
+              ? body.personaContext
+              : undefined,
+          initialPrompt:
+            typeof body.initialPrompt === "string"
               ? body.initialPrompt.trim() || undefined
               : undefined,
-          links: !isTerminalAgent ? (startupLinks ?? []) : [],
+          launchContext: {
+            prompt:
+              typeof body.initialPrompt === "string"
+                ? body.initialPrompt.trim() || undefined
+                : undefined,
+            links,
+          },
+          initialFiles: startupFiles,
         },
-        initialPins: !isTerminalAgent ? startupPins : [],
-        initialFiles: !isTerminalAgent ? startupFiles : [],
-      });
+        { detachLaunch: true }
+      );
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      return reply.code(201).send({ agent });
+      return reply.code(201).send({ agent: deps.withStreamFlag(agent) });
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }

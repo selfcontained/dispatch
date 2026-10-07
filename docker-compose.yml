@@ -11,7 +11,14 @@ services:
       POSTGRES_PASSWORD: dispatch
       POSTGRES_DB: dispatch_${DISPATCH_DB_NAME:-dev}
     ports:
-      - "${DISPATCH_DB_PORT:-5433}:5432"
+      # Only local dev/test services need direct database access.
+      - "127.0.0.1:${DISPATCH_DB_PORT:-5433}:5432"
+    volumes:
+      # A named volume, so the data belongs to the stack rather than to the
+      # container: `dispatch-dev down` can remove the container and give it
+      # back on the next `up`, on whatever port is free then. Removed only
+      # by `down --wipe` (and by the test harnesses, which always pass -v).
+      - db-data:/var/lib/postgresql/data
     healthcheck:
       test:
         [
@@ -21,3 +28,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+volumes:
+  db-data:

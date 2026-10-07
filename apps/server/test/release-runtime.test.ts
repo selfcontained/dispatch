@@ -15,13 +15,20 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createReleaseRuntime } from "../src/server/release-runtime.js";
-import { verifyAndStageRuntime } from "../src/server/release-artifact.js";
+import {
+  assertHostSurvivalOnRestart,
+  createReleaseRuntime,
+} from "../src/server/release-runtime.js";
+import {
+  verifyAndStageRuntime,
+  verifyRecoveryCapability,
+} from "../src/server/release-artifact.js";
 
 const tempDirs: string[] = [];
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -78,17 +85,71 @@ function tarRunCommand(command: string, args: string[]) {
   });
 }
 
+describe("agent host survival gate", () => {
+  it("requires the loaded Linux user service to use KillMode=process", async () => {
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "dispatch-server");
+    const runCommand = vi.fn().mockResolvedValue({
+      stdout: "KillMode=process\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    await expect(
+      assertHostSurvivalOnRestart("linux", runCommand)
+    ).resolves.toBeUndefined();
+    expect(runCommand).toHaveBeenCalledWith("systemctl", [
+      "--user",
+      "show",
+      "dispatch-server.service",
+      "-p",
+      "KillMode",
+    ]);
+
+    runCommand.mockResolvedValueOnce({
+      stdout: "KillMode=control-group\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    await expect(
+      assertHostSurvivalOnRestart("linux", runCommand)
+    ).rejects.toThrow(/unsafe for running agents/);
+    runCommand.mockRejectedValueOnce(new Error("systemctl unavailable"));
+    await expect(
+      assertHostSurvivalOnRestart("linux", runCommand)
+    ).rejects.toThrow(/Cannot verify/);
+  });
+
+  it("checks the unit the installer named, not the 0.x one", async () => {
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "dispatch-server");
+    const runCommand = vi.fn().mockResolvedValue({
+      stdout: "KillMode=process\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    await assertHostSurvivalOnRestart("linux", runCommand);
+    expect(runCommand).toHaveBeenCalledWith("systemctl", [
+      "--user",
+      "show",
+      "dispatch-server.service",
+      "-p",
+      "KillMode",
+    ]);
+    vi.unstubAllEnvs();
+  });
+
+  it("leaves macOS launchd restarts to their detached process groups", async () => {
+    const runCommand = vi.fn();
+    await assertHostSurvivalOnRestart("darwin", runCommand);
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+});
+
 describe("release runtime stream targeting", () => {
   it("sends targeted release events only to the matching stream client", () => {
     const runtime = createReleaseRuntime({
-      pool: { query: vi.fn() } as never,
-      config: { tls: false, port: 6767 } as never,
       serverDir: "/tmp/dispatch",
       runCommand: vi.fn(),
       readReleaseStore: vi.fn(),
       writeReleaseStore: vi.fn(),
-      readAssistedUpdateState: vi.fn(),
-      isTerminalPhase: vi.fn(),
       ensureCachedTarball: vi.fn(),
       pruneCacheExcept: vi.fn(),
       unlinkCachedTarball: vi.fn(),
@@ -123,6 +184,94 @@ describe("release runtime stream targeting", () => {
 });
 
 describe("artifact activation", () => {
+  it.each([undefined, "", "   "])(
+    "refuses missing service configuration before download or activation (%s)",
+    async (value) => {
+      vi.stubEnv("DISPATCH_SERVICE_NAME", value);
+      const root = mkdtempSync(
+        path.join(tmpdir(), "dispatch-missing-service-")
+      );
+      tempDirs.push(root);
+      const livePath = path.join(root, "dispatch");
+      writeFileSync(livePath, "old runtime");
+      const ensureCachedTarball = vi.fn();
+      const writeCandidate = vi.fn();
+      const runCommand = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              tag_name: "v9.9.9",
+              published_at: "2026-01-01T00:00:00Z",
+              html_url: "https://example.test/releases/9.9.9",
+            })
+          )
+        )
+      );
+      const runtime = createReleaseRuntime({
+        serverDir: root,
+        runCommand,
+        readReleaseStore: vi.fn(),
+        writeReleaseStore: vi.fn(),
+        ensureCachedTarball,
+        pruneCacheExcept: vi.fn(),
+        unlinkCachedTarball: vi.fn(),
+        createReleaseLogStreamProcessor: vi.fn(),
+        writeReleaseCandidate: writeCandidate,
+      });
+      const job = updateJob();
+      runtime.setActiveUpdateJob(job);
+      await runtime.runUpdateJob(job);
+      expect(job.phase).toBe("failed");
+      expect(job.error).toContain("DISPATCH_SERVICE_NAME is missing");
+      expect(ensureCachedTarball).not.toHaveBeenCalled();
+      expect(runCommand).not.toHaveBeenCalled();
+      expect(writeCandidate).not.toHaveBeenCalled();
+      expect(readFileSync(livePath, "utf8")).toBe("old runtime");
+    }
+  );
+
+  it("refuses an unsafe service restart before staging the executable", async () => {
+    const tag = "v9.9.9";
+    const ensureCachedTarball = vi.fn();
+    const restartService = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            tag_name: tag,
+            published_at: "2026-01-01T00:00:00Z",
+            html_url: "https://example.test/releases/9.9.9",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    const runtime = createReleaseRuntime({
+      serverDir: "/tmp/dispatch",
+      runCommand: vi.fn(),
+      readReleaseStore: vi.fn(),
+      writeReleaseStore: vi.fn(),
+      ensureCachedTarball,
+      pruneCacheExcept: vi.fn(),
+      unlinkCachedTarball: vi.fn(),
+      createReleaseLogStreamProcessor: vi.fn(),
+      restartService,
+      checkHostSurvival: vi
+        .fn()
+        .mockRejectedValue(new Error("unsafe for running agents")),
+    });
+    const job = updateJob(tag);
+    runtime.setActiveUpdateJob(job);
+    await runtime.runUpdateJob(job);
+    expect(job.phase).toBe("failed");
+    expect(job.error).toContain("unsafe for running agents");
+    expect(ensureCachedTarball).not.toHaveBeenCalled();
+    expect(restartService).not.toHaveBeenCalled();
+  });
+
   it("verifies and atomically activates a release artifact directly", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "dispatch-artifact-"));
     tempDirs.push(root);
@@ -169,21 +318,18 @@ describe("artifact activation", () => {
       )
     );
     const runtime = createReleaseRuntime({
-      pool: { query: vi.fn() } as never,
-      config: { tls: false, port: 6767 } as never,
       serverDir: root,
       runCommand: tarRunCommand,
       readReleaseStore: vi
         .fn()
         .mockResolvedValue({ tag: "v9.9.8", deployedAt: "now" }),
       writeReleaseStore: vi.fn(),
-      readAssistedUpdateState: vi.fn(),
-      isTerminalPhase: vi.fn(),
       ensureCachedTarball: vi.fn().mockResolvedValue({ path: tarball }),
       pruneCacheExcept: vi.fn(),
       unlinkCachedTarball: vi.fn(),
       createReleaseLogStreamProcessor: vi.fn(),
       restartService,
+      checkHostSurvival: vi.fn(),
       writeReleaseCandidate: writeCandidate,
     });
     const job = updateJob(tag);
@@ -225,19 +371,16 @@ describe("artifact activation", () => {
     );
     const unlinkCachedTarball = vi.fn();
     const runtime = createReleaseRuntime({
-      pool: { query: vi.fn() } as never,
-      config: { tls: false, port: 6767 } as never,
       serverDir: root,
       runCommand: tarRunCommand,
       readReleaseStore: vi.fn(),
       writeReleaseStore: vi.fn(),
-      readAssistedUpdateState: vi.fn(),
-      isTerminalPhase: vi.fn(),
       ensureCachedTarball: vi.fn().mockResolvedValue({ path: tarball }),
       pruneCacheExcept: vi.fn(),
       unlinkCachedTarball,
       createReleaseLogStreamProcessor: vi.fn(),
       restartService: vi.fn(),
+      checkHostSurvival: vi.fn(),
       writeReleaseCandidate: vi.fn(),
     });
     const job = updateJob(tag);
@@ -287,19 +430,16 @@ describe("artifact activation", () => {
       );
       const restartService = vi.fn();
       const runtime = createReleaseRuntime({
-        pool: { query: vi.fn() } as never,
-        config: { tls: false, port: 6767 } as never,
         serverDir: root,
         runCommand: tarRunCommand,
         readReleaseStore: vi.fn(),
         writeReleaseStore: vi.fn(),
-        readAssistedUpdateState: vi.fn(),
-        isTerminalPhase: vi.fn(),
         ensureCachedTarball: vi.fn().mockResolvedValue({ path: tarball }),
         pruneCacheExcept: vi.fn(),
         unlinkCachedTarball: vi.fn(),
         createReleaseLogStreamProcessor: vi.fn(),
         restartService,
+        checkHostSurvival: vi.fn(),
         writeReleaseCandidate: vi.fn(),
       });
       const job = updateJob(tag);
@@ -311,4 +451,116 @@ describe("artifact activation", () => {
       expect(restartService).not.toHaveBeenCalled();
     }
   );
+});
+
+describe("protected target capability", () => {
+  it("authenticates capability metadata with the separately published package digest", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "dispatch-capability-"));
+    tempDirs.push(root);
+    const tag = "v9.9.9";
+    const tarball = fixtureArtifact(root, tag, "trial-aware executable");
+    const digest = () =>
+      createHash("sha256").update(readFileSync(tarball)).digest("hex");
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: digest(),
+      })
+    ).rejects.toThrow("cannot be trialled safely");
+    const targetHash = createHash("sha256")
+      .update("trial-aware executable")
+      .digest("hex");
+    writeFileSync(
+      path.join(root, "dist/bun/RECOVERY_CAPABILITIES.json"),
+      JSON.stringify({
+        formatVersion: 1,
+        artifacts: {
+          [artifactMember(tag).split("/").pop()!]: {
+            protocol: 1,
+            sha256: targetHash,
+          },
+        },
+      })
+    );
+    execFileSync("tar", ["czf", tarball, "dist"], { cwd: root });
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: "0".repeat(64),
+      })
+    ).rejects.toThrow("published asset digest");
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: digest(),
+      })
+    ).resolves.toEqual({ protocol: 1, sha256: targetHash });
+    writeFileSync(
+      path.join(root, "dist/bun/RECOVERY_CAPABILITIES.json"),
+      JSON.stringify({
+        formatVersion: 1,
+        artifacts: {
+          [artifactMember(tag).split("/").pop()!]: {
+            protocol: 0,
+            sha256: targetHash,
+          },
+        },
+      })
+    );
+    execFileSync("tar", ["czf", tarball, "dist"], { cwd: root });
+    await expect(
+      verifyRecoveryCapability({
+        tarballPath: tarball,
+        tag,
+        expectedTarballSha256: digest(),
+      })
+    ).rejects.toThrow("cannot be trialled safely");
+  });
+});
+
+it("makes a protected admission failure terminal and frees the update slot", async () => {
+  const tag = "v9.9.9";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          tag_name: tag,
+          published_at: "2026-01-01T00:00:00Z",
+          html_url: "https://example.test/release",
+          assets: [
+            {
+              name: "dispatch-server.tar.gz",
+              digest: `sha256:${"a".repeat(64)}`,
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    )
+  );
+  const runtime = createReleaseRuntime({
+    serverDir: "/tmp/dispatch",
+    runCommand: vi.fn(),
+    readReleaseStore: vi.fn(),
+    writeReleaseStore: vi.fn(),
+    ensureCachedTarball: vi.fn().mockResolvedValue({ path: "/tmp/artifact" }),
+    pruneCacheExcept: vi.fn(),
+    unlinkCachedTarball: vi.fn(),
+    createReleaseLogStreamProcessor: vi.fn(),
+    applyProtectedUpdate: async () => {
+      throw new Error(
+        "Update deferred: active work must finish before retrying"
+      );
+    },
+  });
+  const job = updateJob(tag);
+  runtime.setActiveUpdateJob(job);
+  await runtime.runUpdateJob(job);
+  expect(job.phase).toBe("failed");
+  expect(job.error).toContain("deferred");
+  expect(runtime.hasActiveUpdateJob()).toBe(false);
 });

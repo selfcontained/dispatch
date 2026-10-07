@@ -28,13 +28,16 @@ vi.mock("../src/shared/git/git-context.js", () => ({
 }));
 
 vi.mock("../src/agents/telemetry.js", () => ({
-  getActivitySummary: vi.fn(async () => ({})),
   getFeedbackSummary: vi.fn(async () => ({})),
 }));
 
 function createMockDeps() {
   return {
     config: { authToken: "test-auth-token" },
+    providerPlans: vi.fn(async () => ({
+      checkedAt: "2026-09-24T12:00:00Z",
+      providers: [],
+    })),
     // Only the chat-surface flag reads it from these routes.
     pool: { query: vi.fn(async () => ({ rows: [] })) } as never,
     agentManager: {
@@ -76,8 +79,8 @@ function createMockDeps() {
     mcpSendNotify: vi.fn(),
     mcpUpsertEvent: vi.fn(),
     mcpRenameSession: vi.fn(),
-    mcpShareMedia: vi.fn(),
-    mcpListMedia: vi.fn(),
+    mcpShareFile: vi.fn(),
+    mcpListFiles: vi.fn(),
     mcpSubmitFeedback: vi.fn(),
     mcpListPersonas: vi.fn(),
     mcpLaunchPersona: vi.fn(),
@@ -292,59 +295,64 @@ describe("POST /api/mcp/:agentId", () => {
     expect(deps.validateAgentMcpToken).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(404);
   });
+});
 
-  it("passes the chat-surface flag through so the chat tool can describe itself", async () => {
-    deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
+describe("usage callback wiring", () => {
+  it.each(["/api/mcp/agt_test1", "/api/mcp/jobs/run_1/agt_test1"])(
+    "provides the shared reporter to %s",
+    async (url) => {
+      const res = await app.inject({ method: "POST", url, payload: {} });
+      expect(res.statusCode).toBe(200);
+      const context = vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3];
+      expect(context?.providerPlans).toBe(deps.providerPlans);
+      // No setting stored → every type launchable, read through the pool.
+      await expect(context?.enabledAgentTypes?.()).resolves.toEqual([
+        "claude",
+        "codex",
+        "opencode",
+      ]);
+    }
+  );
+});
 
-    await app.inject({
-      method: "POST",
-      url: "/api/mcp/agt_test1",
-      payload: {},
+describe("job access ceiling wiring", () => {
+  it.each([
+    ["/api/mcp/agt_test1", false],
+    ["/api/mcp/agt_test1", true],
+    ["/api/mcp/jobs/run_1/agt_test1", false],
+    ["/api/mcp/jobs/run_1/agt_test1", true],
+  ] as const)("passes caller access for %s (%s)", async (url, fullAccess) => {
+    const agent = await deps.agentManager.getAgent();
+    deps.agentManager.getAgent.mockResolvedValue({
+      ...agent,
+      fullAccess,
+    } as never);
+    await app.inject({ method: "POST", url, payload: {} });
+    const callbacks = vi
+      .mocked(handleMcpRequest)
+      .mock.calls.at(-1)?.[3]?.crudTools;
+    expect(callbacks).toBeDefined();
+    const input = { name: "job", directory: "/tmp" };
+    await callbacks!.createJob(input);
+    await callbacks!.updateJob(input);
+    await callbacks!.runJob(input.name, input.directory);
+    await callbacks!.createTemplate(input);
+    await callbacks!.updateTemplate("tpl_1", input);
+    expect(deps.jobService.addJob).toHaveBeenCalledWith(input, fullAccess);
+    expect(deps.jobService.updateJob).toHaveBeenCalledWith(input, fullAccess);
+    expect(deps.jobService.runJob).toHaveBeenCalledWith({
+      ...input,
+      wait: false,
+      callerFullAccess: fullAccess,
     });
-    expect(vi.mocked(handleMcpRequest).mock.calls[0]?.[3]).toMatchObject({
-      chatSurface: true,
-    });
-
-    deps.pool.query.mockResolvedValue({ rows: [{ value: "false" }] });
-    await app.inject({
-      method: "POST",
-      url: "/api/mcp/agt_test1",
-      payload: {},
-    });
-    expect(vi.mocked(handleMcpRequest).mock.calls[1]?.[3]).toMatchObject({
-      chatSurface: false,
-    });
-  });
-
-  it("falls back to the neutral description when the settings read fails", async () => {
-    deps.pool.query.mockRejectedValue(new Error("db down"));
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/mcp/agt_test1",
-      payload: {},
-    });
-    // The request still reaches the MCP handler — a wording lookup must never
-    // be able to fail a tool call.
-    expect(res.statusCode).not.toBe(500);
-    expect(vi.mocked(handleMcpRequest).mock.calls[0]?.[3]).toMatchObject({
-      chatSurface: false,
-    });
-  });
-
-  it("leaves the flag unset on the job route", async () => {
-    deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
-
-    await app.inject({
-      method: "POST",
-      url: "/api/mcp/jobs/run_1/agt_test1",
-      payload: {},
-    });
-    const context = vi.mocked(handleMcpRequest).mock.calls[0]?.[3] as Record<
-      string,
-      unknown
-    >;
-    expect(context).not.toHaveProperty("chatSurface");
-    expect(deps.pool.query).not.toHaveBeenCalled();
+    expect(deps.templateService.addTemplate).toHaveBeenCalledWith(
+      input,
+      fullAccess
+    );
+    expect(deps.templateService.updateTemplate).toHaveBeenCalledWith(
+      "tpl_1",
+      input,
+      fullAccess
+    );
   });
 });

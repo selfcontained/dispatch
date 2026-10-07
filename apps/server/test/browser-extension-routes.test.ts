@@ -6,6 +6,7 @@ import path from "node:path";
 import Fastify from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { StreamService } from "../src/chat/service.js";
 import type { AgentRecord } from "../src/agents/manager.js";
 import {
   cleanupBrowserExtensionData,
@@ -89,7 +90,7 @@ function submissionPayload(clientSubmissionId = crypto.randomUUID()) {
 async function createSubmissionTestApp(
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>,
   opts: {
-    mediaRoot?: string;
+    filesRoot?: string;
     publishUiEvent?: (event: { type: string; agentId: string }) => void;
   } = {}
 ) {
@@ -97,7 +98,24 @@ async function createSubmissionTestApp(
   const runningAgent = {
     id: "agt_running",
     status: "running",
+    name: "Running agent",
   } as AgentRecord;
+  await ctx.pool.query(`INSERT INTO agents (id, name, type, status, cwd)
+    VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')
+    ON CONFLICT (id) DO NOTHING`);
+  const stream = new StreamService({
+    pool: ctx.pool,
+    filesRoot: opts.filesRoot ?? "/tmp/dispatch-audit-files",
+    getAgent: async (id) => (id === runningAgent.id ? runningAgent : null),
+    publishUiEvent: () => {},
+    delivery: {
+      access: async () => ({ mode: "live" }),
+      inject: sendAgentPrompt,
+      held: () => true,
+      activeTurn: () => true,
+      cancel: async () => {},
+    },
+  });
   await registerBrowserExtensionRoutes(app, {
     pool: ctx.pool,
     agentManager: {
@@ -105,11 +123,24 @@ async function createSubmissionTestApp(
         agentId === runningAgent.id ? runningAgent : null,
       listAgents: async () => [runningAgent],
     },
-    sendAgentPrompt,
-    mediaRoot: opts.mediaRoot,
+    streamService: stream,
+    filesRoot: opts.filesRoot ?? "/tmp/dispatch-audit-files",
     publishUiEvent: opts.publishUiEvent,
   });
-  return app;
+  return Object.assign(app, { feedbackStream: stream });
+}
+
+// The route acknowledges pending work before asynchronous delivery settles.
+// Screenshot tests assert the final outcome instead of racing that acknowledgement.
+async function expectDeliveredSubmission(
+  app: Awaited<ReturnType<typeof createSubmissionTestApp>>,
+  response: { statusCode: number; json(): { blockId: string } }
+) {
+  expect([200, 202]).toContain(response.statusCode);
+  expect(await app.feedbackStream.waitForInFlightDeliveries(5_000)).toBe(true);
+  expect(
+    await app.feedbackStream.store.getById(response.json().blockId)
+  ).toMatchObject({ delivered: true });
 }
 
 // Smallest valid 1x1 PNG; its bytes start with the PNG signature the route checks.
@@ -443,16 +474,12 @@ describe("browser extension scoped API", () => {
   it("lists only sanitized running agents and rejects the master token", async () => {
     await ctx.pool.query(
       `INSERT INTO agents
-         (id, name, type, role, status, cwd, worktree_branch, latest_event_type,
-          latest_event_message, latest_event_updated_at)
+         (id, name, type, role, status, cwd, worktree_branch)
        VALUES
          ('agt_running', 'Running agent', 'codex', 'standard', 'running',
-          '/secret/repo', 'feature/browser', 'working', 'Building extension',
-          now()),
+          '/secret/repo', 'feature/browser'),
          ('agt_stopped', 'Stopped agent', 'codex', 'standard', 'stopped',
-          '/other/repo', null, null, null, null),
-         ('agt_review', 'Review agent', 'codex', 'review', 'running',
-          '/secret/repo', 'feature/browser', 'working', 'Reviewing', now())`
+          '/other/repo', null)`
     );
     const { token } = await approveAndExchange();
 
@@ -473,8 +500,7 @@ describe("browser extension scoped API", () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json<{ agents: Array<Record<string, unknown>> }>();
-    // Only the running standard agent — the stopped one and the running review
-    // agent are both excluded.
+    // Only the running agent; the stopped one is excluded.
     expect(body.agents).toHaveLength(1);
     expect(body.agents.map((agent) => agent.id)).toEqual(["agt_running"]);
     expect(body.agents[0]).toMatchObject({
@@ -482,13 +508,12 @@ describe("browser extension scoped API", () => {
       name: "Running agent",
       status: "running",
       branch: "feature/browser",
-      latestEvent: { type: "working", message: "Building extension" },
     });
     expect(body.agents[0]).not.toHaveProperty("cwd");
     expect(body.agents[0]).not.toHaveProperty("tmuxSession");
   });
 
-  it("persists a failed submission when prompt injection is unavailable", async () => {
+  it("records a retryable user post when prompt delivery is unavailable", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd)
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
@@ -544,15 +569,14 @@ describe("browser extension scoped API", () => {
       },
     });
 
-    expect(response.statusCode).toBe(502);
+    expect(response.statusCode).toBe(200);
     const body = response.json<{
       submissionId: string;
       status: string;
       error: string;
     }>();
     expect(body.status).toBe("failed");
-    expect(body.error).toBe("Prompt delivery failed.");
-    expect(body.error).not.toContain("terminal session");
+    expect(response.json().blockId).toBeTruthy();
     const stored = await ctx.pool.query<{
       delivery_status: string;
       delivery_error: string;
@@ -571,8 +595,7 @@ describe("browser extension scoped API", () => {
     );
     expect(stored.rows[0]).toMatchObject({
       delivery_status: "failed",
-      delivery_error:
-        "Agent has no active terminal session — prompt cannot be delivered.",
+      delivery_error: null,
       comment: "The spacing collapses here.",
       page_context: { url: "http://localhost:3000/checkout" },
       element_context: {
@@ -626,68 +649,220 @@ describe("browser extension scoped API", () => {
     }
   });
 
-  it("returns pending for a concurrent duplicate without redelivering", async () => {
+  it("acknowledges queued feedback immediately and reconciles duplicate requests", async () => {
     const { token } = await approveAndExchange();
-    let markDeliveryStarted!: () => void;
-    let releaseDelivery!: () => void;
-    const deliveryStarted = new Promise<void>((resolve) => {
-      markDeliveryStarted = resolve;
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    const deliveryBlocked = new Promise<void>((resolve) => {
-      releaseDelivery = resolve;
-    });
-    const sendAgentPrompt = vi.fn(async () => {
-      markDeliveryStarted();
-      await deliveryBlocked;
-    });
-    const app = await createSubmissionTestApp(sendAgentPrompt);
+    const send = vi.fn(() => blocked);
+    const app = await createSubmissionTestApp(send);
     const payload = submissionPayload();
-
+    const headers = { authorization: `Bearer ${token}` };
     try {
-      const firstResponse = app.inject({
+      const first = await app.inject({
         method: "POST",
         url: "/api/v1/browser-extension/submissions",
-        headers: { authorization: `Bearer ${token}` },
+        headers,
         payload,
       });
-      await deliveryStarted;
-
-      const concurrent = await app.inject({
+      expect(first.statusCode).toBe(202);
+      expect(first.json()).toMatchObject({
+        status: "pending",
+        streamId: "agt_running",
+      });
+      const duplicate = await app.inject({
         method: "POST",
         url: "/api/v1/browser-extension/submissions",
-        headers: { authorization: `Bearer ${token}` },
+        headers,
         payload,
       });
-      expect(concurrent.statusCode).toBe(202);
-      expect(concurrent.json()).toMatchObject({ status: "pending" });
-
-      releaseDelivery();
-      const delivered = await firstResponse;
-      expect(delivered.statusCode).toBe(200);
-      expect(concurrent.json<{ submissionId: string }>().submissionId).toBe(
-        delivered.json<{ submissionId: string }>().submissionId
-      );
-      expect(sendAgentPrompt).toHaveBeenCalledTimes(1);
+      expect(duplicate.json()).toEqual(first.json());
+      expect(send).toHaveBeenCalledTimes(1);
+      const block = await ctx.pool.query("SELECT * FROM blocks WHERE id = $1", [
+        first.json().blockId,
+      ]);
+      expect(block.rows[0]).toMatchObject({
+        author_kind: "user",
+        to_agent_id: "agt_running",
+        delivered: null,
+      });
+      expect(block.rows[0].attachments[0]).toMatchObject({
+        type: "file",
+        mimeType: "application/json",
+      });
+      release();
+      await expect
+        .poll(
+          async () =>
+            (
+              await app.inject({
+                method: "GET",
+                url: `/api/v1/browser-extension/submissions/${payload.clientSubmissionId}`,
+                headers,
+              })
+            ).json().status
+        )
+        .toBe("delivered");
     } finally {
-      releaseDelivery();
+      release();
       await app.close();
     }
   });
 
-  it("stores an attached screenshot as media and links it in the prompt", async () => {
+  it("uses stream recovery and retries the same post after an interrupted queue", async () => {
+    const { token } = await approveAndExchange();
+    const other = await approveAndExchange("Other profile");
+    const send = vi.fn(() => new Promise<void>(() => {}));
+    const app = await createSubmissionTestApp(send);
+    const payload = submissionPayload();
+    const headers = { authorization: `Bearer ${token}` };
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers,
+        payload,
+      });
+      const url = `/api/v1/browser-extension/submissions/${payload.clientSubmissionId}`;
+      expect(
+        (
+          await app.inject({
+            method: "GET",
+            url,
+            headers: { authorization: `Bearer ${other.token}` },
+          })
+        ).statusCode
+      ).toBe(404);
+      await app.feedbackStream.recoverPendingDeliveries();
+      expect(
+        (await app.inject({ method: "GET", url, headers })).json().status
+      ).toBe("failed");
+      send.mockImplementation(async () => {});
+      await app.feedbackStream.retryDelivery(
+        "agt_running",
+        first.json().blockId
+      );
+      await expect
+        .poll(
+          async () =>
+            (await app.inject({ method: "GET", url, headers })).json().status
+        )
+        .toBe("delivered");
+      expect(send).toHaveBeenCalledTimes(2);
+      const count = await ctx.pool.query(
+        "SELECT count(*)::int AS n FROM blocks WHERE id = $1",
+        [first.json().blockId]
+      );
+      expect(count.rows[0].n).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("fails legacy pending submissions at startup instead of leaving them stuck", async () => {
+    const { token, tokenId } = await approveAndExchange();
+    const clientId = crypto.randomUUID();
+    await ctx.pool.query(
+      `INSERT INTO browser_feedback_submissions
+      (id, token_id, client_submission_id, agent_id, comment, page_context, element_context)
+      VALUES ($1, $2, $3, 'agt_running', 'old feedback', '{}', '{}')`,
+      [crypto.randomUUID(), tokenId, clientId]
+    );
+    const app = await createSubmissionTestApp(async () => {});
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/browser-extension/submissions/${clientId}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.json()).toMatchObject({
+        status: "failed",
+        blockId: null,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps mentions in captured feedback from changing its selected recipient", async () => {
+    const { token } = await approveAndExchange();
+    const send = vi.fn(async (_id: string, _text: string) => {});
+    const app = await createSubmissionTestApp(send);
+    await ctx.pool
+      .query(`INSERT INTO agents (id, name, type, status, cwd, parent_agent_id)
+      VALUES ('agt_other', 'Other', 'codex', 'running', '/tmp/repo', 'agt_running')`);
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ...submissionPayload(), comment: "Fix @Other here" },
+      });
+      expect([200, 202]).toContain(response.statusCode);
+      expect(send.mock.calls[0]?.[0]).toBe("agt_running");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns the retained main-stream block for child-agent feedback recovery", async () => {
+    const { token } = await approveAndExchange();
+    const app = await createSubmissionTestApp(async () => {
+      throw new Error("Disconnected");
+    });
+    try {
+      await ctx.pool.query(`INSERT INTO agents (id, name, type, status, cwd)
+        VALUES ('agt_parent', 'Parent', 'codex', 'running', '/tmp/repo')`);
+      await ctx.pool.query(
+        "UPDATE agents SET parent_agent_id = 'agt_parent' WHERE id = 'agt_running'"
+      );
+      const payload = submissionPayload();
+      const headers = { authorization: `Bearer ${token}` };
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers,
+        payload,
+      });
+      const receipt = response.json();
+      expect(receipt.streamId).toBe("agt_parent");
+      expect(receipt.threadId).toBeNull();
+      const block = (
+        await ctx.pool.query("SELECT id, thread_id FROM blocks WHERE id = $1", [
+          receipt.blockId,
+        ])
+      ).rows[0];
+      expect(block.thread_id).toBe(receipt.threadId);
+      const status = await app.inject({
+        method: "GET",
+        url: `/api/v1/browser-extension/submissions/${payload.clientSubmissionId}`,
+        headers,
+      });
+      expect(status.json()).toMatchObject({
+        blockId: block.id,
+        threadId: block.thread_id,
+        streamId: "agt_parent",
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("stores an attached screenshot as a file and links it in the prompt", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd)
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
     const { token } = await approveAndExchange();
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
     const prompts: string[] = [];
     const events: Array<{ type: string; agentId: string }> = [];
     const app = await createSubmissionTestApp(
       async (_agentId, prompt) => {
         prompts.push(prompt);
       },
-      { mediaRoot, publishUiEvent: (event) => events.push(event) }
+      { filesRoot, publishUiEvent: (event) => events.push(event) }
     );
 
     try {
@@ -697,32 +872,32 @@ describe("browser extension scoped API", () => {
         headers: { authorization: `Bearer ${token}` },
         payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
       });
-      expect(response.statusCode).toBe(200);
+      await expectDeliveredSubmission(app, response);
 
-      const media = await ctx.pool.query<{
+      const stored = await ctx.pool.query<{
         file_name: string;
         source: string;
         size_bytes: number;
       }>(
-        `SELECT file_name, source, size_bytes FROM media WHERE agent_id = $1`,
+        `SELECT file_name, source, size_bytes FROM files WHERE agent_id = $1 AND source = 'screenshot'`,
         ["agt_running"]
       );
-      expect(media.rows).toHaveLength(1);
-      expect(media.rows[0].source).toBe("screenshot");
-      expect(media.rows[0].file_name).toMatch(/^browser-selection-.*\.png$/);
-      expect(media.rows[0].size_bytes).toBeGreaterThan(0);
+      expect(stored.rows).toHaveLength(1);
+      expect(stored.rows[0].source).toBe("screenshot");
+      expect(stored.rows[0].file_name).toMatch(/^browser-selection-.*\.png$/);
+      expect(stored.rows[0].size_bytes).toBeGreaterThan(0);
 
       const savedPath = path.join(
-        mediaRoot,
+        filesRoot,
         "agt_running",
-        media.rows[0].file_name
+        stored.rows[0].file_name
       );
       await expect(stat(savedPath)).resolves.toBeDefined();
 
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain(savedPath);
       expect(events).toContainEqual({
-        type: "media.changed",
+        type: "files.changed",
         agentId: "agt_running",
       });
     } finally {
@@ -736,13 +911,13 @@ describe("browser extension scoped API", () => {
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
     const { token } = await approveAndExchange();
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
     const prompts: string[] = [];
     const app = await createSubmissionTestApp(
       async (_agentId, prompt) => {
         prompts.push(prompt);
       },
-      { mediaRoot }
+      { filesRoot }
     );
 
     try {
@@ -755,12 +930,12 @@ describe("browser extension scoped API", () => {
           screenshot: Buffer.from("not a png").toString("base64"),
         },
       });
-      expect(response.statusCode).toBe(200);
-      const media = await ctx.pool.query(
-        `SELECT 1 FROM media WHERE agent_id = $1`,
+      await expectDeliveredSubmission(app, response);
+      const stored = await ctx.pool.query(
+        `SELECT 1 FROM files WHERE agent_id = $1 AND source = 'screenshot'`,
         ["agt_running"]
       );
-      expect(media.rows).toHaveLength(0);
+      expect(stored.rows).toHaveLength(0);
       expect(prompts[0]).not.toContain("is saved at:");
     } finally {
       await app.close();
@@ -773,13 +948,13 @@ describe("browser extension scoped API", () => {
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
     const { token } = await approveAndExchange();
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
     const prompts: string[] = [];
     const app = await createSubmissionTestApp(
       async (_agentId, prompt) => {
         prompts.push(prompt);
       },
-      { mediaRoot }
+      { filesRoot }
     );
 
     try {
@@ -797,19 +972,19 @@ describe("browser extension scoped API", () => {
           payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
         }),
       ]);
-      expect(first.statusCode).toBe(200);
-      expect(second.statusCode).toBe(200);
+      await expectDeliveredSubmission(app, first);
+      await expectDeliveredSubmission(app, second);
 
-      const media = await ctx.pool.query<{ file_name: string }>(
-        `SELECT file_name FROM media WHERE agent_id = $1 ORDER BY id`,
+      const stored = await ctx.pool.query<{ file_name: string }>(
+        `SELECT file_name FROM files WHERE agent_id = $1 AND source = 'screenshot' ORDER BY id`,
         ["agt_running"]
       );
-      const fileNames = media.rows.map((row) => row.file_name);
+      const fileNames = stored.rows.map((row) => row.file_name);
       expect(fileNames).toHaveLength(2);
       expect(new Set(fileNames).size).toBe(2);
       for (const fileName of fileNames) {
         await expect(
-          stat(path.join(mediaRoot, "agt_running", fileName))
+          stat(path.join(filesRoot, "agt_running", fileName))
         ).resolves.toBeDefined();
         expect(prompts.some((p) => p.includes(fileName))).toBe(true);
       }
@@ -818,13 +993,13 @@ describe("browser extension scoped API", () => {
     }
   });
 
-  it("prunes expired browser-feedback screenshots but keeps fresh/other media", async () => {
+  it("prunes expired browser-feedback screenshots but keeps fresh/other files", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd)
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
-    const agentDir = path.join(mediaRoot, "agt_running");
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
+    const agentDir = path.join(filesRoot, "agt_running");
     await mkdir(agentDir, { recursive: true });
 
     const staleName = `browser-selection-old-${crypto.randomUUID()}.png`;
@@ -834,18 +1009,18 @@ describe("browser extension scoped API", () => {
       await writeFile(path.join(agentDir, name), Buffer.from("x"));
     }
     await ctx.pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, mime_type)
        VALUES
-         ('agt_running', $1, 'screenshot', 1, now() - interval '91 days'),
-         ('agt_running', $2, 'screenshot', 1, now()),
-         ('agt_running', $3, 'screenshot', 1, now() - interval '91 days')`,
+         ('agt_running', $1, 'screenshot', 1, now() - interval '91 days', 'image/png'),
+         ('agt_running', $2, 'screenshot', 1, now(), 'image/png'),
+         ('agt_running', $3, 'screenshot', 1, now() - interval '91 days', 'image/png')`,
       [staleName, freshName, uploadName]
     );
 
-    await cleanupBrowserExtensionData(ctx.pool, mediaRoot);
+    await cleanupBrowserExtensionData(ctx.pool, filesRoot);
 
     const remaining = await ctx.pool.query<{ file_name: string }>(
-      `SELECT file_name FROM media WHERE agent_id = $1 ORDER BY file_name`,
+      `SELECT file_name FROM files WHERE agent_id = $1 AND source = 'screenshot' ORDER BY file_name`,
       ["agt_running"]
     );
     const names = remaining.rows.map((row) => row.file_name);
@@ -855,6 +1030,97 @@ describe("browser extension scoped API", () => {
 
     await expect(stat(path.join(agentDir, staleName))).rejects.toThrow();
     await expect(stat(path.join(agentDir, freshName))).resolves.toBeDefined();
+  });
+
+  it("retains expired evidence while a stream post references it, then cleans unlinked files", async () => {
+    const { token } = await approveAndExchange();
+    const filesRoot = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-retention-")
+    );
+    const send = vi.fn(async () => {
+      throw new Error("Agent disconnected");
+    });
+    const app = await createSubmissionTestApp(send, { filesRoot });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
+      });
+      const blockId = response.json().blockId;
+      expect(blockId).toBeTruthy();
+      await expect
+        .poll(
+          async () =>
+            (
+              await ctx.pool.query(
+                "SELECT delivered FROM blocks WHERE id = $1",
+                [blockId]
+              )
+            ).rows[0].delivered
+        )
+        .toBe(false);
+      await ctx.pool.query(
+        "UPDATE files SET created_at = now() - interval '91 days' WHERE agent_id = 'agt_running'"
+      );
+      await ctx.pool.query(
+        "UPDATE browser_feedback_submissions SET created_at = now() - interval '91 days'"
+      );
+      const evidence = await ctx.pool.query<{ id: number; file_name: string }>(
+        "SELECT id, file_name FROM files WHERE agent_id = 'agt_running'"
+      );
+      expect(evidence.rows).toHaveLength(2);
+      await cleanupBrowserExtensionData(ctx.pool, filesRoot);
+      expect(
+        (
+          await ctx.pool.query(
+            "SELECT count(*)::int AS n FROM browser_feedback_submissions"
+          )
+        ).rows[0].n
+      ).toBe(0);
+      expect(
+        (
+          await ctx.pool.query(
+            "SELECT id FROM files WHERE agent_id = 'agt_running'"
+          )
+        ).rows
+      ).toHaveLength(2);
+      for (const file of evidence.rows) {
+        await expect(
+          stat(path.join(filesRoot, "agt_running", file.file_name))
+        ).resolves.toBeDefined();
+      }
+      send.mockImplementation(async () => {});
+      await app.feedbackStream.retryDelivery("agt_running", blockId);
+      await expect
+        .poll(
+          async () =>
+            (
+              await ctx.pool.query(
+                "SELECT delivered FROM blocks WHERE id = $1",
+                [blockId]
+              )
+            ).rows[0].delivered
+        )
+        .toBe(true);
+      await ctx.pool.query("DELETE FROM blocks WHERE id = $1", [blockId]);
+      await cleanupBrowserExtensionData(ctx.pool, filesRoot);
+      expect(
+        (
+          await ctx.pool.query(
+            "SELECT id FROM files WHERE agent_id = 'agt_running'"
+          )
+        ).rows
+      ).toHaveLength(0);
+      for (const file of evidence.rows) {
+        await expect(
+          stat(path.join(filesRoot, "agt_running", file.file_name))
+        ).rejects.toThrow();
+      }
+    } finally {
+      await app.close();
+    }
   });
 
   it("requires a UUID client submission id", async () => {

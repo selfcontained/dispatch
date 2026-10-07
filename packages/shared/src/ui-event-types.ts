@@ -7,45 +7,14 @@
  */
 
 import type {
-  ChatChangedEvent,
-  ChatEntryEvent,
-  ChatReadEvent,
-} from "./chat-types.js";
-import type { SurfaceChangedEvent } from "./surface-types.js";
-
-/**
- * Terminal copy-mode payloads. Carried by the `agent.terminal_state_changed`
- * event and also returned by `GET /api/v1/agents/:id/terminal-state`.
- */
-export type TerminalCopyMode = "live" | "copy" | "exiting";
-
-export type TerminalUiState = {
-  copyMode: TerminalCopyMode;
-  lastObservedAt: number;
-};
-
-export type InjectionHoldState = {
-  // True while a delivery is actively waiting out the user-activity quiet gate.
-  held: boolean;
-  // Gated injections enqueued but not yet delivered (includes the held one).
-  pendingCount: number;
-  // The quiet window the gate waits for, so clients can render delivery ETA
-  // from their own local typing activity.
-  quietMs: number;
-};
+  StreamChangedEvent,
+  StreamEntryEvent,
+  StreamReadEvent,
+} from "./block-types.js";
+import type { MacAppUpdateSnapshot } from "./mac-app-update-types.js";
 
 /**
  * The SSE members both sides agree on.
- *
- * All but two were already declared identically on each side. The exceptions
- * are `review.updated` and `review_feedback.updated`, where the web copy
- * listed only `agentId`: the server has published `reviewId`/`status` and
- * `feedbackItemId` on these ever since the events were introduced (#730, same
- * commit as the web copy), and does so at every publish site in
- * `server/mcp-review-handlers.ts` and `routes/reviews.ts`. So this is drift
- * being closed, not a contract being narrowed — there is no server old enough
- * to send these events without those fields, which is what separates them
- * from the version-skew exclusions listed below.
  *
  * NOT here, on purpose — each side declares these four itself because the
  * payload types genuinely differ:
@@ -61,63 +30,26 @@ export type InjectionHoldState = {
  *     it across the boundary instead.
  */
 export type SharedUiEvent =
-  | {
-      type: "agent.terminal_state_changed";
-      agentId: string;
-      terminalState: TerminalUiState;
-    }
-  | {
-      type: "agent.injection_hold_changed";
-      agentId: string;
-      holdState: InjectionHoldState;
-    }
   | { type: "agent.deleted"; agentId: string }
-  | { type: "media.changed"; agentId: string }
-  | {
-      type: "whiteboard.changed";
-      agentId: string;
-      version: number;
-      source: "user" | "agent";
-    }
-  | { type: "media.seen"; agentId: string; keys: string[] }
-  | {
-      type: "message.created";
-      senderAgentId: string;
-      recipientAgentId: string;
-    }
-  | { type: "message.read"; agentId: string }
+  | { type: "files.changed"; agentId: string }
+  | { type: "files.seen"; agentId: string; keys: string[] }
   /**
-   * Ephemeral: an agent invoked an MCP tool (`dispatch_event` excluded — it
-   * already drives the phase). Not persisted, not fetched; feeds the presence
-   * strip's tool blip.
+   * Ephemeral: an agent invoked an MCP tool. Not persisted, not fetched;
+   * feeds the presence strip's tool blip.
    */
   | { type: "agent.tool_invoked"; agentId: string; tool: string; at: string }
-  | SurfaceChangedEvent
-  | ChatChangedEvent
-  | ChatEntryEvent
-  | ChatReadEvent
+  | StreamChangedEvent
+  | StreamEntryEvent
+  | StreamReadEvent
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
-  | {
-      type: "review.created";
-      agentId: string;
-      reviewId: number;
-      reviewerAgentId?: string | null;
-    }
-  | {
-      type: "review.updated";
-      agentId: string;
-      reviewId: number;
-      status: string;
-    }
-  | {
-      type: "review_feedback.updated";
-      agentId: string;
-      feedbackItemId: number;
-    }
   | { type: "job.changed" }
   | { type: "template.changed" }
   | { type: "brain.changed"; repoRoot: string }
+  /** An engine published a model list that changed the catalog for its type. */
+  | { type: "agent_models.changed"; agentType: string }
+  /** The macOS menu app connected, disconnected, or reported update progress. */
+  | { type: "mac_app.update_changed"; update: MacAppUpdateSnapshot }
   | {
       type: "notification";
       notificationId: string;

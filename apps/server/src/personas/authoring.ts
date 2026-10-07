@@ -10,7 +10,7 @@ import {
 import path from "node:path";
 
 import { errorMessage } from "../shared/lib/error-message.js";
-import { parseFrontmatter } from "./loader.js";
+import { parseFrontmatter, PERSONA_SIZE_WARNING_BYTES } from "./loader.js";
 
 const PERSONAS_DIR = ".dispatch/personas";
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -187,6 +187,10 @@ export async function validatePersonas(
           errors.push("Missing required frontmatter field: description.");
         if (!body.trim())
           errors.push("Persona instructions must not be empty.");
+        if (Buffer.byteLength(body, "utf8") >= PERSONA_SIZE_WARNING_BYTES)
+          warnings.push(
+            "Persona instructions are at least 48KiB. The complete launch context may exceed the 64KiB inline budget and require the reviewer to read a private context file; no content will be trimmed."
+          );
         if (!frontmatter.feedbackFormat)
           warnings.push("feedbackFormat is omitted; it defaults to findings.");
         return {

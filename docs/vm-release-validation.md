@@ -11,8 +11,7 @@ change affects one or more of:
 
 - the installer, generated systemd unit, LaunchAgent, or service wrapper;
 - release artifacts, checksums, binary activation, or rollback files;
-- assisted updates, update migrations, or release state promotion;
-- a transition from an old service layout to the fixed runtime path;
+- release channels or release state promotion;
 - a release that will be promoted stable after an installation/update change.
 
 Do not use a VM by default for application, API, UI, or ordinary unit-test
@@ -35,60 +34,46 @@ existing VM will be modified, and cleanup intent before proceeding.
 
 ## Recommended matrix
 
-| Scenario                      | Purpose                         | Minimum evidence                                                                                        |
-| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Fresh Linux install           | Installer and user systemd unit | Healthy service, fixed `ExecStart`, initialized release/migration stores                                |
-| Fresh macOS install           | Installer and LaunchAgent       | Healthy service, fixed `ProgramArguments`, log file, initialized state                                  |
-| Existing fixed-path install   | Normal artifact update          | Checksum, atomic replacement, `.previous`, health, release promotion                                    |
-| Existing legacy Linux service | Last-hop migration safety       | Version-pinned symlink/wrapper fixture, fixed-path cutover before restart, actual target binary running |
-| Existing legacy macOS service | Bridge behavior                 | Exact target selection; no mtime-based binary choice; launchd recovery path if needed                   |
-| Assisted update on Linux      | Agent survival                  | A tmux-backed child inside `dispatch.service` survives the restart after `KillMode=process` is loaded   |
+| Scenario                   | Purpose                         | Minimum evidence                                                                                                       |
+| -------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Fresh Linux install        | Installer and user systemd unit | Healthy `dispatch-server.service`, fixed `ExecStart`, recovery startup gate, channel in `.env`, dedicated new database |
+| Fresh macOS install        | Native app and owned service    | Signed arm64 app, healthy owned service/private database, separate state, intended channel                             |
+| In-app update on a channel | Published artifact update       | Correct eligible release, verified artifact identity, verified recovery point, successful probation and helper commit  |
+| Update with an agent       | Safe activity boundary          | Active work defers installation; idle host quiescence and post-update session behavior match the recovery contract     |
+| Failed trial               | Coordinated recovery            | Prior executable/app and database/state restored together, or unresolved recovery fenced with evidence retained        |
 
-Run only the rows relevant to the change. Fresh installer tests do not replace
-legacy-upgrade tests, and unit tests do not replace a service-manager restart.
+Run only the rows relevant to the change. Unit tests do not replace a
+service-manager restart. Dispatch 1.x is a fresh install with a new database;
+0.x-to-1.x migration is not a supported validation scenario.
 
-## Linux assisted-update procedure
+## Linux update procedure
 
-This procedure models the failure mode where an assisted-update agent is a
-tmux child of the Dispatch user service.
-
-1. Start from a disposable Ubuntu VM with a healthy, supported user unit and
-   record its unit file, `MainPID`, current release record, and health result.
-2. For a legacy fixture, make `ExecStart` resolve a version-pinned binary or
-   symlink. Keep a backup of the fixture unit inside the VM.
-   `scripts/vm-fixtures/legacy-pinned-symlink.sh` converts a healthy
-   fixed-path install into this shape (pinned `bin/dispatch` symlink, no
-   fixed runtime file, no `KillMode=process`, fixed-runtime migrations
-   un-applied) — run it only inside the disposable VM.
-3. Download the published target tarball, select the exact platform/arch
-   member, reject unexpected archive members, and compare its SHA-256 to the
-   tarball manifest.
-4. Launch a harmless tmux heartbeat process from within the service cgroup.
-   Confirm its cgroup is `dispatch.service`; a shell-launched tmux session is
-   not a valid substitute.
-5. Apply the migration's pre-restart service changes. For supported systemd
-   units this includes `KillMode=process` and `systemctl --user daemon-reload`.
-   Confirm the loaded value with:
-
-   ```sh
-   systemctl --user show dispatch.service -p KillMode
-   ```
-
-6. For a legacy Linux entrypoint, stage the verified target binary on the
-   install filesystem, preserve the last healthy executable as
-   `dispatch.previous`, create/refresh the fixed runtime path, and repoint
-   `ExecStart` **before** the first restart. Do not trust a release record to
-   prove the service changed binaries.
-7. Perform the update/restart. Confirm all of the following after it returns:
-   - the tmux heartbeat advanced and the same session remains available;
-   - systemd is active and the health endpoint reports `ok`;
-   - `ExecStart` invokes the fixed runtime path;
-   - the running process resolves to the expected target binary/version;
-   - `release.json` was promoted by the healthy target binary;
-   - `dispatch.previous` exists and is a usable rollback asset.
-
-8. Restore a normal fixed-path service definition, remove only temporary test
-   wrappers/heartbeat sessions/artifacts, and verify one final healthy boot.
+1. Start from a disposable Ubuntu VM with a user systemd session. Install a
+   published 1.x Preview source release into its own new database. Verify
+   recovery enrollment before attempting an update. Record the service unit,
+   running version, instance identity and release record.
+2. Launch a harmless agent through the service. While it has active work,
+   request the newer published Preview release from **Settings → Updates**.
+   Verify installation is deferred and the active turn is not interrupted.
+3. Once work is idle, retry through the supported flow. Verify the authenticated
+   maintenance fence, quiescence and verified recovery point precede activation.
+4. After helper probation and commit, confirm:
+   - `dispatch-server.service` is active, the instance-matched health endpoint
+     reports `ok`, and the running binary is the exact target version;
+   - the service keeps its fixed runtime path, recovery startup gate and
+     `KillMode=process`;
+   - the durable transaction records successful commit and the release record
+     reflects the target only after successful readiness;
+   - agent session state and stream history are retained and sessions can resume.
+     Idle hosts may be quiesced and reconstructed; an unchanged host PID is not
+     the protected-update success criterion;
+   - the verified recovery material remains available under the supported
+     retention policy. An executable `.previous` alone is not a database rollback.
+5. Exercise a controlled failed trial on a separate disposable fixture. Verify
+   coordinated restoration or a fenced recovery-required state, not a healthy
+   binary paired with the wrong database. Retain private evidence without
+   exporting credentials.
+6. Stop/archive the harmless test agent and verify one final healthy boot.
 
 ## Release decision
 

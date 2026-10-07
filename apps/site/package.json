@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/site",
-  "version": "0.8.16",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {

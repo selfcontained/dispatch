@@ -10,7 +10,21 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 export function agentProjectRoot(
   agent: Agent | undefined | null
 ): string | undefined {
-  return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
+  // A moved workspace is where the agent works now; its probed repo wins
+  // over the directory it launched in.
+  if (agent?.workspacePath) {
+    return (
+      agent.gitContext?.repoRoot?.trim() ||
+      agent.workspacePath.trim() ||
+      undefined
+    );
+  }
+  return (
+    agent?.launchCwd?.trim() ||
+    agent?.gitContext?.repoRoot?.trim() ||
+    agent?.cwd?.trim() ||
+    undefined
+  );
 }
 
 export function readLastUsedAgentType(): AgentType | null {

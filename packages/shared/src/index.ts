@@ -10,10 +10,8 @@
 export { AGENT_TYPES, CLI_AGENT_TYPES } from "./agent-types.js";
 export type { AgentType, CliAgentType } from "./agent-types.js";
 export type {
+  AgentActivity,
   AgentGitContext,
-  AgentLatestEvent,
-  AgentLatestEventType,
-  AgentPin,
   AgentRecord,
   AgentRole,
   AgentStatus,
@@ -22,44 +20,123 @@ export type {
   StreamedAgentRecord,
   WorktreeCleanupMode,
 } from "./agent-record.js";
-export { VALID_PIN_SHORTCUT_VARIANTS, VALID_PIN_TYPES } from "./pin-types.js";
-export type { PinShortcutVariant, PinType } from "./pin-types.js";
 export {
   CHAT_ATTACHMENTS_MAX,
+  CHAT_GALLERY_MAX_TILES,
   CHAT_MESSAGE_MAX_CHARS,
   CHAT_QUESTION_OPTIONS_MAX,
   CHAT_REACTIONS_MAX,
+  fileMedia,
+  layoutAttachments,
 } from "./chat-types.js";
 export type {
-  ChatAgentMessageEntry,
   ChatAnswer,
   ChatAnswerRequest,
   ChatAnswerResponse,
   ChatAttachment,
+  ChatAttachmentGroup,
+  ChatFileAttachment,
+  FileMedia,
   ChatAuthorKind,
   ChatChangedEvent,
   ChatEntryEvent,
   ChatReadEvent,
   ChatFeedEntry,
   ChatFeedResponse,
-  ChatMediaEntry,
+  ChatFileEntry,
   ChatMessage,
   ChatMessageEntry,
   ChatMessageKind,
   ChatMessageOrigin,
   ChatQuestion,
   ChatQuestionOption,
-  ChatPinEntry,
+  ChatTurnEntry,
+  ChatTurnPlanEntry,
+  ChatTurnPrompt,
+  ChatTurnQuestionRef,
+  ChatTurnStep,
+  ChatTurnStepStatus,
+  RuntimeChangedEvent,
   ChatReaction,
   ChatReactionRequest,
   ChatReactionResponse,
-  ChatReviewEntry,
   ChatSendRequest,
   ChatSendResponse,
-  ChatStatusEntry,
   ChatUnreadSummary,
+  AgentReviewSummary,
   ChatUserAttachmentInput,
 } from "./chat-types.js";
+export {
+  BLOCK_ATTACHMENTS_MAX,
+  BLOCK_CANCEL_REASON_MAX_CHARS,
+  BLOCK_FORM_FIELDS_MAX,
+  BLOCK_KINDS,
+  BLOCK_OPTION_LABEL_MAX_CHARS,
+  BLOCK_OPTIONS_MAX,
+  BLOCK_REACTIONS_MAX,
+  BLOCK_REVIEW_FINDINGS_MAX,
+  BLOCK_TASKS_MAX,
+  BLOCK_TEXT_MAX_CHARS,
+  isUserInputBlock,
+  reviewFindings,
+  reviewStatus,
+} from "./block-types.js";
+export type {
+  Block,
+  AgentTurnResponse,
+  BlockActor,
+  BlockAuthor,
+  BlockAuthorKind,
+  BlockDelivery,
+  BlockDeliveryState,
+  BlockFindingData,
+  BlockLaunchState,
+  BlockReviewInput,
+  BlockShows,
+  BlockStartup,
+  BlockStartupStep,
+  BlockBody,
+  BlockCancellation,
+  BlockFindingPatch,
+  BlockFindingResolution,
+  BlockFindingState,
+  BlockFindingStatus,
+  BlockFormData,
+  BlockFormField,
+  BlockFormFieldType,
+  BlockFormState,
+  BlockKind,
+  BlockLinkData,
+  BlockOption,
+  BlockOrigin,
+  BlockQuestionData,
+  BlockQuestionState,
+  BlockReaction,
+  BlockReviewData,
+  BlockReviewSeverity,
+  BlockReviewState,
+  BlockReviewStatus,
+  BlockTaskStatus,
+  BlockTasksData,
+  BlockTextData,
+  BlockTasksState,
+  StreamAnswerRequest,
+  StreamAnswerResponse,
+  StreamBlockEntry,
+  StreamChangedEvent,
+  StreamEntry,
+  StreamEntryEvent,
+  StreamFeedResponse,
+  StreamPostRequest,
+  StreamPostResponse,
+  StreamReactionRequest,
+  StreamReactionResponse,
+  StreamReadEvent,
+  StreamStateRequest,
+  StreamSubmitRequest,
+  StreamThreadReadResponse,
+  StreamThreadResponse,
+} from "./block-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
   DiffFile,
@@ -70,46 +147,54 @@ export type {
   DiffTotals,
   FileDiffResponse,
 } from "./diff-types.js";
-export type {
-  ActionRef,
-  FormBlock,
-  FormField,
-  FormFieldOption,
-  ListBlock,
-  ProgressBlock,
-  Scalar,
-  StatusBlock,
-  Surface,
-  SurfaceBlock,
-  SurfaceChangedEvent,
-  SurfaceDocumentInput,
-  SurfaceFooter,
-  SurfaceHeader,
-  SurfaceIcon,
-  SurfaceInteraction,
-  SurfaceInteractionRecord,
-  SurfaceInteractionRequest,
-  SurfaceInteractionResponse,
-  SurfaceInteractionStatus,
-  SurfaceInteractionSummary,
-  SurfaceItemAction,
-  SurfaceLifecycle,
-  SurfaceListItem,
-  SurfaceSectionBlock,
-  SurfaceSubmitAction,
-  TableBlock,
-  TableColumn,
-  TableRow,
-  TextBlock,
-  Tone,
-} from "./surface-types.js";
+export type { SharedUiEvent } from "./ui-event-types.js";
 export {
-  SURFACE_FOOTER_BLOCK_ID,
-  SURFACE_SCHEMA_VERSION,
-} from "./surface-types.js";
+  MAC_APP_UPDATE_ACTIONS,
+  MAC_APP_UPDATE_PHASES,
+} from "./mac-app-update-types.js";
 export type {
-  InjectionHoldState,
-  SharedUiEvent,
-  TerminalCopyMode,
-  TerminalUiState,
-} from "./ui-event-types.js";
+  MacAppUpdateAction,
+  MacAppUpdatePhase,
+  MacAppUpdateSnapshot,
+  MacAppUpdateState,
+} from "./mac-app-update-types.js";
+export type {
+  AgentConfigChoice,
+  AgentConfigOption,
+  AgentConfigResponse,
+  AgentConfigUpdateRequest,
+  AgentUsageResponse,
+  PlanSpend,
+  PlanWindow,
+  ProviderPlan,
+  ProviderPlansResponse,
+  TokenCounts,
+} from "./usage-types.js";
+export {
+  USER_AVATAR_PRESETS,
+  DEFAULT_USER_AVATAR,
+  USER_AVATAR_MAX_BYTES,
+  USER_AVATAR_SIZE,
+} from "./user-avatar.js";
+export type { UserAvatar, UserAvatarPreset } from "./user-avatar.js";
+
+export type {
+  AgentPermissionRequest,
+  AgentPermissionsResponse,
+} from "./permission-types.js";
+
+export { sameConversation } from "./conversation-delivery.js";
+export type {
+  PromptConversation,
+  AgentInputState,
+} from "./conversation-delivery.js";
+
+export { qualifyExternalMentions } from "./agent-mentions.js";
+
+export type {
+  ScheduledMessage,
+  ScheduledMessageStatus,
+} from "./scheduled-messages.js";
+export type { ScheduledMessagePresentation } from "./scheduled-messages.js";
+
+export { scheduledMessageCadence } from "./scheduled-messages.js";

@@ -1,38 +1,48 @@
-import { type ReactNode, useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+
+import {
+  agentModelLabel,
+  useAgentModelCatalogData,
+} from "@/hooks/use-agent-model-catalog";
 
 import {
   type FeedContext,
   type PeerDirectory,
   peerDirectory,
 } from "@/components/app/chat/chat-entries";
-import { type PinShortcutState } from "@/components/app/chat/pin-shortcut-context";
-import { useShortcutRunner } from "@/components/app/pin-shortcut-runner";
-import { type Agent, type AgentPin } from "@/components/app/types";
-import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
+import { type Agent } from "@/components/app/types";
+import { lineageSeats } from "@/lib/agent-seat";
 import { api } from "@/lib/api";
 
 export type ChatFeedContextInput = {
   agentId: string | null;
+  rootId?: string | null;
   agent: Agent | null;
-  openLightbox: (mediaId: number) => void;
-  onOpenReview?: (reviewId: number) => void;
+  openLightbox: (fileId: number, order?: number[]) => void;
   /** Must be stable: every row is memoised on the context it lands in. */
+  onOpenPath?: FeedContext["onOpenPath"];
   onToggleReaction?: FeedContext["onToggleReaction"];
+  onOpenThread?: FeedContext["onOpenThread"];
+  onSubmitForm?: FeedContext["onSubmitForm"];
+  onSetBlockState?: FeedContext["onSetBlockState"];
+  settingBlockStateId?: FeedContext["settingBlockStateId"];
+  onRetryDelivery?: FeedContext["onRetryDelivery"];
+  onRetryTurn?: FeedContext["onRetryTurn"];
+  /** Must keep its identity while nothing retries: the rows memo on it. */
+  retrying?: FeedContext["retrying"];
+  /** Names the feed's pages carry for the agents they mention. */
+  agentNames?: Readonly<Record<string, string>>;
 };
 
 export type ChatFeedContextResult = {
   /** Feed-wide identity: the memo key of every row. */
   ctx: FeedContext;
-  /** What the pin rows read; changes without touching `ctx`. */
-  pinShortcuts: PinShortcutState;
-  /** The shortcut confirmation dialog; render it once in the pane. */
-  shortcutDialog: ReactNode;
 };
 
 /**
- * The two contexts the feed's rows read, built so that each keeps its
- * identity until something it carries actually changes.
+ * The context the feed's rows read, built so that it keeps its identity
+ * until something it carries actually changes.
  *
  * Every row is memoised on `ctx`, so the rules that keep it stable live
  * here, in one place:
@@ -44,74 +54,41 @@ export type ChatFeedContextResult = {
  *   in it changed.
  * - Mutation result objects are new on every render; callbacks depend on
  *   the stable `mutate` and the `isPending` flag, never the object.
- * - Pins, the pending shortcut and the running flag are the pin rows'
- *   business and travel on `pinShortcuts` instead, keyed by content so an
- *   upsert that changed nothing there changes nothing here.
  */
 export function useChatFeedContext({
   agentId,
+  rootId = null,
   agent,
   openLightbox,
-  onOpenReview,
+  onOpenPath,
   onToggleReaction,
+  onOpenThread,
+  onSubmitForm,
+  onSetBlockState,
+  settingBlockStateId,
+  onRetryDelivery,
+  onRetryTurn,
+  retrying,
+  agentNames,
 }: ChatFeedContextInput): ChatFeedContextResult {
-  // Every agent.upsert hands over a fresh pins array; key on its content so
-  // unchanged pins don't invalidate the pin rows.
-  const pinsKey = JSON.stringify(agent?.pins ?? []);
-  const pins = useMemo<AgentPin[]>(() => JSON.parse(pinsKey), [pinsKey]);
-
-  // Shortcut pins in the stream fire exactly as they do in the sidebar:
-  // same confirmation rule, same dialog, same focus restoration.
-  const runPinShortcut = useRunPinShortcut();
-  const { mutate: runShortcutNow, isPending: shortcutPending } = runPinShortcut;
-  const fireShortcut = useCallback(
-    (pin: AgentPin) => {
-      if (!agentId || !pin.id || shortcutPending) return;
-      runShortcutNow({ agentId, pinId: pin.id, label: pin.label });
-    },
-    [agentId, runShortcutNow, shortcutPending]
-  );
-  const shortcuts = useShortcutRunner(fireShortcut);
-  const { request: requestShortcut, registerButton: registerShortcutButton } =
-    shortcuts;
-  const onRunShortcut = useCallback(
-    (pin: AgentPin, pointerType?: string) =>
-      requestShortcut(pin, pointerType, null),
-    [requestShortcut]
-  );
-  const pendingPinId = shortcutPending
-    ? (runPinShortcut.variables?.pinId ?? null)
-    : null;
-  const agentIsRunning = agent?.status === "running";
-  const workspaceRoot = agent?.worktreePath ?? agent?.cwd ?? null;
-  const pinShortcuts = useMemo<PinShortcutState>(
-    () => ({
-      pins,
-      workspaceRoot,
-      agentIsRunning,
-      pendingPinId,
-      onRunShortcut,
-      registerShortcutButton,
-    }),
-    [
-      agentIsRunning,
-      onRunShortcut,
-      pendingPinId,
-      pins,
-      registerShortcutButton,
-      workspaceRoot,
-    ]
-  );
-
   // The sidebar's agent list, read for a peer post's icon and lineage.
   // `select` narrows it to what the feed shows, so structural sharing keeps
   // the directory's identity across agent updates that change nothing here;
   // a stable selector lets react-query skip re-running it at all.
+  // One read of the list gives both: the peers, and this agent's own
+  // seat in its tree (drawn as its avatar).
   const selectPeers = useCallback(
-    (agents: Agent[]) => peerDirectory(agentId ?? "", agents),
+    (agents: Agent[]) => ({
+      peers: peerDirectory(agentId ?? "", agents),
+      seat: agentId ? (lineageSeats(agentId, agents)[agentId] ?? null) : null,
+    }),
     [agentId]
   );
-  const { data: peers } = useQuery<Agent[], Error, PeerDirectory>({
+  const { data: directory } = useQuery<
+    Agent[],
+    Error,
+    { peers: PeerDirectory; seat: number | null }
+  >({
     queryKey: ["agents"],
     queryFn: async () => {
       const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
@@ -119,29 +96,89 @@ export function useChatFeedContext({
     },
     select: selectPeers,
   });
+  const peers = directory?.peers;
+  const agentSeat = directory?.seat ?? null;
+  const names = useKnownNames(peers, agentNames);
 
   const agentName = agent?.name;
   const agentType = agent?.type ?? null;
+  const agentModel = agent?.model ?? null;
+  const catalog = useAgentModelCatalogData();
+  const modelLabel = useCallback(
+    (type: string | null, model: string) =>
+      agentModelLabel(catalog, type, model),
+    [catalog]
+  );
   const ctx = useMemo<FeedContext>(
     () => ({
       agentId: agentId ?? "",
+      rootId,
       agentName,
       agentType,
+      agentModel,
+      modelLabel,
+      ...(agentSeat != null ? { agentSeat } : {}),
       peers,
-      onOpenMedia: openLightbox,
-      onOpenReview,
+      names,
+      onOpenFile: openLightbox,
+      onOpenPath,
       onToggleReaction,
+      onOpenThread,
+      onSubmitForm,
+      onSetBlockState,
+      settingBlockStateId,
+      onRetryDelivery,
+      onRetryTurn,
+      retrying,
     }),
     [
       agentId,
+      rootId,
       agentName,
       agentType,
-      onOpenReview,
+      agentModel,
+      modelLabel,
+      agentSeat,
+      onOpenPath,
       onToggleReaction,
+      onOpenThread,
+      onSubmitForm,
+      onSetBlockState,
+      settingBlockStateId,
+      onRetryDelivery,
+      onRetryTurn,
+      retrying,
       openLightbox,
       peers,
+      names,
     ]
   );
 
-  return { ctx, pinShortcuts, shortcutDialog: shortcuts.dialog };
+  return { ctx };
+}
+
+/**
+ * Every agent name this feed has known: the pages' names, and each peer the
+ * directory has listed. An agent archived while the feed is open drops out
+ * of the directory before any page is fetched again; its posts keep the name
+ * it had. The object keeps its identity until a name is added or changed,
+ * because every row is memoised on the context that carries it.
+ */
+function useKnownNames(
+  peers: PeerDirectory | undefined,
+  pageNames: Readonly<Record<string, string>> | undefined
+): Readonly<Record<string, string>> {
+  const known = useRef<Record<string, string>>({});
+  return useMemo(() => {
+    let next = known.current;
+    const learn = (id: string, name: string) => {
+      if (next[id] === name) return;
+      if (next === known.current) next = { ...next };
+      next[id] = name;
+    };
+    for (const [id, name] of Object.entries(pageNames ?? {})) learn(id, name);
+    for (const [id, peer] of Object.entries(peers ?? {})) learn(id, peer.name);
+    known.current = next;
+    return next;
+  }, [peers, pageNames]);
 }

@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+vi.mock(
+  "@/components/app/chat/composer-input",
+  () => import("@/test-utils/composer-input")
+);
 import {
   act,
   cleanup,
@@ -10,6 +14,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatComposer } from "@/components/app/chat/chat-composer";
+import { ApiError } from "@/lib/api";
+import { CHAT_ATTACHMENTS_MAX } from "@dispatch/shared";
 
 import {
   isLongPaste,
@@ -273,11 +279,145 @@ describe("ChatComposer attachments", () => {
     expect(uploadFile).toHaveBeenCalledTimes(1);
     expect(uploadFile.mock.calls[0]![0].name).toBe("shot.png");
     expect(onSend).toHaveBeenCalledWith("look at these", [
-      { type: "file", mediaId: "shot.png".length },
+      { type: "file", fileId: "shot.png".length },
       { type: "link", url: "https://example.com/x" },
     ]);
     await waitFor(() => expect(input.value).toBe(""));
     expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
+  });
+
+  it("restores uploaded bytes after a failed post and retries without uploading again", async () => {
+    let reject!: (error: Error) => void;
+    const onSend = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, rej) => {
+            reject = rej;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const { input, uploadFile } = renderComposer({ onSend });
+    pasteFiles(input, [new File(["png"], "shot.png", { type: "image/png" })]);
+    pasteText(input, "https://example.com/sent");
+    fireEvent.change(input, { target: { value: "look" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(input.value).toBe("");
+    expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    pasteFiles(input, [new File(["new"], "new.txt", { type: "text/plain" })]);
+    await act(async () => reject(new Error("Connection failed")));
+    expect(input.value).toBe("look");
+    expect(screen.queryByTestId("chat-attachment-chip-placeholder")).toBeNull();
+    expect(screen.getAllByTestId("context-file-item")).toHaveLength(2);
+    expect(screen.getByTestId("context-link-item")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    expect(uploadFile.mock.calls.map(([file]) => file.name)).toEqual([
+      "shot.png",
+      "new.txt",
+    ]);
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1));
+  });
+
+  it("accepts the same file into a new draft while a post is pending", async () => {
+    let resolve!: () => void;
+    const onSend = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((res) => {
+            resolve = res;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const { input, uploadFile } = renderComposer({ onSend });
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    pasteFiles(input, [file]);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    pasteFiles(input, [file]);
+    expect(screen.getByTestId("context-file-item")).toBeTruthy();
+    await act(async () => resolve());
+    expect(screen.getByTestId("context-file-item")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    expect(uploadFile).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2));
+  });
+
+  it("gives a new same-size long paste its own upload while a post is pending", async () => {
+    let reject!: (error: Error) => void;
+    const onSend = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, rej) => {
+            reject = rej;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const uploaded: File[] = [];
+    const uploadFile = vi.fn(async (file: File) => {
+      uploaded.push(file);
+      return { id: uploaded.length };
+    });
+    const { input } = renderComposer({ onSend, uploadFile });
+    pasteText(input, "old text\n".repeat(100));
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    pasteText(input, "new text\n".repeat(100));
+    await act(async () => reject(new Error("Connection failed")));
+    expect(screen.getAllByTestId("chat-attachment-chip-pasted")).toHaveLength(
+      2
+    );
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    expect(uploaded.map((file) => file.name)).toEqual([
+      "pasted.txt",
+      "pasted-2.txt",
+    ]);
+    expect(onSend).toHaveBeenLastCalledWith("", [
+      { type: "file", fileId: 1 },
+      { type: "file", fileId: 2 },
+    ]);
+  });
+
+  it("blocks an oversized restored attachment draft until extra attachments are removed", async () => {
+    let reject!: (error: Error) => void;
+    const onSend = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, rej) => {
+            reject = rej;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const { input } = renderComposer({ onSend });
+    pasteText(input, "https://example.com/first");
+    fireEvent.keyDown(input, { key: "Enter" });
+    for (let i = 0; i < CHAT_ATTACHMENTS_MAX; i++)
+      pasteText(input, `https://example.com/next-${i}`);
+    await act(async () => reject(new Error("Connection failed")));
+    expect(screen.getAllByTestId("context-link-item")).toHaveLength(
+      CHAT_ATTACHMENTS_MAX + 1
+    );
+    const error = screen.getByTestId("chat-composer-error");
+    expect(error.textContent).toContain("Remove 1 attachment to send");
+    expect(error.getAttribute("data-retryable")).not.toBe("true");
+    expect(
+      (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
+    ).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByLabelText("Remove https://example.com/next-0"));
+    expect(
+      (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
+    ).toBe(false);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
   });
 
   it("sends an attachment with no text at all", async () => {
@@ -319,9 +459,7 @@ describe("ChatComposer attachments", () => {
       resolveUpload({ id: 7 });
     });
     await waitFor(() =>
-      expect(onSend).toHaveBeenCalledWith("hold", [
-        { type: "file", mediaId: 7 },
-      ])
+      expect(onSend).toHaveBeenCalledWith("hold", [{ type: "file", fileId: 7 }])
     );
   });
 
@@ -358,15 +496,62 @@ describe("ChatComposer attachments", () => {
     expect(chips).toHaveLength(2);
     expect(chips[1]!.getAttribute("data-status")).toBe("failed");
 
-    // Second attempt: ok.txt keeps its media id, only bad.txt uploads again.
+    // Second attempt: ok.txt keeps its file id, only bad.txt uploads again.
     uploadFile.mockImplementation(async () => ({ id: 2 }));
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(uploadFile).toHaveBeenCalledTimes(3);
     expect(onSend).toHaveBeenCalledWith("keep me", [
-      { type: "file", mediaId: 1 },
-      { type: "file", mediaId: 2 },
+      { type: "file", fileId: 1 },
+      { type: "file", fileId: 2 },
     ]);
+  });
+
+  it("retains queued delivery when retrying an attachment upload with Enter", async () => {
+    const uploadFile = vi
+      .fn<(file: File) => Promise<{ id: number }>>()
+      .mockRejectedValueOnce(new Error("Temporarily unavailable"))
+      .mockResolvedValue({ id: 42 });
+    const { onSend, input } = renderComposer({ uploadFile, canQueue: true });
+    pasteFiles(input, [new File(["note"], "note.txt", { type: "text/plain" })]);
+    fireEvent.change(input, { target: { value: "later" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    const error = await screen.findByTestId("chat-composer-error");
+    expect(error.textContent).toContain("press Enter to queue again");
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(
+        "later",
+        [{ type: "file", fileId: 42 }],
+        { delivery: "queue" }
+      )
+    );
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("tells the user to remove a file the server refused, not to retry it", async () => {
+    const uploadFile = vi
+      .fn<(file: File) => Promise<{ id: number }>>()
+      .mockRejectedValue(
+        new ApiError(
+          400,
+          "fake.png isn't a PNG image: its contents don't match its name."
+        )
+      );
+    const { onSend, input } = renderComposer({ uploadFile });
+    pasteFiles(input, [new File(["nope"], "fake.png", { type: "image/png" })]);
+    fireEvent.change(input, { target: { value: "look" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const error = await screen.findByTestId("chat-composer-error");
+    expect(error.textContent).toBe(
+      "fake.png isn't a PNG image: its contents don't match its name. Remove fake.png to send the rest."
+    );
+    expect(error.getAttribute("data-retryable")).toBeNull();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("look");
   });
 
   it("highlights the composer while files are dragged over it", () => {

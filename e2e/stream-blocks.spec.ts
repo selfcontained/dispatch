@@ -1,0 +1,395 @@
+import { expect, test } from "@playwright/test";
+
+import {
+  authHeaders,
+  callMcpToolViaAPI,
+  cleanupE2EAgents,
+  createAgentViaAPI,
+} from "./helpers";
+
+/** The stored state of one block, read back as the root of its own thread. */
+async function blockState(
+  request: Parameters<typeof callMcpToolViaAPI>[0],
+  streamId: string,
+  blockId: string
+): Promise<Record<string, unknown> | null> {
+  const res = await request.get(
+    `/api/v1/streams/${streamId}/blocks/${blockId}/thread`,
+    { headers: authHeaders() }
+  );
+  const body = (await res.json()) as {
+    root?: { state: Record<string, unknown> | null };
+  };
+  return body.root?.state ?? null;
+}
+
+test.describe("Stream blocks", () => {
+  test.afterEach(async ({ request }) => {
+    await cleanupE2EAgents(request);
+  });
+
+  test("a review block lists its findings, resolves through the state route and opens a finding's thread", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-review-block-${Date.now()}`,
+    });
+    // A reviewer would post this with `to` set to the agent it reviewed;
+    // the agent's own post lands in the same stream and renders the same.
+    const posted = (await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "",
+      review: {
+        summary: "Two things to fix before this ships. The rest reads well.",
+        findings: [
+          {
+            severity: "major",
+            title: "Retry spinner never settles",
+            body: "After a timeout the spinner keeps going.",
+            path: "apps/web/src/components/LoadingState.tsx",
+            line: 56,
+          },
+          {
+            severity: "nit",
+            title: "Stray console.log",
+            body: "Left over from debugging.",
+            path: "apps/web/src/lib/api.ts",
+            line: 12,
+          },
+        ],
+      },
+    })) as { result?: { content?: Array<{ text?: string }> } };
+    const result = JSON.parse(posted.result?.content?.[0]?.text ?? "{}") as {
+      id?: string;
+      findings?: Array<{ id: string }>;
+    };
+    const reviewId = result.id;
+    expect(reviewId).toBeTruthy();
+    // Each finding is a block of its own; the post names them.
+    const [f1, f2] = (result.findings ?? []).map((f) => f.id);
+    expect(f1 && f2).toBeTruthy();
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const pane = page.getByTestId("chat-pane");
+    const card = pane.getByTestId("chat-review-block");
+    await expect(card).toBeVisible();
+
+    // In the stream the review is a summary line: where its findings
+    // stand, the counts, the summary's first sentence. Clicking it opens the
+    // review in the drawer.
+    await expect(card.getByTestId("chat-review-status")).toHaveText(
+      "Changes requested"
+    );
+    await expect(card.getByTestId("chat-review-counts")).toHaveText(
+      "2 findings · 2 open"
+    );
+    await expect(card.getByTestId("chat-review-summary-line")).toHaveText(
+      "Two things to fix before this ships."
+    );
+    await expect(card.getByTestId("chat-review-finding")).toHaveCount(0);
+    await card.getByTestId("chat-review-header").click();
+    await page.waitForURL(
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}$`)
+    );
+    await expect(page.getByTestId("drawer-title")).toHaveText("Review");
+    const review = page.locator(
+      '[data-testid="drawer-page"][data-page-key^="thread:"] [data-testid="chat-review-block"]'
+    );
+    await expect(review.getByTestId("chat-review-details")).toHaveAttribute(
+      "data-open",
+      "true"
+    );
+    await expect(review.getByTestId("chat-review-details")).toContainText(
+      "Two things to fix before this ships."
+    );
+    const findings = review.getByTestId("chat-review-finding");
+    await expect(findings).toHaveCount(2);
+    await expect(findings.nth(0)).toHaveAttribute("data-finding-id", f1!);
+    await expect(findings.nth(0)).toContainText("Retry spinner never settles");
+    await expect(findings.nth(0)).toContainText("LoadingState.tsx:56");
+    await expect(
+      findings.nth(0).getByTestId("chat-review-severity")
+    ).toHaveText("major");
+    // The row is compact: no body, no controls.
+    await expect(findings.nth(0)).not.toContainText(
+      "Left over from debugging."
+    );
+    await expect(review.getByTestId("chat-review-resolve")).toHaveCount(0);
+
+    // A row opens the finding's own thread, where Resolve lives; the change
+    // goes through PATCH …/state on the finding and the row follows.
+    await findings.nth(0).getByTestId("chat-review-finding-link").click();
+    await page.waitForURL(
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=${f1}$`)
+    );
+    // The finding's page sits on top of the review's in the drawer; only
+    // the top page is live.
+    const thread = page.locator(
+      '[data-testid="drawer-page"][data-top="true"] [data-testid="chat-thread-panel"]'
+    );
+    await expect(thread).toBeVisible();
+    await expect(thread).toHaveAttribute("data-block-id", reviewId!);
+    await expect(page.getByTestId("drawer-title")).toHaveText("Finding");
+    const detail = thread.getByTestId("chat-finding-detail");
+    await expect(detail).toContainText("Retry spinner never settles");
+    await detail.getByTestId("chat-review-resolve").click();
+    await expect(detail.getByTestId("chat-review-finding-status")).toHaveText(
+      "Fixed"
+    );
+    await expect(findings.nth(0)).toHaveAttribute("data-status", "resolved");
+    await expect(review.getByTestId("chat-review-counts")).toHaveText(
+      "2 findings · 1 open"
+    );
+    await expect
+      .poll(() => blockState(request, agent.id, f1!))
+      .toMatchObject({ status: "resolved", resolution: "fixed" });
+
+    // Dismissing wants a reason and records it; Reopen takes it back. The
+    // review page is under the finding's: back first, then the next row.
+    await page.getByTestId("drawer-back").click();
+    await page.waitForURL(
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}$`)
+    );
+    await findings.nth(1).getByTestId("chat-review-finding-link").click();
+    await page.waitForURL(
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=${f2}$`)
+    );
+    await expect(detail).toContainText("Left over from debugging.");
+    await detail.getByTestId("chat-review-dismiss").click();
+    await page
+      .getByTestId("chat-review-dismiss-note")
+      .fill("Debug logging stays until the beta.");
+    await page.getByTestId("chat-review-dismiss-confirm").click();
+    await expect(findings.nth(1)).toHaveAttribute("data-outcome", "dismissed");
+    await expect(detail.getByTestId("chat-review-finding-note")).toHaveText(
+      "Debug logging stays until the beta."
+    );
+    await expect
+      .poll(() => blockState(request, agent.id, f2!))
+      .toMatchObject({
+        status: "resolved",
+        resolution: "dismissed",
+        note: "Debug logging stays until the beta.",
+      });
+    await detail.getByTestId("chat-review-reopen").click();
+    await page.getByTestId("chat-review-reopen-confirm").click();
+    await expect(findings.nth(1)).toHaveAttribute("data-status", "open");
+    await expect
+      .poll(() => blockState(request, agent.id, f2!))
+      .toMatchObject({ status: "open" });
+
+    // A comment on the finding lands in the finding's own thread.
+    await thread
+      .getByTestId("chat-composer-input")
+      .fill("Fixing this one now.");
+    await thread.getByTestId("chat-composer-send").click();
+    await expect(thread.getByTestId("chat-thread-replies")).toContainText(
+      "Fixing this one now."
+    );
+    await expect(findings.nth(1)).toContainText("1 comment");
+
+    await page.screenshot({
+      path: test.info().outputPath("review-block-thread.png"),
+      fullPage: true,
+    });
+  });
+
+  test("the Inbox shows an open question, answers it in place, and a tasks block is read-only", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-inbox-${Date.now()}`,
+    });
+    await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Which database should the migration target?",
+      question: {
+        options: [{ label: "Postgres" }, { label: "SQLite", value: "sqlite" }],
+      },
+    });
+    await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Plan",
+      tasks: {
+        items: [
+          { id: "a", text: "Write the migration" },
+          { id: "b", text: "Wire the route" },
+        ],
+      },
+    });
+    await callMcpToolViaAPI(request, agent.id, "post", {
+      link: { url: "https://example.com/preview", title: "Preview" },
+    });
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
+
+    // The closed sidebar's toggle counts the open question.
+    const toggle = page.getByTestId("toggle-drawer");
+    await expect(toggle.getByTestId("toggle-drawer-badge")).toHaveText("1");
+    await toggle.click();
+    const sidebar = page.getByTestId("drawer");
+    await sidebar.getByTestId("sidebar-tab-inbox").click();
+    const inbox = sidebar.getByTestId("inbox");
+    await expect(inbox).toHaveAttribute("data-open-inputs", "1");
+    const input = inbox.getByTestId("inbox-input");
+    await expect(input).toHaveCount(1);
+    await expect(input).toContainText(
+      "Which database should the migration target?"
+    );
+    await expect(
+      sidebar.getByTestId("inbox-link").getByRole("link")
+    ).toHaveAttribute("href", "https://example.com/preview");
+
+    // The tasks block in the feed is a read-only checklist.
+    const tasks = page.getByTestId("chat-tasks-block");
+    await expect(tasks.getByTestId("chat-tasks-header")).toContainText(
+      "0/2 done"
+    );
+    await expect(tasks.getByTestId("chat-task")).toHaveCount(2);
+    await expect(tasks.getByRole("checkbox")).toHaveCount(0);
+
+    await page.screenshot({
+      path: test.info().outputPath("inbox-open-question.png"),
+      fullPage: true,
+    });
+
+    // Answering from the Inbox records the answer and clears it.
+    await input.getByTestId("chat-question-option").nth(1).click();
+    await expect(inbox).toHaveAttribute("data-open-inputs", "0");
+    await expect(inbox.getByTestId("inbox-input")).toHaveCount(0);
+    await expect(toggle.getByTestId("toggle-drawer-badge")).toHaveCount(0);
+    const answered = page
+      .getByTestId("chat-pane")
+      .getByTestId("chat-question-options");
+    await expect(answered).toContainText("Answered");
+    await expect(answered).toContainText("SQLite");
+  });
+
+  test("a person can cancel open questions and forms without removing their threads", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-cancel-input-${Date.now()}`,
+    });
+    const questionPost = await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Do we still need a decision?",
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
+    const formPost = await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Details we may no longer need",
+      form: {
+        title: "Release details",
+        fields: [{ id: "note", label: "Note", type: "text", required: true }],
+      },
+    });
+    const postedId = (post: Record<string, unknown>) =>
+      (
+        JSON.parse(
+          (post.result as { content?: Array<{ text?: string }> })?.content?.[0]
+            ?.text ?? "{}"
+        ) as { id?: string }
+      ).id;
+    const questionId = postedId(questionPost);
+    const formId = postedId(formPost);
+    expect(questionId).toBeTruthy();
+    expect(formId).toBeTruthy();
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const pane = page.getByTestId("chat-pane");
+    const question = pane.locator(`[data-chat-entry-id="${questionId}"]`);
+    await question.getByTestId("chat-ask-cancel").click();
+    await expect(question.getByTestId("chat-ask-canceled")).toBeVisible();
+    await expect(question.getByTestId("chat-question-option")).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          (await blockState(request, agent.id, questionId!))?.cancellation
+      )
+      .toMatchObject({ by: { kind: "user" } });
+    const questionThread = question.getByTestId("chat-thread-line");
+    await expect(questionThread).toHaveAttribute("data-reply-count", "1");
+    await questionThread.click();
+    await expect(page.getByTestId("chat-thread-panel")).toContainText(
+      "Dismissed without answering."
+    );
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("toggle-drawer").click();
+    const sidebar = page.getByTestId("drawer");
+    await sidebar.getByTestId("sidebar-tab-inbox").click();
+    const inbox = sidebar.getByTestId("inbox");
+    await expect(inbox).toHaveAttribute("data-open-inputs", "1");
+    await inbox.getByTestId("chat-ask-cancel").click();
+    await expect(inbox).toHaveAttribute("data-open-inputs", "0");
+    await expect(page.getByTestId(`agent-activity-${agent.id}`)).toHaveCount(0);
+    const form = page
+      .getByTestId("chat-pane")
+      .locator(`[data-chat-entry-id="${formId}"]`);
+    await expect(form.getByTestId("chat-ask-canceled")).toBeVisible();
+    await expect(form.getByTestId("chat-form-submit")).toHaveCount(0);
+    await expect
+      .poll(
+        async () => (await blockState(request, agent.id, formId!))?.cancellation
+      )
+      .toMatchObject({ by: { kind: "user" } });
+
+    await page.screenshot({
+      path: test.info().outputPath("canceled-question-and-form.png"),
+      fullPage: true,
+    });
+  });
+
+  test("the Changes tab posts a hand-written review as a review block", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-hand-review-${Date.now()}`,
+    });
+    await page.goto(`/agents/${agent.id}/changes`, {
+      waitUntil: "domcontentloaded",
+    });
+    const toolbar = page.getByTestId("changes-toolbar");
+    await expect(toolbar).toBeVisible();
+    await expect(toolbar.getByTestId("launch-reviewer-button")).toBeVisible();
+
+    await toolbar.getByTestId("changes-start-review").click();
+    const bar = page.getByTestId("review-mode-bar");
+    await expect(bar.getByTestId("review-mode-count")).toHaveText("0 comments");
+    await bar.getByTestId("review-mode-submit").click();
+
+    const dialog = page.getByTestId("submit-review-dialog");
+    await expect(dialog).toBeVisible();
+    const post = dialog.getByTestId("review-post");
+    await expect(post).toBeDisabled();
+    await dialog.getByTestId("review-summary").fill("Looks good to me.");
+    await post.click();
+
+    // The review lands in the stream and opens in the drawer, over the
+    // Changes tab it was written from.
+    await page.waitForURL(new RegExp(`/agents/${agent.id}/changes\\?thread=`));
+    const thread = page.getByTestId("chat-thread-panel");
+    await expect(page.getByTestId("drawer-title")).toHaveText("Review");
+    // A review with no findings has nothing open: it reads as approved.
+    await expect(thread.getByTestId("chat-review-status")).toHaveText(
+      "Approved"
+    );
+    await expect(thread.getByTestId("chat-review-counts")).toHaveText(
+      "No findings"
+    );
+    // Back on the Agent tab, the feed shows it too.
+    await page.goto(
+      `/agents/${agent.id}?thread=${new URL(page.url()).searchParams.get(
+        "thread"
+      )}`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await expect(
+      page
+        .getByTestId("chat-pane")
+        .locator("[data-chat-entry-id] [data-testid='chat-review-block']")
+    ).toBeVisible();
+    await expect(page.getByTestId("drawer-title")).toHaveText("Review");
+  });
+});

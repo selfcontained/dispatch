@@ -57,7 +57,7 @@ export function BrowserFeedbackContent() {
           text-only (the choice is remembered), or use{" "}
           <strong>Remove screenshot</strong> to drop the image from a single
           submission. If a capture can't be taken, the feedback is still sent
-          without one. The screenshot is stored as agent media and referenced in
+          without one. The screenshot is stored as agent files and referenced in
           the prompt as untrusted observational evidence.
         </P>
       </Section>

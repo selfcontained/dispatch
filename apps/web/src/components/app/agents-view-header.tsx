@@ -6,7 +6,7 @@ import {
 } from "@/components/app/center-pane-tab-bar";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import { QuickPhrasesButton } from "@/components/app/quick-phrases";
-import { type ConnState, type DiffStats } from "@/components/app/types";
+import { type DiffStats } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
 import { Button } from "@/components/ui/button";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
@@ -14,60 +14,49 @@ import { cn } from "@/lib/utils";
 
 type AgentsViewHeaderProps = {
   isMobile: boolean;
-  connState: ConnState;
   leftPanelOpen: boolean;
   handleSetLeftPanelOpen: (open: boolean) => void;
   focusedAgentId: string | null;
   focusedAgentName: string | null;
   hasActiveAgent: boolean;
-  focusTerminal: () => void;
   focusedDiffStats: DiffStats | null | undefined;
   activeTab: CenterTab;
   /**
-   * False while the route is still settling on a tab (flag not yet known, or
-   * a redirect pending). The tab bar waits, so it never shows "Terminal"
-   * highlighted for a frame before flipping to Chat/Console.
+   * False while a legacy route redirect is pending. The tab bar waits, so it
+   * never highlights a tab for a frame before the redirect lands.
    */
   centerTabResolved?: boolean;
-  /** The chat surface as it applies to this agent (see `agentSupportsChat`). */
-  chatEnabled: boolean;
   chatUnreadCount?: number;
   isSplit: boolean;
   splitState: SplitPaneState;
   exitSplit: () => void;
   onTabChange: (tab: CenterTab) => void;
-  whiteboardAgentDrew: boolean;
-  mediaPanelOpen: boolean;
-  setMediaOpen: (open: boolean) => void;
-  unseenMediaCount: number;
-  unreadMessageCount: number;
-  unseenSurfaceCount: number;
+  drawerPanelOpen: boolean;
+  setDrawerOpen: (open: boolean) => void;
+  unseenFileCount: number;
+  /** Open questions and forms waiting on the user (the Inbox). */
+  openInputCount: number;
 };
 
 export function AgentsViewHeader({
   isMobile,
-  connState,
   leftPanelOpen,
   handleSetLeftPanelOpen,
   focusedAgentId,
   focusedAgentName,
   hasActiveAgent,
-  focusTerminal,
   focusedDiffStats,
   activeTab,
   centerTabResolved = true,
-  chatEnabled,
   chatUnreadCount = 0,
   isSplit,
   splitState,
   exitSplit,
   onTabChange,
-  whiteboardAgentDrew,
-  mediaPanelOpen,
-  setMediaOpen,
-  unseenMediaCount,
-  unreadMessageCount,
-  unseenSurfaceCount,
+  drawerPanelOpen,
+  setDrawerOpen,
+  unseenFileCount,
+  openInputCount,
 }: AgentsViewHeaderProps): JSX.Element {
   return (
     <div
@@ -93,12 +82,7 @@ export function AgentsViewHeader({
         ) : null}
         <TipSpot tipId="quick-phrases" side="bottom" align="center">
           <QuickPhrasesButton
-            agentId={
-              hasActiveAgent && connState === "connected"
-                ? focusedAgentId!
-                : null
-            }
-            focusTerminal={focusTerminal}
+            agentId={hasActiveAgent ? focusedAgentId : null}
           />
         </TipSpot>
         {focusedDiffStats &&
@@ -133,11 +117,9 @@ export function AgentsViewHeader({
                   }
                   onTabChange(tab);
                 }}
-                whiteboardAgentDrew={whiteboardAgentDrew}
                 isSplit={isSplit}
                 splitState={splitState}
                 isMobile={isMobile}
-                chatEnabled={chatEnabled}
                 chatUnreadCount={chatUnreadCount}
               />
             ) : null}
@@ -148,29 +130,27 @@ export function AgentsViewHeader({
         {activeTab === "changes" && !isSplit ? (
           <ChangesSettingsPopover isMobile={isMobile} />
         ) : null}
-        {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
+        {hasActiveAgent && (!drawerPanelOpen || isMobile) ? (
           <Button
             size="icon"
             variant="ghost"
             className="relative"
-            onClick={() => setMediaOpen(true)}
-            title="Open media sidebar"
-            data-testid="toggle-media-sidebar"
+            onClick={() => setDrawerOpen(true)}
+            title="Open drawer"
+            data-testid="toggle-drawer"
           >
             <PanelLeftOpen className="h-4 w-4" />
-            {unseenMediaCount + unreadMessageCount + unseenSurfaceCount > 0 ? (
-              <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                {unseenMediaCount + unreadMessageCount + unseenSurfaceCount}
+            {unseenFileCount + openInputCount > 0 ? (
+              <span
+                className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
+                data-testid="toggle-drawer-badge"
+              >
+                {unseenFileCount + openInputCount}
               </span>
             ) : null}
           </Button>
         ) : null}
       </div>
-      {connState === "reconnecting" ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
-          <div className="dispatch-reconnect-scan h-full w-1/3 will-change-transform bg-[linear-gradient(to_right,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)] saturate-[1.35] brightness-[1.05] animate-[reconnect-scan_1350ms_ease-in-out_infinite] motion-reduce:animate-none motion-reduce:translate-x-[140%]" />
-        </div>
-      ) : null}
     </div>
   );
 }

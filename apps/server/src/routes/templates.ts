@@ -8,19 +8,16 @@ import { errorMessage } from "../shared/lib/error-message.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
+  startupFileUpload,
   type StartupFileUpload,
   MAX_STARTUP_FILE_COUNT,
-  createStartupPins,
+  validateStartupLinks,
   parseOptionalStringArrayField,
 } from "./agent-startup.js";
 import type { AgentRecord } from "../agents/manager.js";
 import type { TemplateService } from "../templates/service.js";
 import { parseTemplateArgs } from "../templates/store.js";
-import {
-  isMediaFile,
-  isTextFile,
-  sanitizeUploadedFileName,
-} from "../shared/media.js";
+import { sanitizeUploadedFileName } from "../shared/files.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
 const directoryField = z
@@ -40,7 +37,7 @@ const AddTemplateBodySchema = z.object({
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
-  allowMedia: z.boolean().optional(),
+  allowFiles: z.boolean().optional(),
   selfImprove: z.boolean().optional(),
 });
 
@@ -56,7 +53,7 @@ const UpdateTemplateBodySchema = z.object({
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
-  allowMedia: z.boolean().optional(),
+  allowFiles: z.boolean().optional(),
   selfImprove: z.boolean().optional(),
 });
 
@@ -198,22 +195,18 @@ export async function registerTemplateRoutes(
             const fileName = sanitizeUploadedFileName(
               path.basename(part.filename || "")
             );
-            if (!fileName || !isMediaFile(fileName)) {
-              return reply.code(400).send({
-                error:
-                  "Unsupported file type. Use images, video, documents, or text files.",
-              });
+            if (!fileName) {
+              return reply.code(400).send({ error: "Invalid file name." });
             }
             if (!part.toBuffer) {
               return reply.code(400).send({ error: "Invalid file upload." });
             }
-            files.push({
-              fileName,
-              originalName: fileName,
-              buffer: await part.toBuffer(),
-              source: isTextFile(fileName) ? "text" : "user",
-              description: null,
-            });
+            const buffer = await part.toBuffer();
+            try {
+              files.push(startupFileUpload(fileName, fileName, buffer));
+            } catch (error) {
+              return reply.code(400).send({ error: errorMessage(error) });
+            }
             continue;
           }
           raw[part.fieldname] = part.value;
@@ -250,10 +243,10 @@ export async function registerTemplateRoutes(
         });
       }
 
-      let startupPins: ReturnType<typeof createStartupPins> = [];
+      let links: string[] = [];
       if (startupLinks && startupLinks.length > 0) {
         try {
-          startupPins = createStartupPins(startupLinks);
+          links = validateStartupLinks(startupLinks);
         } catch (error) {
           return reply.code(400).send({
             error: errorMessage(error),
@@ -266,14 +259,13 @@ export async function registerTemplateRoutes(
           templateId: request.params.id,
           ...parsed,
           startupFiles,
-          startupPins,
-          startupLinks,
+          startupLinks: links,
         });
         deps.publishUiEvent({
           type: "agent.upsert",
           agent: deps.withStreamFlag(result.agent),
         });
-        return { agent: result.agent };
+        return { agent: deps.withStreamFlag(result.agent) };
       } catch (error) {
         const message = errorMessage(error);
         return reply.code(classifyErrorCode(message)).send({ error: message });

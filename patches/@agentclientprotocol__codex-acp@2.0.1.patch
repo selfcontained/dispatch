@@ -1,0 +1,73 @@
+diff --git a/dist/index.js b/dist/index.js
+index 746f33e..caf4a1c 100755
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -30651,9 +30651,13 @@ ${event.details}` : event.summary;
+         ) : this.renderer.render(CompactionReporter.started(event.item));
+       case "subAgentActivity":
+         return this.renderer.render(this.subagents.legacyActivityStarted(event.item));
++      case "userMessage":
++        return typeof event.item.clientId === "string" ? {
++          sessionUpdate: "session_info_update",
++          _meta: { "dispatch/steering": { pickedUp: event.item.clientId } }
++        } : null;
+       case "sleep":
+       case "functionCallOutput":
+-      case "userMessage":
+       case "hookPrompt":
+       case "reasoning":
+       case "enteredReviewMode":
+@@ -34236,6 +34240,7 @@ var CodexAcpClient = class {
+     }
+     return await this.codexClient.runTurn({
+       threadId: request.sessionId,
++      ...(typeof request._meta?.["dispatch/steering"]?.id === "string" ? { clientUserMessageId: request._meta["dispatch/steering"].id } : {}),
+       input: input2,
+       approvalPolicy: agentMode.approvalPolicy,
+       approvalsReviewer: agentMode.approvalsReviewer,
+@@ -34364,6 +34369,7 @@ var CodexAcpClient = class {
+     return await this.codexClient.turnSteer({
+       threadId: params.threadId,
+       expectedTurnId: params.turnId,
++      ...(typeof params.receiptId === "string" ? { clientUserMessageId: params.receiptId } : {}),
+       input: buildPromptItems(params.prompt)
+     });
+   }
+@@ -37356,6 +37362,7 @@ var CodexAcpServer = class {
+       },
+       authMethods: getCodexAuthMethods(_params.clientCapabilities),
+       _meta: {
++        "dispatch/steering": { pickupReceipts: true, promptReceipts: true },
+         steering: {
+           supported: true
+         },
+@@ -38427,6 +38434,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
+         return { outcome: "injected" };
+       }
+     }
++    if (params._meta?.steering?.idleBehavior === "promptRequired") {
++      return { outcome: "promptRequired", reason: "noRunningTurn" };
++    }
+     return await this.startNewTurnFromSteering(params);
+   }
+   /**
+@@ -38455,7 +38465,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+       await this.runWithProcessCheck(() => this.codexAcpClient.steerTurn({
+         threadId: params.sessionId,
+         turnId,
+-        prompt: params.prompt
++        prompt: params.prompt,
++        receiptId: params._meta?.["dispatch/steering"]?.id
+       }));
+       return true;
+     } catch (err) {
+@@ -38565,7 +38576,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+     }
+     return {
+       sessionId,
+-      prompt
++      prompt,
++      _meta: params["_meta"]
+     };
+   }
+   createSessionConfigOptions(sessionState) {

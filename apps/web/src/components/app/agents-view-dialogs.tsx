@@ -6,7 +6,7 @@ import {
 } from "@/components/app/command-palette";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
-import { MediaLightbox } from "@/components/app/media-lightbox";
+import { FileLightbox } from "@/components/app/file-lightbox";
 import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
 import { type Agent } from "@/components/app/types";
 import { type Template } from "@/hooks/use-templates";
@@ -36,15 +36,15 @@ type AgentsViewDialogsProps = {
   setStopConfirmOpen: (open: boolean) => void;
   setStopTarget: (agent: Agent | null) => void;
   onStop: (agent: Agent) => Promise<void>;
-  lightboxMediaId: number | null;
-  lightboxMediaIds: number[];
-  setLightboxMediaId: (mediaId: number | null) => void;
+  lightboxFileId: number | null;
+  lightboxFileIds: number[];
+  setLightboxFileId: (fileId: number | null) => void;
 };
 
 /**
  * The modal/overlay cluster rendered at the end of the agents view: command
  * palette, template launch dialog, create/delete/stop agent dialogs, and the
- * media lightbox. Purely presentational — all state lives in the parent.
+ * file lightbox. Purely presentational — all state lives in the parent.
  */
 export function AgentsViewDialogs({
   paletteOpen,
@@ -70,9 +70,9 @@ export function AgentsViewDialogs({
   setStopConfirmOpen,
   setStopTarget,
   onStop,
-  lightboxMediaId,
-  lightboxMediaIds,
-  setLightboxMediaId,
+  lightboxFileId,
+  lightboxFileIds,
+  setLightboxFileId,
 }: AgentsViewDialogsProps): JSX.Element {
   return (
     <>
@@ -120,10 +120,10 @@ export function AgentsViewDialogs({
         onStop={onStop}
       />
 
-      <MediaLightbox
-        mediaId={lightboxMediaId}
-        mediaIds={lightboxMediaIds}
-        setMediaId={setLightboxMediaId}
+      <FileLightbox
+        fileId={lightboxFileId}
+        fileIds={lightboxFileIds}
+        setFileId={setLightboxFileId}
       />
     </>
   );

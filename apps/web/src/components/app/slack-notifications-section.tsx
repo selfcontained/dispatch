@@ -43,8 +43,7 @@ export function SlackNotificationsSection({
           Slack Webhook
         </h3>
         <p className="mb-3 text-sm text-muted-foreground">
-          Receive notifications in Slack when agents finish, need input, or get
-          blocked.
+          Receive notifications in Slack when agents need input or get blocked.
           {webNotifyEnabled && (
             <>
               {" "}
@@ -85,7 +84,7 @@ export function SlackNotificationsSection({
           Slack notify on
         </h3>
         <p className="mb-3 text-sm text-muted-foreground">
-          Choose which agent status changes trigger a Slack notification.
+          Choose which agent actions trigger a Slack notification.
         </p>
         <div className="max-w-lg space-y-2">
           {EVENT_OPTIONS.map(({ id, label, description }) => (

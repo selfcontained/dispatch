@@ -1,12 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { cleanupE2EAgents, createAgentViaAPI } from "./helpers";
+import { turnEntry } from "../apps/web/src/test-utils/blocks";
+import {
+  authHeaders,
+  callMcpToolViaAPI,
+  cleanupE2EAgents,
+  createAgentViaAPI,
+} from "./helpers";
 
 async function waitForAppShell(
   page: import("@playwright/test").Page,
   agentName?: string
 ): Promise<void> {
   await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
-  await page.getByTestId("terminal-pane").waitFor({ state: "visible" });
+  await page.getByTestId("chat-pane").waitFor({ state: "visible" });
   if (agentName) {
     await page
       .getByTestId("agent-sidebar")
@@ -20,6 +26,150 @@ test.describe("Agent routing", () => {
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request);
   });
+
+  for (const ownChild of [false, true]) {
+    test(`sidebar activity ${ownChild ? "preserves a child's own page" : "opens a foreign stream"}`, async ({
+      page,
+      request,
+    }) => {
+      const owner = await createAgentViaAPI(request, {
+        name: `e2e-activity-owner-${Date.now()}`,
+      });
+      const worker = await createAgentViaAPI(request, {
+        name: `e2e-activity-worker-${Date.now()}`,
+        ...(ownChild ? { parentAgentId: owner.id } : {}),
+      });
+      const child = ownChild
+        ? worker
+        : await createAgentViaAPI(request, {
+            name: "Foreign thread helper",
+            parentAgentId: owner.id,
+          });
+      // Agent creation returns before its launch card is written. Wait for
+      // that card before using it as the activity thread's host.
+      let threadId = "";
+      await expect
+        .poll(async () => {
+          const feed = await request.get(`/api/v1/streams/${owner.id}/blocks`, {
+            headers: authHeaders(),
+          });
+          expect(feed.ok()).toBe(true);
+          const { entries } = await feed.json();
+          threadId =
+            entries.find(
+              (entry: { block: { kind: string; toAgentId: string } }) =>
+                entry.block.kind === "launch" &&
+                entry.block.toAgentId === child.id
+            )?.id ?? "";
+          return threadId;
+        })
+        .not.toBe("");
+      const post = await callMcpToolViaAPI(request, owner.id, "post", {
+        replyTo: threadId,
+        text: "Activity belongs in this stream.",
+      });
+      const blockId = JSON.parse(
+        (post.result as { content: Array<{ text: string }> }).content[0]!.text
+      ).id as string;
+      // Inert E2E agents have no live turns. Supply just the runtime snapshot
+      // and label; the foreign launch thread and its lookup are real server data.
+      const agentsResponse = await request.get("/api/v1/agents", {
+        headers: authHeaders(),
+      });
+      const data = await agentsResponse.json();
+      data.agents = data.agents.map((agent: { id: string }) =>
+        agent.id === worker.id
+          ? {
+              ...agent,
+              activity: "working",
+              currentTurn: { streamId: owner.id, blockId, threadId },
+            }
+          : agent
+      );
+      await page.route("**/api/v1/agents", (route) =>
+        route.fulfill({ json: data })
+      );
+      await page.route("**/api/v1/events", (route) =>
+        route.fulfill({
+          contentType: "text/event-stream",
+          body: `data: ${JSON.stringify({ type: "snapshot", agents: data.agents })}\n\n`,
+        })
+      );
+      await page.route(`**/api/v1/agents/${worker.id}/turn`, (route) =>
+        route.fulfill({
+          json: {
+            entry: turnEntry({
+              id: blockId,
+              streamId: owner.id,
+              threadId,
+              author: { kind: "agent", agentId: worker.id },
+              turn: {
+                settled: false,
+                trace: { startedAt: new Date().toISOString(), steps: [] },
+              },
+            }),
+          },
+        })
+      );
+      // Prove the old request fails for this fixture, just as on the affected host.
+      const wrongStream = await request.get(
+        `/api/v1/streams/${worker.id}/blocks/${threadId}/thread`,
+        { headers: authHeaders() }
+      );
+      expect(wrongStream.status()).toBe(404);
+      for (const mobile of [false, true]) {
+        await page.setViewportSize(
+          mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 }
+        );
+        await page.goto(`/agents/${worker.id}`, {
+          waitUntil: "domcontentloaded",
+        });
+        if (mobile) await page.getByTitle("Open sidebar").click();
+        const activity = page.getByTestId(`agent-activity-${worker.id}`);
+        await expect(activity).toBeVisible();
+        const loadedThread = page.waitForResponse(
+          (response) =>
+            response
+              .url()
+              .includes(
+                `/api/v1/streams/${owner.id}/blocks/${threadId}/thread`
+              ) && response.status() === 200
+        );
+        await activity.click();
+        await loadedThread;
+        await expect(page).toHaveURL(
+          new RegExp(
+            `/agents/${ownChild ? worker.id : owner.id}\\?thread=${threadId}&block=${blockId}$`
+          )
+        );
+        const thread = page.locator(
+          '[data-testid="chat-thread-panel"]:visible'
+        );
+        await expect(thread).toContainText("Activity belongs in this stream.");
+        await expect(thread.getByText("Couldn't load the thread")).toHaveCount(
+          0
+        );
+        await expect
+          .poll(async () => {
+            const bounds = await thread.boundingBox();
+            return (
+              bounds !== null &&
+              bounds.x >= 0 &&
+              bounds.x + bounds.width <= page.viewportSize()!.width + 1
+            );
+          })
+          .toBe(true);
+        await page.screenshot({
+          path: `/tmp/dispatch-activity-${ownChild ? "child" : "stream"}-${mobile ? "mobile" : "desktop"}.png`,
+          fullPage: true,
+        });
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(thread).toContainText("Activity belongs in this stream.");
+        await page.locator('[data-testid="drawer-close"]:visible').click();
+        await expect(page).not.toHaveURL(/thread=/);
+      }
+    });
+  }
 
   test("deep-linking to an agent route auto-attaches that agent", async ({
     page,
@@ -36,7 +186,7 @@ test.describe("Agent routing", () => {
     await expect(page.getByTestId("current-session-name")).toContainText(
       agent.name
     );
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
+    await expect(page.getByTestId("chat-composer-input")).toBeVisible();
   });
 
   test("browser back returns to the same agent session after visiting settings", async ({
@@ -49,7 +199,7 @@ test.describe("Agent routing", () => {
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page, agent.name);
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
+    await expect(page.getByTestId("chat-composer-input")).toBeVisible();
 
     await page.getByTestId("settings-button").click();
     await expect(page).toHaveURL(/\/settings$/);
@@ -59,7 +209,7 @@ test.describe("Agent routing", () => {
     await expect(page.getByTestId("current-session-name")).toContainText(
       agent.name
     );
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
+    await expect(page.getByTestId("chat-composer-input")).toBeVisible();
   });
 
   test("legacy feedback and review routes normalize back to the agent route", async ({
@@ -96,6 +246,8 @@ test.describe("Agent routing", () => {
     await waitForAppShell(page);
 
     await expect(page).toHaveURL(/\/agents$/);
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting."
+    );
   });
 });

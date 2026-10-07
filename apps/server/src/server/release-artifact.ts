@@ -13,6 +13,8 @@ import {
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 
+import { hashRegular } from "../update-recovery/files.js";
+
 import type { RunCommand } from "./release-helpers.js";
 
 export function expectedArtifactMember(tag: string): string {
@@ -82,6 +84,51 @@ async function sha256File(filePath: string): Promise<string> {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(filePath)) hash.update(chunk);
   return hash.digest("hex");
+}
+
+export type RecoveryCapability = { protocol: 1; sha256: string };
+
+/** GitHub's separately fetched asset digest authenticates the manifest and payload. */
+export async function verifyRecoveryCapability(input: {
+  tarballPath: string;
+  tag: string;
+  expectedTarballSha256: string;
+}): Promise<RecoveryCapability> {
+  if (
+    !/^[a-f0-9]{64}$/.test(input.expectedTarballSha256) ||
+    (await hashRegular(input.tarballPath)) !== input.expectedTarballSha256
+  )
+    throw new Error(
+      "Release package does not match GitHub's published asset digest"
+    );
+  const member = expectedArtifactMember(input.tag);
+  let manifest: {
+    formatVersion?: number;
+    artifacts?: Record<string, { protocol?: number; sha256?: string }>;
+  } | null;
+  try {
+    manifest = JSON.parse(
+      await tarMemberText(
+        input.tarballPath,
+        "dist/bun/RECOVERY_CAPABILITIES.json"
+      )
+    );
+  } catch {
+    throw new Error(
+      "Target cannot be trialled safely: recovery capability manifest is missing or invalid"
+    );
+  }
+  const capability = manifest?.artifacts?.[member.split("/").pop()!];
+  if (
+    manifest?.formatVersion !== 1 ||
+    capability?.protocol !== 1 ||
+    typeof capability.sha256 !== "string" ||
+    !/^[a-f0-9]{64}$/.test(capability.sha256)
+  )
+    throw new Error(
+      "Target cannot be trialled safely: recovery protocol v1 capability is missing"
+    );
+  return { protocol: 1, sha256: capability.sha256 };
 }
 
 /** Validates a release tarball then atomically replaces the fixed runtime path. */

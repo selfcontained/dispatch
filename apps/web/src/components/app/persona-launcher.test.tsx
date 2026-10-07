@@ -19,12 +19,10 @@ const agent: Agent = {
   cwd: "/repo",
   worktreePath: null,
   worktreeBranch: null,
-  tmuxSession: "dispatch-agt_parent",
   agentArgs: [],
   model: null,
   fullAccess: false,
-  latestEvent: null,
-  mediaDir: null,
+  filesDir: null,
   persona: null,
   parentAgentId: null,
   createdAt: "2026-08-08T12:00:00.000Z",
@@ -40,6 +38,25 @@ afterEach(() => {
   cleanup();
   api.mockReset();
 });
+
+function mockCatalog(codeowners = false) {
+  api.mockImplementation(async (path: string) => {
+    if (path.startsWith("/api/v1/personas"))
+      return { personas: PERSONAS, codeowners };
+    if (path.includes("/launch-persona"))
+      return { ok: true, block: { id: "blk_1" } };
+    if (path.includes("/review-agent-type")) return { agent };
+    return { models: { claude: [{ id: "opus", label: "Opus" }] } };
+  });
+}
+
+function launchRequestBody(): Record<string, unknown> {
+  const call = api.mock.calls.find((args) =>
+    String(args[0]).includes("/launch-persona")
+  );
+  expect(call).toBeDefined();
+  return JSON.parse(call![1].body);
+}
 
 function renderLauncher() {
   const queryClient = new QueryClient({
@@ -84,9 +101,12 @@ describe("PersonaLauncher", () => {
 
     fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
 
+    // The code owners row leads the group, ahead of the persona rows.
     const group = screen.getByRole("group", { name: "Personas" });
-    expect(group.querySelectorAll('[role="checkbox"]')).toHaveLength(
-      PERSONAS.length
+    const rows = group.querySelectorAll('[role="checkbox"]');
+    expect(rows).toHaveLength(PERSONAS.length + 1);
+    expect(rows[0]!.getAttribute("data-testid")).toBe(
+      "launch-reviewer-codeowners"
     );
 
     // The count region stays mounted at zero so toggles are announced.
@@ -121,7 +141,8 @@ describe("PersonaLauncher", () => {
   it("sends the trimmed focus note with the launch request", async () => {
     api.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
-      if (path.includes("/launch-review")) return { ok: true };
+      if (path.includes("/launch-persona"))
+        return { ok: true, block: { id: "blk_1" } };
       if (path.includes("/review-agent-type")) return { agent };
       return { models: { claude: [{ id: "opus", label: "Opus" }] } };
     });
@@ -145,7 +166,7 @@ describe("PersonaLauncher", () => {
 
     await vi.waitFor(() => {
       const call = api.mock.calls.find((args) =>
-        String(args[0]).includes("/launch-review")
+        String(args[0]).includes("/launch-persona")
       );
       expect(call).toBeDefined();
       expect(JSON.parse(call![1].body)).toMatchObject({
@@ -155,10 +176,75 @@ describe("PersonaLauncher", () => {
     });
   });
 
+  it("offers code owners only when the checkout has an ownership map", async () => {
+    mockCatalog(false);
+    renderLauncher();
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+
+    const option = await screen.findByTestId("launch-reviewer-codeowners");
+    expect(option).toHaveProperty("disabled", true);
+    expect(option.textContent).toContain("No .dispatch/codeowners.json");
+    fireEvent.click(option);
+    expect(option.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("launch-reviewer-submit")).toHaveProperty(
+      "disabled",
+      true
+    );
+  });
+
+  it("launches the code owners on their own, without a persona picked", async () => {
+    mockCatalog(true);
+    renderLauncher();
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+    const option = await screen.findByTestId("launch-reviewer-codeowners");
+    expect(option).toHaveProperty("disabled", false);
+    fireEvent.click(option);
+    expect(option.getAttribute("aria-checked")).toBe("true");
+
+    const submit = screen.getByTestId("launch-reviewer-submit");
+    await vi.waitFor(() => expect(submit).toHaveProperty("disabled", false));
+    expect(submit.textContent).toBe("Launch code owners");
+    fireEvent.click(submit);
+
+    await vi.waitFor(() => {
+      expect(launchRequestBody()).toMatchObject({
+        personas: [],
+        codeowners: true,
+      });
+    });
+  });
+
+  it("combines code owners with hand-picked personas", async () => {
+    mockCatalog(true);
+    renderLauncher();
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+    fireEvent.click(await screen.findByTestId("launch-reviewer-codeowners"));
+    fireEvent.click(screen.getByTestId("launch-reviewer-persona-ux-review"));
+
+    expect(
+      screen.getByTestId("launch-reviewer-selected-count").textContent
+    ).toBe("2 selected");
+    const submit = screen.getByTestId("launch-reviewer-submit");
+    await vi.waitFor(() => expect(submit).toHaveProperty("disabled", false));
+    expect(submit.textContent).toBe("Launch code owners + 1 persona");
+    fireEvent.click(submit);
+
+    await vi.waitFor(() => {
+      expect(launchRequestBody()).toMatchObject({
+        personas: ["ux-review"],
+        codeowners: true,
+      });
+    });
+  });
+
   it("sends note: null when the field is left empty", async () => {
     api.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
-      if (path.includes("/launch-review")) return { ok: true };
+      if (path.includes("/launch-persona"))
+        return { ok: true, block: { id: "blk_1" } };
       if (path.includes("/review-agent-type")) return { agent };
       return { models: { claude: [{ id: "opus", label: "Opus" }] } };
     });
@@ -179,7 +265,7 @@ describe("PersonaLauncher", () => {
 
     await vi.waitFor(() => {
       const call = api.mock.calls.find((args) =>
-        String(args[0]).includes("/launch-review")
+        String(args[0]).includes("/launch-persona")
       );
       expect(call).toBeDefined();
       expect(JSON.parse(call![1].body).note).toBeNull();

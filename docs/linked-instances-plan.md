@@ -31,7 +31,7 @@ reasons.
 **It built a federation API where it needed a transport.** Four hand-written
 cross-instance endpoints — `/peers/launch`, `/peers/messages`, `/peers/events`,
 `/peers/repos` — each with its own schema, capability gate, client, and error
-mapping. Terminal would have been a fifth, media a sixth. Every feature that
+mapping. Terminal would have been a fifth, files a sixth. Every feature that
 crosses instances pays the tax again, so branch count scales with feature count.
 It already shows: five behavioral `if (peerId)` branch sites server-side, six
 web-side.
@@ -126,8 +126,8 @@ The browser only ever talks to its **local** install. Never a remote one:
 So the hub proxies, under a path prefix:
 
 ```
-client → hub    /api/v1/host/inst_b/agents/agt_xyz/pins
-hub    → spoke  /api/v1/agents/agt_xyz/pins
+client → hub    /api/v1/host/inst_b/streams/agt_xyz/blocks
+hub    → spoke  /api/v1/streams/agt_xyz/blocks
 ```
 
 Strip the prefix, forward the rest verbatim, stream the response back. **The proxy
@@ -141,10 +141,10 @@ of. Rejected.
 
 | Request class          | Handling                                                                                                                                                                               |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| REST                   | Prefix and forward. Pins, reviews, media metadata, lifecycle, diffs.                                                                                                                   |
+| REST                   | Prefix and forward. Streams, file metadata, lifecycle, diffs.                                                                                                                          |
 | WebSocket              | Proxy the upgrade, pipe both directions. The terminal token is minted by the spoke and fetched through the same proxy, so nothing forges auth. **Terminal parity falls out for free.** |
 | Global SSE             | Not proxied. See §3.6.                                                                                                                                                                 |
-| Media transfer         | Prefix and forward, but **stream** — don't buffer. Otherwise a 100 MB recording is a memory spike.                                                                                     |
+| File transfer          | Prefix and forward, but **stream** — don't buffer. Otherwise a 100 MB recording is a memory spike.                                                                                     |
 | Static, settings, jobs | Always local.                                                                                                                                                                          |
 
 Pair-time capabilities become a route-pattern → capability table checked once at
@@ -161,7 +161,7 @@ This is the decision that collapses the most complexity:
 - No merged agent list, no shadow rows, no presence cache, no reaping or
   unreachable-stamping, no drift between multiple SQL writers. **Most of #978's
   weight is avoided rather than solved.**
-- Instance-scoped and repo-scoped resources (jobs, templates, settings, media,
+- Instance-scoped and repo-scoped resources (jobs, templates, settings, files,
   brain, personas) just follow the selector. The scoping problem stops being a
   design question.
 - Agent id collisions stop mattering early on.
@@ -231,10 +231,10 @@ it, like `cwd` or `type`, not a namespace boundary.
 
 - **Global ids, no qualified addressing.** `agt_` ids are `randomUUID()` truncated
   to 12 hex — 48 bits, effectively globally unique. A spoke's ids can be stored
-  verbatim, so `dispatch_send_message` takes a bare id and the host is a lookup,
+  verbatim, so `post` with `to` takes a bare id and the host is a lookup,
   not part of the name. #978's `inst_x:agt_y` scheme disappears, and with it the
   regex that broke on agent names containing colons.
-- **Host is a placement constraint, not a different API.** `dispatch_launch_agent`
+- **Host is a placement constraint, not a different API.** `launch_agent`
   gains a host parameter the way it has `fullAccess` — one pipeline, one tool. The
   interesting long-term version is capability-based ("needs a GPU", "has the prod
   credentials") rather than name-based.
@@ -262,13 +262,13 @@ Sequential releases, each merged and shipped before the next starts — not a PR
 stack. The feature is self-gating (nothing changes until a host is registered), so
 pieces can land on `main` independently and `main` stays releasable throughout.
 
-| #   | Release                       | Ships                                                                                                                                    | Value                                                                                       |
-| --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| R1  | Connect two hosts             | Instance identity, cert generation, mTLS peer port, registration flow, capability table, hosts settings panel with health and unregister | Machines are linked; you can see the link is healthy                                        |
-| R2  | Host selector                 | Prefix proxy (REST, WS upgrade, streaming, capability enforcement) + the selector and its URL state                                      | **All of Dispatch pointed at another machine** — list, terminal, launch, media, diffs, pins |
-| R3  | Attention badge               | Per-host blocked/unread counts on the selector                                                                                           | Flipping hosts is informed rather than a guess                                              |
-| R4  | Agent-initiated remote launch | `host` parameter on the MCP launch tool, provenance recorded on both ends                                                                | Agents delegate across machines (humans already can, via R2)                                |
-| R5  | Cross-host agent messaging    | Outbox, idempotency receipts, dead-lettering, two-sided message record                                                                   | Agents coordinate across machines                                                           |
+| #   | Release                       | Ships                                                                                                                                    | Value                                                                               |
+| --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| R1  | Connect two hosts             | Instance identity, cert generation, mTLS peer port, registration flow, capability table, hosts settings panel with health and unregister | Machines are linked; you can see the link is healthy                                |
+| R2  | Host selector                 | Prefix proxy (REST, WS upgrade, streaming, capability enforcement) + the selector and its URL state                                      | **All of Dispatch pointed at another machine** — list, stream, launch, files, diffs |
+| R3  | Attention badge               | Per-host blocked/unread counts on the selector                                                                                           | Flipping hosts is informed rather than a guess                                      |
+| R4  | Agent-initiated remote launch | `host` parameter on the MCP launch tool, provenance recorded on both ends                                                                | Agents delegate across machines (humans already can, via R2)                        |
+| R5  | Cross-host agent messaging    | Outbox, idempotency receipts, dead-lettering, two-sided message record                                                                   | Agents coordinate across machines                                                   |
 
 R1 and R2 could reasonably ship together — the selector makes R2 small.
 
@@ -282,9 +282,8 @@ registration routes + capability table + migration → settings panel.
 production `pgmigrations` table before picking numbers — #978 already had to
 renumber `0041 → 0042` when upstream took the slot.
 
-R1 introduces a new listening port, which is what
-`release-notes/next-assisted-update.json` exists for. Author metadata so upgrades
-don't quietly fail behind a firewall or service-manager config.
+R1 introduces a new listening port. Call it out in the release notes so
+upgrades don't quietly fail behind a firewall or service-manager config.
 
 ## 6. What to salvage from #978
 
@@ -338,28 +337,29 @@ don't quietly fail behind a firewall or service-manager config.
   anything the peer-to-peer model offered.
 - **How does an agent learn its message didn't arrive?** §4. Needs a deliberate
   design, not whatever the transport happens to do.
-- **Where do reviews live?** The one subsystem that doesn't sort cleanly.
-  `agents/reviews.ts` touches `reviews`, `review_feedback_items`, and
-  `review_thread_messages` heavily — agent-scoped in the schema, hub-shaped in use
-  (written by agents, read and resolved by people).
+- **Where do reviews live?** Since the streams cutover a review is a `review`
+  block in the launcher's stream, so it sorts with the stream: it lives on the
+  host that owns the root agent. A reviewer on another host posting back is the
+  cross-host delivery problem of §4, not a separate subsystem.
 - **Terminal access to a spoke while the hub is down.** The UI only exists at the
   hub, so an agent stuck at 2am on a spoke is unreachable. A minimal direct-attach
   path on the spoke would be cheap now and expensive to retrofit.
 
 ## 9. Two defects in #978 worth fixing regardless
 
-**Cross-instance messages are never recorded.** In
-`apps/server/src/server/mcp-handlers.ts`, the qualified-address branch of
-`handleSendMessage` returns at line 920; `insertMessage` is at line 1039. A
-cross-instance message is delivered as a prompt injection and never written to
-`agent_messages` on either side — no entry in the messages panel, no contribution
-to `unreadMessageCount`, no thread history. Locally-sent messages do all three.
+**Cross-instance messages are never recorded.** In #978's
+`handleSendMessage`, the qualified-address branch returned before the insert, so
+a cross-instance message was delivered as a prompt injection and never written
+down on either side — no feed entry, no unread count, no thread history, while
+locally-sent messages did all three. Under the blocks model every agent-to-agent
+message is a block with `to_agent_id` in the root agent's stream, so a
+cross-host `post` must land as a block on the stream's host, not only as a
+prompt on the recipient's.
 
 **The launching host cannot intervene.** On the launching instance a remote agent
-is read-only for humans. The terminal is inert by design, but `inject-text`,
-`inject-phrase`, and `inject-pin` all call `getTerminalAccess` and return 409, so
-quick phrases, pin shortcuts, and the mobile keyboard break too; the messages UI
-is read-only with no compose box. The only channel into a remote agent is another
-_agent_ calling `dispatch_send_message`. Nobody chose this — those routes branch on
-the mechanism (is there a tmux session?) instead of the capability (can I deliver
-text to this agent?). Moot under the proxy design.
+is read-only for humans. The prompt routes call `getTerminalAccess` and return
+409 when there is no local host, so quick phrases and the compose box break too.
+The only channel into a remote agent is another _agent_ posting to it. Nobody
+chose this — those routes branch on the mechanism (is there a live host here?)
+instead of the capability (can I deliver a prompt to this agent?). Moot under
+the proxy design.

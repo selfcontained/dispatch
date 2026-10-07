@@ -1,74 +1,68 @@
 import React from "react";
 
-import {
-  latestEventLabel,
-  latestEventColor,
-} from "@/components/app/agent-event-utils";
+import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { type Agent } from "@/components/app/types";
+import { agentProjectRoot } from "@/components/app/agents-view-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
-import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-function RepoLabel({
-  agentId,
-  repoIconPath,
-  name,
-}: {
-  agentId: string;
-  repoIconPath?: string | null;
-  name: string;
-}) {
+function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
   const [iconError, setIconError] = React.useState(false);
-  const showIcon = !!repoIconPath && !iconError;
 
   return (
-    <span className="ml-auto flex min-w-0 items-center gap-1 pl-2">
-      {showIcon ? (
+    <span
+      className="ml-auto flex min-w-0 max-w-full items-center gap-1"
+      title={name}
+    >
+      <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">
+        {name}
+      </span>
+      {!iconError ? (
         <img
           src={`/api/v1/agents/${agentId}/repo-icon`}
           alt=""
+          loading="lazy"
           className="h-5 w-5 shrink-0 rounded-sm object-contain"
           onError={() => setIconError(true)}
         />
       ) : null}
-      <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">
-        {name}
-      </span>
     </span>
   );
 }
 
 /**
- * Transient setup/archive progress lines shown under the card header while the
- * agent is being created or torn down.
+ * Setup and archive are lifecycle phases, separate from a turn's ACP steps.
+ * The stream's workspace block carries setup's individual steps.
  */
 export function AgentCardPhaseStatus({
   agent,
+  className,
 }: {
   agent: Agent;
+  className?: string;
 }): JSX.Element | null {
-  if (agent.status === "creating" && agent.setupPhase) {
+  if (agent.status === "creating" || agent.setupPhase) {
     return (
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working">
+      <div
+        className={cn(
+          "mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working",
+          className
+        )}
+      >
         <ActivityBars size={12} className="shrink-0" />
-        <span className="truncate font-medium">
-          {agent.setupPhase === "worktree"
-            ? "Creating worktree…"
-            : agent.setupPhase === "env"
-              ? "Copying environment…"
-              : agent.setupPhase === "deps"
-                ? "Installing dependencies…"
-                : agent.setupPhase === "session"
-                  ? "Starting session…"
-                  : "Setting up…"}
-        </span>
+        <span className="truncate font-medium">Starting…</span>
       </div>
     );
   }
 
   if (agent.status === "archiving") {
     return (
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400">
+      <div
+        className={cn(
+          "mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400",
+          className
+        )}
+      >
         <ActivityBars size={12} className="shrink-0" />
         <span className="truncate font-medium">
           {agent.archivePhase === "stopping"
@@ -88,73 +82,51 @@ export function AgentCardPhaseStatus({
   return null;
 }
 
-function LatestEventSummary({
-  agent,
-  event,
-  className,
-}: {
-  agent: Agent;
-  event: NonNullable<Agent["latestEvent"]>;
-  className: string;
-}): JSX.Element {
-  const repoName = agent.gitContext
-    ? (agent.gitContext.repoRoot.split("/").pop() ?? null)
-    : (agent.cwd.split("/").pop() ?? null);
-
+/** Whether AgentCardPhaseStatus has a lifecycle line to show. */
+function hasPhaseStatus(agent: Agent): boolean {
   return (
-    <div className={className}>
-      <span
-        className={cn("shrink-0 font-medium", latestEventColor(event.type))}
-      >
-        {latestEventLabel(event.type)}
-      </span>
-      <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
-      <span className="shrink-0">{formatRelativeTime(event.updatedAt)}</span>
-      {repoName ? (
-        <RepoLabel
-          agentId={agent.id}
-          repoIconPath={agent.gitContext?.repoIconPath}
-          name={repoName}
-        />
-      ) : null}
-    </div>
+    agent.status === "creating" ||
+    Boolean(agent.setupPhase) ||
+    agent.status === "archiving"
   );
 }
 
 /**
- * The agent's most recent status event. Expanded cards also show the event
- * message below the summary line.
+ * The agent's status line above the repo it works in: a lifecycle phase
+ * (starting, archiving) when one is under way, otherwise the current turn's
+ * reported step. The line keeps its height when there is nothing to say, so
+ * the card does not grow and shrink as turns start and end.
  */
-export function AgentCardLatestEvent({
+export function AgentCardActivity({
   agent,
-  isExpanded,
+  onNavigate,
 }: {
   agent: Agent;
-  isExpanded: boolean;
-}): JSX.Element | null {
-  const event = agent.latestEvent;
-  if (!event) return null;
-
-  if (isExpanded) {
-    return (
-      <div className="mt-1 text-xs text-muted-foreground">
-        <LatestEventSummary
-          agent={agent}
-          event={event}
-          className="flex items-baseline"
-        />
-        <div className="mt-0.5 leading-relaxed text-muted-foreground">
-          {event.message}
-        </div>
-      </div>
-    );
-  }
+  /** Called as the running-turn link navigates. */
+  onNavigate?: () => void;
+}): JSX.Element {
+  const repoName = agentProjectRoot(agent)?.split("/").pop() ?? null;
 
   return (
-    <LatestEventSummary
-      agent={agent}
-      event={event}
-      className="mt-1 flex min-w-0 items-baseline text-xs text-muted-foreground"
-    />
+    <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+      <div
+        className="flex min-h-4 min-w-0 items-center"
+        data-testid={`agent-status-line-${agent.id}`}
+      >
+        {hasPhaseStatus(agent) ? (
+          <AgentCardPhaseStatus agent={agent} className="mt-0" />
+        ) : (
+          <AgentActivityLabel
+            agent={agent}
+            className="w-full"
+            linkToTurn
+            onNavigate={onNavigate}
+          />
+        )}
+      </div>
+      {repoName && !agent.reconnect ? (
+        <RepoLabel agentId={agent.id} name={repoName} />
+      ) : null}
+    </div>
   );
 }

@@ -11,7 +11,7 @@ import {
 } from "../src/personas/built-in.js";
 import {
   assemblePersonaPrompt,
-  MAX_PERSONA_PROMPT_BYTES,
+  buildStandardFeedbackGuidance,
   loadPersonaBySlug,
   loadPersonas,
   loadPersonasFromRoots,
@@ -19,25 +19,6 @@ import {
   parseFrontmatter,
 } from "../src/personas/loader.js";
 import type { PersonaDefinition } from "../src/personas/loader.js";
-import type { ReviewDiffResult } from "../src/personas/review-diff.js";
-
-function makeDiffResult(
-  overrides: Partial<ReviewDiffResult> = {}
-): ReviewDiffResult {
-  const stat = overrides.stat ?? " a.ts | 1 +\n 1 file changed";
-  const uncommittedStat = overrides.uncommittedStat ?? "";
-  const untrackedFiles = overrides.untrackedFiles ?? [];
-  return {
-    stat,
-    uncommittedStat,
-    untrackedFiles,
-    baseRef: overrides.baseRef ?? "origin/main",
-    hasChanges:
-      overrides.hasChanges ??
-      Boolean(stat || uncommittedStat || untrackedFiles.length),
-  };
-}
-
 // ── parseFrontmatter ────────────────────────────────────────────────
 
 describe("parseFrontmatter", () => {
@@ -117,280 +98,75 @@ Body`;
 
 // ── assemblePersonaPrompt ───────────────────────────────────────────
 
-describe("assemblePersonaPrompt", () => {
-  const basePersona: PersonaDefinition = {
-    slug: "test-reviewer",
-    name: "Test Reviewer",
-    description: "A test persona",
+describe("persona launch context", () => {
+  const persona: PersonaDefinition = {
+    slug: "reviewer",
+    name: "Reviewer",
+    description: "Review",
     feedbackFormat: "findings",
-    body: "# You are a Test Reviewer\n\nReview the code carefully.",
+    body: "# Persona instructions",
   };
 
-  it("appends feedback guidelines, context, and diff", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "Built a widget",
-      makeDiffResult({ baseRef: "origin/main" })
-    );
-
-    expect(result).toContain("# You are a Test Reviewer");
-    expect(result).toContain("## Feedback Guidelines (from Dispatch)");
-    expect(result).toContain("## Context from parent agent\nBuilt a widget");
-    expect(result).toContain("## Changes to review");
-    // The diff itself is never embedded — reviewers read the worktree.
-    expect(result).not.toContain("diff --git");
-    expect(result).toContain("git diff origin/main...HEAD");
-  });
-
-  it("orders sections correctly: persona body, guidelines, context, diff", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", makeDiffResult());
-
-    const bodyIdx = result.indexOf("# You are a Test Reviewer");
-    const guidelinesIdx = result.indexOf("## Feedback Guidelines");
-    const contextIdx = result.indexOf("## Context from parent agent");
-    const diffIdx = result.indexOf("## Changes to review");
-
-    expect(bodyIdx).toBeLessThan(guidelinesIdx);
-    expect(guidelinesIdx).toBeLessThan(contextIdx);
-    expect(contextIdx).toBeLessThan(diffIdx);
-  });
-
-  it("strips legacy {{context}} placeholders", () => {
-    const persona: PersonaDefinition = {
-      ...basePersona,
-      body: "# Reviewer\n\n## Context\n{{context}}\n\n## Diff\n{{diff}}",
-    };
+  it("delivers the full persona and briefing without injecting a change map", () => {
     const result = assemblePersonaPrompt(
       persona,
-      "my context",
-      makeDiffResult()
+      "Review the attached design for accessibility."
     );
-
-    expect(result).not.toMatch(/\{\{context\}\}/);
-    expect(result).not.toMatch(/\{\{diff\}\}/);
-    expect(result).toContain("## Context from parent agent\nmy context");
-    expect(result).toContain("## Changes to review");
-  });
-
-  it("never embeds the diff, however small the change", () => {
-    // The diff used to be inlined under a 15KB threshold — against a
-    // ~16KB tmux command ceiling that the same text has to fit through
-    // on restart. It is now always a file-level map plus git commands.
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult({ stat: " a.ts | 10 +\n 1 file changed" })
+    expect(result).toBe(
+      "# Persona instructions\n\n## Context from parent agent\nReview the attached design for accessibility."
     );
-
-    expect(result).not.toContain("diff --git");
-    expect(result).toContain("The diff itself is not included");
-    expect(result).toContain("a.ts | 10 +");
-    expect(result).toContain("git diff origin/main...HEAD -- <path>");
-    expect(result).toContain("git diff HEAD");
-  });
-
-  it("includes uncommitted stat and untracked files", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult({
-        stat: "",
-        uncommittedStat: " b.ts | 5 +\n 1 file changed",
-        untrackedFiles: ["new-feature.ts", "config.json"],
-      })
-    );
-
-    expect(result).toContain("Uncommitted working tree changes");
-    expect(result).toContain("b.ts | 5 +");
-    expect(result).toContain("Untracked files");
-    expect(result).toContain("- new-feature.ts");
-    expect(result).toContain("- config.json");
-    expect(result).not.toContain("Committed changes");
-  });
-
-  it("says so plainly when nothing changed", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult({
-        stat: "",
-        uncommittedStat: "",
-        untrackedFiles: [],
-        hasChanges: false,
-      })
-    );
-
-    expect(result).toContain("No committed or uncommitted changes");
-    expect(result).toContain("git diff origin/main...HEAD");
-  });
-
-  it("caps a huge stat by line count rather than emitting all of it", () => {
-    const stat = Array.from(
-      { length: 400 },
-      (_, i) => ` src/file-${i}.ts | ${i} +++`
-    ).join("\n");
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult({ stat })
-    );
-
-    expect(result).toContain("src/file-0.ts");
-    expect(result).not.toContain("src/file-399.ts");
-    expect(result).toMatch(/… and \d+ more/);
-  });
-
-  it("caps the assembled prompt and says it trimmed", () => {
-    // A reviewer that silently lost half its briefing is worse than one
-    // that can see it was cut — and blowing the budget costs a reviewer
-    // that cannot be restarted at all.
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "Briefing line that repeats.\n".repeat(5000),
-      makeDiffResult()
-    );
-
-    expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(
-      MAX_PERSONA_PROMPT_BYTES
-    );
-    expect(result).toContain("trimmed");
-  });
-
-  it("caps an oversized persona body too", () => {
-    const result = assemblePersonaPrompt(
-      { ...basePersona, body: "Persona rule line.\n".repeat(5000) },
-      "ctx",
-      makeDiffResult()
-    );
-
-    expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(
-      MAX_PERSONA_PROMPT_BYTES
-    );
-  });
-
-  it("guides reviewers to keep summaries short and non-duplicative", () => {
-    const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("dispatch_review_submit");
-    expect(result).toContain("280 characters or fewer");
-    expect(result).toContain("never repeat feedback-item details");
-    expect(result).toContain("empty array and a concise nonblank summary");
-  });
-
-  it("keeps review discussion in tracked item threads", () => {
-    const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("dispatch_review_add_message");
-    expect(result).toContain("dispatch_review_add_feedback");
-    expect(result).toContain("Do not use direct agent messages");
-  });
-
-  it("does not include Cursor tool guidance by default", () => {
-    const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("Call `dispatch_review_submit`");
-    expect(result).not.toContain("dispatch-<tool_name>");
-    expect(result).not.toContain("functions.dispatch-review_status");
-  });
-
-  it("includes Cursor tool guidance and call syntax hint for Cursor reviewers", () => {
-    const result = assemblePersonaPrompt(basePersona, "", null, {
-      agentType: "cursor",
-    });
-    expect(result).toContain("dispatch-<tool_name>");
-    expect(result).toContain("report the exact tool error");
-    expect(result).toContain("functions.dispatch-dispatch_event");
-  });
-
-  it("does not inject the legacy round-trip lifecycle", () => {
-    const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).not.toContain("Recheck round-trip");
-    expect(result).not.toContain("dispatch_complete_review");
-    expect(result).not.toContain("dispatch_get_recheck_context");
-    expect(result).not.toContain("respondsToFeedbackId");
-  });
-
-  it("places review guidance before context and diff sections", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", makeDiffResult());
-
-    const guidanceIdx = result.indexOf("## Feedback Guidelines");
-    const contextIdx = result.indexOf("## Context from parent agent");
-    const diffIdx = result.indexOf("## Changes to review");
-    expect(guidanceIdx).toBeLessThan(contextIdx);
-    expect(contextIdx).toBeLessThan(diffIdx);
-  });
-
-  it("includes the diff section by default (includeDiff unset)", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult({ baseRef: "origin/main" })
-    );
-    expect(result).toContain("## Changes to review");
-    expect(result).toContain("the scope of the changes (the diff below)");
-    expect(result).toContain("git diff origin/main...HEAD");
-  });
-
-  it("includes the diff section when includeDiff is true", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult({ baseRef: "origin/main" }),
-      { includeDiff: true }
-    );
-    expect(result).toContain("## Changes to review");
-    expect(result).toContain("the scope of the changes (the diff below)");
-    expect(result).toContain("git diff origin/main...HEAD");
-  });
-
-  it("omits the diff section when includeDiff is false", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", makeDiffResult(), {
-      includeDiff: false,
-    });
+    expect(result).not.toContain("git diff");
     expect(result).not.toContain("## Changes to review");
-    expect(result).not.toContain("## Changes to review");
+    expect(result).not.toContain("## Feedback Guidelines");
   });
 
-  it("adapts guidance wording when includeDiff is false", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", null, {
-      includeDiff: false,
-    });
-    expect(result).not.toContain("the diff below");
-    expect(result).toContain(
-      "the scope of the work under review described in the parent context"
+  it("strips legacy context and diff placeholders", () => {
+    const result = assemblePersonaPrompt(
+      { ...persona, body: "Review {{context}} and {{diff}}" },
+      "Supplied target"
     );
-    expect(result).not.toContain(
-      "Read the diff carefully first to understand exactly what changed"
-    );
-    expect(result).toContain(
-      "Read the parent context and supplied review target carefully first"
-    );
+    expect(result).not.toContain("{{context}}");
+    expect(result).not.toContain("{{diff}}");
+    expect(result.match(/Supplied target/g)).toHaveLength(1);
   });
 
-  it("injects consistent actionable-finding and clean-approval guidance", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", makeDiffResult());
-    expect(result).toContain(
+  it("preserves oversized persona and briefing tails", () => {
+    const body = "Persona rule.\n".repeat(10000) + "FINAL PERSONA RULE";
+    const context = "Briefing line.\n".repeat(10000) + "FINAL BRIEFING RULE";
+    const result = assemblePersonaPrompt({ ...persona, body }, context);
+    expect(result).toContain(body);
+    expect(result).toContain(context);
+    expect(result).not.toContain("trimmed");
+  });
+
+  it("lets the review target determine whether to inspect diffs", () => {
+    const guidance = buildStandardFeedbackGuidance("agt_parent");
+    expect(guidance).toContain(
+      "For a code-change review, inspect the committed and uncommitted diffs and untracked files"
+    );
+    expect(guidance).toContain("For other reviews");
+    expect(guidance).toContain("a git diff is not required");
+    expect(guidance).toContain(
+      "Do not flag pre-existing issues unless directly caused or worsened by that work"
+    );
+    expect(Buffer.byteLength(guidance)).toBeLessThan(4096);
+  });
+
+  it("protects submission, thread, and resolution guidance", () => {
+    const guidance = buildStandardFeedbackGuidance("agt_parent");
+    expect(guidance).toContain('post with to: "agt_parent"');
+    expect(guidance).toContain("post exactly one `review` block");
+    expect(guidance).toContain("A clean pass is a review with no findings");
+    expect(guidance).toContain(
+      "Keep each finding's discussion in its own thread"
+    );
+    expect(guidance).toContain(
+      'update({ id: <finding id>, state: { status: "fixed" } })'
+    );
+    expect(guidance).toContain('{ status: "dismissed", note }');
+    expect(guidance).toContain(
       "include a concrete suggestion for what to change"
     );
-    expect(result).toContain("approve with an empty feedback array");
-    expect(result).toContain(
-      "an actionable concern or clarifying question that needs a tracked response"
-    );
-  });
-
-  it("still includes context section when includeDiff is false", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "Review the PRD for gaps",
-      null,
-      { includeDiff: false }
-    );
-    expect(result).toContain(
-      "## Context from parent agent\nReview the PRD for gaps"
-    );
-  });
-
-  it("handles null diffResult gracefully when includeDiff is true", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", null);
-    expect(result).not.toContain("## Changes to review");
-    expect(result).toContain("## Context from parent agent");
   });
 });
 

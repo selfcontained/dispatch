@@ -1,0 +1,78 @@
+import { describe, expect, it } from "vitest";
+
+import { placeDrift, shownRange, windowSegments } from "./windowed-rows";
+
+const keys = ["a", "b", "c", "d", "e", "f"];
+const height = (key: string) => (key === "c" ? 300 : 100);
+
+describe("windowSegments", () => {
+  it("renders the range and stands spacers in for the rows around it", () => {
+    expect(
+      windowSegments(keys, { from: 2, to: 4 }, () => false, height)
+    ).toEqual([
+      { kind: "gap", key: "gap:a", height: 200 },
+      { kind: "rows", from: 2, to: 4 },
+      { kind: "gap", key: "gap:e", height: 200 },
+    ]);
+  });
+
+  it("renders a pinned row where it is, with the spacers split around it", () => {
+    expect(
+      windowSegments(keys, { from: 4, to: 6 }, (key) => key === "b", height)
+    ).toEqual([
+      { kind: "gap", key: "gap:a", height: 100 },
+      { kind: "rows", from: 1, to: 2 },
+      { kind: "gap", key: "gap:c", height: 400 },
+      { kind: "rows", from: 4, to: 6 },
+    ]);
+  });
+
+  it("joins a pinned row next to the range into one run", () => {
+    expect(
+      windowSegments(keys, { from: 1, to: 3 }, (key) => key === "d", height)
+    ).toEqual([
+      { kind: "gap", key: "gap:a", height: 100 },
+      { kind: "rows", from: 1, to: 4 },
+      { kind: "gap", key: "gap:e", height: 200 },
+    ]);
+  });
+
+  it("is one run when everything is in range, and nothing for an empty list", () => {
+    expect(
+      windowSegments(keys, { from: 0, to: 6 }, () => false, height)
+    ).toEqual([{ kind: "rows", from: 0, to: 6 }]);
+    expect(windowSegments([], { from: 0, to: 0 }, () => false, height)).toEqual(
+      []
+    );
+  });
+});
+
+describe("placeDrift", () => {
+  it("is the row's move in the content, net of scrolling", () => {
+    const anchor = { offset: 100, scrollTop: 1000 };
+    // Scrolled up 300 and nothing shifted: the row sits 300 lower in view.
+    expect(placeDrift(anchor, 400, 700)).toBe(0);
+    // Scrolled up 300 while 240px landed above it.
+    expect(placeDrift(anchor, 640, 700)).toBe(240);
+    // No scroll, 50px removed above it.
+    expect(placeDrift(anchor, 50, 1000)).toBe(-50);
+  });
+});
+
+describe("shownRange", () => {
+  const keys = ["o1", "o2", "a", "b", "c"];
+  // Set when "a" was the first row; two older rows have since landed above.
+  const range = { from: 0, to: 2, first: "a" };
+
+  it("finds the range again by its first row after rows land above", () => {
+    expect(
+      shownRange({ windowing: true, laidOut: true, range, keys, align: "end" })
+    ).toEqual({ from: 2, to: 4 });
+  });
+
+  it("renders every row when not windowing, in the pass the rows landed too", () => {
+    expect(
+      shownRange({ windowing: false, laidOut: true, range, keys, align: "end" })
+    ).toEqual({ from: 0, to: 5 });
+  });
+});

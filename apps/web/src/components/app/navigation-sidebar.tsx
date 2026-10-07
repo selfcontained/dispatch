@@ -1,5 +1,6 @@
 import type { DashboardContextValue } from "@/components/app/dashboard-context";
 import { type NavSection, SidebarShell } from "@/components/app/sidebar-shell";
+import { NAV_SIDEBAR_WIDTH_PX } from "@/components/app/drawer-constants";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 
 type NavigationSidebarProps = Pick<
@@ -9,7 +10,7 @@ type NavigationSidebarProps = Pick<
   | "mobileLeftOpen"
   | "setLeftOpen"
   | "setMobileLeftOpen"
-  | "setMobileMediaOpen"
+  | "setMobileDrawerOpen"
   | "pulsingNavItem"
   | "triggerNavAnimation"
 > & {
@@ -29,7 +30,7 @@ export function NavigationSidebar({
   mobileLeftOpen,
   setLeftOpen,
   setMobileLeftOpen,
-  setMobileMediaOpen,
+  setMobileDrawerOpen,
   pulsingNavItem,
   triggerNavAnimation,
   activeSection,
@@ -41,14 +42,14 @@ export function NavigationSidebar({
       open={isMobile ? mobileLeftOpen : leftOpen}
       onOpenChange={(open) => {
         if (isMobile) {
-          if (open) setMobileMediaOpen(false);
+          if (open) setMobileDrawerOpen(false);
           setMobileLeftOpen(open);
         } else {
           setLeftOpen(open);
         }
       }}
       side="left"
-      width={320}
+      width={NAV_SIDEBAR_WIDTH_PX}
       mobile={isMobile}
       label="Navigation sidebar"
     >

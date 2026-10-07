@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { RELEASE_ARTIFACT_NAME } from "../release-tarball-cache.js";
 import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
 // Re-exported for existing importers — the implementation lives in
 // shared/lib so non-release code (plugin-status.ts) can use it without
@@ -22,6 +23,7 @@ export type GitHubReleaseMetadata = {
   publishedAt: string;
   url: string;
   body?: string | null;
+  artifactSha256?: string;
 };
 
 export type GitHubReleaseListItem = {
@@ -149,10 +151,17 @@ export function fixedRuntimePath(serverDir: string): string {
     : path.join(serverDir, "dispatch");
 }
 
-export function defaultServiceRestartCommand(): string {
-  return process.platform === "linux"
-    ? "systemctl --user restart dispatch"
-    : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
+/**
+ * The service manager's name for this install: the systemd user unit on
+ * Linux, the LaunchAgent label on macOS. The installer writes
+ * DISPATCH_SERVICE_NAME. Refuse service operations if it is missing.
+ */
+export function serviceName(): string {
+  const configured = process.env.DISPATCH_SERVICE_NAME?.trim();
+  if (configured) return configured;
+  throw new Error(
+    "DISPATCH_SERVICE_NAME is missing. Repair the installation configuration before updating Dispatch."
+  );
 }
 
 export function createCheckIsAdmin(
@@ -202,12 +211,19 @@ export async function fetchReleaseMetadata(
       published_at: string;
       html_url: string;
       body?: string | null;
+      assets?: Array<{ name: string; digest?: string }>;
     };
+    const digest = data.assets?.find(
+      (asset) => asset.name === RELEASE_ARTIFACT_NAME
+    )?.digest;
     return {
       tag: data.tag_name,
       publishedAt: data.published_at,
       url: data.html_url,
       body: typeof data.body === "string" ? data.body.trim() : null,
+      ...(digest && /^sha256:[a-f0-9]{64}$/.test(digest)
+        ? { artifactSha256: digest.slice(7) }
+        : {}),
     };
   } catch (error) {
     if (error instanceof GitHubApiError && error.status === 404) return null;
@@ -218,7 +234,7 @@ export async function fetchReleaseMetadata(
 export async function fetchGitHubReleases(): Promise<GitHubReleaseListItem[]> {
   const repo = await getGitHubRepo();
   const data = (await githubApi(
-    `/repos/${repo}/releases?per_page=20`
+    `/repos/${repo}/releases?per_page=100`
   )) as Array<{
     tag_name: string;
     published_at: string;
@@ -233,7 +249,9 @@ export async function fetchGitHubReleases(): Promise<GitHubReleaseListItem[]> {
     prerelease: release.prerelease,
     hasDispatchArtifact:
       release.assets?.some(
-        (asset) => asset.name === "dispatch-release.tar.gz"
+        // Deliberately not 0.x's `dispatch-release.tar.gz`: 0.x servers look
+        // only for that name, so they never offer 1.x as an in-place update.
+        (asset) => asset.name === RELEASE_ARTIFACT_NAME
       ) ?? false,
   }));
 }

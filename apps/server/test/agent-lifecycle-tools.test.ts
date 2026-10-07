@@ -32,12 +32,9 @@ const AGENT_ID = "agt_test123";
 function baseContext(): AgentLifecycleContext {
   return {
     agentId: AGENT_ID,
-    upsertEvent: vi.fn(async () => {}),
     renameSession: vi.fn(async () => ({ id: AGENT_ID, name: "New Name" })),
-    sendNotify: vi.fn(async () => ({ sent: true })),
-    listMedia: vi.fn(async () => []),
-    deleteMedia: vi.fn(async () => {}),
-    listPins: vi.fn(async () => []),
+    listFiles: vi.fn(async () => []),
+    deleteFile: vi.fn(async () => {}),
   };
 }
 
@@ -52,25 +49,11 @@ describe("registerAgentLifecycleTools", () => {
 
   describe("conditional registration", () => {
     it("registers all lifecycle tools when all are allowed and context is complete", () => {
-      const allowed = new Set([
-        "dispatch_event",
-        "dispatch_rename_session",
-        "dispatch_notify",
-        "dispatch_list_media",
-        "dispatch_delete_media",
-        "dispatch_list_pins",
-      ]);
+      const allowed = new Set(["rename_session", "list_files", "delete_file"]);
       registerAgentLifecycleTools(server as never, allowed, baseContext());
 
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual([
-        "dispatch_event",
-        "dispatch_rename_session",
-        "dispatch_notify",
-        "dispatch_list_media",
-        "dispatch_delete_media",
-        "dispatch_list_pins",
-      ]);
+      expect(names).toEqual(["rename_session", "list_files", "delete_file"]);
     });
 
     it("registers nothing when allowed set is empty", () => {
@@ -78,67 +61,34 @@ describe("registerAgentLifecycleTools", () => {
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_event when upsertEvent is missing from context", () => {
-      const ctx = baseContext();
-      delete ctx.upsertEvent;
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-      expect(server.tools).toHaveLength(0);
-    });
-
-    it("skips dispatch_rename_session when renameSession is missing", () => {
+    it("skips rename_session when renameSession is missing", () => {
       const ctx = baseContext();
       delete ctx.renameSession;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_rename_session"]),
+        new Set(["rename_session"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_notify when sendNotify is missing", () => {
+    it("skips list_files when listFiles is missing", () => {
       const ctx = baseContext();
-      delete ctx.sendNotify;
+      delete ctx.listFiles;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify"]),
+        new Set(["list_files"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_list_media when listMedia is missing", () => {
+    it("skips delete_file when deleteFile is missing", () => {
       const ctx = baseContext();
-      delete ctx.listMedia;
+      delete ctx.deleteFile;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
-        ctx
-      );
-      expect(server.tools).toHaveLength(0);
-    });
-
-    it("skips dispatch_delete_media when deleteMedia is missing", () => {
-      const ctx = baseContext();
-      delete ctx.deleteMedia;
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_delete_media"]),
-        ctx
-      );
-      expect(server.tools).toHaveLength(0);
-    });
-
-    it("skips dispatch_list_pins when listPins is missing", () => {
-      const ctx = baseContext();
-      delete ctx.listPins;
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_list_pins"]),
+        new Set(["delete_file"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
@@ -147,99 +97,20 @@ describe("registerAgentLifecycleTools", () => {
     it("only registers tools that are in the allowed set", () => {
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_event", "dispatch_list_media"]),
+        new Set(["list_files", "delete_file"]),
         baseContext()
       );
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["dispatch_event", "dispatch_list_media"]);
+      expect(names).toEqual(["list_files", "delete_file"]);
     });
   });
 
-  // ── dispatch_event handler ──────────────────────────────────────
-
-  describe("dispatch_event handler", () => {
-    it("calls upsertEvent with correct args and returns formatted text", async () => {
-      const ctx = baseContext();
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-      const handler = server.tools[0]!.handler;
-
-      const result = await handler({
-        type: "working",
-        message: "Reading files",
-      });
-
-      expect(ctx.upsertEvent).toHaveBeenCalledWith(AGENT_ID, {
-        type: "working",
-        message: "Reading files",
-        metadata: undefined,
-      });
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: `Updated ${AGENT_ID}: working - Reading files`,
-          },
-        ],
-      });
-    });
-
-    it("passes metadata when provided", async () => {
-      const ctx = baseContext();
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-      const handler = server.tools[0]!.handler;
-
-      await handler({
-        type: "done",
-        message: "Finished",
-        metadata: { key: "value" },
-      });
-
-      expect(ctx.upsertEvent).toHaveBeenCalledWith(AGENT_ID, {
-        type: "done",
-        message: "Finished",
-        metadata: { key: "value" },
-      });
-    });
-
-    it("returns tool error when upsertEvent throws", async () => {
-      const ctx = baseContext();
-      ctx.upsertEvent = vi.fn(async () => {
-        throw new Error("DB connection lost");
-      });
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-
-      const result = await server.tools[0]!.handler({
-        type: "working",
-        message: "test",
-      });
-
-      expect(result).toEqual({
-        content: [{ type: "text", text: "DB connection lost" }],
-        isError: true,
-      });
-    });
-  });
-
-  // ── dispatch_rename_session handler ─────────────────────────────
-
-  describe("dispatch_rename_session handler", () => {
+  describe("rename_session handler", () => {
     it("calls renameSession and returns result", async () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_rename_session"]),
+        new Set(["rename_session"]),
         ctx
       );
       const handler = server.tools[0]!.handler;
@@ -260,7 +131,7 @@ describe("registerAgentLifecycleTools", () => {
       });
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_rename_session"]),
+        new Set(["rename_session"]),
         ctx
       );
 
@@ -272,91 +143,101 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  // ── dispatch_notify handler ─────────────────────────────────────
-
-  describe("dispatch_notify handler", () => {
-    it("calls sendNotify and returns sent confirmation", async () => {
+  describe("set_workspace handler", () => {
+    it("passes the path and base through and reports where it landed", async () => {
       const ctx = baseContext();
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_notify"]),
-        ctx
-      );
-      const handler = server.tools[0]!.handler;
-
-      const result = await handler({
-        message: "Build finished",
-        title: "CI",
-        level: "success",
-        respectFocus: false,
-      });
-
-      expect(ctx.sendNotify).toHaveBeenCalledWith(AGENT_ID, {
-        message: "Build finished",
-        title: "CI",
-        level: "success",
-        respectFocus: false,
-      });
-      expect(result).toEqual({
-        content: [{ type: "text", text: "Notification sent to Slack." }],
-      });
-    });
-
-    it("returns not-sent message with reason", async () => {
-      const ctx = baseContext();
-      ctx.sendNotify = vi.fn(async () => ({
-        sent: false,
-        reason: "No webhook configured",
+      ctx.setWorkspace = vi.fn(async () => ({
+        workspacePath: "/repos/other",
+        moved: true,
+        repoRoot: "/repos/other",
+        branch: "fix/x",
+        baseBranch: "main",
       }));
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify"]),
+        new Set(["set_workspace"]),
         ctx
       );
 
-      const result = await server.tools[0]!.handler({
-        message: "test",
-        level: "info",
-        respectFocus: false,
-      });
+      const result = await server.tools[0]!.handler({ path: "/repos/other" });
 
-      expect(result).toEqual({
+      expect(ctx.setWorkspace).toHaveBeenCalledWith(AGENT_ID, {
+        path: "/repos/other",
+        baseBranch: null,
+      });
+      expect(result).toMatchObject({
         content: [
           {
             type: "text",
-            text: "Notification not sent: No webhook configured",
+            text: "Workspace set to /repos/other (fix/x vs main).",
           },
         ],
       });
     });
 
-    it("returns tool error on exception", async () => {
+    it("resets to the launch directory when path is omitted", async () => {
       const ctx = baseContext();
-      ctx.sendNotify = vi.fn(async () => {
-        throw new Error("Rate limited");
-      });
+      ctx.setWorkspace = vi.fn(async () => ({
+        workspacePath: "/wt",
+        moved: false,
+        repoRoot: "/repo",
+        branch: "agt/x",
+        baseBranch: "main",
+      }));
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify"]),
+        new Set(["set_workspace"]),
         ctx
       );
 
-      const result = await server.tools[0]!.handler({
-        message: "x",
-        level: "info",
-        respectFocus: false,
+      const result = await server.tools[0]!.handler({});
+
+      expect(ctx.setWorkspace).toHaveBeenCalledWith(AGENT_ID, {
+        path: null,
+        baseBranch: null,
       });
+      expect(result).toMatchObject({
+        content: [
+          {
+            type: "text",
+            text: "Workspace is back on the launch directory /wt (agt/x vs main).",
+          },
+        ],
+      });
+    });
+
+    it("returns the validation error as a tool error", async () => {
+      const ctx = baseContext();
+      ctx.setWorkspace = vi.fn(async () => {
+        throw new Error("/nope does not exist.");
+      });
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["set_workspace"]),
+        ctx
+      );
+
+      const result = await server.tools[0]!.handler({ path: "/nope" });
       expect(result).toEqual({
-        content: [{ type: "text", text: "Rate limited" }],
+        content: [{ type: "text", text: "/nope does not exist." }],
         isError: true,
       });
     });
   });
 
-  // ── dispatch_list_media handler ─────────────────────────────────
+  it("never registers notify: post carries notify: true instead", () => {
+    registerAgentLifecycleTools(
+      server as never,
+      new Set(["notify", "rename_session"]),
+      baseContext()
+    );
+    expect(server.tools.map((t) => t.name)).toEqual(["rename_session"]);
+  });
 
-  describe("dispatch_list_media handler", () => {
-    it("calls listMedia and returns JSON items", async () => {
+  // ── list_files handler ─────────────────────────────────
+
+  describe("list_files handler", () => {
+    it("calls listFiles and returns JSON items", async () => {
       const items = [
         {
           fileName: "screenshot.png",
@@ -368,16 +249,16 @@ describe("registerAgentLifecycleTools", () => {
         },
       ];
       const ctx = baseContext();
-      ctx.listMedia = vi.fn(async () => items);
+      ctx.listFiles = vi.fn(async () => items);
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
       const result = await server.tools[0]!.handler({ source: "screenshot" });
 
-      expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
+      expect(ctx.listFiles).toHaveBeenCalledWith(AGENT_ID, {
         source: "screenshot",
         ownerAgentId: undefined,
       });
@@ -390,12 +271,12 @@ describe("registerAgentLifecycleTools", () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
       await server.tools[0]!.handler({});
-      expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
+      expect(ctx.listFiles).toHaveBeenCalledWith(AGENT_ID, {
         source: undefined,
         ownerAgentId: undefined,
       });
@@ -405,12 +286,12 @@ describe("registerAgentLifecycleTools", () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
       await server.tools[0]!.handler({ ownerAgentId: "agt_child" });
-      expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
+      expect(ctx.listFiles).toHaveBeenCalledWith(AGENT_ID, {
         source: undefined,
         ownerAgentId: "agt_child",
       });
@@ -418,12 +299,12 @@ describe("registerAgentLifecycleTools", () => {
 
     it("returns tool error on failure", async () => {
       const ctx = baseContext();
-      ctx.listMedia = vi.fn(async () => {
+      ctx.listFiles = vi.fn(async () => {
         throw new Error("Storage unavailable");
       });
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
@@ -435,13 +316,13 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  describe("dispatch_delete_media handler", () => {
-    it("deletes the named media file", async () => {
+  describe("delete_file handler", () => {
+    it("deletes the named file", async () => {
       const ctx = baseContext();
-      ctx.deleteMedia = vi.fn(async () => {});
+      ctx.deleteFile = vi.fn(async () => {});
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_delete_media"]),
+        new Set(["delete_file"]),
         ctx
       );
 
@@ -449,66 +330,9 @@ describe("registerAgentLifecycleTools", () => {
         fileName: "screenshot.png",
       });
 
-      expect(ctx.deleteMedia).toHaveBeenCalledWith(AGENT_ID, "screenshot.png");
+      expect(ctx.deleteFile).toHaveBeenCalledWith(AGENT_ID, "screenshot.png");
       expect(result).toEqual({
-        content: [{ type: "text", text: 'Deleted media "screenshot.png".' }],
-      });
-    });
-  });
-
-  describe("dispatch_list_pins handler", () => {
-    it("returns one pin untruncated when given its id", async () => {
-      const value = "z".repeat(1200);
-      const pins = [
-        { id: "pin_1", label: "Short", value: "ok", type: "string" },
-        { id: "pin_2", label: "Shortcut", value, type: "shortcut" },
-      ];
-      const ctx = baseContext();
-      ctx.listPins = vi.fn(async () => pins);
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_list_pins"]),
-        ctx
-      );
-
-      const one = (await server.tools[0]!.handler({ id: "pin_2" })) as {
-        content: Array<{ text: string }>;
-      };
-      expect(JSON.parse(one.content[0]!.text).value).toBe(value);
-
-      // ...while the unfiltered listing still caps it.
-      const all = (await server.tools[0]!.handler({})) as {
-        content: Array<{ text: string }>;
-      };
-      expect(JSON.parse(all.content[0]!.text)[1].value).toBe(
-        `${"z".repeat(400)}…[+800 chars]`
-      );
-
-      const missing = (await server.tools[0]!.handler({ id: "nope" })) as {
-        isError?: true;
-      };
-      expect(missing.isError).toBe(true);
-    });
-
-    it("returns the current pins", async () => {
-      const pins = [
-        { label: "Dev", value: "http://localhost:5173", type: "url" },
-      ];
-      const ctx = baseContext();
-      ctx.listPins = vi.fn(async () => pins);
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_list_pins"]),
-        ctx
-      );
-
-      const result = await server.tools[0]!.handler({});
-
-      expect(ctx.listPins).toHaveBeenCalledWith(AGENT_ID, {
-        ownerAgentId: undefined,
-      });
-      expect(result).toEqual({
-        content: [{ type: "text", text: JSON.stringify(pins) }],
+        content: [{ type: "text", text: 'Deleted file "screenshot.png".' }],
       });
     });
   });

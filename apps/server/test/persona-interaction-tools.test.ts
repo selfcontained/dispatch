@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   type PersonaInteractionCallbacks,
-  buildLaunchPersonaResponseText,
   registerPersonaInteractionTools,
   resolvePersonaList,
 } from "../src/shared/mcp/persona-interaction-tools.js";
-import { AGENT_REVIEW_SUMMARY_MAX_CHARS } from "../src/shared/review-limits.js";
 import {
   BUILT_IN_PERSONA_SUMMARIES,
   GENERIC_REVIEW_PERSONA_SLUG,
@@ -98,32 +96,6 @@ describe("resolvePersonaList", () => {
   });
 });
 
-// ─── buildLaunchPersonaResponseText ───────────────────────────────────────────
-
-describe("buildLaunchPersonaResponseText", () => {
-  it("includes the persona name and agent ID", () => {
-    const text = buildLaunchPersonaResponseText(
-      "security-review",
-      "agt_test123"
-    );
-    expect(text).toContain('"security-review"');
-    expect(text).toContain("agt_test123");
-  });
-
-  it("explains the unified review flow", () => {
-    const text = buildLaunchPersonaResponseText("ux", "agt_abc");
-    expect(text).toContain("dispatch_review_submit");
-    expect(text).toContain("dispatch_review_list_feedback");
-    expect(text).toContain("dispatch_review_resolve");
-    expect(text).toContain("clean approval");
-  });
-
-  it("includes the reviewer agent ID", () => {
-    const text = buildLaunchPersonaResponseText("perf", "agt_xyz789");
-    expect(text).toContain("agt_xyz789");
-  });
-});
-
 // ─── registerPersonaInteractionTools ──────────────────────────────────────────
 
 type RegisteredTool = {
@@ -154,7 +126,6 @@ describe("registerPersonaInteractionTools", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
       listPersonas: vi.fn(),
-      launchPersona: vi.fn(),
     };
     registerPersonaInteractionTools(server as any, new Set(), callbacks);
     expect(server.tools).toHaveLength(0);
@@ -165,166 +136,15 @@ describe("registerPersonaInteractionTools", () => {
       agentId,
       listPersonas: vi.fn(),
     };
-    const allowed = new Set(["list_personas", "dispatch_launch_persona"]);
+    const allowed = new Set(["list_personas", "persona_upsert"]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
     expect(names).toContain("list_personas");
-    expect(names).not.toContain("dispatch_launch_persona");
-  });
-
-  it("registers dispatch_launch_persona when allowed and callback provided", () => {
-    const callbacks: PersonaInteractionCallbacks = {
-      agentId,
-      launchPersona: vi.fn(async () => ({
-        persona: "sec",
-        agentId: "agt_reviewer",
-      })),
-    };
-    const allowed = new Set(["dispatch_launch_persona"]);
-    registerPersonaInteractionTools(server as any, allowed, callbacks);
-    expect(server.tools).toHaveLength(1);
-    expect(server.tools[0].name).toBe("dispatch_launch_persona");
-  });
-
-  it("registers all review tools when allowed and callbacks present", () => {
-    const callbacks: PersonaInteractionCallbacks = {
-      agentId,
-      parentAgentId: "agt_parent",
-      listReviewFeedback: vi.fn(async () => []),
-      submitReview: vi.fn(async () => ({ review: { id: 1 } })),
-      addReviewFeedback: vi.fn(async () => ({ item: { id: 2 } })),
-      resolveReviewFeedback: vi.fn(async () => ({
-        item: { id: 1 },
-        reviewId: 1,
-        reviewStatus: "resolved",
-      })),
-      addReviewThreadMessage: vi.fn(async () => ({
-        message: { id: 1 },
-        reviewId: 1,
-      })),
-      reopenReviewFeedback: vi.fn(async () => ({
-        item: { id: 1 },
-        reviewId: 1,
-        reviewStatus: "open",
-      })),
-    };
-    const allowed = new Set([
-      "dispatch_review_list_feedback",
-      "dispatch_review_submit",
-      "dispatch_review_add_feedback",
-      "dispatch_review_resolve",
-      "dispatch_review_reopen",
-      "dispatch_review_add_message",
-    ]);
-    registerPersonaInteractionTools(server as any, allowed, callbacks);
-    const names = server.tools.map((t) => t.name);
-    expect(names).toContain("dispatch_review_list_feedback");
-    expect(names).toContain("dispatch_review_submit");
-    expect(names).toContain("dispatch_review_add_feedback");
-    expect(names).toContain("dispatch_review_resolve");
-    expect(names).toContain("dispatch_review_reopen");
-    expect(names).toContain("dispatch_review_add_message");
-  });
-
-  it("normalizes summary whitespace before enforcing its length", () => {
-    const callbacks: PersonaInteractionCallbacks = {
-      agentId,
-      submitReview: vi.fn(),
-    };
-    registerPersonaInteractionTools(
-      server as any,
-      new Set(["dispatch_review_submit"]),
-      callbacks
-    );
-
-    const tool = server.tools[0];
-    const inputSchema = tool.config.inputSchema as {
-      summary: {
-        safeParse: (value: unknown) => {
-          success: boolean;
-          data?: string;
-        };
-      };
-    };
-    expect(inputSchema.summary.safeParse(undefined).success).toBe(true);
-    const padded = inputSchema.summary.safeParse(
-      `  ${"a".repeat(AGENT_REVIEW_SUMMARY_MAX_CHARS)}  `
-    );
-    expect(padded).toMatchObject({
-      success: true,
-      data: "a".repeat(AGENT_REVIEW_SUMMARY_MAX_CHARS),
-    });
-    expect(
-      inputSchema.summary.safeParse(
-        ` ${"a".repeat(AGENT_REVIEW_SUMMARY_MAX_CHARS + 1)} `
-      ).success
-    ).toBe(false);
-    expect(tool.config.description).toContain("required for a clean approval");
-  });
-
-  it("caps dispatch_review_add_message input at 600 characters", () => {
-    const callbacks: PersonaInteractionCallbacks = {
-      agentId,
-      addReviewThreadMessage: vi.fn(async () => ({
-        message: { id: 1 },
-        reviewId: 1,
-      })),
-    };
-    registerPersonaInteractionTools(
-      server as any,
-      new Set(["dispatch_review_add_message"]),
-      callbacks
-    );
-
-    const inputSchema = server.tools[0].config.inputSchema as {
-      body: {
-        safeParse: (value: string) => { success: boolean };
-      };
-    };
-    expect(inputSchema.body.safeParse("a".repeat(600)).success).toBe(true);
-    expect(inputSchema.body.safeParse("a".repeat(601)).success).toBe(false);
-    expect(server.tools[0].config.description).toContain("max 600 characters");
+    // persona_upsert needs a workspace root.
+    expect(names).not.toContain("persona_upsert");
   });
 
   describe("tool handlers", () => {
-    it("requires a summary only when dispatch_review_submit has no feedback", async () => {
-      const submitReview = vi.fn(async () => ({
-        review: {
-          id: 3,
-          status: "open",
-          summary: null,
-          items: [{ id: 5 }],
-        },
-      }));
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_review_submit"]),
-        { agentId, submitReview }
-      );
-      const tool = server.tools[0];
-
-      const withFeedback = (await tool.handler({
-        summary: "   ",
-        feedback: [{ comment: "Actionable issue" }],
-      })) as any;
-      expect(withFeedback.isError).not.toBe(true);
-      expect(submitReview).toHaveBeenCalledWith(agentId, {
-        summary: undefined,
-        feedback: [{ comment: "Actionable issue" }],
-      });
-
-      submitReview.mockClear();
-      const cleanWithoutSummary = (await tool.handler({
-        summary: "   ",
-        feedback: [],
-      })) as any;
-      expect(cleanWithoutSummary.isError).toBe(true);
-      expect(cleanWithoutSummary.content[0].text).toContain(
-        "summary is required for a clean approval"
-      );
-      expect(submitReview).not.toHaveBeenCalled();
-    });
-
     it("list_personas calls resolvePersonaList with correct roots", async () => {
       const personas = [
         { slug: "sec", name: "Security", description: "review" },
@@ -369,146 +189,76 @@ describe("registerPersonaInteractionTools", () => {
       const result = (await server.tools[0].handler({})) as any;
       expect(result.structuredContent.templates).toHaveLength(3);
     });
+  });
+});
 
-    it("dispatch_review_list_feedback returns 'no items' when empty", async () => {
-      const listReviewFeedback = vi.fn(async () => []);
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        listReviewFeedback,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_review_list_feedback"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({})) as any;
-      expect(result.content[0].text).toContain(
-        "No review feedback items found"
-      );
+describe("launch_owner_reviews MCP tool", () => {
+  it("requires both an allowed capability and a handler", () => {
+    const server = createMockServer();
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["launch_owner_reviews"]),
+      { agentId: "parent" }
+    );
+    expect(server.tools).toHaveLength(0);
+    registerPersonaInteractionTools(server as any, new Set(), {
+      agentId: "parent",
+      launchOwnerReviews: vi.fn(),
     });
-
-    it("dispatch_review_list_feedback replaces threads with a count", async () => {
-      const listReviewFeedback = vi.fn(async () => [
+    expect(server.tools).toHaveLength(0);
+  });
+  it("passes scope and options and returns structured partial launch results", async () => {
+    const server = createMockServer();
+    const result = {
+      baseRef: "main",
+      changedFiles: ["src/a.ts"],
+      owners: [],
+      uncoveredFiles: [],
+      launched: [
         {
-          id: 7,
-          reviewId: 2,
-          filePath: "src/a.ts",
-          status: "open",
-          diffSnapshot: "@@ -1 +1 @@\n-old\n+new",
-          messages: [
-            { id: 1, authorType: "agent", content: { body: "first" } },
-            { id: 2, authorType: "agent", content: { body: "second" } },
-          ],
+          persona: "owner",
+          agentId: "reviewer",
+          files: ["src/a.ts"],
+          warnings: ["Complete context delivered through a private file."],
         },
-      ]);
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        listReviewFeedback: listReviewFeedback as never,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_review_list_feedback"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({})) as any;
-      const item = result.structuredContent.items[0];
-      expect(item.messageCount).toBe(2);
-      expect(item.messages).toBeUndefined();
-      expect(item.diffSnapshot).toBeUndefined();
-      expect(item.filePath).toBe("src/a.ts");
-    });
-
-    it("dispatch_review_get_feedback returns one item in full", async () => {
-      const item = {
-        id: 7,
-        reviewId: 2,
-        filePath: "src/a.ts",
-        status: "open",
-        diffSnapshot: "@@ -1 +1 @@",
-        messages: [{ id: 1, authorType: "agent", content: { body: "first" } }],
-      };
-      const getReviewFeedbackItem = vi.fn(
-        async (_agentId: string, id: number) => (id === 7 ? item : null)
-      );
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        getReviewFeedbackItem: getReviewFeedbackItem as never,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_review_get_feedback"]),
-        callbacks
-      );
-
-      const found = (await server.tools[0].handler({ itemId: 7 })) as any;
-      expect(found.structuredContent.item).toEqual(item);
-      // Fetched by id, not by scanning the agent's whole feedback list.
-      expect(getReviewFeedbackItem).toHaveBeenCalledWith(agentId, 7);
-
-      const missing = (await server.tools[0].handler({ itemId: 99 })) as any;
-      expect(missing.isError).toBe(true);
-    });
-
-    it("dispatch_review_resolve calls resolveReviewFeedback", async () => {
-      const resolveReviewFeedback = vi.fn(async () => ({
-        item: { id: 7 },
-        reviewId: 2,
-        reviewStatus: "partially_resolved",
-      }));
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        resolveReviewFeedback,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_review_resolve"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({
-        itemId: 7,
-        resolution: "dismissed",
-        note: "by design",
-      })) as any;
-
-      expect(resolveReviewFeedback).toHaveBeenCalledWith(
-        agentId,
-        7,
-        "dismissed",
-        { note: "by design" }
-      );
-      expect(result.content[0].text).toContain("Review feedback #7");
-      expect(result.content[0].text).toContain("partially_resolved");
-    });
-
-    it("dispatch_review_add_message calls addReviewThreadMessage", async () => {
-      const addReviewThreadMessage = vi.fn(async () => ({
-        message: { id: 12 },
-        reviewId: 3,
-      }));
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        addReviewThreadMessage,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_review_add_message"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({
-        itemId: 9,
-        body: "Looks good to me",
-      })) as any;
-
-      expect(addReviewThreadMessage).toHaveBeenCalledWith(
-        agentId,
-        9,
-        "Looks good to me"
-      );
-      expect(result.content[0].text).toContain("message #12");
+      ],
+      failures: [
+        { persona: "other", error: "unavailable", files: ["src/a.ts"] },
+      ],
+    };
+    const launchOwnerReviews = vi.fn().mockResolvedValue(result);
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["launch_owner_reviews"]),
+      { agentId: "parent", launchOwnerReviews }
+    );
+    const args = {
+      context: "Changed contracts",
+      dryRun: false,
+      agentType: "codex",
+    };
+    const response = (await server.tools[0].handler(args)) as any;
+    expect(launchOwnerReviews).toHaveBeenCalledWith("parent", args);
+    expect(response.structuredContent).toEqual(result);
+    expect(response.content[0].text).toContain("1 launch failure(s)");
+    expect(response.content[0].text).toContain(
+      "owner: Complete context delivered through a private file."
+    );
+    expect(response.content[0].text).toContain("End this turn");
+  });
+  it("returns a tool error when routing fails", async () => {
+    const server = createMockServer();
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["launch_owner_reviews"]),
+      {
+        agentId: "parent",
+        launchOwnerReviews: vi.fn().mockRejectedValue(new Error("Invalid map")),
+      }
+    );
+    expect(await server.tools[0].handler({ context: "Review" })).toMatchObject({
+      isError: true,
+      content: [{ text: "Invalid map" }],
     });
   });
 });

@@ -130,13 +130,12 @@ export function ToolsContent() {
         <P>
           By default a repo tool is exposed to every agent type. Add an optional{" "}
           <Code>scope</Code> array to restrict where a tool shows up. Valid
-          scopes are <Code>"agent"</Code> (standard agents and persona
-          reviewers) and <Code>"job"</Code> (scheduled job runs). Useful for
-          job-only maintenance commands that shouldn't clutter a regular agent's
-          toolset. Anything Dispatch doesn't recognize is dropped from the
-          array, and a <Code>scope</Code> left with nothing recognizable is
-          treated as no scope at all — so a typo quietly re-exposes the tool
-          everywhere.
+          scopes are <Code>"agent"</Code> (standard agents and persona agents)
+          and <Code>"job"</Code> (scheduled job runs). Useful for job-only
+          maintenance commands that shouldn't clutter a regular agent's toolset.
+          Anything Dispatch doesn't recognize is dropped from the array, and a{" "}
+          <Code>scope</Code> left with nothing recognizable is treated as no
+          scope at all — so a typo quietly re-exposes the tool everywhere.
         </P>
         <CodeBlock>{`
 {
@@ -148,94 +147,129 @@ export function ToolsContent() {
       </Section>
 
       <Section>
+        <H3 id="stream">The stream</H3>
+        <P>
+          Everything an agent hands the user goes into its{" "}
+          <strong>stream</strong> as a block. The Chat tab renders the stream;
+          the sidebar&apos;s Inbox tab and notifications derive from it. There
+          is one stream per root agent — children post into their parent&apos;s
+          stream — and every top-level block has a thread that opens as a page
+          in the drawer. Three tools cover it:
+        </P>
+        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+          <li>
+            <Code>post</Code> — post a block. Without <Code>to</Code> it goes to
+            the agent&apos;s own stream, where the user reads it; with{" "}
+            <Code>to: &lt;agentId&gt;</Code> it is delivered to that agent as a
+            prompt (any agent, any time). Takes <Code>text</Code> plus, by kind,{" "}
+            <Code>question</Code>, <Code>form</Code>, <Code>review</Code>,{" "}
+            <Code>tasks</Code>, <Code>link</Code>, and <Code>attachments</Code>;{" "}
+            <Code>replyTo</Code> threads it under another block, and{" "}
+            <Code>notify: true</Code> also sends the browser/Slack notification.
+            Returns <Code>{"{ id, createdAt }"}</Code>.
+          </li>
+          <li>
+            <Code>update</Code> — revise a block the agent posted (
+            <Code>text</Code>, <Code>data</Code>, <Code>attachments</Code>,{" "}
+            <Code>state</Code>), or change the <Code>state</Code> of a block
+            addressed to it — resolve a finding on a review it received, or move
+            a task.
+          </li>
+          <li>
+            <Code>react</Code> — put an emoji reaction on a block someone else
+            posted (the user&apos;s message, another agent&apos;s post); pass{" "}
+            <Code>remove: true</Code> to take it off.
+          </li>
+        </ul>
+        <P>Block kinds:</P>
+        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+          <li>
+            <Code>text</Code> — markdown. An agent&apos;s ordinary replies
+            already appear in the stream as it writes them, so <Code>post</Code>{" "}
+            is for what plain text cannot do.
+          </li>
+          <li>
+            <Code>question</Code> —{" "}
+            <Code>{"{ options: [{ label, value? }] }"}</Code>, rendered as a row
+            of buttons; the user&apos;s answer comes back as the agent&apos;s
+            next prompt and is recorded on the block.
+          </li>
+          <li>
+            <Code>form</Code> —{" "}
+            <Code>{"{ fields: [{ id, label, type, ... }] }"}</Code>; the user
+            fills it in and the submission is delivered the same way.
+          </li>
+          <li>
+            <Code>file</Code> — a file the agent shared, carried as an
+            attachment: <Code>{'attachments: [{ type: "file", path }]'}</Code>{" "}
+            uploads a file from the agent&apos;s checkout (or names an already
+            shared one by <Code>fileName</Code> / <Code>fileId</Code>). Links,
+            PRs, and code snippets are attachments too.
+          </li>
+          <li>
+            <Code>link</Code> — <Code>{"{ url, title? }"}</Code>. A pull request
+            is a link.
+          </li>
+          <li>
+            <Code>review</Code> —{" "}
+            <Code>
+              {
+                "{ summary, findings: [{ severity, title, body, path?, line? }] }"
+              }
+            </Code>
+            ; each finding becomes a <Code>finding</Code> block with its own
+            thread, <Code>open</Code> until it is resolved as <Code>fixed</Code>{" "}
+            or <Code>dismissed</Code> (with a note), and can be reopened; the
+            review stands where its findings do (see Reviewers).
+          </li>
+          <li>
+            <Code>tasks</Code> — <Code>{"{ items: [{ id, text }] }"}</Code>, a
+            checklist whose items the agent moves between <Code>todo</Code>,{" "}
+            <Code>now</Code>, and <Code>done</Code> with <Code>update</Code>;
+            the user reads it.
+          </li>
+        </ul>
+        <P>
+          Status is derived by Dispatch, never reported by the agent: an open
+          turn is <strong>working</strong>, an open question or form addressed
+          to the user is <strong>waiting</strong>, neither is{" "}
+          <strong>idle</strong>, and a failed turn or exited session is{" "}
+          <strong>blocked</strong>.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Built-in tools</H3>
         <P>
           Dispatch also provides built-in tools that are always available,
           regardless of repo configuration. Standard agents see the set below.
-          Persona reviewers and scheduled jobs get tailored subsets — for
-          example, review agents get <Code>dispatch_review_submit</Code> and{" "}
-          <Code>dispatch_review_add_feedback</Code>, and jobs get{" "}
-          <Code>job_complete</Code>, <Code>job_failed</Code>,{" "}
+          Persona agents and scheduled jobs get tailored subsets — for example,
+          jobs get <Code>job_complete</Code>, <Code>job_failed</Code>,{" "}
           <Code>job_needs_input</Code>, and <Code>job_log</Code>.
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <Code>create_pr</Code> — open a pull request from the current branch
+            <Code>post</Code>, <Code>update</Code>, <Code>react</Code> — the
+            stream tools above
           </li>
           <li>
-            <Code>get_pr_status</Code> — check CI status on a pull request
+            <Code>rename_session</Code> — rename the current agent session
           </li>
           <li>
-            <Code>dispatch_event</Code> — report agent status (working, blocked,
-            waiting_user, done, idle)
+            <Code>login_link</Code> — mint a short-lived link that opens the
+            Dispatch UI signed in, for driving it in a browser
           </li>
           <li>
-            <Code>dispatch_rename_session</Code> — rename the current agent
-            session
-          </li>
-          <li>
-            <Code>dispatch_notify</Code> — send a Slack notification (rate
-            limited, supports mrkdwn)
-          </li>
-          <li>
-            <Code>dispatch_pin</Code> — pin a label/value pair to the sidebar
-            (URLs, ports, filenames, PRs, markdown summaries), or a{" "}
-            <Code>shortcut</Code> button that injects a prompt into the agent’s
-            session when clicked. Setting the same label again updates that pin;
-            passing an <Code>id</Code> instead matches by id, so a rename is a
-            single-field edit
-          </li>
-          <li>
-            <Code>dispatch_pins</Code> — write up to 50 pins in one atomic call.{" "}
-            <Code>merge</Code> (the default) leaves unmentioned pins alone;{" "}
-            <Code>replace</Code> requires a <Code>group</Code> and rebuilds
-            exactly that group in the order given, never touching anything
-            outside it
-          </li>
-          <li>
-            <Code>dispatch_share_file</Code> — publish a screenshot, image,
-            video, or text snippet to the session's media stream
-          </li>
-          <li>
-            <Code>dispatch_list_media</Code> — list media shared with or by the
-            current agent, or by its parent or a direct child via{" "}
+            <Code>list_files</Code> — list files shared with or by the current
+            agent, or by its parent or a direct child via{" "}
             <Code>ownerAgentId</Code>
           </li>
           <li>
-            <Code>dispatch_delete_media</Code> — permanently remove a shared
-            media file by its listed file name
+            <Code>delete_file</Code> — permanently remove a shared file by its
+            listed file name
           </li>
           <li>
-            <Code>dispatch_list_pins</Code> — list the current sidebar pins with
-            their stable IDs; long values are truncated in the listing, so pass
-            an <Code>id</Code> to read one pin back whole. Takes{" "}
-            <Code>ownerAgentId</Code> to read a parent&apos;s or direct
-            child&apos;s pins
-          </li>
-          <li>
-            <Code>dispatch_delete_pin</Code> — permanently remove pins by{" "}
-            <Code>id</Code>, by a list of <Code>ids</Code>, or by clearing a
-            whole <Code>group</Code>
-          </li>
-          <li>
-            <Code>dispatch_surface_create</Code>,{" "}
-            <Code>dispatch_surface_update</Code>,{" "}
-            <Code>dispatch_surface_list</Code>,{" "}
-            <Code>dispatch_surface_get</Code>,{" "}
-            <Code>dispatch_surface_delete</Code>,{" "}
-            <Code>dispatch_surface_reorder</Code> — author a custom sidebar tab
-            (up to 8 per agent) built from status, progress, list, table,
-            actions, form, and section blocks (see the Agent Surfaces section);
-            available to standard agents, jobs, and persona reviewers alike
-          </li>
-          <li>
-            <Code>dispatch_surface_interactions</Code>,{" "}
-            <Code>dispatch_surface_claim</Code>,{" "}
-            <Code>dispatch_surface_resolve</Code> — read, claim, and resolve the
-            durable interactions a surface's actions and forms produce
-          </li>
-          <li>
-            <Code>list_personas</Code> — list persona reviewers defined for the
+            <Code>list_personas</Code> — list the personas defined for the
             current repo
           </li>
           <li>
@@ -245,80 +279,35 @@ export function ToolsContent() {
             Reviewers section)
           </li>
           <li>
-            <Code>dispatch_launch_persona</Code> — launch a persona agent as a
-            child of the current session, optionally pinned to a model from the
-            curated catalog
+            <Code>launch_agent</Code> — launch a new agent as a child of the
+            current session with a name, prompt, and optional agent type, model,
+            working directory, worktree settings, full access mode, or template.
+            Pass <Code>persona: &lt;slug&gt;</Code> to run it as that persona,
+            with the prompt as its briefing. Pass <Code>child: false</Code> to
+            launch it outside the caller's lineage as a top-level agent instead.
+            With a <Code>templateId</Code>, the template's own prompt is
+            rendered and its placeholders fill from <Code>templateArgs</Code>{" "}
+            (the names come back from <Code>list_templates</Code> /{" "}
+            <Code>get_template</Code> as <Code>promptArgs</Code>); anything left
+            in the caller's prompt follows the rendered template
           </li>
           <li>
-            <Code>dispatch_review_submit</Code> and{" "}
-            <Code>dispatch_review_add_feedback</Code> — reviewer-agent tools to
-            create a summarized review and add a genuinely new concern
-          </li>
-          <li>
-            <Code>dispatch_review_list_feedback</Code> — list review feedback
-            items with their file locations, status, and message counts
-          </li>
-          <li>
-            <Code>dispatch_review_get_feedback</Code> — read one feedback item
-            in full, including its message thread and the diff hunk captured
-            when it was filed
-          </li>
-          <li>
-            <Code>dispatch_review_resolve</Code> — resolve a review feedback
-            item as fixed or dismissed; persona reviewers use it after verifying
-            the parent's fix
-          </li>
-          <li>
-            <Code>dispatch_review_add_message</Code> — reply to a review
-            feedback thread (ask a clarifying question or explain an approach)
-          </li>
-          <li>
-            <Code>dispatch_review_reopen</Code> — reopen a resolved item that
-            needs more work
-          </li>
-          <li>
-            <Code>dispatch_launch_agent</Code> — launch a new agent as a child
-            of the current session with a name, prompt, and optional agent type,
-            model, working directory, worktree settings, full access mode, or
-            template. Pass <Code>child: false</Code> to launch it outside the
-            caller's lineage as a top-level agent instead. With a{" "}
-            <Code>templateId</Code>, the template's own prompt is rendered and
-            its placeholders fill from <Code>templateArgs</Code> (the names come
-            back from <Code>list_templates</Code> / <Code>get_template</Code> as{" "}
-            <Code>promptArgs</Code>); anything left in the caller's prompt
-            follows the rendered template
-          </li>
-          <li>
-            <Code>dispatch_archive_agent</Code> — archive an agent this session
-            launched, once its output has been consumed, or the session itself
-            by passing its own agent ID; optionally keeping or force-removing
-            the worktree. A session archiving itself stops a moment after the
-            call returns, so it belongs last in a turn
+            <Code>archive_agent</Code> — archive an agent this session launched,
+            once its output has been consumed, or the session itself by passing
+            its own agent ID; optionally keeping or force-removing the worktree.
+            A session archiving itself stops a moment after the call returns, so
+            it belongs last in a turn
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with
-            their IDs, names, statuses, and latest activity, plus lineage: each
-            entry's parent, how it relates to the caller (child, descendant,
-            parent, ancestor, sibling, unrelated), and who launched it when that
-            is not the parent
+            their IDs, names, lifecycle statuses, and lineage: each entry's
+            parent, how it relates to the caller (child, descendant, parent,
+            ancestor, sibling, unrelated), and who launched it when that is not
+            the parent
           </li>
           <li>
-            <Code>dispatch_send_message</Code> — send a message to another
-            running agent by ID or name; the target can reply the same way. The
-            call returns once the message is queued for the target's terminal,
-            not once it has been typed in
-          </li>
-          <li>
-            <Code>get_activity_summary</Code>, <Code>get_feedback_summary</Code>{" "}
-            — analytics queries over recent Dispatch activity
-          </li>
-          <li>
-            <Code>whiteboard_get</Code>, <Code>whiteboard_update</Code>,{" "}
-            <Code>whiteboard_clear</Code> — read, draw on, and clear the agent's
-            shared whiteboard (see the Agents section);{" "}
-            <Code>whiteboard_howto</Code> returns the Excalidraw element format
-            and layout conventions on demand, so agents that never draw don't
-            carry it
+            <Code>get_feedback_summary</Code> — review feedback over recent
+            Dispatch activity
           </li>
           <li>
             <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
@@ -360,20 +349,14 @@ export function ToolsContent() {
           Everything a tool returns stays in the calling agent's context, so
           list-shaped tools return a lean projection — long strings are
           truncated with a marker showing how much was dropped — and there is
-          always an explicit way to read one entry in full: either a matching
-          single-item tool (<Code>get_template</Code>,{" "}
-          <Code>brain_get_object</Code>, <Code>brain_get_event</Code>,{" "}
-          <Code>brain_get_list_item</Code>,{" "}
-          <Code>dispatch_review_get_feedback</Code>) or an id on the list tool
-          itself (<Code>dispatch_list_pins</Code>). Writes confirm what changed
-          rather than echoing back the record.
+          always a matching single-item tool to read one entry in full (
+          <Code>get_template</Code>, <Code>brain_get_object</Code>,{" "}
+          <Code>brain_get_event</Code>, <Code>brain_get_list_item</Code>).
+          Writes confirm what changed rather than echoing back the record.
         </P>
         <P>
-          By default, <Code>list_agents</Code> and{" "}
-          <Code>dispatch_send_message</Code> only see agents in the same git
-          repository. To let agents coordinate across repos, enable{" "}
-          <strong>Allow messaging agents in other repositories</strong> in{" "}
-          <strong>Settings → Agents</strong>.
+          <Code>list_agents</Code> and <Code>post</Code> see agents in the same
+          git repository.
         </P>
       </Section>
 
@@ -400,7 +383,7 @@ export function ToolsContent() {
         </P>
         <P>
           Brain tools are available to both standard agents and job agents.
-          Persona reviewers do not have access. Common use cases include passing
+          Persona agents do not have access. Common use cases include passing
           findings or assessments between recurring job runs, sharing
           configuration between agents working in the same repo, and recording
           structured observations that other agents can query. You can inspect
@@ -413,22 +396,22 @@ export function ToolsContent() {
       <Section>
         <H3 id="dispatch-launch-agent">Agent orchestration</H3>
         <P>
-          Agents can spawn other agents using <Code>dispatch_launch_agent</Code>
-          . The launched agent runs independently, and by default it is a child
-          of the launcher — nested in that card's <strong>Sub Agents</strong>{" "}
-          list, the same place persona reviewers render. Pass{" "}
-          <Code>child: false</Code> for a top-level agent outside the launcher's
-          lineage; that is the only launch a sub agent itself can make.
-          Archiving the parent cascades to its children — persona reviewers and
-          plain child agents alike. An agent launched with{" "}
-          <Code>child: false</Code> is independent and is left running.
+          Agents can spawn other agents using <Code>launch_agent</Code>. The
+          launched agent runs independently, and by default it is a child of the
+          launcher — nested in that card's <strong>Sub Agents</strong> list, the
+          same place persona agents render. Pass <Code>child: false</Code> for a
+          top-level agent outside the launcher's lineage; that is the only
+          launch a sub agent itself can make. Archiving the parent cascades to
+          its children — persona agents and plain child agents alike. An agent
+          launched with <Code>child: false</Code> is independent and is left
+          running.
         </P>
         <P>
           Use <Code>list_agents</Code> to discover running agents and{" "}
-          <Code>dispatch_send_message</Code> to coordinate between them.
-          Messages are persisted and visible in the <strong>Messages</strong>{" "}
-          tab of the media sidebar. The launched agent receives the launcher's
-          ID in its startup context so it can message back.
+          <Code>post</Code> with <Code>to</Code> to coordinate between them. A
+          post to another agent is a block in the root agent&apos;s stream,
+          shown on both agents&apos; pages. The launched agent receives the
+          launcher&apos;s ID in its startup context so it can post back.
         </P>
       </Section>
 
@@ -456,7 +439,7 @@ export function ToolsContent() {
       <Section>
         <H3>Environment</H3>
         <P>
-          Agent sessions run inside tmux (non-login, non-interactive), so
+          Agent sessions run as non-login, non-interactive processes, so
           standard shell profiles are <strong>not</strong> sourced. If agents
           need tools like <Code>nvm</Code>, <Code>pyenv</Code>, or tokens like{" "}
           <Code>GH_TOKEN</Code>, add them to <Code>~/.dispatch/env</Code>:

@@ -1,13 +1,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
+import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
+import { hasCodeowners } from "../personas/codeowners.js";
 import { loadPersonasFromRoots } from "../personas/loader.js";
-import {
-  buildLaunchReviewPrompt,
-  MAX_LAUNCH_REVIEW_NOTE_LENGTH,
-} from "../reviews/injection-prompts.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
@@ -15,19 +13,79 @@ import {
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
-  sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
+  /**
+   * The request reaches the agent as a post in its stream: the agent
+   * launches the persona itself, with its own briefing of the work.
+   */
+  streams: Pick<StreamService, "promptAgent">;
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
 };
 
+/**
+ * What the agent is asked to do. The agent has the context a reviewer
+ * needs (what changed, where to look, what to be careful about); a launch
+ * made by the server with a generic note loses all of that.
+ */
+export function personaLaunchRequest(input: {
+  personas: string[];
+  /** Also route reviewers by .dispatch/codeowners.json and the changed files. */
+  codeowners?: boolean;
+  agentType: string;
+  model?: string;
+  note?: string;
+}): string {
+  const modelArgs = input.model ? [`model: "${input.model}"`] : [];
+  const lines = input.personas.map((persona) => {
+    const args = [
+      `persona: "${persona}"`,
+      `type: "${input.agentType}"`,
+      ...modelArgs,
+    ];
+    return `- launch_agent({ ${args.join(", ")}, prompt: <your briefing> })`;
+  });
+  if (input.codeowners) {
+    // The owner tool names the runtime `agentType` where launch_agent says
+    // `type`. Owner reviews receive their matched file scope.
+    const args = [`agentType: "${input.agentType}"`, ...modelArgs];
+    lines.unshift(
+      `- launch_owner_reviews({ ${args.join(", ")}, context: <your briefing> }) — the code owners for your changed files, selected from .dispatch/codeowners.json`
+    );
+  }
+  const subject = input.codeowners
+    ? input.personas.length === 0
+      ? "the code owners"
+      : input.personas.length === 1
+        ? `the code owners and the ${input.personas[0]} persona`
+        : "the code owners and these personas"
+    : input.personas.length === 1
+      ? `the ${input.personas[0]} persona`
+      : "these personas";
+  return [
+    `Please launch ${subject} on your current work:`,
+    ...lines,
+    // A hand-picked persona may also be an owner; neither tool knows about
+    // the other's launches, so the agent has to keep them from overlapping.
+    ...(input.codeowners && input.personas.length > 0
+      ? [
+          "Run launch_owner_reviews first and read its `launched` list; skip the launch_agent line for any persona it already launched (a persona in `failures` is still yours to launch).",
+        ]
+      : []),
+    "Write the briefing yourself: the review target and purpose, the material that matters, what to scrutinize, and what is out of scope. For code-change reviews, include the relevant base branch so reviewers can inspect diffs locally. Each reviewer posts one review back to you; answer every finding under it, and its reviewer resolves it.",
+    ...(input.note?.trim() ? ["", `From the user: ${input.note.trim()}`] : []),
+  ].join("\n");
+}
+
+const MAX_LAUNCH_NOTE_LENGTH = 2000;
+
 const PERSONA_SLUG_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
 
-// Every selected persona lands in one prompt typed into the author's tmux
-// session, so the request has to be bounded independently of the body limit —
-// slugs aren't checked against files on disk at this layer.
-const MAX_LAUNCH_REVIEW_PERSONAS = 20;
+// Each selected persona becomes a child agent, so the request is bounded
+// independently of the body limit; slugs are resolved against files on disk
+// by the launcher, not here.
+const MAX_LAUNCH_PERSONAS = 20;
 
 const PERSONAS_REQUIRED_ERROR =
-  "persona (string) or personas (non-empty array of strings) is required.";
+  "persona (string), personas (non-empty array of strings), or codeowners: true is required.";
 
 async function resolveOptionalWorktreeRoot(
   cwd: string
@@ -62,19 +120,24 @@ export async function registerPersonaRoutes(
       const worktreeRoot = await resolveOptionalWorktreeRoot(query.cwd);
       const repoRoot = await resolveOptionalRepoRoot(query.cwd);
       const personas = await loadPersonasFromRoots({ worktreeRoot, repoRoot });
-      return { personas };
+      // Owner reviews read the map from the checkout being reviewed, so only
+      // the worktree decides whether the option is offered.
+      const codeowners = worktreeRoot
+        ? await hasCodeowners(worktreeRoot)
+        : false;
+      return { personas, codeowners };
     } catch {
-      return { personas: [] };
+      return { personas: [], codeowners: false };
     }
   });
 
-  app.post("/api/v1/agents/:id/launch-review", async (request, reply) => {
+  app.post("/api/v1/agents/:id/launch-persona", async (request, reply) => {
     const params = request.params as { id?: string };
     const body = request.body as {
       persona?: unknown;
       personas?: unknown;
+      codeowners?: unknown;
       agentType?: unknown;
-      includeDiff?: unknown;
       model?: unknown;
       note?: unknown;
     } | null;
@@ -86,12 +149,19 @@ export async function registerPersonaRoutes(
     if (body.personas !== undefined && !Array.isArray(body.personas)) {
       return reply.code(400).send({ error: PERSONAS_REQUIRED_ERROR });
     }
+    if (body.codeowners !== undefined && typeof body.codeowners !== "boolean") {
+      return reply
+        .code(400)
+        .send({ error: "codeowners must be a boolean when provided." });
+    }
+    const codeowners = body.codeowners === true;
 
     // `persona` is the pre-multi-select field. Deprecated: it only covers a
     // browser tab still running an older bundle; remove after 0.33.
-    const rawPersonas: unknown[] = body.personas ?? [body.persona];
+    const rawPersonas: unknown[] =
+      body.personas ?? (body.persona !== undefined ? [body.persona] : []);
     if (
-      rawPersonas.length === 0 ||
+      (rawPersonas.length === 0 && !codeowners) ||
       rawPersonas.some(
         (entry) => typeof entry !== "string" || entry.trim().length === 0
       )
@@ -101,9 +171,9 @@ export async function registerPersonaRoutes(
     const personas = Array.from(
       new Set((rawPersonas as string[]).map((entry) => entry.trim()))
     );
-    if (personas.length > MAX_LAUNCH_REVIEW_PERSONAS) {
+    if (personas.length > MAX_LAUNCH_PERSONAS) {
       return reply.code(400).send({
-        error: `personas must contain at most ${MAX_LAUNCH_REVIEW_PERSONAS} unique slugs.`,
+        error: `personas must contain at most ${MAX_LAUNCH_PERSONAS} unique slugs.`,
       });
     }
     if (personas.some((persona) => !PERSONA_SLUG_PATTERN.test(persona))) {
@@ -121,14 +191,6 @@ export async function registerPersonaRoutes(
       return reply.code(400).send({
         error: `agentType must be one of: ${CLI_AGENT_TYPES.join(", ")}`,
       });
-    }
-    if (
-      body.includeDiff !== undefined &&
-      typeof body.includeDiff !== "boolean"
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "includeDiff must be a boolean when provided." });
     }
     if (
       body.model !== undefined &&
@@ -150,14 +212,13 @@ export async function registerPersonaRoutes(
     }
     if (
       typeof body.note === "string" &&
-      body.note.length > MAX_LAUNCH_REVIEW_NOTE_LENGTH
+      body.note.length > MAX_LAUNCH_NOTE_LENGTH
     ) {
       return reply.code(400).send({
-        error: `note must be at most ${MAX_LAUNCH_REVIEW_NOTE_LENGTH} characters.`,
+        error: `note must be at most ${MAX_LAUNCH_NOTE_LENGTH} characters.`,
       });
     }
-    // The model id is interpolated into the injected prompt, so it has to clear
-    // the catalog for this runtime before it gets anywhere near the terminal.
+    // Validate the model against this runtime's catalog before launching.
     let model: string | undefined;
     try {
       model = validateAgentModel(
@@ -171,24 +232,29 @@ export async function registerPersonaRoutes(
     }
 
     try {
-      const access = await deps.agentManager.getTerminalAccess(agentId);
-      if (access.mode !== "tmux") {
-        return reply
-          .code(409)
-          .send({ error: "Agent does not have an active tmux session." });
-      }
-
-      const prompt = buildLaunchReviewPrompt({
+      const parent = await deps.agentManager.getAgent(agentId);
+      if (!parent) return reply.code(404).send({ error: "Agent not found." });
+      const text = personaLaunchRequest({
         personas,
-        agentType: body.agentType,
-        includeDiff: body.includeDiff !== false,
-        model,
-        note: typeof body.note === "string" ? body.note : null,
+        codeowners,
+        agentType: body.agentType as string,
+        ...(model !== undefined ? { model } : {}),
+        ...(typeof body.note === "string" ? { note: body.note } : {}),
       });
-
-      await deps.sendAgentPrompt(agentId, prompt);
-      return { ok: true };
+      // Start the agent's turn with its own review instructions. The stream
+      // shows the agent's response as a normal turn.
+      const { held } = await deps.streams.promptAgent(agentId, {
+        text,
+        description: `Review requested: ${[
+          ...(codeowners ? ["code owners"] : []),
+          ...personas,
+        ].join(", ")}`,
+      });
+      return { ok: true, held };
     } catch (error) {
+      if (error instanceof StreamServiceError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
       return deps.handleAgentError(reply, error);
     }
   });

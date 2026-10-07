@@ -1,4 +1,5 @@
 import os from "node:os";
+import { sampleRetainedArtifactStorage } from "./artifact-storage.js";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
 import type { Pool, PoolClient } from "pg";
@@ -33,6 +34,8 @@ export type ResourceSample = {
   agentCpuPercent: number | null;
   agentRssBytes: number | null;
   hostLoad1: number;
+  hostFreeMemoryBytes: number;
+  hostTotalMemoryBytes: number;
   subsystems: Record<string, SubsystemResourceSample>;
 };
 
@@ -66,22 +69,22 @@ export type WorkloadSnapshot = {
   sseClients: number;
   streams: number;
   streamViewers: number;
-  terminalObservers: number;
-  terminalViewers: number;
   scheduledJobs: number;
   jobMonitors: number;
   gitRefreshesInFlight: number;
   uiEventsPublished: number;
   uiWriteFailures: number;
-  terminalPolls: number;
-  terminalPollFailures: number;
 };
 
 export type ServiceResourcesDeps = {
   pool: Pool;
   probePool: Pool;
-  listAgentSessions: () => Promise<Array<{ tmuxSession: string | null }>>;
+  /** Running agents and the pid of each one's host process, when alive. */
+  listAgentProcesses: () => Promise<Array<{ hostPid: number | null }>>;
   getWorkloads: () => WorkloadSnapshot;
+  artifactProbePool?: Pool;
+  artifactRoots?: string[];
+  sampleArtifactStorage?: (signal: AbortSignal) => Promise<number>;
   subsystemTrackers: SubsystemTracker[];
   processTreeSupported?: boolean;
   /** Override the platform process probes in focused tests. */
@@ -127,6 +130,11 @@ export type ServiceResourcesResponse = {
       cpuCount: number;
       totalMemoryBytes: number;
       freeMemoryBytes: number;
+    };
+    artifacts?: {
+      sizeBytes: number | null;
+      sampledAt: number | null;
+      error: string | null;
     };
     agents: AgentProcessSnapshot;
     database: {
@@ -231,19 +239,22 @@ export class ServiceResources {
   private httpInFlight = 0;
   private httpBuckets: HttpBucket[] = [];
   private runningAgentCount = 0;
+  private eventLoopP95 = 0;
+  private artifacts = {
+    sizeBytes: null as number | null,
+    sampledAt: null as number | null,
+    error: null as string | null,
+  };
+  private lastArtifactAttemptAt = 0;
+  private artifactProbe: Promise<void> | null = null;
+  private artifactAbort: AbortController | null = null;
   private workloads: WorkloadSnapshot;
   private previousOwnerCounters: {
     uiEventsPublished: number;
     uiWriteFailures: number;
-    terminalPolls: number;
-    terminalPollFailures: number;
   } | null = null;
   private ownerHealth = {
     uiEvents: {
-      lastSucceededAt: null as number | null,
-      lastFailedAt: null as number | null,
-    },
-    terminalObservers: {
       lastSucceededAt: null as number | null,
       lastFailedAt: null as number | null,
     },
@@ -288,12 +299,17 @@ export class ServiceResources {
     this.timer = null;
     this.eventLoopDelay.disable();
     this.cancelDatabaseProbe?.();
+    this.artifactAbort?.abort();
+    this.lastArtifactAttemptAt = 0;
   }
 
   shutdown(): Promise<void> {
     if (!this.shutdownPromise) {
       this.stop();
-      this.shutdownPromise = this.deps.probePool.end().catch(() => undefined);
+      this.shutdownPromise = Promise.all([
+        this.deps.probePool.end().catch(() => undefined),
+        this.deps.artifactProbePool?.end().catch(() => undefined),
+      ]).then(() => undefined);
     }
     return this.shutdownPromise;
   }
@@ -378,7 +394,7 @@ export class ServiceResources {
         message: `${delayed.map((item) => item.label).join(", ")} ${delayed.length === 1 ? "needs" : "need"} attention.`,
       });
     }
-    const eventLoopP95 = round(this.eventLoopDelay.percentile(95) / 1e6, 1);
+    const eventLoopP95 = this.eventLoopP95;
     if (eventLoopP95 > 100) {
       reasons.push({
         code: "EVENT_LOOP_DELAY_HIGH",
@@ -430,6 +446,7 @@ export class ServiceResources {
           totalMemoryBytes: os.totalmem(),
           freeMemoryBytes: os.freemem(),
         },
+        artifacts: { ...this.artifacts },
         agents: { ...this.agentProcesses },
         database: { ...this.database, pool: this.poolSnapshot() },
         eventLoop: { p95DelayMs: eventLoopP95 },
@@ -532,23 +549,6 @@ export class ServiceResources {
           writeFailures: workloads.uiWriteFailures,
         },
       }),
-      operationalSubsystem({
-        id: "terminal-observers",
-        label: "Terminal observers",
-        description: "Viewer-driven terminal copy-mode observation.",
-        state: ownerSubsystemState({
-          active: workloads.terminalObservers,
-          ...this.ownerHealth.terminalObservers,
-        }),
-        runs: workloads.terminalPolls,
-        failures: workloads.terminalPollFailures,
-        metadata: {
-          observers: workloads.terminalObservers,
-          viewers: workloads.terminalViewers,
-          polls: workloads.terminalPolls,
-          pollFailures: workloads.terminalPollFailures,
-        },
-      }),
     ];
     const trackedSubsystems = this.deps.subsystemTrackers.map((tracker) =>
       tracker.snapshot(now)
@@ -577,6 +577,7 @@ export class ServiceResources {
 
   private async sample(generation: number): Promise<void> {
     const now = Date.now();
+    this.sampleArtifactsIfDue(generation, now);
     const cpuNow = process.cpuUsage();
     const wallNow = performance.now();
     const cpuMicros =
@@ -610,6 +611,8 @@ export class ServiceResources {
     };
     this.updateOwnerHealth(workloads, now);
     this.workloads = workloads;
+    this.eventLoopP95 = round(this.eventLoopDelay.percentile(95) / 1e6, 1);
+    this.eventLoopDelay.reset();
     this.currentCpuPercent = currentCpuPercent;
     this.previousCpu = cpuNow;
     this.previousCpuAt = wallNow;
@@ -632,6 +635,8 @@ export class ServiceResources {
       agentCpuPercent: agentProcesses.cpuPercent,
       agentRssBytes: agentProcesses.rssBytes,
       hostLoad1: os.loadavg()[0],
+      hostFreeMemoryBytes: os.freemem(),
+      hostTotalMemoryBytes: os.totalmem(),
       subsystems: Object.fromEntries(
         subsystemSnapshots.map((subsystem) => [
           subsystem.id,
@@ -646,6 +651,42 @@ export class ServiceResources {
     if (this.samples.length > MAX_SAMPLES) {
       this.samples = this.samples.slice(-MAX_SAMPLES);
     }
+  }
+
+  private sampleArtifactsIfDue(generation: number, now: number): void {
+    if (
+      (!this.deps.sampleArtifactStorage && !this.deps.artifactProbePool) ||
+      this.artifactProbe ||
+      (this.lastArtifactAttemptAt > 0 &&
+        now - this.lastArtifactAttemptAt < DATABASE_SIZE_INTERVAL_MS)
+    )
+      return;
+    this.lastArtifactAttemptAt = now;
+    const controller = new AbortController();
+    this.artifactAbort = controller;
+    const sample = this.deps.sampleArtifactStorage
+      ? this.deps.sampleArtifactStorage(controller.signal)
+      : sampleRetainedArtifactStorage(
+          this.deps.artifactProbePool!,
+          this.deps.artifactRoots ?? [],
+          controller.signal
+        );
+    this.artifactProbe = sample
+      .then((sizeBytes) => {
+        if (this.isActive(generation))
+          this.artifacts = { sizeBytes, sampledAt: Date.now(), error: null };
+      })
+      .catch(() => {
+        if (this.isActive(generation))
+          this.artifacts = {
+            ...this.artifacts,
+            error: "Artifact storage sampling failed",
+          };
+      })
+      .finally(() => {
+        this.artifactProbe = null;
+        this.artifactAbort = null;
+      });
   }
 
   private async sampleDatabase(): Promise<
@@ -806,22 +847,24 @@ export class ServiceResources {
     processes: AgentProcessSnapshot;
     runningAgentCount: number;
   }> {
-    let agents: Array<{ tmuxSession: string | null }>;
+    let agents: Array<{ hostPid: number | null }>;
     try {
-      agents = await this.deps.listAgentSessions();
+      agents = await this.deps.listAgentProcesses();
     } catch {
       return {
         processes: {
           ...this.agentProcesses,
-          sampledAt: Date.now(),
+          cpuPercent: null,
+          rssBytes: null,
+          processCount: null,
           error: "Agent session sampling failed",
         },
         runningAgentCount: this.runningAgentCount,
       };
     }
 
-    // Session ownership is platform-independent. Commit its fresh value even
-    // when the optional tmux/ps process probe below is unavailable or fails.
+    // Agent ownership is platform-independent. Commit its fresh value even
+    // when the optional ps process probe below is unavailable or fails.
     const runningAgentCount = agents.length;
     if (!this.agentProcesses.supported) {
       return {
@@ -831,12 +874,12 @@ export class ServiceResources {
     }
 
     try {
-      const sessions = new Set(
+      const roots = new Set(
         agents
-          .map((agent) => agent.tmuxSession?.trim())
-          .filter((value): value is string => Boolean(value))
+          .map((agent) => agent.hostPid)
+          .filter((pid): pid is number => typeof pid === "number" && pid > 0)
       );
-      if (sessions.size === 0) {
+      if (roots.size === 0) {
         return {
           processes: {
             supported: true,
@@ -851,25 +894,9 @@ export class ServiceResources {
       }
 
       const run = this.deps.runProcessCommand ?? runCommand;
-      const [panes, processes] = await Promise.all([
-        run(
-          "tmux",
-          ["list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}"],
-          { allowedExitCodes: [0, 1], timeoutMs: 3_000 }
-        ),
-        run("ps", ["-axo", "pid=,ppid=,%cpu=,rss="], {
-          timeoutMs: 3_000,
-        }),
-      ]);
-
-      const roots = new Set<number>();
-      for (const line of panes.stdout.split("\n")) {
-        const [session, pidText] = line.trim().split("\t");
-        const pid = Number(pidText);
-        if (session && sessions.has(session) && Number.isFinite(pid)) {
-          roots.add(pid);
-        }
-      }
+      const processes = await run("ps", ["-axo", "pid=,ppid=,%cpu=,rss="], {
+        timeoutMs: 3_000,
+      });
 
       const rows = processes.stdout
         .split("\n")
@@ -912,7 +939,9 @@ export class ServiceResources {
       return {
         processes: {
           ...this.agentProcesses,
-          sampledAt: Date.now(),
+          cpuPercent: null,
+          rssBytes: null,
+          processCount: null,
           error: "Process sampling failed",
         },
         runningAgentCount,
@@ -936,26 +965,10 @@ export class ServiceResources {
       } else if (published > 0) {
         this.ownerHealth.uiEvents.lastSucceededAt = now;
       }
-
-      const polls = Math.max(
-        0,
-        workloads.terminalPolls - previous.terminalPolls
-      );
-      const pollFailures = Math.max(
-        0,
-        workloads.terminalPollFailures - previous.terminalPollFailures
-      );
-      if (pollFailures > 0) {
-        this.ownerHealth.terminalObservers.lastFailedAt = now;
-      } else if (polls > 0) {
-        this.ownerHealth.terminalObservers.lastSucceededAt = now;
-      }
     }
     this.previousOwnerCounters = {
       uiEventsPublished: workloads.uiEventsPublished,
       uiWriteFailures: workloads.uiWriteFailures,
-      terminalPolls: workloads.terminalPolls,
-      terminalPollFailures: workloads.terminalPollFailures,
     };
   }
 

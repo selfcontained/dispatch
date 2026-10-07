@@ -1,8 +1,3 @@
-import type {
-  AssistedPhase,
-  AssistedUpdateState,
-} from "../assisted-update-store.js";
-
 /**
  * Wire types for the release job + SSE stream, shared with the web client.
  *
@@ -29,8 +24,11 @@ export type UpdatePhase =
   | "restarting"
   | "done"
   | "failed";
-export type AssistedReleasePhase = AssistedPhase;
-export type ReleasePhase = CreatePhase | UpdatePhase | AssistedReleasePhase;
+export type ReleasePhase = CreatePhase | UpdatePhase;
+
+export function isTerminalReleasePhase(phase: ReleasePhase): boolean {
+  return phase === "done" || phase === "failed";
+}
 
 export type ReleaseProgress = {
   step: string;
@@ -59,12 +57,6 @@ export type ReleaseJob =
       jobType: "update";
       versionType: null;
       phase: UpdatePhase;
-    })
-  | (CommonReleaseJobFields & {
-      jobType: "update-assisted";
-      versionType: null;
-      phase: AssistedReleasePhase;
-      assisted: AssistedUpdateState;
     });
 
 export type ReleaseStreamEvent =
@@ -76,5 +68,4 @@ export type ReleaseStreamEvent =
   | { type: "info-progress"; progress: ReleaseProgress | null }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
-  | { type: "tag"; tag: string }
-  | { type: "assisted"; state: AssistedUpdateState };
+  | { type: "tag"; tag: string };

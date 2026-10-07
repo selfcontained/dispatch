@@ -11,21 +11,19 @@ dispatch/
 │   ├── browser-extension/     # Chrome extension for browser feedback (dev preview)
 │   ├── server/                # Fastify API server (@dispatch/server)
 │   │   ├── src/               # backend source
-│   │   │   ├── agents/        # agent manager, lifecycle, token harvesting
+│   │   │   ├── agents/        # agent manager, lifecycle; acp/ holds the host, driver and runtime
 │   │   │   ├── brain/         # repo-scoped shared memory (objects + event log)
+│   │   │   ├── chat/          # the stream: blocks, threads, feed, delivery envelopes
 │   │   │   ├── db/            # PostgreSQL migrations and queries
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
-│   │   │   ├── media/         # media file storage
-│   │   │   ├── messages/      # cross-agent message store
+│   │   │   ├── files/         # file storage
 │   │   │   ├── notifications/ # Slack + job notifiers
 │   │   │   ├── observability/ # service resources sampling, subsystem tracker
-│   │   │   ├── personas/      # persona loader, review-diff builder
-│   │   │   ├── reviews/       # review injection prompts
+│   │   │   ├── personas/      # persona launch profiles: loader, authoring, review-diff builder
 │   │   │   ├── routes/        # HTTP route handlers
 │   │   │   ├── server/        # server runtime helpers (lifecycle, auth, prompts)
-│   │   │   ├── shared/        # shared utilities — git/, github/, lib/, mcp/, terminal/
+│   │   │   ├── shared/        # shared utilities — git/, github/, lib/, mcp/
 │   │   │   ├── templates/     # template service and storage
-│   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
 │   ├── site/                  # public website (Astro, deployed to Cloudflare)
 │   └── web/                   # Vite React frontend (@dispatch/web)
@@ -35,7 +33,7 @@ dispatch/
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── plugins/
 │   └── dispatch/              # official Dispatch plugin (skills for Claude Code + Codex)
-├── release-notes/             # release notes + assisted-update metadata
+├── release-notes/             # release notes for the next release
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)
 │   ├── job-state/             # persistent state files for recurring jobs
@@ -57,33 +55,14 @@ If you were started in a git worktree (check: does your working directory contai
 - Run `pnpm`, `vitest`, and other tools from the worktree root so they pick up your changes.
 - If you need to verify which tree you are in: `git rev-parse --show-toplevel`.
 
-## CRITICAL: Dispatch Status Events (Mandatory)
-
-- You MUST call the `dispatch_event` MCP tool throughout every task turn. These events drive the agent status indicator in the Dispatch UI — the more frequently and accurately you report, the more useful the dashboard becomes.
-- **Event types and when to use them:**
-  - `working` — You are actively making progress: reading files, writing code, running commands, researching. Use a short message describing the current activity (e.g., "Reading agent-sidebar.tsx", "Running E2E tests", "Refactoring auth middleware").
-  - `blocked` — You are stuck and unable to make progress without help or a change in approach. Do not use blocked for errors you are actively investigating or fixing — stay in `working` for those. Message should describe why you are stuck (e.g., "Cannot resolve missing API key", "Repeated test failure after 3 different approaches").
-  - `waiting_user` — You need a decision, clarification, or approval before continuing. Message should describe what you need (e.g., "Should I delete the legacy endpoint?", "Need confirmation on color palette").
-  - `done` — The task is complete and all checks pass. Message should summarize what was accomplished.
-  - `idle` — No meaningful action was taken this turn (e.g., an informational question was answered).
-- **Required checkpoints (minimum):**
-  1. **Start of turn**: `working` with what you are about to do.
-  2. **Phase transitions**: Call `working` again with an updated message whenever your activity shifts to a distinct phase (e.g., moving from research → implementation → testing → validation). This keeps the UI status current.
-  3. **When truly stuck**: Switch to `blocked` only when you cannot make further progress on your own.
-  4. **Before final response**: Emit a terminal event — `done`, `idle`, `waiting_user`, or `blocked`.
-- **Hard requirements:**
-  - Do not send a final response unless `done`, `waiting_user`, `blocked`, or `idle` has been emitted in the same turn.
-  - If `dispatch_event` fails, report that failure explicitly in the response.
-  - Keep messages short (under ~80 chars) — they are displayed in a narrow sidebar.
-
 ## UI Validation
 
 - For any UI/layout/style/feature change, validate behavior in Playwright before marking the task complete.
 - Include at least one Playwright interaction that covers the changed UI path (for example: open/close panes, modal flow, or action button state changes).
-- Capture at least one screenshot per validation flow and publish it with the `dispatch_share_file` MCP tool. Never leave screenshots local-only.
+- Capture at least one screenshot per validation flow and post it as a file attachment with the `post` MCP tool (`attachments: [{ type: "file", path }]`). Never leave screenshots local-only.
 - For pages with SSE/WebSocket activity, do not use Playwright `waitUntil: "networkidle"` for readiness checks.
 - Use `waitUntil: "domcontentloaded"` (or `"load"`) and wait for concrete UI-ready signals (visible control/text/state) instead.
-- **Browser cleanup**: When you are done with Playwright validation, call `browser_close` to shut down the browser. Do this before your final `dispatch_event` call. Leaving browsers open wastes resources on headless VMs.
+- **Browser cleanup**: When you are done with Playwright validation, call `browser_close` to shut down the browser. Leaving browsers open wastes resources on headless VMs.
 
 ## Component Preference
 
@@ -134,8 +113,8 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Temporary Files
 
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
-- Use `/tmp/` or `$DISPATCH_MEDIA_DIR` for ephemeral files.
-- Playwright screenshots should be published via the `dispatch_share_file` MCP tool, not saved locally.
+- Use `/tmp/` or `$DISPATCH_FILES_DIR` for ephemeral files.
+- Playwright screenshots should be posted as file attachments via the `post` MCP tool, not saved locally.
 
 ## Dev Server Management (CRITICAL)
 
@@ -145,6 +124,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - **Prefer `repo_dev_restart` over `repo_dev_down` + `repo_dev_up`** when you need to pick up code changes. Restart reuses the same ports and DB — no wasted time recreating containers. Only use `repo_dev_down` when the user asks or you're done for good.
 - If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
 - `repo_dev_up` auto-selects free ports and prints the URLs — just use the printed URLs.
+- Dev previews must be reachable from the user’s LAN by default. Bind to `0.0.0.0` (the dev helper default), verify the LAN URL responds, and post the LAN URL rather than only localhost. Honor `DISPATCH_HOST` from the checkout’s copied `.env` before deriving server bindings; do not let the installed app’s inherited localhost-only binding override it.
 
 ## Backend Testing Safety
 
@@ -160,9 +140,8 @@ Before marking any task as done, run the following checks and fix any failures:
 
 ## Optional VM Release Validation
 
-VMs are for high-risk installation, service-manager, release-artifact,
-assisted-update, or update-migration changes—not ordinary development or the
-default test suite. Follow [docs/vm-release-validation.md](docs/vm-release-validation.md)
+VMs are for high-risk installation, service-manager, or release-artifact
+changes—not ordinary development or the default test suite. Follow [docs/vm-release-validation.md](docs/vm-release-validation.md)
 when that validation is warranted.
 
 **Always ask the user before provisioning, starting, resetting, modifying, or
@@ -171,24 +150,18 @@ the scenario to be exercised, expected resource/use impact, and whether the
 VM will be changed or cleaned up. Do not make VM validation a prerequisite for
 unrelated changes or CI.
 
-## Agent Pins
+## The Stream
 
-- Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
-
-## Assisted Update Release Notes
-
-- When the user indicates that a release should require or recommend assisted update handling, create or update `release-notes/next-assisted-update.json`.
-- Follow `release-notes/AUTHORING.md` for the schema, merge rules, and authoring guidance. Do not invent a parallel format.
-- If `release-notes/next-assisted-update.json` already exists, merge your change into that file instead of creating a second metadata file.
-- Validate the file before finishing with:
-
-  `pnpm tsx bin/embed-assisted-update.ts --check-only --metadata release-notes/next-assisted-update.json`
+- Ordinary replies and progress updates stream automatically; do not repeat them through `post`. Use `post` for structured content: a `link` for a dev URL or doc, a `pr` attachment for a pull request, a `code` attachment for IDs, commands and env values, a `file` attachment for screenshots and reports, a `question` or `form` block for a decision.
+- Activity is derived from the runtime and open questions or forms; do not emit status events. A posting receipt or pickup indicator is not an answer or proof that work is complete.
+- `post` with `to: <agentId>` reaches another agent; children post into their parent's stream. Revise a block with `update`.
 
 ## Personas
 
-- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.
-- Provide a thorough context briefing in the `context` parameter: what was built, key files changed, areas of concern, and any specific instructions from the user.
-- Be explicit about scope in the context — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
+- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use `launch_agent` with `persona: <slug>`; the `prompt` is the persona's briefing.
+- Make the briefing thorough: what was built, key files changed, areas of concern, and any specific instructions from the user.
+- Be explicit about scope in the briefing — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
 - Available personas are defined in `.dispatch/personas/` as markdown files, plus Dispatch's built-in `code-review` generalist. Call `list_personas` for the effective list.
-- When acting as a persona agent, use the `dispatch_review_submit` MCP tool to submit structured findings instead of just reporting in prose.
+- A reviewer persona posts one `review` block (summary and findings) to the agent that launched it; each finding is a thread. The launcher replies with `post`, `replyTo: <finding id>`, and `to: <reviewer agent id>`. The reviewer verifies and resolves the finding with `update` on the finding's id (`{ state: { status: "fixed" } }`, or `{ state: { status: "dismissed", note } }`).
+- After launching a reviewer, finish independent work and end the turn when findings are needed. Reviews arrive as new prompts; do not sleep or poll for them.
 - When acting as a persona agent, only provide feedback on code and behavior that is part of or directly affected by the changes in the diff. Do not flag pre-existing issues.

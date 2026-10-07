@@ -17,10 +17,8 @@ type UseAgentHotkeysArgs = {
   isMobile: boolean;
   sidebarAgentId: string | null;
   validatedSelectedAgentId: string | null;
-  canFocusTerminal: boolean;
-  focusTerminal: () => void;
-  mediaOpen: boolean;
-  setMediaOpen: (open: boolean) => void;
+  drawerOpen: boolean;
+  setDrawerOpen: (open: boolean) => void;
   leftPanelOpen: boolean;
   handleSetLeftPanelOpen: (open: boolean) => void;
   openCreateDialog: () => void;
@@ -45,10 +43,8 @@ export function useAgentHotkeys({
   isMobile,
   sidebarAgentId,
   validatedSelectedAgentId,
-  canFocusTerminal,
-  focusTerminal,
-  mediaOpen,
-  setMediaOpen,
+  drawerOpen,
+  setDrawerOpen,
   leftPanelOpen,
   handleSetLeftPanelOpen,
   openCreateDialog,
@@ -58,19 +54,29 @@ export function useAgentHotkeys({
   const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
   const { data: templates = [] } = useTemplates();
 
-  useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
-  useHotkey(
-    "focus-terminal-input",
-    () => {
-      if (!canFocusTerminal) return;
-      focusTerminal();
-    },
-    { enabled: !isMobile && canFocusTerminal }
-  );
+  useHotkey("focus-composer", () => {
+    const composers = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-chat-composer]:not(:disabled):not([aria-disabled="true"])'
+      )
+    ).filter(
+      (element) =>
+        element.checkVisibility({ visibilityProperty: true }) &&
+        !element.closest('[inert], [aria-hidden="true"]')
+    );
+    // Keep the current draft focused; otherwise prefer the open thread,
+    // which renders after the main stream composer.
+    const target =
+      composers.find((element) => element === document.activeElement) ??
+      composers.at(-1);
+    target?.focus({ preventScroll: true });
+  });
 
-  useHotkey("toggle-media-sidebar", () => {
+  useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
+
+  useHotkey("toggle-drawer", () => {
     if (!isMobile && !sidebarAgentId) return;
-    setMediaOpen(!mediaOpen);
+    setDrawerOpen(!drawerOpen);
   });
 
   useHotkey("toggle-agent-sidebar", () => {
@@ -120,14 +126,7 @@ export function useAgentHotkeys({
       {
         id: "keyboard-shortcuts",
         title: "Keyboard shortcuts",
-        keywords: [
-          "shortcut",
-          "hotkey",
-          "terminal",
-          "sidebar",
-          "focus",
-          "help",
-        ],
+        keywords: ["shortcut", "hotkey", "sidebar", "focus", "help"],
         icon: Keyboard,
         run: () => navigate("/settings/help/shortcuts"),
       },

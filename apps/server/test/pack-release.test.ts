@@ -54,12 +54,7 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
   it("includes bin/ scripts", () => {
     const files = tarList();
     expect(files.some((f) => f.startsWith("bin/"))).toBe(true);
-    expect(files.some((f) => f.includes("dispatch-server"))).toBe(true);
     expect(files).toContain("bin/install-dispatch.sh");
-    // Temporary bridge for legacy macOS LaunchAgents. New installs do not
-    // reference it, but old checkout-based services need it through the
-    // fixed-runtime migration.
-    expect(files).toContain("bin/dispatch-launchd-wrapper");
   });
 
   it("does NOT embed macOS xattr/pax metadata (e.g. com.apple.provenance)", () => {
@@ -102,15 +97,6 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
       (f) => f.endsWith(".ts") && !f.endsWith(".d.ts")
     );
     expect(tsFiles).toEqual([]);
-  });
-
-  it("includes update-migrations directory when present in repo", () => {
-    const files = tarList();
-    const migrationDirExists = existsSync(
-      path.join(REPO_ROOT, "update-migrations")
-    );
-    if (!migrationDirExists) return;
-    expect(files.some((f) => f.startsWith("update-migrations/"))).toBe(true);
   });
 
   it("fails when build outputs are missing", () => {

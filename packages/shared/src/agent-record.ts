@@ -1,3 +1,4 @@
+import type { AgentInputState } from "./conversation-delivery.js";
 /**
  * The agent row as it goes over the wire.
  *
@@ -9,7 +10,6 @@
  */
 
 import type { AgentType } from "./agent-types.js";
-import type { PinShortcutVariant, PinType } from "./pin-types.js";
 
 export type AgentStatus =
   | "creating"
@@ -20,14 +20,19 @@ export type AgentStatus =
   | "error"
   | "unknown";
 
-export type AgentRole = "standard" | "review" | "assisted_update";
+export type AgentRole = "standard" | "review";
 
-export type AgentLatestEventType =
+/**
+ * What the agent is doing now, derived by the server each time the record is
+ * read (runtime busy state, open questions, the last turn).
+ */
+export type AgentActivity =
+  | "starting"
   | "working"
+  | "waiting"
+  | "idle"
   | "blocked"
-  | "waiting_user"
-  | "done"
-  | "idle";
+  | "stopped";
 
 export type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 
@@ -40,38 +45,6 @@ export type ArchivePhase =
 
 export type WorktreeCleanupMode = "auto" | "keep" | "force";
 
-export type AgentPin = {
-  id?: string;
-  label: string;
-  value: string;
-  type: PinType;
-  /** Inline-markdown caption rendered under the pin. Any pin type. */
-  caption?: string;
-  /** Renders this pin under a shared heading with pins of the same group. */
-  group?: string;
-  /** Icon name for a shortcut pin's button. Shortcut pins only. */
-  icon?: string;
-  /** Button styling for a shortcut pin. Shortcut pins only. */
-  variant?: PinShortcutVariant;
-  /** When true, clicking a shortcut pin asks for confirmation first. */
-  confirm?: boolean;
-  /**
-   * When true, the shortcut renders non-interactive instead of being
-   * deleted — for an action that has become temporarily or permanently
-   * unavailable but is still worth showing (e.g. a launch pin once its
-   * builder is already running). `caption` doubles as the reason shown in
-   * place of its normal subtitle. Shortcut pins only.
-   */
-  disabled?: boolean;
-};
-
-export type AgentLatestEvent = {
-  type: AgentLatestEventType;
-  message: string;
-  updatedAt: string;
-  metadata: Record<string, unknown> | null;
-};
-
 export type AgentGitContext = {
   repoRoot: string;
   branch: string;
@@ -81,6 +54,12 @@ export type AgentGitContext = {
   repoIconPath?: string | null;
 };
 
+export type AgentCurrentTurn = {
+  streamId?: string;
+  blockId: string;
+  threadId: string | null;
+};
+
 export type AgentRecord = {
   id: string;
   name: string;
@@ -88,11 +67,19 @@ export type AgentRecord = {
   role: AgentRole;
   status: AgentStatus;
   cwd: string;
+  /** Directory requested at creation, before any managed worktree changed cwd. */
+  launchCwd?: string | null;
   worktreePath: string | null;
   worktreeBranch: string | null;
-  tmuxSession: string | null;
+  /**
+   * Where the agent is working now, set when it moved after launch (a worktree
+   * it created, another repo). Null means it is still in its worktree or cwd.
+   */
+  workspacePath: string | null;
+  /** The branch a moved workspace diffs against. */
+  workspaceBaseBranch: string | null;
   simulatorUdid: string | null;
-  mediaDir: string | null;
+  filesDir: string | null;
   agentArgs: string[];
   model: string | null;
   fullAccess: boolean;
@@ -100,25 +87,34 @@ export type AgentRecord = {
   archivePhase: ArchivePhase;
   archiveCleanupMode: WorktreeCleanupMode | null;
   lastError: string | null;
-  latestEvent: AgentLatestEvent | null;
-  pins: AgentPin[];
+  /** Live host reattachment progress; absent for agents with a healthy connection. */
+  reconnect?: {
+    phase: "trying" | "waiting";
+    nextRetryAt: string | null;
+  } | null;
+  activity: AgentActivity;
+  /**
+   * The turn the agent is running right now, while `activity` is
+   * `working`: its block, and the thread that block sits in (null when it
+   * is in the main column). Null otherwise.
+   */
+  currentTurn: AgentCurrentTurn | null;
+  /** Live per-recipient delivery capability and conversation. */
+  inputState?: AgentInputState;
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;
   persona: string | null;
   parentAgentId: string | null;
   /**
-   * The agent that ran dispatch_launch_agent / dispatch_launch_persona to
-   * create this one. Set for every agent-originated launch, including
+   * The agent that ran launch_agent to create this one. Set for every agent-originated launch, including
    * `child: false` launches whose `parentAgentId` is deliberately null.
    */
   launchedByAgentId: string | null;
   personaContext: string | null;
   reviewAgentType: AgentType | null;
-  submittedReviewId: number | null;
   baseBranch: string | null;
   templateId: string | null;
-  autoReview: boolean;
   /** Present when this agent was spawned for a job run. */
   jobRun?: {
     continuationEnabled: boolean;

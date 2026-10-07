@@ -4,10 +4,7 @@ import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
 import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardHeader } from "@/components/app/agent-card-header";
-import {
-  AgentCardLatestEvent,
-  AgentCardPhaseStatus,
-} from "@/components/app/agent-card-status";
+import { AgentCardActivity } from "@/components/app/agent-card-status";
 import { ChildAgentRow } from "@/components/app/child-agent-row";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
@@ -17,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 
+import { lineageSeats } from "@/lib/agent-seat";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
@@ -29,7 +27,7 @@ type AgentCardNativeDragHandlers = Partial<{
   drop: (event: DragEvent) => void;
 }>;
 
-type AgentCardContainerProps = {
+export type AgentCardContainerProps = {
   "aria-describedby"?: string;
   className?: string;
   draggable?: boolean;
@@ -50,10 +48,9 @@ export type AgentCardProps = {
   isFullAccessEnabled: (
     agent: Pick<Agent, "agentArgs" | "fullAccess">
   ) => boolean;
-  detachTerminal: () => void;
-  attachToAgent: (agent: Agent) => Promise<void>;
+  closeAgent: () => void;
+  openAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
-  openSubmittedReview: (agent: Agent) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
   setStopTarget: (agent: Agent | null) => void;
@@ -66,7 +63,7 @@ export type AgentCardProps = {
   containerProps?: AgentCardContainerProps;
 };
 
-export function AgentCard({
+function AgentCardImpl({
   agent,
   agents,
   childAgents,
@@ -76,10 +73,9 @@ export function AgentCard({
   borderForAgentState,
   toggleAgentDetails,
   isFullAccessEnabled,
-  detachTerminal,
-  attachToAgent,
+  closeAgent,
+  openAgent,
   startAgent,
-  openSubmittedReview,
   setDeleteTarget,
   setDeleteConfirmOpen,
   setStopTarget,
@@ -113,7 +109,12 @@ export function AgentCard({
   // Owned here rather than in AgentCardDetails so the copy confirmation is not
   // lost when the details panel unmounts on collapse.
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
-  const isTerminalAgent = agent.type === "terminal";
+  // Sub agents wear the seat the stream gives them; the card's own avatar
+  // carries no number, since a flat list of roots would repeat seat 1.
+  const seats = React.useMemo(
+    () => (childAgents.length > 0 ? lineageSeats(agent.id, agents) : {}),
+    [agent.id, agents, childAgents.length]
+  );
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
     isExpanded
@@ -157,21 +158,19 @@ export function AgentCard({
           childAgents={childAgents}
           isExpanded={isExpanded}
           isStopped={isStopped}
-          isTerminalAgent={isTerminalAgent}
           connectedAgentId={connectedAgentId}
           closeOnSessionAction={closeOnSessionAction}
           onRequestClose={onRequestClose}
-          detachTerminal={detachTerminal}
-          attachToAgent={attachToAgent}
+          closeAgent={closeAgent}
+          openAgent={openAgent}
           startAgent={startAgent}
           toggleAgentDetails={toggleAgentDetails}
         />
 
-        <AgentCardPhaseStatus agent={agent} />
-
-        {isTerminalAgent ? null : (
-          <AgentCardLatestEvent agent={agent} isExpanded={isExpanded} />
-        )}
+        <AgentCardActivity
+          agent={agent}
+          onNavigate={closeOnSessionAction ? onRequestClose : undefined}
+        />
 
         <AnimatePresence initial={false}>
           {isExpanded ? (
@@ -189,14 +188,13 @@ export function AgentCard({
                     diffStats={diffStats}
                     refreshDiffStats={refreshDiffStats}
                     fullAccessEnabled={fullAccessEnabled}
-                    isTerminalAgent={isTerminalAgent}
                     enabledIdes={enabledIdes}
                     worktreePathCopied={worktreePathCopied}
                     copyWorktreePath={copyWorktreePath}
                   />
                 </div>
 
-                {agent.lastError ? (
+                {agent.lastError && agent.status !== "running" ? (
                   <AgentMeta label="Last error" value={agent.lastError} />
                 ) : null}
                 {agent.persona ? (
@@ -234,15 +232,12 @@ export function AgentCard({
                           <ChildAgentRow
                             key={child.id}
                             agent={child}
+                            seat={seats[child.id] ?? null}
                             state={getVisualState(child)}
-                            isInitialReviewActive={
-                              child.role === "review" &&
-                              child.submittedReviewId == null
-                            }
-                            attachToAgent={attachToAgent}
-                            detachTerminal={detachTerminal}
+                            isInitialReviewActive={child.role === "review"}
+                            openAgent={openAgent}
+                            closeAgent={closeAgent}
                             startAgent={startAgent}
-                            openSubmittedReview={openSubmittedReview}
                             setStopTarget={setStopTarget}
                             setStopConfirmOpen={setStopConfirmOpen}
                             setDeleteTarget={setDeleteTarget}
@@ -261,7 +256,6 @@ export function AgentCard({
                 <AgentCardActions
                   agent={agent}
                   isStopped={isStopped}
-                  isTerminalAgent={isTerminalAgent}
                   enabledAgentTypes={enabledAgentTypes}
                   closeOnSessionAction={closeOnSessionAction}
                   onRequestClose={onRequestClose}
@@ -294,3 +288,9 @@ export function AgentCard({
     </React.Fragment>
   );
 }
+
+/**
+ * Memoised: a card re-renders when its own agent or props change, not every
+ * time the page holding the sidebar does.
+ */
+export const AgentCard = React.memo(AgentCardImpl);

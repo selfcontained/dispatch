@@ -29,7 +29,7 @@ describe("TemplateStore.listTemplates", () => {
     branchName: null,
     fullAccess: false,
     callable: true,
-    allowMedia: true,
+    allowFiles: true,
   };
 
   const nonCallableTemplate = {

@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   AGENT_MODEL_OPTIONS,
+  agentModelCatalog,
   applyAgentConfigDefaults,
   describeAgentModelCatalog,
+  forgetLearnedAgentModels,
+  getAgentModelOptions,
   resolveAgentModelForUpdate,
+  setLearnedAgentModels,
   validateAgentModel,
 } from "../src/shared/agent-models.js";
 import { CLI_AGENT_TYPES, type AgentType } from "../src/shared/agent-types.js";
@@ -38,18 +42,6 @@ describe("describeAgentModelCatalog", () => {
         expect(description).toContain(id);
       }
     }
-  });
-
-  it("calls out agent types that take no model override", () => {
-    const description = describeAgentModelCatalog();
-    const withoutModels = CLI_AGENT_TYPES.filter(
-      (agentType) => (AGENT_MODEL_OPTIONS[agentType] ?? []).length === 0
-    );
-
-    for (const agentType of withoutModels) {
-      expect(description).toContain(agentType);
-    }
-    expect(description).toContain("no model override");
   });
 
   it("carries a label's qualifier so risky ids are not shown as equals", () => {
@@ -174,5 +166,32 @@ describe("resolveAgentModelForUpdate", () => {
         existingModel: "opus",
       })
     ).toBe("opus");
+  });
+});
+
+describe("learned models", () => {
+  afterEach(() => forgetLearnedAgentModels());
+
+  it("what an engine published replaces the seed for its type only", () => {
+    setLearnedAgentModels("claude", [
+      { id: "claude-opus-5", label: "Opus 5" },
+      { id: "claude-sonnet-5", label: "Sonnet 5" },
+    ]);
+    expect(getAgentModelOptions("claude").map((o) => o.id)).toEqual([
+      "claude-opus-5",
+      "claude-sonnet-5",
+    ]);
+    expect(validateAgentModel("claude", "claude-opus-5")).toBe("claude-opus-5");
+    expect(() => validateAgentModel("claude", "opus")).toThrow("not supported");
+    expect(agentModelCatalog().codex).toEqual(AGENT_MODEL_OPTIONS.codex);
+    expect(agentModelCatalog().claude?.map((o) => o.label)).toEqual([
+      "Opus 5",
+      "Sonnet 5",
+    ]);
+  });
+
+  it("an empty list teaches nothing", () => {
+    setLearnedAgentModels("claude", []);
+    expect(getAgentModelOptions("claude")).toEqual(AGENT_MODEL_OPTIONS.claude);
   });
 });

@@ -14,7 +14,6 @@ export function useNotificationSettings() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [savedUrl, setSavedUrl] = useState("");
   const [notifyEvents, setNotifyEvents] = useState<NotifyEventType[]>([
-    "done",
     "waiting_user",
     "blocked",
   ]);
@@ -24,7 +23,6 @@ export function useNotificationSettings() {
   const [webNotifyEnabled, setWebNotifyEnabled] = useState(false);
   const [savedWebEnabled, setSavedWebEnabled] = useState(false);
   const [webNotifyEvents, setWebNotifyEvents] = useState<NotifyEventType[]>([
-    "done",
     "waiting_user",
     "blocked",
   ]);

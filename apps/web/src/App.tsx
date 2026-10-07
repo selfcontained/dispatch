@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useMatches, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import "@xterm/xterm/css/xterm.css";
 
 import { type NavSection } from "@/components/app/sidebar-shell";
 import { type Agent } from "@/components/app/types";
@@ -12,7 +11,6 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { useHealth } from "@/hooks/use-health";
 import { useLayout } from "@/hooks/use-layout";
 import { useSSE } from "@/hooks/use-sse";
-import { useAgentSoundCues } from "@/hooks/use-agent-sound-cues";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
@@ -24,6 +22,7 @@ import {
 } from "@/lib/agent-types";
 import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
+import { UserAvatarProvider } from "@/components/app/user-avatar/user-avatar-provider";
 import { TipQueueProvider } from "@/components/tips/tip-queue-provider";
 import { TipsVersionInit } from "@/components/tips/tips-version-init";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
@@ -59,10 +58,10 @@ export function DashboardLayout(): JSX.Element {
     leftOpen,
     leftPanelOpen,
     mobileLeftOpen,
-    mobileMediaOpen,
+    mobileDrawerOpen,
     setLeftOpen,
     setMobileLeftOpen,
-    setMobileMediaOpen,
+    setMobileDrawerOpen,
     handleSetLeftPanelOpen,
   } = useLayout();
   const { apiState, dbState } = useHealth(true);
@@ -90,7 +89,6 @@ export function DashboardLayout(): JSX.Element {
   // route, not just /agents. The hooks only write to the React Query cache,
   // so they don't depend on any view-local state.
   useSSE("authenticated");
-  useAgentSoundCues();
 
   useEffect(() => {
     let cancelled = false;
@@ -137,11 +135,11 @@ export function DashboardLayout(): JSX.Element {
     if (!previousNavItem || !currentNavItem) return;
     if (currentNavItem === previousNavItem) return;
 
-    setMobileMediaOpen(false);
+    setMobileDrawerOpen(false);
     if (currentNavItem !== "activity") {
       setMobileLeftOpen(true);
     }
-  }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileMediaOpen]);
+  }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileDrawerOpen]);
 
   useEffect(() => {
     if (!pendingNavPulse || pendingNavPulse !== currentNavItem) return;
@@ -181,10 +179,10 @@ export function DashboardLayout(): JSX.Element {
     leftOpen,
     leftPanelOpen,
     mobileLeftOpen,
-    mobileMediaOpen,
+    mobileDrawerOpen,
     setLeftOpen,
     setMobileLeftOpen,
-    setMobileMediaOpen,
+    setMobileDrawerOpen,
     handleSetLeftPanelOpen,
     apiState,
     dbState,
@@ -204,7 +202,9 @@ export function DashboardLayout(): JSX.Element {
   return (
     <TipQueueProvider>
       <TipsVersionInit />
-      <Outlet context={context} />
+      <UserAvatarProvider>
+        <Outlet context={context} />
+      </UserAvatarProvider>
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
       {/* Color tokens, close button, and action button styling live in

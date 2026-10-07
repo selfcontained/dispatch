@@ -18,16 +18,28 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     cwd: "/repo/cwd",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     agentArgs: [],
     model: null,
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     ...overrides,
   } as Agent;
 }
 
 describe("agentProjectRoot", () => {
+  it("prefers the directory selected at creation over the repo root", () => {
+    const agent = makeAgent({
+      launchCwd: "/selected/checkout",
+      gitContext: {
+        repoRoot: "/repo/root",
+        branch: "main",
+        worktreePath: "/repo/generated-worktree",
+        worktreeName: "generated-worktree",
+        isWorktree: true,
+      },
+    });
+    expect(agentProjectRoot(agent)).toBe("/selected/checkout");
+  });
   it("prefers gitContext.repoRoot over cwd when both are present", () => {
     const agent = makeAgent({
       cwd: "/repo/cwd",

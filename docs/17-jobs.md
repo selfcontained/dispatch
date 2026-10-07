@@ -22,21 +22,21 @@ Templates are uniquely identified by (`directory`, `name`). Each template has:
 | `description` | Optional short description shown in Cmd+K and launch views  |
 | `directory`   | Absolute path of the repo the template runs against         |
 | `prompt`      | User-supplied prompt used as the agent's first turn         |
-| `agentType`   | Any of `claude`, `codex`, `cursor`, `opencode`, `terminal`  |
+| `agentType`   | `claude` or `codex`                                         |
 | `model`       | Optional model id, validated against the agent type         |
 | `useWorktree` | If true, the agent gets its own git worktree                |
 | `baseBranch`  | Base branch for the worktree (optional)                     |
 | `branchName`  | Branch for the worktree (optional)                          |
 | `fullAccess`  | Pass the agent CLI's full-access/bypass-approvals flag      |
 | `callable`    | If true, the template appears in the Cmd+K command palette  |
-| `allowMedia`  | Default true: show a Context area for files/links at launch |
+| `allowFiles`  | Default true: show a Context area for files/links at launch |
 | `selfImprove` | Append run-only guidance to revise the saved prompt         |
 
-Templates take the full agent-type table (`AGENT_TYPES`); jobs take the CLI subset (`CLI_AGENT_TYPES`), since a terminal agent cannot run a job.
+Templates and jobs validate `agentType` against the same table (`AGENT_TYPES`; `CLI_AGENT_TYPES` is the same list, kept for its importers).
 
 ### Runtime Arguments
 
-Templates support `{{D:Arg Name}}` placeholders in their prompt. Arguments are optional by default. Add `|required` to make one mandatory at launch, and `|multiline` (or `|textarea`) to render a textarea instead of a single-line input. Arguments are also pinned to the spawned agent's sidebar for reference.
+Templates support `{{D:Arg Name}}` placeholders in their prompt. Arguments are optional by default. Add `|required` to make one mandatory at launch, and `|multiline` (or `|textarea`) to render a textarea instead of a single-line input. Filled-in values are rendered into the prompt the agent receives.
 
 If you leave an optional argument blank, Dispatch removes that placeholder and leaves the surrounding text as-is. Write prompts so they still read naturally when optional values are omitted.
 
@@ -54,7 +54,7 @@ If the same argument appears more than once, modifiers are merged. An argument i
 
 Templates with `callable: true` appear in the Cmd+K command palette under a "Templates" group.
 
-Selecting one always opens the launch dialog — there is no confirmation-only path, even for templates with no arguments. The dialog carries an agent-type override, a model override for types with a curated catalog, any argument fields, and (when `allowMedia` is on) a Context area for files and links. The inline play button in the Templates list opens the same dialog.
+Selecting one always opens the launch dialog — there is no confirmation-only path, even for templates with no arguments. The dialog carries an agent-type override, a model override for types with a curated catalog, any argument fields, and (when `allowFiles` is on) a Context area for files and links. The inline play button in the Templates list opens the same dialog.
 
 After launch, the agent record is optimistically added to the sidebar cache and the URL navigates to it immediately. The launch endpoint returns the full agent record (matching the create-agent response shape).
 
@@ -98,9 +98,9 @@ Agent configuration (prompt, agentType, model, useWorktree, fullAccess, selfImpr
 States: `started` → `running` → (`completed` | `failed` | `needs_input` | `timed_out` | `crashed`).
 
 - The runner creates an agent named `job-<slug>-<runId[:8]>` and waits for a terminal MCP call from it (`job_complete` or `job_failed`).
-- A run that calls `job_needs_input` transitions to `needs_input` and pauses. The Jobs UI surfaces the pending question on the run's History entry but has no answer box — you reply in the agent's own terminal session and the agent then calls a terminal tool. An unanswered `needs_input` times out per `needsInputTimeoutMs`.
+- A run that calls `job_needs_input` transitions to `needs_input` and pauses. The Jobs UI surfaces the pending question on the run's History entry but has no answer box — you reply in the agent's stream and the agent then calls a terminal tool. An unanswered `needs_input` times out per `needsInputTimeoutMs`.
 - `timeoutMs` is checked against the run's start time on every monitor tick, for every active status. A run sitting in `needs_input` is therefore killed by `timeoutMs` first whenever `timeoutMs < needsInputTimeoutMs` — which the 30 min / 24 h defaults guarantee.
-- If the agent session ends before a terminal call (agent `stopped`/`error`, or its tmux session gone), the monitor marks the run `crashed`.
+- If the agent session ends before a terminal call (agent `stopped`/`error`, or its host process gone), the monitor marks the run `crashed`.
 - Both timeouts are snapshotted into `run.config` when the run is created, so editing the job mid-run does not change the run already in flight.
 - Singleton jobs (the default) only allow one active run at a time. Attempting to launch a second run while one is active returns an error.
 
@@ -177,7 +177,7 @@ Between runs, the compact handoff (`action`, `phase`, `summary`, `nextIntent`, `
 
 **None of it fires today.** The channel lists come from `job.notify`, and no code path writes that column: it is absent from `createJob`'s insert, from `JobConfigUpdate`, from the routes' Zod schemas, and from the MCP `create_job`/`update_job` tools. `buildRunConfig` falls back to three empty arrays, so `getNotifyChannels` always returns none and the notifier returns before sending. Treat this as a data model waiting on a write path, not a shipped feature.
 
-What does notify is the ordinary per-agent path, and only half of it: a job agent's `done`, `waiting_user`, and `blocked` events raise browser notifications like any other agent's, but `createNotificationRuntime` skips the Slack send for any agent whose name starts with `job-` and has a job run. So a job run's status events never reach Slack through that path either. Agents can call `dispatch_notify` directly, which is in `JOB_TOOLS`, and that path has no job exclusion.
+What does notify is the ordinary per-agent path, and only half of it: a job agent's derived status changes (waiting, blocked, idle) raise browser notifications like any other agent's, but `createNotificationRuntime` skips the Slack send for any agent whose name starts with `job-` and has a job run. So a job run's status never reaches Slack through that path either. Agents can `post` with `notify: true`, which is in `JOB_TOOLS`, and that path has no job exclusion.
 
 ### API
 
@@ -200,7 +200,7 @@ Job agents are given a narrowed MCP toolset (see `JOB_TOOLS` in `apps/server/src
 | `job_needs_input` | Pause the run and ask a human a question.   |
 | `job_log`         | Append a progress log to a named task.      |
 
-Job agents may also call analytics tools (`get_activity_summary`, `get_feedback_summary`), lister tools (`list_agents`, `list_personas`), and `create_pr` / `get_pr_status` / `dispatch_event` / `dispatch_rename_session` / `dispatch_notify`.
+Job agents may also call analytics tools (`get_feedback_summary`), lister tools (`list_agents`, `list_personas`), `launch_agent` (with `persona` for a reviewer), `rename_session`, and the stream tools `post` / `update` / `react` (`post` with `notify: true` for browser and Slack notifications). Pull requests go through the `gh` CLI and are posted as a `pr` attachment.
 
 ## UI
 

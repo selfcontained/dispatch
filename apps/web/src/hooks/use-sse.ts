@@ -1,39 +1,55 @@
+import { isUserInputBlock } from "@dispatch/shared";
 import { useEffect } from "react";
-import type { ChatFeedEntry, SharedUiEvent } from "@dispatch/shared";
+import type {
+  SharedUiEvent,
+  StreamChangedEvent,
+  StreamEntry,
+  StreamEntryEvent,
+  StreamReadEvent,
+  StreamThreadResponse,
+} from "@dispatch/shared";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "jotai";
 import {
   type Agent,
   type AuthState,
   type DiffStats,
-  type InjectionHoldState,
-  type MediaFile,
-  type TerminalUiState,
+  type FileItem,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import {
-  applyChatRead,
-  CHAT_QUERY_PREFIX,
-  chatFeedQueryKey,
+  applyStreamRead,
+  bumpReplyCount,
+  syncAcrossStream,
   type FeedCache,
   LIVE_HEAD_ROWS,
+  replaceThreadRoot,
+  STREAM_QUERY_PREFIX,
+  streamFeedQueryKey,
+  threadQueryKey,
   upsertFeedEntry,
-} from "@/hooks/use-chat";
+  upsertThreadReply,
+} from "@/hooks/use-stream";
+import {
+  recordTurnLabel,
+  refreshTurnLabels,
+} from "@/hooks/use-agent-turn-label";
+import { isTurnEntry } from "@/components/app/chat/turn/trace";
+import { isOpenInput } from "@/hooks/use-inbox";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
-import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
+import { AGENT_REVIEWS_QUERY_KEY } from "@/hooks/use-agent-review-summary";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
-import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
+import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
-import {
-  agentToolBlipAtomFamily,
-  whiteboardAgentDrewAtomFamily,
-} from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
+import { playCueForIntent } from "@/lib/sound-cues";
+import { soundCuesEnabledAtom } from "@/lib/store";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
   type ReleaseInfoSnapshot,
 } from "@/hooks/use-cached-release-info";
+import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
 
 /** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
@@ -74,6 +90,11 @@ type UiEvent =
       type: "release.cached_info_changed";
       snapshot: ReleaseInfoSnapshot | null;
     }
+  // The stream events are not in the shared union yet (packages/shared is
+  // the server's to change); they ride the same SSE and are typed here.
+  | StreamEntryEvent
+  | StreamChangedEvent
+  | StreamReadEvent
   | SharedUiEvent;
 
 function patchAgentHasStream(
@@ -116,79 +137,140 @@ export function applyAgentUpsert(
     return sortAgentsByCreatedAtDesc([incoming, ...current]);
   }
 
-  const existing = current[index]!;
-  const nextAgent =
-    existing.submittedReviewId != null
-      ? {
-          ...incoming,
-          submittedReviewId:
-            incoming.submittedReviewId ?? existing.submittedReviewId,
-        }
-      : incoming;
   const next = [...current];
-  next[index] = nextAgent;
+  next[index] = incoming;
   return sortAgentsByCreatedAtDesc(next);
 }
 
 /**
- * The chat feed is composed server-side from several tables, so it is
+ * The stream feed is composed server-side from several tables, so it is
  * invalidated on every event that touches one of its sources. Invalidation
  * only refetches a mounted feed, so this is free for every agent whose Chat
  * tab is not open.
  */
-function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
+function invalidateStreamFeed(queryClient: QueryClient, agentId: string): void {
   void queryClient.invalidateQueries({
-    queryKey: chatFeedQueryKey(agentId),
+    queryKey: streamFeedQueryKey(agentId),
     exact: true,
   });
 }
 
 /**
- * A `chat.entry` event: one feed row, put straight into the cached pages.
- * Falls back to the refetch when there is no place for it — the entry is
- * older than the loaded head — or when a fetch is already in flight, whose
- * result would otherwise overwrite the patch with a snapshot that may or
- * may not include the row. A feed that was never fetched has nothing to
- * patch; its first fetch will carry the row.
+ * Promises already given a follow-up invalidate once they settle: a dedupe
+ * so a burst of entries arriving during the same in-flight first fetch does
+ * not each attach their own continuation to it.
  */
-export function applyChatEntry(
+const firstFetchFollowUps = new WeakSet<Promise<unknown>>();
+
+/**
+ * A query's very first fetch (no cached data yet) is in flight when an entry
+ * arrives. `invalidateQueries` cannot rescue this one the way it rescues a
+ * refetch: react-query's `Query#fetch` only cancels-and-restarts an
+ * in-flight request when `state.data !== undefined` (see `query.js`,
+ * `cancelRefetch` branch) — with no data yet, it just hands back the same
+ * in-flight promise, so invalidating merely flags the query stale for
+ * whenever it is next *observed* (a remount, a window focus), which may not
+ * happen while the tab stays put on this agent. Wait for that promise to
+ * settle instead — data will be defined by then, so an ordinary invalidate
+ * can actually cancel-and-refetch — and invalidate once it does.
+ */
+function invalidateOnceFirstFetchSettles(
+  queryClient: QueryClient,
+  key: readonly unknown[]
+): void {
+  const promise = queryClient
+    .getQueryCache()
+    .find({ queryKey: key, exact: true })?.promise;
+  if (!promise || firstFetchFollowUps.has(promise)) return;
+  firstFetchFollowUps.add(promise);
+  const onSettled = () => {
+    void queryClient.invalidateQueries({ queryKey: key, exact: true });
+  };
+  promise.then(onSettled, onSettled);
+}
+
+function invalidateReviewSummary(queryClient: QueryClient): void {
+  const state = queryClient.getQueryState(AGENT_REVIEWS_QUERY_KEY);
+  if (state?.fetchStatus === "fetching" && state.data === undefined) {
+    invalidateOnceFirstFetchSettles(queryClient, AGENT_REVIEWS_QUERY_KEY);
+  } else {
+    void queryClient.invalidateQueries({ queryKey: AGENT_REVIEWS_QUERY_KEY });
+  }
+}
+
+/**
+ * A `stream.entry` event: one feed row, put straight into the cached pages.
+ * Falls back to the refetch when there is no place for it — the entry is
+ * older than the loaded head — or when a fetch is already in flight
+ * (including the feed's very first load), whose result would otherwise
+ * overwrite the patch with a snapshot that may or may not include the row.
+ * A feed with no query mounted at all has nothing to patch or invalidate;
+ * whenever it is next fetched, that fetch will carry the row.
+ *
+ * Replies update their threads and reply counts. User-directed questions
+ * and forms also appear in the main feed under the same block ID.
+ */
+export function applyStreamEntry(
   queryClient: QueryClient,
   agentId: string,
-  entry: ChatFeedEntry
+  entry: StreamEntry
 ): void {
-  const key = chatFeedQueryKey(agentId);
+  const key = streamFeedQueryKey(agentId);
+  if (entry.type === "block" && entry.block.threadId !== null) {
+    const reply = entry.block;
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey(agentId, reply.threadId),
+      (old) => upsertThreadReply(old, reply)
+    );
+    // A block that opens a thread of its own (a finding, a review on a
+    // card) is also that thread's root.
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey(agentId, reply.id),
+      (old) => replaceThreadRoot(old, reply)
+    );
+    queryClient.setQueryData<FeedCache>(key, (old) =>
+      syncAcrossStream(bumpReplyCount(old, reply), reply)
+    );
+    if (!isUserInputBlock(reply)) return;
+  }
+  if (entry.type === "block") {
+    // The panel shows a thread's root too; keep it in step with the feed.
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey(agentId, entry.block.id),
+      (old) => replaceThreadRoot(old, entry.block)
+    );
+  }
   const state = queryClient.getQueryState<FeedCache>(key);
-  if (!state?.data) return;
+  if (!state) return;
+  // A fetch in flight (the feed's first load, or a refetch) may already have
+  // read the row's earlier version from the DB, or may resolve before this
+  // event's write is visible there — either way its response won't reflect
+  // this entry. Checked before `state.data`: the very first fetch has no
+  // data yet, and previously fell through the guard below with nothing to
+  // invalidate it later.
   if (state.fetchStatus === "fetching") {
-    invalidateChatFeed(queryClient, agentId);
+    if (state.data === undefined) {
+      invalidateOnceFirstFetchSettles(queryClient, key);
+    } else {
+      invalidateStreamFeed(queryClient, agentId);
+    }
     return;
   }
-  const result = upsertFeedEntry(state.data, entry);
+  if (!state.data) return;
+  const result = upsertFeedEntry(
+    syncAcrossStream(state.data, entry.block)!,
+    entry
+  );
   if (!result.placed) {
-    invalidateChatFeed(queryClient, agentId);
+    invalidateStreamFeed(queryClient, agentId);
     return;
   }
   if (result.cache !== state.data) queryClient.setQueryData(key, result.cache);
   // Live rows pile onto the newest page; past the bound, one refetch folds
   // them back into pages of the configured size.
   if (result.cache.pages[0]!.entries.length > LIVE_HEAD_ROWS) {
-    invalidateChatFeed(queryClient, agentId);
+    invalidateStreamFeed(queryClient, agentId);
   }
-}
-
-export function applyReviewCreated(
-  queryClient: QueryClient,
-  reviewerAgentId: string | null | undefined,
-  reviewId: number
-): void {
-  if (!reviewerAgentId) return;
-  queryClient.setQueryData<Agent[]>(["agents"], (old) =>
-    old?.map((agent) =>
-      agent.id === reviewerAgentId && agent.submittedReviewId !== reviewId
-        ? { ...agent, submittedReviewId: reviewId }
-        : agent
-    )
-  );
 }
 
 export function useSSE(authState: AuthState): void {
@@ -211,6 +293,9 @@ export function useSSE(authState: AuthState): void {
     /** When the current connection last established — or, before it has
      *  opened, when we started attempting it. */
     let connectionAliveSince = 0;
+    /** Turn blocks whose arrival has already refetched the unread badges. */
+    const countedTurns = new Set<string>();
+    const soundedEvents = new Set<string>();
 
     const handleSSEMessage = (event: MessageEvent) => {
       try {
@@ -231,63 +316,91 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
-          void queryClient.invalidateQueries({ queryKey: ["whiteboard"] });
+          void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
           void queryClient.invalidateQueries({
+            queryKey: MAC_APP_UPDATE_QUERY_KEY,
+          });
+          void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
-          // `chat.changed` is not replayed after a gap, so every mounted chat
-          // feed refetches on (re)connect — otherwise an open Chat tab keeps
-          // missing whatever landed while the stream was down. Prefix match:
-          // one key per agent.
-          void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
-          // Injection-hold state is event-sourced with no fetch endpoint; a
-          // release event missed during an SSE gap would leave the hold badge
-          // stuck. Reset on every (re)connect snapshot — fails safe to hidden.
-          queryClient.removeQueries({ queryKey: ["injection-hold"] });
+          invalidateReviewSummary(queryClient);
+          // `stream.changed` is not replayed after a gap, so every mounted
+          // feed (and open thread) refetches on (re)connect — otherwise an
+          // open Chat tab keeps missing whatever landed while the stream was
+          // down. Prefix match: one key per agent.
+          void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
+          // The sidebar's running-step labels missed the same steps.
+          refreshTurnLabels(queryClient);
           return;
         }
 
         if (payload.type === "agent.upsert") {
-          // Status events reach the feed as `chat.entry` rows of their own.
-          // Pin activity still comes through the agent row: a pin write
-          // lands a `pin_events` row in the same transaction, so the feed
-          // has a new entry whenever the pins array differs.
-          const existing = queryClient
-            .getQueryData<Agent[]>(["agents"])
-            ?.find((a) => a.id === payload.agent.id);
-          const pinsChanged =
-            !existing ||
-            JSON.stringify(existing.pins ?? []) !==
-              JSON.stringify(payload.agent.pins ?? []);
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
-          if (pinsChanged) {
-            invalidateChatFeed(queryClient, payload.agent.id);
-          }
           return;
         }
 
         if (payload.type === "agent.tool_invoked") {
-          // Ephemeral: the presence strip shows it for a few seconds. Local
-          // receipt time keeps the blip's timer independent of clock skew.
-          jotaiStore.set(agentToolBlipAtomFamily(payload.agentId), {
-            tool: payload.tool,
-            at: Date.now(),
-          });
+          // Nothing in the column moves on a tool call; the turn's own
+          // activity line covers it once the stream row lands.
           return;
         }
 
-        if (payload.type === "chat.entry") {
-          applyChatEntry(queryClient, payload.agentId, payload.entry);
-          // Only an agent's post can move the sidebar's unread badges.
+        if (payload.type === "stream.entry") {
+          applyStreamEntry(queryClient, payload.agentId, payload.entry);
+          recordTurnLabel(queryClient, payload.entry);
+          if (jotaiStore.get(soundCuesEnabledAtom)) {
+            const entry = payload.entry;
+            const cue =
+              isTurnEntry(entry) &&
+              entry.block.turn.settled &&
+              entry.block.turn.error &&
+              !entry.block.turn.interrupted
+                ? { key: `error:${entry.block.id}`, intent: "blocked" as const }
+                : entry.type === "block" && isOpenInput(entry.block)
+                  ? {
+                      key: `input:${entry.block.id}`,
+                      intent: "waiting_user" as const,
+                    }
+                  : null;
+            if (cue && !soundedEvents.has(cue.key)) {
+              soundedEvents.add(cue.key);
+              playCueForIntent(cue.intent);
+            }
+          }
+          // Only an agent's post for people can move the sidebar's unread
+          // badges. A turn's block is republished on every step, but only
+          // its first appearance adds to the count.
+          const block =
+            payload.entry.type === "block" ? payload.entry.block : null;
           if (
-            payload.entry.type === "chat" &&
-            payload.entry.message.authorKind === "agent"
+            block &&
+            (block.kind === "review" ||
+              block.kind === "finding" ||
+              block.blocks?.some((shown) => shown.kind === "review"))
           ) {
+            invalidateReviewSummary(queryClient);
+          }
+          // Closing an ask changes the agent's derived Waiting activity.
+          // The stream row updates the card, but the sidebar agent cache
+          // needs a fresh agent projection to clear that status immediately.
+          if (
+            (block?.kind === "question" || block?.kind === "form") &&
+            block.state?.cancellation !== undefined
+          ) {
+            void queryClient.invalidateQueries({ queryKey: ["agents"] });
+          }
+          if (
+            block !== null &&
+            block.author.kind === "agent" &&
+            block.toAgentId === null &&
+            (block.turn === undefined || !countedTurns.has(block.id))
+          ) {
+            if (block.turn !== undefined) countedTurns.add(block.id);
             void queryClient.invalidateQueries({
               queryKey: CHAT_UNREAD_QUERY_KEY,
             });
@@ -295,11 +408,11 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "chat.read") {
+        if (payload.type === "stream.read") {
           queryClient.setQueryData<FeedCache>(
-            chatFeedQueryKey(payload.agentId),
+            streamFeedQueryKey(payload.agentId),
             (old) =>
-              applyChatRead(old, payload.unreadCount, {
+              applyStreamRead(old, payload.unreadCount, {
                 readAt: payload.readAt,
                 upToAt: payload.upToAt,
               })
@@ -310,27 +423,14 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "chat.changed") {
-          invalidateChatFeed(queryClient, payload.agentId);
+        if (payload.type === "stream.changed") {
+          invalidateStreamFeed(queryClient, payload.agentId);
+          void queryClient.invalidateQueries({
+            queryKey: [...STREAM_QUERY_PREFIX, payload.agentId, "thread"],
+          });
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
-          return;
-        }
-
-        if (payload.type === "agent.terminal_state_changed") {
-          queryClient.setQueryData<TerminalUiState>(
-            ["terminal-state", payload.agentId],
-            payload.terminalState
-          );
-          return;
-        }
-
-        if (payload.type === "agent.injection_hold_changed") {
-          queryClient.setQueryData<InjectionHoldState>(
-            ["injection-hold", payload.agentId],
-            payload.holdState
-          );
           return;
         }
 
@@ -351,15 +451,15 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "media.changed") {
+        if (payload.type === "files.changed") {
           void queryClient.invalidateQueries({
-            queryKey: ["media", payload.agentId],
+            queryKey: ["files", payload.agentId],
             exact: true,
           });
           void queryClient.invalidateQueries({
-            queryKey: MEDIA_ITEM_QUERY_PREFIX,
+            queryKey: FILE_ITEM_QUERY_PREFIX,
           });
-          invalidateChatFeed(queryClient, payload.agentId);
+          invalidateStreamFeed(queryClient, payload.agentId);
           return;
         }
 
@@ -373,24 +473,10 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "whiteboard.changed") {
-          void queryClient.invalidateQueries({
-            queryKey: ["whiteboard", payload.agentId],
-            exact: true,
-          });
-          if (payload.source === "agent") {
-            jotaiStore.set(
-              whiteboardAgentDrewAtomFamily(payload.agentId),
-              true
-            );
-          }
-          return;
-        }
-
-        if (payload.type === "media.seen") {
+        if (payload.type === "files.seen") {
           const seen = new Set(payload.keys);
-          queryClient.setQueryData<MediaFile[]>(
-            ["media", payload.agentId],
+          queryClient.setQueryData<FileItem[]>(
+            ["files", payload.agentId],
             (old) =>
               old?.map((file) =>
                 seen.has(`${file.name}:${file.updatedAt}`) && !file.seen
@@ -398,36 +484,6 @@ export function useSSE(authState: AuthState): void {
                   : file
               )
           );
-          return;
-        }
-
-        if (
-          payload.type === "review.created" ||
-          payload.type === "review.updated" ||
-          payload.type === "review_feedback.updated"
-        ) {
-          if (payload.type === "review.created") {
-            applyReviewCreated(
-              queryClient,
-              payload.reviewerAgentId,
-              payload.reviewId
-            );
-          }
-          void queryClient.invalidateQueries({
-            queryKey: ["agent-reviews", payload.agentId],
-          });
-          void queryClient.invalidateQueries({
-            predicate: (q) =>
-              q.queryKey[0] === "agent-review-detail" &&
-              q.queryKey[1] === payload.agentId,
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["agent-feedback-items", payload.agentId],
-          });
-          // The Chat feed renders reviews as cards, with their live status
-          // and counts — so a new review, and every later change to one,
-          // has to reach the feed too.
-          invalidateChatFeed(queryClient, payload.agentId);
           return;
         }
 
@@ -444,30 +500,13 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
+        if (payload.type === "agent_models.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
+          return;
+        }
+
         if (payload.type === "brain.changed") {
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
-          return;
-        }
-
-        if (payload.type === "message.created") {
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.senderAgentId],
-            exact: true,
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.recipientAgentId],
-            exact: true,
-          });
-          invalidateChatFeed(queryClient, payload.senderAgentId);
-          invalidateChatFeed(queryClient, payload.recipientAgentId);
-          return;
-        }
-
-        if (payload.type === "message.read") {
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.agentId],
-            exact: true,
-          });
           return;
         }
 
@@ -485,17 +524,14 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "release.cached_info_changed") {
-          queryClient.setQueryData(CACHED_RELEASE_INFO_QUERY_KEY, {
-            snapshot: payload.snapshot,
-          });
+        if (payload.type === "mac_app.update_changed") {
+          queryClient.setQueryData(MAC_APP_UPDATE_QUERY_KEY, payload.update);
           return;
         }
 
-        if (payload.type === "surface.changed") {
-          void queryClient.invalidateQueries({
-            queryKey: surfacesQueryKey(payload.agentId),
-            exact: true,
+        if (payload.type === "release.cached_info_changed") {
+          queryClient.setQueryData(CACHED_RELEASE_INFO_QUERY_KEY, {
+            snapshot: payload.snapshot,
           });
           return;
         }

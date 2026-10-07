@@ -97,7 +97,7 @@ afterAll(async () => {
 });
 
 describe("isImageFile", () => {
-  it("accepts the raster formats the media uploader accepts", () => {
+  it("accepts the raster formats the file uploader accepts", () => {
     for (const name of ["a.png", "a.JPG", "a.jpeg", "a.gif", "a.webp"]) {
       expect(isImageFile(name)).toBe(true);
     }

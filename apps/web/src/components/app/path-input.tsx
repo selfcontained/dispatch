@@ -127,7 +127,6 @@ export function PathInput({
     (option: HistoryOption) => {
       onChange(option.path);
       setDropdownOpen(false);
-      inputRef.current?.focus();
     },
     [onChange]
   );
@@ -381,11 +380,11 @@ export function PathInput({
               type="button"
               tabIndex={-1}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-              onMouseDown={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 setDropdownOpen((prev) => !prev);
                 inputRef.current?.focus();
               }}
+              onMouseDown={(event) => event.preventDefault()}
             >
               <ChevronDown
                 className={cn(
@@ -423,10 +422,8 @@ export function PathInput({
                       "group flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-xs outline-none",
                       selected && "bg-primary/20 text-foreground"
                     )}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      selectOption(option);
-                    }}
+                    onClick={() => selectOption(option)}
+                    onMouseDown={(event) => event.preventDefault()}
                     onMouseMove={() => setSelectedIndex(index)}
                   >
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-muted/40">
@@ -452,8 +449,7 @@ export function PathInput({
                       <button
                         type="button"
                         className="ml-auto shrink-0 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-data-[selected=true]:opacity-100"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
+                        onClick={(e) => {
                           e.stopPropagation();
                           onRemoveHistory(option.path);
                         }}
@@ -516,11 +512,15 @@ export function PathInput({
 function PathOptionIcon({ iconUrl }: { iconUrl?: string }): JSX.Element {
   const [imageFailed, setImageFailed] = useState(false);
 
+  useEffect(() => setImageFailed(false), [iconUrl]);
+
   if (iconUrl && !imageFailed) {
     return (
       <img
         src={iconUrl}
         alt=""
+        loading="lazy"
+        decoding="async"
         onError={() => setImageFailed(true)}
         className="h-4 w-4 object-contain"
       />

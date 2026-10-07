@@ -1,5 +1,7 @@
 # Subagent Orchestration
 
+> **Status: historical design note.** The tool names below (`dispatch_spawn_agent`, `dispatch_report`, …) were the proposal. What shipped is `launch_agent` (with `child` and `persona`), `list_agents`, `archive_agent`, and `post` with `to: <agentId>` for every message between agents — see `docs/design/blocks.md` and the `subagents` plugin skill.
+
 ## Overview
 
 Agents in Dispatch can currently launch personas for review-style tasks, but the spawning agent has no structured way to receive results, iterate on feedback, or coordinate multiple child agents working in parallel. Subagent orchestration gives a parent agent the ability to spawn child agents with specific tasks and communicate with them through MCP tools — enabling patterns like task decomposition, build-review loops, and specialist delegation.
@@ -10,7 +12,7 @@ Agents in Dispatch can currently launch personas for review-style tasks, but the
 
 A **parent agent** spawns one or more **child agents** via an MCP tool. The parent stays alive and retains orchestration control: it decides when to spawn, what task each child works on, how to react to child output, and when the overall task is done.
 
-A child agent is a full Dispatch agent (worktree, tmux session, MCP tools) with two additions:
+A child agent is a full Dispatch agent (worktree, host process, MCP tools) with two additions:
 
 1. It knows it was spawned by a parent (has a `parent_id`).
 2. It has a `dispatch_report` MCP tool for sending structured results back to the parent.
@@ -216,7 +218,7 @@ Each child is a full agent session. Parents should be cost-aware — don't spawn
 
 ### Relationship to Personas
 
-Personas are a specialization of this pattern: a child agent with a pre-defined role, review-focused scope, and the unified `dispatch_review_*` tools. Subagent orchestration is the general mechanism; personas could be re-implemented on top of it as a "spawn a child with this persona's system prompt and review tools."
+Personas are a specialization of this pattern: a child agent with a pre-defined role and review-focused scope that reports back as a `review` block. Subagent orchestration is the general mechanism; personas could be re-implemented on top of it as a "spawn a child with this persona's system prompt and review tools."
 
 ### Relationship to Jobs
 

@@ -6,11 +6,13 @@ coverage
 # machine that has run `pnpm run check` fails the later `pnpm run format` in
 # `pnpm run ci`; CI only passes it because its checkout is still fresh.
 apps/site/.astro
+# Generated Swift build products, including compiler JSON and symbol metadata.
+apps/macos/.build
 *.tsbuildinfo
 .env
 .env.local
 data
-.media
+.files
 artifacts
 .playwright-mcp
 test-results
@@ -18,3 +20,6 @@ playwright-report
 release-notes/current.md
 .dispatch/config.json
 .dispatch/worktrees
+
+# Keep the generated lockfile in pnpm's native format.
+pnpm-lock.yaml

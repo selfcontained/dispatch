@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
 import { AgentModelSelect } from "@/components/app/agent-model-select";
+import { engineSummary, useEngines } from "@/hooks/use-engines";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
@@ -65,6 +66,21 @@ function CreateAgentDialogContent({
   onCreated,
 }: Omit<CreateAgentDialogProps, "open">): JSX.Element {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  // Engines whose CLI this machine does not have: pickable, but the picker
+  // says what to install rather than letting the launch fail.
+  const { engines } = useEngines();
+  const missingEngines = useMemo(
+    () =>
+      Object.fromEntries(
+        engines
+          .filter((engine) => !engine.installed)
+          .map((engine) => [
+            engine.id,
+            { label: engine.label, install: engine.install },
+          ])
+      ),
+    [engines]
+  );
   const form = useCreateAgentForm({
     enabledAgentTypes,
     initialAgentType,
@@ -73,12 +89,9 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
-  const supportsModelSelection = ["codex", "claude", "cursor"].includes(
-    form.createType
-  );
+  const engineLine = engineSummary(engines, form.createType);
   const showModelSelect =
-    supportsModelSelection &&
-    (form.modelCatalogLoading || form.modelOptions.length > 0);
+    form.modelCatalogLoading || form.modelOptions.length > 0;
 
   return (
     <DialogContent
@@ -121,6 +134,7 @@ function CreateAgentDialogContent({
                     onChange={form.setCreateType}
                     agentTypes={enabledAgentTypes}
                     onOpenChange={setTypeDropdownOpen}
+                    missing={missingEngines}
                   />
 
                   {showModelSelect ? (
@@ -132,6 +146,15 @@ function CreateAgentDialogContent({
                     />
                   ) : null}
                 </div>
+                {engineLine ? (
+                  <p
+                    className="-mt-1 truncate text-xs text-muted-foreground/70"
+                    title={engineLine}
+                    data-testid="create-agent-engine"
+                  >
+                    {engineLine}
+                  </p>
+                ) : null}
 
                 <div className="space-y-1">
                   <label className="text-sm text-muted-foreground">Name</label>
@@ -174,50 +197,27 @@ function CreateAgentDialogContent({
                   onCreateNewBranchChange={form.setCreateNewBranch}
                 />
 
-                {form.createType !== "terminal" ? (
-                  <>
-                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                      <Checkbox
-                        checked={form.createFullAccess}
-                        onCheckedChange={() =>
-                          form.setCreateFullAccess((current) => !current)
-                        }
-                        className="mt-0.5"
-                        title="Toggle full access"
-                      />
-                      <span className="space-y-1">
-                        <span className="block text-sm font-medium text-foreground">
-                          Start in full access mode
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Starts the selected agent with its most permissive
-                          supported execution mode.
-                        </span>
-                      </span>
-                    </label>
-
-                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                      <Checkbox
-                        checked={form.createAutoReview}
-                        onCheckedChange={() =>
-                          form.setCreateAutoReview((current) => !current)
-                        }
-                        className="mt-0.5"
-                        title="Toggle autonomous review"
-                        data-testid="create-agent-auto-review"
-                      />
-                      <span className="space-y-1">
-                        <span className="block text-sm font-medium text-foreground">
-                          Autonomous Review
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Agent will launch one review agent and address
-                          feedback before completing.
-                        </span>
-                      </span>
-                    </label>
-                  </>
-                ) : null}
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <Checkbox
+                    checked={form.createFullAccess}
+                    onCheckedChange={() =>
+                      form.setCreateFullAccess((current) => !current)
+                    }
+                    className="mt-0.5"
+                    title="Toggle full access"
+                  />
+                  <span className="space-y-1">
+                    <span className="block text-sm font-medium text-foreground">
+                      Start in full access mode
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Skip permission prompts. Turn off to use restricted access
+                      and answer approval requests in chat. Codex uses a
+                      workspace sandbox; Claude and OpenCode use their
+                      permission checks.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-3">
@@ -230,18 +230,16 @@ function CreateAgentDialogContent({
               >
                 Cancel
               </Button>
-              {form.createType !== "terminal" ? (
-                <Button
-                  type="button"
-                  variant="default"
-                  tabIndex={0}
-                  disabled={form.creating || !form.createCwd.trim()}
-                  data-testid="create-agent-with-context"
-                  onClick={form.enterContextStep}
-                >
-                  Create with context
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                variant="default"
+                tabIndex={0}
+                disabled={form.creating || !form.createCwd.trim()}
+                data-testid="create-agent-with-context"
+                onClick={form.enterContextStep}
+              >
+                Create with context
+              </Button>
               <Button
                 type="submit"
                 variant="primary"

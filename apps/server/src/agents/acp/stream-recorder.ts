@@ -1,0 +1,1019 @@
+import path from "node:path";
+
+import type { DriverEvent, DriverUpdate, DriverUsage } from "./driver.js";
+import { systemPromptSource, type PromptSource } from "./prompt-source.js";
+import type {
+  CompactionPayload,
+  NoticePayload,
+  PlanPayload,
+  StreamEventRow,
+  StreamStore,
+  ToolPayload,
+  TurnPayload,
+} from "./stream-store.js";
+
+type TextKind = "assistant" | "thought";
+
+type OpenText = {
+  row: StreamEventRow;
+  text: string;
+  truncated: boolean;
+  written: string;
+  flushTimer: NodeJS.Timeout | null;
+  writing: Promise<void>;
+};
+
+/** Model output is not trusted input: bound what one row can hold. */
+export const TEXT_MAX_BYTES = 64 * 1024;
+const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
+const STATUS_MAX_BYTES = 8 * 1024;
+const PLAN_ENTRY_MAX_BYTES = 4 * 1024;
+const PLAN_MAX_ENTRIES = 200;
+const TITLE_MAX_CHARS = 1024;
+const LOCATIONS_MAX = 200;
+/**
+ * The adapter's error kinds a later attempt can clear: the provider, or the
+ * connection to it, was down. The engine CLI already retried the API call
+ * with backoff before it gave the turn up, so a second attempt is the
+ * user's to take. Auth, quota, budget and context failures need something
+ * changed first and are never offered one.
+ *
+ * `unknown` is in the list on purpose: it is what the SDK reports for a
+ * failure it could not place, which is where a dropped stream or a
+ * network blip lands, and the offer costs nothing until someone takes it.
+ */
+const RETRYABLE_ERROR_KINDS = new Set([
+  "server_error",
+  "overloaded",
+  "rate_limit",
+  "unknown",
+  "no_result",
+  "transport_lost",
+]);
+
+export const INTERRUPTED_BY_RESTART = "interrupted by restart";
+/**
+ * The settle reason for a turn Dispatch cut on purpose: the agent was
+ * stopped or archived. Like a restart, a cut and not a failure. The same
+ * string the stop path has always written, so older rows read the same.
+ */
+export const STOPPED_ON_REQUEST = "stopped";
+
+/** A turn settled with one of these was cut, not failed. */
+export function isDeliberateCut(error: string | null | undefined): boolean {
+  return error === INTERRUPTED_BY_RESTART || error === STOPPED_ON_REQUEST;
+}
+export const FLUSH_INTERVAL_MS = 100;
+
+/**
+ * The engine's ACP server sends tool calls without a `kind`; the title is
+ * the tool name, which is enough to pick the icon and color the Chat row gets.
+ */
+export function inferToolKind(
+  kind: string | null | undefined,
+  title: string
+): string {
+  // The engine sends "other" explicitly, which says nothing; treat it as missing.
+  if (kind && kind !== "other") return kind;
+  const name = title.toLowerCase();
+  if (/^mcp__/.test(name)) return "other";
+  if (/bash|shell|pwsh|exec|terminal|command/.test(name)) return "execute";
+  if (/edit|write|str_replace|patch|create_file/.test(name)) return "edit";
+  if (/^read|read_file|cat\b|view/.test(name)) return "read";
+  if (/grep|glob|search|find|list|^ls\b/.test(name)) return "search";
+  if (/fetch|web|http|browse/.test(name)) return "fetch";
+  if (/think|plan|todo/.test(name)) return "think";
+  return "other";
+}
+
+function textOf(content: { type: string; text?: string } | undefined): string {
+  return content && content.type === "text" && typeof content.text === "string"
+    ? content.text
+    : "";
+}
+
+export function boundOutput(
+  text: string,
+  maxBytes: number
+): { text: string; truncated: boolean } {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.byteLength <= maxBytes) return { text, truncated: false };
+  const half = Math.floor(maxBytes / 2);
+  const head = bytes.subarray(0, half).toString("utf8");
+  const tail = bytes.subarray(-half).toString("utf8");
+  return { text: `${head}\n… [truncated] …\n${tail}`, truncated: true };
+}
+
+const INPUT_MAX_BYTES = 8 * 1024;
+
+/** A tool title is one line in the step list; cut rather than head-and-tail it. */
+function boundTitle(title: string): string {
+  return title.length > TITLE_MAX_CHARS
+    ? `${title.slice(0, TITLE_MAX_CHARS)}…`
+    : title;
+}
+
+/*
+ * Notices and compaction updates are UNSTABLE in the Agent Client Protocol:
+ * their shape may change or they may go away. Read them as untyped JSON,
+ * keep only what matches the shape known today, and drop the rest.
+ */
+type Untyped = Record<string, unknown>;
+
+const COMPACTION_ID_MAX_CHARS = 256;
+const COMPACTION_STATUSES = new Set<string>([
+  "in_progress",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function noticePayloadOf(update: Untyped): NoticePayload | null {
+  const title = stringField(update.title);
+  if (!title) return null;
+  const severity =
+    update.severity === "warning" || update.severity === "error"
+      ? update.severity
+      : "info";
+  const description = stringField(update.description);
+  return {
+    severity,
+    title: boundTitle(title),
+    ...(description
+      ? { description: boundOutput(description, STATUS_MAX_BYTES).text }
+      : {}),
+  };
+}
+
+function compactionIdOf(update: Untyped): string | null {
+  const id = stringField(update.compactionId);
+  return id ? id.slice(0, COMPACTION_ID_MAX_CHARS) : null;
+}
+
+/** The text of a summary's content blocks; anything but text is skipped. */
+function summaryTextOf(blocks: unknown): string {
+  if (!Array.isArray(blocks)) return "";
+  return blocks
+    .map((b) => textOf(b as { type: string; text?: string } | undefined))
+    .join("");
+}
+
+/** A `compaction_update` over what is stored: summary and error are patches. */
+export function compactionPayloadOf(
+  update: Untyped,
+  prev: Partial<CompactionPayload>
+): CompactionPayload {
+  const status =
+    typeof update.status === "string" && COMPACTION_STATUSES.has(update.status)
+      ? (update.status as CompactionPayload["status"])
+      : (prev.status ?? "in_progress");
+  let summary = prev.summary ?? "";
+  let truncated = prev.truncated === true;
+  if ("summary" in update) {
+    const bounded = boundOutput(summaryTextOf(update.summary), TEXT_MAX_BYTES);
+    summary = bounded.text;
+    truncated = bounded.truncated;
+  }
+  const error =
+    "error" in update ? stringField(update.error) || undefined : prev.error;
+  return {
+    status,
+    summary,
+    ...(error && status === "failed"
+      ? { error: boundOutput(error, STATUS_MAX_BYTES).text }
+      : {}),
+    ...(truncated ? { truncated: true } : {}),
+  };
+}
+
+/**
+ * Keep a tool call's raw input as sent, unless serializing it is large:
+ * then a bounded string preview stands in, marked so the view can say so.
+ */
+export function boundInput(input: unknown): unknown {
+  if (input === undefined || input === null) return undefined;
+  let json: string;
+  try {
+    json = JSON.stringify(input);
+  } catch {
+    return undefined;
+  }
+  if (json === undefined) return undefined;
+  if (Buffer.byteLength(json, "utf8") <= INPUT_MAX_BYTES) return input;
+  return {
+    truncated: true,
+    preview: boundOutput(json, INPUT_MAX_BYTES).text,
+  };
+}
+
+function parentToolCallIdOf(meta: unknown): string | null {
+  if (typeof meta !== "object" || meta === null) return null;
+  const claude = (meta as { claudeCode?: unknown }).claudeCode;
+  if (typeof claude !== "object" || claude === null) return null;
+  const parent = (claude as { parentToolUseId?: unknown }).parentToolUseId;
+  return typeof parent === "string" && parent ? parent : null;
+}
+
+function projectToolContent(content: readonly unknown[] | null | undefined): {
+  diff: ToolPayload["diff"];
+  terminalOutput: string | null;
+  truncated: boolean;
+} {
+  let diff: ToolPayload["diff"] = null;
+  let terminalOutput: string | null = null;
+  for (const item of content ?? []) {
+    const c = item as {
+      type: string;
+      path?: string;
+      oldText?: string | null;
+      newText?: string;
+      content?: { type: string; text?: string };
+    };
+    if (c.type === "diff" && c.path && typeof c.newText === "string") {
+      diff = { path: c.path, oldText: c.oldText ?? null, newText: c.newText };
+    } else if (c.type === "content" && c.content?.type === "text") {
+      terminalOutput = (terminalOutput ?? "") + (c.content.text ?? "");
+    }
+  }
+  let truncated = false;
+  if (terminalOutput !== null) {
+    const bounded = boundOutput(terminalOutput, TERMINAL_OUTPUT_MAX_BYTES);
+    terminalOutput = bounded.text;
+    truncated = bounded.truncated;
+  }
+  if (diff) {
+    // Both halves, not just the new one: engines that write whole files
+    // (Gemini CLI's write_file, OpenCode's write tool) send the entire
+    // previous file as oldText, and the row is read back on every chat feed
+    // page, every turns read and every coalesced refetch.
+    const newBounded = boundOutput(diff.newText, TEXT_MAX_BYTES);
+    const oldBounded =
+      diff.oldText === null ? null : boundOutput(diff.oldText, TEXT_MAX_BYTES);
+    if (newBounded.truncated || oldBounded?.truncated) {
+      diff = {
+        ...diff,
+        newText: newBounded.text,
+        oldText: oldBounded ? oldBounded.text : null,
+      };
+      truncated = true;
+    }
+  }
+  return { diff, terminalOutput, truncated };
+}
+
+/**
+ * Folds driver events into `agent_stream_events` rows. Assistant and
+ * thought chunks accumulate into one open row each until something else
+ * interrupts them (a tool call, a settled turn, a process exit); the row is
+ * rewritten at most every {@link FLUSH_INTERVAL_MS} and on close. Tool calls
+ * are keyed by toolCallId and rewritten as they settle. One instance serves
+ * every agent; open-row state is per agent, and callers serialize events
+ * per agent (see HarnessSupervisor).
+ */
+/** How the recorder reaches the block behind each turn; see setTurnBlocks. */
+export type TurnBlocks = {
+  /** Split a visible response, keeping the same execution turn. */
+  responseStarted?(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+    prompt: PromptSource;
+    receiptId: string;
+  }): Promise<string | null>;
+  responseSplit?(input: {
+    agentId: string;
+    previousBlockId: string;
+  }): Promise<void>;
+  steering?(
+    event: Extract<
+      DriverEvent,
+      { type: "steered" | "prompt_delivered" | "steering_picked_up" }
+    >
+  ): Promise<void>;
+  /** A turn opened: make its block; returns the block id, or null for none. */
+  started(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+    prompt: PromptSource;
+  }): Promise<string | null>;
+  /** A turn settled (or was cut): the block takes the answer as its text. */
+  settled(input: { agentId: string; turnRow: StreamEventRow }): Promise<void>;
+};
+
+/** A prompt response's usage as the turn row keeps it. */
+function turnTokens(usage: DriverUsage): NonNullable<TurnPayload["tokens"]> {
+  const count = (value: number | null | undefined) =>
+    typeof value === "number" && Number.isFinite(value) && value > 0
+      ? Math.round(value)
+      : 0;
+  return {
+    input: count(usage.inputTokens),
+    // Reasoning is part of output already; thoughtTokens only breaks it out.
+    output: count(usage.outputTokens),
+    cacheRead: count(usage.cachedReadTokens),
+    cacheWrite: count(usage.cachedWriteTokens),
+  };
+}
+
+export class StreamRecorder {
+  private readonly open = new Map<
+    string,
+    Partial<Record<TextKind, OpenText>>
+  >();
+  private readonly cwd = new Map<string, string>();
+  private readonly openTurn = new Map<string, StreamEventRow>();
+  /**
+   * ACP defines the prompt response as the turn boundary. An adapter can
+   * still flush transport notifications behind that response; retain them as
+   * trailing output of the closed prompt rather than inventing a second live
+   * turn that races the next prompt. The window is deliberately open until
+   * the next prompt, exit, or reconcile: no bridged engine starts work of its
+   * own after a response, so anything that arrives in between is a tail.
+   */
+  private readonly trailingPrompt = new Set<string>();
+  /** Agents whose open-turn state has been read back from the rows. */
+  private readonly loaded = new Set<string>();
+  /**
+   * Agents Dispatch is stopping on purpose. Tearing the session down fails
+   * the prompt in flight, and the engine says so as an error; while the
+   * agent is here, that error is the stop and is recorded as one.
+   */
+  private readonly stopping = new Set<string>();
+  private turnBlocks: TurnBlocks | null = null;
+
+  constructor(
+    private readonly store: StreamStore,
+    private readonly logger?: {
+      warn: (obj: Record<string, unknown>, msg: string) => void;
+    }
+  ) {}
+
+  /**
+   * The stream is blocks only: a turn is a block from the moment it opens.
+   * The block store is the service's; the recorder tells it when a turn
+   * opens (and gets the block's id to keep on the turn row) and when it
+   * settles (so the block takes the answer as its text).
+   */
+  setTurnBlocks(turnBlocks: TurnBlocks): void {
+    this.turnBlocks = turnBlocks;
+  }
+
+  private async openTurnBlock(
+    agentId: string,
+    row: StreamEventRow,
+    prompt: PromptSource
+  ): Promise<void> {
+    if (!this.turnBlocks) return;
+    const blockId = await this.turnBlocks.started({
+      agentId,
+      turnRow: row,
+      prompt,
+    });
+    if (!blockId) return;
+    row.payload = { ...row.payload, blockId };
+    await this.store.updatePayload(row.id, row.payload);
+  }
+
+  private async settleTurnBlock(
+    agentId: string,
+    row: StreamEventRow
+  ): Promise<void> {
+    if (!this.turnBlocks) return;
+    await this.turnBlocks.settled({ agentId, turnRow: row });
+  }
+
+  setCwd(agentId: string, cwd: string): void {
+    this.cwd.set(agentId, cwd);
+  }
+
+  /**
+   * The open turn is in-memory state, and this process may not be the one
+   * that opened it: after a server restart the host replays into a fresh
+   * recorder. Read the newest turn row once per agent so a settle event
+   * lands on the turn it belongs to.
+   */
+  private async ensureLoaded(agentId: string): Promise<void> {
+    if (this.loaded.has(agentId)) return;
+    this.loaded.add(agentId);
+    if (this.openTurn.has(agentId)) return;
+    const open = await this.store.openTurn(agentId);
+    if (open) this.openTurn.set(agentId, open);
+  }
+
+  async handle(event: DriverEvent): Promise<void> {
+    await this.ensureLoaded(event.agentId);
+    switch (event.type) {
+      case "steered": {
+        await this.turnBlocks?.steering?.(event);
+        const open = this.openTurn.get(event.agentId);
+        if (!open) return;
+        const payload = open.payload as TurnPayload;
+        const next = {
+          ...payload,
+          steering: [
+            ...(payload.steering ?? []),
+            {
+              source: event.source ?? systemPromptSource(event.text),
+              at: new Date().toISOString(),
+              ...(event.receiptId ? { receiptId: event.receiptId } : {}),
+            },
+          ],
+        };
+        await this.store.updatePayload(open.id, next);
+        open.payload = next;
+        return;
+      }
+      case "prompt_delivered":
+        await this.turnBlocks?.steering?.(event);
+        return;
+      case "steering_picked_up": {
+        await this.turnBlocks?.steering?.(event);
+        const open = this.openTurn.get(event.agentId);
+        if (
+          !open ||
+          event.source?.source !== "chat" ||
+          !event.source.userMessage
+        )
+          return;
+        const payload = open.payload as TurnPayload;
+        // Initial prompt receipts and repeated/replayed pickups are not new replies.
+        if (
+          !payload.steering?.some((s) => s.receiptId === event.receiptId) ||
+          payload.responseReceipts?.includes(event.receiptId) ||
+          payload.pendingResponse?.receiptId === event.receiptId
+        )
+          return;
+        await this.closeText(event.agentId);
+        const prior = payload.pendingResponse;
+        const priorSource = prior?.source;
+        const source =
+          priorSource?.source === "chat"
+            ? {
+                ...event.source,
+                chatMessageIds: [
+                  ...new Set([
+                    ...(priorSource.chatMessageIds ?? [
+                      priorSource.chatMessageId,
+                    ]),
+                    ...(event.source.chatMessageIds ?? [
+                      event.source.chatMessageId,
+                    ]),
+                  ]),
+                ],
+              }
+            : event.source;
+        const next = {
+          ...payload,
+          ...(prior
+            ? {
+                responseReceipts: [
+                  ...(payload.responseReceipts ?? []),
+                  prior.receiptId,
+                ],
+              }
+            : {}),
+          pendingResponse: { receiptId: event.receiptId, source },
+        } satisfies TurnPayload;
+        await this.store.updatePayload(open.id, next);
+        open.payload = next;
+        return;
+      }
+      case "update":
+        return this.handleUpdate(event.agentId, event.update);
+      case "turn": {
+        if (event.state === "started") {
+          // A text tail that arrived after the previous prompt settled opened
+          // its own assistant row under that turn; close it so this turn's
+          // reply starts a row of its own.
+          await this.closeText(event.agentId);
+          this.trailingPrompt.delete(event.agentId);
+          this.stopping.delete(event.agentId);
+          // A retry still offered on an earlier failed turn no longer
+          // applies once the conversation moves on; its entry drops it.
+          const passed = await this.store.closeOpenRetries(event.agentId);
+          for (const row of passed) {
+            await this.settleTurnBlock(event.agentId, row);
+          }
+          // Normal delivery supplies the source explicitly. If an event lacks
+          // it, record an internal turn without interpreting its prompt text.
+          const prompt = event.source ?? systemPromptSource(event.text);
+          const row = await this.store.append(event.agentId, "turn", {
+            state: "started",
+            prompt,
+            ...(event.model ? { model: event.model } : {}),
+            ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+          } satisfies TurnPayload);
+          this.openTurn.set(event.agentId, row);
+          await this.openTurnBlock(event.agentId, row, prompt);
+          return;
+        }
+        await this.closeText(event.agentId);
+        // A prompt the stop tore down reports the teardown as its error.
+        const cut = !!event.error && this.stopping.has(event.agentId);
+        const error = cut ? STOPPED_ON_REQUEST : event.error;
+        const open = this.openTurn.get(event.agentId);
+        if (open) {
+          const prev = open.payload as TurnPayload;
+          const retryable =
+            !cut &&
+            !!event.error &&
+            RETRYABLE_ERROR_KINDS.has(event.errorKind ?? "");
+          await this.store.updatePayload(open.id, {
+            ...prev,
+            state: "settled",
+            ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+            ...(error ? { error } : {}),
+            ...(event.errorKind && !cut ? { errorKind: event.errorKind } : {}),
+            ...(retryable ? { retry: "open" as const } : {}),
+            ...(event.usage ? { tokens: turnTokens(event.usage) } : {}),
+            endedAt: new Date().toISOString(),
+          } satisfies TurnPayload);
+          this.openTurn.delete(event.agentId);
+          this.trailingPrompt.add(event.agentId);
+          await this.settleTurnBlock(event.agentId, open);
+        }
+        if (event.error && !cut) {
+          await this.appendStatus(event.agentId, event.error);
+        }
+        return;
+      }
+      case "exit": {
+        await this.closeText(event.agentId);
+        this.cwd.delete(event.agentId);
+        this.trailingPrompt.delete(event.agentId);
+        // The child is gone, so the turn it was running can never settle
+        // through the prompt path; settle it here or the view spins forever.
+        const stopping = this.stopping.has(event.agentId);
+        const open = this.openTurn.get(event.agentId);
+        if (open) {
+          const prev = open.payload as TurnPayload;
+          await this.store.updatePayload(open.id, {
+            ...prev,
+            state: "settled",
+            ...(stopping
+              ? { error: STOPPED_ON_REQUEST }
+              : event.expected
+                ? { stopReason: "cancelled" }
+                : { error: "the agent exited before the turn settled" }),
+            endedAt: new Date().toISOString(),
+          } satisfies TurnPayload);
+          this.openTurn.delete(event.agentId);
+          await this.settleTurnBlock(event.agentId, open);
+        }
+        if (stopping || event.expected || event.code === 0) return;
+        const how =
+          event.code === null ? `signal ${event.signal}` : `code ${event.code}`;
+        const detail = event.stderrTail ? `: ${event.stderrTail}` : "";
+        await this.appendStatus(
+          event.agentId,
+          `the agent exited with ${how}${detail}`
+        );
+        return;
+      }
+    }
+  }
+
+  /** A status row's text comes from the engine (an RPC error, a stderr tail): bound it. */
+  private async appendStatus(agentId: string, message: string): Promise<void> {
+    await this.store.append(agentId, "status", {
+      message: boundOutput(message, STATUS_MAX_BYTES).text,
+    });
+  }
+
+  /**
+   * Before a session starts: settle rows a previous process left open (a
+   * turn interrupted by a server restart has no in-memory state here).
+   */
+  async reconcile(agentId: string): Promise<number> {
+    this.loaded.add(agentId);
+    this.openTurn.delete(agentId);
+    this.trailingPrompt.delete(agentId);
+    this.stopping.delete(agentId);
+    const cut = await this.store.settleInterrupted(
+      agentId,
+      INTERRUPTED_BY_RESTART
+    );
+    for (const row of cut) await this.settleTurnBlock(agentId, row);
+    return cut.length;
+  }
+
+  /**
+   * Dispatch is about to stop the agent on purpose (stop, archive). Until
+   * its next turn or session, whatever the teardown does to the turn in
+   * flight settles it as stopped rather than failed.
+   */
+  beginStop(agentId: string): void {
+    this.stopping.add(agentId);
+  }
+
+  isStopping(agentId: string): boolean {
+    return this.stopping.has(agentId);
+  }
+
+  /**
+   * After a deliberate stop: settle whatever the stopped host left open as
+   * stopped, and let each cut turn's block say so.
+   */
+  async settleStopped(agentId: string): Promise<number> {
+    this.stopping.add(agentId);
+    await this.closeText(agentId);
+    this.openTurn.delete(agentId);
+    this.trailingPrompt.delete(agentId);
+    const cut = await this.store.settleInterrupted(agentId, STOPPED_ON_REQUEST);
+    for (const row of cut) await this.settleTurnBlock(agentId, row);
+    return cut.length;
+  }
+
+  /**
+   * When the agent's newest turn ended because Dispatch restarted, the
+   * time it was cut; null when it ended any other way.
+   */
+  async lastTurnInterruptedByRestartAt(agentId: string): Promise<Date | null> {
+    const last = await this.store.lastTurnSettlement(agentId);
+    if (!last || last.error !== INTERRUPTED_BY_RESTART) return null;
+    const at = last.endedAt ? Date.parse(last.endedAt) : NaN;
+    return Number.isFinite(at) ? new Date(at) : new Date(0);
+  }
+
+  /** Write any buffered text for the agent now (tests and shutdown). */
+  async flush(agentId: string): Promise<void> {
+    const state = this.open.get(agentId);
+    if (!state) return;
+    for (const kind of ["assistant", "thought"] as const) {
+      const current = state[kind];
+      if (current) await this.write(kind, current, true);
+    }
+  }
+
+  private projectLocations(
+    agentId: string,
+    locations:
+      | readonly { path: string; line?: number | null }[]
+      | null
+      | undefined
+  ): ToolPayload["locations"] {
+    const cwd = this.cwd.get(agentId);
+    return (locations ?? []).slice(0, LOCATIONS_MAX).map((l) => {
+      const relative =
+        cwd && (l.path === cwd || l.path.startsWith(`${cwd}${path.sep}`))
+          ? path.relative(cwd, l.path) || "."
+          : l.path;
+      return l.line != null
+        ? { path: relative, line: l.line }
+        : { path: relative };
+    });
+  }
+
+  private async handleUpdate(
+    agentId: string,
+    update: DriverUpdate
+  ): Promise<void> {
+    switch (update.sessionUpdate) {
+      case "agent_message_chunk":
+        return this.appendText(agentId, "assistant", textOf(update.content));
+      case "agent_thought_chunk":
+        return this.appendText(agentId, "thought", textOf(update.content));
+      case "tool_call": {
+        await this.closeText(agentId);
+        const { diff, terminalOutput, truncated } = projectToolContent(
+          update.content
+        );
+        const input = boundInput(update.rawInput);
+        const parentToolCallId = parentToolCallIdOf(update._meta);
+        const payload: ToolPayload = {
+          toolKind: inferToolKind(update.kind, update.title),
+          title: boundTitle(update.title),
+          status: update.status ?? "pending",
+          locations: this.projectLocations(agentId, update.locations),
+          diff,
+          terminalOutput,
+          ...(truncated ? { truncated: true } : {}),
+          ...(input !== undefined ? { input } : {}),
+          ...(parentToolCallId ? { parentToolCallId } : {}),
+        };
+        await this.store.upsertByKey(
+          agentId,
+          "tool_call",
+          update.toolCallId,
+          payload
+        );
+        return;
+      }
+      case "tool_call_update": {
+        // An update for a call we never saw start still gets a row, so a
+        // late-joining feed shows the settled call.
+        const existing =
+          (await this.store.getByKey(
+            agentId,
+            "tool_call",
+            update.toolCallId
+          )) ??
+          (await this.store.append(
+            agentId,
+            "tool_call",
+            {},
+            update.toolCallId
+          ));
+        const prev = existing.payload as Partial<ToolPayload>;
+        const projected = update.content
+          ? projectToolContent(update.content)
+          : null;
+        const truncated =
+          (projected?.truncated ?? false) || prev.truncated === true;
+        const title = boundTitle(update.title ?? prev.title ?? "");
+        const next: ToolPayload = {
+          toolKind: inferToolKind(update.kind ?? prev.toolKind, title),
+          title,
+          status: update.status ?? prev.status ?? "pending",
+          locations: update.locations
+            ? this.projectLocations(agentId, update.locations)
+            : (prev.locations ?? []),
+          diff: projected?.diff ?? prev.diff ?? null,
+          terminalOutput:
+            projected?.terminalOutput ?? prev.terminalOutput ?? null,
+          ...(truncated ? { truncated: true } : {}),
+          ...(update.rawInput !== undefined
+            ? { input: boundInput(update.rawInput) }
+            : prev.input !== undefined
+              ? { input: prev.input }
+              : {}),
+          ...(prev.parentToolCallId
+            ? { parentToolCallId: prev.parentToolCallId }
+            : {}),
+        };
+        await this.store.updatePayload(existing.id, next);
+        return;
+      }
+      case "plan":
+        return this.writePlan(agentId, update.entries);
+      case "plan_update":
+        // Only an item list is a task list; a file or markdown plan is prose.
+        if (update.plan.type !== "items") return;
+        return this.writePlan(agentId, update.plan.entries);
+      case "plan_removed":
+        return this.writePlan(agentId, []);
+      case "usage_update":
+        return this.writeUsage(agentId, update);
+      case "notice":
+        return this.unstable(agentId, update.sessionUpdate, () =>
+          this.writeNotice(agentId, update as Untyped)
+        );
+      case "compaction_update":
+        return this.unstable(agentId, update.sessionUpdate, () =>
+          this.writeCompaction(agentId, update as Untyped)
+        );
+      case "compaction_summary_chunk":
+        return this.unstable(agentId, update.sessionUpdate, () =>
+          this.appendCompactionSummary(agentId, update as Untyped)
+        );
+      default:
+        return;
+    }
+  }
+
+  /**
+   * An unstable update never fails the event it came in: whatever goes
+   * wrong recording it, the rest of the stream carries on without it.
+   */
+  private async unstable(
+    agentId: string,
+    sessionUpdate: string,
+    write: () => Promise<void>
+  ): Promise<void> {
+    try {
+      await write();
+    } catch (err) {
+      this.logger?.warn(
+        { agentId, sessionUpdate, err },
+        "dropped an unstable session update"
+      );
+    }
+  }
+
+  private async writeNotice(agentId: string, update: Untyped): Promise<void> {
+    const payload = noticePayloadOf(update);
+    if (!payload) return;
+    await this.store.append(agentId, "notice", payload);
+  }
+
+  private async writeCompaction(
+    agentId: string,
+    update: Untyped
+  ): Promise<void> {
+    const id = compactionIdOf(update);
+    if (!id) return;
+    const existing = await this.store.getByKey(agentId, "compaction", id);
+    // The first update fixes the compaction's place in the stream, as a
+    // tool call's does: text before it ends there.
+    if (!existing) await this.closeText(agentId);
+    const prev = (existing?.payload ?? {}) as Partial<CompactionPayload>;
+    await this.store.upsertByKey(
+      agentId,
+      "compaction",
+      id,
+      compactionPayloadOf(update, prev)
+    );
+  }
+
+  private async appendCompactionSummary(
+    agentId: string,
+    update: Untyped
+  ): Promise<void> {
+    const id = compactionIdOf(update);
+    const text = textOf(
+      update.content as { type: string; text?: string } | undefined
+    );
+    if (!id || !text) return;
+    const existing = await this.store.getByKey(agentId, "compaction", id);
+    if (!existing) await this.closeText(agentId);
+    const prev = (existing?.payload ?? {}) as Partial<CompactionPayload>;
+    if (prev.truncated) return;
+    const bounded = boundOutput((prev.summary ?? "") + text, TEXT_MAX_BYTES);
+    const next: CompactionPayload = {
+      status: prev.status ?? "in_progress",
+      summary: bounded.text,
+      ...(prev.error ? { error: prev.error } : {}),
+      ...(bounded.truncated ? { truncated: true } : {}),
+    };
+    await this.store.upsertByKey(agentId, "compaction", id, next);
+  }
+
+  /** One plan row per turn, keyed by the turn row, rewritten as the list changes. */
+  async writePlan(
+    agentId: string,
+    entries: readonly {
+      content: string;
+      status: string;
+      priority: string;
+    }[]
+  ): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    const key = open ? `plan:${open.id}` : "plan:pre";
+    const payload: PlanPayload = {
+      entries: entries.slice(0, PLAN_MAX_ENTRIES).map((e) => ({
+        content: boundOutput(e.content, PLAN_ENTRY_MAX_BYTES).text,
+        status: e.status,
+        priority: e.priority,
+      })),
+    };
+    await this.store.upsertByKey(agentId, "plan", key, payload);
+  }
+
+  /** The live turn carries the engine's newest usage; nothing else stores it. */
+  private async writeUsage(
+    agentId: string,
+    update: {
+      used: number;
+      size: number;
+      cost?: { amount: number; currency: string } | null;
+    }
+  ): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    if (!open) return;
+    const prev = open.payload as TurnPayload;
+    const next: TurnPayload = {
+      ...prev,
+      usage: {
+        used: update.used,
+        size: update.size,
+        ...(update.cost
+          ? {
+              cost: {
+                amount: update.cost.amount,
+                currency: update.cost.currency,
+              },
+            }
+          : {}),
+      },
+    };
+    open.payload = next as Record<string, unknown>;
+    await this.store.updatePayload(open.id, next);
+  }
+
+  private payloadFor(kind: TextKind, current: OpenText, streaming: boolean) {
+    const truncated = current.truncated ? { truncated: true } : {};
+    return kind === "assistant"
+      ? { text: current.text, streaming, ...truncated }
+      : { text: current.text, ...truncated };
+  }
+
+  private async write(
+    kind: TextKind,
+    current: OpenText,
+    streaming: boolean
+  ): Promise<void> {
+    if (current.flushTimer) {
+      clearTimeout(current.flushTimer);
+      current.flushTimer = null;
+    }
+    if (current.written === current.text && streaming) return;
+    current.written = current.text;
+    const payload = this.payloadFor(kind, current, streaming);
+    current.writing = current.writing
+      .catch(() => {})
+      .then(() => this.store.updatePayload(current.row.id, payload));
+    await current.writing;
+  }
+
+  private async appendText(
+    agentId: string,
+    kind: TextKind,
+    delta: string
+  ): Promise<void> {
+    if (!delta) return;
+    if (kind === "assistant") await this.startResponse(agentId);
+    const state = this.open.get(agentId) ?? {};
+    const other: TextKind = kind === "assistant" ? "thought" : "assistant";
+    if (state[other]) await this.closeText(agentId, other);
+    let current = state[kind];
+    if (!current) {
+      const row = await this.store.append(
+        agentId,
+        kind,
+        kind === "assistant"
+          ? { text: delta, streaming: true }
+          : { text: delta }
+      );
+      current = {
+        row,
+        text: delta,
+        truncated: false,
+        written: delta,
+        flushTimer: null,
+        writing: Promise.resolve(),
+      };
+      state[kind] = current;
+      this.open.set(agentId, state);
+      return;
+    }
+    if (current.truncated) return;
+    current.text += delta;
+    if (Buffer.byteLength(current.text, "utf8") > TEXT_MAX_BYTES) {
+      const bounded = boundOutput(current.text, TEXT_MAX_BYTES);
+      current.text = bounded.text;
+      current.truncated = true;
+      await this.write(kind, current, true);
+      return;
+    }
+    if (!current.flushTimer) {
+      const pending = current;
+      current.flushTimer = setTimeout(() => {
+        pending.flushTimer = null;
+        void this.write(kind, pending, true).catch(() => {});
+      }, FLUSH_INTERVAL_MS);
+      current.flushTimer.unref?.();
+    }
+  }
+
+  private async startResponse(agentId: string): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    const payload = open?.payload as TurnPayload | undefined;
+    const pending = payload?.pendingResponse;
+    if (!open || !payload || !pending) return;
+    const previousBlockId = open.payload.blockId;
+    const blockId = await this.turnBlocks?.responseStarted?.({
+      agentId,
+      turnRow: open,
+      prompt: pending.source,
+      receiptId: pending.receiptId,
+    });
+    const { pendingResponse: _pending, ...rest } = payload;
+    const next = {
+      ...rest,
+      responseReceipts: [
+        ...(payload.responseReceipts ?? []),
+        pending.receiptId,
+      ],
+      ...(blockId
+        ? {
+            blockId,
+            responsePrompt: pending.source,
+            responseStartSeq: await this.store.nextSeq(agentId),
+          }
+        : {}),
+    };
+    // Keep the boundary retryable if its durable pointer write fails. The
+    // block insertion is deterministic, so re-entering can safely reuse it.
+    await this.store.updatePayload(open.id, next);
+    open.payload = next;
+    if (blockId && typeof previousBlockId === "string") {
+      await this.turnBlocks?.responseSplit?.({ agentId, previousBlockId });
+    }
+  }
+
+  private async closeText(agentId: string, only?: TextKind): Promise<void> {
+    const state = this.open.get(agentId);
+    if (!state) return;
+    for (const kind of ["assistant", "thought"] as const) {
+      if (only && kind !== only) continue;
+      const current = state[kind];
+      if (!current) continue;
+      await this.write(kind, current, false);
+      delete state[kind];
+    }
+    if (!state.assistant && !state.thought) this.open.delete(agentId);
+  }
+}

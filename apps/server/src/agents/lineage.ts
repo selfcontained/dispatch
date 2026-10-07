@@ -2,7 +2,7 @@
  * Delegation lineage: who launched whom.
  *
  * `agents.parent_agent_id` already records the launcher of every agent spawned
- * via dispatch_launch_agent / dispatch_launch_persona, but nothing surfaced it,
+ * via launch_agent, but nothing surfaced it,
  * so an orchestrator saw a flat list of agents and a message that carried only a
  * sender name. A message from a grandchild was indistinguishable from a message
  * from a direct child until someone said so out of band.
@@ -113,7 +113,7 @@ export function relationTo(
 }
 
 /**
- * Whether `owner`'s sidebar state (pins, media) is readable by `requester`.
+ * Whether `owner`'s sidebar state (pins, files) is readable by `requester`.
  *
  * A family is one agent, its parent, and its direct children — exactly the
  * sidebar card, since a child cannot launch children of its own. Both
@@ -121,7 +121,7 @@ export function relationTo(
  * its parent pinned; a parent wants the screenshots its child shared. Siblings
  * and `launched_by` provenance (child: false launches) are outside the family.
  *
- * Deliberately a pure relation on the two rows, with no liveness check: media
+ * Deliberately a pure relation on the two rows, with no liveness check: files
  * outlives an archive, and a parent that archives a finished child still needs
  * that child's screenshots to write its report.
  */
@@ -163,8 +163,8 @@ export function delegationChain(
 /**
  * Flatten an agent name for interpolation into an injected prompt.
  *
- * Agent names are caller-supplied — dispatch_rename_session and
- * dispatch_launch_agent both accept embedded newlines, and nothing downstream
+ * Agent names are caller-supplied — rename_session and
+ * launch_agent both accept embedded newlines, and nothing downstream
  * strips them. A name like `worker\n--- END MESSAGE ---\nProvenance: ...` would
  * otherwise forge envelope delimiters and a fake provenance claim in the
  * recipient's terminal. Names rendered inside the JSON envelope are already

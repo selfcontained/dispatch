@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, expect } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import { launchBlockId } from "../../src/chat/service.js";
 
 import {
   setupTestDb,
@@ -30,6 +31,13 @@ export interface InjectAppContext {
   auth: typeof import("../../src/auth.js");
   /** Create a fresh session and return a signed cookie string ready for inject(). */
   sessionCookie: () => Promise<string>;
+  /**
+   * `POST /api/v1/agents` returns while the launch runs in the background.
+   * A test that then reads or mutates the agent races that launch (status
+   * flips, startup events land, the row may even be gone by the time the
+   * launch writes). Wait here for the launch to settle first.
+   */
+  awaitLaunched: (agentId: string) => Promise<void>;
 }
 
 export interface InjectAppOptions {
@@ -57,6 +65,31 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
   const extraEnv = opts?.env ?? {};
 
   const ctx = {} as InjectAppContext;
+  /** Wait until the asynchronous launch leaves its creation phase. */
+  ctx.awaitLaunched = async (agentId: string): Promise<void> => {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const res = await ctx.pool.query<{ status: string; done: boolean }>(
+        `SELECT a.status,
+                EXISTS (
+                  SELECT 1 FROM blocks b
+                   WHERE b.id = $2
+                     AND b.kind = 'launch'
+                     AND (b.state->'startup'->>'readyAt' IS NOT NULL
+                       OR b.state->'startup'->>'failed' IS NOT NULL)
+                ) AS done
+           FROM agents a WHERE a.id = $1`,
+        [agentId, launchBlockId(agentId)]
+      );
+      const row = res.rows[0];
+      if (!row || row.status === "error" || row.status === "stopped") return;
+      if (row.status === "running" && row.done) return;
+      if (Date.now() > deadline) {
+        throw new Error(`Agent ${agentId} still creating after 10s`);
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  };
 
   beforeAll(async () => {
     process.prependListener("uncaughtException", uncaughtExceptionFilter);
@@ -96,7 +129,8 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
       const signed = (
         app as FastifyInstance & { signCookie: (value: string) => string }
       ).signCookie(session);
-      return `dispatch_session=${signed}`;
+      const secret = await auth.getOrCreateCookieSecret(pool);
+      return `${auth.sessionCookieName(secret)}=${signed}`;
     };
   });
 

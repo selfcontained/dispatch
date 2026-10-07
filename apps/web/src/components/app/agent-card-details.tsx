@@ -9,10 +9,16 @@ import {
 } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { ChangeWorkspaceButton } from "@/components/app/change-workspace-dialog";
 import { DiffStatBadge } from "@/components/app/diff-stat-badge";
 import { IdeLaunchButton } from "@/components/app/ide-launch-button";
 import { type Agent, type DiffStats } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import {
+  agentModelLabel,
+  useAgentModelCatalogData,
+} from "@/hooks/use-agent-model-catalog";
 import {
   Tooltip,
   TooltipContent,
@@ -69,7 +75,6 @@ export type AgentCardDetailsProps = {
   diffStats: DiffStats | null | undefined;
   refreshDiffStats: () => void;
   fullAccessEnabled: boolean;
-  isTerminalAgent: boolean;
   enabledIdes: IdeType[];
   /**
    * Copy state is owned by the card itself so the "copied" confirmation
@@ -80,29 +85,33 @@ export type AgentCardDetailsProps = {
 };
 
 /**
- * The location panel inside an expanded agent card: branch/worktree info, diff
- * stats, IDE launch, and the sandbox/full-access indicator.
+ * The location panel inside an expanded agent card: branch/worktree info, the
+ * engine and model, diff stats, IDE launch, and the sandbox/full-access
+ * indicator.
  */
 export function AgentCardDetails({
   agent,
   diffStats,
   refreshDiffStats,
   fullAccessEnabled,
-  isTerminalAgent,
   enabledIdes,
   worktreePathCopied,
   copyWorktreePath,
 }: AgentCardDetailsProps): JSX.Element {
-  const sidebarBaseBranch = agent.baseBranch ?? "main";
+  // A moved workspace is where the agent works now; the launch cwd is only
+  // where its engine runs.
+  const workspaceDir = agent.workspacePath ?? agent.cwd;
+  const sidebarBaseBranch =
+    (agent.workspacePath ? agent.workspaceBaseBranch : agent.baseBranch) ??
+    "main";
+  const modelCatalog = useAgentModelCatalogData();
 
   return (
     <div className="relative space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
-      <div className="absolute right-3 top-3">
-        <DiffStatBadge
-          diffStats={diffStats}
-          latestEventAt={agent.latestEvent?.updatedAt ?? null}
-          onRefresh={refreshDiffStats}
-        />
+      {/* Concentric with the rounded-xl corner: 11px inner radius minus this
+          3px gap leaves the ~8px radius of the 16px-tall pill. */}
+      <div className="absolute right-[3px] top-[3px]">
+        <DiffStatBadge diffStats={diffStats} onRefresh={refreshDiffStats} />
       </div>
       {agent.gitContext?.isWorktree ? (
         <div className="flex items-start justify-between gap-3">
@@ -137,7 +146,7 @@ export function AgentCardDetails({
           <CompactMetaRow
             label="Working dir"
             icon={<Folder className="h-3.5 w-3.5" />}
-            value={agent.cwd}
+            value={workspaceDir}
             mono
             truncateStart
           />
@@ -152,22 +161,38 @@ export function AgentCardDetails({
           ) : null}
         </>
       )}
+      <CompactMetaRow
+        label="Engine"
+        icon={
+          <AgentTypeIcon
+            type={agent.type}
+            className="h-3.5 w-3.5 border-0 bg-transparent [&_svg]:h-3.5 [&_svg]:w-3.5"
+          />
+        }
+        value={
+          agent.model
+            ? agentModelLabel(modelCatalog, agent.type, agent.model)
+            : (agent.type ?? "agent")
+        }
+        mono
+      />
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
-          {agent.cwd ? (
-            <IdeLaunchButton path={agent.cwd} enabledIdes={enabledIdes} />
+          {workspaceDir ? (
+            <IdeLaunchButton path={workspaceDir} enabledIdes={enabledIdes} />
           ) : null}
-          {agent.gitContext?.isWorktree && agent.cwd ? (
+          <ChangeWorkspaceButton agent={agent} />
+          {agent.gitContext?.isWorktree && workspaceDir ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => agent.cwd && copyWorktreePath(agent.cwd)}
+                  onClick={() => workspaceDir && copyWorktreePath(workspaceDir)}
                   aria-label={
                     worktreePathCopied
                       ? "Worktree path copied"
-                      : `Copy worktree path: ${agent.cwd}`
+                      : `Copy worktree path: ${workspaceDir}`
                   }
                   className="group relative h-auto min-h-6 gap-1 rounded-full border border-border bg-muted/35 px-2 py-0.5 text-[10px] font-normal text-muted-foreground before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-muted/60 hover:text-foreground"
                 >
@@ -186,26 +211,27 @@ export function AgentCardDetails({
                 </Button>
               </TooltipTrigger>
               <TooltipContent className="max-w-[420px] break-all">
-                {agent.cwd}
+                {workspaceDir}
                 <div className="mt-1 text-[10px] opacity-70">Click to copy</div>
               </TooltipContent>
             </Tooltip>
           ) : null}
         </div>
-        {isTerminalAgent ? (
-          <span />
-        ) : (
+        {fullAccessEnabled ? (
           <div
-            className={cn(
-              "inline-flex min-h-6 items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
-              fullAccessEnabled
-                ? "border border-status-waiting/35 bg-status-waiting/10 text-status-waiting"
-                : "border border-border bg-muted/40 text-muted-foreground"
-            )}
+            className="inline-flex min-h-6 items-center gap-1 rounded-full border border-status-waiting/35 bg-status-waiting/10 px-2 py-0.5 text-[10px] text-status-waiting"
+            title="Launched with the engine's permission prompts turned off."
           >
-            {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
-            <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
+            <AlertTriangle className="h-3 w-3" />
+            <span>Full access</span>
           </div>
+        ) : (
+          <span
+            className="text-[10px] text-muted-foreground"
+            title="Uses engine permission checks; approval requests appear in chat."
+          >
+            Restricted access
+          </span>
         )}
       </div>
     </div>

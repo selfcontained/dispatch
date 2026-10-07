@@ -8,6 +8,8 @@ import { mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { createAgentViaAPI, cleanupE2EAgents } from "./helpers";
+
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -35,57 +37,7 @@ async function seedJob(request: APIRequestContext): Promise<void> {
   });
 }
 
-async function seedTerminalAgent(
-  request: APIRequestContext
-): Promise<{ id: string }> {
-  const res = await request.post("/api/v1/agents", {
-    headers: { ...AUTH_HEADER, "Content-Type": "application/json" },
-    data: {
-      name: `mobile-toolbar-${Date.now()}`,
-      type: "terminal",
-      cwd: "/tmp",
-      useWorktree: false,
-    },
-  });
-  expect(res.status()).toBe(201);
-  const body = (await res.json()) as { agent: { id: string } };
-  return { id: body.agent.id };
-}
-
 test.describe("Mobile layout", () => {
-  test("terminal mobile toolbar only flashes connected shortcut buttons", async ({
-    page,
-    request,
-  }) => {
-    await gotoMobile(page, "/agents");
-
-    const disconnectedEnterButton = page.getByLabel("Send Enter");
-    const disconnectedInputButton = page.getByLabel("Open text input");
-    const ctrlButton = page.getByLabel("Toggle Control modifier");
-
-    await expect(disconnectedEnterButton).toBeDisabled();
-    await expect(disconnectedInputButton).toBeDisabled();
-    await expect(ctrlButton).toBeDisabled();
-    await expect(disconnectedEnterButton).toHaveAttribute(
-      "data-flash-state",
-      ""
-    );
-
-    const { id } = await seedTerminalAgent(request);
-    await gotoMobile(page, `/agents/${id}`);
-
-    const enterButton = page.getByLabel("Send Enter");
-
-    await enterButton.click();
-    await expect(enterButton).not.toHaveAttribute("data-flash-state", "");
-    await page.waitForTimeout(500);
-    await expect(enterButton).toHaveAttribute("data-flash-state", "");
-
-    await ctrlButton.click();
-    await expect(ctrlButton).toHaveAttribute("aria-pressed", "true");
-    await expect(ctrlButton).not.toHaveAttribute("data-flash-state", /flash-/);
-  });
-
   test("tapping a job row on mobile closes the sidebar and reveals the detail pane", async ({
     page,
     request,
@@ -149,4 +101,39 @@ test.describe("Mobile layout", () => {
       )
       .toBe(0);
   });
+});
+
+test("mobile composer expands on focus and preserves drafts when returning to reading", async ({
+  page,
+  request,
+}) => {
+  const agent = await createAgentViaAPI(request);
+  try {
+    await gotoMobile(page, `/agents/${agent.id}`);
+    const composer = page.getByTestId("chat-composer");
+    const input = page.getByTestId("chat-composer-input");
+    const attach = page.getByTestId("chat-composer-attach-button");
+    await expect(input).toBeVisible();
+    await expect(attach).toBeHidden();
+    expect((await composer.boundingBox())!.height).toBeLessThan(60);
+    await input.click();
+    await expect(attach).toBeVisible();
+    await input.pressSequentially("Keep this draft");
+    await page.getByTestId("chat-filters-trigger").click();
+    await expect(page.getByTestId("chat-filters-popover")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(attach).toBeVisible();
+    await expect(input).toHaveText("Keep this draft");
+    await input.click();
+    await input.press("ControlOrMeta+A");
+    await input.press("Backspace");
+    await page.getByTestId("chat-filters-trigger").click();
+    await expect(page.getByTestId("chat-filters-popover")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(attach).toBeHidden();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(attach).toBeVisible();
+  } finally {
+    await cleanupE2EAgents(request);
+  }
 });

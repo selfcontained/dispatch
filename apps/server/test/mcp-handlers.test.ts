@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildStartupTurn } from "../src/agents/tmux/command-builder.js";
+import { buildStartupTurn } from "../src/agents/launch-guidance.js";
 
 vi.mock("../src/shared/git/worktree.js", () => ({
   resolveHeadSha: vi.fn(async () => "abc123def456"),
@@ -30,21 +30,8 @@ vi.mock("../src/personas/loader.js", () => ({
     prompt: "Review for security",
   })),
   assemblePersonaPrompt: vi.fn(() => "assembled-prompt"),
-}));
-
-vi.mock("../src/personas/review-diff.js", () => ({
-  buildPersonaReviewDiff: vi.fn(async () => ({
-    diff: "diff content",
-    stats: {},
-  })),
-}));
-
-vi.mock("../src/reviews/injection-prompts.js", () => ({
-  buildPersonaKickoffPrompt: vi.fn(() => "kickoff-prompt"),
-  buildReviewSubmittedPrompt: vi.fn(() => "submitted-prompt"),
-  buildReviewFeedbackAddedPrompt: vi.fn(() => "feedback-added-prompt"),
-  buildReviewItemStatePrompt: vi.fn(() => "item-state-prompt"),
-  buildReviewThreadUpdatePrompt: vi.fn(() => "thread-update-prompt"),
+  buildStandardFeedbackGuidance: vi.fn(() => "protected-review-guidance"),
+  MAX_PERSONA_PROMPT_BYTES: 64 * 1024,
 }));
 
 vi.mock("../src/agent-type-settings.js", () => ({
@@ -64,60 +51,9 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
 }));
 
-vi.mock("../src/agents/reviews.js", () => ({
-  createReview: vi.fn(),
-  getReviewByReviewerAgent: vi.fn(async () => null),
-  getReviewRecord: vi.fn(async () => null),
-  addReviewFeedbackItem: vi.fn(),
-  reopenReviewFeedbackItem: vi.fn(),
-  listFeedbackItemsForAgent: vi.fn(async () => []),
-  resolveReviewFeedbackItem: vi.fn(async () => ({
-    item: {
-      id: 10,
-      reviewId: 5,
-      status: "resolved",
-      resolution: "fixed",
-      resolutionNote: null,
-    },
-    reviewId: 5,
-    reviewStatus: "partially_resolved",
-  })),
-  addThreadMessage: vi.fn(async () => ({
-    message: {
-      id: 20,
-      feedbackItemId: 10,
-      authorType: "agent",
-      authorAgentId: "agt_test1",
-      type: "text",
-      content: { body: "I fixed this" },
-      createdAt: "2026-01-01T00:00:00Z",
-    },
-    reviewId: 5,
-  })),
-}));
-
-vi.mock("../src/shared/media.js", () => ({
-  isMediaFile: vi.fn(() => true),
-  isTextFile: vi.fn(() => false),
-  resolveMediaDir: vi.fn(() => "/tmp/media/agt_test1"),
-}));
-
-vi.mock("../src/pins.js", () => ({
-  isPinType: vi.fn((t: string) =>
-    [
-      "url",
-      "port",
-      "code",
-      "string",
-      "pr",
-      "filename",
-      "markdown",
-      "shortcut",
-    ].includes(t)
-  ),
-  validatePinValue: vi.fn(),
-  validatePinCaption: vi.fn(),
-  validatePinShortcutFields: vi.fn(),
+vi.mock("../src/shared/files.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/shared/files.js")>()),
+  resolveFilesDir: vi.fn(() => "/tmp/files/agt_test1"),
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -132,22 +68,15 @@ import {
   mcpMethodNotAllowed,
 } from "../src/server/mcp-handlers.js";
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
-import { isPinType, validatePinValue } from "../src/pins.js";
 import {
   assemblePersonaPrompt,
   loadPersonaBySlug,
 } from "../src/personas/loader.js";
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
-import {
-  isMediaFile,
-  isTextFile,
-  resolveMediaDir,
-} from "../src/shared/media.js";
-import {
-  resolveReviewFeedbackItem,
-  addThreadMessage,
-} from "../src/agents/reviews.js";
+import { resolveFilesDir } from "../src/shared/files.js";
+import { readFile } from "node:fs/promises";
+import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -163,7 +92,7 @@ function templateRecord(overrides: Record<string, unknown> = {}) {
     branchName: null,
     fullAccess: false,
     callable: true,
-    allowMedia: false,
+    allowFiles: false,
     selfImprove: false,
     ...overrides,
   };
@@ -172,7 +101,7 @@ function templateRecord(overrides: Record<string, unknown> = {}) {
 function createMockDeps() {
   return {
     pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
-    mediaRoot: "/tmp/media",
+    filesRoot: "/tmp/files",
     agentManager: {
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
@@ -181,18 +110,12 @@ function createMockDeps() {
         status: "running",
         type: "claude",
         fullAccess: false,
-        pins: [],
-        latestEvent: null,
+
         worktreePath: null,
         worktreeBranch: null,
         baseBranch: null,
         reviewAgentType: null,
-        mediaDir: null,
-      })),
-      upsertLatestEvent: vi.fn(async (_id: string, ev: any) => ({
-        id: _id,
-        name: "test-agent",
-        latestEvent: ev,
+        filesDir: null,
       })),
       listAgents: vi.fn(async () => []),
       createAgent: vi.fn(async (opts: any) => ({
@@ -220,43 +143,7 @@ function createMockDeps() {
           callbacks.onComplete([id]);
         }
       ),
-      // Mirrors the manager contract: the record, plus the pin as stored and
-      // whether it was created, so the tool can echo it back.
-      upsertPin: vi.fn(async (id: string, pin: Record<string, unknown>) => ({
-        agent: {
-          id,
-          name: "test-agent",
-          pins: [{ id: "pin_url", ...pin }],
-        },
-        pin: { id: "pin_url", ...pin },
-        created: true,
-      })),
-      upsertPins: vi.fn(
-        async (id: string, specs: Array<Record<string, unknown>>) => ({
-          agent: {
-            id,
-            name: "test-agent",
-            pins: specs.map((pin, index) => ({ id: `pin_${index}`, ...pin })),
-          },
-          pins: specs.map((pin, index) => ({ id: `pin_${index}`, ...pin })),
-        })
-      ),
-      deletePinById: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [],
-      })),
-      deletePinsByIds: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [],
-      })),
-      deletePinsByGroup: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [],
-      })),
-      listMedia: vi.fn(async () => []),
+      listFiles: vi.fn(async () => []),
     },
     jobService: {
       getActiveRunForAgent: vi.fn(async () => null),
@@ -327,68 +214,6 @@ describe("createMcpHandlers", () => {
     );
   });
 
-  describe("upsertEvent", () => {
-    it("accepts valid event types", async () => {
-      for (const type of [
-        "working",
-        "blocked",
-        "waiting_user",
-        "done",
-        "idle",
-      ]) {
-        await handlers.upsertEvent("agt_test1", {
-          type,
-          message: "test message",
-        });
-      }
-      expect(deps.agentManager.upsertLatestEvent).toHaveBeenCalledTimes(5);
-    });
-
-    it("rejects invalid event type", async () => {
-      await expect(
-        handlers.upsertEvent("agt_test1", {
-          type: "invalid",
-          message: "test",
-        })
-      ).rejects.toThrow("type must be one of:");
-    });
-
-    it("trims the event message", async () => {
-      await handlers.upsertEvent("agt_test1", {
-        type: "working",
-        message: "  test  ",
-      });
-      expect(deps.agentManager.upsertLatestEvent).toHaveBeenCalledWith(
-        "agt_test1",
-        expect.objectContaining({ message: "test" })
-      );
-    });
-
-    it("passes metadata through", async () => {
-      const metadata = { key: "value" };
-      await handlers.upsertEvent("agt_test1", {
-        type: "done",
-        message: "msg",
-        metadata,
-      });
-      expect(deps.agentManager.upsertLatestEvent).toHaveBeenCalledWith(
-        "agt_test1",
-        expect.objectContaining({ metadata })
-      );
-    });
-
-    it("publishes agent.upsert UI event with stream flag", async () => {
-      await handlers.upsertEvent("agt_test1", {
-        type: "working",
-        message: "msg",
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "agent.upsert" })
-      );
-      expect(deps.withStreamFlag).toHaveBeenCalled();
-    });
-  });
-
   describe("sendNotify", () => {
     it("sends notification for existing agent", async () => {
       const input = { message: "hello" };
@@ -405,185 +230,6 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("upsertPin", () => {
-    it("validates and creates a pin", async () => {
-      await handlers.upsertPin("agt_test1", {
-        label: "URL",
-        value: "http://localhost",
-        type: "url",
-      });
-      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
-        label: "URL",
-        value: "http://localhost",
-        type: "url",
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "agent.upsert" })
-      );
-    });
-
-    // Regression: group and icon were accepted by the tool schema but never
-    // forwarded, so agents silently lost them.
-    it("forwards every shortcut decoration to the manager", async () => {
-      vi.mocked(isPinType).mockReturnValue(true);
-      await handlers.upsertPin("agt_test1", {
-        label: "Work on X",
-        value: "work on x",
-        type: "shortcut",
-        caption: "**High priority**",
-        group: "Ready to build",
-        icon: "rocket",
-        variant: "primary",
-        confirm: true,
-      });
-      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
-        label: "Work on X",
-        value: "work on x",
-        type: "shortcut",
-        caption: "**High priority**",
-        group: "Ready to build",
-        icon: "rocket",
-        variant: "primary",
-        confirm: true,
-      });
-    });
-
-    it("drops shortcut-only decorations on other pin types", async () => {
-      vi.mocked(isPinType).mockReturnValue(true);
-      await handlers.upsertPin("agt_test1", {
-        label: "Dev Server",
-        value: "http://localhost",
-        type: "url",
-        caption: "Vite",
-        group: "Dev stack",
-        icon: "rocket",
-        variant: "primary",
-        confirm: true,
-      });
-      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
-        label: "Dev Server",
-        value: "http://localhost",
-        type: "url",
-        caption: "Vite",
-        group: "Dev stack",
-      });
-    });
-
-    it("rejects invalid pin type", async () => {
-      vi.mocked(isPinType).mockReturnValue(false);
-      await expect(
-        handlers.upsertPin("agt_test1", {
-          label: "Bad",
-          value: "x",
-          type: "invalid",
-        })
-      ).rejects.toThrow("Invalid pin type: invalid");
-    });
-
-    it("calls validatePinValue", async () => {
-      vi.mocked(isPinType).mockReturnValue(true);
-      await handlers.upsertPin("agt_test1", {
-        label: "Port",
-        value: "3000",
-        type: "port",
-      });
-      expect(validatePinValue).toHaveBeenCalledWith("port", "3000");
-    });
-  });
-
-  describe("deletePin", () => {
-    it("deletes pin and publishes event", async () => {
-      await handlers.deletePin("agt_test1", { id: "pin_123" });
-      expect(deps.agentManager.deletePinsByIds).toHaveBeenCalledWith(
-        "agt_test1",
-        ["pin_123"]
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "agent.upsert" })
-      );
-    });
-
-    it("deletes several pins in one call", async () => {
-      await handlers.deletePin("agt_test1", { ids: ["pin_1", "pin_2"] });
-      expect(deps.agentManager.deletePinsByIds).toHaveBeenCalledWith(
-        "agt_test1",
-        ["pin_1", "pin_2"]
-      );
-    });
-
-    it("clears a group", async () => {
-      await handlers.deletePin("agt_test1", { group: "Ready to build" });
-      expect(deps.agentManager.deletePinsByGroup).toHaveBeenCalledWith(
-        "agt_test1",
-        "Ready to build"
-      );
-    });
-
-    it("rejects an ambiguous target", async () => {
-      // Accepting both would leave it unclear which one actually applied.
-      await expect(
-        handlers.deletePin("agt_test1", { id: "pin_1", group: "Group" })
-      ).rejects.toThrow(/exactly one/i);
-      await expect(handlers.deletePin("agt_test1", {})).rejects.toThrow(
-        /exactly one/i
-      );
-    });
-  });
-
-  describe("upsertPins", () => {
-    it("writes a batch through one manager call", async () => {
-      await handlers.upsertPins("agt_test1", {
-        pins: [
-          { label: "One", value: "1", type: "string" },
-          { label: "Two", value: "2", type: "string" },
-        ],
-      });
-      expect(deps.agentManager.upsertPins).toHaveBeenCalledWith(
-        "agt_test1",
-        [
-          { label: "One", value: "1", type: "string" },
-          { label: "Two", value: "2", type: "string" },
-        ],
-        {}
-      );
-      // One event for the whole batch, not one per pin.
-      expect(deps.publishUiEvent).toHaveBeenCalledTimes(1);
-    });
-
-    it("validates every entry before writing any", async () => {
-      vi.mocked(validatePinValue).mockImplementation((type, value) => {
-        if (value === "bad") throw new Error("Invalid pin value");
-      });
-      await expect(
-        handlers.upsertPins("agt_test1", {
-          pins: [
-            { label: "One", value: "1", type: "string" },
-            { label: "Two", value: "bad", type: "string" },
-          ],
-        })
-      ).rejects.toThrow(/Invalid pin value/);
-      expect(deps.agentManager.upsertPins).not.toHaveBeenCalled();
-    });
-
-    it("passes the scoping group through as an option, not per entry", async () => {
-      // Filing entries under the group is `replacePinGroup`'s own job — the
-      // handler compensating for it here is what let the primitive drift from
-      // its own contract. Covered end-to-end in pin-write.test.ts.
-      await handlers.upsertPins("agt_test1", {
-        mode: "replace",
-        group: "Ready to build",
-        pins: [
-          { label: "One", value: "1", type: "string", group: "Elsewhere" },
-        ],
-      });
-      expect(deps.agentManager.upsertPins).toHaveBeenCalledWith(
-        "agt_test1",
-        [{ label: "One", value: "1", type: "string", group: "Elsewhere" }],
-        { mode: "replace", group: "Ready to build" }
-      );
-    });
-  });
-
   // Agent rows as the family-read query returns them. `deleted_at` is not
   // selected on purpose: an archived owner is still readable.
   const FAMILY_ROWS: Record<
@@ -591,46 +237,32 @@ describe("createMcpHandlers", () => {
     {
       id: string;
       name: string;
-      media_dir: string | null;
-      pins: unknown[];
+      files_dir: string | null;
       parent_agent_id: string | null;
     }
   > = {
     agt_test1: {
       id: "agt_test1",
       name: "parent",
-      media_dir: null,
-      pins: [
-        { id: "pin_url", label: "URL", value: "http://localhost", type: "url" },
-      ],
+      files_dir: null,
       parent_agent_id: null,
     },
     agt_child: {
       id: "agt_child",
       name: "child",
-      media_dir: "/custom/child-media",
-      pins: [
-        {
-          id: "pin_pr",
-          label: "PR",
-          value: "https://example/pr/1",
-          type: "pr",
-        },
-      ],
+      files_dir: "/custom/child-files",
       parent_agent_id: "agt_test1",
     },
     agt_grandchild: {
       id: "agt_grandchild",
       name: "grandchild",
-      media_dir: null,
-      pins: [],
+      files_dir: null,
       parent_agent_id: "agt_child",
     },
     agt_stranger: {
       id: "agt_stranger",
       name: "stranger",
-      media_dir: null,
-      pins: [{ id: "pin_x", label: "X", value: "y", type: "string" }],
+      files_dir: null,
       parent_agent_id: null,
     },
   };
@@ -642,7 +274,7 @@ describe("createMcpHandlers", () => {
           const ids = (params?.[0] as string[]) ?? [];
           return { rows: ids.map((id) => FAMILY_ROWS[id]).filter(Boolean) };
         }
-        if (sql.includes("FROM media")) {
+        if (sql.includes("FROM files")) {
           return {
             rows: [
               {
@@ -660,124 +292,74 @@ describe("createMcpHandlers", () => {
     );
   }
 
-  describe("listPins", () => {
-    it("returns the current agent pins", async () => {
+  describe("listFiles", () => {
+    it("lists a child's files from the child's own directory", async () => {
       mockFamilyRows();
-
-      await expect(handlers.listPins("agt_test1")).resolves.toEqual([
-        {
-          id: "pin_url",
-          label: "URL",
-          value: "http://localhost",
-          type: "url",
-        },
-      ]);
-    });
-
-    it("reads a direct child's pins", async () => {
-      mockFamilyRows();
-      await expect(
-        handlers.listPins("agt_test1", { ownerAgentId: "agt_child" })
-      ).resolves.toEqual([
-        {
-          id: "pin_pr",
-          label: "PR",
-          value: "https://example/pr/1",
-          type: "pr",
-        },
-      ]);
-    });
-
-    it("reads the parent's pins from a child", async () => {
-      mockFamilyRows();
-      await expect(
-        handlers.listPins("agt_child", { ownerAgentId: "agt_test1" })
-      ).resolves.toEqual([
-        { id: "pin_url", label: "URL", value: "http://localhost", type: "url" },
-      ]);
-    });
-
-    it.each([
-      ["a grandchild", "agt_test1", "agt_grandchild"],
-      ["a grandparent", "agt_grandchild", "agt_test1"],
-      ["an unrelated agent", "agt_test1", "agt_stranger"],
-      ["an unknown id", "agt_test1", "agt_missing"],
-    ])("reports %s as not found", async (_label, requester, owner) => {
-      mockFamilyRows();
-      await expect(
-        handlers.listPins(requester, { ownerAgentId: owner })
-      ).rejects.toThrow("Agent not found.");
-    });
-  });
-
-  describe("listMedia", () => {
-    it("lists a child's media from the child's own directory", async () => {
-      mockFamilyRows();
-      const items = await handlers.listMedia("agt_test1", {
+      const items = await handlers.listFiles("agt_test1", {
         ownerAgentId: "agt_child",
       });
       expect(items).toEqual([
         {
           ownerAgentId: "agt_child",
           fileName: "shot.png",
-          // resolveMediaDir is mocked to a fixed path in this file; the call
+          // resolveFilesDir is mocked to a fixed path in this file; the call
           // below is what proves the child's own directory was requested.
-          filePath: "/tmp/media/agt_test1/shot.png",
+          filePath: "/tmp/files/agt_test1/shot.png",
           source: "screenshot",
           description: "the shot",
           sizeBytes: 10,
           createdAt: "2026-01-01T00:00:00.000Z",
         },
       ]);
-      expect(resolveMediaDir).toHaveBeenLastCalledWith(
+      expect(resolveFilesDir).toHaveBeenLastCalledWith(
         "agt_child",
-        "/custom/child-media",
-        "/tmp/media"
+        "/custom/child-files",
+        "/tmp/files"
       );
-      const mediaCall = deps.pool.query.mock.calls.find(([sql]: [string]) =>
-        sql.includes("FROM media")
+      const filesCall = deps.pool.query.mock.calls.find(([sql]: [string]) =>
+        sql.includes("FROM files")
       );
-      expect(mediaCall?.[1]).toEqual(["agt_child"]);
+      expect(filesCall?.[1]).toEqual(["agt_child"]);
     });
 
-    it("defaults to the caller's own media directory", async () => {
+    it("defaults to the caller's own files directory", async () => {
       mockFamilyRows();
-      const items = await handlers.listMedia("agt_test1", {});
+      const items = await handlers.listFiles("agt_test1", {});
       expect(items[0]).toMatchObject({
         ownerAgentId: "agt_test1",
-        filePath: "/tmp/media/agt_test1/shot.png",
+        filePath: "/tmp/files/agt_test1/shot.png",
       });
-      expect(resolveMediaDir).toHaveBeenLastCalledWith(
+      expect(resolveFilesDir).toHaveBeenLastCalledWith(
         "agt_test1",
         null,
-        "/tmp/media"
+        "/tmp/files"
       );
     });
 
     it("refuses an unrelated owner", async () => {
       mockFamilyRows();
       await expect(
-        handlers.listMedia("agt_test1", { ownerAgentId: "agt_stranger" })
+        handlers.listFiles("agt_test1", { ownerAgentId: "agt_stranger" })
       ).rejects.toThrow("Agent not found.");
     });
   });
 
-  describe("deleteMedia", () => {
-    it("removes the file, media record, seen records, and publishes an update", async () => {
+  describe("deleteFile", () => {
+    it("removes the file, file record, seen records, and publishes an update", async () => {
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "shot.png" }],
       });
-      await handlers.deleteMedia("agt_test1", "shot.png");
+      await handlers.deleteFile("agt_test1", "shot.png");
 
       const { unlink } = await import("node:fs/promises");
-      expect(unlink).toHaveBeenCalledWith("/tmp/media/agt_test1/shot.png");
+      expect(unlink).toHaveBeenCalledWith("/tmp/files/agt_test1/shot.png");
       expect(deps.pool.query).toHaveBeenNthCalledWith(
         2,
-        "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
+        "DELETE FROM files WHERE agent_id = $1 AND file_name = $2",
         ["agt_test1", "shot.png"]
       );
       expect(deps.publishUiEvent).toHaveBeenCalledWith({
-        type: "media.changed",
+        type: "files.changed",
         agentId: "agt_test1",
       });
     });
@@ -857,16 +439,20 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("launchPersona", () => {
-    it("launches a persona agent without creating a review yet", async () => {
-      const result = await handlers.launchPersona("agt_test1", {
+  describe("launchPersonaAgent", () => {
+    it("launches a persona child in the parent's worktree and stream, detached", async () => {
+      const result = await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review this PR",
       });
       expect(result).toHaveProperty("agentId", "agt_new1");
       expect(result).toHaveProperty("persona", "security");
-      expect(result).toHaveProperty("parentAgentId", "agt_test1");
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      // The launcher's request returns as soon as the row exists; the
+      // workspace and engine start run on.
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[1]).toEqual({
+        detachLaunch: true,
+      });
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           persona: "security",
           parentAgentId: "agt_test1",
@@ -874,12 +460,32 @@ describe("createMcpHandlers", () => {
           // from parentAgentId.
           launchedByAgentId: "agt_test1",
           type: "claude",
-          role: "review",
+          useWorktree: false,
         })
       );
     });
 
-    it("refuses a persona review launched from a child agent", async () => {
+    it("keeps task content out of protected guidance and reports file-backed overflow", async () => {
+      const context = "Persona rule\n".repeat(6000) + "FINAL RULE";
+      vi.mocked(assemblePersonaPrompt).mockReturnValueOnce(context);
+      const result = await handlers.launchPersonaAgent("agt_test1", {
+        persona: "security",
+        context: "Review",
+      });
+      const input = deps.agentManager.createAgent.mock.calls.at(-1)?.[0];
+      expect(input.agentArgs).toEqual(
+        expect.arrayContaining([
+          "--append-system-prompt",
+          "protected-review-guidance",
+          "--dispatch-persona-context",
+          context,
+        ])
+      );
+      expect(input.initialPrompt).not.toContain(context);
+      expect(result.warnings?.[0]).toContain("No content is trimmed");
+    });
+
+    it("refuses a persona launched from a child agent", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_child",
         name: "child-agent",
@@ -891,15 +497,15 @@ describe("createMcpHandlers", () => {
       } as any);
 
       await expect(
-        handlers.launchPersona("agt_child", {
+        handlers.launchPersonaAgent("agt_child", {
           persona: "security",
           context: "review this PR",
         })
-      ).rejects.toThrow("cannot launch persona reviews");
+      ).rejects.toThrow("cannot launch persona agents");
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
-    it("passes the Cursor runtime to persona prompt assembly for Cursor review agents", async () => {
+    it("keeps engine selection separate from persona context assembly", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",
         name: "test",
@@ -913,18 +519,16 @@ describe("createMcpHandlers", () => {
         status: "running",
       });
 
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review this PR",
       });
 
       expect(assemblePersonaPrompt).toHaveBeenCalledWith(
         expect.anything(),
-        "review this PR",
-        expect.anything(),
-        expect.objectContaining({ agentType: "cursor" })
+        "review this PR"
       );
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "cursor" })
       );
     });
@@ -932,7 +536,7 @@ describe("createMcpHandlers", () => {
     it("throws when parent not found", async () => {
       deps.agentManager.getAgent.mockResolvedValue(null);
       await expect(
-        handlers.launchPersona("agt_missing", {
+        handlers.launchPersonaAgent("agt_missing", {
           persona: "security",
           context: "review",
         })
@@ -942,7 +546,7 @@ describe("createMcpHandlers", () => {
     it("throws when persona not found", async () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValue(null);
       await expect(
-        handlers.launchPersona("agt_test1", {
+        handlers.launchPersonaAgent("agt_test1", {
           persona: "unknown",
           context: "review",
         })
@@ -952,7 +556,7 @@ describe("createMcpHandlers", () => {
     it("falls back to the built-in reviewer when no repo file defines it", async () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValue(null);
 
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: GENERIC_REVIEW_PERSONA_SLUG,
         context: "review",
       });
@@ -962,11 +566,9 @@ describe("createMcpHandlers", () => {
           slug: GENERIC_REVIEW_PERSONA_SLUG,
           name: "General Code Review",
         }),
-        "review",
-        expect.anything(),
-        expect.anything()
+        "review"
       );
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ persona: GENERIC_REVIEW_PERSONA_SLUG })
       );
     });
@@ -974,7 +576,7 @@ describe("createMcpHandlers", () => {
     it("throws when agent type is disabled", async () => {
       vi.mocked(getEnabledAgentTypes).mockResolvedValue([]);
       await expect(
-        handlers.launchPersona("agt_test1", {
+        handlers.launchPersonaAgent("agt_test1", {
           persona: "security",
           context: "review",
         })
@@ -1004,11 +606,11 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           agentArgs: expect.arrayContaining(["--dangerously-skip-permissions"]),
         })
@@ -1038,11 +640,11 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           agentArgs: expect.arrayContaining([
             "--dangerously-bypass-approvals-and-sandbox",
@@ -1074,7 +676,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
@@ -1084,20 +686,18 @@ describe("createMcpHandlers", () => {
       expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     });
 
-    it("skips diff when includeDiff is false", async () => {
-      const { buildPersonaReviewDiff } =
-        await import("../src/personas/review-diff.js");
-      await handlers.launchPersona("agt_test1", {
+    it("does not resolve a diff base for ordinary persona reviews", async () => {
+      const { resolveBaseRef, refreshRemoteBaseRef } =
+        await import("../src/shared/git/base-ref.js");
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
-        context: "review",
-        includeDiff: false,
+        context: "Review the supplied document",
       });
-      expect(buildPersonaReviewDiff).not.toHaveBeenCalled();
+      expect(resolveBaseRef).not.toHaveBeenCalled();
+      expect(refreshRemoteBaseRef).not.toHaveBeenCalled();
       expect(assemblePersonaPrompt).toHaveBeenCalledWith(
         expect.anything(),
-        "review",
-        null,
-        expect.objectContaining({ includeDiff: false })
+        "Review the supplied document"
       );
     });
 
@@ -1114,11 +714,11 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "codex" })
       );
     });
@@ -1136,12 +736,12 @@ describe("createMcpHandlers", () => {
         reviewAgentType: "claude",
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
         agentType: "codex",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "codex" })
       );
     });
@@ -1159,11 +759,11 @@ describe("createMcpHandlers", () => {
         reviewAgentType: "codex",
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "codex" })
       );
     });
@@ -1181,11 +781,11 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           cwd: "/repo/.dispatch/worktrees/abc",
         })
@@ -1293,7 +893,7 @@ describe("createMcpHandlers", () => {
       );
     });
 
-    it("wraps the child's whole prompt, launch header included, in the Chat envelope", async () => {
+    it("wraps the child's whole prompt, launch header included, in the POST envelope", async () => {
       await handlers.launchAgent("agt_test1", {
         name: "worker",
         prompt: "Investigate the flaky test.",
@@ -1309,14 +909,14 @@ describe("createMcpHandlers", () => {
           initialPrompt: created.initialPrompt,
           chatLaunchPost: { messageId: "post-1", attachmentLines: [] },
         },
-        { chatSurface: true }
+        {}
       );
       expect(turn).toBe(
         [
-          "--- DISPATCH CHAT (id: post-1) ---",
+          "--- DISPATCH POST (id: post-1, from: user) ---",
           created.initialPrompt,
-          "--- END DISPATCH CHAT ---",
-          'The user only sees Chat — reply with dispatch_chat_post (replyTo: "post-1").',
+          "--- END DISPATCH POST ---",
+          `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "post-1", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
         ].join("\n")
       );
       expect(turn).toContain('You were launched by Dispatch agent "agt_test1"');
@@ -2068,435 +1668,6 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("sendMessage", () => {
-    it("delivers message to matching running agent", async () => {
-      const target = {
-        id: "agt_target1",
-        name: "target-agent",
-        cwd: "/repo",
-        status: "running",
-      };
-      deps.agentManager.listAgents.mockResolvedValue([
-        { id: "agt_test1", name: "sender", cwd: "/repo", status: "running" },
-        target,
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-
-      const result = await handlers.sendMessage("agt_test1", {
-        target: "target-agent",
-        message: "hello",
-        senderRepoRoot: "/repo",
-      });
-      expect(result.delivered).toBe(true);
-      expect(result.targetAgentId).toBe("agt_target1");
-      expect(deps.enqueueAgentPrompt).toHaveBeenCalledWith(
-        "agt_target1",
-        `--- DISPATCH MESSAGE ---\n${JSON.stringify({
-          from: "test-agent",
-          senderId: "agt_test1",
-          senderRelation: "unrelated",
-          message: "hello",
-          replyTarget: "agt_test1",
-        })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`
-      );
-      expect(deps.enqueueAgentPrompt).not.toHaveBeenCalledWith(
-        "agt_target1",
-        expect.stringContaining(
-          "Reply with dispatch_send_message using the replyTarget above."
-        )
-      );
-      // The handler returns once the prompt is queued; it never waits on
-      // the (possibly gated) pane write.
-      expect(deps.sendAgentPrompt).not.toHaveBeenCalled();
-    });
-
-    it("surfaces the delegation chain when the sender is a grandchild", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_researcher",
-        name: "researcher",
-        cwd: "/repo",
-        status: "running",
-        parentAgentId: "agt_planner",
-      } as any);
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_orchestrator",
-          name: "orchestrator",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: null,
-        },
-        {
-          id: "agt_planner",
-          name: "planner",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: "agt_orchestrator",
-        },
-        {
-          id: "agt_researcher",
-          name: "researcher",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: "agt_planner",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-
-      await handlers.sendMessage("agt_researcher", {
-        target: "agt_orchestrator",
-        message: "hello",
-        senderRepoRoot: "/repo",
-      });
-
-      const prompt = deps.enqueueAgentPrompt.mock.calls[0][1] as string;
-      const envelope = JSON.parse(
-        prompt.slice(
-          prompt.indexOf("\n") + 1,
-          prompt.indexOf("\n--- END MESSAGE ---")
-        )
-      );
-      expect(envelope.senderRelation).toBe("descendant");
-      expect(envelope.delegationChain).toEqual([
-        "researcher (agt_researcher)",
-        "planner (agt_planner)",
-        "orchestrator (agt_orchestrator)",
-      ]);
-      expect(prompt).toContain(
-        "Provenance: researcher is not your direct child — delegation chain: " +
-          "researcher (agt_researcher) -> planner (agt_planner) -> orchestrator (agt_orchestrator, you)."
-      );
-    });
-
-    it("marks a direct child as a child and adds no provenance line", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_child",
-        name: "child",
-        cwd: "/repo",
-        status: "running",
-        parentAgentId: "agt_parent",
-      } as any);
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_parent",
-          name: "parent",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: null,
-        },
-        {
-          id: "agt_child",
-          name: "child",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: "agt_parent",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-
-      await handlers.sendMessage("agt_child", {
-        target: "agt_parent",
-        message: "done",
-        senderRepoRoot: "/repo",
-      });
-
-      const prompt = deps.enqueueAgentPrompt.mock.calls[0][1] as string;
-      expect(prompt).toContain('"senderRelation":"child"');
-      // The chain is [child, parent] and the recipient is the parent, so it adds
-      // nothing the recipient did not already know.
-      expect(prompt).not.toContain("Provenance:");
-    });
-
-    it("still reports the sender's own tree when the recipient is unrelated", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_child",
-        name: "child",
-        cwd: "/repo",
-        status: "running",
-        parentAgentId: "agt_parent",
-      } as any);
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_parent",
-          name: "parent",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: null,
-        },
-        {
-          id: "agt_child",
-          name: "child",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: "agt_parent",
-        },
-        {
-          id: "agt_stranger",
-          name: "stranger",
-          cwd: "/repo",
-          status: "running",
-          parentAgentId: null,
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-
-      await handlers.sendMessage("agt_child", {
-        target: "agt_stranger",
-        message: "fyi",
-        senderRepoRoot: "/repo",
-      });
-
-      const prompt = deps.enqueueAgentPrompt.mock.calls[0][1] as string;
-      expect(prompt).toContain('"senderRelation":"unrelated"');
-      expect(prompt).toContain(
-        "Provenance: child (agt_child) -> parent (agt_parent)."
-      );
-    });
-
-    it("throws when sender not found", async () => {
-      deps.agentManager.getAgent.mockResolvedValue(null);
-      await expect(
-        handlers.sendMessage("agt_test1", {
-          target: "agt_other",
-          message: "hello",
-          senderRepoRoot: "/repo",
-        })
-      ).rejects.toThrow("Sender agent not found.");
-    });
-
-    it("returns no match when senderRepoRoot is null and no parent/child", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_test1",
-          name: "sender",
-          cwd: "/repo-a",
-          status: "running",
-          parentAgentId: null,
-        },
-        {
-          id: "agt_other",
-          name: "other",
-          cwd: "/repo-b",
-          status: "running",
-          parentAgentId: null,
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      await expect(
-        handlers.sendMessage("agt_test1", {
-          target: "agt_other",
-          message: "hello",
-          senderRepoRoot: null,
-        })
-      ).rejects.toThrow('No agent found matching "agt_other"');
-    });
-
-    it("throws when target agent is not running", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        { id: "agt_test1", name: "sender", cwd: "/repo", status: "running" },
-        {
-          id: "agt_target1",
-          name: "target",
-          cwd: "/repo",
-          status: "stopped",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-      await expect(
-        handlers.sendMessage("agt_test1", {
-          target: "agt_target1",
-          message: "hi",
-          senderRepoRoot: "/repo",
-        })
-      ).rejects.toThrow("is stopped, not running");
-    });
-
-    it("throws when multiple agents match by name", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        { id: "agt_test1", name: "sender", cwd: "/repo", status: "running" },
-        { id: "agt_a", name: "worker-1", cwd: "/repo", status: "running" },
-        { id: "agt_b", name: "worker-2", cwd: "/repo", status: "running" },
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-      await expect(
-        handlers.sendMessage("agt_test1", {
-          target: "worker",
-          message: "hi",
-          senderRepoRoot: "/repo",
-        })
-      ).rejects.toThrow("Multiple agents match");
-    });
-
-    it("throws when no agent matches", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        { id: "agt_test1", name: "sender", cwd: "/repo", status: "running" },
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-      await expect(
-        handlers.sendMessage("agt_test1", {
-          target: "nonexistent",
-          message: "hi",
-          senderRepoRoot: "/repo",
-        })
-      ).rejects.toThrow('No agent found matching "nonexistent"');
-    });
-
-    it("finds agent by ID when target starts with agt_", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        { id: "agt_test1", name: "sender", cwd: "/repo", status: "running" },
-        {
-          id: "agt_target1",
-          name: "target",
-          cwd: "/repo",
-          status: "running",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
-      const result = await handlers.sendMessage("agt_test1", {
-        target: "agt_target1",
-        message: "hello",
-        senderRepoRoot: "/repo",
-      });
-      expect(result.targetAgentId).toBe("agt_target1");
-    });
-
-    it("excludes agents from different repos", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        { id: "agt_test1", name: "sender", cwd: "/repo-a", status: "running" },
-        {
-          id: "agt_other",
-          name: "other",
-          cwd: "/repo-b",
-          status: "running",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      await expect(
-        handlers.sendMessage("agt_test1", {
-          target: "other",
-          message: "hi",
-          senderRepoRoot: "/repo-a",
-        })
-      ).rejects.toThrow('No agent found matching "other"');
-    });
-
-    it("delivers to child agent in a different repo", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_parent",
-          name: "parent",
-          cwd: "/repo-a",
-          status: "running",
-          parentAgentId: null,
-        },
-        {
-          id: "agt_child",
-          name: "child",
-          cwd: "/repo-b",
-          status: "running",
-          parentAgentId: "agt_parent",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      const result = await handlers.sendMessage("agt_parent", {
-        target: "agt_child",
-        message: "hi child",
-        senderRepoRoot: "/repo-a",
-      });
-      expect(result.delivered).toBe(true);
-      expect(result.targetAgentId).toBe("agt_child");
-    });
-
-    it("delivers to parent agent in a different repo", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_parent",
-          name: "parent",
-          cwd: "/repo-a",
-          status: "running",
-          parentAgentId: null,
-        },
-        {
-          id: "agt_child",
-          name: "child",
-          cwd: "/repo-b",
-          status: "running",
-          parentAgentId: "agt_parent",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      const result = await handlers.sendMessage("agt_child", {
-        target: "agt_parent",
-        message: "hi parent",
-        senderRepoRoot: "/repo-b",
-      });
-      expect(result.delivered).toBe(true);
-      expect(result.targetAgentId).toBe("agt_parent");
-    });
-
-    it("delivers to child agent even when senderRepoRoot is null", async () => {
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_parent",
-          name: "parent",
-          cwd: "/not-a-repo",
-          status: "running",
-          parentAgentId: null,
-        },
-        {
-          id: "agt_child",
-          name: "child",
-          cwd: "/repo-b",
-          status: "running",
-          parentAgentId: "agt_parent",
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      const result = await handlers.sendMessage("agt_parent", {
-        target: "agt_child",
-        message: "hi",
-        senderRepoRoot: null,
-      });
-      expect(result.delivered).toBe(true);
-      expect(result.targetAgentId).toBe("agt_child");
-    });
-
-    it("delivers cross-repo when the cross-repo messaging setting is enabled", async () => {
-      // getSetting(cross_repo_messaging_enabled) -> "true"
-      deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_test1",
-          name: "sender",
-          cwd: "/repo-a",
-          status: "running",
-        },
-        { id: "agt_other", name: "other", cwd: "/repo-b", status: "running" },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      // senderRepoRoot null is tolerated once cross-repo messaging is on.
-      const result = await handlers.sendMessage("agt_test1", {
-        target: "other",
-        message: "hi",
-        senderRepoRoot: null,
-      });
-      expect(result.delivered).toBe(true);
-      expect(result.targetAgentId).toBe("agt_other");
-    });
-  });
-
   describe("listAgentsForAgent", () => {
     it("returns agents in the same repo, excluding self", async () => {
       deps.agentManager.listAgents.mockResolvedValue([
@@ -2505,21 +1676,18 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo",
           status: "running",
-          latestEvent: { type: "working", message: "busy" },
         },
         {
           id: "agt_peer",
           name: "peer",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
         },
         {
           id: "agt_other",
           name: "other",
           cwd: "/other-repo",
           status: "running",
-          latestEvent: null,
         },
       ]);
       vi.mocked(resolveRepoRoot).mockImplementation(
@@ -2532,7 +1700,6 @@ describe("createMcpHandlers", () => {
         id: "agt_peer",
         name: "peer",
         status: "running",
-        latestEvent: null,
         parentAgentId: null,
         parentName: null,
         relation: "unrelated",
@@ -2546,14 +1713,12 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
         },
         {
           id: "agt_other",
           name: "other",
           cwd: "/other-repo",
           status: "running",
-          latestEvent: null,
         },
       ]);
       vi.mocked(resolveRepoRoot).mockImplementation(
@@ -2570,7 +1735,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2578,7 +1743,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
         {
@@ -2586,7 +1751,7 @@ describe("createMcpHandlers", () => {
           name: "unrelated",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
       ]);
@@ -2605,7 +1770,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2613,7 +1778,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);
@@ -2632,7 +1797,7 @@ describe("createMcpHandlers", () => {
           name: "grandparent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2640,7 +1805,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_grandparent",
         },
         {
@@ -2648,7 +1813,7 @@ describe("createMcpHandlers", () => {
           name: "grandchild",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);
@@ -2671,7 +1836,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/not-a-repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2679,7 +1844,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);
@@ -2691,33 +1856,6 @@ describe("createMcpHandlers", () => {
       expect(result.map((a) => a.id)).toEqual(["agt_child"]);
     });
 
-    it("lists agents across repos when the cross-repo messaging setting is enabled", async () => {
-      // getSetting(cross_repo_messaging_enabled) -> "true"
-      deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_self",
-          name: "self",
-          cwd: "/repo",
-          status: "running",
-          latestEvent: null,
-        },
-        {
-          id: "agt_other",
-          name: "other",
-          cwd: "/other-repo",
-          status: "running",
-          latestEvent: null,
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      // senderRepoRoot null is tolerated once cross-repo messaging is on.
-      const result = await handlers.listAgentsForAgent("agt_self", null);
-      expect(result.map((a) => a.id)).toEqual(["agt_other"]);
-    });
-
     it("labels each agent's lineage relative to the caller", async () => {
       deps.agentManager.listAgents.mockResolvedValue([
         {
@@ -2725,7 +1863,7 @@ describe("createMcpHandlers", () => {
           name: "orchestrator",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2733,7 +1871,7 @@ describe("createMcpHandlers", () => {
           name: "planner",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_self",
         },
         {
@@ -2741,7 +1879,7 @@ describe("createMcpHandlers", () => {
           name: "researcher",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_planner",
         },
         {
@@ -2749,7 +1887,7 @@ describe("createMcpHandlers", () => {
           name: "stranger",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
       ]);
@@ -2774,7 +1912,7 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2782,7 +1920,7 @@ describe("createMcpHandlers", () => {
           name: "hidden-parent",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2790,7 +1928,7 @@ describe("createMcpHandlers", () => {
           name: "peer",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_hidden",
         },
       ]);
@@ -2813,7 +1951,7 @@ describe("createMcpHandlers", () => {
           name: "orchestrator",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2821,7 +1959,7 @@ describe("createMcpHandlers", () => {
           name: "planner",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_self",
         },
         {
@@ -2831,7 +1969,7 @@ describe("createMcpHandlers", () => {
           name: "subplanner",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_planner",
         },
         {
@@ -2839,7 +1977,7 @@ describe("createMcpHandlers", () => {
           name: "researcher",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_subplanner",
         },
       ]);
@@ -2865,7 +2003,7 @@ describe("createMcpHandlers", () => {
           name: "orchestrator",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2873,7 +2011,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_self",
         },
       ]);
@@ -2895,7 +2033,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2903,7 +2041,7 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
         {
@@ -2911,7 +2049,7 @@ describe("createMcpHandlers", () => {
           name: "sibling",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);
@@ -2927,11 +2065,11 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("shareMedia", () => {
-    it("rejects unsupported file types", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(false);
+  describe("shareFile", () => {
+    it("rejects contents that are no type Dispatch stores", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(BINARY_BYTES);
       await expect(
-        handlers.shareMedia("agt_test1", {
+        handlers.shareFile("agt_test1", {
           filePath: "/tmp/file.exe",
           description: "binary",
         })
@@ -2941,16 +2079,26 @@ describe("createMcpHandlers", () => {
     it("throws when agent not found", async () => {
       deps.agentManager.getAgent.mockResolvedValue(null);
       await expect(
-        handlers.shareMedia("agt_missing", {
+        handlers.shareFile("agt_missing", {
           filePath: "/tmp/shot.png",
           description: "screenshot",
         })
       ).rejects.toThrow("Agent not found.");
     });
 
-    it("creates new media entry and publishes event", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
-      const result = await handlers.shareMedia("agt_test1", {
+    it("rejects a name that promises a type its contents are not", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("not an image"));
+      await expect(
+        handlers.shareFile("agt_test1", {
+          filePath: "/tmp/shot.png",
+          description: "screenshot",
+        })
+      ).rejects.toThrow("shot.png isn't a PNG image");
+    });
+
+    it("creates new file entry, typed from its bytes, and publishes event", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/shot.png",
         description: "a screenshot",
       });
@@ -2958,27 +2106,30 @@ describe("createMcpHandlers", () => {
       expect(result).toHaveProperty("sizeBytes");
       expect(result.source).toBe("screenshot");
       expect(result.description).toBe("a screenshot");
+      expect(deps.pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("mime_type"),
+        expect.arrayContaining(["image/png"])
+      );
       expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "media.changed", agentId: "agt_test1" })
+        expect.objectContaining({ type: "files.changed", agentId: "agt_test1" })
       );
     });
 
     it("uses text source for text files", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
-      vi.mocked(isTextFile).mockReturnValue(true);
-      const result = await handlers.shareMedia("agt_test1", {
+      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("# Notes"));
+      const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/notes.md",
         description: "notes",
       });
       expect(result.source).toBe("text");
     });
 
-    it("updates existing media when update option is provided", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
+    it("updates existing file when update option is provided", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "existing.png" }],
       });
-      const result = await handlers.shareMedia("agt_test1", {
+      const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/shot.png",
         description: "updated",
         update: "existing.png",
@@ -2991,115 +2142,22 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when update target not found", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
+      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(
-        handlers.shareMedia("agt_test1", {
+        handlers.shareFile("agt_test1", {
           filePath: "/tmp/shot.png",
           description: "updated",
           update: "missing.png",
         })
-      ).rejects.toThrow("No media file found");
+      ).rejects.toThrow("No file found");
     });
   });
 
-  describe("resolveReviewFeedback", () => {
-    it("resolves item and publishes both feedback and review events", async () => {
-      const result = await handlers.resolveReviewFeedback(
-        "agt_test1",
-        10,
-        "fixed",
-        { note: "addressed in latest commit" }
-      );
-      expect(result.item.id).toBe(10);
-      expect(result.reviewStatus).toBe("partially_resolved");
-      expect(resolveReviewFeedbackItem).toHaveBeenCalledWith(
-        deps.pool,
-        10,
-        "agt_test1",
-        "fixed",
-        {
-          authorType: "agent",
-          note: "addressed in latest commit",
-          resolverRole: "assignee",
-          resolvedBy: "agt_test1",
-        }
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalledWith({
-        type: "review_feedback.updated",
-        agentId: "agt_test1",
-        feedbackItemId: 10,
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: "review.updated",
-          agentId: "agt_test1",
-          reviewId: 5,
-          status: "partially_resolved",
-        })
-      );
-    });
-
-    it("throws when item not found", async () => {
-      vi.mocked(resolveReviewFeedbackItem).mockResolvedValueOnce(null);
-      await expect(
-        handlers.resolveReviewFeedback("agt_test1", 99, "fixed")
-      ).rejects.toThrow("Review feedback item #99 not found");
-    });
-
-    it("defaults note to null when omitted", async () => {
-      await handlers.resolveReviewFeedback("agt_test1", 10, "ignored");
-      expect(resolveReviewFeedbackItem).toHaveBeenCalledWith(
-        deps.pool,
-        10,
-        "agt_test1",
-        "ignored",
-        {
-          authorType: "agent",
-          note: null,
-          resolverRole: "assignee",
-          resolvedBy: "agt_test1",
-        }
-      );
-    });
-  });
-
-  describe("addReviewThreadMessage", () => {
-    it("adds message and publishes feedback event", async () => {
-      const result = await handlers.addReviewThreadMessage(
-        "agt_test1",
-        10,
-        "I fixed this"
-      );
-      expect(result.message.id).toBe(20);
-      expect(result.reviewId).toBe(5);
-      expect(addThreadMessage).toHaveBeenCalledWith(
-        deps.pool,
-        10,
-        "agt_test1",
-        "agent",
-        "I fixed this",
-        "agt_test1"
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalledWith({
-        type: "review_feedback.updated",
-        agentId: "agt_test1",
-        feedbackItemId: 10,
-      });
-    });
-
-    it("throws when item not found", async () => {
-      vi.mocked(addThreadMessage).mockResolvedValueOnce(null);
-      await expect(
-        handlers.addReviewThreadMessage("agt_test1", 99, "hello")
-      ).rejects.toThrow("Review feedback item #99 not found");
-    });
-  });
-
-  describe("listMedia (own)", () => {
-    it("returns media for agent", async () => {
+  describe("listFiles (own)", () => {
+    it("returns files for agent", async () => {
       mockFamilyRows();
-      const result = await handlers.listMedia("agt_test1", {});
+      const result = await handlers.listFiles("agt_test1", {});
       expect(result).toHaveLength(1);
       expect(result[0].fileName).toBe("shot.png");
       expect(result[0].sizeBytes).toBe(10);
@@ -3107,14 +2165,14 @@ describe("createMcpHandlers", () => {
 
     it("throws when agent not found", async () => {
       mockFamilyRows();
-      await expect(handlers.listMedia("agt_missing", {})).rejects.toThrow(
+      await expect(handlers.listFiles("agt_missing", {})).rejects.toThrow(
         "Agent not found."
       );
     });
 
     it("filters by source when provided", async () => {
       mockFamilyRows();
-      await handlers.listMedia("agt_test1", { source: "screenshot" });
+      await handlers.listFiles("agt_test1", { source: "screenshot" });
       expect(deps.pool.query).toHaveBeenCalledWith(
         expect.stringContaining("source = $2"),
         ["agt_test1", "screenshot"]
@@ -3123,7 +2181,7 @@ describe("createMcpHandlers", () => {
 
     it("omits source filter when not provided", async () => {
       mockFamilyRows();
-      await handlers.listMedia("agt_test1", {});
+      await handlers.listFiles("agt_test1", {});
       expect(deps.pool.query).toHaveBeenCalledWith(
         expect.not.stringContaining("source = $2"),
         ["agt_test1"]

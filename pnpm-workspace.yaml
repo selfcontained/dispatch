@@ -10,3 +10,6 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+patchedDependencies:
+  "@agentclientprotocol/claude-agent-acp@0.84.0": patches/@agentclientprotocol__claude-agent-acp@0.84.0.patch
+  "@agentclientprotocol/codex-acp@2.0.1": patches/@agentclientprotocol__codex-acp@2.0.1.patch

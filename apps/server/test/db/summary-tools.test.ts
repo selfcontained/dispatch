@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   describe,
   it,
@@ -38,13 +39,12 @@ const testConfig = {
   port: 6767,
   databaseUrl: "",
   authToken: "test-token",
-  mediaRoot: "/tmp/dispatch-test-media",
+  filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp",
   codexBin: "echo",
   claudeBin: "echo",
   opencodeBin: "echo",
   agentRuntime: "inert",
-  sessionPrefix: "dispatch",
   tls: null,
 } satisfies import("../../src/config.js").AppConfig;
 
@@ -62,12 +62,9 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pool.query("DELETE FROM agent_token_usage");
-  await pool.query("DELETE FROM review_thread_messages");
-  await pool.query("DELETE FROM review_feedback_items");
-  await pool.query("DELETE FROM reviews");
-  await pool.query("DELETE FROM agent_events");
-  await pool.query("DELETE FROM media_seen");
-  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM blocks");
+  await pool.query("DELETE FROM files_seen");
+  await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
 });
 
@@ -81,7 +78,6 @@ async function insertAgent(
     cwd?: string;
     persona?: string | null;
     parentAgentId?: string | null;
-    latestEventType?: string | null;
     createdAt?: Date;
     gitContext?: object | null;
   } = {}
@@ -89,8 +85,8 @@ async function insertAgent(
   const now = opts.createdAt ?? new Date();
   await pool.query(
     `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id,
-      latest_event_type, latest_event_message, created_at, updated_at, git_context, pins)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, '[]'::jsonb)`,
+      created_at, updated_at, git_context)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)`,
     [
       id,
       opts.name ?? id,
@@ -99,125 +95,127 @@ async function insertAgent(
       opts.cwd ?? "/projects/test",
       opts.persona ?? null,
       opts.parentAgentId ?? null,
-      opts.latestEventType ?? "done",
-      opts.latestEventType ? `Agent ${opts.latestEventType}` : null,
       now,
       opts.gitContext ? JSON.stringify(opts.gitContext) : null,
     ]
   );
 }
 
-async function insertEvent(
-  agentId: string,
-  eventType: string,
-  createdAt: Date,
-  opts: { projectDir?: string } = {}
-): Promise<void> {
-  await pool.query(
-    `INSERT INTO agent_events (agent_id, event_type, message, created_at, project_dir)
-     VALUES ($1, $2, $3, $4, $5)`,
+/** A `review` block by the reviewer, addressed to its parent; its findings are shown blocks. */
+async function insertReviewBlock(
+  reviewerAgentId: string,
+  opts: { summary?: string; createdAt?: Date } = {}
+): Promise<string> {
+  const block = await pool.query<{ id: string }>(
+    `INSERT INTO blocks (
+       id, stream_id, author_kind, author_agent_id, to_agent_id, kind,
+       data, state, delivered, created_at, updated_at
+     )
+     SELECT gen_random_uuid(), parent_agent_id, 'agent', id, parent_agent_id,
+            'review', $2::jsonb, '{"blocks":[]}'::jsonb, true, $3, $3
+     FROM agents
+     WHERE id = $1
+     RETURNING id`,
     [
-      agentId,
-      eventType,
-      `Agent ${eventType}`,
-      createdAt,
-      opts.projectDir ?? "/projects/test",
+      reviewerAgentId,
+      JSON.stringify({ summary: opts.summary ?? "Needs work" }),
+      opts.createdAt ?? new Date(),
     ]
   );
+  return block.rows[0]!.id;
 }
 
-async function insertFeedback(
-  reviewerAgentId: string,
+/**
+ * A `finding` block in a review's thread, which the review shows. Statuses
+ * use the summary's vocabulary: open, fixed, dismissed/ignored.
+ */
+async function insertFinding(
+  reviewId: string,
   opts: {
-    severity?: string;
+    severity?: "blocker" | "major" | "minor" | "nit";
     filePath?: string | null;
     description?: string;
     status?: string;
     createdAt?: Date;
   } = {}
 ): Promise<void> {
-  let reviewResult = await pool.query<{ id: number }>(
-    `SELECT id FROM reviews
-     WHERE reviewer_type = 'agent' AND reviewer_agent_id = $1`,
-    [reviewerAgentId]
-  );
-  if (!reviewResult.rows[0]) {
-    reviewResult = await pool.query<{ id: number }>(
-      `INSERT INTO reviews (
-         agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, status,
-         created_at, updated_at
-       )
-       SELECT parent_agent_id, parent_agent_id, 'agent', id, 'open', $2, $2
-       FROM agents
-       WHERE id = $1
-       RETURNING id`,
-      [reviewerAgentId, opts.createdAt ?? new Date()]
-    );
-  }
-  const status = opts.status ?? "open";
-  const resolution =
-    status === "fixed"
-      ? "fixed"
-      : status === "ignored" || status === "dismissed"
-        ? "dismissed"
-        : null;
-  const itemResult = await pool.query<{ id: number }>(
-    `INSERT INTO review_feedback_items (
-       review_id, file_path, status, resolution, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $5)
-     RETURNING id`,
+  const finding = {
+    severity: opts.severity ?? "minor",
+    title: opts.description ?? "Test finding",
+    body: opts.description ?? "Test finding",
+    ...(opts.filePath ? { path: opts.filePath } : {}),
+  };
+  const record =
+    opts.status === "fixed"
+      ? { status: "resolved", resolution: "fixed" }
+      : opts.status === "dismissed" || opts.status === "ignored"
+        ? { status: "resolved", resolution: "dismissed" }
+        : { status: "open" };
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO blocks (
+       id, stream_id, author_kind, author_agent_id, to_agent_id, kind,
+       thread_id, reply_to, data, state, delivered, created_at, updated_at
+     )
+     SELECT $1, r.stream_id, r.author_kind, r.author_agent_id, r.to_agent_id,
+            'finding', r.id, r.id, $3::jsonb, $4::jsonb, true, $5, $5
+       FROM blocks r WHERE r.id = $2`,
     [
-      reviewResult.rows[0]!.id,
-      opts.filePath ?? null,
-      resolution ? "resolved" : "open",
-      resolution,
+      id,
+      reviewId,
+      JSON.stringify(finding),
+      JSON.stringify({
+        ...record,
+        by: { kind: "user" },
+        at: new Date().toISOString(),
+      }),
       opts.createdAt ?? new Date(),
     ]
   );
   await pool.query(
-    `INSERT INTO review_thread_messages (
-       feedback_item_id, author_type, author_agent_id, content, created_at
-     ) VALUES ($1, 'agent', $2, $3, $4)`,
-    [
-      itemResult.rows[0]!.id,
-      reviewerAgentId,
-      JSON.stringify({ body: opts.description ?? "Test finding" }),
-      opts.createdAt ?? new Date(),
-    ]
+    `UPDATE blocks
+        SET state = jsonb_set(state, '{blocks}', state->'blocks' || to_jsonb($2::text))
+      WHERE id = $1`,
+    [reviewId, id]
   );
 }
 
+/**
+ * A finding on the reviewer's review, which is created on first use (one
+ * review per reviewer, addressed to its parent).
+ */
+async function insertFeedback(
+  reviewerAgentId: string,
+  opts: Parameters<typeof insertFinding>[1] = {}
+): Promise<void> {
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM blocks
+     WHERE kind = 'review' AND author_kind = 'agent' AND author_agent_id = $1`,
+    [reviewerAgentId]
+  );
+  const reviewId =
+    existing.rows[0]?.id ??
+    (await insertReviewBlock(reviewerAgentId, { createdAt: opts.createdAt }));
+  await insertFinding(reviewId, opts);
+}
+
+/**
+ * A reviewer's review with findings in the given states: where it stands
+ * (approved, changes requested) comes from them alone.
+ */
 async function insertReview(
   agentId: string,
-  parentAgentId: string,
   _persona: string,
-  opts: {
-    verdict?: string | null;
-    summary?: string | null;
-    status?: string;
-    createdAt?: Date;
-  } = {}
+  opts: { findings?: string[]; summary?: string; createdAt?: Date } = {}
 ): Promise<void> {
-  const result = await pool.query<{ id: number }>(
-    `INSERT INTO reviews (
-       agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id,
-       status, summary, created_at, updated_at
-     ) VALUES ($1, $1, 'agent', $2, $3, $4, $5, $5)
-     RETURNING id`,
-    [
-      parentAgentId,
-      agentId,
-      opts.verdict === "request_changes" ? "open" : "resolved",
-      opts.summary ?? "Looks good",
-      opts.createdAt ?? new Date(),
-    ]
-  );
-  if (opts.verdict === "request_changes") {
-    await pool.query(
-      `INSERT INTO review_feedback_items (review_id, status, created_at, updated_at)
-       VALUES ($1, 'open', $2, $2)`,
-      [result.rows[0]!.id, opts.createdAt ?? new Date()]
-    );
+  const reviewId = await insertReviewBlock(agentId, opts);
+  for (const status of opts.findings ?? []) {
+    await insertFinding(reviewId, {
+      severity: "major",
+      description: "Fix this",
+      status,
+      createdAt: opts.createdAt,
+    });
   }
 }
 
@@ -228,169 +226,6 @@ function daysAgo(days: number): Date {
 function hoursAgo(hours: number): Date {
   return new Date(Date.now() - hours * 3_600_000);
 }
-
-// ── getActivitySummary ──────────────────────────────────────────────
-
-describe("getActivitySummary", () => {
-  it("returns empty results when no data exists", async () => {
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-    });
-
-    expect(result.projects).toHaveLength(0);
-    expect(result.totals.totalWorkingMs).toBe(0);
-    expect(result.totals.agentCount).toBe(0);
-    expect(result.totals.sessionCount).toBe(0);
-    expect(result.topAgents).toHaveLength(0);
-  });
-
-  it("computes working time from event pairs", async () => {
-    await insertAgent("a1", { cwd: "/projects/test" });
-
-    // working for 1 hour, then done
-    const start = hoursAgo(3);
-    const afterOneHour = new Date(start.getTime() + 3_600_000);
-    await insertEvent("a1", "working", start);
-    await insertEvent("a1", "done", afterOneHour);
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(1),
-      end: new Date(),
-    });
-
-    expect(result.projects).toHaveLength(1);
-    expect(result.projects[0].directory).toBe("/projects/test");
-    // Working time should be ~1 hour (3600000ms)
-    expect(result.projects[0].totalWorkingMs).toBeGreaterThanOrEqual(3_500_000);
-    expect(result.projects[0].totalWorkingMs).toBeLessThanOrEqual(3_700_000);
-    expect(result.projects[0].agentCount).toBe(1);
-  });
-
-  it("groups by project and counts sessions/outcomes", async () => {
-    const gitA = { repoRoot: "/projects/alpha" };
-    const gitB = { repoRoot: "/projects/beta" };
-
-    const created = hoursAgo(2);
-    await insertAgent("a1", {
-      gitContext: gitA,
-      latestEventType: "done",
-      createdAt: created,
-    });
-    await insertAgent("a2", {
-      gitContext: gitA,
-      latestEventType: "done",
-      createdAt: created,
-    });
-    await insertAgent("a3", {
-      gitContext: gitB,
-      latestEventType: "blocked",
-      createdAt: created,
-    });
-    // error agent with no latest event — insert directly to avoid default
-    await pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, created_at, updated_at, git_context, pins)
-       VALUES ('a4', 'a4', 'claude', 'error', '/projects/test', $1, $1, $2, '[]'::jsonb)`,
-      [created, JSON.stringify(gitA)]
-    );
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-    });
-
-    expect(result.projects.length).toBeGreaterThanOrEqual(2);
-
-    const alpha = result.projects.find(
-      (p) => p.directory === "/projects/alpha"
-    );
-    const beta = result.projects.find((p) => p.directory === "/projects/beta");
-
-    expect(alpha).toBeDefined();
-    expect(alpha!.sessionCount).toBe(3);
-    expect(alpha!.outcomes.done).toBe(2);
-    expect(alpha!.outcomes.error).toBe(1);
-
-    expect(beta).toBeDefined();
-    expect(beta!.sessionCount).toBe(1);
-    expect(beta!.outcomes.blocked).toBe(1);
-  });
-
-  it("filters by project", async () => {
-    const gitA = { repoRoot: "/projects/alpha" };
-    const gitB = { repoRoot: "/projects/beta" };
-
-    await insertAgent("a1", { gitContext: gitA, latestEventType: "done" });
-    await insertAgent("a2", { gitContext: gitB, latestEventType: "done" });
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-      project: "/projects/alpha",
-    });
-
-    expect(result.projects).toHaveLength(1);
-    expect(result.projects[0].directory).toBe("/projects/alpha");
-    expect(result.totals.sessionCount).toBe(1);
-  });
-
-  it("includes archived parent agents in session counts", async () => {
-    await insertAgent("a1", { latestEventType: "done" });
-    await insertAgent("a2", { latestEventType: "done" });
-    await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'a2'");
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-    });
-
-    expect(result.totals.sessionCount).toBe(2);
-  });
-
-  it("returns top agents sorted by working time", async () => {
-    await insertAgent("a1", { name: "Short worker" });
-    await insertAgent("a2", { name: "Long worker" });
-
-    // a1 works 1 hour
-    await insertEvent("a1", "working", hoursAgo(5));
-    await insertEvent("a1", "done", hoursAgo(4));
-
-    // a2 works 3 hours
-    await insertEvent("a2", "working", hoursAgo(6));
-    await insertEvent("a2", "done", hoursAgo(3));
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(1),
-      end: new Date(),
-    });
-
-    expect(result.topAgents.length).toBeGreaterThanOrEqual(2);
-    expect(result.topAgents[0].name).toBe("Long worker");
-    expect(result.topAgents[1].name).toBe("Short worker");
-    expect(result.topAgents[0].totalWorkingMs).toBeGreaterThan(
-      result.topAgents[1].totalWorkingMs
-    );
-  });
-
-  it("handles boundary events for working time across range start", async () => {
-    await insertAgent("a1");
-
-    // Agent started working before the range, finishes inside the range
-    await insertEvent("a1", "working", hoursAgo(10));
-    await insertEvent("a1", "done", hoursAgo(8));
-
-    // Query a 9-hour window — the working event is before range start
-    const result = await telemetry.getActivitySummary(pool, {
-      start: hoursAgo(9),
-      end: new Date(),
-    });
-
-    // Should count ~1 hour of working time (from range start to done event)
-    expect(result.projects).toHaveLength(1);
-    expect(result.projects[0].totalWorkingMs).toBeGreaterThanOrEqual(3_400_000);
-    expect(result.projects[0].totalWorkingMs).toBeLessThanOrEqual(3_700_000);
-  });
-});
 
 // ── getFeedbackSummary ──────────────────────────────────────────────
 
@@ -411,11 +246,11 @@ describe("getFeedbackSummary", () => {
     await insertAgent("parent");
     await insertAgent("reviewer", { persona: "sec", parentAgentId: "parent" });
 
-    await insertFeedback("reviewer", { severity: "critical", status: "fixed" });
-    await insertFeedback("reviewer", { severity: "high", status: "open" });
-    await insertFeedback("reviewer", { severity: "medium", status: "open" });
-    await insertFeedback("reviewer", { severity: "low", status: "ignored" });
-    await insertFeedback("reviewer", { severity: "info", status: "open" });
+    await insertFeedback("reviewer", { severity: "blocker", status: "fixed" });
+    await insertFeedback("reviewer", { severity: "major", status: "open" });
+    await insertFeedback("reviewer", { severity: "minor", status: "open" });
+    await insertFeedback("reviewer", { severity: "nit", status: "ignored" });
+    await insertFeedback("reviewer", { severity: "nit", status: "open" });
 
     const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
@@ -425,11 +260,11 @@ describe("getFeedbackSummary", () => {
 
     expect(result.totalFindings).toBe(5);
     expect(result.bySeverity).toEqual({
-      critical: 0,
-      high: 0,
-      medium: 0,
-      low: 0,
-      info: 5,
+      critical: 1,
+      high: 1,
+      medium: 1,
+      low: 2,
+      info: 0,
     });
     expect(result.byStatus.open).toBe(3);
     expect(result.byStatus.fixed).toBe(1);
@@ -470,9 +305,9 @@ describe("getFeedbackSummary", () => {
     await insertAgent("parent");
     await insertAgent("rev", { persona: "sec", parentAgentId: "parent" });
 
-    await insertFeedback("rev", { severity: "high" });
-    await insertFeedback("rev", { severity: "high" });
-    await insertFeedback("rev", { severity: "low" });
+    await insertFeedback("rev", { severity: "major" });
+    await insertFeedback("rev", { severity: "major" });
+    await insertFeedback("rev", { severity: "nit" });
 
     const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
@@ -480,9 +315,9 @@ describe("getFeedbackSummary", () => {
       groupBy: "severity",
     });
 
-    expect(result.groups).toHaveLength(1);
-    const infoGroup = result.groups.find((g) => g.key === "info");
-    expect(infoGroup!.count).toBe(3);
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups.find((g) => g.key === "high")!.count).toBe(2);
+    expect(result.groups.find((g) => g.key === "low")!.count).toBe(1);
   });
 
   it("groups by directory relative to project root", async () => {
@@ -526,19 +361,19 @@ describe("getFeedbackSummary", () => {
     // Same description repeated 3 times
     await insertFeedback("rev", {
       description: "Unused import",
-      severity: "low",
+      severity: "nit",
     });
     await insertFeedback("rev", {
       description: "Unused import",
-      severity: "low",
+      severity: "nit",
     });
     await insertFeedback("rev", {
       description: "Unused import",
-      severity: "low",
+      severity: "nit",
     });
     await insertFeedback("rev", {
       description: "Missing error handling",
-      severity: "high",
+      severity: "major",
     });
 
     const result = await telemetry.getFeedbackSummary(pool, {
@@ -563,9 +398,11 @@ describe("getFeedbackSummary", () => {
     await insertAgent("r2", { persona: "sec", parentAgentId: "p2" });
     await insertAgent("r3", { persona: "ux", parentAgentId: "p1" });
 
-    await insertReview("r1", "p1", "sec", { verdict: "approve" });
-    await insertReview("r2", "p2", "sec", { verdict: "request_changes" });
-    await insertReview("r3", "p1", "ux", { verdict: "approve" });
+    // No verdict is stored: a clean pass, and a review whose findings are
+    // all resolved, read as approved; one with an open finding does not.
+    await insertReview("r1", "sec");
+    await insertReview("r2", "sec", { findings: ["open", "fixed"] });
+    await insertReview("r3", "ux", { findings: ["fixed", "dismissed"] });
 
     const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
@@ -610,14 +447,17 @@ describe("getFeedbackSummary", () => {
   });
 
   it("respects date range boundaries", async () => {
+    // A review block carries its findings' date, so the old one is a
+    // separate review from a second pass.
     await insertAgent("parent");
     await insertAgent("rev", { persona: "sec", parentAgentId: "parent" });
+    await insertAgent("rev-old", { persona: "sec", parentAgentId: "parent" });
 
     await insertFeedback("rev", {
       description: "Recent",
       createdAt: hoursAgo(1),
     });
-    await insertFeedback("rev", {
+    await insertFeedback("rev-old", {
       description: "Old",
       createdAt: daysAgo(30),
     });

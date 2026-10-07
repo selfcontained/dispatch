@@ -1,13 +1,7 @@
 import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
+import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
 
-import type { Pool } from "pg";
-
-import type { AppConfig } from "../config.js";
-import type {
-  AssistedPhase,
-  AssistedUpdateState,
-} from "../assisted-update-store.js";
 import type { ReleaseLogStreamProcessor } from "../release-log-stream.js";
 import {
   writeReleaseCandidate,
@@ -23,13 +17,13 @@ import {
   type RunCommand,
   parseGhJson,
   compareSemver,
-  defaultServiceRestartCommand,
   getGitHubRepo as getGitHubRepoImpl,
   createCheckIsAdmin,
   fetchReleaseMetadata as fetchReleaseMetadataImpl,
   fixedRuntimePath,
   isReleaseAuthoringEnabled,
   resolveAuthoringRepoDir,
+  serviceName,
 } from "./release-helpers.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { verifyAndStageRuntime } from "./release-artifact.js";
@@ -39,6 +33,7 @@ import { verifyAndStageRuntime } from "./release-artifact.js";
 // dependency graph. Re-exported here for server-side importers.
 import {
   RELEASE_VERSION_TYPES,
+  isTerminalReleasePhase,
   type ReleasePhase,
   type ReleaseProgress,
   type ReleaseJob,
@@ -50,7 +45,6 @@ export { RELEASE_VERSION_TYPES };
 export type {
   CreatePhase,
   UpdatePhase,
-  AssistedReleasePhase,
   ReleasePhase,
   ReleaseProgress,
   ReleaseJob,
@@ -66,8 +60,6 @@ export type ReleaseStreamClient = {
 };
 
 type CreateReleaseRuntimeDeps = {
-  pool: Pool;
-  config: AppConfig;
   serverDir: string;
   runCommand: RunCommand;
   readReleaseStore: () => Promise<{ tag: string; deployedAt: string } | null>;
@@ -75,8 +67,6 @@ type CreateReleaseRuntimeDeps = {
     tag: string;
     deployedAt: string;
   }) => Promise<void>;
-  readAssistedUpdateState: () => Promise<AssistedUpdateState | null>;
-  isTerminalPhase: (phase: AssistedPhase) => boolean;
   ensureCachedTarball: (input: {
     tag: string;
     repo: string;
@@ -98,17 +88,48 @@ type CreateReleaseRuntimeDeps = {
   ) => ReleaseLogStreamProcessor;
   /** Kept injectable so artifact activation can be tested without a service manager. */
   restartService?: () => void;
+  /** Reject an update before staging if the service manager would kill agent hosts. */
+  checkHostSurvival?: () => Promise<void>;
   writeReleaseCandidate?: (candidate: ReleaseCandidate) => Promise<void>;
+  /** Independent recovery helper owns backup, activation, commit and restart. */
+  applyProtectedUpdate?: (input: {
+    tarballPath: string;
+    tag: string;
+    expectedTarballSha256: string;
+    onProgress: (message: string) => void;
+    onRestarting?: () => void;
+  }) => Promise<void>;
 };
 
 export type CreateJob = Extract<ReleaseJob, { jobType: "create" }>;
-export type UpdateJob = Extract<
-  ReleaseJob,
-  { jobType: "update" | "update-assisted" }
->;
+export type UpdateJob = Extract<ReleaseJob, { jobType: "update" }>;
 
 function kindOf(job: ReleaseJob): ReleaseJobKind {
   return job.jobType === "create" ? "create" : "update";
+}
+
+/** A Linux service restart must leave the host processes in its cgroup alive. */
+export async function assertHostSurvivalOnRestart(
+  platform: string,
+  runCommand: RunCommand
+): Promise<void> {
+  if (platform !== "linux") return;
+  const unit = `${serviceName()}.service`;
+  let loaded: string;
+  try {
+    loaded = (
+      await runCommand("systemctl", ["--user", "show", unit, "-p", "KillMode"])
+    ).stdout.trim();
+  } catch {
+    throw new Error(
+      `Cannot verify that the Dispatch service preserves agent hosts. Add KillMode=process to ${unit} before updating.`
+    );
+  }
+  if (loaded !== "KillMode=process") {
+    throw new Error(
+      `Dispatch service restart is unsafe for running agents (${loaded || "KillMode unavailable"}). Load KillMode=process before updating.`
+    );
+  }
 }
 
 export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
@@ -119,7 +140,6 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   // the other — see the "kind"-scoped broadcast helpers below.
   let activeCreateJob: CreateJob | null = null;
   let activeUpdateJob: UpdateJob | null = null;
-  let activeAssistedUpdateLaunch = false;
   const releaseCreateStreamClients = new Set<ReleaseStreamClient>();
   const releaseUpdateStreamClients = new Set<ReleaseStreamClient>();
   const clientsForKind = (kind: ReleaseJobKind): Set<ReleaseStreamClient> =>
@@ -127,26 +147,25 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   const getGitHubRepo = getGitHubRepoImpl;
   const checkIsAdmin = createCheckIsAdmin(deps.runCommand, deps.serverDir);
   const fetchReleaseMetadata = fetchReleaseMetadataImpl;
-  const restartService =
-    deps.restartService ??
-    (() => {
+  function prepareServiceRestart(): () => void {
+    if (deps.restartService) return deps.restartService;
+    // Resolve before activation and retain the exact name for the restart.
+    const name = serviceName();
+    return () => {
       if (process.platform === "linux") {
-        spawn("systemctl", ["--user", "restart", "dispatch"], {
+        spawn("systemctl", ["--user", "restart", name], {
           detached: true,
           stdio: "ignore",
         }).unref();
         return;
       }
       const uid = process.getuid?.() ?? 501;
-      spawn(
-        "launchctl",
-        ["kickstart", "-k", `gui/${uid}/com.dispatch.server`],
-        {
-          detached: true,
-          stdio: "ignore",
-        }
-      ).unref();
-    });
+      spawn("launchctl", ["kickstart", "-k", `gui/${uid}/${name}`], {
+        detached: true,
+        stdio: "ignore",
+      }).unref();
+    };
+  }
   const recordReleaseCandidate =
     deps.writeReleaseCandidate ?? writeReleaseCandidate;
 
@@ -180,104 +199,6 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
       releaseNotes,
       releaseUrl,
     };
-  }
-
-  async function rehydrateActiveAssistedJob(): Promise<void> {
-    if (activeUpdateJob) return;
-    const state = await deps.readAssistedUpdateState().catch(() => null);
-    if (!state || deps.isTerminalPhase(state.phase)) return;
-    activeUpdateJob = {
-      jobType: "update-assisted",
-      versionType: null,
-      phase: state.phase,
-      startedAt: state.startedAt,
-      log: [`==> resumed from on-disk state at phase ${state.phase}`],
-      runUrl: null,
-      tag: state.tag,
-      error: state.error,
-      progress: null,
-      assisted: state,
-    };
-  }
-
-  function dispatchHealthUrl(): string {
-    return `${dispatchBaseUrl()}/api/v1/health`;
-  }
-
-  function dispatchBaseUrl(): string {
-    const protocol = deps.config.tls ? "https" : "http";
-    return `${protocol}://127.0.0.1:${deps.config.port}`;
-  }
-
-  async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
-    const result = await deps.pool.query<{ count: string }>(
-      `
-        SELECT COUNT(*)::text AS count
-        FROM agents
-        WHERE deleted_at IS NULL
-          AND role = 'assisted_update'
-          AND cwd = $1
-          AND status IN ('creating', 'running', 'stopping', 'unknown')
-      `,
-      [deps.serverDir]
-    );
-    return Number(result.rows[0]?.count ?? "0") > 0;
-  }
-
-  function buildAssistedUpdatePrompt(input: {
-    tag: string;
-    currentTag: string | null;
-  }): string {
-    const serviceCommand = defaultServiceRestartCommand();
-
-    return `
-You are running an assisted Dispatch update on the host machine.
-
-Primary objective:
-1. Update Dispatch to ${input.tag}.
-2. If restart or health fails, restore the Dispatch service first.
-3. After service is healthy again, diagnose what went wrong and leave a concise report in the terminal.
-
-Update details:
-- Current recorded tag in release.json: ${input.currentTag ?? "unknown"}
-- Target tag: ${input.tag}
-- Production installation root: ${deps.serverDir}
-- Health endpoint: ${dispatchHealthUrl()}
-- Dispatch API base URL: $DISPATCH_API_URL
-- Dispatch API update token env: $DISPATCH_RELEASE_UPDATE_TOKEN
-- Main service log: ~/.dispatch/logs/dispatch.log
-- Failure log path: ~/.dispatch/logs/last-release-failure.log
-- Service restart command: ${serviceCommand}
-
-Guardrails:
-- Operate on ${deps.serverDir}, not the user's development worktree.
-- Do not edit secrets or .env unless explicitly required to restore service and you can explain why.
-- Do not make source-code changes as part of the recovery path unless absolutely necessary.
-- Treat release.json as the last confirmed healthy release; inspect release-candidate.json when an activation was interrupted.
-- Prefer rollback to the last confirmed healthy tag over speculative fixes if the service does not come back.
-- Restore service availability before deeper diagnosis.
-
-Service architecture and recovery model:
-- Dispatch runs from one fixed compiled binary at ${fixedRuntimePath(deps.serverDir)}.
-- Updates extract and verify a release artifact, atomically replace that path, retain ${fixedRuntimePath(deps.serverDir)}.previous for rollback, then restart.
-- A newly healthy target promotes release-candidate.json into release.json.
-
-Rollback recovery:
-- Prefer the managed endpoint first. Use manual recovery only after it fails or the service does not restart cleanly.
-- Manual rollback sequence: atomically replace ${fixedRuntimePath(deps.serverDir)} with ${fixedRuntimePath(deps.serverDir)}.previous, then run the service restart command.
-- Validate service health with ${dispatchHealthUrl()} before reporting success.
-
-Suggested workflow:
-1. Capture the current repo/tag/service state.
-2. Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token, for example:
-   \`curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{"tag":"${input.tag}"}'\`
-3. Monitor restart and health until success or failure is clear.
-4. If the managed flow request fails or the service does not come back, inspect launchd/systemd state and recent logs before deciding on recovery.
-5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; do not manually reproduce the normal update sequence unless the managed path has already failed and you are in explicit recovery mode.
-6. Retry one clean restart if that is the safest next step.
-7. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
-8. Summarize outcome, root cause, commands run, and any remaining risk.
-`.trim();
   }
 
   function broadcastReleaseEvent(
@@ -396,13 +317,10 @@ Suggested workflow:
     });
   }
 
-  async function deployFromArtifact(
-    job: ReleaseJob,
-    tag: string
-  ): Promise<void> {
+  async function downloadArtifact(job: ReleaseJob, tag: string) {
     const repo = await getGitHubRepo();
 
-    const cached = await deps.ensureCachedTarball({
+    return deps.ensureCachedTarball({
       tag,
       repo,
       onProgress: ({ message, bytesReceived, totalBytes }) => {
@@ -422,6 +340,13 @@ Suggested workflow:
         });
       },
     });
+  }
+
+  async function deployFromArtifact(
+    job: ReleaseJob,
+    tag: string
+  ): Promise<void> {
+    const cached = await downloadArtifact(job, tag);
 
     appendReleaseLog(job, "==> validating artifact contents");
     setReleaseProgress(job, {
@@ -458,6 +383,39 @@ Suggested workflow:
     await deps.pruneCacheExcept([tag]);
   }
 
+  async function deployProtected(
+    job: ReleaseJob,
+    tag: string,
+    expectedTarballSha256: string
+  ): Promise<void> {
+    if (!deps.applyProtectedUpdate)
+      throw new Error("Protected update adapter is missing");
+    setReleasePhase(job, "deploying");
+    const cached = await downloadArtifact(job, tag);
+    setReleaseProgress(job, {
+      step: "validating-artifact",
+      label: "Preparing protected update",
+      detail:
+        "The independent helper verifies the artifact and backup before activation.",
+    });
+    try {
+      await deps.applyProtectedUpdate({
+        tarballPath: cached.path,
+        tag,
+        expectedTarballSha256,
+        onProgress: (message) => appendReleaseLog(job, message),
+        onRestarting: () => setReleasePhase(job, "restarting"),
+      });
+    } catch (error) {
+      await deps.unlinkCachedTarball(tag);
+      appendReleaseLog(
+        job,
+        `==> protected update handoff failed for ${tag}; removed cached artifact`
+      );
+      throw error;
+    }
+  }
+
   async function assertCurrentReleaseBinary(job: ReleaseJob): Promise<void> {
     const livePath = fixedRuntimePath(deps.serverDir);
     const stats = await lstat(livePath).catch(() => null);
@@ -470,6 +428,14 @@ Suggested workflow:
   async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
     setReleasePhase(job, "deploying");
     appendReleaseLog(job, `==> deploying ${tag}`);
+    const restartService = prepareServiceRestart();
+
+    // Refuse before replacing the live executable if a restart would kill
+    // agent hosts. An injected check replaces the real one outright; `??`
+    // would fall through to systemctl whenever a stub returns undefined.
+    await (deps.checkHostSurvival
+      ? deps.checkHostSurvival()
+      : assertHostSurvivalOnRestart(process.platform, deps.runCommand));
 
     await deployFromArtifact(job, tag);
 
@@ -507,6 +473,7 @@ Suggested workflow:
 
   async function runUpdateJob(job: ReleaseJob): Promise<void> {
     try {
+      if (isMacAppManaged()) throw new Error(MAC_APP_UPDATE_MESSAGE);
       const tag = job.tag!;
       setReleasePhase(job, "fetching");
       appendReleaseLog(job, `==> confirming release ${tag}`);
@@ -520,7 +487,13 @@ Suggested workflow:
         throw new Error(`Release ${tag} was not found on GitHub`);
       }
 
-      await deployTag(job, tag);
+      if (deps.applyProtectedUpdate) {
+        if (!metadata.artifactSha256)
+          throw new Error(
+            "Protected update requires GitHub's published release asset digest"
+          );
+        await deployProtected(job, tag, metadata.artifactSha256);
+      } else await deployTag(job, tag);
     } catch (err) {
       const error = errorMessage(err);
       if (activeUpdateJob) {
@@ -643,12 +616,12 @@ Suggested workflow:
 
   function hasActiveUpdateJob(): boolean {
     if (!activeUpdateJob) return false;
-    return !deps.isTerminalPhase(activeUpdateJob.phase as AssistedPhase);
+    return !isTerminalReleasePhase(activeUpdateJob.phase);
   }
 
   function hasActiveCreateJob(): boolean {
     if (!activeCreateJob) return false;
-    return !deps.isTerminalPhase(activeCreateJob.phase as AssistedPhase);
+    return !isTerminalReleasePhase(activeCreateJob.phase);
   }
 
   return {
@@ -664,18 +637,8 @@ Suggested workflow:
     },
     hasActiveUpdateJob,
     hasActiveCreateJob,
-    getActiveAssistedUpdateLaunch: () => activeAssistedUpdateLaunch,
-    setActiveAssistedUpdateLaunch: (active: boolean) => {
-      activeAssistedUpdateLaunch = active;
-    },
     releaseCreateStreamClients,
     releaseUpdateStreamClients,
-    rehydrateActiveAssistedJob,
-    dispatchHealthUrl,
-    dispatchBaseUrl,
-    defaultServiceRestartCommand,
-    hasActiveAssistedUpdateAgent,
-    buildAssistedUpdatePrompt,
     broadcastReleaseEvent,
     sendReleaseEventToClient,
     appendReleaseLog,

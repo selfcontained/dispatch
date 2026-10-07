@@ -26,7 +26,7 @@ function template(overrides: Partial<Template> = {}): Template {
     branchName: null,
     fullAccess: false,
     callable: true,
-    allowMedia: true,
+    allowFiles: true,
     selfImprove: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -48,7 +48,7 @@ describe("templateDraftFrom", () => {
       branchName: "",
       fullAccess: false,
       callable: true,
-      allowMedia: true,
+      allowFiles: true,
       selfImprove: false,
     });
   });
@@ -66,7 +66,7 @@ describe("templateDraftFrom", () => {
           branchName: "feat/x",
           fullAccess: true,
           callable: false,
-          allowMedia: false,
+          allowFiles: false,
           selfImprove: true,
         })
       )
@@ -82,7 +82,7 @@ describe("templateDraftFrom", () => {
       branchName: "feat/x",
       fullAccess: true,
       callable: false,
-      allowMedia: false,
+      allowFiles: false,
       selfImprove: true,
     });
   });
@@ -134,41 +134,5 @@ describe("templateConfigFromDraft", () => {
   it("nulls an empty prompt", () => {
     expect(templateConfigFromDraft(draft({ prompt: "" })).prompt).toBeNull();
     expect(templateConfigFromDraft(draft({ prompt: "go" })).prompt).toBe("go");
-  });
-
-  it("collapses the agent-only fields for a terminal template", () => {
-    expect(
-      templateConfigFromDraft(
-        draft({
-          agentType: "terminal",
-          prompt: "ignored",
-          useWorktree: true,
-          baseBranch: "develop",
-          branchName: "feat/x",
-          fullAccess: true,
-          callable: false,
-          allowMedia: true,
-          selfImprove: true,
-        })
-      )
-    ).toEqual({
-      description: null,
-      prompt: null,
-      agentType: "terminal",
-      useWorktree: false,
-      baseBranch: null,
-      branchName: null,
-      fullAccess: false,
-      callable: false,
-      allowMedia: false,
-      selfImprove: false,
-    });
-  });
-
-  it("leaves callable alone for a terminal template", () => {
-    expect(
-      templateConfigFromDraft(draft({ agentType: "terminal", callable: true }))
-        .callable
-    ).toBe(true);
   });
 });

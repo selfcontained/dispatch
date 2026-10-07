@@ -11,11 +11,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Preflight — fail fast if required tools are missing.
-if ! command -v node &>/dev/null; then
-  echo "Error: node is not available. Install Node.js first." >&2
-  exit 1
-fi
+# Preflight — fail fast if required tools are missing. Every server script
+# runs under bun, so a machine with only node gets an API server that exits
+# before it logs anything useful.
+preflight_tool() {
+  command -v "$1" &>/dev/null && return 0
+  echo "Error: $1 is not installed. $2" >&2
+  return 1
+}
 
 usage() {
   cat <<'USAGE'
@@ -26,7 +29,7 @@ Vite frontend — all on auto-selected free ports.
 
 Commands:
   up        Start DB + API server + Vite frontend
-  down      Stop all dev services and remove the DB container
+  down      Stop all dev services, keeping the database
   restart   Restart the API + Vite servers, keeping the DB intact
   status    Show which services are running
   logs      Show recent output (default: api; use --vite or --db)
@@ -36,10 +39,16 @@ Options:
   --cwd <path>      Working directory (default: current directory)
   --no-db           Skip database (use existing DATABASE_URL)
   --suffix <name>   Explicit stack suffix (default: agent ID or generated)
-  --live            Enable live agent runtime (tmux); default is inert.
+  --live            Run agents for real (the ACP runtime); default is inert.
                     Also disables the default dev-data seed.
   --no-seed         Skip seeding demo data (seed is on by default for non-live)
+  --preserve-agent-hosts
+                    Keep live agent hosts running across restart. This opt-in
+                    is saved for the stack and reused by later restarts.
+  --wipe            down only: also delete the database and the stack's
+                    logs. Agents, streams and files are gone for good.
   -f, --follow      Follow log output (used with logs command)
+
 USAGE
 }
 
@@ -61,13 +70,24 @@ find_free_port() {
 }
 
 
+# One stack per checkout. The suffix names the stack's state file, log
+# directory, container and database, so every command has to derive the
+# same one: a PID and timestamp would mean `down` never finds what `up`
+# started. `--suffix` still runs more than one stack from a checkout.
 resolve_suffix() {
   if [ -n "$OPT_SUFFIX" ]; then
     echo "$OPT_SUFFIX"
   elif [ -n "${DISPATCH_AGENT_ID:-}" ]; then
     echo "$DISPATCH_AGENT_ID"
   else
-    echo "dev-$$-$(date +%s)"
+    local root
+    root="$(cd "${OPT_CWD:-$(pwd)}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || root=""
+    [ -n "$root" ] || root="${OPT_CWD:-$(pwd)}"
+    local name
+    name="$(basename "$root")"
+    # Keep the checkout's name for a readable container, and a short hash of
+    # its path so two clones of the same repo never share a stack.
+    echo "dev-${name}-$(printf '%s' "$root" | shasum | cut -c1-8)"
   fi
 }
 
@@ -77,6 +97,19 @@ state_file() {
 
 log_dir() {
   echo "/tmp/dispatch-dev-${SUFFIX}"
+}
+
+# The tail of a crashed service's log, or where to look when it died before
+# writing one (the log is written asynchronously, so an instant exit can
+# leave it empty).
+report_log() {
+  local file="$1"
+  if [ -s "$file" ]; then
+    echo "Last log lines:" >&2
+    tail -n 20 "$file" >&2
+  else
+    echo "It exited before writing a log. Check: $file" >&2
+  fi
 }
 
 release_cache_dir() {
@@ -97,7 +130,9 @@ DEV_COMPOSE_PROJECT=${DEV_COMPOSE_PROJECT:-}
 DEV_NO_DB=${DEV_NO_DB:-0}
 DEV_LIVE=${OPT_LIVE:-0}
 DEV_NO_SEED=${OPT_NO_SEED:-0}
+DEV_PRESERVE_AGENT_HOSTS=${OPT_PRESERVE_AGENT_HOSTS:-0}
 DEV_DISPLAY_HOST=${DEV_DISPLAY_HOST:-127.0.0.1}
+DEV_LAN_HOST=${DEV_LAN_HOST:-}
 DEV_RELEASE_CACHE_DIR=${DEV_RELEASE_CACHE_DIR:-}
 EOF
 }
@@ -117,17 +152,39 @@ pid_alive() {
   [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
 }
 
+# Return success when a PID is one of this stack's detached agent hosts.
+# Hosts stay parented to the API's wrapper tree even though they lead their
+# own process group, so a recursive PPID walk must explicitly preserve them
+# during a soft restart.
+is_agent_host_pid() {
+  local target="${1:-}"
+  [ -n "$target" ] || return 1
+  local pidfile host_pid
+  for pidfile in "$(log_dir)"/agents/*/host.pid; do
+    [ -f "$pidfile" ] || continue
+    host_pid="$(cat "$pidfile" 2>/dev/null || true)"
+    [ "$host_pid" = "$target" ] && return 0
+  done
+  return 1
+}
+
 # Recursively kill a process and all its descendants (depth-first).
 # This ensures child processes spawned by npm/tsx are cleaned up even
-# when signals don't propagate through the wrapper chain.
+# when signals don't propagate through the wrapper chain. An opted-in soft
+# restart preserves registered agent-host roots (and therefore their process
+# groups); default restart and explicit down stop those groups separately.
 kill_tree() {
   local pid="${1:-}"
   local sig="${2:-TERM}"
+  local preserve_agent_hosts="${3:-0}"
   [ -z "$pid" ] && return 0
+  if [ "$preserve_agent_hosts" = "1" ] && is_agent_host_pid "$pid"; then
+    return 0
+  fi
   local children
   children=$(pgrep -P "$pid" 2>/dev/null) || true
   for child in $children; do
-    kill_tree "$child" "$sig"
+    kill_tree "$child" "$sig" "$preserve_agent_hosts"
   done
   kill -"$sig" "$pid" 2>/dev/null || true
 }
@@ -136,19 +193,37 @@ kill_tree() {
 stop_service() {
   local pid="${1:-}"
   local name="${2:-service}"
+  local preserve_agent_hosts="${3:-0}"
   if ! pid_alive "$pid"; then
     return 0
   fi
-  kill_tree "$pid"
+  kill_tree "$pid" TERM "$preserve_agent_hosts"
   local i=0
   while [ $i -lt 10 ] && pid_alive "$pid"; do
     sleep 0.5
     i=$((i + 1))
   done
   if pid_alive "$pid"; then
-    kill_tree "$pid" 9
+    kill_tree "$pid" 9 "$preserve_agent_hosts"
   fi
   echo "Stopped ${name} (PID ${pid})"
+}
+
+# This machine's address on the network, for a stack bound to every
+# interface: what another device on the same network opens. Empty when
+# there is no such address to report.
+lan_address() {
+  local ip=""
+  if command -v ipconfig >/dev/null 2>&1; then
+    for iface in en0 en1 en2; do
+      ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+      [ -n "$ip" ] && break
+    done
+  fi
+  if [ -z "$ip" ] && command -v hostname >/dev/null 2>&1; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  echo "$ip"
 }
 
 # Detect docker compose command
@@ -177,9 +252,17 @@ cmd_up() {
       echo "Run 'dispatch-dev down' first, or use a different --suffix."
       exit 1
     fi
-    # Stale state — clean it up
+    # A long-lived stack can have an API that exited while its detached
+    # agents are still working. Recover it through the same host-preserving
+    # restart path instead of treating the whole stack as disposable.
+    if [ "${DEV_PRESERVE_AGENT_HOSTS:-0}" = "1" ]; then
+      echo "Recovering stale state for '${SUFFIX}' without stopping agent hosts..."
+      cmd_restart
+      return
+    fi
+    # Ordinary dev stacks still clean up all descendants on a fresh up.
     echo "Cleaning stale state for '${SUFFIX}'..."
-    cmd_down 2>/dev/null || true
+    cmd_down || return 1
   fi
 
   mkdir -p "$(log_dir)"
@@ -221,14 +304,34 @@ cmd_up() {
       fi
 
       echo "Database port ${DEV_DB_PORT} was claimed before Docker could bind it; retrying..." >&2
-      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v >/dev/null 2>&1 || true
+      # Drop the container so the next attempt can bind a different port;
+      # the volume it was mounting stays, data and all.
+      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down >/dev/null 2>&1 || true
       db_attempt=$((db_attempt + 1))
     done
   fi
 
   # --- API Server ---
   DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
-  DEV_DISPLAY_HOST="${DISPATCH_HOST:-127.0.0.1}"
+  # What the servers bind, and what to print for it. Both the API and Vite
+  # already listen on every interface by default, so a stack is reachable
+  # from a phone or another laptop; the URLs below say so rather than
+  # leaving it to be discovered. 0.0.0.0 is not an address a browser can
+  # open, so they use the loopback plus this machine's network address.
+  # Resolve the copied checkout .env before choosing either server's host.
+  # The API sources it below, but Vite runs in a separate subshell; resolving
+  # here keeps an inherited app localhost binding from overriding the .env.
+  DEV_BIND_HOST="$(
+    if [ -f "$cwd/.env" ]; then
+      # shellcheck disable=SC1091
+      source "$cwd/.env"
+    fi
+    printf '%s' "${DISPATCH_HOST:-0.0.0.0}"
+  )"
+  DEV_DISPLAY_HOST="$DEV_BIND_HOST"
+  [ "$DEV_DISPLAY_HOST" = "0.0.0.0" ] && DEV_DISPLAY_HOST="127.0.0.1"
+  DEV_LAN_HOST=""
+  [ "$DEV_BIND_HOST" = "0.0.0.0" ] && DEV_LAN_HOST="$(lan_address)"
 
   # Build environment
   (
@@ -243,17 +346,38 @@ cmd_up() {
       set +a
     fi
 
-    # Unset TLS so dev servers run plain HTTP
-    unset TLS_CERT TLS_KEY 2>/dev/null || true
+    # A stack launched from the native app must not inherit its TLS, listener
+    # list, update ownership, instance identity or installed runtime paths.
+    unset TLS_CERT TLS_KEY TLS_CA DISPATCH_LOCAL_TLS DISPATCH_LISTEN_HOSTS \
+      DISPATCH_UPDATE_OWNER DISPATCH_MAC_INSTANCE_ID DISPATCH_MAC_BUILD \
+      DISPATCH_MAC_APP_TOKEN DISPATCH_RUNTIME_PATH DISPATCH_SERVICE_NAME \
+      DISPATCH_RECOVERY_PROBATION DISPATCH_RECOVERY_TRANSACTION_ID \
+      DISPATCH_RECOVERY_NONCE DISPATCH_RECOVERY_INSTANCE_ID \
+      DISPATCH_RECOVERY_EXPECTED_VERSION 2>/dev/null || true
+    export DISPATCH_STATE_DIR="$(log_dir)/state"
+    export DISPATCH_SERVER_DIR="$(log_dir)/server"
 
     # Override port, session prefix, and agent runtime — always explicit so .env doesn't leak
     export DISPATCH_PORT="$DEV_API_PORT"
-    export DISPATCH_SESSION_PREFIX="dispatch_dev"
+    export DISPATCH_DEV_STACK=1
+    # Bind to all interfaces so the dev stack is reachable from other devices
+    # (phone, another laptop) on the LAN or tailnet, not just this machine.
+    export DISPATCH_HOST="$DEV_BIND_HOST"
     if [ "$OPT_LIVE" = "1" ]; then
-      export DISPATCH_AGENT_RUNTIME="tmux"
+      export DISPATCH_AGENT_RUNTIME="acp"
     else
       export DISPATCH_AGENT_RUNTIME="inert"
     fi
+    # Agent hosts outlive the API server; keep this stack's under its own
+    # cache dir so `down` can find them and stacks never share a root.
+    export DISPATCH_AGENT_STATE_ROOT="$(log_dir)/agents"
+
+    # Files agents share live with the stack, not in ~/.dispatch, which
+    # belongs to the installed Dispatch. The server falls back to that
+    # directory when this is unset, and a worktree whose .env predates the
+    # media→files rename sets the old name, so the stack states it here
+    # rather than trusting whatever .env it inherited.
+    export DISPATCH_FILES_ROOT="$(log_dir)/files"
 
     # Keep the release store out of ~/.dispatch/ — a stale version there
     # surfaces the update-available toast against the dev build.
@@ -277,8 +401,8 @@ cmd_up() {
   local port_open=0
   while [ $attempts -lt 20 ]; do
     if ! pid_alive "$DEV_API_PID"; then
-      echo "Error: API server exited immediately. Last log lines:" >&2
-      tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
+      echo "Error: API server exited immediately." >&2
+      report_log "$(log_dir)/api.log"
       exit 1
     fi
     if node -e "const s=require('net').createConnection({host:'127.0.0.1',port:${DEV_API_PORT}},()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))" 2>/dev/null; then
@@ -343,7 +467,8 @@ cmd_up() {
     env \
       DISPATCH_PORT="$DEV_API_PORT" \
       DISPATCH_VITE_CACHE_DIR="$vite_cache_dir" \
-      pnpm exec vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+      pnpm exec vite --port "$DEV_VITE_PORT" --host "$DEV_BIND_HOST" \
+        >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
 
@@ -353,7 +478,8 @@ cmd_up() {
   # Brief check that Vite didn't crash immediately
   sleep 1
   if ! pid_alive "$DEV_VITE_PID"; then
-    echo "Warning: Vite server exited immediately. Check $(log_dir)/vite.log" >&2
+    echo "Warning: Vite server exited immediately." >&2
+    report_log "$(log_dir)/vite.log"
   fi
 
   save_state
@@ -365,9 +491,27 @@ cmd_up() {
   fi
   echo "  api: http://${DEV_DISPLAY_HOST}:${DEV_API_PORT}"
   echo "  web: http://${DEV_DISPLAY_HOST}:${DEV_VITE_PORT}"
+  if [ -n "${DEV_LAN_HOST:-}" ]; then
+    echo "  on this network: http://${DEV_LAN_HOST}:${DEV_VITE_PORT}"
+    echo "  (reachable by anything on the network — set a password in Settings)"
+  fi
   echo "  release cache: ${DEV_RELEASE_CACHE_DIR}"
   echo ""
   echo "Cleanup: dispatch-dev down${OPT_SUFFIX:+ --suffix $SUFFIX}"
+}
+
+# Stop every agent host this stack spawned. They outlive the API server by
+# design, so stopping the server alone would leave engines running.
+stop_agent_hosts() {
+  local root="$(log_dir)/agents"
+  [ -d "$root" ] || return 0
+  local pidfile pid
+  for pidfile in "$root"/*/host.pid; do
+    [ -f "$pidfile" ] || continue
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    [ -n "$pid" ] || continue
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  done
 }
 
 cmd_down() {
@@ -376,22 +520,39 @@ cmd_down() {
     return 0
   fi
 
+  stop_agent_hosts
   stop_service "${DEV_API_PID:-}" "API server"
   stop_service "${DEV_VITE_PID:-}" "Vite server"
 
-  # Stop the DB container
+  # The container goes; its data stays on the stack's named volume and is
+  # mounted again by the next `up`. Agent hosts always stop with the stack;
+  # `--wipe` additionally removes the persisted database data.
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
     local compose
     compose="$(detect_compose)"
-    if [ -n "$compose" ]; then
-      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v 2>/dev/null || true
-      echo "Removed database container"
+    if [ -z "$compose" ]; then
+      echo "Error: Docker Compose is unavailable; retained state for cleanup retry." >&2
+      return 1
+    fi
+    local compose_args=(down)
+    [ "$OPT_WIPE" = "1" ] && compose_args+=(-v)
+    if ! $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" "${compose_args[@]}"; then
+      echo "Error: Database teardown failed; retained state for cleanup retry." >&2
+      return 1
+    fi
+    if [ "$OPT_WIPE" = "1" ]; then
+      echo "Removed database container and its data"
+    else
+      echo "Stopped database container (data kept; --wipe to delete it)"
     fi
   fi
 
-  # Clean up state and logs
   rm -f "$(state_file)"
-  rm -rf "$(log_dir)"
+  # Logs and the agent state root are the stack's scratch space, not its
+  # data; they are only worth keeping while the data is.
+  if [ "$OPT_WIPE" = "1" ]; then
+    rm -rf "$(log_dir)"
+  fi
 
   echo "Dev environment torn down (suffix: ${SUFFIX})."
 }
@@ -415,16 +576,37 @@ cmd_restart() {
     cmd_up
     return
   fi
+
+  # Restore the persisted host policy before any restart path can tear down
+  # the current stack. Later callers (including the repo dev restart tool)
+  # inherit the long-lived stack's original opt-in from state.
+  [ "$OPT_PRESERVE_AGENT_HOSTS" = "0" ] && [ "${DEV_PRESERVE_AGENT_HOSTS:-0}" = "1" ] && OPT_PRESERVE_AGENT_HOSTS="1"
+
   if [ "${DEV_NO_DB:-0}" != "1" ] && ! db_container_running; then
-    echo "DB container is gone — falling back to a fresh up (this will reseed)."
-    cmd_down 2>/dev/null || true
-    cmd_up
-    return
+    if [ "$OPT_PRESERVE_AGENT_HOSTS" = "1" ]; then
+      # cmd_up below recreates the DB container from its retained volume.
+      # Do not call cmd_down: it intentionally stops every agent host, even
+      # though the missing database does not require touching those processes.
+      echo "DB container is gone — recreating it without stopping agent hosts."
+    else
+      echo "DB container is gone — starting it again; its data is on the volume."
+      cmd_down || return 1
+      # The volume survived the container, so the data is already there and
+      # seeding it again would collide with the rows it produced last time.
+      OPT_NO_SEED="1"
+      cmd_up
+      return
+    fi
   fi
 
-  # Stop the app processes only — DB stays up.
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
+  # Stop the app processes only — DB stays up. Hosts get their own process
+  # groups, so stop them explicitly unless this stack opted into preserving
+  # them; kill_tree's exclusion then protects the preserved host subtree.
+  if [ "$OPT_PRESERVE_AGENT_HOSTS" != "1" ]; then
+    stop_agent_hosts
+  fi
+  stop_service "${DEV_API_PID:-}" "API server" "$OPT_PRESERVE_AGENT_HOSTS"
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "$OPT_PRESERVE_AGENT_HOSTS"
 
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble
@@ -498,6 +680,8 @@ cmd_status() {
   # Vite
   if pid_alive "${DEV_VITE_PID:-}"; then
     echo "vite: running — http://${DEV_DISPLAY_HOST:-127.0.0.1}:${DEV_VITE_PORT}"
+    [ -n "${DEV_LAN_HOST:-}" ] &&
+      echo "      on this network — http://${DEV_LAN_HOST}:${DEV_VITE_PORT}"
   else
     if [ -n "${DEV_VITE_PID:-}" ]; then
       echo "vite: stopped"
@@ -570,7 +754,9 @@ OPT_CWD=""
 OPT_NO_DB="0"
 OPT_LIVE="0"
 OPT_NO_SEED="0"
+OPT_PRESERVE_AGENT_HOSTS="0"
 OPT_SUFFIX=""
+OPT_WIPE="0"
 OPT_LOG_DB="0"
 OPT_LOG_VITE="0"
 OPT_FOLLOW="0"
@@ -590,6 +776,10 @@ while [ $# -gt 0 ]; do
       OPT_LIVE="1"; shift ;;
     --no-seed)
       OPT_NO_SEED="1"; shift ;;
+    --preserve-agent-hosts)
+      OPT_PRESERVE_AGENT_HOSTS="1"; shift ;;
+    --wipe)
+      OPT_WIPE="1"; shift ;;
     --suffix)
       OPT_SUFFIX="${2:-}"; shift 2 ;;
     --db)
@@ -609,6 +799,15 @@ done
 if [ -z "$CMD" ]; then
   usage
   exit 1
+fi
+
+# Teardown and inspection do not need the development runtimes.
+if [ "$CMD" = "up" ] || [ "$CMD" = "restart" ]; then
+  preflight_missing=0
+  preflight_tool node "Install Node.js: https://nodejs.org" || preflight_missing=1
+  preflight_tool pnpm "Install it with: npm i -g pnpm" || preflight_missing=1
+  preflight_tool bun "Install it with: brew install oven-sh/bun/bun (or curl -fsSL https://bun.sh/install | bash)" || preflight_missing=1
+  [ "$preflight_missing" = 0 ] || exit 1
 fi
 
 SUFFIX="$(resolve_suffix)"

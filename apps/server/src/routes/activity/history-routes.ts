@@ -1,14 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
-import {
-  computeActivityStats,
-  type ActivityEventRow,
-} from "../../activity-metrics.js";
+import { fileMedia } from "@dispatch/shared";
 import type {
   HistoryChildAgent,
-  HistoryEvent,
-  HistoryFeedbackItem,
-  HistoryMedia,
+  HistoryFile,
   HistoryTokenByModel,
   HistoryTokenTotals,
 } from "./history-wire.js";
@@ -28,13 +23,13 @@ async function handleHistoryProjects(
   const params: unknown[] = [];
   const where = [
     "parent_agent_id IS NULL",
-    "COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL",
+    "COALESCE(launch_cwd, git_context->>'repoRoot', cwd) IS NOT NULL",
   ];
 
   if (search) {
     params.push(`%${search}%`);
     where.push(
-      `(LOWER(COALESCE(git_context->>'repoRoot', cwd)) LIKE $${params.length} OR LOWER(regexp_replace(COALESCE(git_context->>'repoRoot', cwd), '/+$', '')) LIKE $${params.length})`
+      `(LOWER(COALESCE(launch_cwd, git_context->>'repoRoot', cwd)) LIKE $${params.length} OR LOWER(regexp_replace(COALESCE(launch_cwd, git_context->>'repoRoot', cwd), '/+$', '')) LIKE $${params.length})`
     );
   }
   params.push(limit);
@@ -44,18 +39,15 @@ async function handleHistoryProjects(
     usage_count: number;
     latest_created_at: Date;
     agent_id: string;
-    icon_agent_id: string | null;
   }>(
     `SELECT project,
               COUNT(*)::int AS usage_count,
               MAX(created_at) AS latest_created_at,
-              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS agent_id,
-              (ARRAY_AGG(id ORDER BY created_at DESC) FILTER (WHERE repo_icon_path IS NOT NULL))[1] AS icon_agent_id
+              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS agent_id
        FROM (
          SELECT id,
                 created_at,
-                COALESCE(git_context->>'repoRoot', cwd) AS project,
-                git_context->>'repoIconPath' AS repo_icon_path
+                COALESCE(launch_cwd, git_context->>'repoRoot', cwd) AS project
          FROM agents
          WHERE ${where.join(" AND ")}
        ) project_agents
@@ -65,13 +57,13 @@ async function handleHistoryProjects(
     params
   );
 
+  // The picker loads icons as images, independently of the history response.
+  // Keep this search endpoint responsive even when a project has a large tree.
   const projectOptions = result.rows.map((row) => ({
     path: row.project,
     usageCount: row.usage_count,
     latestCreatedAt: row.latest_created_at.toISOString(),
-    iconUrl: row.icon_agent_id
-      ? `/api/v1/agents/${encodeURIComponent(row.icon_agent_id)}/repo-icon`
-      : undefined,
+    iconUrl: `/api/v1/agents/${encodeURIComponent(row.agent_id)}/repo-icon`,
   }));
 
   return {
@@ -118,7 +110,7 @@ async function handleHistoryAgents(
   if (project) {
     params.push(project);
     conditions.push(
-      `COALESCE(a.git_context->>'repoRoot', a.cwd) = $${params.length}`
+      `COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd) = $${params.length}`
     );
   }
 
@@ -150,15 +142,6 @@ async function handleHistoryAgents(
           a.cwd,
           a.worktree_path AS "worktreePath",
           a.worktree_branch AS "worktreeBranch",
-          CASE
-            WHEN a.latest_event_type IS NULL OR a.latest_event_message IS NULL OR a.latest_event_updated_at IS NULL THEN NULL
-            ELSE json_build_object(
-              'type', a.latest_event_type,
-              'message', a.latest_event_message,
-              'updatedAt', a.latest_event_updated_at,
-              'metadata', COALESCE(a.latest_event_metadata, '{}'::jsonb)
-            )
-          END AS "latestEvent",
           a.git_context AS "gitContext",
           a.created_at AS "createdAt",
           a.updated_at AS "updatedAt",
@@ -187,15 +170,6 @@ async function handleHistoryAgents(
           a.name,
           a.persona,
           a.status,
-          CASE
-            WHEN a.latest_event_type IS NULL OR a.latest_event_message IS NULL OR a.latest_event_updated_at IS NULL THEN NULL
-            ELSE json_build_object(
-              'type', a.latest_event_type,
-              'message', a.latest_event_message,
-              'updatedAt', a.latest_event_updated_at,
-              'metadata', COALESCE(a.latest_event_metadata, '{}'::jsonb)
-            )
-          END AS "latestEvent",
           COALESCE((
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
             FROM agent_token_usage WHERE agent_id = a.id
@@ -218,7 +192,6 @@ async function handleHistoryAgents(
         name: child.name,
         persona: child.persona,
         status: child.status,
-        latestEvent: child.latestEvent,
         totalTokens: child.totalTokens,
         createdAt: child.createdAt,
         updatedAt: child.updatedAt,
@@ -255,17 +228,7 @@ async function handleHistoryAgentDetail(
         id, name, type, status, cwd,
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
-        CASE
-          WHEN latest_event_type IS NULL OR latest_event_message IS NULL OR latest_event_updated_at IS NULL THEN NULL
-          ELSE json_build_object(
-            'type', latest_event_type,
-            'message', latest_event_message,
-            'updatedAt', latest_event_updated_at,
-            'metadata', COALESCE(latest_event_metadata, '{}'::jsonb)
-          )
-        END AS "latestEvent",
         git_context AS "gitContext",
-        pins,
         created_at AS "createdAt",
         updated_at AS "updatedAt"
        FROM agents WHERE id = $1`,
@@ -275,19 +238,7 @@ async function handleHistoryAgentDetail(
     return reply.code(404).send({ error: "Agent not found" });
   }
 
-  const [
-    eventsResult,
-    tokenResult,
-    tokenByModelResult,
-    mediaResult,
-    feedbackResult,
-    messagesResult,
-  ] = await Promise.all([
-    deps.pool.query<HistoryEvent>(
-      `SELECT id, event_type, message, metadata, created_at
-           FROM agent_events WHERE agent_id = $1 ORDER BY created_at ASC`,
-      [id]
-    ),
+  const [tokenResult, tokenByModelResult, filesResult] = await Promise.all([
     deps.pool.query<HistoryTokenTotals>(
       `SELECT
             COALESCE(SUM(input_tokens), 0) AS total_input,
@@ -306,85 +257,21 @@ async function handleHistoryAgentDetail(
            GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
       [id]
     ),
-    deps.pool.query<HistoryMedia>(
-      `SELECT id, file_name, source, size_bytes, description, created_at
-           FROM media WHERE agent_id = $1 ORDER BY created_at`,
-      [id]
-    ),
-    deps.pool.query<HistoryFeedbackItem>(
-      `SELECT f.id, r.reviewer_agent_id AS "agentId",
-                  COALESCE(ra.persona, r.reviewer_type) AS persona,
-                  'info' AS severity,
-                  f.file_path AS "filePath", f.line_start AS "lineNumber",
-                  COALESCE(first_message.content->>'body', '') AS description,
-                  NULL::text AS suggestion, NULL::text AS "mediaRef",
-                  CASE
-                    WHEN f.status = 'open' THEN 'open'
-                    WHEN f.resolution = 'fixed' THEN 'fixed'
-                    WHEN f.resolution = 'dismissed' THEN 'dismissed'
-                    ELSE f.status
-                  END AS status,
-                  f.created_at AS "createdAt"
-           FROM review_feedback_items f
-           JOIN reviews r ON r.id = f.review_id
-           LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
-           LEFT JOIN LATERAL (
-             SELECT content
-             FROM review_thread_messages
-             WHERE feedback_item_id = f.id
-             ORDER BY created_at ASC, id ASC
-             LIMIT 1
-           ) first_message ON TRUE
-           WHERE r.agent_id = $1
-           ORDER BY f.created_at ASC
-           LIMIT 500`,
-      [id]
-    ),
-    deps.pool.query<{
-      id: string;
-      senderAgentId: string;
-      recipientAgentId: string;
-      senderName: string;
-      recipientName: string;
-      content: string;
-      delivered: boolean;
-      readAt: string | null;
-      createdAt: string;
-    }>(
-      `SELECT id,
-                sender_agent_id AS "senderAgentId",
-                recipient_agent_id AS "recipientAgentId",
-                sender_name AS "senderName",
-                recipient_name AS "recipientName",
-                content, delivered,
-                read_at AS "readAt",
-                created_at AS "createdAt"
-           FROM (
-             SELECT * FROM agent_messages
-              WHERE sender_agent_id = $1 OR recipient_agent_id = $1
-              ORDER BY created_at DESC
-              LIMIT 500
-           ) recent
-           ORDER BY created_at ASC`,
+    deps.pool.query<Omit<HistoryFile, "media">>(
+      `SELECT id, file_name, source, size_bytes, description, created_at,
+              mime_type
+           FROM files WHERE agent_id = $1 ORDER BY created_at`,
       [id]
     ),
   ]);
 
-  const eventRows: ActivityEventRow[] = eventsResult.rows.map((row) => ({
-    agent_id: id,
-    event_type: row.event_type,
-    created_at: new Date(row.created_at),
-  }));
-  const stats = computeActivityStats(eventRows, null);
-
   return {
     agent: agentResult.rows[0],
-    events: eventsResult.rows,
     tokenUsage: { ...tokenResult.rows[0], by_model: tokenByModelResult.rows },
-    media: mediaResult.rows,
-    feedback: feedbackResult.rows,
-    messages: messagesResult.rows,
-    stateDurations: stats.stateDurations,
+    files: filesResult.rows.map((file) => ({
+      ...file,
+      media: fileMedia(file.mime_type),
+    })),
   };
 }
 

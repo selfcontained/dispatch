@@ -5,18 +5,12 @@ import {
   type GetDiffStatsOptions,
 } from "../shared/git/diff-stats.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
+import {
+  agentDiffTarget,
+  type WorkspaceTargetAgent,
+} from "./workspace-target.js";
 
-export type DiffStatsAgent = {
-  worktreePath: string | null;
-  cwd: string | null;
-  baseBranch: string | null;
-  gitContext?: {
-    worktreePath: string;
-    isWorktree: boolean;
-  } | null;
-};
-
-const DEFAULT_WORKTREE_BASE_BRANCH = "main";
+export type DiffStatsAgent = WorkspaceTargetAgent;
 
 export type DiffStatsChangedEvent = {
   type: "agent.diff_state_changed";
@@ -48,19 +42,21 @@ const DEFAULT_FRESHNESS_MS = 3_000;
 
 /**
  * In-memory cache + signal funnel for per-agent diff stats. Three callers
- * share the same throttle: agent status transitions, the GET diff-stats
+ * share the same throttle: ACP updates, the GET diff-stats
  * route, and tap-to-refresh. The freshness window collapses bursts and the
  * in-flight map dedupes simultaneous signals so we don't fan out git
  * subprocesses across tabs.
  *
  * `signal` returns a promise that resolves once the (possibly shared)
- * compute settles, so callers can await if they care. Status-event callers
+ * compute settles, so callers can await if they care. ACP callers
  * just fire-and-forget.
  */
 export class DiffStatsRefresher {
   private readonly cache = new Map<string, DiffStats | null>();
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly lastSignaledAt = new Map<string, number>();
+  /** Bumped by clear(); a refresh started under an older one is discarded. */
+  private readonly generation = new Map<string, number>();
 
   private readonly getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   private readonly publishEvent: (event: DiffStatsChangedEvent) => void;
@@ -113,8 +109,9 @@ export class DiffStatsRefresher {
     }
     this.lastSignaledAt.set(agentId, now);
 
-    const promise = this.refresh(agentId).finally(() => {
-      this.inFlight.delete(agentId);
+    const promise: Promise<void> = this.refresh(agentId).finally(() => {
+      // A clear() mid-flight may have let a newer refresh take the slot.
+      if (this.inFlight.get(agentId) === promise) this.inFlight.delete(agentId);
     });
     this.inFlight.set(agentId, promise);
     return promise;
@@ -148,6 +145,7 @@ export class DiffStatsRefresher {
    * Drop any cached state for an agent (archive/delete cleanup).
    */
   clear(agentId: string): void {
+    this.generation.set(agentId, (this.generation.get(agentId) ?? 0) + 1);
     this.cache.delete(agentId);
     this.lastSignaledAt.delete(agentId);
     this.inFlight.delete(agentId);
@@ -155,32 +153,17 @@ export class DiffStatsRefresher {
 
   private async refresh(agentId: string): Promise<void> {
     const trackedRun = this.tracker?.start();
+    const generation = this.generation.get(agentId) ?? 0;
     let nextStats: DiffStats | null = null;
     let computation: DiffStatsComputation = { kind: "no-data", stats: null };
     try {
       const agent = await this.getAgent(agentId);
-      // Prefer the dispatch-managed worktreePath. Older rows can be missing
-      // that column while still having a populated gitContext from a prior
-      // probe, so use the probed worktree path before falling back to cwd.
       // `getDiffStats` returns null when the path isn't inside a repo.
-      const gitContextWorktreePath = agent?.gitContext?.isWorktree
-        ? agent.gitContext.worktreePath
-        : null;
-      const path =
-        agent?.worktreePath ?? gitContextWorktreePath ?? agent?.cwd ?? null;
-      if (!path) {
+      const target = agent ? agentDiffTarget(agent) : null;
+      if (!target) {
         nextStats = null;
       } else {
-        // Managed worktree agents default to `main` elsewhere in Dispatch,
-        // but older rows may still have a null baseBranch persisted. Keep
-        // non-worktree agents on the shared resolver fallback chain while
-        // forcing worktree-backed agents onto the intended default base.
-        const baseRef =
-          agent?.baseBranch ??
-          (agent?.worktreePath || gitContextWorktreePath
-            ? DEFAULT_WORKTREE_BASE_BRANCH
-            : null);
-        computation = await this.computeDiffStats(path, baseRef);
+        computation = await this.computeDiffStats(target.path, target.baseRef);
         if (computation.kind === "failure") throw computation.error;
         nextStats = computation.stats;
       }
@@ -202,6 +185,10 @@ export class DiffStatsRefresher {
     } else {
       trackedRun?.succeed({ files: nextStats?.files ?? 0 });
     }
+
+    // Cleared mid-flight (the workspace moved): these stats describe the old
+    // directory, and the refresh started after clear() owns the cache.
+    if ((this.generation.get(agentId) ?? 0) !== generation) return;
 
     const previous = this.cache.has(agentId)
       ? this.cache.get(agentId)

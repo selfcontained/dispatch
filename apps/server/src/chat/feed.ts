@@ -1,611 +1,390 @@
 import type {
-  ChatAgentMessageEntry,
-  ChatFeedEntry,
-  ChatFeedResponse,
-  ChatMediaEntry,
-  ChatMessageEntry,
-  ChatPinEntry,
-  ChatReviewEntry,
-  ChatStatusEntry,
+  Block,
+  ChatTurnStep,
+  StreamBlockEntry,
+  StreamEntry,
+  StreamFeedResponse,
 } from "@dispatch/shared";
 
-import { dimensionFields, parseMediaMetadata } from "../media/metadata.js";
-
 import {
-  type ChatStore,
-  isChatMessageId,
+  clampFeedLimit,
+  compareNewestFirst,
+  cursorClause,
+  decodeFeedCursor,
+  encodeFeedCursor,
+  type FeedCursor,
+  type Keyed,
+} from "./feed-cursor.js";
+import { agentNamesFor } from "./agent-names.js";
+import { attachTurns } from "./turns.js";
+import {
+  type BlockRow,
+  type BlockStore,
+  OPEN_INPUT_SQL,
   type Queryable,
-  toChatMessage,
+  shownIdsOf,
+  toBlock,
 } from "./store.js";
 
-export const CHAT_FEED_DEFAULT_LIMIT = 200;
-export const CHAT_FEED_MAX_LIMIT = 500;
+// The feed's ordering primitives live in `feed-cursor.ts` so the turn
+// composer can use them without importing this module back.
+export { clampFeedLimit, decodeFeedCursor, encodeFeedCursor };
 
-export type ComposeChatFeedOptions = {
+export type ComposeFeedOptions = {
   /** Opaque cursor from a previous page's `nextCursor`; already decoded. */
   cursor?: FeedCursor | null;
   limit?: number;
+  /** Whether an agent is mid-turn, for the `held` delivery state. */
+  isHeld?: (agentId: string) => boolean;
+  /** Development comparison only: retain full settled step details. */
+  compactTurns?: boolean;
 };
 
 /**
- * Feed ordering is (created_at desc, source rank desc, id desc) — a total
- * order across the six tables, so a page boundary that falls on rows with
- * identical timestamps never drops or repeats a row. The cursor names the
- * last entry of the previous page in that order. `at` is Postgres microsecond
- * text (`to_char(..., 'YYYY-MM-DD HH24:MI:SS.US')`), not the millisecond ISO
- * `at` the entries expose, so equality comparisons are exact.
+ * The block columns `toBlock` needs, minus `attachments` — the query below
+ * computes that one rather than passing the stored value through.
  */
-export type FeedCursor = {
-  at: string;
-  type: ChatFeedEntry["type"];
-  id: string;
-};
-
-const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
-  review: 5,
-  chat: 4,
-  status: 3,
-  pin: 2,
-  agent_message: 1,
-  media: 0,
-};
-
-const AT_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
-const AT_KEY_SQL = `to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')`;
-
-export function encodeFeedCursor(cursor: FeedCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
-}
-
-/** Serial ids: digits only, and small enough for a Postgres int4 cast. */
-const SERIAL_ID_RE = /^\d{1,10}$/;
-
-function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
-  switch (type) {
-    case "chat":
-    case "agent_message":
-      return isChatMessageId(id);
-    case "status":
-    case "media":
-    case "review":
-    case "pin":
-      return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
-  }
-}
-
-/**
- * Shape-valid text like `2026-02-30 25:61:00.000000` would still reach the
- * timestamp cast and fail there; round-trip through Date so only real
- * instants pass (JS normalises impossible dates, so the re-rendered ISO
- * string must match).
- */
-function isRealTimestamp(at: string): boolean {
-  // JS accepts year 0000; Postgres does not (there is no year zero).
-  if (at.startsWith("0000-")) return false;
-  const iso = `${at.slice(0, 10)}T${at.slice(11, 23)}Z`;
-  const date = new Date(iso);
-  return !Number.isNaN(date.getTime()) && date.toISOString() === iso;
-}
-
-/**
- * Returns null for anything that is not a cursor this server produced —
- * every field is checked against what its source column can hold, so a
- * rejected cursor is a 400 at the route and never a failed cast in SQL.
- */
-export function decodeFeedCursor(raw: string): FeedCursor | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object") return null;
-  const { at, type, id } = parsed as Record<string, unknown>;
-  if (typeof at !== "string" || !AT_KEY_RE.test(at) || !isRealTimestamp(at)) {
-    return null;
-  }
-  if (typeof type !== "string" || !(type in SOURCE_RANK)) return null;
-  const sourceType = type as ChatFeedEntry["type"];
-  if (typeof id !== "string" || !isValidCursorId(sourceType, id)) return null;
-  return { at, type: sourceType, id };
-}
-
-export function clampFeedLimit(limit: number | undefined): number {
-  if (limit === undefined || !Number.isFinite(limit)) {
-    return CHAT_FEED_DEFAULT_LIMIT;
-  }
-  return Math.min(CHAT_FEED_MAX_LIMIT, Math.max(1, Math.floor(limit)));
-}
-
-type Keyed<E extends ChatFeedEntry> = {
-  entry: E;
-  atKey: string;
-  /** Raw id for the cursor and the SQL tuple comparison. */
-  rawId: string;
-  /** Fixed-width form so JS ordering matches the column's ordering. */
-  idKey: string;
-};
-
-/**
- * "Older than the cursor" for one source. `$1` is the agent id; the clause
- * appends its own parameters. Sources ranked below the cursor's include the
- * cursor timestamp itself; those above it exclude it; the cursor's own
- * source breaks the tie on id. `alias` qualifies the columns for a source
- * whose query joins other tables that have `id`/`created_at` of their own.
- */
-function cursorClause(
-  type: ChatFeedEntry["type"],
-  idCast: "int" | "uuid",
-  cursor: FeedCursor | null,
-  params: unknown[],
-  alias = ""
-): string {
-  if (!cursor) return "";
-  const col = (name: string) => (alias ? `${alias}.${name}` : name);
-  params.push(cursor.at);
-  const ts = `($${params.length}::timestamp AT TIME ZONE 'UTC')`;
-  const rank = SOURCE_RANK[type];
-  const cursorRank = SOURCE_RANK[cursor.type];
-  if (rank > cursorRank) return `AND ${col("created_at")} < ${ts}`;
-  if (rank < cursorRank) return `AND ${col("created_at")} <= ${ts}`;
-  params.push(idCast === "int" ? Number(cursor.id) : cursor.id);
-  return `AND (${col("created_at")} < ${ts} OR (${col("created_at")} = ${ts} AND ${col("id")} < $${params.length}::${idCast}))`;
-}
-
-const intKey = (id: number) => String(id).padStart(20, "0");
-
-/**
- * The message columns `toChatMessage` needs, minus `attachments` — the query
- * below computes that one rather than passing the stored value through, so it
- * cannot be part of a `*`.
- */
-const MESSAGE_COLUMNS = [
+const BLOCK_COLUMNS = [
   "id",
-  "agent_id",
+  "stream_id",
   "author_kind",
+  "author_agent_id",
+  "to_agent_id",
   "kind",
-  "text",
+  "thread_id",
   "reply_to",
-  "question",
-  "answer",
-  "delivered",
-  "read_at",
+  "text",
+  "data",
+  "state",
   "origin",
   "launched_by_agent_id",
+  "delivered",
+  "deliveries",
+  "steering_receipts",
+  "read_at",
   "created_at",
   "updated_at",
 ];
-const MESSAGE_COLUMNS_SQL = MESSAGE_COLUMNS.join(", ");
-const PAGE_COLUMNS_SQL = MESSAGE_COLUMNS.map((c) => `p.${c}`).join(", ");
+const BLOCK_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `b.${c}`).join(", ");
+const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
 
-async function listChatEntries(
+/**
+ * Top-level blocks and user-directed questions/forms, newest first. Other
+ * replies are read through the thread route. Mirrored asks keep their IDs
+ * and thread metadata so both views answer the same stored block.
+ *
+ * The page is materialized first, then its attachments are expanded once,
+ * joined to `files` for each file's live type and image dimensions, and
+ * re-aggregated — one function scan and a hash join for the planner to price
+ * instead of a per-row lookup it would estimate at a hundred index scans.
+ */
+async function listBlockEntries(
   db: Queryable,
-  agentId: string,
+  streamId: string,
   cursor: FeedCursor | null,
   limit: number,
-  onlyId?: string
-): Promise<Keyed<ChatMessageEntry>[]> {
-  const params: unknown[] = [agentId];
-  let clause = cursorClause("chat", "uuid", cursor, params);
-  if (onlyId !== undefined) {
-    params.push(onlyId);
-    clause += ` AND m.id = $${params.length}::uuid`;
+  onlyIds?: readonly string[]
+): Promise<Keyed<StreamBlockEntry>[]> {
+  const params: unknown[] = [streamId];
+  let clause = cursorClause("block", "uuid", cursor, params, "b");
+  // A page also lists user-directed asks from threads. A read by id may
+  // name any reply (or a block another one shows), which is published as its own entry so a
+  // client can file it into its thread.
+  let scope = `AND (b.thread_id IS NULL OR
+    (b.author_kind = 'agent' AND b.to_agent_id IS NULL
+      AND b.kind IN ('question', 'form')))`;
+  if (onlyIds !== undefined) {
+    params.push([...onlyIds]);
+    clause += ` AND b.id = ANY($${params.length}::uuid[])`;
+    scope = "";
   }
   params.push(limit);
-  // The page is materialized first, then its attachments are expanded once,
-  // joined to `media`, and re-aggregated. Doing it that way rather than as a
-  // per-row subquery is a planner concern, not a style one: `jsonb_array_elements`
-  // has no statistics, so the planner assumes 100 elements per message and
-  // prices a per-row lookup at ~100 index scans. On an agent with a long
-  // history that estimate carries the whole query past `jit_above_cost` and
-  // Postgres JIT-compiles it — measured at 17ms against 2.4ms for this shape,
-  // on a page whose actual work is about 1ms either way. Expanding once gives
-  // the planner one function scan and a hash join to price instead.
-  const result = await db.query<
-    Parameters<typeof toChatMessage>[0] & { at_key: string }
-  >(
+  const result = await db.query<BlockRow & { at_key: string }>(
     `WITH page AS MATERIALIZED (
-       SELECT ${MESSAGE_COLUMNS_SQL}, attachments, ${AT_KEY_SQL} AS at_key
-         FROM agent_chat_messages m
-        WHERE m.agent_id = $1 ${clause}
-        ORDER BY m.created_at DESC, m.id DESC
+       SELECT ${BLOCK_COLUMNS_SQL}, b.attachments,
+              to_char(b.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
+         FROM blocks b
+        WHERE b.stream_id = $1
+          ${onlyIds === undefined ? "AND COALESCE(b.data->>'inlineAnswer', 'false') <> 'true'" : ""}
+          ${scope} ${clause}
+        ORDER BY b.created_at DESC, b.id DESC
         LIMIT $${params.length}
      ), expanded AS (
-       SELECT p.id AS message_id, t.ord,
-              CASE
-                WHEN t.a->>'type' = 'file'
-                     AND md.metadata ? 'width'
-                     AND md.metadata ? 'height'
-                THEN t.a || jsonb_build_object(
-                              'width', md.metadata->'width',
-                              'height', md.metadata->'height')
-                ELSE t.a - 'width' - 'height'
-              END AS attachment
+       SELECT p.id AS block_id, t.ord,
+              (t.a - 'width' - 'height')
+                || CASE
+                     WHEN md.id IS NOT NULL
+                     THEN jsonb_build_object('mimeType', md.mime_type)
+                     ELSE '{}'::jsonb
+                   END
+                || CASE
+                     WHEN md.metadata ? 'width' AND md.metadata ? 'height'
+                     THEN jsonb_build_object(
+                            'width', md.metadata->'width',
+                            'height', md.metadata->'height')
+                     ELSE '{}'::jsonb
+                   END AS attachment
          FROM page p
          CROSS JOIN LATERAL
            jsonb_array_elements(p.attachments) WITH ORDINALITY AS t(a, ord)
-         LEFT JOIN media md
+         LEFT JOIN files md
            ON md.id = CASE
                         WHEN t.a->>'type' = 'file'
-                             AND jsonb_typeof(t.a->'mediaId') = 'number'
-                        THEN (t.a->>'mediaId')::int
+                             AND jsonb_typeof(t.a->'fileId') = 'number'
+                        THEN (t.a->>'fileId')::int
                       END
      ), live AS (
-       SELECT message_id, jsonb_agg(attachment ORDER BY ord) AS attachments
+       SELECT block_id, jsonb_agg(attachment ORDER BY ord) AS attachments
          FROM expanded
-        GROUP BY message_id
+        GROUP BY block_id
      ), rx AS (
-       SELECT r.message_id,
+       SELECT r.block_id,
               jsonb_agg(
                 jsonb_build_object(
                   'id', r.id,
                   'authorKind', r.author_kind,
+                  'authorAgentId', r.author_agent_id,
                   'emoji', r.emoji,
                   'delivered', r.delivered,
                   'createdAt', r.created_at)
                 ORDER BY r.created_at, r.id) AS reactions
          FROM page p
-         JOIN agent_chat_reactions r ON r.message_id = p.id
-        GROUP BY r.message_id
+         JOIN block_reactions r ON r.block_id = p.id
+        GROUP BY r.block_id
+     ), replies AS (
+       SELECT c.thread_id,
+              COUNT(*)::int AS reply_count,
+              MAX(c.created_at) AS last_reply_at,
+              -- Agent replies the person has not seen: the thread row's "new".
+              COUNT(*) FILTER (WHERE c.author_kind = 'agent' AND c.read_at IS NULL)::int AS unread_replies,
+              -- Who has written in the thread, in order of first appearance.
+              (SELECT jsonb_agg(jsonb_build_object('kind', a.author_kind, 'agentId', a.author_agent_id)
+                                ORDER BY a.first_at)
+                 FROM (SELECT b.author_kind, b.author_agent_id, MIN(b.created_at) AS first_at
+                         FROM blocks b
+                         JOIN blocks host ON host.id = c.thread_id
+                        WHERE b.thread_id = c.thread_id
+                          AND COALESCE(b.data->>'inlineAnswer', 'false') <> 'true'
+                          AND NOT (COALESCE(host.state->'blocks', '[]'::jsonb) ? b.id::text)
+                        GROUP BY b.author_kind, b.author_agent_id) a) AS repliers
+         FROM page p
+         -- The blocks a host shows are in its thread but are not replies:
+         -- the host draws them, so they are not counted.
+         JOIN blocks c ON c.thread_id = p.id
+          AND COALESCE(c.data->>'inlineAnswer', 'false') <> 'true'
+          AND NOT (COALESCE(p.state->'blocks', '[]'::jsonb) ? c.id::text)
+        GROUP BY c.thread_id
      )
      SELECT ${PAGE_COLUMNS_SQL},
             p.at_key,
             COALESCE(live.attachments, '[]'::jsonb) AS attachments,
-            rx.reactions
+            rx.reactions,
+            COALESCE(replies.reply_count, 0) AS reply_count,
+            replies.last_reply_at,
+            COALESCE(replies.unread_replies, 0) AS unread_replies,
+            replies.repliers
        FROM page p
-       LEFT JOIN live ON live.message_id = p.id
-       LEFT JOIN rx ON rx.message_id = p.id`,
+       LEFT JOIN live ON live.block_id = p.id
+       LEFT JOIN rx ON rx.block_id = p.id
+       LEFT JOIN replies ON replies.thread_id = p.id`,
     params
   );
   return result.rows.map((row) => {
-    const message = toChatMessage(row);
+    const block = toBlock(row);
     return {
-      entry: { type: "chat", id: message.id, at: message.createdAt, message },
+      entry: { type: "block", id: block.id, at: block.createdAt, block },
       atKey: row.at_key,
-      rawId: message.id,
-      idKey: message.id,
+      rawId: block.id,
+      idKey: block.id,
     };
   });
 }
 
-async function listStatusEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatStatusEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("status", "int", cursor, params);
-  params.push(limit);
-  const result = await db.query<{
-    id: number;
-    event_type: string;
-    message: string;
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT id, event_type, message, created_at, ${AT_KEY_SQL} AS at_key
-       FROM agent_events
-      WHERE agent_id = $1 ${clause}
-      ORDER BY created_at DESC, id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: toStatusEntry(row.id, row.event_type, row.message, row.created_at),
-    atKey: row.at_key,
-    rawId: String(row.id),
-    idKey: intKey(row.id),
-  }));
+/**
+ * The state a stored outcome cannot carry: the agent has the prompt
+ * queued behind the turn it is running, so the post is waiting rather
+ * than lost. Applied wherever the stream is read, so a reload, a second
+ * tab and another device all say the same thing.
+ */
+export function markHeld(
+  blocks: readonly Block[],
+  isHeld: (agentId: string) => boolean
+): void {
+  for (const block of blocks) {
+    if (!block.delivery) continue;
+    for (const entry of block.delivery) {
+      if (entry.state === "pending" && isHeld(entry.agentId)) {
+        entry.state = "held";
+      }
+    }
+  }
 }
 
-/** The feed's shape for one `agent_events` row; also what `chat.entry` carries. */
-export function toStatusEntry(
-  id: number,
-  eventType: string,
-  message: string,
-  createdAt: Date | string
-): ChatStatusEntry {
-  return {
-    type: "status",
-    id: `event:${id}`,
-    eventType,
-    message,
-    at: new Date(createdAt).toISOString(),
+/**
+ * One block as the feed would list it, or a reply as its thread lists it.
+ * Null when it is not on this stream.
+ */
+export async function loadBlockEntry(
+  db: Queryable,
+  streamId: string,
+  blockId: string,
+  isHeld?: (agentId: string) => boolean
+): Promise<StreamBlockEntry | null> {
+  const [found] = await listBlockEntries(db, streamId, null, 1, [blockId]);
+  if (!found) return null;
+  await attachTurns(db, [found.entry.block]);
+  await attachShown(db, streamId, [found.entry.block], isHeld);
+  if (isHeld) markHeld([found.entry.block], isHeld);
+  return found.entry;
+}
+
+/** Deeper than any card goes (a launch card shows a review, which shows findings). */
+const SHOWN_MAX_DEPTH = 4;
+
+/**
+ * A settled turn's edit diffs and tool output can dwarf the rest of a feed
+ * page even though its activity is closed. Keep paths for the folded turn
+ * label; the detail route returns the full turn when the reader opens it.
+ */
+export function compactFeedTurnDetails(blocks: readonly Block[]): void {
+  const omitStep = (step: ChatTurnStep): boolean => {
+    let omitted = false;
+    const diff = step.detail.diff;
+    if (diff) {
+      if (!step.detail.locations?.length) {
+        step.detail.locations = [{ path: diff.path }];
+      }
+      delete step.detail.diff;
+      omitted = true;
+    }
+    if ((step.detail.terminalOutput?.length ?? 0) > 1024) {
+      delete step.detail.terminalOutput;
+      omitted = true;
+    }
+    if ((step.detail.text?.length ?? 0) > 1024) {
+      delete step.detail.text;
+      omitted = true;
+    }
+    if (
+      step.detail.input !== undefined &&
+      JSON.stringify(step.detail.input).length > 4096
+    ) {
+      delete step.detail.input;
+      omitted = true;
+    }
+    for (const child of step.children ?? []) {
+      if (omitStep(child)) omitted = true;
+    }
+    return omitted;
   };
+  for (const block of blocks) {
+    const turn = block.turn;
+    if (turn?.settled) {
+      let omitted = false;
+      for (const step of turn.trace.steps) {
+        if (omitStep(step)) omitted = true;
+      }
+      if (omitted) turn.trace.detailsOmitted = true;
+    }
+    if (block.blocks?.length) compactFeedTurnDetails(block.blocks);
+  }
 }
 
 /**
- * One message as the feed would list it — read back through the feed's own
- * query so the wire copy matches a refetch byte for byte (attachment
- * dimensions included). Null when the row is not on this agent's feed.
+ * Put the blocks each block shows onto it as `blocks`, read the way the
+ * feed reads any row (reactions, thread counts), and theirs onto them in
+ * turn. A host is drawn with what it shows, so it has to arrive with it.
  */
-export async function loadChatMessageEntry(
+export async function attachShown(
   db: Queryable,
-  agentId: string,
-  messageId: string
-): Promise<ChatMessageEntry | null> {
-  const [found] = await listChatEntries(db, agentId, null, 1, messageId);
-  return found?.entry ?? null;
-}
-
-async function listAgentMessageEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatAgentMessageEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("agent_message", "uuid", cursor, params);
-  params.push(limit);
-  const result = await db.query<{
-    id: string;
-    sender_agent_id: string;
-    recipient_agent_id: string;
-    sender_name: string;
-    recipient_name: string;
-    involves_child_agent: boolean;
-    content: string;
-    delivered: boolean | null;
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT m.id, m.sender_agent_id, m.recipient_agent_id, m.sender_name,
-            m.recipient_name,
-            EXISTS (
-              SELECT 1
-                FROM agents child
-               WHERE child.id IN (m.sender_agent_id, m.recipient_agent_id)
-                 AND child.parent_agent_id = $1
-            ) AS involves_child_agent,
-            m.content, m.delivered, m.created_at,
-            ${AT_KEY_SQL} AS at_key
-       FROM agent_messages m
-      WHERE (m.sender_agent_id = $1 OR m.recipient_agent_id = $1) ${clause}
-      ORDER BY m.created_at DESC, m.id DESC
-      LIMIT $${params.length}`,
-    params
+  streamId: string,
+  blocks: Block[],
+  isHeld?: (agentId: string) => boolean,
+  depth = 0
+): Promise<void> {
+  // Answers are rendered on their ask, including delivery failures and attachments.
+  const answered = blocks.flatMap((block) => {
+    const id =
+      block.kind === "question"
+        ? block.state?.answer?.blockId
+        : block.kind === "form"
+          ? block.state?.submission?.blockId
+          : undefined;
+    return id ? [{ block, id }] : [];
+  });
+  if (answered.length) {
+    const replies = await listBlockEntries(
+      db,
+      streamId,
+      null,
+      answered.length,
+      answered.map(({ id }) => id)
+    );
+    const replyBlocks = replies.map((row) => row.entry.block);
+    if (isHeld) markHeld(replyBlocks, isHeld);
+    const byId = new Map(replyBlocks.map((block) => [block.id, block]));
+    for (const { block, id } of answered) {
+      const reply = byId.get(id);
+      if (reply?.kind === "text" && reply.data?.inlineAnswer)
+        block.inputReply = reply;
+    }
+  }
+  if (depth >= SHOWN_MAX_DEPTH) return;
+  const hosts = blocks.filter((block) => shownIdsOf(block).length > 0);
+  if (hosts.length === 0) return;
+  const ids = [...new Set(hosts.flatMap((host) => shownIdsOf(host)))];
+  const rows = await listBlockEntries(db, streamId, null, ids.length, ids);
+  const byId = new Map(
+    rows.map((row) => [row.entry.block.id, row.entry.block])
   );
-  return result.rows.map((row) => ({
-    entry: {
-      type: "agent_message",
-      id: row.id,
-      direction: row.sender_agent_id === agentId ? "out" : "in",
-      senderAgentId: row.sender_agent_id,
-      senderName: row.sender_name,
-      recipientAgentId: row.recipient_agent_id,
-      recipientName: row.recipient_name,
-      involvesChildAgent: row.involves_child_agent,
-      content: row.content,
-      delivered: row.delivered,
-      at: row.created_at.toISOString(),
-    },
-    atKey: row.at_key,
-    rawId: row.id,
-    idKey: row.id,
-  }));
-}
-
-async function listMediaEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatMediaEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("media", "int", cursor, params);
-  params.push(limit);
-  const result = await db.query<{
-    id: number;
-    file_name: string;
-    size_bytes: number;
-    description: string | null;
-    metadata: unknown;
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT id, file_name, size_bytes, description, metadata, created_at,
-            ${AT_KEY_SQL} AS at_key
-       FROM media m
-      WHERE m.agent_id = $1
-        -- Composer uploads (source 'user') already render as attachments on
-        -- the user's own post; listing them again would double them up.
-        AND m.source <> 'user'
-        -- Same reasoning for a file an agent shared and then attached to a
-        -- post: the attachment is the richer rendering, so the standalone
-        -- media entry would be a duplicate. Checked against every message on
-        -- this agent, not just the ones on this page, so paging can't make a
-        -- file reappear.
-        AND NOT EXISTS (
-          SELECT 1
-            FROM agent_chat_messages c
-           WHERE c.agent_id = $1
-             AND c.attachments @> jsonb_build_array(
-                   jsonb_build_object('type', 'file', 'mediaId', m.id)
-                 )
-        ) ${clause}
-      ORDER BY created_at DESC, id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: {
-      type: "media",
-      id: `media:${row.id}`,
-      mediaId: row.id,
-      fileName: row.file_name,
-      sizeBytes: row.size_bytes,
-      description: row.description ?? null,
-      ...dimensionFields(parseMediaMetadata(row.metadata)),
-      at: row.created_at.toISOString(),
-    },
-    atKey: row.at_key,
-    rawId: String(row.id),
-    idKey: intKey(row.id),
-  }));
+  const shown = [...byId.values()];
+  await attachTurns(db, shown);
+  if (isHeld) markHeld(shown, isHeld);
+  await attachShown(db, streamId, shown, isHeld, depth + 1);
+  for (const host of hosts) {
+    host.blocks = shownIdsOf(host)
+      .map((id) => byId.get(id))
+      .filter((block): block is Block => block !== undefined);
+  }
 }
 
 /**
- * Reviews left on this agent's work. Counts and status are read live rather
- * than frozen at submission time, so the card in the feed says the same
- * thing as the row in the Reviews sidebar it links to.
+ * Compose one stream's feed at read time: its top-level blocks, newest
+ * first, each turn block carrying its turn. The stream is blocks only; a
+ * child's turn is a block of the child's in the parent's stream, folded by
+ * the client.
  */
-async function listReviewEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatReviewEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("review", "int", cursor, params, "r");
-  params.push(limit);
-  const result = await db.query<{
-    id: number;
-    reviewer_type: string;
-    reviewer_agent_id: string | null;
-    reviewer_name: string | null;
-    summary: string | null;
-    status: string;
-    item_count: number;
-    resolved_count: number;
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT r.id, r.reviewer_type, r.reviewer_agent_id, r.summary, r.status,
-            r.created_at,
-            COALESCE(reviewer.persona, reviewer.name) AS reviewer_name,
-            COUNT(fi.id)::int AS item_count,
-            COUNT(fi.id) FILTER (WHERE fi.status = 'resolved')::int
-              AS resolved_count,
-            to_char(r.created_at AT TIME ZONE 'UTC',
-                    'YYYY-MM-DD HH24:MI:SS.US') AS at_key
-       FROM reviews r
-       LEFT JOIN agents reviewer ON reviewer.id = r.reviewer_agent_id
-       LEFT JOIN review_feedback_items fi ON fi.review_id = r.id
-      WHERE r.agent_id = $1 ${clause}
-      GROUP BY r.id, reviewer.persona, reviewer.name
-      ORDER BY r.created_at DESC, r.id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: {
-      type: "review",
-      id: `review:${row.id}`,
-      reviewId: row.id,
-      reviewerType: row.reviewer_type === "agent" ? "agent" : "human",
-      reviewerAgentId: row.reviewer_agent_id,
-      reviewerName: row.reviewer_name,
-      summary: row.summary,
-      status: row.status,
-      itemCount: row.item_count,
-      resolvedCount: row.resolved_count,
-      at: row.created_at.toISOString(),
-    },
-    atKey: row.at_key,
-    rawId: String(row.id),
-    idKey: intKey(row.id),
-  }));
-}
-
-/**
- * Pin activity, one entry per write: every row of a batch write shares the
- * transaction's `now()`, so grouping by (created_at, action) turns "replace
- * group Build with five pins" into one post rather than five. The group's
- * smallest id is its id, which keeps the cursor's (created_at, id) tuple
- * comparison exact — no other row shares that timestamp and action.
- */
-async function listPinEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatPinEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("pin", "int", cursor, params);
-  params.push(limit);
-  const result = await db.query<{
-    id: number;
-    action: ChatPinEntry["action"];
-    pin_ids: string[];
-    labels: string[];
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT id, action, pin_ids, labels, created_at, ${AT_KEY_SQL} AS at_key
-       FROM (
-         SELECT min(id) AS id, action, created_at,
-                array_agg(pin_id ORDER BY id) AS pin_ids,
-                array_agg(label ORDER BY id) AS labels
-           FROM pin_events
-          WHERE agent_id = $1
-          GROUP BY created_at, action
-       ) AS writes
-      WHERE TRUE ${clause}
-      ORDER BY created_at DESC, id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: {
-      type: "pin",
-      id: `pin:${row.id}`,
-      action: row.action,
-      pins: row.pin_ids.map((id, i) => ({ id, label: row.labels[i] ?? "" })),
-      at: row.created_at.toISOString(),
-    },
-    atKey: row.at_key,
-    rawId: String(row.id),
-    idKey: intKey(row.id),
-  }));
-}
-
-/** Newest first: (atKey, source rank, id) descending. */
-function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
-  if (a.atKey !== b.atKey) return a.atKey < b.atKey ? 1 : -1;
-  const rank = SOURCE_RANK[b.entry.type] - SOURCE_RANK[a.entry.type];
-  if (rank !== 0) return rank;
-  if (a.idKey === b.idKey) return 0;
-  return a.idKey < b.idKey ? 1 : -1;
-}
-
-/**
- * Compose one agent's Chat feed at read time from chat messages, status
- * events, cross-agent messages, shared media, reviews, and pin activity.
- * Each source contributes its newest `limit + 1` rows past the cursor; the
- * merge keeps the newest `limit` overall, so any row that belongs on the page
- * is present (a row in the top `limit` overall is in the top `limit` of its
- * source), and anything left over proves an older page exists.
- */
-export async function composeChatFeed(
-  store: ChatStore,
-  agentId: string,
-  opts: ComposeChatFeedOptions = {}
-): Promise<ChatFeedResponse> {
+export async function composeStreamFeed(
+  store: BlockStore,
+  streamId: string,
+  opts: ComposeFeedOptions = {}
+): Promise<StreamFeedResponse> {
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const [chat, status, agentMessages, media, reviews, pins, unreadCount] =
-    await Promise.all([
-      listChatEntries(db, agentId, cursor, limit + 1),
-      listStatusEntries(db, agentId, cursor, limit + 1),
-      listAgentMessageEntries(db, agentId, cursor, limit + 1),
-      listMediaEntries(db, agentId, cursor, limit + 1),
-      listReviewEntries(db, agentId, cursor, limit + 1),
-      listPinEntries(db, agentId, cursor, limit + 1),
-      store.countUnread(agentId),
-    ]);
-
-  const merged: Keyed<ChatFeedEntry>[] = [
-    ...chat,
-    ...status,
-    ...agentMessages,
-    ...media,
-    ...reviews,
-    ...pins,
-  ].sort(compareNewestFirst);
+  const [rows, unreadCount] = await Promise.all([
+    listBlockEntries(db, streamId, cursor, limit + 1),
+    store.countUnread(streamId),
+  ]);
+  const merged: Keyed<StreamEntry>[] = rows.sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
+  const blocks = page.map((item) => item.entry.block);
+  const [openInputs, threadLinks] = await Promise.all([
+    cursor ? Promise.resolve(null) : listOpenInputs(db, streamId),
+    cursor ? Promise.resolve(null) : listThreadLinks(db, streamId),
+    attachTurns(db, blocks),
+    attachShown(db, streamId, blocks, opts.isHeld),
+  ]);
+  if (opts.compactTurns !== false) compactFeedTurnDetails(blocks);
+  // Names last: the blocks the page shows, and the asks and links it
+  // carries, name agents of their own.
+  const agentNames = await agentNamesFor(db, [
+    ...blocks,
+    ...(openInputs ?? []),
+    ...(threadLinks ?? []),
+  ]);
+  if (opts.isHeld) markHeld(blocks, opts.isHeld);
   const oldest = page[page.length - 1];
   const nextCursor =
     hasMore && oldest
@@ -620,5 +399,56 @@ export async function composeChatFeed(
     hasMore,
     nextCursor,
     unreadCount,
+    ...(openInputs ? { openInputs } : {}),
+    ...(threadLinks ? { threadLinks } : {}),
+    agentNames,
   };
+}
+
+/** How many posts with links from threads the first page carries: the Inbox's glance. */
+const THREAD_LINKS_MAX = 20;
+
+/**
+ * The newest posts in threads that carry a link or a pull request: a
+ * child's work lands in its own thread, which the feed does not list, and
+ * the links it produces are the Inbox's to show.
+ */
+async function listThreadLinks(
+  db: Queryable,
+  streamId: string
+): Promise<Block[]> {
+  const result = await db.query<BlockRow>(
+    `SELECT b.* FROM blocks b
+      WHERE b.stream_id = $1 AND b.thread_id IS NOT NULL
+        AND (b.kind = 'link'
+             OR b.attachments @> '[{"type": "link"}]'::jsonb
+             OR b.attachments @> '[{"type": "pr"}]'::jsonb)
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ${THREAD_LINKS_MAX}`,
+    [streamId]
+  );
+  return result.rows.map(toBlock);
+}
+
+/** How many open asks the first page carries; more would be a stream in trouble. */
+const OPEN_INPUTS_MAX = 50;
+
+/**
+ * Every question or form an agent has open for people in this stream,
+ * wherever it was asked: a child asks in its own thread, which the feed
+ * does not list, and an open ask must never be out of sight.
+ */
+async function listOpenInputs(
+  db: Queryable,
+  streamId: string
+): Promise<Block[]> {
+  const result = await db.query<BlockRow>(
+    `SELECT b.* FROM blocks b
+      WHERE b.stream_id = $1 AND b.author_kind = 'agent'
+        AND b.to_agent_id IS NULL AND ${OPEN_INPUT_SQL}
+      ORDER BY b.created_at, b.id
+      LIMIT ${OPEN_INPUTS_MAX}`,
+    [streamId]
+  );
+  return result.rows.map(toBlock);
 }

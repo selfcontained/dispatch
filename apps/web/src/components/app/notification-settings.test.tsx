@@ -32,9 +32,9 @@ function settings(
 ): NotificationSettingsResponse {
   return {
     webhookUrl: "https://hooks.slack.com/services/T/B/X",
-    notifyEvents: ["done", "blocked"],
+    notifyEvents: ["waiting_user", "blocked"],
     webNotifyEnabled: false,
-    webNotifyEvents: ["done"],
+    webNotifyEvents: ["waiting_user"],
     ...overrides,
   };
 }
@@ -144,9 +144,9 @@ describe("NotificationSettings — Slack save gating", () => {
     expect(screen.getByText("Settings saved.")).toBeTruthy();
     expect(postBody(1)).toEqual({
       webhookUrl: "https://hooks.slack.com/services/T/B/Y",
-      notifyEvents: ["done", "blocked"],
+      notifyEvents: ["waiting_user", "blocked"],
       webNotifyEnabled: false,
-      webNotifyEvents: ["done"],
+      webNotifyEvents: ["waiting_user"],
     });
   });
 });
@@ -154,12 +154,12 @@ describe("NotificationSettings — Slack save gating", () => {
 describe("NotificationSettings — browser toggle wiring", () => {
   it("persists an enable toggle and shows the saved message in the browser section", async () => {
     await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["done"] }),
+      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] }),
       "granted"
     );
 
     apiMock.mockResolvedValueOnce(
-      settings({ webNotifyEnabled: true, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: true, webNotifyEvents: ["waiting_user"] })
     );
     await act(async () => {
       fireEvent.click(screen.getByTestId("web-notify-enabled"));
@@ -168,7 +168,7 @@ describe("NotificationSettings — browser toggle wiring", () => {
     // The toggle drove a browser-settings POST (enabled flag + events only).
     expect(postBody(1)).toEqual({
       webNotifyEnabled: true,
-      webNotifyEvents: ["done"],
+      webNotifyEvents: ["waiting_user"],
     });
     // Success copy renders in the Browser section, and only there.
     const saved = screen.getAllByText("Browser notification settings saved.");
@@ -182,7 +182,7 @@ describe("NotificationSettings — browser toggle wiring", () => {
 describe("NotificationSettings — status slots do not cross-wire", () => {
   it("shows a browser-save failure only in the browser section", async () => {
     await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["done"] }),
+      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] }),
       "granted"
     );
 
@@ -220,7 +220,7 @@ describe("NotificationSettings — status slots do not cross-wire", () => {
 describe("NotificationSettings — permission gating", () => {
   it("gates the enable toggle and test button behind granted permission", async () => {
     await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["done"] }),
+      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] }),
       "default"
     );
 
@@ -238,18 +238,18 @@ describe("NotificationSettings — permission gating", () => {
     // browser/OS settings). The whole event + test block must stay behind the
     // permission gate, not just the enabled flag.
     await renderLoaded(
-      settings({ webNotifyEnabled: true, webNotifyEvents: ["done"] }),
+      settings({ webNotifyEnabled: true, webNotifyEvents: ["waiting_user"] }),
       "default"
     );
 
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.queryByTestId("test-web-notification")).toBeNull();
-    expect(screen.queryByTestId("web-notify-event-done")).toBeNull();
+    expect(screen.queryByTestId("web-notify-event-waiting_user")).toBeNull();
   });
 
   it("exposes and wires the test button once permission is granted and enabled", async () => {
     await renderLoaded(
-      settings({ webNotifyEnabled: true, webNotifyEvents: ["done"] }),
+      settings({ webNotifyEnabled: true, webNotifyEvents: ["waiting_user"] }),
       "granted"
     );
 

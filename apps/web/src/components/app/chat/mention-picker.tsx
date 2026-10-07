@@ -1,0 +1,120 @@
+import { createPortal } from "react-dom";
+
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
+import { seatClasses } from "@/lib/agent-seat";
+import type { Mentionable, MentionSpan } from "@/lib/mentions";
+import { cn } from "@/lib/utils";
+
+/**
+ * The agents a typed `@` can name, listed over the composer: seat, name.
+ * Keyboard moves the highlight (the composer owns the keys); a click picks.
+ */
+export function MentionPicker({
+  candidates,
+  activeIndex,
+  onPick,
+  onHover,
+  anchor,
+}: {
+  candidates: readonly Mentionable[];
+  activeIndex: number;
+  onPick: (agent: Mentionable) => void;
+  onHover: (index: number) => void;
+  /** The field the list sits over; the composer's box clips, so the list is portalled. */
+  anchor: HTMLElement | null;
+}): JSX.Element | null {
+  if (candidates.length === 0) return null;
+  const rect = anchor?.getBoundingClientRect();
+  const style = rect
+    ? {
+        left: Math.max(8, rect.left),
+        bottom: Math.max(8, window.innerHeight - rect.top + 4),
+      }
+    : { left: 8, bottom: 8 };
+  return createPortal(
+    <div
+      className="fixed z-50 w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      style={style}
+      role="listbox"
+      aria-label="Mention an agent"
+      data-testid="mention-picker"
+    >
+      {candidates.map((agent, index) => (
+        <button
+          key={agent.id}
+          type="button"
+          role="option"
+          aria-selected={index === activeIndex}
+          className={cn(
+            "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm",
+            index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
+          )}
+          // Mouse down would take focus from the textarea and close the
+          // list before the click lands.
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => onHover(index)}
+          onClick={() => onPick(agent)}
+          data-testid="mention-option"
+          data-agent-id={agent.id}
+          title={agent.mentionName ?? agent.name}
+        >
+          {agent.seat !== undefined ? (
+            <AgentSeatBadge seat={agent.seat} name={agent.name} size="sm" />
+          ) : (
+            <AgentSeatBadge
+              seat={null}
+              name={agent.name}
+              size="sm"
+              data-testid="mention-session-icon"
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+          {agent.mentionName ? (
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              {agent.id.slice(-6)}
+            </span>
+          ) : null}
+          {agent.seat !== undefined ? (
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              @{agent.seat}
+            </span>
+          ) : (
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              Session
+            </span>
+          )}
+        </button>
+      ))}
+    </div>,
+    document.body
+  );
+}
+
+/** A message with its `@name`s painted in the named agent's colour. */
+export function MentionText({
+  spans,
+}: {
+  spans: readonly MentionSpan[];
+}): JSX.Element {
+  return (
+    <>
+      {spans.map((span, index) =>
+        span.kind === "mention" ? (
+          <span
+            key={index}
+            className={cn(
+              "box-decoration-clone rounded-full border px-1 py-0 text-[0.8em] font-medium",
+              seatClasses(span.agent.seat ?? 1).face
+            )}
+            data-testid="chat-mention"
+            data-agent-id={span.agent.id}
+          >
+            {span.text}
+          </span>
+        ) : (
+          <span key={index}>{span.text}</span>
+        )
+      )}
+    </>
+  );
+}

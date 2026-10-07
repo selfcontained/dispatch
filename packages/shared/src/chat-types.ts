@@ -1,6 +1,7 @@
+import type { BlockKind, BlockReviewStatus } from "./block-types.js";
 /**
  * Runtime-free wire contract for the chat surface — the Chat tab that sits
- * above an agent's terminal. See docs/chat-surface-plan.md.
+ * above an agent's terminal. See docs/design/blocks.md.
  */
 
 export type ChatAuthorKind = "agent" | "user";
@@ -34,21 +35,36 @@ export type ChatAttachment =
   | {
       type: "file";
       /**
-       * A file previously shared via dispatch_share_file, referenced by the
-       * stored `fileName` (or `mediaId`) that tool returned. The server fills
-       * these fields from the media row; the agent's local path is never
+       * A file previously shared via share_file, referenced by the
+       * stored `fileName` (or `fileId`) that tool returned. The server fills
+       * these fields from the file row; the agent's local path is never
        * stored.
        */
-      mediaId: number;
+      fileId: number;
       fileName: string;
       sizeBytes: number;
+      /** The file row's `mime_type`, read from its bytes when it was stored. */
       mimeType?: string;
       /**
+       * What the file is to a reader, derived from `mimeType` on read (see
+       * `fileMedia`): an `image` shows as a picture, and a post's images are
+       * laid out together (see `layoutAttachments`).
+       */
+      media?: FileMedia;
+      /**
+       * The agent whose files directory holds the file, and so the agent its
+       * URL is served under. Not always the post's author: a person's post
+       * holds files of the agent it was sent to. Absent on attachments
+       * written before it was recorded; readers fall back to what the post
+       * implies.
+       */
+      ownerAgentId?: string;
+      /**
        * Natural pixel size of an image, filled in at read time from the live
-       * media row. The feed reserves a box of this aspect ratio before the
+       * file row. The feed reserves a box of this aspect ratio before the
        * image loads, so an arriving image never pushes the reader's place down
        * the page. Absent for non-images, for a file whose header could not be
-       * read, and for a media row that has since been deleted — each of which
+       * read, and for a file row that has since been deleted — each of which
        * falls back to a fixed-height box.
        */
       width?: number;
@@ -56,18 +72,77 @@ export type ChatAttachment =
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
-  | { type: "code"; code: string; language?: string; path?: string }
-  | { type: "pin"; pinId: string };
+  | { type: "code"; code: string; language?: string; path?: string };
+
+export type ChatFileAttachment = Extract<ChatAttachment, { type: "file" }>;
+
+/**
+ * What a stored file is to a reader, whichever surface shows it: the Files
+ * tab, the lightbox, or a post's attachments. Derived from the file row's
+ * `mime_type`, which the server reads from the file's bytes, so no reader
+ * works it out again from a name.
+ */
+export type FileMedia = "image" | "video" | "pdf" | "text" | "file";
+
+/** The `media` a file of this MIME type gets. */
+export function fileMedia(mimeType: string | undefined): FileMedia {
+  if (!mimeType) return "file";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType === "application/pdf") return "pdf";
+  if (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/xml"
+  ) {
+    return "text";
+  }
+  return "file";
+}
+
+/** Tiles a gallery shows before its last one stands for the rest as "+N". */
+export const CHAT_GALLERY_MAX_TILES = 6;
+
+/**
+ * How a post's attachments are laid out, in order: one `gallery` holding
+ * every image when there are two or more, placed where the first of them
+ * was, and each other attachment (a lone image included) on its own.
+ *
+ * This is the rule, not a suggestion to renderers: whoever posts attaches
+ * the images and every surface that shows the post lays them out the same
+ * way, so no agent has to choose between one post and several.
+ */
+export type ChatAttachmentGroup =
+  | { kind: "gallery"; images: ChatFileAttachment[] }
+  | { kind: "single"; attachment: ChatAttachment };
+
+export function layoutAttachments(
+  attachments: readonly ChatAttachment[]
+): ChatAttachmentGroup[] {
+  const isImage = (a: ChatAttachment): a is ChatFileAttachment =>
+    a.type === "file" && a.media === "image";
+  const images = attachments.filter(isImage);
+  if (images.length < 2) {
+    return attachments.map((attachment) => ({ kind: "single", attachment }));
+  }
+  const groups: ChatAttachmentGroup[] = [];
+  for (const attachment of attachments) {
+    if (!isImage(attachment)) {
+      groups.push({ kind: "single", attachment });
+    } else if (attachment === images[0]) {
+      groups.push({ kind: "gallery", images });
+    }
+  }
+  return groups;
+}
 
 /**
  * An attachment as the user supplies it from the Chat composer. `file` names
- * a media row uploaded first via `POST /agents/:id/media`; the server resolves
- * it into the stored `ChatAttachment` shape, verifies `pin` on the agent, and
- * stores `link` as given.
+ * a file row uploaded first via `POST /agents/:id/files`; the server resolves
+ * it into the stored `ChatAttachment` shape and stores `link` as given.
  */
 export type ChatUserAttachmentInput =
-  | { type: "file"; mediaId: number }
-  | { type: "pin"; pinId: string }
+  | { type: "file"; fileId: number }
   | { type: "link"; url: string; title?: string };
 
 /** Body of `POST /agents/:id/chat/messages`. */
@@ -99,7 +174,7 @@ export type ChatAnswerRequest = {
 /**
  * An emoji reaction on a Chat message. Each side reacts to the other's
  * posts: the user to the agent's (the reaction is injected into the agent's
- * pane), the agent to the user's via dispatch_chat_react (shown only).
+ * pane), the agent to the user's via chat_react (shown only).
  * Removing a reaction only removes the chip.
  */
 export type ChatReaction = {
@@ -144,14 +219,14 @@ export type ChatMessage = {
   readAt: string | null;
   /**
    * `"launch"` on the user post that records the context an agent was
-   * created with (initial prompt, startup files, links, pins). Absent on
+   * created with (initial prompt, startup files, links). Absent on
    * every other message. Such a post is always `delivered: true` — the
    * prompt reached the CLI through the normal launch path, not the pane.
    */
   origin?: ChatMessageOrigin;
   /**
    * Launch-context posts only: the agent that created this one via
-   * dispatch_launch_agent, when it was not launched by a person. The web
+   * launch_agent, when it was not launched by a person. The web
    * attributes the post to that agent instead of to "You". Absent otherwise.
    */
   launchedByAgentId?: string;
@@ -164,37 +239,10 @@ export type ChatMessage = {
   updatedAt: string;
 };
 
-/** A row from `agent_events`, surfaced as a compact feed line. */
-export type ChatStatusEntry = {
-  type: "status";
+export type ChatFileEntry = {
+  type: "file";
   id: string;
-  eventType: string;
-  message: string;
-  at: string;
-};
-
-/** A cross-agent message (`agent_messages`) in either direction. */
-export type ChatAgentMessageEntry = {
-  type: "agent_message";
-  id: string;
-  direction: "in" | "out";
-  senderAgentId: string;
-  senderName: string;
-  recipientAgentId: string;
-  recipientName: string;
-  /** True when either endpoint is a direct child of this feed's agent. */
-  involvesChildAgent?: boolean;
-  content: string;
-  /** `null` while the pane delivery is still pending (see `agent_messages`). */
-  delivered: boolean | null;
-  at: string;
-};
-
-/** A file the agent shared via dispatch_share_file. */
-export type ChatMediaEntry = {
-  type: "media";
-  id: string;
-  mediaId: number;
+  fileId: number;
   fileName: string;
   sizeBytes: number;
   description: string | null;
@@ -204,42 +252,132 @@ export type ChatMediaEntry = {
   at: string;
 };
 
-/**
- * A review submitted against this agent's work (`reviews`), surfaced as a
- * card in the feed. Derived at read time, so the counts and the status are
- * always the review's current ones — the card is a live link to the review
- * in the Reviews sidebar, not a snapshot of when it landed.
- */
-export type ChatReviewEntry = {
-  type: "review";
-  id: string;
-  reviewId: number;
-  /** Who left it: an agent reviewer, or a person using the Changes tab. */
-  reviewerType: "human" | "agent";
-  reviewerAgentId: string | null;
-  /** The reviewer agent's persona or name; null for a human review. */
-  reviewerName: string | null;
-  summary: string | null;
-  status: string;
-  itemCount: number;
-  resolvedCount: number;
-  at: string;
-};
+export type ChatTurnStepStatus = "pending" | "running" | "ok" | "error";
 
 /**
- * Pins the agent created, updated, or deleted in one write (`pin_events`),
- * surfaced as a post in the feed. Entries carry ids, not values: the web
- * renders each pin live from the agent's current pins, exactly as a pin
- * attachment does, so a later update refreshes every earlier entry and a
- * shortcut in the stream stays runnable. `label` is the one snapshot, so an
- * entry can still name a pin that has since been deleted.
+ * One unit of work inside a turn's trace: a tool call, a thought, or a
+ * piece of assistant text that was not the turn's answer.
  */
-export type ChatPinEntry = {
-  type: "pin";
+export type ChatTurnStep = {
   id: string;
-  action: "created" | "updated" | "deleted";
-  pins: Array<{ id: string; label: string }>;
+  /** execute | edit | read | search | fetch | think | note | notice | compaction | other */
+  kind: string;
+  label: string;
+  status: ChatTurnStepStatus;
+  startedAt: string;
+  /** Latest persisted tool update, independent of total turn age. */
+  updatedAt?: string;
+  endedAt?: string;
+  durMs?: number;
+  detail: {
+    toolKind?: string;
+    locations?: { path: string; line?: number }[];
+    diff?: { path: string; oldText: string | null; newText: string } | null;
+    terminalOutput?: string | null;
+    truncated?: boolean;
+    /** The tool call's raw input (the harness sends the model's arguments). */
+    input?: unknown;
+    /** note and think steps: the full text; notice and compaction steps: the detail or summary. */
+    text?: string;
+    /** A notice step: info | warning | error. */
+    severity?: string;
+    /** A `subagent` step: the child session it started. */
+    subagentSessionId?: string;
+    /** A nested call: the toolCallId of the step it runs under. */
+    parentToolCallId?: string;
+  };
+  /** Steps a subagent ran under this one (Claude Task calls). */
+  children?: ChatTurnStep[];
+};
+
+export type ChatTurnPlanEntry = {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  priority: "high" | "medium" | "low";
+};
+
+/** What opened a turn, in the reader's terms rather than the wire envelope's. */
+export type ChatTurnPrompt = {
+  source: "chat" | "launch" | "agent" | "system";
+  text: string;
+  /** The block behind a chat or launch prompt. */
+  chatMessageId?: string;
+  /**
+   * That block's kind. A text post is drawn by the turn it opened; any other
+   * kind (a review left by hand, a question) stays a block of its own and
+   * the turn draws no prompt post for it.
+   */
+  kind?: BlockKind;
+  /** A launch prompt written by another agent (launch_agent): which one. */
+  launchedByAgentId?: string;
+  /**
+   * A chat prompt that is a thread reply (an answer to a question, a reply
+   * under a block): the thread's root. The block already shows the reply
+   * (an answered question, a reply count), so the turn draws no prompt post.
+   */
+  threadId?: string;
+  /** A prompt from another agent: who sent it. */
+  senderName?: string;
+  /**
+   * A prompt from another agent: which one. The child-agent filter needs the
+   * id, not the name, to decide whether a turn belongs to a child.
+   */
+  senderAgentId?: string;
+  attachments: ChatAttachment[];
+};
+
+export type ChatTurnQuestionRef = { messageId: string; answered: boolean };
+
+/**
+ * One turn of a stream-driven harness, whole: the prompt that opened it, the
+ * activity behind it, the answer it ended with. It takes the position of its
+ * anchor `turn` row and grows in place while the turn runs, so it belongs
+ * wholly to the page that anchor falls on and no page boundary splits it.
+ */
+export type ChatTurnEntry = {
+  type: "turn";
+  id: string;
+  agentId: string;
+  /** The anchor row's `created_at`: the turn's place in the feed, fixed for its life. */
   at: string;
+  updatedAt: string;
+  prompt: ChatTurnPrompt;
+  trace: {
+    startedAt: string;
+    /** Last assistant/thought/tool update; excludes usage and turn metadata. */
+    lastProgressAt?: string;
+    endedAt?: string;
+    finalResult?: "ok" | "error" | "interrupted";
+    /** The feed omits large settled edit diffs; open the activity to load them. */
+    detailsOmitted?: boolean;
+    steps: ChatTurnStep[];
+  };
+  result: {
+    text: string;
+    streaming: boolean;
+    truncated?: boolean;
+    /**
+     * The start of `text` written before the turn's last tool call: what the
+     * agent said while it worked. The rest of `text` is its final reply.
+     * Absent when there is no such split (no tool call, or none followed by text).
+     */
+    lead?: string;
+  } | null;
+  /** False while the turn is open: the step list is live and the result may grow. */
+  settled: boolean;
+  /** Cut rather than finished: Stop, Ctrl+C, Send now, or a service restart. */
+  interrupted: boolean;
+  error?: string;
+  /**
+   * A failed turn a later attempt could clear: `open` while it is the
+   * agent's latest turn, `retried` once the user retried it.
+   */
+  retry?: "open" | "retried";
+  plan?: ChatTurnPlanEntry[];
+  usage?: { used: number; size: number; costUsd: number | null };
+  questions?: ChatTurnQuestionRef[];
+  /** The model the turn ran on; absent when the engine published none. */
+  model?: string;
 };
 
 export type ChatMessageEntry = {
@@ -249,13 +387,7 @@ export type ChatMessageEntry = {
   message: ChatMessage;
 };
 
-export type ChatFeedEntry =
-  | ChatMessageEntry
-  | ChatStatusEntry
-  | ChatAgentMessageEntry
-  | ChatMediaEntry
-  | ChatReviewEntry
-  | ChatPinEntry;
+export type ChatFeedEntry = ChatMessageEntry | ChatFileEntry | ChatTurnEntry;
 
 export type ChatFeedResponse = {
   entries: ChatFeedEntry[];
@@ -277,6 +409,20 @@ export type ChatUnreadSummary = {
   agents: Record<string, { unread: number; pendingQuestions: number }>;
 };
 
+/** Latest submitted review by each non-deleted agent, across all feed pages. */
+export type AgentReviewSummary = {
+  agents: Record<
+    string,
+    {
+      status: BlockReviewStatus;
+      openFindings: number;
+      streamId: string;
+      /** The launch thread when embedded in a launch card, otherwise the review itself. */
+      threadId: string;
+    }
+  >;
+};
+
 export type ChatSendResponse = {
   message: ChatMessage;
   /** Mirrors `message.delivered`: `null` while delivery is still pending. */
@@ -295,10 +441,24 @@ export type ChatAnswerResponse = {
 export type ChatChangedEvent = { type: "chat.changed"; agentId: string };
 
 /**
+ * An ACP runtime stream write: an assistant chunk, a tool call, a
+ * turn boundary, a queue change. The turn it changed is published as its
+ * own `chat.entry`, so this event only refetches the queue; `config`
+ * marks the writes that also change the session's model, effort, or
+ * running state (a session start, a settle, a switch), so a client
+ * refetches that only then, not on every chunk.
+ */
+export type RuntimeChangedEvent = {
+  type: "runtime.changed";
+  agentId: string;
+  config?: boolean;
+};
+
+/**
  * One feed row, exactly as `GET /agents/:id/chat` would return it, published
  * when that row is written or edited so a mounted feed can put it in place
- * instead of refetching every loaded page. Chat messages and status events
- * are published this way; the other sources still announce themselves with
+ * instead of refetching every loaded page. Stream blocks
+ * are published this way; other sources still announce themselves with
  * the coarse `chat.changed`, which stays the fallback for anything a client
  * cannot place.
  */

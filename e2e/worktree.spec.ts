@@ -30,7 +30,7 @@ function createTestRepo(suffix: string): string {
 
   // Create a bare repo to act as "origin"
   mkdirSync(barePath, { recursive: true });
-  execSync("git init --bare", { cwd: barePath, stdio: "ignore" });
+  execSync("git init --bare -b main", { cwd: barePath, stdio: "ignore" });
 
   // Clone it as the working repo
   execSync(`git clone "${barePath}" "${repoPath}"`, { stdio: "ignore" });
@@ -710,7 +710,7 @@ test.describe("Worktree location setting", () => {
     await page.getByTestId("settings-button").click();
     await page
       .getByRole("navigation")
-      .getByText("Agents", { exact: true })
+      .getByText("Workspace", { exact: true })
       .click();
 
     await expect(page.getByText("Worktree location")).toBeVisible({

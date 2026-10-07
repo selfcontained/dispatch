@@ -1,10 +1,14 @@
+import type { ScheduledMessageService } from "../scheduled-messages/service.js";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import type { SharedUiEvent } from "@dispatch/shared";
 
+import { getEnabledAgentTypes } from "../agent-type-settings.js";
+import { createProviderPlansReporter } from "../agents/provider-plans.js";
 import type { AgentManager } from "../agents/manager.js";
+import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
@@ -17,9 +21,7 @@ import {
 } from "../shared/git/git-context.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
-import type { SurfaceService } from "../surfaces/service.js";
-import type { ChatService } from "../chat/service.js";
-import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
+import type { StreamService } from "../chat/service.js";
 
 /**
  * Resolves once the response has left the server — `finish` when it was
@@ -38,6 +40,7 @@ function onceResponseFinished(res: {
 }
 
 type McpRouteDeps = {
+  providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   config: {
     authToken: string;
   };
@@ -65,17 +68,13 @@ type McpRouteDeps = {
     agentId: string
   ) => boolean;
   mcpSendNotify: unknown;
-  mcpUpsertEvent: unknown;
   mcpRenameSession: unknown;
-  mcpShareMedia: unknown;
-  mcpListMedia: unknown;
-  mcpDeleteMedia: unknown;
-  mcpListPins: unknown;
-  mcpGetWhiteboard: unknown;
-  mcpUpdateWhiteboard: unknown;
-  mcpClearWhiteboard: unknown;
+  mcpSetWorkspace: unknown;
+  mcpShareFile: unknown;
+  mcpListFiles: unknown;
+  mcpDeleteFile: unknown;
   mcpListPersonas: unknown;
-  mcpLaunchPersona: unknown;
+  mcpLaunchOwnerReviews?: unknown;
   mcpListPersonalities: unknown;
   mcpCreatePersonality: unknown;
   mcpUpdatePersonality: unknown;
@@ -84,29 +83,23 @@ type McpRouteDeps = {
   mcpClearActivePersonality: unknown;
   mcpLaunchAgent: unknown;
   mcpArchiveAgent: unknown;
-  mcpResolveReviewFeedback: unknown;
-  mcpReopenReviewFeedback: unknown;
-  mcpSubmitReview: unknown;
-  mcpAddReviewFeedback: unknown;
-  mcpAddReviewThreadMessage: unknown;
-  mcpListReviewFeedback: unknown;
-  mcpGetReviewFeedbackItem: unknown;
-  mcpUpsertPin: unknown;
-  mcpUpsertPins: unknown;
-  mcpDeletePin: unknown;
-  mcpDeletePinByLabel: unknown;
   mcpJobComplete: unknown;
   mcpJobFailed: unknown;
   mcpJobNeedsInput: unknown;
   mcpJobLog: unknown;
-  mcpSendMessage: unknown;
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
-  surfaces: SurfaceService;
-  chat: Pick<ChatService, "post" | "update" | "addReaction" | "removeReaction">;
+  scheduledMessages?: ScheduledMessageService;
+  chat: Pick<
+    StreamService,
+    "post" | "update" | "addReaction" | "removeReaction"
+  >;
 };
 
-function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
+function buildCrudCallbacks(
+  deps: McpRouteDeps,
+  callerFullAccess: boolean
+): CrudToolCallbacks {
   return {
     listJobs: async (directory) => {
       const jobs = await deps.jobService.listJobs();
@@ -117,12 +110,19 @@ function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
     getJobByName: (directory, name) =>
       deps.jobService.getJobByName(directory, name),
-    createJob: (input) => deps.jobService.addJob(input as AddJobInput),
-    updateJob: (input) => deps.jobService.updateJob(input as AddJobInput),
+    createJob: (input) =>
+      deps.jobService.addJob(input as AddJobInput, callerFullAccess),
+    updateJob: (input) =>
+      deps.jobService.updateJob(input as AddJobInput, callerFullAccess),
     deleteJob: (name, directory) =>
       deps.jobService.removeJob({ name, directory }),
     runJob: (name, directory) =>
-      deps.jobService.runJob({ name, directory, wait: false }),
+      deps.jobService.runJob({
+        name,
+        directory,
+        wait: false,
+        callerFullAccess,
+      }),
     listTemplates: async (directory) => {
       const templates = await deps.templateService.listTemplates();
       if (!directory) return templates;
@@ -134,11 +134,15 @@ function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
     getTemplateByName: (directory, name) =>
       deps.templateService.getTemplateByName(directory, name),
     createTemplate: (input) =>
-      deps.templateService.addTemplate(input as AddTemplateInput),
+      deps.templateService.addTemplate(
+        input as AddTemplateInput,
+        callerFullAccess
+      ),
     updateTemplate: (templateId, input) =>
       deps.templateService.updateTemplate(
         templateId,
-        input as Partial<AddTemplateInput>
+        input as Partial<AddTemplateInput>,
+        callerFullAccess
       ),
     deleteTemplate: (templateId) =>
       deps.templateService.removeTemplate(templateId),
@@ -149,6 +153,10 @@ export async function registerMcpRoutes(
   app: FastifyInstance,
   deps: McpRouteDeps
 ): Promise<void> {
+  const providerPlans =
+    deps.providerPlans ?? createProviderPlansReporter({ log: app.log });
+  const enabledAgentTypes = () => getEnabledAgentTypes(deps.pool);
+
   app.post("/api/mcp", async (request, reply) => {
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body);
@@ -187,9 +195,11 @@ export async function registerMcpRoutes(
 
     let repoRoot: string | null = null;
     let worktreeRoot: string | null = null;
+    // Repo tools, brain and job defaults follow a moved workspace.
+    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
     try {
-      repoRoot = await resolveRepoRoot(agent.cwd);
-      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
+      repoRoot = await resolveRepoRoot(workspaceDir);
+      worktreeRoot = await resolveWorktreeRoot(workspaceDir);
     } catch {}
 
     const jobTools = run
@@ -207,8 +217,6 @@ export async function registerMcpRoutes(
               cwd: a.cwd,
             }));
           },
-          getActivitySummary: (params: Record<string, unknown>) =>
-            telemetry.getActivitySummary(deps.pool, params as never),
           getFeedbackSummary: (params: Record<string, unknown>) =>
             telemetry.getFeedbackSummary(deps.pool, params as never),
         }
@@ -219,10 +227,12 @@ export async function registerMcpRoutes(
     // the calling session can wait for its own response to be delivered.
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      providerPlans,
+      enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
-        cwd: agent.cwd,
+        cwd: workspaceDir,
         type: agent.type,
         role: agent.role,
         persona: agent.persona,
@@ -232,21 +242,13 @@ export async function registerMcpRoutes(
       repoRoot,
       worktreeRoot,
       sendNotify: deps.mcpSendNotify,
-      upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,
-      shareMedia: deps.mcpShareMedia,
-      listMedia: deps.mcpListMedia,
-      deleteMedia: deps.mcpDeleteMedia,
-      getWhiteboard: deps.mcpGetWhiteboard,
-      updateWhiteboard: deps.mcpUpdateWhiteboard,
-      clearWhiteboard: deps.mcpClearWhiteboard,
-      upsertPin: deps.mcpUpsertPin,
-      upsertPins: deps.mcpUpsertPins,
-      deletePin: deps.mcpDeletePin,
-      deletePinByLabel: deps.mcpDeletePinByLabel,
-      listPins: deps.mcpListPins,
+      setWorkspace: deps.mcpSetWorkspace,
+      shareFile: deps.mcpShareFile,
+      listFiles: deps.mcpListFiles,
+      deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
-      launchPersona: deps.mcpLaunchPersona,
+      launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
       updatePersonality: deps.mcpUpdatePersonality,
@@ -255,30 +257,18 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      resolveReviewFeedback: deps.mcpResolveReviewFeedback,
-      reopenReviewFeedback: deps.mcpReopenReviewFeedback,
-      submitReview: deps.mcpSubmitReview,
-      addReviewFeedback: deps.mcpAddReviewFeedback,
-      addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
-      listReviewFeedback: deps.mcpListReviewFeedback,
-      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
-      sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
-      getActivitySummary: (params: Record<string, unknown>) =>
-        telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       toolScope: run ? "job" : "agent",
       jobTools,
-      crudTools: buildCrudCallbacks(deps),
+      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,
-      surfaces: deps.surfaces,
+      scheduledMessages: deps.scheduledMessages,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
@@ -310,29 +300,24 @@ export async function registerMcpRoutes(
 
     let repoRoot: string | null = null;
     let worktreeRoot: string | null = null;
+    // Repo tools, brain and job defaults follow a moved workspace.
+    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
     try {
-      repoRoot = await resolveRepoRoot(agent.cwd);
-      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
+      repoRoot = await resolveRepoRoot(workspaceDir);
+      worktreeRoot = await resolveWorktreeRoot(workspaceDir);
     } catch {}
-
-    // Read per request rather than cached: it only shapes a tool description,
-    // and one settings lookup is small next to the two git resolutions this
-    // route already runs. The job route deliberately skips it — see
-    // `McpRequestContext.chatSurface`. A failed read falls back to the neutral
-    // description: wording is never worth failing a tool call over.
-    const chatSurface = await isChatSurfaceEnabled(deps.pool).catch(
-      () => false
-    );
 
     reply.hijack();
     // Captured before the transport writes anything, so an archive that stops
     // the calling session can wait for its own response to be delivered.
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      providerPlans,
+      enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
-        cwd: agent.cwd,
+        cwd: workspaceDir,
         type: agent.type,
         role: agent.role,
         persona: agent.persona,
@@ -341,18 +326,14 @@ export async function registerMcpRoutes(
       },
       repoRoot,
       worktreeRoot,
-      chatSurface,
       sendNotify: deps.mcpSendNotify,
-      upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,
-      shareMedia: deps.mcpShareMedia,
-      listMedia: deps.mcpListMedia,
-      deleteMedia: deps.mcpDeleteMedia,
-      getWhiteboard: deps.mcpGetWhiteboard,
-      updateWhiteboard: deps.mcpUpdateWhiteboard,
-      clearWhiteboard: deps.mcpClearWhiteboard,
+      setWorkspace: deps.mcpSetWorkspace,
+      shareFile: deps.mcpShareFile,
+      listFiles: deps.mcpListFiles,
+      deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
-      launchPersona: deps.mcpLaunchPersona,
+      launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
       updatePersonality: deps.mcpUpdatePersonality,
@@ -361,34 +342,17 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      resolveReviewFeedback: deps.mcpResolveReviewFeedback,
-      reopenReviewFeedback: deps.mcpReopenReviewFeedback,
-      submitReview: deps.mcpSubmitReview,
-      addReviewFeedback: deps.mcpAddReviewFeedback,
-      addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
-      listReviewFeedback: deps.mcpListReviewFeedback,
-      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
-      sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       issueLoginLink: () => deps.loginLinkStore.issue(),
-      upsertPin: deps.mcpUpsertPin,
-      upsertPins: deps.mcpUpsertPins,
-      deletePin: deps.mcpDeletePin,
-      deletePinByLabel: deps.mcpDeletePinByLabel,
-      listPins: deps.mcpListPins,
-      getActivitySummary: (params: Record<string, unknown>) =>
-        telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
-      crudTools: buildCrudCallbacks(deps),
+      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,
-      surfaces: deps.surfaces,
+      scheduledMessages: deps.scheduledMessages,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });

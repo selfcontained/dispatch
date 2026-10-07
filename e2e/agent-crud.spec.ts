@@ -4,16 +4,11 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
-  setAgentLatestEventViaAPI,
 } from "./helpers";
 
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
 };
-
-function pathnameTerminalTokenMatch(pathname: string): boolean {
-  return /\/api\/v1\/agents\/[^/]+\/terminal\/token$/u.test(pathname);
-}
 
 test.describe("Agent CRUD", () => {
   test.afterEach(async ({ request }) => {
@@ -89,23 +84,13 @@ test.describe("Agent CRUD", () => {
       timeout: 5_000,
     });
 
-    // Wait for lifecycle network work up front: the sidebar can show the agent
-    // before React Query validates the `/agents/:id` route against the cached
-    // list — that briefly redirects to `/agents` and leaves the terminal
-    // disconnected unless we synchronize on the attach handshake.
+    // Wait for the create response up front so the test knows the new id.
     const createResponsePromise = page.waitForResponse(
       (resp) =>
         resp.request().method() === "POST" &&
         new URL(resp.url()).pathname === "/api/v1/agents" &&
         resp.status() === 201,
       { timeout: 15_000 }
-    );
-    const terminalTokenPromise = page.waitForResponse(
-      (resp) =>
-        resp.request().method() === "POST" &&
-        pathnameTerminalTokenMatch(new URL(resp.url()).pathname) &&
-        resp.ok(),
-      { timeout: 30_000 }
     );
 
     await page.getByTestId("create-agent-submit").click();
@@ -114,7 +99,6 @@ test.describe("Agent CRUD", () => {
     const { agent: createdAgent } = (await createResponse.json()) as {
       agent: { id: string };
     };
-    await terminalTokenPromise;
 
     // Dialog should close
     await expect(form).not.toBeVisible({ timeout: 5_000 });
@@ -131,80 +115,20 @@ test.describe("Agent CRUD", () => {
       timeout: 15_000,
     });
 
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible({
+    await expect(page.getByTestId("current-session-name")).toContainText(
+      agentName,
+      { timeout: 10_000 }
+    );
+    await expect(page.getByTestId("chat-composer-input")).toBeEditable({
       timeout: 10_000,
     });
-    await expect(page.getByTestId("terminal-inert-state")).toContainText(
-      "Agent running in inert mode"
-    );
   });
 
-  test("create dialog shows autonomous review checkbox that can be toggled", async ({
-    page,
-  }) => {
+  test("create dialog omits autonomous review", async ({ page }) => {
     await loadApp(page);
-
-    // Open the create dialog
     await page.getByTestId("create-agent-button").click();
-    const form = page.getByTestId("create-agent-form");
-    await expect(form).toBeVisible();
-
-    // The autonomous review checkbox should be visible and unchecked by default
-    const autoReviewCheckbox = page.getByTestId("create-agent-auto-review");
-    await expect(autoReviewCheckbox).toBeVisible();
-    await expect(autoReviewCheckbox).toHaveAttribute("aria-checked", "false");
-
-    // Toggle it on by clicking the label text (avoids double-toggle from label+button)
-    await form.getByText("Autonomous Review").click();
-    await expect(autoReviewCheckbox).toHaveAttribute("aria-checked", "true");
-
-    // Toggle it back off
-    await form.getByText("Autonomous Review").click();
-    await expect(autoReviewCheckbox).toHaveAttribute("aria-checked", "false");
-  });
-
-  test("POST /api/v1/agents accepts autoReview flag", async ({ request }) => {
-    const AUTH_HEADER = {
-      Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
-    };
-    const agentName = `e2e-agent-${Date.now()}`;
-
-    const res = await request.post("/api/v1/agents", {
-      headers: AUTH_HEADER,
-      data: {
-        name: agentName,
-        cwd: "/tmp",
-        useWorktree: false,
-        autoReview: true,
-      },
-    });
-    expect(res.status()).toBe(201);
-    const { agent } = (await res.json()) as {
-      agent: { id: string; autoReview: boolean };
-    };
-    expect(agent.autoReview).toBe(true);
-  });
-
-  test("POST /api/v1/agents defaults autoReview to false when omitted", async ({
-    request,
-  }) => {
-    const AUTH_HEADER = {
-      Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
-    };
-
-    const res = await request.post("/api/v1/agents", {
-      headers: AUTH_HEADER,
-      data: {
-        name: `e2e-agent-${Date.now()}`,
-        cwd: "/tmp",
-        useWorktree: false,
-      },
-    });
-    expect(res.status()).toBe(201);
-    const { agent } = (await res.json()) as {
-      agent: { id: string; autoReview: boolean };
-    };
-    expect(agent.autoReview).toBe(false);
+    await expect(page.getByTestId("create-agent-form")).toBeVisible();
+    await expect(page.getByTestId("create-agent-auto-review")).toHaveCount(0);
   });
 
   test("POST /api/v1/agents accepts multipart startup context", async ({
@@ -226,20 +150,37 @@ test.describe("Agent CRUD", () => {
       },
     });
     expect(res.status()).toBe(201);
-    const { agent } = (await res.json()) as {
-      agent: {
-        id: string;
-        pins: Array<{ id: string; label: string; value: string; type: string }>;
-      };
-    };
-    expect(agent.pins).toEqual([
-      expect.objectContaining({
-        id: expect.any(String),
-        label: "example.com",
-        value: "https://example.com/task",
-        type: "url",
-      }),
-    ]);
+    const { agent } = (await res.json()) as { agent: { id: string } };
+    // The startup context is on the agent's launch card, with the link as
+    // an attachment. The card is up from the agent's first startup step;
+    // the briefing lands on it once the workspace is ready.
+    await expect
+      .poll(async () => {
+        const feed = await request.get(`/api/v1/streams/${agent.id}/blocks`, {
+          headers: AUTH_HEADER,
+        });
+        expect(feed.ok()).toBe(true);
+        const { entries } = (await feed.json()) as {
+          entries: Array<{
+            type: string;
+            block?: {
+              kind?: string;
+              attachments: Array<{ type: string; url?: string }>;
+            };
+          }>;
+        };
+        return entries.find(
+          (entry) => entry.type === "block" && entry.block?.kind === "launch"
+        )?.block?.attachments;
+      })
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "link",
+            url: "https://example.com/task",
+          }),
+        ])
+      );
   });
 
   test("cancel create dialog does not create an agent", async ({ page }) => {
@@ -281,7 +222,9 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
 
     await expect(agentCard.getByText("/tmp")).toBeVisible();
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting."
+    );
   });
 
   test("attached agent stays expanded while another agent is toggled open", async ({
@@ -346,14 +289,15 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId(`agent-expand-toggle-${peekAgent.id}`).click();
     await expect(peekCard.getByText("/tmp")).toBeVisible();
 
-    await setAgentLatestEventViaAPI(request, attachedAgent.id, {
-      type: "working",
-      message: "refreshing sidebar state",
+    // Any agent upsert re-renders the list; a rename is one the card shows.
+    await request.patch(`/api/v1/agents/${attachedAgent.id}/name`, {
+      headers: AUTH_HEADER,
+      data: { name: "refreshed sidebar state" },
     });
 
-    await expect(attachedCard.getByText("Working")).toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(attachedCard.getByText("refreshed sidebar state")).toBeVisible(
+      { timeout: 5_000 }
+    );
     await expect(peekCard.getByText("/tmp")).toBeVisible();
   });
 
@@ -382,7 +326,7 @@ test.describe("Agent CRUD", () => {
     });
   });
 
-  test("archiving the selected attached agent resets the terminal to empty state", async ({
+  test("archiving the selected attached agent resets Chat to empty state", async ({
     page,
     request,
   }) => {
@@ -401,12 +345,10 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId("delete-agent-confirm").click();
 
     await expect(agentCard).not.toBeVisible({ timeout: 5_000 });
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible({
-      timeout: 5_000,
-    });
-    await expect(page.getByTestId("terminal-empty-state")).toContainText(
-      "Tap an agent row to focus it."
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting.",
+      { timeout: 5_000 }
     );
-    await expect(page.getByTestId("terminal-inert-state")).not.toBeVisible();
+    await expect(page.getByTestId("current-session-name")).toHaveCount(0);
   });
 });

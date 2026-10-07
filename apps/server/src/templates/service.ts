@@ -1,8 +1,9 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
+import type { SeedFileInput } from "../agents/file-seed.js";
 import type { AgentManager } from "../agents/manager.js";
-import type { AgentPin, AgentRecord } from "../agents/types.js";
+import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
@@ -18,6 +19,7 @@ import {
   type TemplateRecord,
 } from "./store.js";
 import { templateWorktreeConfig } from "./worktree-config.js";
+import { assertAccessCeiling } from "../shared/access-ceiling.js";
 
 export type LaunchTemplateInput = {
   templateId: string;
@@ -27,16 +29,8 @@ export type LaunchTemplateInput = {
   /** Per-launch override. Undefined keeps the template's saved model; null
    * forces the CLI default. */
   model?: string | null;
-  startupFiles?: Array<{
-    fileName: string;
-    originalName?: string;
-    buffer: Buffer;
-    source: "text" | "user";
-    description?: string | null;
-  }>;
-  startupPins?: AgentPin[];
-  /** Raw startup links, recorded as link attachments on the launch post
-   * (the url pins the route made from them are `startupPins`). */
+  startupFiles?: SeedFileInput[];
+  /** Raw startup links, recorded as link attachments on the launch post. */
   startupLinks?: string[];
 };
 
@@ -57,7 +51,11 @@ export class TemplateService {
     this.store = new TemplateStore(pool);
   }
 
-  async addTemplate(input: AddTemplateInput): Promise<TemplateRecord> {
+  async addTemplate(
+    input: AddTemplateInput,
+    callerFullAccess?: boolean
+  ): Promise<TemplateRecord> {
+    assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const template = await this.store.createTemplate({
       name: input.name.trim(),
       directory: input.directory,
@@ -65,7 +63,7 @@ export class TemplateService {
       prompt: input.prompt ?? null,
       ...applyAgentConfigDefaults(input),
       callable: input.callable ?? true,
-      allowMedia: input.allowMedia ?? true,
+      allowFiles: input.allowFiles ?? true,
       selfImprove: input.selfImprove ?? false,
     });
     this.logger.info(
@@ -77,10 +75,15 @@ export class TemplateService {
 
   async updateTemplate(
     id: string,
-    input: Partial<AddTemplateInput>
+    input: Partial<AddTemplateInput>,
+    callerFullAccess?: boolean
   ): Promise<TemplateRecord> {
     const existing = await this.store.getTemplate(id);
     if (!existing) throw new Error(`Template "${id}" not found.`);
+    assertAccessCeiling(
+      existing.fullAccess || input.fullAccess === true,
+      callerFullAccess
+    );
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)
@@ -102,7 +105,7 @@ export class TemplateService {
     if (input.branchName !== undefined) updates.branchName = input.branchName;
     if (input.fullAccess !== undefined) updates.fullAccess = input.fullAccess;
     if (input.callable !== undefined) updates.callable = input.callable;
-    if (input.allowMedia !== undefined) updates.allowMedia = input.allowMedia;
+    if (input.allowFiles !== undefined) updates.allowFiles = input.allowFiles;
     if (input.selfImprove !== undefined)
       updates.selfImprove = input.selfImprove;
 
@@ -154,7 +157,6 @@ export class TemplateService {
     }
 
     const resolvedType = input.agentType ?? template.agentType;
-    const isTerminal = resolvedType === "terminal";
     const resolvedModel =
       input.model !== undefined
         ? validateAgentModel(resolvedType, input.model ?? undefined)
@@ -162,42 +164,28 @@ export class TemplateService {
           ? (template.model ?? undefined)
           : undefined;
 
-    if (!isTerminal && !template.prompt) {
+    if (!template.prompt) {
       throw new Error(
         `Template "${template.name}" has no prompt configured. Add a prompt before launching.`
       );
     }
     if (
-      !template.allowMedia &&
+      !template.allowFiles &&
       ((input.startupFiles && input.startupFiles.length > 0) ||
-        (input.startupPins && input.startupPins.length > 0))
+        (input.startupLinks && input.startupLinks.length > 0))
     ) {
       throw new Error(
-        `Template "${template.name}" does not allow media attachments.`
+        `Template "${template.name}" does not allow file attachments.`
       );
     }
 
     let finalPrompt: string | undefined;
-    let initialPins: AgentPin[] = [];
 
-    if (!isTerminal && template.prompt) {
-      const parsedArgs = parseTemplateArgs(template.prompt);
-      const args = input.args ?? {};
-
+    if (template.prompt) {
       finalPrompt = renderTemplatePrompt(
         { ...template, prompt: template.prompt },
-        args
+        input.args ?? {}
       );
-
-      const argPins = parsedArgs
-        .filter((a) => args[a.key] != null || args[a.name] != null)
-        .map((a) => ({
-          label: a.name,
-          value: args[a.key] ?? args[a.name],
-          type: "string" as const,
-        }));
-
-      initialPins = [...argPins, ...(input.startupPins ?? [])];
     }
 
     const cwd = input.directory ?? template.directory;
@@ -208,14 +196,11 @@ export class TemplateService {
       cwd,
       initialPrompt: finalPrompt,
       launchContext: {
-        links: !isTerminal ? (input.startupLinks ?? []) : [],
+        links: input.startupLinks ?? [],
       },
-      fullAccess: !isTerminal && template.fullAccess,
-      ...(isTerminal
-        ? { useWorktree: false }
-        : templateWorktreeConfig(template)),
-      initialPins,
-      initialFiles: !isTerminal ? (input.startupFiles ?? []) : [],
+      fullAccess: template.fullAccess,
+      ...templateWorktreeConfig(template),
+      initialFiles: input.startupFiles ?? [],
       templateId: template.id,
     });
 

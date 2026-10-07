@@ -76,7 +76,6 @@ Do not spend meaningful time adding coverage while unresolved local failures sti
 ## Dispatch behavior
 
 - Rename the session to a short stable name for the run.
-- Emit `dispatch_event` status updates as work shifts.
 - Use `job_log` for task-level progress during triage, fixes, reruns, coverage work, and PR/CI follow-through.
 - End with exactly one terminal tool call: `job_complete`, `job_failed`, or `job_needs_input`.
 - The terminal report must include a concise summary plus task entries for failures investigated, fixes made, tickets created, coverage work completed, and PR outcome.

@@ -1,0 +1,63 @@
+import type { AgentRecord } from "@dispatch/shared";
+
+import { buildLaunchGuidance } from "../launch-guidance.js";
+
+const SLASH_RULE =
+  'A user message that begins with "/<name>" names a slash command or skill: run it, treating the rest of the message as its input. If none has that name, say so briefly.';
+
+export const CHAT_RULE =
+  'The user reads your stream. Your replies appear there as you write them, so answer in plain text and never repeat a reply through post. Use post for what plain text cannot do: a question with options, a form, a file (attachments: [{ type: "file", path }]), a link, a review of another agent\'s work, a checklist, a scoped threaded answer (replyTo with text), or a message to another agent (to). Use threads for self-contained side questions or follow-ups tied to a specific post; keep main-task progress, broader decisions, and final results in the main conversation. Do not thread every answer or duplicate a threaded answer in ordinary prose. User messages already in a thread receive ordinary replies there automatically. Reply to a DISPATCH POST from another agent only when it asks for one.';
+
+/**
+ * Pull a `--append-system-prompt <value>` pair out of stored agent args.
+ * Older agents carried their extra system prompt this way; the ACP session
+ * takes one string, so it is folded in here.
+ */
+export function extractAppendedSystemPrompt(
+  args: readonly string[]
+): string | null {
+  for (let index = 0; index < args.length; index += 1) {
+    if (
+      args[index] === "--append-system-prompt" &&
+      typeof args[index + 1] === "string"
+    ) {
+      return args[index + 1] ?? null;
+    }
+  }
+  return null;
+}
+
+/**
+ * The one system prompt an ACP session gets: the Dispatch launch guidance,
+ * the chat rules, and the active personality (or an explicit appended
+ * prompt, which wins over the personality as it did for CLI launches).
+ */
+export function buildSystemPrompt(input: {
+  agent: Pick<AgentRecord, "id" | "type" | "agentArgs" | "persona">;
+  personalityPrompt: string | null;
+  suggestSessionRename: boolean;
+  /** A job run: the guidance names the job tools (job_complete, …). */
+  jobRunId?: string | null;
+  /** A terminal job resumed for conversation, with ordinary session tools. */
+  previousJobFinished?: boolean;
+}): string {
+  const { agent } = input;
+  const guidance = buildLaunchGuidance(agent.id, {
+    ...(input.jobRunId ? { jobRunId: input.jobRunId } : {}),
+    suggestSessionRename: input.suggestSessionRename,
+  });
+  const appended = input.previousJobFinished
+    ? null
+    : extractAppendedSystemPrompt(agent.agentArgs ?? []);
+  const sections = [guidance.trim(), CHAT_RULE, SLASH_RULE];
+  if (input.previousJobFinished) {
+    sections.push(
+      "The previous Dispatch job run has ended. Treat its earlier task and lifecycle instructions as historical context. Follow new user requests; do not rerun the job or report its lifecycle again."
+    );
+  }
+  if (appended?.trim()) sections.push(appended.trim());
+  else if (input.personalityPrompt?.trim()) {
+    sections.push(input.personalityPrompt.trim());
+  }
+  return sections.join("\n\n");
+}

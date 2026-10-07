@@ -15,11 +15,11 @@ export function registerLoginLinkTools(
   allowed: Set<string>,
   context: LoginLinkToolsContext
 ): void {
-  if (!allowed.has("dispatch_login_link") || !context.issueLoginLink) return;
+  if (!allowed.has("login_link") || !context.issueLoginLink) return;
 
   const issueLoginLink = context.issueLoginLink;
   server.registerTool(
-    "dispatch_login_link",
+    "login_link",
     {
       description: `Create a short-lived, single-use browser login link for the full Dispatch account. The link expires after ${LOGIN_LINK_EXPIRES_IN_SECONDS} seconds. Open the returned path on the Dispatch server origin.`,
       inputSchema: {},

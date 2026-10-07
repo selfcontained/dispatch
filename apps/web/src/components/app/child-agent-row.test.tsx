@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { AgentReviewSummary } from "@dispatch/shared";
 import type { ComponentProps } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
@@ -17,6 +19,22 @@ vi.mock("@/hooks/use-chat-unread-summary", () => ({
   useAgentChatUnread: () => chatUnread.value,
 }));
 
+const reviewSummary = vi.hoisted(() => ({
+  data: { agents: {} } as AgentReviewSummary,
+  isLoading: false,
+  isError: false,
+}));
+vi.mock("@/hooks/use-agent-review-summary", () => ({
+  useAgentReviewSummary: () => reviewSummary,
+}));
+
+// The running turn's verb comes from the app-wide React Query cache.
+const turnLabel = vi.hoisted(() => ({ value: null as string | null }));
+vi.mock("@/hooks/use-agent-turn-label", () => ({
+  useAgentTurnLabel: (_agentId: string, blockId: string | null) =>
+    blockId ? turnLabel.value : null,
+}));
+
 const baseAgent: Agent = {
   id: "agt_child",
   name: "security-review-123456",
@@ -26,17 +44,10 @@ const baseAgent: Agent = {
   cwd: "/repo",
   worktreePath: null,
   worktreeBranch: null,
-  tmuxSession: "dispatch-agt_child",
   agentArgs: [],
   model: null,
   fullAccess: false,
-  latestEvent: {
-    type: "working",
-    message: "Reviewing changed routes",
-    updatedAt: "2026-07-15T12:00:00.000Z",
-    metadata: {},
-  },
-  mediaDir: null,
+  filesDir: null,
   persona: "security-review",
   parentAgentId: "agt_parent",
   createdAt: "2026-07-15T12:00:00.000Z",
@@ -46,16 +57,28 @@ const baseAgent: Agent = {
 afterEach(() => {
   cleanup();
   chatUnread.value = { unread: 0, pendingQuestions: 0 };
+  turnLabel.value = null;
+  reviewSummary.data = { agents: {} };
 });
+
+function RowLocation() {
+  const location = useLocation();
+  return (
+    <span data-testid="row-location">
+      {location.pathname}
+      {location.search}
+    </span>
+  );
+}
 
 function renderRow(
   agent: Agent,
   overrides: Partial<ComponentProps<typeof ChildAgentRow>> = {}
 ) {
-  const attachToAgent = vi.fn().mockResolvedValue(undefined);
-  const detachTerminal = vi.fn();
+  const client = new QueryClient();
+  const openAgent = vi.fn().mockResolvedValue(undefined);
+  const closeAgent = vi.fn();
   const startAgent = vi.fn().mockResolvedValue(undefined);
-  const openSubmittedReview = vi.fn();
   const setStopTarget = vi.fn();
   const setStopConfirmOpen = vi.fn();
   const setDeleteTarget = vi.fn();
@@ -64,32 +87,34 @@ function renderRow(
   const buildElement = (
     elementOverrides: Partial<ComponentProps<typeof ChildAgentRow>> = {}
   ) => (
-    <MemoryRouter>
-      <TooltipProvider>
-        <ChildAgentRow
-          agent={agent}
-          state="idle"
-          isInitialReviewActive={true}
-          attachToAgent={attachToAgent}
-          detachTerminal={detachTerminal}
-          startAgent={startAgent}
-          openSubmittedReview={openSubmittedReview}
-          setStopTarget={setStopTarget}
-          setStopConfirmOpen={setStopConfirmOpen}
-          setDeleteTarget={setDeleteTarget}
-          setDeleteConfirmOpen={setDeleteConfirmOpen}
-          onEditSettings={onEditSettings}
-          {...elementOverrides}
-        />
-      </TooltipProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <TooltipProvider>
+          <RowLocation />
+          <ChildAgentRow
+            agent={agent}
+            seat={2}
+            state="idle"
+            isInitialReviewActive={true}
+            openAgent={openAgent}
+            closeAgent={closeAgent}
+            startAgent={startAgent}
+            setStopTarget={setStopTarget}
+            setStopConfirmOpen={setStopConfirmOpen}
+            setDeleteTarget={setDeleteTarget}
+            setDeleteConfirmOpen={setDeleteConfirmOpen}
+            onEditSettings={onEditSettings}
+            {...elementOverrides}
+          />
+        </TooltipProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
   const { rerender } = render(buildElement(overrides));
   return {
-    attachToAgent,
-    detachTerminal,
+    openAgent,
+    closeAgent,
     startAgent,
-    openSubmittedReview,
     setStopTarget,
     setStopConfirmOpen,
     setDeleteTarget,
@@ -133,17 +158,11 @@ describe("ChildAgentRow", () => {
   });
 
   it("labels review agents and chases before their initial review is submitted", () => {
-    renderRow({
-      ...baseAgent,
-      latestEvent: {
-        type: "done",
-        message: "Incorrect stale event",
-        updatedAt: "2026-07-15T12:00:00.000Z",
-        metadata: {},
-      },
-    });
+    renderRow(baseAgent);
 
-    const indicator = screen.getByRole("img", { name: "Review in progress" });
+    const indicator = screen.getByRole("img", {
+      name: "No review submitted — Review in progress",
+    });
     expect(indicator.className).toContain("text-muted-foreground");
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("min-h-11");
@@ -155,7 +174,9 @@ describe("ChildAgentRow", () => {
   it("groups the review indicator with the overflow menu control, not the truncating name label", () => {
     renderRow(baseAgent);
 
-    const indicator = screen.getByRole("img", { name: "Review in progress" });
+    const indicator = screen.getByRole("img", {
+      name: "No review submitted — Review in progress",
+    });
     const menuButton = screen.getByTestId("child-agent-menu-agt_child");
     // The indicator and the overflow menu button should share an immediate
     // parent (the right-side action cluster) rather than living inside the
@@ -166,136 +187,130 @@ describe("ChildAgentRow", () => {
   });
 
   it("stops chasing after the initial review is submitted", () => {
-    renderRow(baseAgent, { isInitialReviewActive: false });
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "open",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 2,
+    };
+    renderRow(baseAgent);
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewActive).toBe("false");
     expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
-  it("shows the muted clipboard-list indicator until a review has been submitted", () => {
+  it("shows the muted clipboard indicator for a reviewer", () => {
     renderRow(baseAgent);
 
-    const row = screen.getByTestId("child-agent-row-agt_child");
-    expect(row.dataset.reviewReady).toBe("false");
-    const indicator = screen.getByRole("img", { name: "Review in progress" });
-    expect(indicator.querySelector("svg.lucide-clipboard-list")).not.toBeNull();
-    expect(indicator.querySelector("svg.lucide-clipboard-check")).toBeNull();
-    // "Open review" only makes sense once a review exists.
+    const indicator = screen.getByRole("img", {
+      name: "No review submitted — Review in progress",
+    });
+    expect(indicator.querySelector("svg.lucide-clipboard")).not.toBeNull();
+    // The review itself lands in the parent's stream; the row has no
+    // "open review" action of its own.
     openMenu();
     expect(
       screen.queryByTestId("child-agent-open-review-agt_child")
     ).toBeNull();
   });
 
-  it("swaps to a colored clipboard-check indicator once the review can be opened, without a row border", () => {
-    renderRow(
-      { ...baseAgent, status: "stopped", submittedReviewId: 42 },
-      { state: "stopped", isInitialReviewActive: false }
+  it("opens a submitted review thread from the menu without attaching the reviewer", () => {
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "open",
+      openFindings: 2,
+      streamId: "agt_parent",
+      threadId: "review-thread",
+    };
+    const onRequestClose = vi.fn();
+    const { openAgent, closeAgent } = renderRow(
+      { ...baseAgent, role: "standard" },
+      {
+        closeOnSessionAction: true,
+        onRequestClose,
+      }
     );
-
-    const row = screen.getByTestId("child-agent-row-agt_child");
-    expect(row.dataset.reviewReady).toBe("true");
-    expect(row.className).toContain("opacity-100");
-    expect(row.className).not.toContain("opacity-65");
-    // "Ready to open" no longer gets its own row-wide border/tint (it used
-    // to read as a muted echo of the connected accent) — the indicator's
-    // color/icon swap is the sole carrier of that signal, and opening it
-    // moves to the overflow menu (tested below), decoupled from connecting.
-    expect(row.className).not.toContain("border-primary/45");
-    expect(row.className).not.toContain("bg-primary/[0.06]");
-    const trigger = screen.getByTestId(
-      "child-agent-open-review-badge-agt_child"
-    );
-    // status-working (green), deliberately not the same color family as the
-    // connected accent (status-done/primary, blue in this theme) — the two
-    // signals must never look like variants of each other.
-    expect(trigger.className).toContain("text-status-working");
-    expect(trigger.querySelector("svg.lucide-clipboard-check")).not.toBeNull();
-  });
-
-  it("opens the submitted review from the overflow menu, independent of connecting", () => {
-    const submittedAgent = { ...baseAgent, submittedReviewId: 42 };
-    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
-      isInitialReviewActive: false,
-    });
-
     openMenu();
     fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
-    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
-    // Also proves the portal-bubbling fix: DropdownMenuContent is portaled
-    // outside the row's real DOM, but React's synthetic events still
-    // bubble through the *component* tree — without the row's
-    // currentTarget.contains() guard, this click would also attach.
-    expect(attachToAgent).not.toHaveBeenCalled();
-  });
-
-  it("opens the submitted review by clicking its own badge, not the row", () => {
-    const submittedAgent = { ...baseAgent, submittedReviewId: 42 };
-    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
-      isInitialReviewActive: false,
-    });
-
-    fireEvent.click(
-      screen.getByTestId("child-agent-open-review-badge-agt_child")
+    expect(screen.getByTestId("row-location").textContent).toBe(
+      "/agents/agt_parent?thread=review-thread"
     );
-    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
-    expect(attachToAgent).not.toHaveBeenCalled();
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(closeAgent).not.toHaveBeenCalled();
+    expect(onRequestClose).toHaveBeenCalledOnce();
   });
 
-  it("keeps the badge trigger reachable on a stopped, ready-to-open row", () => {
-    // The row's own click-to-connect is a dead end here (isStopped bails
-    // out), so the badge is the only way to reach the review without
-    // opening the overflow menu — worth pinning explicitly.
-    const submittedAgent = {
-      ...baseAgent,
-      status: "stopped" as const,
-      submittedReviewId: 42,
+  it("updates the submitted state, finding count and icon as findings settle", () => {
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "open",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 2,
     };
-    const { openSubmittedReview } = renderRow(submittedAgent, {
-      state: "stopped",
-      isInitialReviewActive: false,
+    const { rerenderWith } = renderRow({
+      ...baseAgent,
+      role: "standard",
+      persona: null,
     });
-
-    fireEvent.click(
-      screen.getByTestId("child-agent-open-review-badge-agt_child")
+    const indicator = screen.getByTestId(
+      `agent-review-indicator-${baseAgent.id}`
     );
-    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
-  });
-
-  it("renders the badge plain (not a button) before a review is submitted", () => {
-    renderRow(baseAgent);
-
+    expect(indicator.getAttribute("aria-label")).toContain(
+      "changes requested (2 open findings)"
+    );
+    expect(indicator.className).toContain("text-status-blocked");
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "partially_resolved",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 1,
+    };
+    rerenderWith({});
+    expect(indicator.getAttribute("aria-label")).toContain(
+      "partially resolved (1 open finding)"
+    );
+    expect(indicator.className).toContain("text-status-waiting");
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "resolved",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 0,
+    };
+    rerenderWith({});
+    expect(indicator.getAttribute("aria-label")).toContain(
+      "approved (no open findings)"
+    );
+    expect(indicator.className).toContain("text-status-done");
     expect(
-      screen.queryByTestId("child-agent-open-review-badge-agt_child")
-    ).toBeNull();
+      indicator.querySelector("svg.lucide-clipboard-check")
+    ).not.toBeNull();
   });
 
-  describe("keyboard/screen-reader terminal access (the overflow menu's View terminal / Detach item)", () => {
+  describe("keyboard/screen-reader open access (the overflow menu's Open / Close item)", () => {
     it("attaches from the menu when not connected", () => {
-      const { attachToAgent } = renderRow(
+      const { openAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "idle" }
       );
 
       openMenu();
-      fireEvent.click(screen.getByTestId("child-agent-terminal-agt_child"));
-      expect(attachToAgent).toHaveBeenCalledWith(
+      fireEvent.click(screen.getByTestId("child-agent-open-agt_child"));
+      expect(openAgent).toHaveBeenCalledWith(
         expect.objectContaining({ id: "agt_child" })
       );
     });
 
     it("detaches from the menu when connected", () => {
-      const { detachTerminal } = renderRow(
+      const { closeAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "active" }
       );
 
       openMenu();
-      const item = screen.getByTestId("child-agent-terminal-agt_child");
-      expect(item.textContent).toContain("Detach");
+      const item = screen.getByTestId("child-agent-open-agt_child");
+      expect(item.textContent).toContain("Close");
       fireEvent.click(item);
-      expect(detachTerminal).toHaveBeenCalledOnce();
+      expect(closeAgent).toHaveBeenCalledOnce();
     });
 
     it("is absent for a stopped agent, which uses Resume instead", () => {
@@ -303,23 +318,8 @@ describe("ChildAgentRow", () => {
       renderRow(stopped, { state: "stopped" });
 
       openMenu();
-      expect(screen.queryByTestId("child-agent-terminal-agt_child")).toBeNull();
+      expect(screen.queryByTestId("child-agent-open-agt_child")).toBeNull();
     });
-  });
-
-  it("still attaches by clicking a ready-to-open row's body, same as any other row", () => {
-    // Opening the review is a menu action now — the row itself has no
-    // special case for a ready-to-open review, it's click-to-connect like
-    // every other row.
-    const { attachToAgent } = renderRow(
-      { ...baseAgent, submittedReviewId: 42 },
-      { isInitialReviewActive: false, state: "idle" }
-    );
-
-    fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
-    expect(attachToAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "agt_child" })
-    );
   });
 
   it("shows the connected right-edge accent when not also ready to open", () => {
@@ -355,11 +355,13 @@ describe("ChildAgentRow", () => {
     );
 
     expect(
-      screen.queryByRole("img", { name: "Review in progress" })
+      screen.queryByRole("img", {
+        name: "No review submitted — Review in progress",
+      })
     ).toBeNull();
     // Throws (failing the test) if not found — this is the assertion.
     screen.getByRole("img", {
-      name: "Review agent — paused, no review submitted",
+      name: "No review submitted — Review agent — paused",
     });
   });
 
@@ -367,7 +369,9 @@ describe("ChildAgentRow", () => {
     renderRow({ ...baseAgent, role: "standard" });
 
     expect(
-      screen.queryByRole("img", { name: "Review in progress" })
+      screen.queryByRole("img", {
+        name: "No review submitted — Review in progress",
+      })
     ).toBeNull();
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewActive).toBe("false");
@@ -376,27 +380,27 @@ describe("ChildAgentRow", () => {
 
   describe("click-to-connect (mirrors the top-level agent card)", () => {
     it("attaches by clicking anywhere on the row", () => {
-      const { attachToAgent, detachTerminal } = renderRow(
+      const { openAgent, closeAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "idle" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
-      expect(attachToAgent).toHaveBeenCalledWith(
+      expect(openAgent).toHaveBeenCalledWith(
         expect.objectContaining({ id: "agt_child" })
       );
-      expect(detachTerminal).not.toHaveBeenCalled();
+      expect(closeAgent).not.toHaveBeenCalled();
     });
 
     it("detaches by clicking an already-connected row", () => {
-      const { attachToAgent, detachTerminal } = renderRow(
+      const { openAgent, closeAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "active" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
-      expect(detachTerminal).toHaveBeenCalledOnce();
-      expect(attachToAgent).not.toHaveBeenCalled();
+      expect(closeAgent).toHaveBeenCalledOnce();
+      expect(openAgent).not.toHaveBeenCalled();
     });
 
     it("does not attach or detach by clicking a stopped row", () => {
@@ -405,25 +409,25 @@ describe("ChildAgentRow", () => {
         role: "standard" as const,
         status: "stopped" as const,
       };
-      const { attachToAgent, detachTerminal } = renderRow(stopped, {
+      const { openAgent, closeAgent } = renderRow(stopped, {
         state: "stopped",
       });
 
       const row = screen.getByTestId("child-agent-row-agt_child");
       expect(row.className).not.toContain("cursor-pointer");
       fireEvent.click(row);
-      expect(attachToAgent).not.toHaveBeenCalled();
-      expect(detachTerminal).not.toHaveBeenCalled();
+      expect(openAgent).not.toHaveBeenCalled();
+      expect(closeAgent).not.toHaveBeenCalled();
     });
 
     it("does not attach when clicking the overflow menu button", () => {
-      const { attachToAgent } = renderRow(
+      const { openAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "idle" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-menu-agt_child"));
-      expect(attachToAgent).not.toHaveBeenCalled();
+      expect(openAgent).not.toHaveBeenCalled();
     });
 
     it("does not attach when clicking the resume button on a stopped row", () => {
@@ -432,13 +436,13 @@ describe("ChildAgentRow", () => {
         role: "standard" as const,
         status: "stopped" as const,
       };
-      const { attachToAgent, startAgent } = renderRow(stopped, {
+      const { openAgent, startAgent } = renderRow(stopped, {
         state: "stopped",
       });
 
       fireEvent.click(screen.getByTestId("child-agent-resume-agt_child"));
       expect(startAgent).toHaveBeenCalledWith(stopped);
-      expect(attachToAgent).not.toHaveBeenCalled();
+      expect(openAgent).not.toHaveBeenCalled();
     });
   });
 
@@ -496,5 +500,125 @@ describe("ChildAgentRow", () => {
       ).toBe("true");
       expect(screen.queryByTestId("child-agent-pause-agt_child")).toBeNull();
     });
+  });
+});
+
+describe("ChildAgentRow running-turn link", () => {
+  function LocationProbe() {
+    const location = useLocation();
+    return (
+      <div data-testid="location">
+        {location.pathname}
+        {location.search}
+      </div>
+    );
+  }
+
+  function renderLinkRow(agent: Agent) {
+    const client = new QueryClient();
+    client.setQueryData(
+      ["agents"],
+      [{ id: "agt_parent", parentAgentId: null }, agent]
+    );
+    const openAgent = vi.fn().mockResolvedValue(undefined);
+    const closeAgent = vi.fn();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/agents/agt_parent"]}>
+          <TooltipProvider>
+            <ChildAgentRow
+              agent={agent}
+              seat={2}
+              state="idle"
+              isInitialReviewActive={false}
+              openAgent={openAgent}
+              closeAgent={closeAgent}
+              startAgent={vi.fn()}
+              setStopTarget={vi.fn()}
+              setStopConfirmOpen={vi.fn()}
+              setDeleteTarget={vi.fn()}
+              setDeleteConfirmOpen={vi.fn()}
+              onEditSettings={vi.fn()}
+            />
+          </TooltipProvider>
+          <LocationProbe />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    return { openAgent, closeAgent };
+  }
+
+  const working: Agent = {
+    ...baseAgent,
+    activity: "working",
+    currentTurn: {
+      streamId: "agt_parent",
+      blockId: "blk_turn",
+      threadId: null,
+    },
+  };
+
+  it("links a reported current step without checking derived activity", () => {
+    turnLabel.value = "bash";
+    renderLinkRow(working);
+    const label = screen.getByTestId("agent-activity-agt_child");
+    expect(label.tagName).toBe("BUTTON");
+    expect(label.getAttribute("data-turn-link")).toBe("blk_turn");
+    cleanup();
+
+    renderLinkRow({ ...working, activity: "waiting" });
+    expect(screen.getByTestId("agent-activity-agt_child").tagName).toBe(
+      "BUTTON"
+    );
+    cleanup();
+
+    // Working, but the turn's block is not known (yet): nothing to go to.
+    renderLinkRow({ ...working, currentTurn: null });
+    expect(screen.queryByTestId("agent-activity-agt_child")).toBeNull();
+  });
+
+  it("opens the child's page on its turn without the row's own click", () => {
+    turnLabel.value = "bash";
+    const { openAgent, closeAgent } = renderLinkRow(working);
+    fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/agents/agt_child?block=blk_turn"
+    );
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(closeAgent).not.toHaveBeenCalled();
+  });
+
+  it("opens the thread a turn sits in, on the turn", () => {
+    turnLabel.value = "bash";
+    renderLinkRow({
+      ...working,
+      currentTurn: {
+        streamId: "agt_parent",
+        blockId: "blk_turn",
+        threadId: "blk_launch",
+      },
+    });
+    fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/agents/agt_child?thread=blk_launch&block=blk_turn"
+    );
+  });
+
+  it("opens activity in the stream that owns a cross-stream turn", () => {
+    turnLabel.value = "bash";
+    const { openAgent, closeAgent } = renderLinkRow({
+      ...working,
+      currentTurn: {
+        streamId: "agt_other",
+        blockId: "blk_turn",
+        threadId: "blk_foreign_launch",
+      },
+    });
+    fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/agents/agt_other?thread=blk_foreign_launch&block=blk_turn"
+    );
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(closeAgent).not.toHaveBeenCalled();
   });
 });

@@ -1,20 +1,23 @@
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
-import type { InjectionCoordinator } from "../terminal/injection-coordinator.js";
-import { TmuxTerminal } from "../terminal/tmux-terminal.js";
+import {
+  systemPromptSource,
+  type PromptSource,
+  type PromptOptions,
+} from "../agents/acp/prompt-source.js";
 
 /**
- * Enqueue a prompt for an agent's pane and return at once. Resolves once the
- * write is queued behind the coordinator (serialized per agent; behind the
- * quiet gate unless `gate: false`). Throws when the agent has no tmux session.
- * `delivery` settles when the pane write completes (or fails); `held` reports
- * whether the quiet gate is holding deliveries for this agent right now.
+ * Enqueue a prompt for an agent and return at once. Resolves once the prompt
+ * is queued behind the agent's running turn (serialized per agent). Throws
+ * when the agent has no live session. `delivery` settles when the engine
+ * has accepted the prompt (or the queue failed); `held` reports whether a
+ * turn is running ahead of it right now.
  */
 export type EnqueueAgentPrompt = (
   agentId: string,
   prompt: string,
-  opts?: { gate?: boolean }
+  opts?: PromptOptions & { gate?: boolean; source?: PromptSource }
 ) => Promise<{ held: boolean; delivery: Promise<void> }>;
 
 export type InjectAgentPrompt = (
@@ -26,7 +29,10 @@ export type InjectAgentPrompt = (
 export function createPromptInjector(
   agentManager: AgentManager,
   appLog: FastifyBaseLogger,
-  coordinator: InjectionCoordinator
+  resolveSource?: (
+    agentId: string,
+    source: PromptSource
+  ) => Promise<PromptSource>
 ): {
   enqueueAgentPrompt: EnqueueAgentPrompt;
   injectAgentPrompt: InjectAgentPrompt;
@@ -34,21 +40,35 @@ export function createPromptInjector(
   const enqueueAgentPrompt: EnqueueAgentPrompt = async (
     agentId,
     prompt,
-    opts = {}
+    opts
   ) => {
     const access = await agentManager.getTerminalAccess(agentId);
-    if (access.mode !== "tmux") {
+    if (access.mode !== "live") {
       throw new Error(
-        "Agent has no active terminal session — prompt cannot be delivered."
+        "Agent has no live session — prompt cannot be delivered."
       );
     }
-    const terminal = new TmuxTerminal(access.sessionName);
-    const delivery = coordinator.inject(
+    const { accepted, settled } = agentManager.promptAgent(
       agentId,
-      () => terminal.sendCommand(prompt),
-      opts.gate === undefined ? {} : { gate: opts.gate }
+      prompt,
+      resolveSource
+        ? await resolveSource(
+            agentId,
+            opts?.source ?? systemPromptSource(prompt)
+          )
+        : opts?.source,
+      opts?.alone || opts?.images?.length || opts?.delivery
+        ? {
+            ...(opts?.alone ? { alone: true } : {}),
+            ...(opts.images?.length ? { images: opts.images } : {}),
+            ...(opts?.delivery ? { delivery: opts.delivery } : {}),
+          }
+        : undefined
     );
-    return { held: coordinator.holdState(agentId).held, delivery };
+    settled.catch((err: unknown) => {
+      appLog.warn({ err, agentId }, "agent turn failed");
+    });
+    return { held: agentManager.isPromptHeld(agentId), delivery: accepted };
   };
 
   /**
@@ -64,23 +84,22 @@ export function createPromptInjector(
     try {
       let enqueued: Awaited<ReturnType<EnqueueAgentPrompt>>;
       try {
-        enqueued = await enqueueAgentPrompt(agentId, prompt);
+        enqueued = await enqueueAgentPrompt(agentId, prompt, {
+          source: systemPromptSource(prompt),
+        });
       } catch (error) {
         if (opts.swallowFailure === false) throw error;
         appLog.debug(
           { err: error, agentId },
-          "Skipping tmux injection — agent has no tmux session"
+          "Skipping prompt — agent has no live session"
         );
         return;
       }
       if (opts.awaitDelivery === false) {
-        // Caller only needs enqueue confirmation (e.g. MCP tool calls that
-        // would time out waiting for the quiet gate); FIFO delivery is
-        // guaranteed by the coordinator while the session lives.
         enqueued.delivery.catch((error) => {
           appLog.warn(
             { err: error, agentId },
-            "Deferred tmux prompt delivery failed — agent may have exited"
+            "Deferred prompt delivery failed — agent may have exited"
           );
         });
         return;
@@ -92,7 +111,7 @@ export function createPromptInjector(
       }
       appLog.warn(
         { err: error, agentId },
-        "Failed to inject tmux prompt — agent may have exited"
+        "Failed to deliver prompt — agent may have exited"
       );
     }
   };

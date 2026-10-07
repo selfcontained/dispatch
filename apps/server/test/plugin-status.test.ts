@@ -155,6 +155,7 @@ describe("plugin-status", () => {
       const { runner } = fakeRunner([fail()]);
       const status = await checkPluginStatus("claude", "claude", runner);
       expect(status.installed).toBe(false);
+      expect(status.detectionError).toBeTruthy();
       expect(status.updateAvailable).toBe(false);
     });
 
@@ -162,6 +163,7 @@ describe("plugin-status", () => {
       const { runner } = fakeRunner([ok("not json")]);
       const status = await checkPluginStatus("claude", "claude", runner);
       expect(status.installed).toBe(false);
+      expect(status.detectionError).toBeTruthy();
       expect(status.updateAvailable).toBe(false);
     });
 
@@ -532,5 +534,130 @@ describe("plugin-status", () => {
 
       expect(codexSawClaudeRunning).toBe(true);
     });
+  });
+});
+
+describe("first-time plugin installation", () => {
+  it.each(["claude", "codex"] as const)(
+    "registers, refreshes, and installs for %s in order",
+    async (agentType) => {
+      const listed = agentType === "claude" ? [] : { marketplaces: [] };
+      const installed =
+        agentType === "claude"
+          ? [{ id: "dispatch@dispatch", enabled: true, version: "0.5.0" }]
+          : {
+              installed: [
+                {
+                  pluginId: "dispatch@dispatch",
+                  enabled: true,
+                  version: "0.5.0",
+                },
+              ],
+            };
+      const { runner, calls } = fakeRunner([
+        ok(JSON.stringify(listed)),
+        ok(""),
+        ok(""),
+        ok(""),
+        ok(JSON.stringify(installed)),
+        ok(JSON.stringify(listed)),
+      ]);
+      const result = await applyPluginUpdate(
+        agentType,
+        agentType,
+        runner,
+        undefined,
+        "install"
+      );
+      expect(result.error).toBeNull();
+      expect(result.status.installed).toBe(true);
+      expect(calls.slice(0, 4).map((call) => call.args)).toEqual([
+        ["plugin", "marketplace", "list", "--json"],
+        ["plugin", "marketplace", "add", "selfcontained/dispatch"],
+        agentType === "claude"
+          ? ["plugin", "marketplace", "update", "dispatch"]
+          : ["plugin", "marketplace", "upgrade", "dispatch", "--json"],
+        [
+          "plugin",
+          agentType === "claude" ? "install" : "add",
+          "dispatch@dispatch",
+        ],
+      ]);
+    }
+  );
+  it("reuses an existing marketplace and stops before install if refresh fails", async () => {
+    const { runner, calls } = fakeRunner([
+      ok(JSON.stringify([{ name: "dispatch" }])),
+      fail(),
+      ok("[]"),
+    ]);
+    const result = await applyPluginUpdate(
+      "claude",
+      "claude",
+      runner,
+      undefined,
+      "install"
+    );
+    expect(result.error).toBe("Failed to refresh the dispatch marketplace.");
+    expect(calls.some((call) => call.args[1] === "install")).toBe(false);
+    expect(calls.some((call) => call.args[2] === "add")).toBe(false);
+  });
+  it("does not register or install after an unknown marketplace probe", async () => {
+    const { runner, calls } = fakeRunner([
+      fail(),
+      ok(JSON.stringify({ installed: [] })),
+    ]);
+    const result = await applyPluginUpdate(
+      "codex",
+      "codex",
+      runner,
+      undefined,
+      "install"
+    );
+    expect(result.error).toBeTruthy();
+    expect(result.status.installed).toBe(false);
+    expect(result.status.detectionError).toBeUndefined();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].args).toEqual(["plugin", "list", "--json"]);
+  });
+});
+
+describe("checker install cache", () => {
+  it("returns the verified post-install status from cache without spawning again", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "plugin-install-cache-"));
+    try {
+      await writeManifest(root, ".claude-plugin", "0.5.0");
+      const marketplace = JSON.stringify([
+        { name: "dispatch", installLocation: root },
+      ]);
+      const { runner, calls } = fakeRunner([
+        ok(marketplace),
+        ok(""),
+        ok(""),
+        ok(
+          JSON.stringify([
+            { id: "dispatch@dispatch", version: "0.5.0", enabled: true },
+          ])
+        ),
+        ok(marketplace),
+      ]);
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: runner,
+      });
+      const result = await checker.install("claude");
+      expect(result.error).toBeNull();
+      expect(result.status).toMatchObject({
+        installed: true,
+        currentVersion: "0.5.0",
+        latestVersion: "0.5.0",
+      });
+      expect(calls[2].args).toEqual(["plugin", "install", "dispatch@dispatch"]);
+      const callCount = calls.length;
+      expect(await checker.getStatus("claude")).toEqual(result.status);
+      expect(calls).toHaveLength(callCount);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

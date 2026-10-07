@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { DIFF_IMAGE_MAX_BYTES, type DiffImageInfo } from "@dispatch/shared";
 
-import { imageMimeType, isImageFile } from "../media-file-types.js";
+import { imageMimeType, isImageFile } from "../file-types.js";
 import { resolveBaseRef } from "./base-ref.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 

@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
+import { AgentManager } from "../src/agents/manager.js";
+import { StreamService } from "../src/chat/service.js";
+import * as agentDiff from "../src/shared/git/agent-diff.js";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -31,7 +35,9 @@ async function createAgent(
     ...overrides,
   });
   expect(res.statusCode).toBe(201);
-  return res.json().agent;
+  const agent = res.json().agent;
+  await ctx.awaitLaunched(agent.id);
+  return agent;
 }
 
 beforeEach(async () => {
@@ -128,6 +134,99 @@ describe("GET /api/v1/agents/:id/diff/file", () => {
 // POST /api/v1/agents/:id/diff/comment
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/diff/comment", () => {
+  it.each([
+    { startLine: 1, endLine: 1, code: "const first = 1;", label: "Line 1" },
+    {
+      startLine: 1,
+      endLine: 3,
+      code: "const first = 1;\n\nconst last = 3;",
+      label: "Lines 1-3",
+    },
+    { startLine: 8, endLine: 8, code: null, label: "Line 8" },
+    { startLine: 2, endLine: 2, code: null, label: "Blank line 2" },
+    {
+      startLine: 1,
+      endLine: 1,
+      source: "x".repeat(BLOCK_TEXT_MAX_CHARS),
+      code: "x".repeat(BLOCK_TEXT_MAX_CHARS),
+      label: "Line 1 at the size limit",
+    },
+    {
+      startLine: 1,
+      endLine: 1,
+      source: "x".repeat(BLOCK_TEXT_MAX_CHARS + 1),
+      code:
+        "x".repeat(BLOCK_TEXT_MAX_CHARS - "\n… (truncated)".length) +
+        "\n… (truncated)",
+      label: "Line 1 over the size limit",
+    },
+  ])("posts selected code as an attachment ($label)", async (selection) => {
+    const agent = await createAgent({ name: "snippet-comment" });
+    const diff = vi.spyOn(agentDiff, "getAgentFileDiff").mockResolvedValue({
+      path: "example.ts",
+      status: "modified",
+      added: 2,
+      deleted: 1,
+      diff: [
+        "diff --git a/example.ts b/example.ts",
+        "--- a/example.ts",
+        "+++ b/example.ts",
+        "@@ -1,3 +1,3 @@",
+        "-const first = 0;",
+        `+${selection.source ?? "const first = 1;"}`,
+        " ",
+        " const last = 3;",
+      ].join("\n"),
+    });
+    // Persist normally while using the isolated test runtime's inert agent.
+    const sendUserPost = StreamService.prototype.sendUserPost;
+    const send = vi
+      .spyOn(StreamService.prototype, "sendUserPost")
+      .mockImplementation(function (streamId, input) {
+        return sendUserPost.call(this, streamId, {
+          ...input,
+          allowInert: true,
+        });
+      });
+    try {
+      const res = await authedInject(
+        "POST",
+        `/api/v1/agents/${agent.id}/diff/comment`,
+        {
+          filePath: "example.ts",
+          startLine: selection.startLine,
+          endLine: selection.endLine,
+          comment: "  Please explain this.  ",
+        }
+      );
+      expect(res.statusCode).toBe(200);
+      const location = `example.ts · ${selection.startLine === selection.endLine ? `Line ${selection.startLine}` : `Lines ${selection.startLine}-${selection.endLine}`}`;
+      expect(res.json().block.text).toBe(
+        selection.code === null
+          ? `${location}\n\nPlease explain this.`
+          : "Please explain this."
+      );
+      expect(res.json().block.attachments).toEqual(
+        selection.code === null
+          ? []
+          : [
+              {
+                type: "code",
+                path: location,
+                code: selection.code,
+              },
+            ]
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ to: agent.id, allowInert: false })
+      );
+    } finally {
+      diff.mockRestore();
+      send.mockRestore();
+    }
+  });
+
   it("returns 404 for unknown agent", async () => {
     const res = await authedInject(
       "POST",
@@ -323,6 +422,65 @@ describe("PATCH /api/v1/agents/:id/name", () => {
 // POST /api/v1/agents/:id/prompt-rename
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/prompt-rename", () => {
+  it("returns a visible queued post before the busy agent accepts it", async () => {
+    const agent = await createAgent();
+    let rejectDelivery!: (error: Error) => void;
+    const accepted = new Promise<void>((_resolve, reject) => {
+      rejectDelivery = reject;
+    });
+    const access = vi
+      .spyOn(AgentManager.prototype, "getTerminalAccess")
+      .mockResolvedValue({ mode: "live" });
+    const prompt = vi
+      .spyOn(AgentManager.prototype, "promptAgent")
+      .mockReturnValue({ accepted, settled: Promise.resolve() });
+    const held = vi
+      .spyOn(AgentManager.prototype, "isPromptHeld")
+      .mockReturnValue(true);
+    try {
+      const res = await authedInject(
+        "POST",
+        `/api/v1/agents/${agent.id}/prompt-rename`
+      );
+      expect(res.statusCode).toBe(202);
+      const posted = res.json();
+      expect(posted.held).toBe(true);
+      expect(posted.block.text).toContain("rename_session");
+      expect(prompt).toHaveBeenCalledWith(
+        agent.id,
+        expect.stringContaining("rename_session"),
+        expect.objectContaining({
+          source: "chat",
+          chatMessageId: posted.block.id,
+        }),
+        { delivery: "auto" }
+      );
+      // A later failure remains visible on the persisted request for retry.
+      rejectDelivery(new Error("host exited"));
+      await vi.waitFor(async () => {
+        const row = await ctx.pool.query(
+          "SELECT delivered FROM blocks WHERE id = $1",
+          [posted.block.id]
+        );
+        expect(row.rows[0].delivered).toBe(false);
+      });
+    } finally {
+      access.mockRestore();
+      prompt.mockRestore();
+      held.mockRestore();
+    }
+  });
+
+  it("rejects an unavailable engine instead of reporting success", async () => {
+    const agent = await createAgent();
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/prompt-rename`
+    );
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/inert/i);
+  });
+
   it("returns 404 for unknown agent", async () => {
     const res = await authedInject(
       "POST",
@@ -414,164 +572,6 @@ describe("POST /api/v1/agents/:id/setup/phase", () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ ok: true });
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/complete
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/complete", () => {
-  it("returns 400 when effectiveCwd is missing", async () => {
-    const agent = await createAgent({ name: "no-cwd" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      {}
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/effectiveCwd/i);
-  });
-
-  it("returns 409 when agent is not in creating state", async () => {
-    const agent = await createAgent({ name: "setup-not-creating" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      { effectiveCwd: "/tmp/test" }
-    );
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).toMatch(/not in creating state/i);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/latest-event
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/latest-event", () => {
-  it("returns 400 for invalid event type", async () => {
-    const agent = await createAgent({ name: "bad-event-type" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "invalid", message: "hello" }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/type must be one of/);
-  });
-
-  it("returns 400 when message is missing", async () => {
-    const agent = await createAgent({ name: "no-msg" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working" }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/message must be a non-empty string/);
-  });
-
-  it("returns 400 when message is whitespace-only", async () => {
-    const agent = await createAgent({ name: "ws-msg" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "   " }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/message must be a non-empty string/);
-  });
-
-  it("returns 400 when metadata is not an object", async () => {
-    const agent = await createAgent({ name: "bad-meta" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "hello", metadata: "not-an-object" }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/metadata must be an object/);
-  });
-
-  it("returns 400 when metadata is an array", async () => {
-    const agent = await createAgent({ name: "arr-meta" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "hello", metadata: ["not", "valid"] }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/metadata must be an object/);
-  });
-
-  it("returns 400 when metadata is null", async () => {
-    const agent = await createAgent({ name: "null-meta" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "hello", metadata: null }
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/metadata must be an object/);
-  });
-
-  it("accepts valid event with all fields", async () => {
-    const agent = await createAgent({ name: "valid-event" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "working", message: "doing stuff", metadata: { phase: "build" } }
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().agent).toBeDefined();
-  });
-
-  it("accepts valid event without metadata", async () => {
-    const agent = await createAgent({ name: "no-meta-ok" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "done", message: "finished" }
-    );
-    expect(res.statusCode).toBe(200);
-  });
-
-  it("trims message whitespace", async () => {
-    const agent = await createAgent({ name: "trim-msg" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/latest-event`,
-      { type: "idle", message: "  padded message  " }
-    );
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.agent.latestEvent.message).toBe("padded message");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/error
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/error", () => {
-  it("marks agent setup as failed and returns ok", async () => {
-    const agent = await createAgent({ name: "err-report" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      { message: "git worktree add failed" }
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
-  });
-
-  it("defaults message when not provided", async () => {
-    const agent = await createAgent({ name: "err-default" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      {}
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
   });
 });
 

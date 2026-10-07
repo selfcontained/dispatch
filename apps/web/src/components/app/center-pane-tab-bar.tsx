@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef } from "react";
 
 import { TipSpot } from "@/components/tips/tip-spot";
 import { formatBadgeCount } from "@/lib/format";
-import { type CenterTab, centerTabs } from "@/lib/center-tabs";
+import { CENTER_TABS, type CenterTab } from "@/lib/center-tabs";
 import { type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -20,35 +20,28 @@ export function formatDiffCount(count: number): string {
 type CenterPaneTabBarProps = {
   activeTab: CenterTab;
   onTabChange: (tab: CenterTab) => void;
-  whiteboardAgentDrew?: boolean;
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
-  /** The chat surface as it applies to this agent (see `agentSupportsChat`). */
-  chatEnabled: boolean;
   chatUnreadCount?: number;
 };
 
 export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   activeTab,
   onTabChange,
-  whiteboardAgentDrew = false,
   isSplit,
   splitState,
   isMobile,
-  chatEnabled,
   chatUnreadCount = 0,
 }: CenterPaneTabBarProps): JSX.Element {
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
     : new Set<CenterTab>();
 
-  const visibleTabs = centerTabs(chatEnabled).filter(
-    (t) => !splitTabs.has(t.id)
-  );
+  const visibleTabs = CENTER_TABS.filter((t) => !splitTabs.has(t.id));
 
   // When the strip scrolls (phones), keep the active tab in view: a deep
-  // link to Whiteboard would otherwise land with its tab off the right edge.
+  // link to Changes would otherwise land with its tab off the right edge.
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!isMobile) return;
@@ -82,8 +75,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
     >
       {visibleTabs.map((tab) => {
         // Unread chat replies sit on the Agent tab while another tab is up;
-        // with the Agent tab active the pane's own Chat | Console toggle
-        // carries the count (see AgentViewToggle).
+        // with the Agent tab active the feed itself is being read.
         const showChatUnread =
           tab.id === "agent" && activeTab !== "agent" && chatUnreadCount > 0;
         const button = (
@@ -121,14 +113,6 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
                   {formatBadgeCount(chatUnreadCount)}
                 </span>
               ) : null}
-              {tab.id === "whiteboard" &&
-              whiteboardAgentDrew &&
-              activeTab !== "whiteboard" ? (
-                <span
-                  data-testid="whiteboard-agent-drew-dot"
-                  className="absolute -right-2 -top-0.5 h-1.5 w-1.5 rounded-full bg-violet-500"
-                />
-              ) : null}
               {activeTab === tab.id && !isSplit ? (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
               ) : null}
@@ -146,23 +130,6 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             <TipSpot
               key={tab.id}
               tipId="split-tabs"
-              side="bottom"
-              align="center"
-            >
-              {button}
-            </TipSpot>
-          );
-
-        if (
-          tab.id === "whiteboard" &&
-          activeTab !== tab.id &&
-          !isMobile &&
-          !isSplit
-        )
-          return (
-            <TipSpot
-              key={tab.id}
-              tipId="whiteboard"
               side="bottom"
               align="center"
             >

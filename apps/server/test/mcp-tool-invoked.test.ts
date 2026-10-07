@@ -37,7 +37,6 @@ async function connect(context: Partial<McpRequestContext>) {
     agent: AGENT,
     repoRoot: null,
     worktreeRoot: null,
-    upsertEvent: vi.fn(async () => {}),
     renameSession: vi.fn(async (_id, name) => ({ id: AGENT.id, name })),
     ...context,
   });
@@ -65,7 +64,7 @@ describe("agent.tool_invoked", () => {
     const client = await connect({ publishUiEvent, renameSession });
 
     const result = await client.callTool({
-      name: "dispatch_rename_session",
+      name: "rename_session",
       arguments: { name: "Renamed" },
     });
     expect(result.isError).toBeFalsy();
@@ -74,23 +73,9 @@ describe("agent.tool_invoked", () => {
     expect(publishUiEvent).toHaveBeenCalledWith({
       type: "agent.tool_invoked",
       agentId: AGENT.id,
-      tool: "dispatch_rename_session",
+      tool: "rename_session",
       at: "2026-09-03T12:00:00.000Z",
     });
-  });
-
-  it("skips dispatch_event, which already drives the phase", async () => {
-    const publishUiEvent = vi.fn();
-    const upsertEvent = vi.fn(async () => {});
-    const client = await connect({ publishUiEvent, upsertEvent });
-
-    const result = await client.callTool({
-      name: "dispatch_event",
-      arguments: { type: "working", message: "busy" },
-    });
-    expect(result.isError).toBeFalsy();
-    expect(upsertEvent).toHaveBeenCalled();
-    expect(publishUiEvent).not.toHaveBeenCalled();
   });
 
   it("covers dynamic repo tools", async () => {
@@ -128,7 +113,7 @@ describe("agent.tool_invoked", () => {
     const client = await connect({ publishUiEvent, renameSession });
 
     const result = await client.callTool({
-      name: "dispatch_rename_session",
+      name: "rename_session",
       arguments: { name: "Still works" },
     });
     expect(result.isError).toBeFalsy();
@@ -143,7 +128,7 @@ describe("agent.tool_invoked", () => {
     }));
     const client = await connect({ renameSession });
     const result = await client.callTool({
-      name: "dispatch_rename_session",
+      name: "rename_session",
       arguments: { name: "Quiet" },
     });
     expect(result.isError).toBeFalsy();

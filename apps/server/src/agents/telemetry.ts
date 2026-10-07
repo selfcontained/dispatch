@@ -3,36 +3,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 
 import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
-import type { AgentGitContext, AgentPin } from "./types.js";
-
-export type ActivitySummaryResult = {
-  period: { start: string; end: string };
-  projects: Array<{
-    directory: string;
-    totalWorkingMs: number;
-    agentCount: number;
-    sessionCount: number;
-    outcomes: {
-      done: number;
-      idle: number;
-      blocked: number;
-      error: number;
-    };
-  }>;
-  totals: {
-    totalWorkingMs: number;
-    agentCount: number;
-    sessionCount: number;
-  };
-  topAgents: Array<{
-    id: string;
-    name: string;
-    project: string;
-    totalWorkingMs: number;
-    latestEventMessage: string;
-    latestEventType: string;
-  }>;
-};
+import type { AgentGitContext } from "./types.js";
 
 export type FeedbackSummaryResult = {
   period: { start: string; end: string };
@@ -76,222 +47,6 @@ export type FeedbackSummaryResult = {
   };
 };
 
-export async function getActivitySummary(
-  pool: Pool,
-  params: {
-    start: Date;
-    end: Date;
-    project?: string;
-  }
-): Promise<ActivitySummaryResult> {
-  const rangeStart = params.start;
-  const rangeEnd = params.end;
-
-  // Build optional project filter for working-time CTE
-  const wtProjectFilter = params.project ? "AND project_dir = $3" : "";
-  const wtParams: unknown[] = [rangeStart, rangeEnd];
-  if (params.project) wtParams.push(params.project);
-
-  // Build conditions for agents table queries
-  const agentConditions = [
-    "parent_agent_id IS NULL",
-    "created_at >= $1",
-    "created_at <= $2",
-  ];
-  const agentParams: unknown[] = [rangeStart, rangeEnd];
-  if (params.project) {
-    agentParams.push(params.project);
-    agentConditions.push(
-      `COALESCE(git_context->>'repoRoot', cwd) = $${agentParams.length}`
-    );
-  }
-  const agentWhere = `WHERE ${agentConditions.join(" AND ")}`;
-
-  // Run all three queries in parallel
-  const [workingTimeResult, sessionResult, agentMetaResult] = await Promise.all(
-    [
-      // Query 1: Working time per agent per project via SQL window functions
-      pool.query<{
-        agentId: string;
-        projectDir: string;
-        totalWorkingMs: string;
-      }>(
-        `WITH boundary AS (
-          SELECT DISTINCT ON (ae.agent_id)
-            ae.agent_id, ae.event_type,
-            $1::timestamptz AS effective_at,
-            COALESCE(ae.project_dir, a.cwd) AS project_dir
-          FROM agent_events ae
-          JOIN agents a ON a.id = ae.agent_id
-            AND a.parent_agent_id IS NULL
-          WHERE ae.created_at < $1
-          ORDER BY ae.agent_id, ae.created_at DESC
-        ),
-        in_range AS (
-          SELECT ae.agent_id, ae.event_type, ae.created_at AS effective_at,
-                 COALESCE(ae.project_dir, a.cwd) AS project_dir
-          FROM agent_events ae
-          JOIN agents a ON a.id = ae.agent_id
-            AND a.parent_agent_id IS NULL
-          WHERE ae.created_at >= $1 AND ae.created_at <= $2
-        ),
-        all_events AS (
-          SELECT * FROM boundary UNION ALL SELECT * FROM in_range
-        ),
-        with_next AS (
-          SELECT agent_id, event_type, effective_at, project_dir,
-                 LEAD(effective_at) OVER (PARTITION BY agent_id ORDER BY effective_at) AS next_at
-          FROM all_events
-        )
-        SELECT
-          agent_id AS "agentId",
-          project_dir AS "projectDir",
-          COALESCE(SUM(
-            CASE WHEN event_type = 'working'
-            THEN EXTRACT(EPOCH FROM (
-              COALESCE(next_at, LEAST($2::timestamptz, NOW())) - effective_at
-            )) * 1000
-            ELSE 0 END
-          ), 0)::bigint AS "totalWorkingMs"
-        FROM with_next
-        WHERE project_dir IS NOT NULL ${wtProjectFilter}
-        GROUP BY agent_id, project_dir`,
-        wtParams
-      ),
-
-      // Query 2: Session counts and outcomes by project
-      pool.query<{
-        projectDir: string;
-        sessionCount: string;
-        doneCount: string;
-        idleCount: string;
-        blockedCount: string;
-        errorCount: string;
-      }>(
-        `SELECT
-          COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
-          COUNT(*)::int AS "sessionCount",
-          COUNT(*) FILTER (WHERE latest_event_type = 'done')::int AS "doneCount",
-          COUNT(*) FILTER (WHERE latest_event_type = 'idle')::int AS "idleCount",
-          COUNT(*) FILTER (WHERE latest_event_type = 'blocked')::int AS "blockedCount",
-          COUNT(*) FILTER (WHERE status = 'error')::int AS "errorCount"
-        FROM agents
-        ${agentWhere}
-        GROUP BY COALESCE(git_context->>'repoRoot', cwd)`,
-        agentParams
-      ),
-
-      // Query 3: Agent metadata for top agents list
-      pool.query<{
-        id: string;
-        name: string;
-        projectDir: string;
-        latestEventType: string | null;
-        latestEventMessage: string | null;
-      }>(
-        `SELECT id, name,
-          COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
-          latest_event_type AS "latestEventType",
-          latest_event_message AS "latestEventMessage"
-        FROM agents
-        ${agentWhere}`,
-        agentParams
-      ),
-    ]
-  );
-
-  // Aggregate working time by project and by agent
-  const projectWorkingTime = new Map<
-    string,
-    { totalWorkingMs: number; agents: Set<string> }
-  >();
-  const workingTimeByAgent = new Map<
-    string,
-    { project: string; totalWorkingMs: number }
-  >();
-
-  for (const row of workingTimeResult.rows) {
-    const ms = Number(row.totalWorkingMs);
-
-    // Per-project aggregation
-    const proj = projectWorkingTime.get(row.projectDir) ?? {
-      totalWorkingMs: 0,
-      agents: new Set(),
-    };
-    proj.totalWorkingMs += ms;
-    proj.agents.add(row.agentId);
-    projectWorkingTime.set(row.projectDir, proj);
-
-    // Per-agent aggregation (for top agents)
-    const agent = workingTimeByAgent.get(row.agentId);
-    if (agent) {
-      agent.totalWorkingMs += ms;
-    } else {
-      workingTimeByAgent.set(row.agentId, {
-        project: row.projectDir,
-        totalWorkingMs: ms,
-      });
-    }
-  }
-
-  // Index session data by project
-  const sessionsByProject = new Map(
-    sessionResult.rows.map((r) => [r.projectDir, r])
-  );
-
-  // Merge project-level data
-  const allProjectDirs = new Set([
-    ...projectWorkingTime.keys(),
-    ...sessionsByProject.keys(),
-  ]);
-  const projects = [...allProjectDirs]
-    .map((dir) => {
-      const working = projectWorkingTime.get(dir);
-      const sessions = sessionsByProject.get(dir);
-      return {
-        directory: dir,
-        totalWorkingMs: working?.totalWorkingMs ?? 0,
-        agentCount: working?.agents.size ?? 0,
-        sessionCount: Number(sessions?.sessionCount ?? 0),
-        outcomes: {
-          done: Number(sessions?.doneCount ?? 0),
-          idle: Number(sessions?.idleCount ?? 0),
-          blocked: Number(sessions?.blockedCount ?? 0),
-          error: Number(sessions?.errorCount ?? 0),
-        },
-      };
-    })
-    .sort((a, b) => b.totalWorkingMs - a.totalWorkingMs);
-
-  // Build top agents list
-  const agentMeta = new Map(agentMetaResult.rows.map((r) => [r.id, r]));
-  const topAgents = [...workingTimeByAgent.entries()]
-    .sort((a, b) => b[1].totalWorkingMs - a[1].totalWorkingMs)
-    .slice(0, 10)
-    .map(([id, data]) => {
-      const meta = agentMeta.get(id);
-      return {
-        id,
-        name: meta?.name ?? id,
-        project: data.project,
-        totalWorkingMs: data.totalWorkingMs,
-        latestEventMessage: meta?.latestEventMessage ?? "",
-        latestEventType: meta?.latestEventType ?? "",
-      };
-    });
-
-  return {
-    period: { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
-    projects,
-    totals: {
-      totalWorkingMs: projects.reduce((sum, p) => sum + p.totalWorkingMs, 0),
-      agentCount: new Set(workingTimeResult.rows.map((r) => r.agentId)).size,
-      sessionCount: projects.reduce((sum, p) => sum + p.sessionCount, 0),
-    },
-    topAgents,
-  };
-}
-
 export async function getFeedbackSummary(
   pool: Pool,
   params: {
@@ -304,7 +59,7 @@ export async function getFeedbackSummary(
   const rangeStart = params.start;
   const rangeEnd = params.end;
 
-  const feedbackConditions = ["f.created_at >= $1", "f.created_at <= $2"];
+  const feedbackConditions = ["b.created_at >= $1", "b.created_at <= $2"];
   const feedbackParams: unknown[] = [rangeStart, rangeEnd];
   if (params.project) {
     feedbackParams.push(params.project);
@@ -313,7 +68,7 @@ export async function getFeedbackSummary(
     );
   }
 
-  const verdictConditions = ["r.created_at >= $1", "r.created_at <= $2"];
+  const verdictConditions = ["b.created_at >= $1", "b.created_at <= $2"];
   const verdictParams: unknown[] = [rangeStart, rangeEnd];
   if (params.project) {
     verdictParams.push(params.project);
@@ -332,30 +87,27 @@ export async function getFeedbackSummary(
       status: string;
       projectRoot: string;
     }>(
-      `SELECT COALESCE(ra.persona, r.reviewer_type, 'unknown') AS persona,
-                'info' AS severity,
-                COALESCE(first_message.content->>'body', '') AS description,
-                f.file_path AS "filePath",
+      `SELECT COALESCE(ra.persona, ra.name, 'you') AS persona,
+                CASE b.data->>'severity'
+                  WHEN 'blocker' THEN 'critical'
+                  WHEN 'major' THEN 'high'
+                  WHEN 'minor' THEN 'medium'
+                  WHEN 'nit' THEN 'low'
+                  ELSE 'info'
+                END AS severity,
+                COALESCE(b.data->>'title', '') AS description,
+                b.data->>'path' AS "filePath",
                 CASE
-                  WHEN f.status = 'open' THEN 'open'
-                  WHEN f.resolution = 'fixed' THEN 'fixed'
-                  WHEN f.resolution = 'dismissed' THEN 'dismissed'
-                  ELSE f.status
+                  WHEN b.state->>'status' = 'resolved'
+                  THEN COALESCE(b.state->>'resolution', 'fixed')
+                  ELSE 'open'
                 END AS status,
                 COALESCE(pa.git_context->>'repoRoot', pa.cwd) AS "projectRoot"
-         FROM review_feedback_items f
-         JOIN reviews r ON r.id = f.review_id
-         JOIN agents pa ON pa.id = r.agent_id
-         LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
-         LEFT JOIN LATERAL (
-           SELECT content
-           FROM review_thread_messages
-           WHERE feedback_item_id = f.id
-           ORDER BY created_at ASC, id ASC
-           LIMIT 1
-         ) first_message ON TRUE
-         WHERE ${feedbackConditions.join(" AND ")}
-         ORDER BY f.created_at ASC`,
+         FROM blocks b
+         JOIN agents pa ON pa.id = b.stream_id
+         LEFT JOIN agents ra ON ra.id = b.author_agent_id
+         WHERE b.kind = 'finding' AND ${feedbackConditions.join(" AND ")}
+         ORDER BY b.created_at ASC`,
       feedbackParams
     ),
 
@@ -366,15 +118,20 @@ export async function getFeedbackSummary(
     }>(
       `SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE NOT EXISTS (
-            SELECT 1 FROM review_feedback_items f WHERE f.review_id = r.id
-          ))::int AS approved,
-          COUNT(*) FILTER (WHERE EXISTS (
-            SELECT 1 FROM review_feedback_items f WHERE f.review_id = r.id
-          ))::int AS "changesRequested"
-         FROM reviews r
-         JOIN agents pa ON pa.id = r.agent_id
-         WHERE ${verdictConditions.join(" AND ")}`,
+          -- A review stands where its findings do: approved once none is
+          -- open, changes requested while any is.
+          COUNT(*) FILTER (WHERE NOT st.any_open)::int AS approved,
+          COUNT(*) FILTER (WHERE st.any_open)::int AS "changesRequested"
+         FROM blocks b
+         CROSS JOIN LATERAL (
+           SELECT EXISTS (
+             SELECT 1 FROM blocks f
+              WHERE f.kind = 'finding' AND f.thread_id = b.id
+                AND COALESCE(f.state->>'status', 'open') = 'open'
+           ) AS any_open
+         ) st
+         JOIN agents pa ON pa.id = b.stream_id
+         WHERE b.kind = 'review' AND ${verdictConditions.join(" AND ")}`,
       verdictParams
     ),
   ]);
@@ -482,10 +239,10 @@ export async function getFeedbackSummary(
   };
 }
 
-export async function listMedia(
+export async function listFiles(
   pool: Pool,
   agentId: string,
-  fallbackMediaDir: (agentId: string) => string
+  fallbackFilesDir: (agentId: string) => string
 ): Promise<
   Array<{
     fileName: string;
@@ -502,12 +259,12 @@ export async function listMedia(
     source: string;
     sizeBytes: number;
     createdAt: Date;
-    mediaDir: string | null;
+    filesDir: string | null;
   }>(
     `SELECT m.file_name AS "fileName", m.description, m.source,
               m.size_bytes AS "sizeBytes", m.created_at AS "createdAt",
-              a.media_dir AS "mediaDir"
-       FROM media m
+              a.files_dir AS "filesDir"
+       FROM files m
        JOIN agents a ON a.id = m.agent_id
        WHERE m.agent_id = $1
        ORDER BY m.created_at`,
@@ -516,7 +273,7 @@ export async function listMedia(
   return result.rows.map((row) => ({
     fileName: row.fileName,
     filePath: path.join(
-      resolveConfiguredPath(row.mediaDir ?? fallbackMediaDir(agentId)),
+      resolveConfiguredPath(row.filesDir ?? fallbackFilesDir(agentId)),
       row.fileName
     ),
     description: row.description,

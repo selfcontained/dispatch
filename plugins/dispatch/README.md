@@ -2,9 +2,9 @@
 
 Skills that teach agents how to use Dispatch's own capabilities. Install it in
 Claude Code or Codex and agents get shared memory, subagent orchestration, repo
-tools, artifact sharing, interactive surfaces, the review workflow, UI
-validation, personas, the whiteboard, jobs, templates, personalities, and how to
-reach the user as discoverable skills instead of tribal knowledge.
+tools, artifact sharing, the review workflow, UI validation, personas, jobs,
+templates, personalities, and how to reach the user as discoverable skills
+instead of tribal knowledge.
 
 ## Install
 
@@ -60,6 +60,20 @@ The plugin carries an explicit `version` in its manifests, so updates only ship
 when that version is bumped — routine commits to `main` do not register as a
 plugin update.
 
+## Source and installed guidance
+
+`plugins/dispatch/skills/` is the maintained source. Installed plugin caches are
+snapshots and can lag behind it; editing this tree does not update an existing
+session or cache. Current Dispatch sessions use `post` for structured blocks
+and agent messages, while ordinary replies stream automatically. Follow the
+session startup rules and exposed tool schemas if an older installed skill
+names obsolete communication tools.
+
+These Markdown skills need no generated build output. Publish source changes
+with the normal plugin version/release process, then update the installed plugin
+and start a fresh session to pick them up. Do not edit a user's plugin cache or
+reinstall it as part of a repository documentation change.
+
 ## Trust
 
 Plugins on both platforms are **unsigned and unsandboxed, and run with your full
@@ -93,12 +107,10 @@ The rest of the tree is documentation: `skills/` (the skill bodies agents load),
 | `subagents`       | Work should be delegated, or another agent needs coordinating |
 | `repo-tools`      | A repo script should become a first-class tool                |
 | `communicate`     | Something needs to reach the user and the channel is unchosen |
-| `sharing`         | An artifact needs to reach the user                           |
-| `surfaces`        | Structured status, choices, or user input belong in a sidebar |
+| `sharing`         | An artifact needs to reach the user as a posted file          |
 | `review-workflow` | A PR is going up, or review feedback needs working            |
 | `ui-validation`   | A UI change needs proving in a browser                        |
 | `personas`        | This repo needs a reviewer with a domain lens                 |
-| `whiteboard`      | The user's sketch matters, or a diagram beats prose           |
 | `jobs`            | Work should run on a schedule and report structurally         |
 | `templates`       | A launch configuration is worth saving                        |
 | `personalities`   | The user is commenting on how agents talk                     |
@@ -113,23 +125,21 @@ labels ("artifact sharing API"): an agent that does not know a capability exists
 will never match its name, but will match a description of the situation it is
 currently in.
 
-**Narrow skills, not mega-skills.** Thirteen narrow skills cost thirteen short
+**Narrow skills, not mega-skills.** Eleven narrow skills cost eleven short
 descriptions always-on and load exactly one body on a match. Folding them into
 three broad skills would load four unrelated bodies every time one of them fired.
 The binding budget is total description bytes, not skill count.
 
-**`communicate` is a router, not an exception to that.** It spans channels, but
-its body is a dispatch table that hands off to `surfaces`, `sharing`, and
-`whiteboard` rather than restating them. It exists because channel choice is
-made _before_ the agent knows which tool it wants: that guidance used to open
-`surfaces/SKILL.md`, where only an agent already committed to building a surface
-would ever read it. It was moved, not copied — two routing tables would be worse
-than one in the wrong place.
+**`communicate` is a router, not an exception to that.** It spans block kinds,
+but its body is a dispatch table that hands off to `sharing` and `subagents`
+rather than restating them. It exists because the shape of a message is chosen
+_before_ the agent knows which tool it wants — a question block, a form, a file,
+a link — and that choice has to be made where the agent is deciding what to say,
+not inside the skill for any one of them.
 
 **What is deliberately _not_ here.** Guidance that is always relevant cannot be
-a skill, because skills only load on a task match. Status reporting
-(`dispatch_event`), pin discipline, and session naming stay in Dispatch's
-injected launch guidance for that reason.
+a skill, because skills only load on a task match. Posting values as attachments
+and session naming stay in Dispatch's injected launch guidance for that reason.
 
 ## Layout
 

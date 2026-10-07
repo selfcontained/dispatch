@@ -36,14 +36,7 @@ type PersonaSummary = {
 };
 
 function defaultReviewAgentType(agent: Agent): AgentType {
-  return (
-    agent.reviewAgentType ??
-    (agent.type === "claude" ||
-    agent.type === "opencode" ||
-    agent.type === "cursor"
-      ? agent.type
-      : "codex")
-  );
+  return agent.reviewAgentType ?? agent.type ?? "codex";
 }
 
 export function PersonaLauncher({
@@ -51,18 +44,22 @@ export function PersonaLauncher({
   enabledAgentTypes,
   disabled = false,
   disabledReason,
+  label = "Review",
 }: {
   agent: Agent;
   enabledAgentTypes: AgentType[];
   disabled?: boolean;
   disabledReason?: string;
+  /** The trigger button's text. */
+  label?: string;
 }): JSX.Element {
   const queryClient = useQueryClient();
-  const cwd = agent.worktreePath ?? agent.cwd;
+  const cwd = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
+  const [codeownersSelected, setCodeownersSelected] = useState(false);
   const [note, setNote] = useState("");
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
@@ -81,35 +78,54 @@ export function PersonaLauncher({
     useAgentModelCatalog(selectedAgentType);
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
-  const { data: personas = [] } = useQuery<PersonaSummary[]>({
+  const { data: personaCatalog } = useQuery<{
+    personas: PersonaSummary[];
+    /** The checkout has a .dispatch/codeowners.json to route reviewers by. */
+    codeowners: boolean;
+  }>({
     queryKey: ["personas", cwd],
     queryFn: async () => {
-      const result = await api<{ personas: PersonaSummary[] }>(
-        `/api/v1/personas?cwd=${encodeURIComponent(cwd)}`
-      );
-      return result.personas;
+      const result = await api<{
+        personas: PersonaSummary[];
+        codeowners?: boolean;
+      }>(`/api/v1/personas?cwd=${encodeURIComponent(cwd)}`);
+      return {
+        personas: result.personas,
+        codeowners: result.codeowners === true,
+      };
     },
   });
+  const personas = personaCatalog?.personas ?? [];
+  const codeownersAvailable = personaCatalog?.codeowners ?? false;
 
   const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
   const launchMutation = useMutation({
-    mutationFn: async (personas: string[]) => {
+    mutationFn: async (selection: {
+      personas: string[];
+      codeowners: boolean;
+    }) => {
       await persistReviewAgentType(selectedAgentType);
-      await api(`/api/v1/agents/${agent.id}/launch-review`, {
-        method: "POST",
-        body: JSON.stringify({
-          personas,
-          agentType: selectedAgentType,
-          // A stored id the catalog no longer offers means "CLI default",
-          // same as the select renders it.
-          model: modelOptions.some((option) => option.id === selectedModel)
-            ? selectedModel
-            : null,
-          note: note.trim() ? note.trim() : null,
-        }),
-      });
+      // The request lands in the agent's stream as a post; the agent
+      // launches each persona itself, with its own briefing of the work.
+      return api<{ ok: boolean; block: { id: string } }>(
+        `/api/v1/agents/${agent.id}/launch-persona`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            personas: selection.personas,
+            codeowners: selection.codeowners,
+            agentType: selectedAgentType,
+            // A stored id the catalog no longer offers means "CLI default",
+            // same as the select renders it.
+            model: modelOptions.some((option) => option.id === selectedModel)
+              ? selectedModel
+              : null,
+            note: note.trim() ? note.trim() : null,
+          }),
+        }
+      );
     },
     onSuccess: () => {
       setDialogOpen(false);
@@ -132,11 +148,11 @@ export function PersonaLauncher({
               type={defaultReviewAgentType(agent)}
               className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
             />
-            Review
+            {label}
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Could not load reviewer personas for this workspace.
+          Could not load personas for this workspace.
         </TooltipContent>
       </Tooltip>
     );
@@ -145,6 +161,7 @@ export function PersonaLauncher({
   const openDialog = (agentType = defaultReviewAgentType(agent)) => {
     setSelectedAgentType(agentType);
     setSelectedPersonas([]);
+    setCodeownersSelected(false);
     setNote("");
     launchMutation.reset();
     setTypeDropdownOpen(false);
@@ -187,7 +204,7 @@ export function PersonaLauncher({
         type={defaultReviewAgentType(agent)}
         className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
       />
-      Review
+      {label}
     </Button>
   );
 
@@ -255,12 +272,20 @@ export function PersonaLauncher({
         personas={personas}
         selectedPersonas={selectedPersonas}
         setSelectedPersonas={setSelectedPersonas}
+        codeownersAvailable={codeownersAvailable}
+        codeownersSelected={codeownersSelected}
+        setCodeownersSelected={setCodeownersSelected}
         note={note}
         setNote={setNote}
         launchError={launchErrorMessage}
         isLaunching={launchMutation.isPending}
         onResetLaunchError={() => launchMutation.reset()}
-        onSubmit={() => void launchMutation.mutateAsync(selectedPersonas)}
+        onSubmit={() =>
+          void launchMutation.mutateAsync({
+            personas: selectedPersonas,
+            codeowners: codeownersSelected,
+          })
+        }
       />
     </>
   );

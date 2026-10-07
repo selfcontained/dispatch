@@ -9,20 +9,16 @@ import {
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AutomationsRoute,
-  ActivityRoute,
-  SettingsRoute,
-  serviceDotClass,
-} from "./dashboard-sections";
+import { AutomationsRoute } from "./automations-route";
+import { ActivityRoute } from "./activity-route";
+import { SettingsRoute, serviceDotClass } from "./settings-route";
 
-// dashboard-sections.tsx is route-wiring, not markup: SectionShell owns the
+// Section routes handle wiring, not markup: SectionShell owns the
 // sidebar-open/close branching shared by every route, and the individual
 // route components own navigation guards and the mobile-sidebar-close side
 // effects. Every child it renders is replaced by a marker that records the
 // props it received and (where the route drives a callback) exposes buttons
-// to invoke them, so what's under test is the wiring dashboard-sections.tsx
-// itself contributes.
+// to invoke them, so these tests cover the wiring the route modules contribute.
 const { H, record, stubModule } = vi.hoisted(() => {
   const props = new Map<string, Record<string, unknown>>();
   const record = (name: string, received: Record<string, unknown>) => {
@@ -211,10 +207,10 @@ function defaultContext(): Record<string, unknown> {
     leftOpen: true,
     leftPanelOpen: true,
     mobileLeftOpen: false,
-    mobileMediaOpen: false,
+    mobileDrawerOpen: false,
     setLeftOpen: vi.fn(),
     setMobileLeftOpen: vi.fn(),
-    setMobileMediaOpen: vi.fn(),
+    setMobileDrawerOpen: vi.fn(),
     handleSetLeftPanelOpen: vi.fn(),
     apiState: "ok",
     dbState: "ok",
@@ -308,12 +304,12 @@ describe("SectionShell sidebar open/close wiring", () => {
     expect(propsOf("SidebarShell").closeButtonIcon).toBe("x");
   });
 
-  it("opens the desktop sidebar through setLeftOpen only, never touching the media flag", () => {
+  it("opens the desktop sidebar through setLeftOpen only, never touching the drawer flag", () => {
     Object.assign(H.context, { isMobile: false });
     renderAt("/settings");
     fireEvent.click(screen.getByTestId("glass-open-true"));
     expect(H.context.setLeftOpen).toHaveBeenCalledWith(true);
-    expect(H.context.setMobileMediaOpen).not.toHaveBeenCalled();
+    expect(H.context.setMobileDrawerOpen).not.toHaveBeenCalled();
     expect(H.context.setMobileLeftOpen).not.toHaveBeenCalled();
   });
 
@@ -325,21 +321,21 @@ describe("SectionShell sidebar open/close wiring", () => {
     expect(H.context.setMobileLeftOpen).not.toHaveBeenCalled();
   });
 
-  it("opening the mobile sidebar also closes the media sidebar", () => {
+  it("opening the mobile sidebar also closes the drawer", () => {
     Object.assign(H.context, { isMobile: true });
     renderAt("/settings");
     fireEvent.click(screen.getByTestId("glass-open-true"));
-    expect(H.context.setMobileMediaOpen).toHaveBeenCalledWith(false);
+    expect(H.context.setMobileDrawerOpen).toHaveBeenCalledWith(false);
     expect(H.context.setMobileLeftOpen).toHaveBeenCalledWith(true);
     expect(H.context.setLeftOpen).not.toHaveBeenCalled();
   });
 
-  it("closing the mobile sidebar leaves the media sidebar alone", () => {
+  it("closing the mobile sidebar leaves the drawer alone", () => {
     Object.assign(H.context, { isMobile: true });
     renderAt("/settings");
     fireEvent.click(screen.getByTestId("glass-open-false"));
     expect(H.context.setMobileLeftOpen).toHaveBeenCalledWith(false);
-    expect(H.context.setMobileMediaOpen).not.toHaveBeenCalled();
+    expect(H.context.setMobileDrawerOpen).not.toHaveBeenCalled();
   });
 
   it("shows the floating open-sidebar button only when the left panel is closed", () => {

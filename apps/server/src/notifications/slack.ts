@@ -9,14 +9,17 @@ type SlackBlock =
   | { type: "section"; text: { type: "mrkdwn"; text: string } }
   | { type: "context"; elements: Array<{ type: "mrkdwn"; text: string }> };
 
-const NOTIFY_EVENT_TYPES = ["done", "waiting_user", "blocked"] as const;
+const NOTIFY_EVENT_TYPES = ["waiting_user", "blocked"] as const;
 type NotifyEventType = (typeof NOTIFY_EVENT_TYPES)[number];
+export type NotificationSignal = {
+  type: NotifyEventType;
+  message: string;
+};
 
 const EVENT_CONFIG: Record<
   NotifyEventType,
   { emoji: string; verb: string; color: string }
 > = {
-  done: { emoji: "\u2705", verb: "finished", color: "#22c55e" },
   waiting_user: {
     emoji: "\ud83d\udfe1",
     verb: "needs your input",
@@ -85,7 +88,7 @@ function sanitizeSlackMrkdwn(text: string): string {
 export class SlackNotifier {
   private cachedSettings: CachedSettings | null = null;
   private isFocused: ((agentId: string) => boolean) | null = null;
-  /** Per-agent rate limit tracking for dispatch_notify calls. */
+  /** Per-agent rate limit tracking for notify calls. */
   private notifyTimestamps: Map<string, number[]> = new Map();
 
   constructor(
@@ -168,14 +171,15 @@ export class SlackNotifier {
    * Returns the notification payload if web notifications are enabled and
    * the event type is configured, or null if not applicable.
    */
-  async shouldWebNotify(agent: AgentRecord): Promise<{
+  async shouldWebNotify(
+    agent: AgentRecord,
+    event: NotificationSignal
+  ): Promise<{
     agentId: string;
     agentName: string;
     eventType: string;
     message: string;
   } | null> {
-    const event = agent.latestEvent;
-    if (!event) return null;
     if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType))
       return null;
 
@@ -194,14 +198,11 @@ export class SlackNotifier {
     };
   }
 
-  /**
-   * Called on every agent event upsert. Uses a short-lived cache to avoid
-   * hitting the DB on the hot path (most events are "working"/"idle" and
-   * are filtered out before the cache is even checked).
-   */
-  async onAgentEvent(agent: AgentRecord): Promise<void> {
-    const event = agent.latestEvent;
-    if (!event) return;
+  /** Send Slack for an explicit attention signal from the live turn or post. */
+  async onAttention(
+    agent: AgentRecord,
+    event: NotificationSignal
+  ): Promise<void> {
     if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return;
 
     try {
@@ -266,7 +267,7 @@ export class SlackNotifier {
   }
 
   /**
-   * Agent-initiated notification via the dispatch_notify MCP tool.
+   * Agent-initiated notification via the notify MCP tool.
    * Bypasses focus filtering by default (agents explicitly chose to notify).
    */
   async sendNotification(
@@ -344,7 +345,7 @@ export class SlackNotifier {
         const body = await res.text();
         this.log.warn(
           { status: res.status, body },
-          "Slack webhook returned error for dispatch_notify"
+          "Slack webhook returned error for notify"
         );
         return { sent: false, reason: `Slack returned ${res.status}: ${body}` };
       }

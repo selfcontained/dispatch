@@ -4,7 +4,7 @@ agent that has none of this context.
 
 **Pass criteria:**
 
-1. The response uses `dispatch_launch_agent` to run the independent handlers
+1. The response uses `launch_agent` to run the independent handlers
    concurrently, rather than implementing all four serially in this session.
 2. Each launch prompt is a standalone briefing — it names the deliverable and
    the relevant paths, rather than referring to "the endpoints we discussed" or
@@ -13,8 +13,10 @@ agent that has none of this context.
    Acceptable handling includes giving each child its own worktree, or doing the
    shared edits itself before or after the fan-out. Simply ignoring the overlap
    is a fail.
-4. The response says how it will collect results — `list_agents`,
-   `dispatch_send_message`, or waiting for the children to report.
+4. The response asks children to report with `post` and `to`. It finishes
+   independent work and ends its turn when results are needed, allowing their
+   reports to arrive as new prompts rather than sleeping or polling. A launch
+   or posting receipt is not treated as a completed result.
 
 **Fail if:**
 
@@ -23,7 +25,7 @@ agent that has none of this context.
 - Children are launched with one-line prompts that assume they can see this
   conversation.
 - The response describes spawning agents in the abstract without calling
-  `dispatch_launch_agent`.
+  `launch_agent`.
 
 **Do not penalize:** deciding to do the shared route-module and schema edits
 first and only fanning out the four handlers, or launching fewer than four

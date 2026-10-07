@@ -1,11 +1,70 @@
 import { Children, isValidElement, memo, type ReactNode } from "react";
+import { CopyButton } from "./copy-button";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { highlightCodeLanguage } from "@/components/app/media-lightbox-syntax";
+import { highlightCodeLanguage } from "@/components/app/file-lightbox-syntax";
 import { MermaidBlock } from "@/components/ui/markdown-mermaid";
 import { useMermaidTheme } from "@/components/ui/markdown-mermaid-theme";
 import { cn } from "@/lib/utils";
+import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
+
+// Highlight.js runs synchronously. Keep colors for long code blocks, but do
+// not highlight the same cached chat message again on every agent switch.
+const MAX_HIGHLIGHT_CACHE_CHARS = 8_000_000;
+const highlightCache = new Map<string, string>();
+let highlightCacheChars = 0;
+
+function highlightMarkdownCode(code: string, language?: string): string | null {
+  // The validation mode must reproduce the original uncached behavior.
+  if (agentSwitchValidationMode === "before") {
+    return highlightCodeLanguage(code, language);
+  }
+
+  const key = `${language ?? ""}\0${code}`;
+  const cached = highlightCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const html = highlightCodeLanguage(code, language);
+  if (html === null) return null;
+  const size = key.length + html.length;
+  if (size <= MAX_HIGHLIGHT_CACHE_CHARS) {
+    while (highlightCacheChars + size > MAX_HIGHLIGHT_CACHE_CHARS) {
+      const oldest = highlightCache.keys().next().value;
+      if (oldest === undefined) break;
+      highlightCacheChars -= oldest.length + highlightCache.get(oldest)!.length;
+      highlightCache.delete(oldest);
+    }
+    highlightCache.set(key, html);
+    highlightCacheChars += size;
+  }
+  return html;
+}
+
+/**
+ * A fenced code block with a copy button in its corner, like a post's own
+ * copy action: the block is the thing worth lifting out of a message.
+ */
+function CodeBlock({
+  code,
+  children,
+}: {
+  code: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <div className="group/code relative" data-testid="markdown-code-block">
+      <pre className="syntax-surface">{children}</pre>
+      <CopyButton
+        text={code}
+        label="Copy code"
+        copiedLabel="Code copied"
+        className="absolute right-1.5 top-1.5 h-6 w-6 rounded border border-border/60 bg-background/80 opacity-0 focus-visible:opacity-100 group-hover/code:opacity-100 [@media(pointer:coarse)]:opacity-100"
+        data-testid="markdown-copy-code"
+      />
+    </div>
+  );
+}
 
 function getCodeBlock(
   children: ReactNode
@@ -31,8 +90,12 @@ function getCodeBlock(
 
 type MarkdownProps = {
   children: string;
+  /** Keep unfinished Mermaid fences as source while the reply is arriving. */
+  streaming?: boolean;
   className?: string;
-  variant?: "default" | "pin" | "caption";
+  variant?: "default" | "pin" | "caption" | "inline";
+  /** Decorate prose text without altering Markdown syntax or code. */
+  renderText?: (text: string) => ReactNode;
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
   // default: most `default`-variant consumers are compact cards that pass
   // their own dimmed base color (e.g. text-muted-foreground, text-foreground/85)
@@ -45,7 +108,9 @@ export const Markdown = memo(function Markdown({
   children,
   className,
   variant = "default",
+  renderText,
   headingAccents = false,
+  streaming = false,
 }: MarkdownProps): JSX.Element {
   if (variant === "pin") {
     return <MarkdownPin className={className}>{children}</MarkdownPin>;
@@ -55,8 +120,17 @@ export const Markdown = memo(function Markdown({
     return <MarkdownCaption className={className}>{children}</MarkdownCaption>;
   }
 
+  if (variant === "inline") {
+    return <MarkdownInline className={className}>{children}</MarkdownInline>;
+  }
+
   return (
-    <MarkdownDefault className={className} headingAccents={headingAccents}>
+    <MarkdownDefault
+      className={className}
+      headingAccents={headingAccents}
+      renderText={renderText}
+      streaming={streaming}
+    >
       {children}
     </MarkdownDefault>
   );
@@ -93,6 +167,55 @@ function MarkdownCaption({
         {children}
       </ReactMarkdown>
     </span>
+  );
+}
+
+/**
+ * One line of a list or row (e.g. a task item): inline marks, links and a
+ * plain nested list, at the surrounding text size and color. Headings,
+ * fences and paragraph margins are unwrapped so an item can never grow
+ * into a document and break the rhythm of the rows around it. Each
+ * paragraph still gets its own line, without the prose spacing.
+ */
+function MarkdownInline({
+  children,
+  className,
+}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  return (
+    <div
+      className={cn(
+        "block min-w-0 [overflow-wrap:anywhere]",
+        "[&_a]:text-primary [&_a]:underline",
+        "[&_strong]:font-semibold [&_em]:italic [&_del]:line-through",
+        "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
+        "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-4 [&_ol]:pl-6 [&_li]:marker:text-muted-foreground",
+        className
+      )}
+      data-testid="markdown-inline"
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        allowedElements={[
+          "p",
+          "a",
+          "strong",
+          "em",
+          "code",
+          "del",
+          "ul",
+          "ol",
+          "li",
+        ]}
+        unwrapDisallowed
+        components={{
+          p({ children }) {
+            return <span className="block">{children}</span>;
+          },
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
   );
 }
 
@@ -141,15 +264,62 @@ function MarkdownPin({
   );
 }
 
+// Wrap prose leaves after Markdown parsing so decorators never touch code or URLs.
+type ProseNode = {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: ProseNode[];
+};
+
+function wrapProseText() {
+  return (tree: ProseNode) => {
+    const walk = (node: ProseNode) => {
+      if (node.tagName === "code" || node.tagName === "pre") return;
+      node.children = node.children?.map((child) => {
+        if (child.type === "text" && child.value?.trim()) {
+          return {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: [child],
+          };
+        }
+        walk(child);
+        return child;
+      });
+    };
+    walk(tree);
+  };
+}
+
+/** Positions include the fences; CommonMark also accepts an unclosed fence. */
+function hasClosingFence(source: string): boolean {
+  const lines = source.split(/\r?\n/);
+  const opening = /^(`{3,}|~{3,})/.exec(lines[0] ?? "")?.[1];
+  const closing = /^[ \t>]*(`{3,}|~{3,})[ \t]*$/.exec(lines.at(-1) ?? "")?.[1];
+  return !!(
+    lines.length > 1 &&
+    opening &&
+    closing &&
+    opening[0] === closing[0] &&
+    closing.length >= opening.length
+  );
+}
+
 function MarkdownDefault({
   children,
   className,
   headingAccents = false,
+  renderText,
+  streaming = false,
 }: Pick<
   MarkdownProps,
-  "children" | "className" | "headingAccents"
+  "children" | "className" | "headingAccents" | "renderText" | "streaming"
 >): JSX.Element {
   const mermaidTheme = useMermaidTheme();
+  const source = children;
 
   return (
     <div
@@ -194,36 +364,67 @@ function MarkdownDefault({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={renderText ? [wrapProseText] : []}
         components={{
+          span({ children }) {
+            return (
+              <span>
+                {renderText && typeof children === "string"
+                  ? renderText(children)
+                  : children}
+              </span>
+            );
+          },
           table({ node: _node, ...props }) {
             return (
               <div
                 className="max-w-full overflow-x-auto"
                 data-testid="markdown-table-scroll"
               >
-                <table {...props} />
+                {/* Keep intrinsic column widths instead of squeezing the table
+                    into the message. Cap long cells so descriptions still wrap
+                    at words. Break unusually long tokens within capped cells
+                    without reducing their intrinsic width to single letters. */}
+                <table
+                  {...props}
+                  className="w-max min-w-full [&_th]:max-w-[32rem] [&_td]:max-w-[32rem] [&_th]:break-normal [&_td]:break-normal [&_th]:[overflow-wrap:break-word] [&_td]:[overflow-wrap:break-word]"
+                />
               </div>
             );
           },
-          pre({ children }) {
+          pre({ children, node }) {
             const block = getCodeBlock(children);
             if (block?.className === "language-mermaid") {
+              const start = node?.position?.start.offset;
+              const end = node?.position?.end.offset;
+              if (
+                streaming &&
+                (start === undefined ||
+                  end === undefined ||
+                  !hasClosingFence(source.slice(start, end)))
+              ) {
+                return <CodeBlock code={block.code}>{children}</CodeBlock>;
+              }
               return <MermaidBlock code={block.code} theme={mermaidTheme} />;
             }
             const highlightedHtml = block
-              ? highlightCodeLanguage(block.code, block.className)
+              ? highlightMarkdownCode(block.code, block.className)
               : null;
             if (block && highlightedHtml) {
               return (
-                <pre>
+                <CodeBlock code={block.code}>
                   <code
                     className={cn(block.className, "hljs")}
                     dangerouslySetInnerHTML={{ __html: highlightedHtml }}
                   />
-                </pre>
+                </CodeBlock>
               );
             }
-            return <pre>{children}</pre>;
+            return block ? (
+              <CodeBlock code={block.code}>{children}</CodeBlock>
+            ) : (
+              <pre className="syntax-surface">{children}</pre>
+            );
           },
         }}
       >

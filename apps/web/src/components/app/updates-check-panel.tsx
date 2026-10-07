@@ -1,24 +1,11 @@
-import {
-  AlertTriangle,
-  ArrowDownToLine,
-  CheckCircle2,
-  ExternalLink,
-} from "lucide-react";
+import { ArrowDownToLine, CheckCircle2, ExternalLink } from "lucide-react";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { AssistedUpdateGate } from "@/components/app/assisted-update-gate";
-import { PendingMigrationsGate } from "@/components/app/pending-migrations-gate";
-import { UpdateActions } from "@/components/app/release-update-actions";
 import type { ReleaseInfo, ReleaseProgress } from "@/hooks/use-release-stream";
 import type { ReleaseInfoSnapshot } from "@/hooks/use-cached-release-info";
 import { cn } from "@/lib/utils";
 import { formatShortDateTime } from "@/lib/format";
-import {
-  formatInlineProgress,
-  isAssistedPreferred,
-  isForceRequired,
-  progressPercent,
-} from "./release-utils";
+import { formatInlineProgress, progressPercent } from "./release-utils";
 
 type UpdatesCheckPanelProps = {
   infoLoading: boolean;
@@ -27,17 +14,13 @@ type UpdatesCheckPanelProps = {
   lastCheckMessage: string | null;
   displayInfo: ReleaseInfo | ReleaseInfoSnapshot | null;
   updateError: string | null;
-  assistedUpdateLaunching: boolean;
   onCheckForUpdates: () => void;
-  onStandardUpdate: (tag: string) => void;
-  onAssistedUpdate: (tag: string) => void;
-  onForceStandardUpdate: () => void;
+  onUpdate: (tag: string) => void;
 };
 
 /**
  * The check-for-updates control and everything it reveals: inline progress,
- * errors, and — when a newer release exists — the migration/assisted gates
- * and the update action buttons.
+ * errors, and — when a newer release exists — the update button.
  */
 export function UpdatesCheckPanel({
   infoLoading,
@@ -46,11 +29,8 @@ export function UpdatesCheckPanel({
   lastCheckMessage,
   displayInfo,
   updateError,
-  assistedUpdateLaunching,
   onCheckForUpdates,
-  onStandardUpdate,
-  onAssistedUpdate,
-  onForceStandardUpdate,
+  onUpdate,
 }: UpdatesCheckPanelProps): JSX.Element {
   return (
     <div className="flex flex-col gap-4">
@@ -144,65 +124,14 @@ export function UpdatesCheckPanel({
                 </div>
               )}
 
-              {displayInfo.migrationsError && (
-                <div
-                  className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-sm text-amber-200"
-                  data-testid="migration-eval-warning"
-                >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="font-medium text-amber-100">
-                      Could not evaluate update migrations
-                    </span>
-                    <span className="max-h-24 overflow-y-auto break-all text-xs text-amber-200/80">
-                      {displayInfo.migrationsError}
-                    </span>
-                    <span className="text-xs text-amber-200/60">
-                      Standard update is still available — the assisted flow is
-                      the safer choice if you&rsquo;re unsure.
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {displayInfo.pendingMigrations &&
-                displayInfo.pendingMigrations.length > 0 && (
-                  <PendingMigrationsGate
-                    tag={displayInfo.latestTag}
-                    pendingMigrations={displayInfo.pendingMigrations}
-                  />
-                )}
-              {displayInfo.assisted &&
-                displayInfo.assisted.mode !== "normal" && (
-                  <AssistedUpdateGate
-                    tag={displayInfo.latestTag}
-                    metadata={displayInfo.assisted}
-                    required={displayInfo.assistedRequired === true}
-                  />
-                )}
-
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 self-start">
-                <UpdateActions
-                  tag={displayInfo.latestTag}
-                  assistedPreferred={isAssistedPreferred(displayInfo)}
-                  forceRequired={isForceRequired(displayInfo)}
-                  assistedLaunching={assistedUpdateLaunching}
-                  onStandardUpdate={() =>
-                    onStandardUpdate(displayInfo.latestTag!)
-                  }
-                  onAssistedUpdate={() =>
-                    onAssistedUpdate(displayInfo.latestTag!)
-                  }
-                  onForceStandardUpdate={onForceStandardUpdate}
-                />
-                <span className="text-xs text-muted-foreground">
-                  or{" "}
-                  {isAssistedPreferred(displayInfo)
-                    ? "standard"
-                    : "agent-assisted"}{" "}
-                  update
-                </span>
-              </div>
+              <Button
+                variant="primary"
+                className="self-start"
+                onClick={() => onUpdate(displayInfo.latestTag!)}
+                data-testid="update-button"
+              >
+                Update to {displayInfo.latestTag}
+              </Button>
             </div>
           ) : null}
         </>

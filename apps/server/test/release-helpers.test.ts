@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseGhJson,
   compareSemver,
-  defaultServiceRestartCommand,
   getGitHubRepo,
   createCheckIsAdmin,
   fetchReleaseMetadata,
+  fetchGitHubReleases,
   resolveAuthoringRepoDir,
   createAuthoringRemoteRefresher,
+  serviceName,
 } from "../src/server/release-helpers.js";
 
 describe("createAuthoringRemoteRefresher", () => {
@@ -160,17 +161,6 @@ describe("compareSemver", () => {
   });
 });
 
-describe("defaultServiceRestartCommand", () => {
-  it("returns a platform-specific restart command", () => {
-    const cmd = defaultServiceRestartCommand();
-    if (process.platform === "linux") {
-      expect(cmd).toBe("systemctl --user restart dispatch");
-    } else {
-      expect(cmd).toContain("launchctl kickstart");
-    }
-  });
-});
-
 describe("getGitHubRepo", () => {
   it("extracts owner/repo from HTTPS remote URL", async () => {
     const runCommand = vi.fn().mockResolvedValue({
@@ -274,6 +264,36 @@ describe("createCheckIsAdmin", () => {
 });
 
 describe("fetchReleaseMetadata", () => {
+  it("accepts only the published SHA256 digest for the exact server asset", async () => {
+    for (const digest of [
+      "sha256:" + "a".repeat(64),
+      "sha512:" + "a".repeat(64),
+      undefined,
+    ]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                tag_name: "v1.0.0",
+                published_at: "2026-01-01T00:00:00Z",
+                html_url: "https://example.com",
+                assets: [
+                  { name: "unrelated.zip", digest: "sha256:" + "b".repeat(64) },
+                  { name: "dispatch-server.tar.gz", digest },
+                ],
+              })
+            )
+        )
+      );
+      const result = await fetchReleaseMetadata("v1.0.0");
+      expect(result?.artifactSha256).toBe(
+        digest?.startsWith("sha256:") ? "a".repeat(64) : undefined
+      );
+    }
+  });
+
   it("returns release metadata on success", async () => {
     vi.stubGlobal(
       "fetch",
@@ -430,5 +450,66 @@ describe("fetchReleaseMetadata", () => {
       "https://api.github.com/repos/selfcontained/dispatch/releases/tags/v2.5.0",
       expect.any(Object)
     );
+  });
+});
+
+describe("serviceName", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("uses the explicit service name", () => {
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "  custom-dispatch  ");
+    expect(serviceName()).toBe("custom-dispatch");
+  });
+
+  it.each([undefined, "", "   "])(
+    "refuses missing service configuration (%s)",
+    (value) => {
+      vi.stubEnv("DISPATCH_SERVICE_NAME", value);
+      expect(() => serviceName()).toThrow("DISPATCH_SERVICE_NAME is missing");
+    }
+  );
+});
+
+describe("release generation isolation", () => {
+  it("accepts only new server artifacts even when a legacy release is stable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                tag_name: "v1.1.1",
+                prerelease: true,
+                assets: [{ name: "dispatch-server.tar.gz" }],
+              },
+              {
+                tag_name: "v0.38.13",
+                prerelease: false,
+                assets: [{ name: "dispatch-release.tar.gz" }],
+              },
+            ])
+          )
+      )
+    );
+    try {
+      const releases = await fetchGitHubReleases();
+      expect(
+        releases.map(({ tag, hasDispatchArtifact }) => ({
+          tag,
+          hasDispatchArtifact,
+        }))
+      ).toEqual([
+        { tag: "v1.1.1", hasDispatchArtifact: true },
+        { tag: "v0.38.13", hasDispatchArtifact: false },
+      ]);
+      expect(
+        releases.filter(
+          (release) => release.hasDispatchArtifact && !release.prerelease
+        )
+      ).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

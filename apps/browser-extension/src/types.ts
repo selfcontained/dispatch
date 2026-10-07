@@ -74,6 +74,7 @@ export type WorkerRequest =
       pairingSecret: string;
     }
   | { type: "agents:list" }
+  | { type: "submission:latest" }
   | {
       type: "submission:create";
       clientSubmissionId: string;
@@ -91,6 +92,7 @@ const WORKER_REQUEST_TYPES = {
   "pairing:exchange": true,
   "agents:list": true,
   "submission:create": true,
+  "submission:latest": true,
 } satisfies Record<WorkerRequest["type"], true>;
 
 export function isWorkerRequest(request: unknown): request is WorkerRequest {
@@ -113,4 +115,12 @@ export interface WorkerResponse<T = unknown> {
   data?: T;
   error?: string;
   submissionTerminalFailure?: boolean;
+}
+
+export interface SubmissionReceipt {
+  submissionId: string;
+  status: "pending" | "delivered" | "failed";
+  blockId: string | null;
+  streamId: string | null;
+  threadId: string | null;
 }

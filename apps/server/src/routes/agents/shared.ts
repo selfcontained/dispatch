@@ -1,16 +1,11 @@
+import type { ProviderPlansResponse } from "@dispatch/shared";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
 import type { DiffStatsRefresher } from "../../agents/diff-stats-refresher.js";
-import type {
-  CopyModeObserverManager,
-  TerminalUiState,
-} from "../../terminal/copy-mode-observer.js";
-import type { CopyModeAssistManager } from "../../terminal/copy-mode-assist-manager.js";
-import type { InjectionCoordinator } from "../../terminal/injection-coordinator.js";
-import type { ChatService } from "../../chat/service.js";
+import type { StreamService } from "../../chat/service.js";
 import type { PublishUiEvent } from "../../server/ui-events.js";
 
 export const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
@@ -42,24 +37,21 @@ export type AgentRouteDeps = {
     agentId: string,
     stream: NodeJS.WritableStream
   ) => () => void;
-  issueTerminalToken: (agentId: string) => string;
-  consumeTerminalToken: (agentId: string, token: string) => boolean;
-  copyModeObserverManager: CopyModeObserverManager;
-  copyModeAssistManager: CopyModeAssistManager;
-  injectionCoordinator: InjectionCoordinator;
   diffStatsRefresher: DiffStatsRefresher;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
-  onAgentStarted: (agentId: string) => Promise<void>;
   /**
    * Delivers a user-fired prompt (quick phrase, shortcut pin) as a Chat
-   * message when the Chat surface is on — see `chat/user-prompt.ts`.
+   * message; see `routes/agents/prompt-routes.ts`.
    */
-  chat: ChatService;
+  chat: StreamService;
+  /** Subscription plan usage; tests inject one so nothing reads a real login. */
+  providerPlans?: (request?: {
+    force?: boolean;
+  }) => Promise<ProviderPlansResponse>;
   /** Read per click: the flag is a cold path and must not be cached stale. */
-  isChatSurfaceEnabled: () => Promise<boolean>;
 };
 
 export function escapeHtml(s: string): string {

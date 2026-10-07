@@ -1,56 +1,60 @@
 ---
 name: review-workflow
-description: Open a pull request and get the change reviewed in Dispatch, then work the findings. Use when wrapping up a change, about to open a PR, or when review feedback has come back to respond to.
+description: Open a pull request and get the change reviewed in Dispatch, then work the findings. Use when wrapping up a change, about to open a PR, or when a review block has come back to respond to.
 ---
 
 # Pull requests and review in Dispatch
 
-Dispatch has its own PR and review path. Two habits it overrides:
+Two habits Dispatch adds to the usual wrap-up:
 
-1. **Open PRs with `create_pr`**, not with a built-in PR skill and not with the
-   `gh` CLI. `create_pr` is what registers the PR with Dispatch, so it shows up
-   in the UI and in review tracking.
+1. **Post the PR into the stream.** Open it with the `gh` CLI, then `post` it
+   as a `pr` attachment so the user can reach it from the stream and the Inbox.
 2. **Get reviewed by launching a persona**, not by re-reading your own diff.
-   Reviews launched with `dispatch_launch_persona` come back as structured,
-   trackable feedback items with their own discussion threads.
+   A reviewer persona posts one `review` block back to you: a summary, and
+   findings that are each a block with its own thread.
 
 ## Opening the PR
 
 ```
-create_pr  title?, body?, baseBranch?, draft?, fillFromCommits?
-get_pr_status  — status details for an existing PR
+gh pr create --draft --title "…" --body "…"
+post  attachments: [{ type: "pr", url: "<the PR url>" }]
 ```
 
-`baseBranch` defaults correctly for the current worktree. **Do not override it**
-unless you specifically mean to target something other than the repo's default
-branch — an overridden base is the usual cause of a PR containing someone else's
-commits.
-
-Commit and push your branch before calling it. Pin the returned PR link so the
-user can reach it from the sidebar.
+Commit and push your branch first. Let `gh` pick the base from the repo's
+default branch unless you specifically mean to target something else — an
+overridden base is the usual cause of a PR containing someone else's commits.
+`gh pr checks` and `gh pr view` answer CI and merge-state questions.
 
 ## Getting it reviewed
 
+For code changes in a repo with `.dispatch/codeowners.json`, use:
+
 ```
-list_personas          — what reviewers exist here, with their descriptions
-dispatch_launch_persona persona, context, includeDiff?, agentType?, model?
+launch_owner_reviews context, dryRun?, agentType?, model?
 ```
 
-Call `list_personas` first and **launch one reviewer per distinct scope the
-change touches** — a change spanning backend and frontend gets both; anything
-cross-cutting or introducing a new module also gets an architecture pass.
-Reviewers with different lenses barely overlap in what they find, and the one you
-almost skipped is often the one that finds the real defect. Launch them in the
-same turn rather than serially.
+Dispatch collects committed changes against the review base, uncommitted changes,
+and untracked files, then launches every matching code owner once. Each owner
+gets your briefing and its matched files through the ordinary ACP persona launch.
+The result includes uncovered files, selected owners, launched agents, and any
+launch failures. Use `dryRun: true` to preview selection without launching.
+Fix invalid configuration or launch failures before treating a pass as complete.
+After a partial failure, retry failed personas individually with `launch_agent`
+rather than duplicating successful launches.
 
-If nothing matches well, launch the closest persona anyway and say so plainly in
-the briefing. Skipping review because the fit is imperfect is worse than an
-imperfect reviewer. To write a better-fitting one, see the `personas` skill.
+If the repo has no ownership map, or you need an explicitly requested additional
+perspective, use `list_personas` and `launch_agent` with a specific `persona`.
+Prefer subsystem experts with concrete invariants over generic role labels.
+The built-in `code-review` is available when no specialized persona fits.
+
+Ownership configuration is documented in `docs/code-owner-reviews.md` in the
+Dispatch repository. After launching all reviewers for a pass, end the turn;
+Dispatch delivers their review blocks automatically. Do not poll or wait.
 
 ### The briefing is the whole game
 
-`context` is what separates a review that finds defects from one that returns a
-summary. Include:
+`context` on `launch_owner_reviews` (or `prompt` on a manual launch) is the reviewer's briefing, and it is what separates a review that
+finds defects from one that returns a summary. Include:
 
 - **What changed**, and the key files — actual paths.
 - **What is out of scope**, explicitly. Otherwise reviewers flag pre-existing
@@ -63,42 +67,49 @@ summary. Include:
   shared helper now owns. A briefing that only describes the change gets a
   summary back; one that poses questions gets findings.
 
-Set `includeDiff: false` only for non-code reviews (a plan, a document, media)
-where a code change is not the review target. When it is on, the reviewer gets a
-file-level map of the change and the git commands to read it — never the diff
-itself, since it is already in the worktree.
+Reviewers inspect the target described by the persona and briefing themselves.
+For code-change reviews, include the relevant base branch and scope so they can
+read local diffs. Code owner reviews also receive their matched files and review
+base automatically. For reviews of a plan, document, or images, identify that
+material as the target; no diff option is needed.
 
-## Working the feedback
+## Working the review
+
+After launching reviewers, finish independent work and end the turn when the
+next step depends on their findings. Reviews arrive as new prompts; do not
+sleep or poll for them. A launch receipt or progress reply is not a review.
+
+The review arrives as a DISPATCH POST carrying a `review` block: its
+`summary`, and its findings, each with its own `id`, `severity`, `title`,
+`body`, and often a `path` and `line`. Each finding is a block of its own, and
+its thread is where it is discussed.
 
 ```
-dispatch_review_list_feedback  reviewId? — item ids, locations, status
-dispatch_review_get_feedback   id — full thread plus the captured diff hunk
-dispatch_review_add_message    id, message — reply in the item's thread
-dispatch_review_resolve        id — reviewer-side: mark fixed or dismissed
-dispatch_review_reopen         id — more work or discussion needed
+post    to: <reviewer agent id>, replyTo: <finding id>, text
+        — answer a finding in its thread and deliver it to the reviewer
 ```
 
-`dispatch_review_list_feedback` finds items; `dispatch_review_get_feedback` gives
-you the one you are about to work, including the diff hunk captured when it was
-filed.
+Where a review stands comes from its findings: open until one is resolved,
+partially resolved while some are, and resolved once every one is fixed or
+dismissed. **The reviewer resolves them, not you**: it checks your answer and
+settles the finding, or tells you under it what is still missing and reopens
+it.
 
-**Keep all discussion in the item thread.** That is where the reviewer is
-listening, and it keeps the finding, the fix, and the verification attached to
-each other.
+**Keep the discussion in the finding's thread.** Use `replyTo` for the thread
+and `to` for delivery to the reviewer. This keeps the finding, the fix, and the verification
+attached to each other; a loose post does neither. Don't narrate in the review's
+own thread.
 
-**After fixing an item, ask the reviewer to verify it — do not resolve it
-yourself.** Post a short `dispatch_review_add_message` saying what you changed;
-the reviewer re-inspects and resolves, or replies with what is still missing.
-Replies are capped around 600 characters: state the decision or result, and skip
-restating the feedback or narrating the work.
+**After fixing a finding, say what you changed under it.** That is the claim the
+reviewer checks, so say enough for it to verify: the file, the behavior, the
+test. Once the reviewer resolves it, there is nothing to answer.
 
-**Not every finding has to be accepted.** When you disagree, say so in the thread
-with concrete evidence — what the system actually does, what the API or database
-will actually accept. A reviewer given a real rebuttal will dismiss its own
-finding, and that exchange is worth more than silently complying with a wrong
-one. When a finding asserts a failure mode rather than pointing at visible broken
-behavior, measure the real system to settle it rather than arguing in the
-abstract.
+**Not every finding has to be accepted.** When you disagree, say why under the
+finding and give the evidence — what the system actually does, what the API or
+database will actually accept. A reviewer given a real rebuttal will dismiss it,
+and that exchange is worth more than silently complying with a wrong finding.
+When a finding asserts a failure mode rather than pointing at visible broken
+behavior, measure the real system to settle it.
 
 Verify each fix the same way you verified the original work. Collapsing two
 constraints that merely looked alike, or hoisting an invariant into a shared
@@ -106,14 +117,14 @@ helper, is exactly how a review fix introduces a regression of its own.
 
 ## Autonomous Review
 
-When Autonomous Review is enabled for a session, the loop is driven for you:
-commit and push, open a draft PR with `create_pr`, launch the reviewer, then
-**end the turn**. Do not poll, sleep, call `list_agents`, or schedule a wakeup —
-Dispatch injects the review prompt when it is ready. A clean zero-item approval
-needs no action; otherwise work the items above. Don't report the task complete
-until every submitted review is resolved.
+When Autonomous Review is enabled for a session, its launch guidance spells out
+the loop: commit and push, open a draft PR and post it, launch the reviewers,
+then let the turn end — each review arrives as a prompt when the reviewer posts
+it, so there is nothing to poll. A review with no findings needs no action;
+otherwise work the findings above. Don't report the task complete while a
+finding is still open.
 
 ## Cleaning up
 
-Once a reviewer's output is consumed, `dispatch_archive_agent` retires it. See
-the `subagents` skill.
+The reviewer is the one who resolves its findings, so keep it running until its
+review is resolved; then `archive_agent` retires it. See the `subagents` skill.

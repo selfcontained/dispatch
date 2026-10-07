@@ -1,12 +1,7 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
-import {
-  type CenterTab,
-  isCenterTab,
-  isLegacyCenterTab,
-  type LegacyCenterTab,
-} from "./center-tabs";
+import { type CenterTab, isCenterTab } from "./center-tabs";
 import {
   type ChatComposerDraft,
   EMPTY_CHAT_DRAFT,
@@ -18,12 +13,8 @@ import { type IdeType } from "./ide-types";
 export { type CenterTab } from "./center-tabs";
 
 type AtomWithLocalStorageOptions<T> = {
-  /**
-   * Older key to read when `key` is absent. Read-only migration path: writes
-   * go to `key` alone, so a client rolled back to the old schema only ever
-   * sees values it wrote itself.
-   */
-  legacyKey?: string;
+  /** Accept a plain string written by an older preference implementation. */
+  legacyRawString?: boolean;
   /**
    * Shape check for what comes back from storage (user-editable, and maybe
    * written by another build). A value that fails it reads as
@@ -45,7 +36,24 @@ export function atomWithLocalStorage<T>(
   options: AtomWithLocalStorageOptions<T> = {}
 ) {
   const parse = (raw: string): T => {
-    const value: unknown = JSON.parse(raw);
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+      // An older unquoted string can itself be valid JSON (for example a
+      // branch named "123" or "null"). Keep it as a string in that case.
+      if (
+        options.legacyRawString &&
+        typeof initialValue === "string" &&
+        typeof value !== "string"
+      ) {
+        value = raw;
+      }
+    } catch {
+      // Older string preferences were stored without JSON quoting.
+      if (!options.legacyRawString || typeof initialValue !== "string")
+        throw new Error("Invalid stored value");
+      value = raw;
+    }
     if (options.validate && !options.validate(value)) return initialValue;
     return value as T;
   };
@@ -55,10 +63,7 @@ export function atomWithLocalStorage<T>(
     (() => {
       if (typeof window === "undefined") return initialValue;
       try {
-        let stored = window.localStorage.getItem(key);
-        if (stored === null && options.legacyKey !== undefined) {
-          stored = window.localStorage.getItem(options.legacyKey);
-        }
+        const stored = window.localStorage.getItem(key);
         if (stored === null) return initialValue;
         return parse(stored);
       } catch {
@@ -121,13 +126,20 @@ export const leftSidebarOpenAtom = atomWithLocalStorage(
   "dispatch:leftSidebarOpen",
   true
 );
-// Collapsed state for the desktop-only bar under the center pane. Default
-// expanded: on iPad-with-keyboard setups the bar buffers iPadOS's floating
-// keyboard control, which can't be dismissed, so it must stay opt-out.
-export const bottomBarCollapsedAtom = atomWithLocalStorage<boolean>(
-  "dispatch:bottomBarCollapsed",
-  false
+// The right-hand drawer's width, dragged by its left edge. One width for the
+// client: the sidebar and every agent's thread drawer share it. null until
+// someone resizes it, so the default in drawer-constants stays the default.
+// Stored as dragged; it is clamped to the viewport where it is read, so a
+// width saved on a wide monitor comes back whole when the window does.
+export const drawerWidthAtom = atomWithLocalStorage<number | null>(
+  "dispatch:drawerWidth",
+  null,
+  {
+    validate: (value): value is number | null =>
+      value === null || (typeof value === "number" && Number.isFinite(value)),
+  }
 );
+
 export const soundCuesEnabledAtom = atomWithLocalStorage(
   "dispatch:soundCuesEnabled",
   true
@@ -138,31 +150,21 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
   "vscode"
 );
 
-/**
- * Last value of the `chat_surface_enabled` flag this browser saw. The server
- * owns the flag (see `useChatSurfaceEnabled`); this only lets the first paint
- * of the agent view pick the right tab before the fetch resolves, so the
- * Console never flashes under the Chat tab. `null` until the first fetch.
- */
-export const chatSurfaceEnabledHintAtom = atomWithLocalStorage<boolean | null>(
-  "dispatch:chatSurfaceEnabledHint",
-  null
-);
-
-// Cached view of the server-wide cross-repo messaging gate (lets agents
-// message/list agents in OTHER repositories). The server enforces and owns the
-// value; CrossRepoMessagingSettings hydrates this atom from the GET endpoint on
-// mount and writes back only on an explicit toggle. localStorage just gives an
-// instant first paint before the GET resolves. Default off.
-export const crossRepoMessagingEnabledAtom = atomWithLocalStorage<boolean>(
-  "dispatch:crossRepoMessaging",
-  false
-);
-
 // Per-cwd preferences for the Create Agent dialog. Each cwd gets its own
 // atom backed by localStorage; the family caches them by trimmed cwd.
 export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
+);
+export const createUseWorktreePrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:useWorktree:${cwd}`, true)
+);
+export const createFullAccessPrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:fullAccess:${cwd}`, true)
+);
+export const createBaseBranchPrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<string>(`dispatch:baseBranch:${cwd}`, "main", {
+    legacyRawString: true,
+  })
 );
 
 // Per-project, per-runtime model preference for the Create Agent dialog.
@@ -171,7 +173,7 @@ export const createAgentModelPrefAtom = atomFamily((key: string) =>
   atomWithLocalStorage<string | null>(`dispatch:model:${key}`, null)
 );
 
-// Per-project, per-runtime model preference for the Launch Review dialog.
+// Per-project, per-runtime model preference for the persona launcher.
 // Kept separate from the Create Agent preference so picking a heavier model
 // for reviewers doesn't change what new agents are created with.
 export const reviewAgentModelPrefAtom = atomFamily((key: string) =>
@@ -183,34 +185,6 @@ export const reviewAgentModelPrefAtom = atomFamily((key: string) =>
 // newer tag still triggers a fresh toast on its own atom.
 export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
   atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
-);
-
-export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
-  atom(false)
-);
-
-// Per-version dismissal for the plugin-update affordance, keyed by
-// `<agentType>:<latestVersion>`. Unlike a first-install dismissal (which is
-// correctly permanent), an update nudge must not silence every future
-// version after one "not now" — a new latestVersion gets its own key and
-// shows again on its own.
-export const dismissedPluginUpdateAtomFamily = atomFamily((key: string) =>
-  atomWithLocalStorage<boolean>(`dispatch:dismissedPluginUpdate:${key}`, false)
-);
-
-/**
- * Whether one pin group is collapsed, keyed by `<agentId>::<group>`.
- *
- * Stores the user's *choice*, not the rendered state: `null` means they have
- * never touched this group, which is distinct from having chosen "expanded".
- * The size-based default is applied at render, so a group the user expanded
- * stays expanded when it later grows past the auto-collapse threshold.
- */
-export const pinGroupCollapsedAtomFamily = atomFamily((key: string) =>
-  atomWithLocalStorage<boolean | null>(
-    `dispatch:pinGroupCollapsed:${key}`,
-    null
-  )
 );
 
 export type DiffViewType = "unified" | "split";
@@ -277,25 +251,20 @@ export function reconcileAgentSidebarOrder(
   return nextOrder;
 }
 
-export const SYSTEM_SIDEBAR_TABS = [
-  "pins",
-  "media",
-  "reviews",
-  "messages",
-] as const;
+/**
+ * The right sidebar's tabs: the Inbox (what the stream needs from the user
+ * right now, and the links it produced) and the agent's files.
+ */
+export const DRAWER_TABS = ["inbox", "files"] as const;
 
-export type SystemSidebarTab = (typeof SYSTEM_SIDEBAR_TABS)[number];
+export type DrawerTab = (typeof DRAWER_TABS)[number];
 
-export function isSystemSidebarTab(
-  tab: MediaSidebarTab
-): tab is SystemSidebarTab {
-  return (SYSTEM_SIDEBAR_TABS as readonly string[]).includes(tab);
+/** A stored tab id; anything unknown (an old rail/pins/reviews/surface tab) is the Inbox. */
+export function asDrawerTab(tab: unknown): DrawerTab {
+  return (DRAWER_TABS as readonly unknown[]).includes(tab)
+    ? (tab as DrawerTab)
+    : "inbox";
 }
-
-// A custom tab's active id is the agent-issued surface id (e.g. "srf_...").
-// Widened to `string` rather than kept as a literal union — unlike the four
-// system tabs, the set of valid values is open-ended and server-issued.
-export type MediaSidebarTab = SystemSidebarTab | (string & {});
 
 type AgentScopedStorageDomain = {
   prefix: string;
@@ -328,39 +297,35 @@ function reconcileAgentScopedStorageDomains(
   keysToDelete.forEach((key) => window.localStorage.removeItem(key));
 }
 
-export type MediaSidebarState = {
+export type DrawerState = {
   isOpen: boolean;
-  activeTab: MediaSidebarTab;
+  activeTab: DrawerTab;
   // When true (desktop only), the sidebar takes layout space and shrinks the
-  // terminal. When false, the sidebar floats over the terminal as a drawer
+  // content. When false, the sidebar floats over the content as a drawer
   // that slides in/out without shifting layout. Default is false.
   isPinned: boolean;
 };
 
-export const defaultMediaSidebarState: MediaSidebarState = {
+export const defaultDrawerState: DrawerState = {
   isOpen: false,
-  activeTab: "pins",
+  activeTab: "inbox",
   isPinned: false,
 };
 
-export const inactiveMediaSidebarStateAtom = atom<MediaSidebarState>(
-  defaultMediaSidebarState
-);
+export const inactiveDrawerStateAtom = atom<DrawerState>(defaultDrawerState);
 
-export const MEDIA_SIDEBAR_STATE_STORAGE_PREFIX = "dispatch:mediaSidebarState:";
+export const DRAWER_STATE_STORAGE_PREFIX = "dispatch:drawerState:";
 
-export const mediaSidebarStateAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<MediaSidebarState>(
-    `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}${agentId}`,
-    defaultMediaSidebarState
+export const drawerStateAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<DrawerState>(
+    `${DRAWER_STATE_STORAGE_PREFIX}${agentId}`,
+    defaultDrawerState
   )
 );
 
-export function reconcileMediaSidebarStateStorage(
-  agentIds: Iterable<string>
-): void {
+export function reconcileDrawerStateStorage(agentIds: Iterable<string>): void {
   reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
+    { prefix: DRAWER_STATE_STORAGE_PREFIX },
   ]);
 }
 
@@ -386,6 +351,8 @@ export type PersistedDraftComment = {
   startLine: number;
   endLine: number;
   comment: string;
+  /** The finding's severity once the review is posted; `minor` when unset. */
+  severity?: "blocker" | "major" | "minor" | "nit";
 };
 
 type ReviewDraftState = {
@@ -440,112 +407,46 @@ export type SplitPaneState = {
   sizes: [number, number];
 };
 
-/**
- * What storage holds. Sides may still carry the round-1/2 "chat" id (and
- * "terminal"/"agent" from under the other flag value);
- * `normalizeSplitPaneState` in use-split-pane.ts turns one of these into a
- * `SplitPaneState` before anything renders it.
- */
-export type PersistedSplitPaneState = {
-  mode: SplitPaneMode;
-  left: LegacyCenterTab;
-  right: LegacyCenterTab;
-  sizes: [number, number];
-};
-
 export const defaultSplitPaneState: SplitPaneState = {
   mode: "single",
-  left: "terminal",
+  left: "agent",
   right: "changes",
   sizes: [50, 50],
 };
 
 /** Stored values are user-editable localStorage; anything off-shape reads as the default. */
-export function isPersistedSplitPaneState(
-  value: unknown
-): value is PersistedSplitPaneState {
+export function isSplitPaneState(value: unknown): value is SplitPaneState {
   if (!value || typeof value !== "object") return false;
   const state = value as Record<string, unknown>;
   return (
     (state.mode === "single" || state.mode === "split") &&
-    isLegacyCenterTab(state.left) &&
-    isLegacyCenterTab(state.right) &&
+    isCenterTab(state.left) &&
+    isCenterTab(state.right) &&
     Array.isArray(state.sizes) &&
     state.sizes.length === 2 &&
     state.sizes.every((n) => typeof n === "number" && Number.isFinite(n))
   );
 }
 
-/** A persisted state whose sides are already current tabs, as stored by this build. */
-export function isCurrentSplitPaneState(
-  state: PersistedSplitPaneState
-): state is SplitPaneState {
-  return isCenterTab(state.left) && isCenterTab(state.right);
-}
-
-// Typed as the persisted shape so it can stand in for a family member in
-// `useSplitPane`; the default it holds is a current-shape state.
-export const inactiveSplitPaneStateAtom = atom<PersistedSplitPaneState>(
+export const inactiveSplitPaneStateAtom = atom<SplitPaneState>(
   defaultSplitPaneState
 );
 
-/**
- * Versioned key. v1 (`dispatch:splitPane:`) predates the "chat" tab; a client
- * rolled back to a v1 build reading "chat" out of its own key would render a
- * blank pane, so the current schema lives under its own key and the legacy
- * one is only ever read (see `atomWithLocalStorage`'s `legacyKey`).
- */
 export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPaneV2:";
-export const LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
 
 export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<PersistedSplitPaneState>(
+  atomWithLocalStorage<SplitPaneState>(
     `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
     defaultSplitPaneState,
-    {
-      legacyKey: `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
-      validate: isPersistedSplitPaneState,
-    }
+    { validate: isSplitPaneState }
   )
 );
-
-/**
- * Round 1/2 remembered a last-picked center tab under this prefix so the bare
- * agent route could land on Chat. The Agent pane replaced that with a view
- * toggle (`agentPaneViewAtomFamily`); the prefix is only kept so the
- * reconciler still sweeps the old keys.
- */
-export const LEGACY_CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
-
-// ---------------------------------------------------------------------------
-// Agent pane view — which of Chat / Console the Agent tab shows, per agent.
-// Not in the URL on purpose: it is a preference, not a place, and the /chat
-// route of round 1 only survives as a redirect that flips it to "chat".
-// ---------------------------------------------------------------------------
-
-export type AgentPaneView = "chat" | "console";
-
-export const AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
-
-export const agentPaneViewAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<AgentPaneView>(
-    `${AGENT_PANE_VIEW_STORAGE_PREFIX}${agentId}`,
-    "chat"
-  )
-);
-
-export const inactiveAgentPaneViewAtom = atom<AgentPaneView>("chat");
-
-export function isAgentPaneView(value: unknown): value is AgentPaneView {
-  return value === "chat" || value === "console";
-}
 
 // ---------------------------------------------------------------------------
 // Chat child-agent filter — whether Chat shows the messages exchanged with an
-// agent's children. One global preference, unlike the Chat|Console toggle
-// beside it: which view a session needs really does differ session to
-// session, but wanting child chatter out of the way is a standing taste, and
-// scoping it per agent would leave every new session starting noisy again.
+// agent's children. One global preference: wanting child chatter out of the
+// way is a standing taste, and scoping it per agent would leave every new
+// session starting noisy again.
 // ---------------------------------------------------------------------------
 
 export const CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY =
@@ -553,6 +454,13 @@ export const CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY =
 
 export const chatShowChildAgentsAtom = atomWithLocalStorage<boolean>(
   CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
+  true,
+  { validate: (value): value is boolean => typeof value === "boolean" }
+);
+
+// A standing chat display preference, shared by normal and split-pane headers.
+export const chatShowLastMessageAtom = atomWithLocalStorage<boolean>(
+  "dispatch:chatShowLastMessage",
   true,
   { validate: (value): value is boolean => typeof value === "boolean" }
 );
@@ -576,117 +484,83 @@ export const chatDraftAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
+/** Inline answers keep uploaded file IDs as well as text across row unmounts. */
+export type QuestionDraft = {
+  text: string;
+  files: { id: number; name: string }[];
+};
+export const EMPTY_QUESTION_DRAFT: QuestionDraft = { text: "", files: [] };
+export const questionDraftAtomFamily = atomFamily((key: string) =>
+  atomWithLocalStorage<QuestionDraft>(
+    `dispatch:questionDraft:${key}`,
+    EMPTY_QUESTION_DRAFT,
+    {
+      validate: (value): value is QuestionDraft => {
+        if (!value || typeof value !== "object") return false;
+        const draft = value as QuestionDraft;
+        return (
+          typeof draft.text === "string" &&
+          Array.isArray(draft.files) &&
+          draft.files.every(
+            (file) =>
+              file &&
+              Number.isSafeInteger(file.id) &&
+              typeof file.name === "string"
+          )
+        );
+      },
+    }
+  )
+);
+
+/** Write-ahead post copies; null retains an already-recovered notice. */
+export type PendingChatDrafts = Record<string, ChatComposerDraft | null>;
+export const CHAT_PENDING_DRAFT_STORAGE_PREFIX = "dispatch:chatPendingDrafts:";
+export function isPendingChatDrafts(
+  value: unknown
+): value is PendingChatDrafts {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every(
+      (draft) => draft === null || isChatComposerDraft(draft)
+    )
+  );
+}
+export const chatPendingDraftsAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<PendingChatDrafts>(
+    `${CHAT_PENDING_DRAFT_STORAGE_PREFIX}${agentId}`,
+    {},
+    {
+      validate: isPendingChatDrafts,
+      serialize: (pending) =>
+        JSON.stringify(
+          Object.fromEntries(
+            Object.entries(pending).map(([id, draft]) => [
+              id,
+              draft ? fitChatDraft(draft) : null,
+            ])
+          )
+        ),
+    }
+  )
+);
+
 export function reconcileSplitPaneStateStorage(
   agentIds: Iterable<string>
 ): void {
   reconcileAgentScopedStorageDomains(agentIds, [
     { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
-    { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
   ]);
 }
-
-// ---------------------------------------------------------------------------
-// Agent-authored surface tab presentation prefs — per-agent user-chosen order
-// and hidden set, layered over the server's canonical sortOrder. The server
-// document (blocks, titles, sortOrder) is never mutated from here; see
-// use-surface-tab-prefs.ts for how these are merged with live surface data.
-// ---------------------------------------------------------------------------
-
-export const CUSTOM_TAB_ORDER_STORAGE_PREFIX = "dispatch:customTabOrder:";
-
-export const customTabOrderAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${CUSTOM_TAB_ORDER_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
-
-export const CUSTOM_TAB_HIDDEN_STORAGE_PREFIX = "dispatch:customTabHidden:";
-
-export const customTabHiddenAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${CUSTOM_TAB_HIDDEN_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
-
-// ---------------------------------------------------------------------------
-// Seen surface ids — per-agent record of which agent-authored tabs the user
-// has already opened, so the tab strip can flag a newly-encountered surface
-// id as "new" until it's viewed. See surface-tab-row.tsx.
-// ---------------------------------------------------------------------------
-
-export const SEEN_SURFACE_IDS_STORAGE_PREFIX = "dispatch:seenSurfaceIds:";
-
-export const seenSurfaceIdsAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${SEEN_SURFACE_IDS_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
-
-export function reconcileSeenSurfaceIdsStorage(
-  agentIds: Iterable<string>
-): void {
-  reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
-  ]);
-}
-
-// ---------------------------------------------------------------------------
-// Surface form drafts — unsubmitted input for one form block, keyed by
-// `<agentId>:<surfaceId>:<blockId>`. Typing never notifies the agent; a draft
-// survives tab switches and reloads, then clears on successful submit or
-// explicit Reset (see use-surface-form-draft.ts).
-// ---------------------------------------------------------------------------
-
-export type SurfaceFormDraft = Record<
-  string,
-  string | number | boolean | null | string[]
->;
-
-export const SURFACE_FORM_DRAFT_STORAGE_PREFIX = "dispatch:surfaceFormDraft:";
-
-export const surfaceFormDraftAtomFamily = atomFamily((draftKey: string) =>
-  atomWithLocalStorage<SurfaceFormDraft | null>(
-    `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}${draftKey}`,
-    null
-  )
-);
-
-// ---------------------------------------------------------------------------
-// Message group collapsed state — per-agent set of collapsed thread IDs
-// ---------------------------------------------------------------------------
-
-export const MESSAGE_GROUPS_STATE_STORAGE_PREFIX =
-  "dispatch:messageGroupsState:";
-
-export const messageGroupsCollapsedAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${MESSAGE_GROUPS_STATE_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
 
 const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
-  { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
+  { prefix: DRAWER_STATE_STORAGE_PREFIX },
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
-  { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
-  { prefix: LEGACY_CENTER_TAB_STORAGE_PREFIX },
-  { prefix: AGENT_PANE_VIEW_STORAGE_PREFIX },
   { prefix: CHAT_DRAFT_STORAGE_PREFIX },
-  { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
-  { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
-  { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
-  {
-    // Drafts are keyed `<agentId>:<surfaceId>:<blockId>`, so the live-agent
-    // check reads the first segment rather than the whole suffix.
-    prefix: SURFACE_FORM_DRAFT_STORAGE_PREFIX,
-    agentIdFromSuffix: (draftKey) => draftKey.split(":")[0],
-  },
-  { prefix: MESSAGE_GROUPS_STATE_STORAGE_PREFIX },
 ];
 
 /** Reconciles every per-agent persisted UI state in a single storage scan. */
@@ -694,30 +568,48 @@ export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
   reconcileAgentScopedStorageDomains(agentIds, AGENT_SCOPED_STORAGE_DOMAINS);
 }
 
-// ---------------------------------------------------------------------------
-// Live terminal signals for the chat presence strip — ephemeral, per agent,
-// never persisted. Written by the terminal socket (output) and the SSE
-// stream (tool invocations); readable while the pane is hidden under Chat.
-// ---------------------------------------------------------------------------
-
-export type TerminalOutputActivity = {
-  /** `Date.now()` of the last output flush; 0 until any output is seen. */
-  lastOutputAt: number;
-  /** Throughput over the window that ended at `lastOutputAt`. */
-  bytesPerSecond: number;
+/** One row the Chat feed can be put back against: which row, and where it sat. */
+export type ChatScrollAnchor = {
+  entryId: string;
+  /** The row's top edge, relative to the top of the viewport. */
+  offset: number;
 };
 
-export const terminalOutputActivityAtomFamily = atomFamily((_agentId: string) =>
-  atom<TerminalOutputActivity>({ lastOutputAt: 0, bytesPerSecond: 0 })
-);
-
-export type AgentToolBlip = {
-  /** MCP tool name as the server reported it, e.g. `dispatch_share_file`. */
-  tool: string;
-  /** `Date.now()` on receipt — local time, so the blip's timer ignores clock skew. */
-  at: number;
+/** Where a reader was in one agent's Chat feed. */
+export type ChatScrollPosition = {
+  /** At the bottom on the way out: reopen following the feed. */
+  following: boolean;
+  /** Visible rows, top first, for restoring the scroll position. */
+  anchors: ChatScrollAnchor[];
 };
 
-export const agentToolBlipAtomFamily = atomFamily((_agentId: string) =>
-  atom<AgentToolBlip | null>(null)
+function isChatScrollPosition(
+  value: unknown
+): value is ChatScrollPosition | null {
+  if (value === null) return true;
+  if (typeof value !== "object") return false;
+  const v = value as Partial<ChatScrollPosition>;
+  return (
+    typeof v.following === "boolean" &&
+    Array.isArray(v.anchors) &&
+    v.anchors.every(
+      (a) =>
+        typeof a === "object" &&
+        a !== null &&
+        typeof (a as ChatScrollAnchor).entryId === "string" &&
+        typeof (a as ChatScrollAnchor).offset === "number"
+    )
+  );
+}
+
+/**
+ * Where the reader was in each agent's Chat feed, so switching agents and
+ * reloading the page both put them back on the row they were reading.
+ */
+export const chatScrollPositionAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<ChatScrollPosition | null>(
+    `dispatch:chat-scroll:${agentId}`,
+    null,
+    { validate: isChatScrollPosition }
+  )
 );

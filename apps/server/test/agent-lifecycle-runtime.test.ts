@@ -20,7 +20,6 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       info: vi.fn(),
     },
     reconcileIntervalMs: 60_000,
-    activityMonitor: (overrides.activityMonitor as never) ?? undefined,
     onAgentsArchived: (overrides.onAgentsArchived as never) ?? undefined,
     withStreamFlag: vi.fn(
       (agent: Record<string, unknown>) =>
@@ -33,6 +32,41 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
 describe("createAgentLifecycleRuntime", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("publishes the next reconnect check time and never overlaps slow passes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-23T00:00:00.000Z"));
+    let release!: () => void;
+    const slowPass = new Promise<never[]>((resolve) => {
+      release = () => resolve([]);
+    });
+    const setNextReconcileAt = vi.fn().mockResolvedValue(undefined);
+    const reconcileAgentStatuses = vi
+      .fn()
+      .mockReturnValueOnce(slowPass)
+      .mockResolvedValue([]);
+    const deps = makeDeps({
+      agentManager: { setNextReconcileAt, reconcileAgentStatuses },
+    });
+    const rt = createAgentLifecycleRuntime(deps as never);
+
+    rt.startReconcileLoop();
+    expect(setNextReconcileAt).toHaveBeenLastCalledWith(
+      "2026-09-23T00:01:00.000Z"
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(reconcileAgentStatuses).toHaveBeenCalledTimes(1);
+    expect(setNextReconcileAt).toHaveBeenLastCalledWith(
+      "2026-09-23T00:03:00.000Z"
+    );
+
+    release();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(reconcileAgentStatuses).toHaveBeenCalledTimes(2);
+    rt.stopReconcileLoop();
+    expect(setNextReconcileAt).toHaveBeenLastCalledWith(null);
   });
 
   describe("beginBackgroundArchive", () => {
@@ -513,34 +547,6 @@ describe("createAgentLifecycleRuntime", () => {
         expect.objectContaining({ err: expect.any(Error) }),
         "Agent status reconciliation failed."
       );
-    });
-
-    it("calls activityMonitor.check() when provided", async () => {
-      const mockCheck = vi.fn().mockResolvedValue(undefined);
-      const deps = makeDeps({ activityMonitor: { check: mockCheck } });
-      const rt = createAgentLifecycleRuntime(deps as never);
-      await rt.runAgentStatusReconciliation();
-
-      expect(mockCheck).toHaveBeenCalledTimes(1);
-    });
-
-    it("catches activityMonitor errors and logs a warning", async () => {
-      const mockCheck = vi.fn().mockRejectedValue(new Error("tmux fail"));
-      const deps = makeDeps({ activityMonitor: { check: mockCheck } });
-      const rt = createAgentLifecycleRuntime(deps as never);
-      await rt.runAgentStatusReconciliation();
-
-      expect(deps.appLog.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ err: expect.any(Error) }),
-        "Activity monitor check failed."
-      );
-    });
-
-    it("skips activityMonitor when not provided", async () => {
-      const deps = makeDeps();
-      const rt = createAgentLifecycleRuntime(deps as never);
-      await rt.runAgentStatusReconciliation();
-      // No error means the undefined activityMonitor path is handled
     });
   });
 

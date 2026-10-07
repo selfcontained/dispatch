@@ -1,22 +1,11 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  type Agent,
-  type AgentVisualState,
-  type ConnState,
-} from "@/components/app/types";
+import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { api } from "@/lib/api";
 
-export function useAgents(
-  connectedAgentId: string | null,
-  connState: ConnState,
-  enabled: boolean,
-  selectedAgentId: string | null
-) {
+export function useAgents(enabled: boolean, selectedAgentId: string | null) {
   const queryClient = useQueryClient();
-  const connectedAgentIdRef = useRef(connectedAgentId);
-  connectedAgentIdRef.current = connectedAgentId;
 
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
 
@@ -51,20 +40,14 @@ export function useAgents(
     [agents, validatedSelectedAgentId]
   );
 
-  const connectedAgent = useMemo(
-    () => agents.find((a) => a.id === connectedAgentId) ?? null,
-    [agents, connectedAgentId]
-  );
-
   const agentVisualState = useCallback(
     (agent: Agent): AgentVisualState => {
       if (agent.status !== "running" && agent.status !== "creating")
         return "stopped";
-      if (connState === "connected" && connectedAgentId === agent.id)
-        return "active";
+      if (validatedSelectedAgentId === agent.id) return "active";
       return "idle";
     },
-    [connState, connectedAgentId]
+    [validatedSelectedAgentId]
   );
 
   return useMemo(
@@ -73,7 +56,6 @@ export function useAgents(
       agentsLoaded,
       validatedSelectedAgentId,
       selectedAgent,
-      connectedAgent,
       overflowAgentId,
       setOverflowAgentId,
       agentVisualState,
@@ -84,7 +66,6 @@ export function useAgents(
       agentsLoaded,
       validatedSelectedAgentId,
       selectedAgent,
-      connectedAgent,
       overflowAgentId,
       agentVisualState,
       resortAgents,

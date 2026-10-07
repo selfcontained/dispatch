@@ -1,15 +1,7 @@
 import { shortModelName } from "@/components/app/activity-chart-utils";
 import { cn } from "@/lib/utils";
-import {
-  formatDuration,
-  formatTokenCount,
-  shortProjectName,
-} from "@/lib/format";
-import type {
-  TokenByModel,
-  TokenByProject,
-  WorkingTimeByProject,
-} from "@/hooks/use-activity";
+import { formatTokenCount, shortProjectName } from "@/lib/format";
+import type { TokenByModel, TokenByProject } from "@/hooks/use-activity";
 
 // ── Horizontal bar helper ──────────────────────────────────────────
 
@@ -85,56 +77,21 @@ export function ModelBreakdown({ data }: { data: TokenByModel[] }) {
 
 // ── Per-project breakdown ─────────────────────────────────────────
 
-export function ProjectBreakdown({
-  data,
-  workingTime,
-}: {
-  data: TokenByProject[];
-  workingTime?: WorkingTimeByProject[];
-}) {
+export function ProjectBreakdown({ data }: { data: TokenByProject[] }) {
   if (data.length === 0) return null;
   const max = Math.max(...data.map((p) => p.total_input + p.total_output));
-  const wtMap = new Map(
-    workingTime?.map((w) => [w.project_dir, w.working_time_ms]) ?? []
-  );
-  const maxWt = Math.max(
-    ...(workingTime?.map((w) => w.working_time_ms) ?? [0])
-  );
-
   return (
     <div className="space-y-4">
-      {data.map((p) => {
-        const wt = wtMap.get(p.project_dir);
-        return (
-          <div key={p.project_dir} className="space-y-1.5">
-            <HorizontalBar
-              label={shortProjectName(p.project_dir)}
-              value={p.total_input + p.total_output}
-              maxValue={max}
-              color="bg-chart-6"
-              sub="tokens"
-            />
-            {wt != null && wt > 0 && (
-              <div className="pl-0">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-transparent">
-                    {shortProjectName(p.project_dir)}
-                  </span>
-                  <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
-                    {formatDuration(wt)} working
-                  </span>
-                </div>
-                <div className="h-2 w-full rounded-full bg-muted/60">
-                  <div
-                    className="h-2 rounded-full transition-all bg-chart-3/70"
-                    style={{ width: `${Math.max((wt / maxWt) * 100, 1)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {data.map((p) => (
+        <HorizontalBar
+          key={p.project_dir}
+          label={shortProjectName(p.project_dir)}
+          value={p.total_input + p.total_output}
+          maxValue={max}
+          color="bg-chart-6"
+          sub="tokens"
+        />
+      ))}
     </div>
   );
 }

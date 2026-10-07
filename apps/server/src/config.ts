@@ -1,10 +1,16 @@
 import "dotenv/config";
-import { execSync } from "node:child_process";
+import { parseListenHosts } from "./multi-listener.js";
+import { Client } from "pg";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
+import {
+  resolveConfiguredPath,
+  resolveTilde,
+} from "./shared/lib/resolve-tilde.js";
+import { statePath } from "./state-dir.js";
+import { ensureLocalTls } from "./local-tls.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,17 +21,18 @@ export type TlsConfig = {
 
 export type AppConfig = {
   host: string;
+  listenHosts?: string[];
   port: number;
   databaseUrl: string;
   authToken: string;
-  mediaRoot: string;
+  filesRoot: string;
   dispatchBinDir: string;
   codexBin: string;
   claudeBin: string;
-  opencodeBin: string;
-  cursorBin: string;
-  agentRuntime: "tmux" | "inert";
-  sessionPrefix: string;
+  opencodeBin?: string;
+  /** Per-agent host state (launch file, socket, journal, log). */
+  agentStateRoot: string;
+  agentRuntime: "acp" | "inert";
   tls: TlsConfig | null;
 };
 
@@ -40,6 +47,17 @@ function requireEnv(name: string): string {
 }
 
 function loadTls(): TlsConfig | null {
+  if (process.env.DISPATCH_LOCAL_TLS === "1") {
+    if (process.env.DISPATCH_UPDATE_OWNER !== "macos-app") {
+      throw new Error("Managed local TLS is reserved for the Mac app.");
+    }
+    return ensureLocalTls(
+      statePath("tls"),
+      parseListenHosts(process.env.DISPATCH_LISTEN_HOSTS) ?? [
+        process.env.DISPATCH_HOST ?? "127.0.0.1",
+      ]
+    );
+  }
   const certPath = process.env.TLS_CERT;
   const keyPath = process.env.TLS_KEY;
   if (!certPath && !keyPath) return null;
@@ -52,50 +70,61 @@ function loadTls(): TlsConfig | null {
   };
 }
 
-function resolveAgentRuntime(): "tmux" | "inert" {
+function resolveAgentRuntime(): "acp" | "inert" {
   const env = process.env.DISPATCH_AGENT_RUNTIME;
-  if (env === "tmux") return "tmux";
   if (env === "inert") return "inert";
-  if (env) {
-    console.warn(
-      `Unknown DISPATCH_AGENT_RUNTIME="${env}", falling back to auto-detection`
-    );
+  if (env && env !== "acp") {
+    console.warn(`Unknown DISPATCH_AGENT_RUNTIME="${env}", using acp`);
   }
-  // No explicit setting — default to tmux if it's available on PATH
-  try {
-    execSync("command -v tmux", { stdio: "ignore" });
-    console.log("Agent runtime auto-detected: tmux");
-    return "tmux";
-  } catch {
-    console.warn(
-      "tmux not found on PATH — agent runtime set to inert (agents will not execute)"
-    );
-    return "inert";
-  }
+  return "acp";
+}
+
+/**
+ * An executable read from configuration. A bare command name is left as
+ * written (the host looks it up on PATH); anything naming a path gets its
+ * leading `~` expanded, the way every other configured path does.
+ */
+function resolveConfiguredBin(value: string): string {
+  return value.includes("/") ? resolveTilde(value) : value;
 }
 
 export function loadConfig(): AppConfig {
+  const listenHosts = parseListenHosts(process.env.DISPATCH_LISTEN_HOSTS);
   const config: AppConfig = {
-    host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
+    host:
+      listenHosts?.[0] ??
+      process.env.DISPATCH_HOST ??
+      process.env.HOST ??
+      "127.0.0.1",
+    listenHosts,
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl: requireEnv("DATABASE_URL"),
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
-    mediaRoot: resolveConfiguredPath(
-      process.env.MEDIA_ROOT ?? path.join(os.homedir(), ".dispatch", "media")
+    filesRoot: resolveConfiguredPath(
+      process.env.DISPATCH_FILES_ROOT ?? statePath("files")
     ),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin:
       process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN ?? "codex",
     claudeBin:
       process.env.DISPATCH_CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? "claude",
-    opencodeBin:
+    opencodeBin: resolveConfiguredBin(
       process.env.DISPATCH_OPENCODE_BIN ??
-      process.env.OPENCODE_BIN ??
-      "opencode",
-    cursorBin:
-      process.env.DISPATCH_CURSOR_BIN ?? process.env.CURSOR_BIN ?? "agent",
+        process.env.OPENCODE_BIN ??
+        "opencode"
+    ),
+    agentStateRoot: resolveConfiguredPath(
+      process.env.DISPATCH_AGENT_STATE_ROOT ??
+        path.join(
+          path.dirname(
+            resolveConfiguredPath(
+              process.env.DISPATCH_FILES_ROOT ?? statePath("files")
+            )
+          ),
+          "agents"
+        )
+    ),
     agentRuntime: resolveAgentRuntime(),
-    sessionPrefix: process.env.DISPATCH_SESSION_PREFIX ?? "dispatch",
     tls: loadTls(),
   };
 
@@ -142,6 +171,23 @@ export function assertSafeDatabaseConfig(
   config: Pick<AppConfig, "databaseUrl">,
   env: NodeJS.ProcessEnv = process.env
 ): void {
+  // The app preview must stay isolated even outside an agent context. Validate
+  // the effective driver database too: WHATWG dot-segment normalization can
+  // turn an apparently nonempty URL path into pg's username/database fallback.
+  if (env.DISPATCH_UPDATE_OWNER === "macos-app") {
+    const url = new URL(config.databaseUrl);
+    const database = new Client({ connectionString: config.databaseUrl })
+      .database;
+    if (
+      !url.pathname.replace(/^\/+/, "") ||
+      !database ||
+      ["dispatch", "postgres"].includes(database)
+    ) {
+      throw new Error(
+        "Dispatch Preview requires an explicit, dedicated database, not the production or maintenance database."
+      );
+    }
+  }
   if (env.DISPATCH_ALLOW_AGENT_PROD_DB === "1") return;
 
   const isAgentContext = Boolean(env.DISPATCH_AGENT_ID);
@@ -169,6 +215,9 @@ export function assertSafePortConfig(
   config: Pick<AppConfig, "port">,
   env: NodeJS.ProcessEnv = process.env
 ): void {
+  if (env.DISPATCH_UPDATE_OWNER === "macos-app" && config.port === 6767) {
+    throw new Error("Dispatch Preview cannot bind to production port 6767.");
+  }
   const isAgentContext = Boolean(env.DISPATCH_AGENT_ID);
   if (!isAgentContext) return;
 

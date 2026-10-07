@@ -1,9 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { readdir, unlink } from "node:fs/promises";
 import https from "node:https";
-import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -11,6 +10,7 @@ import { pipeline } from "node:stream/promises";
 import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import { formatBytes } from "./shared/lib/format-bytes.js";
 import { runCommand } from "./shared/lib/run-command.js";
+import { statePath } from "./state-dir.js";
 
 /**
  * Local cache for the prebuilt release tarball. Replaces the previous
@@ -20,23 +20,16 @@ import { runCommand } from "./shared/lib/run-command.js";
  * tag, which is immutable on GitHub — once a tarball is downloaded for a
  * tag it stays valid forever, and pruning is just "delete every cached
  * tarball that isn't ahead of the current install."
- *
- * The same cached file is used twice in the assisted-update flow (CRU-146):
- *   1. On "Check for Updates" the runtime extracts only `update-migrations/`
- *      from it to determine whether assisted update is required.
- *   2. On the actual deploy the same tarball is extracted into the install
- *      directory — no second download.
  */
 
-export const RELEASE_ARTIFACT_NAME = "dispatch-release.tar.gz";
+export const RELEASE_ARTIFACT_NAME = "dispatch-server.tar.gz";
 
 // Resolved per call so tests can rebind the env var between runs without
 // reloading the module. Production hosts only set the env var at boot, so
 // the lookup cost is negligible.
 function cacheDir(): string {
   return resolveConfiguredPath(
-    process.env.DISPATCH_RELEASE_CACHE_DIR ??
-      path.join(os.homedir(), ".dispatch", "cache")
+    process.env.DISPATCH_RELEASE_CACHE_DIR ?? statePath("cache")
   );
 }
 
@@ -182,109 +175,6 @@ export async function ensureCachedTarball(input: {
  */
 export async function unlinkCachedTarball(tag: string): Promise<void> {
   await unlink(cachedTarballPath(tag)).catch(() => {});
-}
-
-/**
- * Extract `update-migrations/` from a cached tarball into a fresh temp
- * directory. The bulk of the tarball (Bun binaries, web dist) stays inside
- * the cache file — only the migration manifests hit the temp dir. Caller is
- * responsible for cleanup.
- *
- * If `tar tzf` rejects the file as corrupt the cache entry is unlinked
- * before re-throwing — otherwise the next call would re-use the bad
- * tarball, fail the same way, and the only path forward would be a manual
- * `rm ~/.dispatch/cache/release-*.tar.gz`. Re-downloading on the next
- * attempt is the right recovery for a corrupt artifact.
- */
-export async function extractUpdateMigrationsTo(
-  tarballPath: string
-): Promise<{ dir: string; cleanup: () => Promise<void> }> {
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-migrations-"));
-  // Best-effort path-traversal guard mirroring deployFromArtifact: list
-  // first, refuse anything with `..` or absolute paths under the
-  // update-migrations/ prefix.
-  let listing: Awaited<ReturnType<typeof runCommand>>;
-  try {
-    listing = await runCommand("tar", ["tzf", tarballPath]);
-  } catch (err) {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    await unlink(tarballPath).catch(() => {});
-    throw err instanceof Error
-      ? new Error(
-          `Failed to read tarball at ${tarballPath} (cache entry removed): ${err.message}`
-        )
-      : err;
-  }
-  const unsafeEntries = listing.stdout
-    .split("\n")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-    .filter((entry) => entry.startsWith("/") || entry.includes("../"));
-  if (unsafeEntries.length > 0) {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    throw new Error(
-      `Release tarball contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
-    );
-  }
-  const hasMigrations = listing.stdout
-    .split("\n")
-    .some((entry) => entry.startsWith("update-migrations/"));
-  if (!hasMigrations) {
-    return {
-      dir: path.join(tmpDir, "update-migrations"),
-      cleanup: async () => {
-        await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-      },
-    };
-  }
-
-  try {
-    await runCommand("tar", [
-      "xzf",
-      tarballPath,
-      "--no-same-owner",
-      "-C",
-      tmpDir,
-      "update-migrations",
-    ]);
-  } catch (err) {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    await unlink(tarballPath).catch(() => {});
-    throw err;
-  }
-
-  return {
-    dir: path.join(tmpDir, "update-migrations"),
-    cleanup: async () => {
-      await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    },
-  };
-}
-
-/**
- * Read every file under `update-migrations/` inside a tarball into memory.
- * Useful for cheap inspection passes that don't need a temp dir on disk —
- * but we still go through tar so the streaming/path-safety story matches
- * `extractUpdateMigrationsTo`.
- */
-export async function readMigrationsFromTarball(
-  tarballPath: string
-): Promise<Array<{ filename: string; contents: string }>> {
-  const { dir, cleanup } = await extractUpdateMigrationsTo(tarballPath);
-  try {
-    const entries = await readdir(dir).catch(() => [] as string[]);
-    const files: Array<{ filename: string; contents: string }> = [];
-    for (const entry of entries) {
-      const filePath = path.join(dir, entry);
-      const stats = await stat(filePath).catch(() => null);
-      if (!stats || !stats.isFile()) continue;
-      const contents = await readFile(filePath, "utf-8");
-      files.push({ filename: entry, contents });
-    }
-    return files;
-  } finally {
-    await cleanup();
-  }
 }
 
 /**

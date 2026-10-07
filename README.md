@@ -1,59 +1,81 @@
 # Dispatch
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents, with browser-based terminal access and media sharing. It runs on macOS and Linux.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents, with one stream per agent and file sharing in the browser. It runs on macOS and Linux.
 
 ## Quick Install
 
-Install and start PostgreSQL 14+ first, then run this on macOS or Linux:
+**macOS:** download the Dispatch app ZIP (`dispatch-macos-*-arm64.zip`) from the
+newest [release](https://github.com/selfcontained/dispatch/releases), unzip it,
+and move `Dispatch.app` to Applications. The app bundles its own PostgreSQL and
+updates itself from the menu bar. The native app defaults to Stable; before
+the first Stable promotion, it offers no update on that channel. Select Preview
+in Settings → Support → Updates to receive Preview builds.
+
+**Linux:** install and start PostgreSQL 14+, then run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash
 ```
 
-The installer selects the latest stable release, creates a private local
-database and credentials when it can administer PostgreSQL, installs the
-platform-matched binary at `~/.dispatch/server/dispatch`, and registers a
-user service. For a managed database, pass its URL instead:
+> **Preview releases:** before the first 1.x Stable promotion, install with
+> `bash -s -- --channel preview` in place of `bash` above. An explicit
+> `--channel stable` requires a promoted 1.x release.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
-```
+The installer picks the newest release on a channel: **stable** (promoted
+releases) or **preview** (every release as soon as it ships). It uses stable,
+or preview while no stable release exists; pass `--channel preview` or
+`--channel stable` to choose. It installs the platform-matched binary under
+`~/.local/share/dispatch` and registers a `dispatch-server` systemd user
+service.
 
-The service listens on `127.0.0.1:6767`. Verify with
-`curl http://127.0.0.1:6767/api/v1/health`. Normal UI updates atomically
-replace the fixed executable and restart the service.
+Dispatch creates and owns its own PostgreSQL database. The installer checks the
+PostgreSQL version before downloading anything, then creates a private
+database and credentials, as `postgres` through `sudo` (run it from a terminal
+so sudo can ask for your password). Dispatch backs the database up before every
+update, and restores it if the update fails.
+
+The database URL and its password are stored only in
+`~/.local/share/dispatch/server/.env` (mode `0600`). On Linux the service logs
+go to the systemd journal: `journalctl --user -u dispatch-server`.
+
+The service listens on `127.0.0.1:6767`, or the next free port above it (the
+installer prints the URL; `--port` picks one). Pass `--host 0.0.0.0` to accept
+LAN or Tailscale connections. Updates come from
+**Settings → Updates**, which follows the same channel: protected updates defer while work is active, then back up the database and
+state before replacing the executable and restarting the service.
+
+Dispatch 1.x requires a fresh installation and a new database. There is no
+upgrade or database migration from 0.x. Existing 0.x installations are left
+untouched and are unsupported.
 
 <img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
 
 ## Features
 
-- Start, monitor, and stop multiple long-running agents (Claude, Codex, Cursor, OpenCode, or a plain tmux terminal) remotely.
-- Persist each agent in `tmux` so browser disconnects do not kill work.
+- Start, monitor, and stop multiple long-running agents (Claude Code or Codex) remotely.
+- Each agent runs in its own host process that outlives the Dispatch server, so restarts and browser disconnects do not kill work.
 - Git worktree isolation for parallel agent work on separate branches.
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
 - Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery.
-- Personas — reusable agent roles for automated code review with structured feedback (`.dispatch/personas/`), plus a built-in General Code Review persona so review works with no repo setup.
+- Personas — launch profiles for reviewers and other roles (`.dispatch/personas/`); a reviewer posts one structured review block back to the agent that launched it. A built-in General Code Review persona means review works with no repo setup.
 - Personalities — short system-prompt blocks appended to every agent for voice or standing preferences.
 - Keyboard shortcuts and a command palette (`Mod+K`) for fast navigation and actions.
-- GitHub integration — PR creation and CI status checks via MCP tools.
 - Browser Feedback — a Chrome extension to select an element on any web page, comment, and send it with bounded DOM context and a cropped element screenshot to a running agent (paired under Settings → Connections).
-- Per-agent whiteboard — a shared Excalidraw canvas in the center pane that both you and the agent can draw on, synced live in both directions via MCP tools.
 - Slack notifications with focus-aware suppression.
 - Activity analytics — heatmaps, daily status charts, working time by project.
 - Service resources dashboard — live CPU, memory, subsystem health, and workload metrics for the Dispatch server, agents, and host (Settings → Resources, opt-in collection).
 - Token usage tracking by day, project, and model.
 - Agent history with soft-delete preservation, filtering, and per-agent detail views.
 - Release management — cut releases, deploy tags, and self-update from the UI.
-- Theming with multiple color themes and per-theme terminal palettes.
+- Theming with multiple color themes.
 - Password-based login with first-run setup and per-device session cookies.
 - Browser UI with:
-  - quick phrases — reusable text snippets with template variables, injectable into agent terminals
-  - interactive terminal access (xterm.js over WebSocket, resumable after browser reconnect)
+  - quick phrases — reusable text snippets with template variables, sent to an agent as a prompt
+  - durable agents: each runs under its own host process that outlives the server, so a restart never cuts a turn
   - agent lifecycle controls (create, start, stop, delete — with background archive cleanup)
-  - media pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
-  - real-time agent status events via SSE
-  - agent pins for surfacing key info (URLs, ports, PRs, files) in the sidebar
-  - agent surfaces — custom sidebar tabs an agent builds from status, table, form, and action blocks, with durable interactions for your input
+  - files pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
+  - one stream per agent: replies, questions and forms you answer in one click, files, links, checklists and reviews, with threads
+  - live agent status (working, waiting, idle, blocked) derived by the server, over SSE
   - in-app browser notifications (with Slack fallback if no browser client acks)
   - in-app docs pane covering features and MCP tools
 
@@ -62,7 +84,6 @@ replace the fixed executable and restart the service.
 | Dependency                 | Purpose                  | macOS                        | Linux                    |
 | -------------------------- | ------------------------ | ---------------------------- | ------------------------ |
 | **PostgreSQL 14+**         | Database                 | `brew install postgresql@17` | `apt install postgresql` |
-| **tmux**                   | Agent session management | `brew install tmux`          | `apt install tmux`       |
 | **At least one agent CLI** | The agents Dispatch runs | See below                    | See below                |
 
 Production installs run the released, compiled Bun binary from `dist/bun/`; the host does not need Node just to run Dispatch.
@@ -79,14 +100,12 @@ Production installs run the released, compiled Bun binary from `dist/bun/`; the 
 
 Dispatch spawns agents via their CLI tools. Install at least one:
 
-| Agent        | Install                                    | Authenticate                                  |
-| ------------ | ------------------------------------------ | --------------------------------------------- |
-| **Claude**   | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)               |
-| **Codex**    | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile    |
-| **Cursor**   | Install [Cursor](https://www.cursor.com/)  | Configure in Cursor settings                  |
-| **OpenCode** | `npm install -g opencode`                  | Set `ANTHROPIC_API_KEY` in your shell profile |
+| Agent      | Install                                    | Authenticate                               |
+| ---------- | ------------------------------------------ | ------------------------------------------ |
+| **Claude** | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)            |
+| **Codex**  | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile |
 
-The agent CLI must be authenticated before Dispatch can spawn agents of that type. Dispatch invokes the CLI directly, so any API keys or login state in your shell environment are inherited automatically.
+Dispatch drives each CLI through its Agent Client Protocol adapter. The adapters are built into the Dispatch binary, so there's nothing extra to install. The CLI must be authenticated before Dispatch can spawn agents of that type; the agent host starts through your login shell, so login state and API keys in your profile are inherited automatically.
 
 ## Setup
 
@@ -95,8 +114,8 @@ The agent CLI must be authenticated before Dispatch can spawn agents of that typ
 git clone git@github.com:selfcontained/dispatch.git
 cd dispatch
 
-# 2. Install dependencies
-pnpm install
+# 2. Install dependencies with the package.json-pinned pnpm version
+corepack pnpm install --frozen-lockfile
 
 # 3. Copy the example env file
 cp .env.example .env
@@ -107,6 +126,11 @@ bin/dispatch-dev up --live
 
 For day-to-day backend work, the server itself runs under Bun. `pnpm` is still used at the repo root for dependency installation and workspace-level scripts.
 
+Source installs and builds use **pnpm 9.15.9**, pinned in `package.json`, because
+the ACP adapter patch's lockfile hash depends on the pnpm version. Install
+Corepack if your Node installation does not include it (`npm install -g corepack`),
+then use `corepack pnpm` for repo commands.
+
 > **Important:** Docker Desktop must be running (not just installed). If you see
 > _"Error: docker compose is not available"_, open Docker.app first.
 
@@ -116,7 +140,7 @@ For day-to-day backend work, the server itself runs under Bun. `pnpm` is still u
 - Runs database migrations on server start
 - Starts the API server on a free port
 - Starts the Vite frontend dev server
-- Enables live agent spawning via tmux (with `--live`)
+- Enables live agent spawning (with `--live`)
 - Prints the URLs when ready
 
 Open the Vite URL printed in the output to access the UI.
@@ -146,92 +170,83 @@ curl -s -X POST $(bin/dispatch-dev url)/api/v1/agents \
 
 ## MCP Tools
 
-Every agent launched by Dispatch gets access to MCP tools via an agent-scoped endpoint. The tool set depends on the agent type — interactive agents, persona reviewers, and job runners each expose a different set, all configured automatically with no setup.
+Every agent launched by Dispatch gets access to MCP tools via an agent-scoped endpoint. Interactive agents (persona agents included) and job runners each expose a slightly different set, all configured automatically with no setup.
+
+`get_usage` is available to both interactive agents and job runners. Call it with
+`{}` to compare provider usage, or `{ "type": "claude", "force": true }` to
+request a refresh for a comparison focused on Claude. Its `summary` names the
+type to prefer (`suggestedType`) when another is low or exhausted, and says so
+when every type has headroom or nothing reports; a type disabled in Settings
+(`enabled: false`) is described but never suggested. Each type carries a `status`
+(`ok`, `low`, `exhausted`, `unknown`), `headroomPercent` from its tightest
+window, model IDs from Dispatch's current launch catalog, remaining percentages
+for each reported quota window, reset times, and remaining spend when available.
+Quotas are shared by agents using the same provider login; model-specific limits
+retain the provider's window labels. Check `observedAt` and `unavailableReason`
+before using a report to choose `launch_agent`'s `type` and `model`. Missing
+limits mean unknown capacity.
 
 ### Interactive agents
 
-| Tool                            | Description                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------ |
-| `create_pr`                     | Create a GitHub pull request                                                               |
-| `get_pr_status`                 | Check PR CI status and reviews                                                             |
-| `dispatch_event`                | Report agent status (`working`, `blocked`, `waiting_user`, `done`, `idle`)                 |
-| `dispatch_rename_session`       | Update the current session's display name                                                  |
-| `dispatch_notify`               | Send a Slack notification from the agent                                                   |
-| `dispatch_pin`                  | Surface key info in the sidebar (URLs, ports, PRs, files)                                  |
-| `dispatch_pins`                 | Write several sidebar pins in one atomic call (merge or replace a group)                   |
-| `dispatch_share_file`           | Upload screenshots and media to the agent's media pane                                     |
-| `dispatch_list_media`           | List media files shared with or by this agent                                              |
-| `dispatch_delete_media`         | Permanently remove a shared media file                                                     |
-| `dispatch_list_pins`            | List current sidebar pins, or read one back in full by ID                                  |
-| `dispatch_delete_pin`           | Permanently remove pins by ID, by a list of IDs, or by group                               |
-| `dispatch_surface_create`       | Create a custom sidebar tab (up to 8 per agent) from status, table, form, and other blocks |
-| `dispatch_surface_update`       | Replace an owned surface's blocks or lifecycle at an expected revision                     |
-| `dispatch_surface_list`         | List owned surfaces, or a direct child's read-only                                         |
-| `dispatch_surface_get`          | Get one surface's full document and unresolved interaction count                           |
-| `dispatch_surface_delete`       | Delete an owned surface                                                                    |
-| `dispatch_surface_reorder`      | Replace the canonical order of an agent's active custom tabs                               |
-| `dispatch_surface_interactions` | List durable interactions a surface's actions and forms have produced                      |
-| `dispatch_surface_claim`        | Claim queued/notified surface interactions before working them                             |
-| `dispatch_surface_resolve`      | Resolve a claimed surface interaction as completed or rejected                             |
-| `list_personas`                 | List available persona reviewers for this project                                          |
-| `persona_templates`             | Get built-in starter templates for authoring review personas                               |
-| `persona_upsert`                | Create or update a persona file in `.dispatch/personas/`                                   |
-| `persona_validate`              | Validate persona files for required metadata and instructions                              |
-| `dispatch_launch_persona`       | Launch a persona child agent for automated review                                          |
-| `dispatch_review_list_feedback` | List human review feedback items with statuses and message counts                          |
-| `dispatch_review_get_feedback`  | Read one feedback item in full, with its thread and stored diff hunk                       |
-| `dispatch_review_resolve`       | Resolve a review feedback item as fixed or dismissed                                       |
-| `dispatch_review_reopen`        | Reopen a resolved review feedback item                                                     |
-| `dispatch_review_add_message`   | Reply to a review feedback thread                                                          |
-| `dispatch_launch_agent`         | Launch a new agent to work on a subtask, as a child or standalone                          |
-| `dispatch_archive_agent`        | Archive an agent this session launched, or itself, with worktree cleanup                   |
-| `list_agents`                   | List other agents in the same repo with IDs, statuses, activity, lineage                   |
-| `dispatch_send_message`         | Send a message to another running agent by ID or name                                      |
-| `get_activity_summary`          | Summarize agent activity over a time range                                                 |
-| `get_feedback_summary`          | Aggregate persona review feedback for pattern detection                                    |
-| `whiteboard_get`                | Read the agent's shared whiteboard (elements + PNG snapshot path)                          |
-| `whiteboard_update`             | Draw on the shared whiteboard (upsert Excalidraw elements by id)                           |
-| `whiteboard_howto`              | Fetch the Excalidraw element format and layout guide on demand                             |
-| `whiteboard_clear`              | Clear the shared whiteboard                                                                |
-| `brain_get_object`              | Read a shared object from the repo-scoped Brain                                            |
-| `brain_store_object`            | Create or update a shared Brain object (optimistic concurrency)                            |
-| `brain_list_objects`            | List Brain objects, optionally filtered by collection or prefix                            |
-| `brain_delete_object`           | Delete a shared Brain object                                                               |
-| `brain_list_push`               | Append one or more items to a shared Brain list                                            |
-| `brain_list_remove`             | Remove one item from a shared Brain list by index or field match                           |
-| `brain_list_get`                | Read items from a shared Brain list with paging and ordering                               |
-| `brain_get_list_item`           | Read one Brain list item by index, with its value untruncated                              |
-| `brain_list_set`                | Replace one item in a shared Brain list by index                                           |
-| `brain_list_delete`             | Delete a shared Brain list and all of its items                                            |
-| `brain_append_event`            | Append a structured event to the Brain's append-only event log                             |
-| `brain_query_events`            | Query Brain events by collection, kind, subject, tags, and time range                      |
-| `brain_get_event`               | Read one Brain event by id, with its value untruncated                                     |
-| `brain_delete_events`           | Delete Brain events by id, or prune a collection (`dryRun` previews count)                 |
-| `list_jobs`                     | List jobs scoped to a directory                                                            |
-| `get_job`                       | Get a single job by ID or name                                                             |
-| `create_job`                    | Create a new job                                                                           |
-| `update_job`                    | Update an existing job's configuration                                                     |
-| `delete_job`                    | Delete a job                                                                               |
-| `run_job`                       | Trigger an immediate run of a job                                                          |
-| `list_templates`                | List templates scoped to a directory                                                       |
-| `get_template`                  | Get a single template by ID or name                                                        |
-| `create_template`               | Create a new reusable agent launch template                                                |
-| `update_template`               | Update an existing template                                                                |
-| `delete_template`               | Delete a template                                                                          |
-| `list_personalities`            | List saved personalities and the active personality ID                                     |
-| `create_personality`            | Create a saved personality                                                                 |
-| `update_personality`            | Update a saved personality's name or prompt                                                |
-| `delete_personality`            | Delete a saved personality (clears it if it was active)                                    |
-| `set_active_personality`        | Set the active personality for subsequently launched agents                                |
-| `clear_active_personality`      | Clear the active personality                                                               |
+| Tool                       | Description                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------- |
+| `post`                     | Post a block into the stream: text, a question, a form, a link, a checklist, a review, a file       |
+| `update`                   | Revise a posted block, or change the state of one addressed to you (resolve a finding, tick a task) |
+| `react`                    | Put an emoji reaction on a block                                                                    |
+| `rename_session`           | Update the current session's display name                                                           |
+| `login_link`               | Mint a short-lived browser login link for the Dispatch UI                                           |
+| `list_files`               | List files shared with or by this agent, or by its parent or a direct child                         |
+| `delete_file`              | Permanently remove a shared file                                                                    |
+| `list_personas`            | List available personas for this project                                                            |
+| `persona_templates`        | Get built-in starter templates for authoring personas                                               |
+| `persona_upsert`           | Create or update a persona file in `.dispatch/personas/`                                            |
+| `persona_validate`         | Validate persona files for required metadata and instructions                                       |
+| `launch_agent`             | Launch a new agent to work on a subtask, as a child or standalone; `persona` launches a reviewer    |
+| `archive_agent`            | Archive an agent this session launched, or itself, with worktree cleanup                            |
+| `list_agents`              | List other agents in the same repo with IDs, statuses, activity, lineage                            |
+| `get_activity_summary`     | Summarize agent activity over a time range                                                          |
+| `get_feedback_summary`     | Aggregate review findings for pattern detection                                                     |
+| `brain_get_object`         | Read a shared object from the repo-scoped Brain                                                     |
+| `brain_store_object`       | Create or update a shared Brain object (optimistic concurrency)                                     |
+| `brain_list_objects`       | List Brain objects, optionally filtered by collection or prefix                                     |
+| `brain_delete_object`      | Delete a shared Brain object                                                                        |
+| `brain_list_push`          | Append one or more items to a shared Brain list                                                     |
+| `brain_list_remove`        | Remove one item from a shared Brain list by index or field match                                    |
+| `brain_list_get`           | Read items from a shared Brain list with paging and ordering                                        |
+| `brain_get_list_item`      | Read one Brain list item by index, with its value untruncated                                       |
+| `brain_list_set`           | Replace one item in a shared Brain list by index                                                    |
+| `brain_list_delete`        | Delete a shared Brain list and all of its items                                                     |
+| `brain_append_event`       | Append a structured event to the Brain's append-only event log                                      |
+| `brain_query_events`       | Query Brain events by collection, kind, subject, tags, and time range                               |
+| `brain_get_event`          | Read one Brain event by id, with its value untruncated                                              |
+| `brain_delete_events`      | Delete Brain events by id, or prune a collection (`dryRun` previews count)                          |
+| `list_jobs`                | List jobs scoped to a directory                                                                     |
+| `get_job`                  | Get a single job by ID or name                                                                      |
+| `create_job`               | Create a new job                                                                                    |
+| `update_job`               | Update an existing job's configuration                                                              |
+| `delete_job`               | Delete a job                                                                                        |
+| `run_job`                  | Trigger an immediate run of a job                                                                   |
+| `list_templates`           | List templates scoped to a directory                                                                |
+| `get_template`             | Get a single template by ID or name                                                                 |
+| `create_template`          | Create a new reusable agent launch template                                                         |
+| `update_template`          | Update an existing template                                                                         |
+| `delete_template`          | Delete a template                                                                                   |
+| `list_personalities`       | List saved personalities and the active personality ID                                              |
+| `create_personality`       | Create a saved personality                                                                          |
+| `update_personality`       | Update a saved personality's name or prompt                                                         |
+| `delete_personality`       | Delete a saved personality (clears it if it was active)                                             |
+| `set_active_personality`   | Set the active personality for subsequently launched agents                                         |
+| `clear_active_personality` | Clear the active personality                                                                        |
+
+Pull requests are opened with the `gh` CLI and posted to the stream as a `pr` attachment; there is no PR tool.
 
 ### Persona agents
 
-Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_get_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_pins`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share_file`, `dispatch_list_media`, `dispatch_delete_media`, `whiteboard_get`, and the full `dispatch_surface_*` family. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
+A persona is a launch profile, not a different tool set: `launch_agent` with `persona: <slug>` gives the new agent the persona's instructions and your prompt as its briefing, and it gets the same tools as any interactive agent. A reviewer persona posts one `review` block (verdict, summary, findings) to the agent that launched it; each finding is a thread, and the launcher marks findings fixed or dismisses them by updating the block's state.
 
 ### Job agents
 
-Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus the persona, collaboration, unified review, analytics, Brain, job, and template tools listed above.
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus the stream, persona, collaboration, analytics, Brain, job, and template tools listed above (no `login_link` or personality tools).
 
 ### Repo-specific tools
 
@@ -241,7 +256,7 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Dispatch plugin (Claude Code + Codex)
 
-This repo doubles as a plugin marketplace. The **Dispatch plugin** ships twelve skills that teach agents how to use the capabilities above — the Brain, subagents, `.dispatch/tools.json`, artifact sharing, interactive surfaces, the review workflow, UI validation, personas, the whiteboard, jobs, templates, and personalities — so agents discover them instead of having to be told.
+This repo doubles as a plugin marketplace. The **Dispatch plugin** ships eleven skills that teach agents how to use the capabilities above — the Brain, subagents, `.dispatch/tools.json`, reaching the user, artifact sharing, the review workflow, UI validation, personas, jobs, templates, and personalities — so agents discover them instead of having to be told.
 
 **Before you install:** plugins on Claude Code and Codex are **unsigned and unsandboxed, and run with your full local user privileges** — this one and every other self-hosted plugin. This plugin ships no executable components (no hooks, no `bin/`, no bundled MCP servers), only markdown skills; [plugins/dispatch/README.md](plugins/dispatch/README.md#trust) shows how to verify that for yourself before running the commands below.
 
@@ -261,18 +276,16 @@ See [plugins/dispatch/README.md](plugins/dispatch/README.md) for what each skill
 
 - Update production from the Dispatch UI: **Settings → Updates**
 - Cut releases from the Dispatch UI: **Settings → Releases** (release admin only)
-- CLI/API path for updates and releases: `bin/dispatch-server update`
-- Service management: `bin/dispatch-server start|stop|restart|status|logs|build`
-- Production runtime note: the launchd/systemd service runs the compiled Bun binary, so Node/npx is not required on the host just to run Dispatch.
+- Service management on Linux: `systemctl --user status|restart|stop dispatch-server` and `journalctl --user -u dispatch-server`
+- Production runtime note: the service runs the compiled Bun binary, so Node/npx is not required on the host just to run Dispatch.
 
 ## Docs
 
-User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, templates and jobs, worktrees, reviewers, status events, media, browser feedback, the plugin, notifications, service resources, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
+User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, templates and jobs, worktrees, reviewers, files, browser feedback, the plugin, notifications, service resources, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
 
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
-- [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract
+- [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, host contract
 - [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
-- [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
 - [Theming](docs/14-theming.md) — how to add and customize color themes
 - [Jobs](docs/17-jobs.md) — scheduled/on-demand agent tasks with structured reports
 

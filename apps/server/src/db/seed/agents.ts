@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-import { seedMetadata, seedNow } from "./constants.js";
+import { seedNow } from "./constants.js";
 
 type AgentStatus =
   | "creating"
@@ -9,8 +9,7 @@ type AgentStatus =
   | "stopped"
   | "archiving"
   | "error";
-type AgentType = "codex" | "claude" | "opencode";
-type LatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
+type AgentType = "codex" | "claude";
 type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 type ArchivePhase =
   | "stopping"
@@ -18,28 +17,6 @@ type ArchivePhase =
   | "worktree-cleanup"
   | "finalizing"
   | null;
-
-type AgentPin = {
-  // Pins need a stable ID: the shortcut run endpoint addresses them by it, so
-  // a seeded pin without one renders as a button that does nothing.
-  id: string;
-  label: string;
-  type:
-    | "string"
-    | "url"
-    | "port"
-    | "code"
-    | "pr"
-    | "filename"
-    | "markdown"
-    | "shortcut";
-  value: string;
-  caption?: string;
-  group?: string;
-  icon?: string;
-  variant?: "default" | "primary" | "destructive";
-  confirm?: boolean;
-};
 
 type SeedAgentInput = {
   id: string;
@@ -53,92 +30,10 @@ type SeedAgentInput = {
   setupPhase?: SetupPhase;
   archivePhase?: ArchivePhase;
   lastError?: string | null;
-  latestEvent?: {
-    type: LatestEventType;
-    message: string;
-    ageMinutes: number;
-  } | null;
-  pins?: AgentPin[];
   persona?: string | null;
   parentAgentId?: string | null;
   createdDaysAgo: number;
 };
-
-const allPinTypesSample: AgentPin[] = [
-  {
-    id: "seed-pin-dev-server",
-    label: "Dev Server",
-    type: "url",
-    value: "http://localhost:5173",
-  },
-  {
-    id: "seed-pin-api-port",
-    label: "API Port",
-    type: "port",
-    value: "6767, 5432",
-  },
-  {
-    id: "seed-pin-draft-pr",
-    label: "Draft PR",
-    type: "pr",
-    value: "https://github.com/example/dispatch/pull/1234",
-  },
-  {
-    id: "seed-pin-primary-file",
-    label: "Primary File",
-    type: "filename",
-    value: "apps/web/src/components/AgentSidebar.tsx",
-  },
-  {
-    id: "seed-pin-simulator-udid",
-    label: "Simulator UDID",
-    type: "code",
-    value: "7A9F33E2-1234-ABCD-EF00-0123456789AB",
-  },
-  {
-    id: "seed-pin-decision",
-    label: "Decision",
-    type: "string",
-    value: "Going with shadcn Sheet for the mobile slide-over",
-  },
-  {
-    id: "seed-pin-summary",
-    label: "Summary",
-    type: "markdown",
-    value:
-      "- Wired migration + seed\n- Covered all agent states\n- Jobs disabled by default",
-  },
-  {
-    id: "seed-pin-work-sse",
-    label: "Work on sse-reconnect",
-    type: "shortcut",
-    variant: "primary",
-    icon: "rocket",
-    group: "Ready to build",
-    value: "work on sse-eventsource-reconnect",
-    caption: "**High priority** · idea since Aug 4",
-  },
-  {
-    id: "seed-pin-rerun-e2e",
-    label: "Re-run E2E suite",
-    type: "shortcut",
-    icon: "refresh",
-    group: "Ready to build",
-    value: "Re-run the full Playwright suite and report failures.",
-    caption: "Last run touched `e2e/media-sidebar.spec.ts`",
-  },
-  {
-    id: "seed-pin-reset-db",
-    label: "Reset the dev database",
-    type: "shortcut",
-    variant: "destructive",
-    icon: "trash",
-    confirm: true,
-    group: "Housekeeping",
-    value: "Drop and reseed the dev database, then confirm migrations applied.",
-    caption: "*Destructive* · wipes local seed data",
-  },
-];
 
 function ago(now: Date, minutes: number): Date {
   return new Date(now.getTime() - minutes * 60 * 1000);
@@ -149,7 +44,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
   const demoCwd = "/tmp/dispatch-demo";
 
   const agents: SeedAgentInput[] = [
-    // Simple agent — no feedback, no reviews. Base branch set.
+    // Simple agent. Base branch set.
     {
       id: "seed-agent-running-main",
       name: "theme polish",
@@ -159,28 +54,9 @@ export async function seedAgents(client: PoolClient): Promise<void> {
       baseBranch: "main",
       worktreePath: "/tmp/dispatch-demo/.dispatch/worktrees/seed-theme-polish",
       worktreeBranch: "seed/theme-polish",
-      latestEvent: {
-        type: "working",
-        message: "Tweaking sidebar spacing",
-        ageMinutes: 2,
-      },
-      pins: [
-        {
-          id: "seed-pin-theme-dev-server",
-          label: "Dev Server",
-          type: "url",
-          value: "http://localhost:5173",
-        },
-        {
-          id: "seed-pin-theme-primary-file",
-          label: "Primary File",
-          type: "filename",
-          value: "apps/web/src/components/layout/Sidebar.tsx",
-        },
-      ],
       createdDaysAgo: 1,
     },
-    // Rich agent — has persona review + feedback + media + all 7 pin types. Base branch set.
+    // Rich agent — has files. Base branch set.
     {
       id: "seed-agent-running-feature",
       name: "add activity heatmap",
@@ -190,37 +66,26 @@ export async function seedAgents(client: PoolClient): Promise<void> {
       worktreePath: "/tmp/dispatch-demo/.dispatch/worktrees/seed-feature",
       worktreeBranch: "seed/activity-heatmap",
       baseBranch: "main",
-      latestEvent: {
-        type: "working",
-        message: "Wiring hourly breakdown",
-        ageMinutes: 12,
-      },
-      pins: allPinTypesSample, // coverage of every pin type
       createdDaysAgo: 2,
     },
   ];
 
   for (const agent of agents) {
     const created = ago(now, agent.createdDaysAgo * 24 * 60);
-    const latestEventUpdatedAt = agent.latestEvent
-      ? ago(now, agent.latestEvent.ageMinutes)
-      : null;
     await client.query(
       `
       INSERT INTO agents (
-        id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access,
+        id, name, type, status, cwd, files_dir, agent_args, full_access,
         setup_phase, archive_phase, last_error,
         persona, parent_agent_id, persona_context,
         worktree_path, worktree_branch, base_branch,
-        latest_event_type, latest_event_message, latest_event_metadata, latest_event_updated_at,
-        pins, created_at, updated_at
+        created_at, updated_at
       ) VALUES (
-        $1,$2,$3,$4,$5,NULL,NULL,'[]'::jsonb,false,
+        $1,$2,$3,$4,$5,NULL,'[]'::jsonb,false,
         $6,$7,$8,
         $9,$10,NULL,
         $11,$12,$13,
-        $14,$15,$16::jsonb,$17,
-        $18::jsonb,$19,$19
+        $14,$14
       )
       `,
       [
@@ -237,11 +102,6 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         agent.worktreePath ?? null,
         agent.worktreeBranch ?? null,
         agent.baseBranch ?? null,
-        agent.latestEvent?.type ?? null,
-        agent.latestEvent?.message ?? null,
-        agent.latestEvent ? seedMetadata() : null,
-        latestEventUpdatedAt,
-        JSON.stringify(agent.pins ?? []),
         created,
       ]
     );

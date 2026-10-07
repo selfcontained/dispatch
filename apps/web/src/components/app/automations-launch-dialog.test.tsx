@@ -43,7 +43,7 @@ function makeTemplate(overrides: Partial<Template> = {}): Template {
     branchName: null,
     fullAccess: false,
     callable: false,
-    allowMedia: false,
+    allowFiles: false,
     selfImprove: false,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
@@ -60,10 +60,9 @@ function makeAgent(id: string): Agent {
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: `dispatch-${id}`,
     agentArgs: [],
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     model: null,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
@@ -90,11 +89,9 @@ async function renderDialog(template: Template) {
       </MemoryRouter>
     </QueryClientProvider>
   );
-  if (template.agentType !== "terminal") {
-    // The launch payload only carries a model once the catalog has arrived, so
-    // every test starts from the settled state the user actually sees.
-    await waitFor(() => expect(modelSelect().disabled).toBe(false));
-  }
+  // The launch payload only carries a model once the catalog has arrived, so
+  // every test starts from the settled state the user actually sees.
+  await waitFor(() => expect(modelSelect().disabled).toBe(false));
   return { onOpenChange };
 }
 
@@ -435,32 +432,10 @@ describe("launch outcome", () => {
   });
 });
 
-describe("terminal templates", () => {
-  it("hides agent type and media affordances and launches as terminal", async () => {
+describe("file attachments", () => {
+  it("ignores drops when the template does not allow files", async () => {
     queueLaunchedAgent("agt_new");
-    await renderDialog(
-      makeTemplate({ agentType: "terminal", allowMedia: true })
-    );
-
-    expect(
-      screen.getByText("This will open a terminal session in /repo.")
-    ).toBeTruthy();
-    expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.queryByTestId("launch-template-model")).toBeNull();
-    // allowMedia is true, but terminal launches have nowhere to route media.
-    expect(screen.queryByText("Add files or links")).toBeNull();
-
-    fireEvent.click(launchButton());
-
-    await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "terminal" });
-  });
-});
-
-describe("media attachments", () => {
-  it("ignores drops when the template does not allow media", async () => {
-    queueLaunchedAgent("agt_new");
-    await renderDialog(makeTemplate({ allowMedia: false }));
+    await renderDialog(makeTemplate({ allowFiles: false }));
 
     expect(screen.queryByText("Add files or links")).toBeNull();
     dropFiles(dialogForm(), [file("shot.png", "image/png")]);
@@ -474,9 +449,9 @@ describe("media attachments", () => {
   });
 
   it("arms the drop zone only for file drags", async () => {
-    await renderDialog(makeTemplate({ allowMedia: true }));
+    await renderDialog(makeTemplate({ allowFiles: true }));
 
-    // Positive control for the empty-state copy the media-gating tests
+    // Positive control for the empty-state copy the files-gating tests
     // assert absent — if this copy drifts, those absence checks go vacuous.
     expect(screen.getByText("Add files or links")).toBeTruthy();
 
@@ -495,7 +470,7 @@ describe("media attachments", () => {
     queueLaunchedAgent("agt_new");
     await renderDialog(
       makeTemplate({
-        allowMedia: true,
+        allowFiles: true,
         model: "sonnet",
         prompt: "Ship {{D:Tag|required}}",
       })
@@ -540,7 +515,7 @@ describe("media attachments", () => {
 
   it("sends an empty model field when multipart launches use the CLI default", async () => {
     queueLaunchedAgent("agt_new");
-    await renderDialog(makeTemplate({ allowMedia: true }));
+    await renderDialog(makeTemplate({ allowFiles: true }));
 
     dropFiles(dialogForm(), [file("shot.png", "image/png")]);
     fireEvent.click(launchButton());
@@ -553,7 +528,7 @@ describe("media attachments", () => {
 
   it("keeps a removed file out of the payload", async () => {
     queueLaunchedAgent("agt_new");
-    await renderDialog(makeTemplate({ allowMedia: true }));
+    await renderDialog(makeTemplate({ allowFiles: true }));
 
     dropFiles(dialogForm(), [
       file("shot.png", "image/png"),

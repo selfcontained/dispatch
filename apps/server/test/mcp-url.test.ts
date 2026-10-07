@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { dispatchMcpUrl } from "../src/agents/tmux/mcp-url.js";
+import { dispatchMcpUrl } from "../src/agents/acp/mcp-url.js";
 import type { AppConfig } from "../src/config.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -9,14 +9,13 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     port: 6767,
     databaseUrl: "",
     authToken: "",
-    mediaRoot: "",
+    filesRoot: "",
     dispatchBinDir: "",
     codexBin: "",
     claudeBin: "",
     opencodeBin: "",
-    cursorBin: "",
-    agentRuntime: "tmux",
-    sessionPrefix: "dispatch",
+    agentStateRoot: "",
+    agentRuntime: "acp",
     tls: null,
     ...overrides,
   };

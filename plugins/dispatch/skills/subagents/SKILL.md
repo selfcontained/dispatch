@@ -15,16 +15,16 @@ That difference decides when delegation is worth it:
   that needs its own branch or worktree; a long-running background task; a
   genuinely separate perspective on what you just built.
 - **Not worth it:** anything you could finish faster yourself. A launch costs a
-  full CLI startup, and the child starts with none of your context — everything
+  separate ACP session, and the child starts with none of your context — everything
   it needs has to be written into the prompt.
 
-For _review_ specifically, launch a persona rather than a plain agent — see the
-`review-workflow` and `personas` skills.
+For _review_ specifically, launch with `persona: <slug>` rather than a plain
+agent — see the `review-workflow` and `personas` skills.
 
 ## Launching
 
 ```
-dispatch_launch_agent  prompt, ... (see the tool schema for the full option set)
+launch_agent  prompt, ... (see the tool schema for the full option set)
 ```
 
 The prompt is the child's entire world. Write it as a standalone briefing:
@@ -39,13 +39,24 @@ The prompt is the child's entire world. Write it as a standalone briefing:
 If a template already captures this launch configuration, launch from it instead
 of retyping the prompt — see the `templates` skill.
 
+### Choosing a type
+
+`type` defaults to your own, and that is usually the type closest to its limit:
+subscription quotas are shared by every agent on the same provider login, so a
+fan-out on one type can stall all of it at once. Call `get_usage` before
+launching — its `summary` says whether any type is low or exhausted and names
+the one to prefer (`suggestedType`); pass that as `type`. When every type is
+fine, or nothing reports usage, the default is as good as any. If every reported
+type is low, say so to the user before launching rather than queueing work that
+cannot run.
+
 By default the new agent is your child: it renders inside your card in the
 sidebar, and archiving it is yours to do. `child: false` launches an independent
 agent instead — same inherited directory, type, and access level, still yours to
 message and archive, but outside your lineage and owning a top-level card.
 
 Nesting stops at one level. If you were launched as a child yourself, you cannot
-launch children or persona reviews at all; `child: false` is the only launch
+launch children at all, personas included; `child: false` is the only launch
 available to you. Reach for it when the work you are handing off is substantial
 enough to deserve its own card, or when you need a reviewer and cannot launch
 one.
@@ -56,7 +67,7 @@ one.
 list_agents           — who exists, their IDs, names, statuses, latest activity,
                         plus parentAgentId and relation (child, descendant, …),
                         and launchedByAgentId when that is not the parent
-dispatch_send_message target, message
+post to: <agentId>, text   — a message delivered to that agent as a prompt
 ```
 
 The list is not flat. Each entry names the agent it is a child of, so a
@@ -71,24 +82,32 @@ Lineage is keyed by agent ID. Agents rename themselves as their work shifts, so
 a name is a label for reading, not a handle for remembering — build the tree
 from `parentAgentId`, and hold on to the ID of anyone you plan to contact later.
 
-`dispatch_send_message` injects a message directly into the target's session, and
-it can reply the same way. `target` accepts an agent ID (`agt_…`) or a name, which
-is fuzzy-matched. A remembered name can drift onto a different agent or match
-nothing at all, so prefer the ID whenever you have it. **It only works for agents
-that are currently running** — a message to a stopped agent goes nowhere, so
-check `list_agents` when a send fails rather than assuming it was delivered.
+`post` with `to: <agentId>` delivers the block to that agent as a prompt, and
+it can reply the same way — its reply arrives as a DISPATCH POST naming the
+sender, and `replyTo` keeps an exchange in one thread. The user sees the traffic
+in the stream. `to` takes an agent ID (`agt_…`); names drift as agents rename
+themselves, so hold on to the ID. A successful `post` records the block; it
+does not prove the recipient picked it up or answered. A stopped agent cannot
+consume a prompt until its session is available. Inspect `list_agents` when
+diagnosing a delivery problem, rather than repeatedly polling for a result.
+
+Finish independent work after delegating, then end the turn if the next step
+depends on the result. The child reports back with `post` and `to`, which arrives
+as a new prompt; do not keep a turn alive by sleeping or polling. Reply to
+another agent only when it asks for one. Sending a message does not cancel a
+running tool, and progress from a child is not proof that its task is complete.
 
 Messaging is for coordination, not for streaming progress. A parent that wants a
 start and an end does not want twelve interim pings; fold the detail into the
 final report.
 
-Artifacts do not travel by message. A child's shared media and pins are readable
-from the parent with `ownerAgentId` on `dispatch_list_media` / `dispatch_list_pins`,
-and the parent's are readable from the child the same way — so a child shares a
-screenshot with `dispatch_share_file` and says so, rather than pasting the path,
-and reads the parent's pinned dev URL rather than asking for it. The user sees a
-child's media and pins grouped under the parent's card already; re-sharing them
-from the parent only duplicates the file.
+Artifacts do not travel by message. A child's shared files is readable from the
+parent with `ownerAgentId` on `list_files`, and the parent's from the child the
+same way — so a child posts a screenshot as a file attachment and says so,
+rather than pasting the path. A child's posts land in the parent's stream
+already, and the parent's links and PRs are in that same stream, so neither side
+needs to relay a URL. Re-posting a child's file from the parent only duplicates
+it.
 
 For results that need to outlive either session — a finding, a decision, an
 accumulating list — write to the brain instead of messaging it. See the `brain`
@@ -97,7 +116,7 @@ skill.
 ## Cleaning up
 
 ```
-dispatch_archive_agent  agentId
+archive_agent  agentId
 ```
 
 Archive a child once you have consumed its output. This is scoped to agents you

@@ -1,0 +1,342 @@
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
+// Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
+//
+// PromptKit's renderer registry is a React context the host fills in.
+// Dispatch has one host and one harness, so the registry is a module: the
+// step kinds the server emits map to a label, a one-line summary and a
+// "has anything to expand" check here, and to a detail body in
+// step-detail.tsx.
+import { diffLines } from "./diff-block";
+
+import type { Step } from "./contracts";
+
+/** What the server puts on a step's `detail` (see harness-types.ts). */
+export type StepDetailData = {
+  toolKind?: string;
+  locations?: { path: string; line?: number }[];
+  diff?: { path: string; oldText: string | null; newText: string } | null;
+  terminalOutput?: string | null;
+  truncated?: boolean;
+  /** The tool call's raw input, as the engine sent it. */
+  input?: unknown;
+  text?: string;
+  /** A setup step's aside is a path: clip it from the left, not the right. */
+  clipStart?: boolean;
+  /** A nested call: the toolCallId of the step it runs under. */
+  parentToolCallId?: string;
+  /** A notice step: info | warning | error. */
+  severity?: string;
+};
+
+const LABELS: Record<string, string> = {
+  execute: "run",
+  edit: "edit",
+  read: "read",
+  search: "search",
+  fetch: "fetch",
+  think: "thinking",
+  note: "",
+  /** A workspace setup phase; its own label always says which. */
+  setup: "setup",
+  /** An engine advisory; its own label is the notice's title. */
+  notice: "notice",
+  compaction: "compacting context",
+};
+
+/** Steps the engine reports about the session rather than tools it ran. */
+const SESSION_KINDS = ["think", "note", "notice", "compaction"];
+
+const SUMMARY_MAX = 96;
+
+export function kindLabel(kind: string): string {
+  return LABELS[kind] ?? kind;
+}
+
+export function stepDetailData(step: Step): StepDetailData {
+  return (step.detail ?? {}) as StepDetailData;
+}
+
+export function basename(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
+
+/** `mcp__dispatch__pin` → { name: "pin", server: "dispatch" }. */
+export function toolName(title: string): { name: string; server?: string } {
+  const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(title);
+  return m ? { name: m[2], server: m[1] } : { name: title };
+}
+
+/** The tool's own name, lowercased, without its MCP server prefix. */
+export function stepToolName(step: Step): string {
+  const title = step.label?.trim();
+  return title ? toolName(title).name.toLowerCase() : "";
+}
+
+export type TodoItem = {
+  content: string;
+  /** pending | in_progress | completed */
+  status: string;
+};
+
+/** Whether steps ran under this one (a subagent's work). */
+export function hasChildren(step: Step): boolean {
+  return (step.children?.length ?? 0) > 0;
+}
+
+/** The row's label: the tool's own name, or the kind when there is none. */
+export function stepLabel(step: Step): string {
+  const title = step.label?.trim();
+  if (!title) return kindLabel(step.kind);
+  return toolName(title).name.toLowerCase();
+}
+
+/** Flatten nested work so an active child cannot be hidden by its parent. */
+function activitySteps(steps: Step[]): Step[] {
+  return steps.flatMap((step) => [step, ...activitySteps(step.children ?? [])]);
+}
+
+function latestStep(steps: Step[]): Step | undefined {
+  return steps.reduce<Step | undefined>(
+    (latest, step) =>
+      !latest ||
+      (step.updatedAt ?? step.endedAt ?? step.startedAt) >=
+        (latest.updatedAt ?? latest.endedAt ?? latest.startedAt)
+        ? step
+        : latest,
+    undefined
+  );
+}
+
+/** Latest reported execution, with other concurrent executions kept visible. */
+export function activeStepLabel(steps: Step[]): string | undefined {
+  const running = activitySteps(steps).filter(
+    (step) => step.status === "running"
+  );
+  const latest = latestStep(running);
+  return latest
+    ? `${stepLabel(latest)}${running.length > 1 ? ` + ${running.length - 1} other active` : ""}`
+    : undefined;
+}
+
+/** Pending input is preparation, and only describes current work when latest. */
+export function runningTurnVerb(
+  steps: Step[],
+  _label?: string,
+  lastProgressAt?: number
+): string {
+  const active = activeStepLabel(steps);
+  if (active) return active;
+  const latest = latestStep(activitySteps(steps));
+  return latest?.status === "pending" &&
+    (lastProgressAt === undefined ||
+      lastProgressAt <= (latest.updatedAt ?? latest.startedAt))
+    ? `preparing ${stepLabel(latest)}`
+    : "thinking";
+}
+
+/** The tool's input as a record, when it is one. */
+export function inputRecord(input: unknown): Record<string, unknown> | null {
+  return typeof input === "object" && input !== null && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : null;
+}
+
+function clip(text: string, max = SUMMARY_MAX): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+function primitiveEntries(record: Record<string, unknown>): [string, string][] {
+  const out: [string, string][] = [];
+  for (const [k, v] of Object.entries(record)) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === "object") continue;
+    out.push([k, String(v)]);
+  }
+  return out;
+}
+
+/** A one-line "k: v · k: v" digest of a tool's primitive arguments. */
+export function argsSummary(input: unknown): string | undefined {
+  const record = inputRecord(input);
+  if (!record) return undefined;
+  const parts = primitiveEntries(record).map(
+    ([k, v]) => `${k}: ${clip(v, 40)}`
+  );
+  return parts.length ? clip(parts.join(" · ")) : undefined;
+}
+
+/**
+ * Edit summaries by the detail object they were computed from. The line
+ * diff behind one is O(old x new) and `stepSummary` runs on the render
+ * path, so a settled edit step would re-diff on every refetch while a turn
+ * streams. The key is the detail object React Query hands back, which its
+ * structural sharing keeps stable while the payload is unchanged, and the
+ * map is weak so a turn scrolled out of the window takes its entries along.
+ */
+const editSummaries = new WeakMap<object, string>();
+
+/** The one-line summary after a settled step's label; undefined for none. */
+export function stepSummary(step: Step): string | undefined {
+  const d = stepDetailData(step);
+  const input = inputRecord(d.input);
+  switch (step.kind) {
+    case "execute": {
+      const command = input?.command ?? input?.cmd;
+      return typeof command === "string" ? clip(command) : undefined;
+    }
+    case "edit": {
+      if (!d.diff) {
+        return d.locations?.[0] ? basename(d.locations[0].path) : undefined;
+      }
+      const cached = editSummaries.get(d);
+      if (cached !== undefined) return cached;
+      const lines = diffLines(d.diff.oldText, d.diff.newText);
+      const add = lines.filter((l) => l.kind === "add").length;
+      const del = lines.filter((l) => l.kind === "del").length;
+      const summary = `${basename(d.diff.path)} +${add} −${del}`;
+      editSummaries.set(d, summary);
+      return summary;
+    }
+    case "read": {
+      const loc = d.locations?.[0];
+      if (!loc) return undefined;
+      return `${basename(loc.path)}${loc.line ? `:${loc.line}` : ""}`;
+    }
+    case "search": {
+      const pattern = input?.pattern ?? input?.query ?? input?.regex;
+      if (typeof pattern === "string") return clip(pattern);
+      const n = d.locations?.length ?? 0;
+      return n ? `${n} location${n === 1 ? "" : "s"}` : undefined;
+    }
+    case "fetch": {
+      const url = input?.url;
+      return typeof url === "string" ? clip(url) : undefined;
+    }
+    case "think":
+    case "note":
+    case "compaction":
+      return undefined;
+    case "notice": {
+      const text = d.text?.replace(/\s+/g, " ").trim();
+      return text ? clip(text) : undefined;
+    }
+    // A setup step carries its own aside: the worktree it made, or why it
+    // failed. There is nothing to unfold under it, so the row itself clips
+    // the aside to whatever room it has rather than a count of characters.
+    case "setup": {
+      const text = d.text?.replace(/\s+/g, " ").trim();
+      return text || undefined;
+    }
+    default:
+      return argsSummary(d.input);
+  }
+}
+
+/** A read tool may wrap its output as <path>…</path><type>…</type><content>…</content>. */
+export function unwrapReadOutput(output: string): string {
+  const m = /<content>\n?([\s\S]*?)(?:<\/content>\s*)?$/.exec(output);
+  return m ? m[1] : output;
+}
+
+/**
+ * A short account of a turn from its steps, for a turn the agent did not
+ * describe itself: the most consequential kind wins, with a count or the
+ * one file or command it touched.
+ */
+export function turnLabelFromSteps(steps: Step[]): string | undefined {
+  const of = (kind: string) => steps.filter((s) => s.kind === kind);
+  const files = (list: Step[]) => {
+    const names = new Set<string>();
+    for (const s of list) {
+      const d = stepDetailData(s);
+      const path = d.diff?.path ?? d.locations?.[0]?.path;
+      if (path) names.add(basename(path));
+    }
+    return [...names];
+  };
+  const edits = of("edit");
+  if (edits.length) {
+    const names = files(edits);
+    return names.length === 1
+      ? `edited ${names[0]}`
+      : `edited ${names.length || edits.length} files`;
+  }
+  const runs = of("execute");
+  if (runs.length) {
+    if (runs.length === 1) {
+      const input = inputRecord(stepDetailData(runs[0]).input);
+      const command = input?.command ?? input?.cmd;
+      if (typeof command === "string") return `ran ${clip(command, 40)}`;
+    }
+    return `ran ${runs.length} command${runs.length === 1 ? "" : "s"}`;
+  }
+  const reads = of("read");
+  const searches = of("search");
+  if (reads.length || searches.length) {
+    const names = files(reads);
+    if (reads.length === 1 && names.length === 1) return `read ${names[0]}`;
+    if (reads.length) return `read ${names.length || reads.length} files`;
+    return `searched ${searches.length === 1 ? "once" : `${searches.length} times`}`;
+  }
+  const fetches = of("fetch");
+  if (fetches.length)
+    return `fetched ${fetches.length} page${fetches.length === 1 ? "" : "s"}`;
+  const tools = steps.filter((s) => !SESSION_KINDS.includes(s.kind) && s.label);
+  if (tools.length === 1) return toolName(tools[0].label ?? "").name;
+  if (tools.length > 1) return `${tools.length} tool calls`;
+  const compaction = of("compaction").pop();
+  if (compaction?.label) return compaction.label;
+  if (steps.some((s) => s.kind === "think")) return "thought it over";
+  return undefined;
+}
+
+/** Whether the tool's input carries anything worth showing. */
+export function hasInput(step: Step): boolean {
+  const record = inputRecord(stepDetailData(step).input);
+  return !!record && Object.keys(record).length > 0;
+}
+
+/**
+ * Whether expanding the step would show anything at all. A step still
+ * running has no output yet, so what it was asked to do (the command,
+ * the arguments, the paths) is its body until the result lands. This is
+ * the one place that rule lives; `DetailBody` asks the same question.
+ */
+export function hasDetail(step: Step): boolean {
+  return (
+    ((step.status === "running" || step.status === "pending") &&
+      hasInput(step)) ||
+    hasSettledDetail(step)
+  );
+}
+
+/** Whether the step has a result-side body: output, a diff, locations, text. */
+export function hasSettledDetail(step: Step): boolean {
+  if (hasChildren(step)) return true;
+  const d = stepDetailData(step);
+  const input = inputRecord(d.input);
+  const output = !!d.terminalOutput?.trim();
+  const locations = (d.locations?.length ?? 0) > 0;
+  switch (step.kind) {
+    case "execute":
+      return output || typeof (input?.command ?? input?.cmd) === "string";
+    case "edit":
+      return !!d.diff || locations;
+    case "read":
+    case "search":
+    case "fetch":
+      return output || locations;
+    case "think":
+    case "note":
+    case "notice":
+    case "compaction":
+      return !!d.text?.trim();
+    case "setup":
+      return false;
+    default: {
+      const record = inputRecord(d.input);
+      return output || (!!record && Object.keys(record).length > 0);
+    }
+  }
+}

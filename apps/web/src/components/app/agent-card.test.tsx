@@ -13,8 +13,15 @@ import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { StreamEntry } from "@dispatch/shared";
+
 import type { Agent } from "@/components/app/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+import {
+  recordTurnLabel,
+  refreshTurnLabels,
+} from "@/hooks/use-agent-turn-label";
 
 import { AgentCard, type AgentCardProps } from "./agent-card";
 
@@ -77,11 +84,10 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     cwd: "/repo/app",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: `dispatch-${AGENT_ID}`,
     agentArgs: [],
     model: null,
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
     ...overrides,
@@ -95,9 +101,63 @@ function makeChild(overrides: Partial<Agent> = {}): Agent {
     persona: "security-review",
     parentAgentId: AGENT_ID,
     role: "review",
-    tmuxSession: "dispatch-agt_child",
     ...overrides,
   });
+}
+
+/** A `stream.entry` for one of this agent's turns that ran one command. */
+function turnEntry({
+  settled,
+  running = false,
+  blockId = "blk_turn",
+}: {
+  settled: boolean;
+  running?: boolean;
+  blockId?: string;
+}): StreamEntry {
+  const at = "2026-07-15T12:00:00.000Z";
+  return {
+    type: "block",
+    id: blockId,
+    at,
+    block: {
+      id: blockId,
+      streamId: AGENT_ID,
+      threadId: null,
+      author: { kind: "agent", agentId: AGENT_ID },
+      toAgentId: null,
+      kind: "text",
+      text: "",
+      origin: "turn",
+      attachments: [],
+      createdAt: at,
+      updatedAt: at,
+      turn: {
+        type: "turn",
+        id: "turn_1",
+        agentId: AGENT_ID,
+        at,
+        updatedAt: at,
+        prompt: { text: "go" },
+        trace: {
+          startedAt: at,
+          steps: [
+            {
+              id: "s1",
+              kind: "execute",
+              label: "Bash",
+              status: running ? "running" : "ok",
+              startedAt: at,
+              detail: { input: { command: "pnpm test" } },
+            },
+          ],
+        },
+        result: null,
+        settled,
+        interrupted: false,
+      },
+    },
+  } as unknown as StreamEntry;
 }
 
 function wrap(client: QueryClient, node: ReactElement): ReactElement {
@@ -126,15 +186,14 @@ function baseProps(agent: Agent): AgentCardProps {
     borderForAgentState: (state) => `border-state-${state}`,
     toggleAgentDetails: vi.fn(),
     isFullAccessEnabled: (a) => a.fullAccess,
-    detachTerminal: vi.fn(),
-    attachToAgent: vi.fn().mockResolvedValue(undefined),
+    closeAgent: vi.fn(),
+    openAgent: vi.fn().mockResolvedValue(undefined),
     startAgent: vi.fn().mockResolvedValue(undefined),
-    openSubmittedReview: vi.fn(),
     setDeleteTarget: vi.fn(),
     setDeleteConfirmOpen: vi.fn(),
     setStopTarget: vi.fn(),
     setStopConfirmOpen: vi.fn(),
-    enabledAgentTypes: ["claude", "codex", "terminal"],
+    enabledAgentTypes: ["claude", "codex"],
     enabledIdes: ["vscode"],
   };
 }
@@ -234,13 +293,14 @@ describe("AgentCard state and selection", () => {
     expect(card().className).toContain("bg-muted/60");
   });
 
-  it("dims stopped cards and offers resume instead of attaching on row click", () => {
+  it("dims stopped cards, still opens their Chat on row click, and offers resume", () => {
     const { props } = renderCard({ agent: makeAgent({ status: "stopped" }) });
 
     expect(card().className).toContain("opacity-60");
 
+    // A stopped agent's Chat history stays readable.
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
-    expect(props.attachToAgent).not.toHaveBeenCalled();
+    expect(props.openAgent).toHaveBeenCalledWith(props.agent);
 
     fireEvent.click(screen.getByRole("button", { name: "Resume session" }));
     expect(props.startAgent).toHaveBeenCalledWith(props.agent);
@@ -252,14 +312,14 @@ describe("AgentCardHeader wiring", () => {
     const { props, rerender } = renderCard();
 
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
-    expect(props.attachToAgent).toHaveBeenCalledWith(props.agent);
-    expect(props.detachTerminal).not.toHaveBeenCalled();
+    expect(props.openAgent).toHaveBeenCalledWith(props.agent);
+    expect(props.closeAgent).not.toHaveBeenCalled();
 
     rerender({ connectedAgentId: AGENT_ID, expandedAgentId: AGENT_ID });
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
-    expect(props.detachTerminal).toHaveBeenCalledTimes(1);
+    expect(props.closeAgent).toHaveBeenCalledTimes(1);
     expect(props.toggleAgentDetails).toHaveBeenCalledWith(AGENT_ID);
-    expect(props.attachToAgent).toHaveBeenCalledTimes(1);
+    expect(props.openAgent).toHaveBeenCalledTimes(1);
   });
 
   it("does not attach when the click lands on a control inside the row", () => {
@@ -268,7 +328,7 @@ describe("AgentCardHeader wiring", () => {
     fireEvent.click(screen.getByTestId(`agent-expand-toggle-${AGENT_ID}`));
 
     expect(props.toggleAgentDetails).toHaveBeenCalledWith(AGENT_ID);
-    expect(props.attachToAgent).not.toHaveBeenCalled();
+    expect(props.openAgent).not.toHaveBeenCalled();
   });
 
   it("detaches a connected child when the card is collapsed", () => {
@@ -281,7 +341,7 @@ describe("AgentCardHeader wiring", () => {
 
     fireEvent.click(screen.getByTestId(`agent-expand-toggle-${AGENT_ID}`));
 
-    expect(props.detachTerminal).toHaveBeenCalledTimes(1);
+    expect(props.closeAgent).toHaveBeenCalledTimes(1);
     expect(props.toggleAgentDetails).toHaveBeenCalledWith(AGENT_ID);
   });
 
@@ -320,7 +380,6 @@ describe("AgentCardHeader wiring", () => {
       "a persona agent",
       makeAgent({ name: "agent-parent", persona: "security-review" }),
     ],
-    ["a terminal agent", makeAgent({ name: "agent-parent", type: "terminal" })],
   ])("hides the rename prompt for %s", (_label, agent) => {
     renderCard({ agent });
     expect(screen.queryByTestId(`agent-prompt-rename-${AGENT_ID}`)).toBeNull();
@@ -337,6 +396,30 @@ describe("AgentCardHeader wiring", () => {
 
     rerender({
       agent: makeAgent({
+        status: "running",
+        lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
+        reconnect: {
+          phase: "waiting",
+          nextRetryAt: new Date(Date.now() + 30_000).toISOString(),
+        },
+      }),
+    });
+    expect(screen.queryByText("Attention")).toBeNull();
+    expect(screen.getByText("Reconnecting")).toBeTruthy();
+    expect(screen.getByText(/Next try in \d+s/)).toBeTruthy();
+    expect(screen.queryByText("Last error")).toBeNull();
+
+    rerender({
+      agent: makeAgent({
+        status: "running",
+        lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
+        reconnect: { phase: "trying", nextRetryAt: null },
+      }),
+    });
+    expect(screen.getByText("Trying now")).toBeTruthy();
+
+    rerender({
+      agent: makeAgent({
         name: "job-nightly",
         jobRun: {
           continuationEnabled: false,
@@ -347,10 +430,6 @@ describe("AgentCardHeader wiring", () => {
     });
     expect(screen.getByText("Job")).toBeTruthy();
     expect(screen.queryByText("Attention")).toBeNull();
-
-    rerender({ agent: makeAgent({ role: "assisted_update" }) });
-    expect(screen.getByText("Update")).toBeTruthy();
-    expect(screen.queryByText("Job")).toBeNull();
   });
 
   it("labels loop-job agents and describes their iteration cap", async () => {
@@ -388,17 +467,18 @@ describe("AgentCardHeader wiring", () => {
 });
 
 describe("AgentCardStatus wiring", () => {
-  it("shows the setup phase while creating and the archive phase while archiving", () => {
+  function activity(): HTMLElement | null {
+    return screen.queryByTestId(`agent-activity-${AGENT_ID}`);
+  }
+
+  it("shows lifecycle progress while setting up and archiving", () => {
     const { rerender } = renderCard({
       agent: makeAgent({ status: "creating", setupPhase: "deps" }),
     });
-    expect(screen.getByText("Installing dependencies…")).toBeTruthy();
-
-    // A creating agent with no phase yet reports nothing at all — the generic
-    // "Setting up…" fallback is unreachable through the current setupPhase type.
-    rerender({ agent: makeAgent({ status: "creating", setupPhase: null }) });
+    expect(screen.getByText("Starting…")).toBeTruthy();
+    expect(activity()).toBeNull();
+    // The phase detail lives in the stream's workspace block, not here.
     expect(screen.queryByText("Installing dependencies…")).toBeNull();
-    expect(screen.queryByText("Setting up…")).toBeNull();
 
     rerender({
       agent: makeAgent({
@@ -407,48 +487,347 @@ describe("AgentCardStatus wiring", () => {
       }),
     });
     expect(screen.getByText("Removing worktree…")).toBeTruthy();
+    expect(activity()).toBeNull();
 
-    // Archiving without a phase does fall back, unlike setup.
     rerender({ agent: makeAgent({ status: "archiving" }) });
     expect(screen.getByText("Archiving…")).toBeTruthy();
 
     rerender({ agent: makeAgent({ status: "running" }) });
-    expect(screen.queryByText("Removing worktree…")).toBeNull();
     expect(screen.queryByText("Archiving…")).toBeNull();
   });
 
-  it("shows the latest event for CLI agents and the message only when expanded", () => {
-    const agent = makeAgent({
-      latestEvent: {
-        type: "blocked",
-        message: "Waiting on a merge conflict",
-        updatedAt: new Date().toISOString(),
-        metadata: {},
-      },
+  it("shows no turn step when no active turn is reported", () => {
+    const { rerender } = renderCard({
+      agent: makeAgent({ status: "stopped", activity: "stopped" }),
     });
-    const { rerender } = renderCard({ agent });
+    expect(activity()).toBeNull();
 
-    expect(screen.getByText("Blocked")).toBeTruthy();
-    expect(screen.queryByText("Waiting on a merge conflict")).toBeNull();
+    rerender({ agent: makeAgent({ activity: "waiting" }) });
+    expect(activity()).toBeNull();
 
-    rerender({ expandedAgentId: AGENT_ID });
-    expect(screen.getByText("Waiting on a merge conflict")).toBeTruthy();
+    rerender({ agent: makeAgent({ activity: "blocked" }) });
+    expect(activity()).toBeNull();
+
+    rerender({ agent: makeAgent({ activity: "idle" }) });
+    expect(activity()).toBeNull();
   });
 
-  it("suppresses the latest-event line for terminal agents", () => {
-    const latestEvent = {
-      type: "working" as const,
-      message: "Running tests",
-      updatedAt: new Date().toISOString(),
-      metadata: {},
-    };
+  it("keeps the status line's slot when there is nothing to show", () => {
+    // The slot stays mounted (with a minimum height) so the card does not
+    // grow and shrink as turns start and end.
     const { rerender } = renderCard({
-      agent: makeAgent({ type: "terminal", latestEvent }),
+      agent: makeAgent({ activity: "idle" }),
     });
-    expect(screen.queryByText("Working")).toBeNull();
+    const slot = screen.getByTestId(`agent-status-line-${AGENT_ID}`);
+    expect(slot.className).toContain("min-h-4");
+    expect(activity()).toBeNull();
 
-    rerender({ agent: makeAgent({ type: "claude", latestEvent }) });
-    expect(screen.getByText("Working")).toBeTruthy();
+    rerender({ agent: makeAgent({ status: "creating", setupPhase: "deps" }) });
+    expect(
+      screen.getByTestId(`agent-status-line-${AGENT_ID}`).textContent
+    ).toContain("Starting…");
+  });
+
+  it("shows what a running turn is doing, from its stream entry", async () => {
+    const client = new QueryClient();
+    const agent = makeAgent({
+      activity: "working",
+      currentTurn: { blockId: "blk_turn", threadId: null },
+    });
+    const { rerender } = render(
+      wrap(client, <AgentCard {...baseProps(agent)} />)
+    );
+    expect(activity()).toBeNull();
+
+    // React Query batches its notifications on a timer.
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+    expect(
+      activity()?.querySelector('[data-testid="harness-turn-live"]')
+    ).toBeTruthy();
+
+    rerender(
+      wrap(
+        client,
+        <AgentCard {...baseProps({ ...agent, activity: "waiting" })} />
+      )
+    );
+    expect(activity()?.textContent).toMatch(/bash$/);
+
+    rerender(
+      wrap(
+        client,
+        <AgentCard {...baseProps({ ...agent, currentTurn: null })} />
+      )
+    );
+    expect(activity()).toBeNull();
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps({
+            ...agent,
+            currentTurn: { blockId: "another_turn", threadId: null },
+          })}
+        />
+      )
+    );
+    expect(activity()).toBeNull();
+    rerender(wrap(client, <AgentCard {...baseProps(agent)} />));
+    expect(activity()?.textContent).toMatch(/bash$/);
+
+    // Between steps it says what the turn's own summary row says.
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/thinking$/));
+
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: true }));
+    });
+    await waitFor(() => expect(activity()).toBeNull());
+  });
+
+  it("keeps the running turn's step when an older turn is published again", async () => {
+    const client = new QueryClient();
+    const agent = makeAgent({
+      currentTurn: { blockId: "blk_turn", threadId: null },
+    });
+    render(wrap(client, <AgentCard {...baseProps(agent)} />));
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+
+    // A reaction on an earlier turn republishes that turn's row.
+    act(() => {
+      recordTurnLabel(
+        client,
+        turnEntry({ settled: true, blockId: "blk_older" })
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(activity()?.textContent).toMatch(/bash$/);
+  });
+
+  it("leaves a new turn to its stream entry once the stream has reported the agent", async () => {
+    const client = new QueryClient();
+    const agent = makeAgent({
+      currentTurn: { blockId: "blk_old", threadId: null },
+    });
+    const { rerender } = render(
+      wrap(client, <AgentCard {...baseProps(agent)} />)
+    );
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: true, blockId: "blk_old" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    const turnReads = () =>
+      apiMock.mock.calls.filter(([url]) => String(url).endsWith("/turn"))
+        .length;
+    const before = turnReads();
+
+    // The upsert for a new turn lands before the turn's first entry.
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps({
+            ...agent,
+            currentTurn: { blockId: "blk_turn", threadId: null },
+          })}
+        />
+      )
+    );
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+    expect(turnReads()).toBe(before);
+  });
+
+  it("reads a reported agent's turn again after the stream reconnects", async () => {
+    const client = new QueryClient();
+    render(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps(
+            makeAgent({ currentTurn: { blockId: "blk_turn", threadId: null } })
+          )}
+        />
+      )
+    );
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+
+    // Steps ran while the stream was down; the read brings the turn up to date.
+    apiMock.mockImplementation(async (url: string) => {
+      if (url === `/api/v1/agents/${AGENT_ID}/turn`)
+        return { entry: turnEntry({ settled: false }) };
+      if (url.startsWith("/api/v1/personas")) return { personas: [] };
+      if (url.includes("/diff-stats")) return { diffStats: null };
+      return {};
+    });
+    act(() => refreshTurnLabels(client));
+    await waitFor(() => expect(activity()?.textContent).toMatch(/thinking$/));
+  });
+
+  it("still has a long step's label when a row mounts minutes into it", async () => {
+    const client = new QueryClient();
+    // The row is not rendered (a collapsed card) when the step starts.
+    recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+    });
+    render(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps(
+            makeAgent({ currentTurn: { blockId: "blk_turn", threadId: null } })
+          )}
+        />
+      )
+    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+  });
+
+  it("lets go of an agent's labels for turns that are over", () => {
+    const client = new QueryClient();
+    recordTurnLabel(client, turnEntry({ settled: true, blockId: "blk_a" }));
+    recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    recordTurnLabel(
+      client,
+      turnEntry({ settled: false, running: true, blockId: "blk_b" })
+    );
+    const kept = client
+      .getQueryCache()
+      .findAll({ queryKey: ["agent-turn-label", AGENT_ID] })
+      .map((query) => query.queryKey[2]);
+    expect(kept.sort()).toEqual(["blk_b", "blk_turn"]);
+  });
+
+  it("keeps a newer turn it read for when the card catches up", async () => {
+    apiMock.mockImplementation(async (url: string) => {
+      if (url === `/api/v1/agents/${AGENT_ID}/turn`)
+        return {
+          entry: turnEntry({
+            settled: false,
+            running: true,
+            blockId: "blk_new",
+          }),
+        };
+      if (url.startsWith("/api/v1/personas")) return { personas: [] };
+      if (url.includes("/diff-stats")) return { diffStats: null };
+      return {};
+    });
+    const client = new QueryClient();
+    const agent = makeAgent({
+      currentTurn: { blockId: "blk_turn", threadId: null },
+    });
+    const { rerender } = render(
+      wrap(client, <AgentCard {...baseProps(agent)} />)
+    );
+    await waitFor(() =>
+      expect(
+        client.getQueryData(["agent-turn-label", AGENT_ID, "blk_new"])
+      ).toBe("bash")
+    );
+    const turnReads = apiMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/turn")
+    ).length;
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps({
+            ...agent,
+            currentTurn: { blockId: "blk_new", threadId: null },
+          })}
+        />
+      )
+    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+    expect(
+      apiMock.mock.calls.filter(([url]) => String(url).endsWith("/turn")).length
+    ).toBe(turnReads);
+  });
+
+  it("reads a turn already running when the card mounts", async () => {
+    apiMock.mockImplementation(async (url: string) => {
+      if (url === `/api/v1/agents/${AGENT_ID}/turn`)
+        return { entry: turnEntry({ settled: false, running: true }) };
+      if (url.startsWith("/api/v1/personas")) return { personas: [] };
+      if (url.includes("/diff-stats")) return { diffStats: null };
+      return {};
+    });
+    const client = new QueryClient();
+    render(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps(
+            makeAgent({ currentTurn: { blockId: "blk_turn", threadId: null } })
+          )}
+        />
+      )
+    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+  });
+});
+
+describe("AgentCard avatars", () => {
+  it("gives the card the stream's avatar with no number, and sub agents their seats", () => {
+    const first = makeChild({
+      id: "agt_child_1",
+      createdAt: "2026-07-15T12:01:00.000Z",
+    });
+    const second = makeChild({
+      id: "agt_child_2",
+      createdAt: "2026-07-15T12:02:00.000Z",
+    });
+    const parent = makeAgent();
+    renderCard({
+      agent: parent,
+      agents: [parent, second, first],
+      childAgents: [first, second],
+      expandedAgentId: AGENT_ID,
+    });
+
+    const avatar = screen.getByTestId(`agent-avatar-${AGENT_ID}`);
+    expect(avatar.getAttribute("data-seat")).toBeNull();
+    expect(avatar.textContent).toBe("");
+    // Numbered as the stream numbers them: the root is seat 1.
+    expect(
+      screen
+        .getByTestId("child-agent-avatar-agt_child_1")
+        .getAttribute("data-seat")
+    ).toBe("2");
+    expect(
+      screen
+        .getByTestId("child-agent-avatar-agt_child_2")
+        .getAttribute("data-seat")
+    ).toBe("3");
+  });
+
+  it("shows the engine and model in the expanded card", () => {
+    const { rerender } = renderCard({
+      agent: makeAgent({ model: "claude-opus-5-5" }),
+    });
+    expect(screen.queryByText("claude-opus-5-5")).toBeNull();
+
+    rerender({ expandedAgentId: AGENT_ID });
+    expect(screen.getByText("claude-opus-5-5")).toBeTruthy();
+    expect(screen.getByTitle("Engine")).toBeTruthy();
   });
 });
 
@@ -480,7 +859,7 @@ describe("AgentCardDetails wiring", () => {
     expect(screen.getByTitle("/repo/app")).toBeTruthy();
   });
 
-  it("flags full access and falls back to sandboxed, but shows neither for terminals", () => {
+  it("flags full access, and says nothing otherwise", () => {
     const { rerender } = renderCard({
       agent: makeAgent({ fullAccess: true }),
       expandedAgentId: AGENT_ID,
@@ -488,10 +867,6 @@ describe("AgentCardDetails wiring", () => {
     expect(screen.getByText("Full access")).toBeTruthy();
 
     rerender({ agent: makeAgent({ fullAccess: false }) });
-    expect(screen.getByText("Sandboxed")).toBeTruthy();
-    expect(screen.queryByText("Full access")).toBeNull();
-
-    rerender({ agent: makeAgent({ type: "terminal", fullAccess: true }) });
     expect(screen.queryByText("Full access")).toBeNull();
     expect(screen.queryByText("Sandboxed")).toBeNull();
   });
@@ -606,7 +981,10 @@ describe("AgentCardActions and child agents", () => {
 
   it("surfaces the last error inside the expanded card", () => {
     renderCard({
-      agent: makeAgent({ lastError: "worktree checkout failed" }),
+      agent: makeAgent({
+        status: "error",
+        lastError: "worktree checkout failed",
+      }),
       expandedAgentId: AGENT_ID,
     });
 
