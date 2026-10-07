@@ -202,6 +202,11 @@ export function buildPostEnvelope(input: {
     ...(context.length > 0 ? [context.join(" ")] : []),
     "--- END DISPATCH POST ---",
     routing,
+    ...(input.threadId
+      ? [
+          'For a broader primary-task update from a side thread, use post with placement: "home" (your launch thread if you are a child), or deliberately "root" for the top of your own shared stream. This places only the post; ordinary replies stay in the current conversation. Use to if another agent must receive it. Keep the local discussion here; a task contained entirely here may finish here.',
+        ]
+      : []),
   ].join("\n");
 }
 

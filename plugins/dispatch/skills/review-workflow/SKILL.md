@@ -100,6 +100,15 @@ and `to` for delivery to the reviewer. This keeps the finding, the fix, and the 
 attached to each other; a loose post does neither. Don't narrate in the review's
 own thread.
 
+When the broader primary task reaches a milestone, such as a verified merge,
+surface a brief summary with `post({ placement: "home", text: "…" })` and the PR
+attachment if the ongoing turn is still in a finding thread. A child's home is
+its launch-card thread; `placement: "root"` deliberately posts to the shared
+stream's top level when the user needs a broader update there. Use `to` as well
+if the parent must receive it. Do not repeat the full finding discussion or
+claim completion just because a finding resolved. Placement does not move
+subsequent ordinary replies and cannot be used on review blocks themselves.
+
 **After fixing a finding, say what you changed under it.** That is the claim the
 reviewer checks, so say enough for it to verify: the file, the behavior, the
 test. Once the reviewer resolves it, there is nothing to answer.

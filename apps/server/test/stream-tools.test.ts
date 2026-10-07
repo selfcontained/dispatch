@@ -51,6 +51,9 @@ describe("registerStreamTools", () => {
     post = vi.fn(async (_agentId: string, input: { kind?: string }) => ({
       id: BLOCK,
       kind: input.kind ?? "text",
+      streamId: AGENT_ID,
+      threadId: null,
+      replyTo: null,
       createdAt: "2026-01-01T00:00:00.000Z",
     }));
     update = vi.fn(async () => ({
@@ -160,6 +163,7 @@ describe("registerStreamTools", () => {
       "to",
       "text",
       "replyTo",
+      "placement",
       "question",
       "form",
       "link",
@@ -189,6 +193,9 @@ describe("registerStreamTools", () => {
     expect(result.structuredContent).toEqual({
       id: BLOCK,
       kind: "text",
+      streamId: AGENT_ID,
+      threadId: null,
+      replyTo: null,
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(result.content[0]?.text).toBe(
@@ -205,6 +212,24 @@ describe("registerStreamTools", () => {
       tasks: null,
       attachments: [],
       notify: undefined,
+    });
+  });
+
+  it("accepts and forwards explicit placement and returns the actual location", async () => {
+    expect(shape("post").placement.parse("root")).toBe("root");
+    expect(() => shape("post").placement.parse("elsewhere")).toThrow();
+    const result = await tool("post").handler({
+      text: "Overall result",
+      placement: "root",
+    });
+    expect(post).toHaveBeenLastCalledWith(
+      AGENT_ID,
+      expect.objectContaining({ placement: "root" })
+    );
+    expect(result.structuredContent).toMatchObject({
+      streamId: AGENT_ID,
+      threadId: null,
+      replyTo: null,
     });
   });
 
