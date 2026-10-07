@@ -71,9 +71,9 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             RELEASE_BRANCH="$GITHUB_REF_NAME"
             case "$RELEASE_BRANCH" in
-              main|acp-runtime) ;;
+              main) ;;
               *)
-                echo "error: releases must be dispatched from main or acp-runtime" >&2
+                echo "error: releases must be dispatched from main" >&2
                 exit 1
                 ;;
             esac
@@ -142,9 +142,8 @@ jobs:
             TAG="$GITHUB_REF_NAME"
             git checkout --detach "$GITHUB_SHA"
             git fetch origin '+refs/heads/*:refs/remotes/origin/*' --tags --prune
-            if ! git merge-base --is-ancestor HEAD origin/main &&
-               ! git merge-base --is-ancestor HEAD origin/acp-runtime; then
-              echo "error: $TAG must point at a commit on main or acp-runtime" >&2
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "error: $TAG must point at a commit on main" >&2
               exit 1
             fi
             # Binaries are named from package.json; the installer and update
@@ -354,8 +353,8 @@ jobs:
       DISPATCH_SPARKLE_PUBLIC_KEY: ${{ vars.MACOS_SPARKLE_PUBLIC_KEY }}
       DISPATCH_SPARKLE_FEED_URL: https://dispatch.berad.dev/updates/macos/appcast-arm64.xml
       # The channel a fresh install follows until the person picks one.
-      # Set the repository variable to "stable" once 1.0 is promoted.
-      DISPATCH_DEFAULT_UPDATE_CHANNEL: ${{ vars.MACOS_DEFAULT_UPDATE_CHANNEL || 'preview' }}
+      # Stable follows promoted builds only, including before the first promotion.
+      DISPATCH_DEFAULT_UPDATE_CHANNEL: ${{ vars.MACOS_DEFAULT_UPDATE_CHANNEL || 'stable' }}
       DISPATCH_MAC_BUILD: ${{ github.run_id }}.${{ github.run_attempt }}
 
     steps:
