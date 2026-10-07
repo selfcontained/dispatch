@@ -1,6 +1,6 @@
 import { PanelRightOpen } from "lucide-react";
-import { type NavSection, SidebarShell } from "@/components/app/sidebar-shell";
-import { GlassSidebar } from "@/components/ui/glass-sidebar";
+import { type NavSection } from "@/components/app/sidebar-shell";
+import { NavigationSidebar } from "@/components/app/navigation-sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/components/app/dashboard-context";
@@ -31,36 +31,20 @@ export function SectionShell({
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden py-2">
-        <GlassSidebar
-          open={isMobile ? mobileLeftOpen : leftOpen}
-          onOpenChange={(open) => {
-            if (isMobile) {
-              if (open) setMobileDrawerOpen(false);
-              setMobileLeftOpen(open);
-            } else {
-              setLeftOpen(open);
-            }
-          }}
-          side="left"
-          width={320}
-          mobile={isMobile}
-          label="Navigation sidebar"
+        <NavigationSidebar
+          isMobile={isMobile}
+          leftOpen={leftOpen}
+          mobileLeftOpen={mobileLeftOpen}
+          setLeftOpen={setLeftOpen}
+          setMobileLeftOpen={setMobileLeftOpen}
+          setMobileDrawerOpen={setMobileDrawerOpen}
+          pulsingNavItem={pulsingNavItem}
+          triggerNavAnimation={triggerNavAnimation}
+          activeSection={activeSection}
+          onNavigate={handleSidebarNavigate}
         >
-          <SidebarShell
-            activeSection={activeSection}
-            onNavigate={handleSidebarNavigate}
-            onRequestClose={
-              isMobile
-                ? () => setMobileLeftOpen(false)
-                : () => setLeftOpen(false)
-            }
-            closeButtonIcon={isMobile ? "x" : "chevron"}
-            pulsingNavItem={pulsingNavItem}
-            triggerNavAnimation={triggerNavAnimation}
-          >
-            {sidebar}
-          </SidebarShell>
-        </GlassSidebar>
+          {sidebar}
+        </NavigationSidebar>
 
         <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           {!leftPanelOpen ? (

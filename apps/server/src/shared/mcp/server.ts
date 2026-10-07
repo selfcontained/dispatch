@@ -49,6 +49,15 @@ export type McpAgent = {
   baseBranch?: string | null;
 };
 
+/** Arguments the share_file tool hands to the file-sharing callback. */
+export type ShareFileInput = {
+  filePath: string;
+  description: string;
+  source?: string;
+  name?: string;
+  update?: string;
+};
+
 export type FileResult = {
   fileName: string;
   url: string;
@@ -215,16 +224,7 @@ export type McpRequestContext = UsageCallbacks & {
     name: string
   ) => Promise<{ id: string; name: string }>;
   setWorkspace?: AgentLifecycleContext["setWorkspace"];
-  shareFile?: (
-    agentId: string,
-    opts: {
-      filePath: string;
-      description: string;
-      source?: string;
-      name?: string;
-      update?: string;
-    }
-  ) => Promise<FileResult>;
+  shareFile?: (agentId: string, opts: ShareFileInput) => Promise<FileResult>;
   listFiles?: (
     agentId: string,
     opts: { source?: string; ownerAgentId?: string }

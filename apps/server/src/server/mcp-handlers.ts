@@ -43,6 +43,7 @@ import type {
   LaunchAgentInput,
   LaunchAgentResult,
 } from "../shared/mcp/agent-launch-tools.js";
+import type { FileResult, ShareFileInput } from "../shared/mcp/server.js";
 import type {
   EnqueueAgentPrompt,
   PublishUiEvent,
@@ -580,20 +581,8 @@ async function handleArchiveAgent(
 async function handleShareFile(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  opts: {
-    filePath: string;
-    description: string;
-    source?: string;
-    name?: string;
-    update?: string;
-  }
-): Promise<{
-  fileName: string;
-  url: string;
-  sizeBytes: number;
-  source: string;
-  description: string;
-}> {
+  opts: ShareFileInput
+): Promise<FileResult> {
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
@@ -975,16 +964,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
     ) => handleArchiveAgent(deps, agentId, input),
 
-    shareFile: (
-      agentId: string,
-      opts: {
-        filePath: string;
-        description: string;
-        source?: string;
-        name?: string;
-        update?: string;
-      }
-    ) => handleShareFile(deps, agentId, opts),
+    shareFile: (agentId: string, opts: ShareFileInput) =>
+      handleShareFile(deps, agentId, opts),
 
     listAgentsForAgent: (agentId: string, senderRepoRoot: string | null) =>
       handleListAgentsForAgent(deps, agentId, senderRepoRoot),
