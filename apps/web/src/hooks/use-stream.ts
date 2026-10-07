@@ -40,6 +40,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
+import { createClientId } from "@/lib/client-id";
 import { api } from "@/lib/api";
 import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
 
@@ -565,18 +566,6 @@ export function bumpReplyCount(
 // Cache surgery
 // ---------------------------------------------------------------------------
 
-/** A fresh block id for a post; the server stores the row under it. */
-function newBlockId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  // No secure context (plain-http LAN access): assemble a v4-shaped id.
-  const hex = () => Math.floor(Math.random() * 16).toString(16);
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) =>
-    c === "x" ? hex() : ((Math.random() * 4) | 8).toString(16)
-  );
-}
-
 /**
  * What the optimistic post can show before the server answers: links as
  * given; files only once the response names them, since the feed renders a
@@ -1073,12 +1062,12 @@ function useWithMintedId<TData, TInput extends object, TContext>(
   const { mutate, mutateAsync } = mutation;
   const mutateMinted = useCallback(
     (input: TInput, options?: Parameters<typeof mutate>[1]) =>
-      mutate({ ...input, id: newBlockId() }, options),
+      mutate({ ...input, id: createClientId() }, options),
     [mutate]
   );
   const mutateAsyncMinted = useCallback(
     (input: TInput, options?: Parameters<typeof mutateAsync>[1]) =>
-      mutateAsync({ ...input, id: newBlockId() }, options),
+      mutateAsync({ ...input, id: createClientId() }, options),
     [mutateAsync]
   );
   return { ...mutation, mutate: mutateMinted, mutateAsync: mutateAsyncMinted };

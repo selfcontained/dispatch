@@ -49,6 +49,7 @@ import {
   slashQueryAt,
   type SlashCommand,
 } from "@/components/app/chat/slash-commands";
+import { createClientId } from "@/lib/client-id";
 import { Button } from "@/components/ui/button";
 import {
   ComposerDelivery,
@@ -868,6 +869,17 @@ export function ChatComposer({
       // One preference drives the selector, shortcut, retry hint, and every send.
       setDeliveryMode(options?.delivery ?? "auto");
       setError(null);
+      // ID creation can fail too. Keep the draft and send controls usable.
+      let postId: string;
+      try {
+        postId = createClientId();
+      } catch (err) {
+        setError({
+          text: err instanceof Error ? err.message : "Message not sent.",
+          retryable: true,
+        });
+        return;
+      }
       setInFlight(true);
       // Only what was sent gets cleared: anything typed or attached while the
       // send was pending is a new draft and stays.
@@ -875,7 +887,6 @@ export function ChatComposer({
       const submittedFiles = fileViews;
       const submittedLinks = links;
       let removedDraft: ChatComposerDraft | null = null;
-      const postId = crypto.randomUUID();
       let preservePending = false;
 
       const run = async () => {
