@@ -346,8 +346,16 @@ cmd_up() {
       set +a
     fi
 
-    # Unset TLS so dev servers run plain HTTP
-    unset TLS_CERT TLS_KEY 2>/dev/null || true
+    # A stack launched from the native app must not inherit its TLS, listener
+    # list, update ownership, instance identity or installed runtime paths.
+    unset TLS_CERT TLS_KEY TLS_CA DISPATCH_LOCAL_TLS DISPATCH_LISTEN_HOSTS \
+      DISPATCH_UPDATE_OWNER DISPATCH_MAC_INSTANCE_ID DISPATCH_MAC_BUILD \
+      DISPATCH_MAC_APP_TOKEN DISPATCH_RUNTIME_PATH DISPATCH_SERVICE_NAME \
+      DISPATCH_RECOVERY_PROBATION DISPATCH_RECOVERY_TRANSACTION_ID \
+      DISPATCH_RECOVERY_NONCE DISPATCH_RECOVERY_INSTANCE_ID \
+      DISPATCH_RECOVERY_EXPECTED_VERSION 2>/dev/null || true
+    export DISPATCH_STATE_DIR="$(log_dir)/state"
+    export DISPATCH_SERVER_DIR="$(log_dir)/server"
 
     # Override port, session prefix, and agent runtime — always explicit so .env doesn't leak
     export DISPATCH_PORT="$DEV_API_PORT"

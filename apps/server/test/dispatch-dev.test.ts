@@ -97,11 +97,28 @@ describe("dispatch-dev", () => {
 
   it("starts and stops a full stack", () => {
     // --- up ---
-    const upOutput = run("up", { env: { DISPATCH_HOST: "127.0.0.1" } });
+    const upOutput = run("up", {
+      env: {
+        DISPATCH_HOST: "127.0.0.1",
+        DISPATCH_LOCAL_TLS: "1",
+        DISPATCH_UPDATE_OWNER: "macos-app",
+        DISPATCH_MAC_INSTANCE_ID: "parent-mac-instance",
+        DISPATCH_LISTEN_HOSTS: "127.0.0.2",
+      },
+    });
     expect(upOutput).toContain("Database ready on port");
     expect(upOutput).toContain("API server starting on port");
     expect(upOutput).toContain("Vite dev server starting on port");
     expect(upOutput).toContain("Dev environment ready");
+    const apiPort = stateValue("DEV_API_PORT");
+    const health = JSON.parse(
+      execSync(`curl -fsS http://127.0.0.1:${apiPort}/api/v1/health`, {
+        encoding: "utf8",
+      })
+    );
+    expect(health.status).toBe("ok");
+    expect(health.updateOwner).toBeUndefined();
+    expect(health.macInstanceId).toBeUndefined();
 
     // State file written
     expect(existsSync(STATE_FILE)).toBe(true);
