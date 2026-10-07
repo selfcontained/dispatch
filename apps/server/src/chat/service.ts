@@ -1,4 +1,8 @@
-import { AUTO_CONTEXT_CHARS, messageExcerpt } from "./context.js";
+import {
+  AUTO_CONTEXT_CHARS,
+  automaticExcerpt,
+  messageExcerpt,
+} from "./context.js";
 import { qualifyExternalMentions } from "@dispatch/shared";
 import { createHash, randomUUID } from "node:crypto";
 import type { DriverEvent } from "../agents/acp/driver.js";
@@ -1884,14 +1888,14 @@ export class StreamService {
         continue;
       const hydrated = await this.contextBlock(candidate);
       const budget = Math.min(2000, remaining);
-      let length = Math.min(1800, budget);
-      let serialized: string;
-      do {
-        serialized = JSON.stringify(messageExcerpt(hydrated, 0, length));
-        if (serialized.length <= budget) break;
-        length = Math.floor(length / 2);
-      } while (length > 0);
-      if (serialized.length > budget) continue;
+      const relation =
+        id === block.replyTo
+          ? id === block.threadId
+            ? "parent-and-thread-start"
+            : "parent"
+          : "thread-start";
+      const serialized = automaticExcerpt(hydrated, relation, budget);
+      if (serialized === null) continue;
       sections.push(serialized);
       remaining -= serialized.length + 1;
     }

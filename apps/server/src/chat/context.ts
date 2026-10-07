@@ -67,3 +67,48 @@ export function messageExcerpt(
     totalChars: content.length,
   };
 }
+
+/** Compact delivery-only projection; full origin metadata remains in the readers. */
+export function automaticExcerpt(
+  block: Block,
+  relation: "parent" | "thread-start" | "parent-and-thread-start",
+  budget: number
+): string | null {
+  const content = messageContent(block);
+  const serialize = (end: number) =>
+    JSON.stringify({
+      relation,
+      id: block.id,
+      author: block.author,
+      kind: block.kind,
+      content: content.slice(0, end),
+      nextOffset: end < content.length ? end : null,
+      totalChars: content.length,
+    });
+  // Only cut at Unicode code-point boundaries; cursors remain UTF-16 offsets.
+  const offsets = [0];
+  let offset = 0;
+  for (const character of content) {
+    offset += character.length;
+    if (offset > 1800) break;
+    offsets.push(offset);
+  }
+  const maximum = offsets[offsets.length - 1]!;
+  const full = serialize(maximum);
+  if (full.length <= budget) return full;
+  // Truncated prefixes grow monotonically, including JSON escaping and cursor digits.
+  let low = 0;
+  let high = offsets.length - 2;
+  let best: string | null = null;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = serialize(offsets[middle]!);
+    if (candidate.length <= budget) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best;
+}

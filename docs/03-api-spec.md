@@ -675,7 +675,13 @@ thread the agent authored in, launched, or was addressed in; unrelated foreign
 threads remain inaccessible. A review/finding displayed inside another card opens its own discussion: being addressed in that review does not grant access to the enclosing launch thread. An authorized thread page may expose a displayed child card; get_message can finish reading that card, but get_thread still requires access to its separate discussion. Automatic excerpts use these same access checks.
 
 Ordinary threaded delivery includes only the distinct direct parent and thread
-root, parent first, within a 4,000-character serialized excerpt budget. No recent
+root, parent first, within a 4,000-character serialized excerpt budget.
+Each JSON line has `relation` (`parent`, `thread-start`, or
+`parent-and-thread-start` when identical), `id`, `author`, `kind`, `content`,
+`nextOffset`, and `totalChars`. Origin timestamps and routing metadata remain
+available through `get_message`. Each line is capped at 2,000 serialized
+characters and 1,800 content characters; fitting accounts for JSON escaping.
+A non-null `nextOffset` can be passed to `get_message` to continue the content. No recent
 reply history is added automatically; an agent's own authored messages are not
 quoted back to it. Top-level posts and structured answer/cancellation deliveries add no history. Quoted context is explicitly
 historical and escaped with the existing envelope rules. The trigger stays in
