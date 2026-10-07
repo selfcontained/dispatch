@@ -1797,6 +1797,95 @@ export class StreamService {
     };
   }
 
+  async scheduledNoticeOutcome(
+    id: string,
+    agentId: string,
+    delivered: boolean,
+    outcome: "waiting" | "discarded" | "uncertain" = "discarded"
+  ): Promise<void> {
+    await this.store.setRecipientDelivered(id, agentId, delivered);
+    await this.store.settleDelivered(id, [agentId]);
+    const block = await this.store.getById(id);
+    if (block) {
+      await this.store.update(id, {
+        data: {
+          ...block.data,
+          scheduledDeliveryStatus: delivered ? "accepted" : outcome,
+        },
+      });
+      await this.publishEntry(block.streamId, id);
+    }
+  }
+
+  async scheduledNoticePending(id: string, agentId: string): Promise<void> {
+    await this.store.markDelivering(id, [agentId]);
+    const block = await this.store.getById(id);
+    if (block) {
+      await this.store.update(id, {
+        data: { ...block.data, scheduledDeliveryStatus: "waiting" },
+      });
+      await this.publishEntry(block.streamId, id);
+    }
+  }
+
+  /** Refresh trusted scheduler presentation without ordinary post-data sanitization. */
+  async refreshScheduledNotice(
+    agentId: string,
+    blockId: string,
+    scheduleId: string,
+    text: string,
+    presentation: import("@dispatch/shared").ScheduledMessagePresentation
+  ): Promise<void> {
+    const block = await this.store.getById(blockId);
+    if (
+      !block ||
+      block.author.kind !== "agent" ||
+      block.author.agentId !== agentId ||
+      (block.data as { scheduledMessageId?: unknown } | null)
+        ?.scheduledMessageId !== scheduleId
+    )
+      return;
+    await this.store.update(blockId, {
+      text,
+      data: {
+        ...block.data,
+        scheduledMessageId: scheduleId,
+        scheduledMessage: presentation,
+      },
+    });
+    await this.publishEntry(block.streamId, blockId);
+  }
+
+  /** Durable scheduled-message notice; never sends an agent-to-agent prompt. */
+  async scheduledNotice(
+    agentId: string,
+    scheduleId: string,
+    text: string,
+    delivery = false,
+    presentation?: import("@dispatch/shared").ScheduledMessagePresentation
+  ): Promise<Block> {
+    const streamId = await this.streamOf(agentId);
+    const block = await this.store.insert({
+      streamId,
+      author: { kind: "agent", agentId },
+      toAgentId: delivery ? agentId : null,
+      kind: "text",
+      threadId: null,
+      replyTo: null,
+      text,
+      data: {
+        scheduledMessageId: scheduleId,
+        ...(delivery ? { scheduledDeliveryStatus: "waiting" } : {}),
+        ...(presentation ? { scheduledMessage: presentation } : {}),
+      },
+      state: null,
+      attachments: [],
+      delivered: null,
+    });
+    await this.publishEntry(streamId, block.id);
+    return block;
+  }
+
   /** An agent's `post`. */
   async post(agentId: string, input: PostInput): Promise<Block> {
     const author: BlockAuthor = { kind: "agent", agentId };
@@ -2007,6 +2096,17 @@ export class StreamService {
     if (!own && block.toAgentId !== agentId) {
       throw new StreamForbiddenError(
         "Only your own blocks, or the state of a block addressed to you, can be updated."
+      );
+    }
+    if (
+      block.kind === "text" &&
+      typeof block.data?.scheduledMessageId === "string" &&
+      (input.text !== undefined ||
+        input.data !== undefined ||
+        input.attachments !== undefined)
+    ) {
+      throw new StreamValidationError(
+        "A scheduled-message record is written by Dispatch."
       );
     }
     if (!own) {
@@ -3239,6 +3339,14 @@ export class StreamService {
     const block = await this.store.getById(blockId);
     if (!block || block.streamId !== streamId) {
       throw new StreamValidationError("Block not found.");
+    }
+    if (
+      block.kind === "text" &&
+      typeof block.data?.scheduledMessageId === "string"
+    ) {
+      throw new StreamConflictError(
+        "Scheduled deliveries are not retried; the schedule owns redelivery."
+      );
     }
     if (!block.toAgentId) {
       throw new StreamValidationError("That post was not addressed to anyone.");

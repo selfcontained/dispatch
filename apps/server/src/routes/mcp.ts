@@ -1,3 +1,4 @@
+import type { ScheduledMessageService } from "../scheduled-messages/service.js";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
@@ -90,6 +91,7 @@ type McpRouteDeps = {
   mcpJobLog: unknown;
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
+  scheduledMessages?: ScheduledMessageService;
   chat: Pick<
     StreamService,
     "post" | "update" | "addReaction" | "removeReaction"
@@ -268,6 +270,7 @@ export async function registerMcpRoutes(
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,
+      scheduledMessages: deps.scheduledMessages,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
@@ -351,6 +354,7 @@ export async function registerMcpRoutes(
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,
+      scheduledMessages: deps.scheduledMessages,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });

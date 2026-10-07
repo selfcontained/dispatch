@@ -1,3 +1,5 @@
+import { registerScheduledMessageTools } from "./scheduled-message-tools.js";
+import type { ScheduledMessageService } from "../../scheduled-messages/service.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -59,6 +61,9 @@ export type FileResult = {
 // Each list defines which MCP tools are exposed to that agent type.
 // To add a tool to an agent type, just add its name here.
 const AGENT_TOOLS = new Set([
+  "schedule_message",
+  "list_scheduled_messages",
+  "cancel_scheduled_message",
   "login_link",
   "rename_session",
   "set_workspace",
@@ -188,6 +193,7 @@ export type ToolInvokedEvent = {
 };
 
 export type McpRequestContext = UsageCallbacks & {
+  scheduledMessages?: ScheduledMessageService;
   agent: McpAgent | null;
   repoRoot: string | null;
   worktreeRoot: string | null;
@@ -459,6 +465,13 @@ export async function createDispatchMcpServer(
 
   // ── Stream tools: post / update / react ──
   if (context.agent) {
+    if (context.scheduledMessages)
+      registerScheduledMessageTools(
+        server,
+        allowed,
+        context.agent.id,
+        context.scheduledMessages
+      );
     registerStreamTools(server, allowed, {
       agentId: context.agent.id,
       streams: context.chat,

@@ -615,6 +615,11 @@ export class AgentManager {
     return { mode: "live" };
   }
 
+  private cancelSchedules?: (id: string) => Promise<void>;
+  attachScheduleCancellation(cancel: (id: string) => Promise<void>): void {
+    this.cancelSchedules = cancel;
+  }
+
   /** Queue one turn; see AgentRuntime.prompt. */
   promptAgent(
     id: string,
@@ -840,6 +845,12 @@ export class AgentManager {
 
   /** Cancel the running turn (Stop). */
   async cancelTurn(id: string): Promise<void> {
+    await this.cancelSchedules?.(id).catch((err) =>
+      this.logger.warn(
+        { err, agentId: id },
+        "could not cancel scheduled messages"
+      )
+    );
     await this.runtime.cancel(id);
   }
 
@@ -1975,6 +1986,12 @@ export class AgentManager {
     input: StopAgentInput
   ): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
+    await this.cancelSchedules?.(id).catch((err) =>
+      this.logger.warn(
+        { err, agentId: id },
+        "could not cancel scheduled messages"
+      )
+    );
     const force = input.force ?? false;
 
     if (agent.status === "stopped") {
@@ -2022,6 +2039,12 @@ export class AgentManager {
     id: string,
     cleanupWorktree: WorktreeCleanupMode = "auto"
   ): Promise<AgentRecord> {
+    await this.cancelSchedules?.(id).catch((err) =>
+      this.logger.warn(
+        { err, agentId: id },
+        "could not cancel scheduled messages"
+      )
+    );
     return beginArchiveImpl(this.archiveDeps(), id, cleanupWorktree);
   }
 
