@@ -264,7 +264,7 @@ export function registerStreamTools(
             .enum(["auto", "queue"])
             .optional()
             .describe(
-              "Agent-to-agent posts wait for active work to finish, or start a turn if the recipient is idle. Both auto (default) and queue follow this rule; only actual user messages can steer an active conversation. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
+              "auto (default): a busy recipient reads the post during its current turn when its engine supports that (posts with images wait); an idle one starts a turn. queue: always wait for the recipient's current turn to finish. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
             ),
         }),
       },

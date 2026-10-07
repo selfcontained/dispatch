@@ -257,16 +257,18 @@ function takeBatch(waiting: Waiting[]): Waiting[] {
 
 /**
  * Whether a prompt may join the open turn instead of waiting behind it: a
- * person speaking in the conversation the turn is in, or a prompt the
- * agent is itself waiting on (a review, a finding settled), which would
- * otherwise sit behind the work that is waiting for it.
+ * post or prompt in the conversation the turn is in, another agent's post
+ * that names no conversation of its own, or a prompt the agent is itself
+ * waiting on (a review, a finding settled). Advice from another agent is
+ * worth most while the work it is about is still going; queued, it
+ * arrives after the turn that needed it. An agent's answer to a question
+ * resumes the asking conversation, so it keeps the conversation rule.
  */
 function steers(w: Waiting, entry: Pick<Live, "conversation">): boolean {
   if (w.source?.awaited === true) return true;
-  return (
-    w.source?.userMessage === true &&
-    sameConversation(w.source.conversation, entry.conversation)
-  );
+  if (w.source?.source !== "chat") return false;
+  if (w.source.userMessage !== true && !w.source.conversation) return true;
+  return sameConversation(w.source.conversation, entry.conversation);
 }
 
 const COMBINED_SEPARATOR = "\n\n";
