@@ -61,6 +61,7 @@ import {
   useSubmitForm,
   useToggleReaction,
 } from "./use-stream";
+import { applyStreamEntry } from "./use-sse";
 
 afterEach(() => {
   cleanup();
@@ -1332,6 +1333,160 @@ describe("removeBlock", () => {
 });
 
 describe("usePostBlock", () => {
+  it.each(["explicit reply", "routed reply"])(
+    "keeps streamed delivery and pickup when an older %s send response arrives",
+    async (mode) => {
+      const root = launchBlock({ id: "card", toAgentId: "agt_2" });
+      const client = seededClient([blockEntry(root)]);
+      const threadKey = threadQueryKey("agt_1", root.id);
+      client.setQueryData<StreamThreadResponse>(threadKey, {
+        root,
+        replies: [],
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      );
+      let respond: (value: unknown) => void = () => undefined;
+      apiMock.mockImplementationOnce(
+        () => new Promise((resolve) => (respond = resolve))
+      );
+      const { result } = renderHook(() => usePostBlock("agt_1"), { wrapper });
+      let sent: Promise<unknown> = Promise.resolve();
+      act(() => {
+        sent = result.current.mutateAsync({
+          text: "try again",
+          to: "agt_2",
+          ...(mode === "explicit reply" ? { replyTo: root.id } : {}),
+        });
+      });
+      await waitFor(() => expect(apiMock).toHaveBeenCalledOnce());
+      const { id } = JSON.parse(
+        (apiMock.mock.calls[0]![1] as { body: string }).body
+      ) as { id: string };
+      const optimistic =
+        mode === "explicit reply"
+          ? client.getQueryData<StreamThreadResponse>(threadKey)!.replies[0]!
+          : feedBlocks(client).find((b) => b.id === id)!;
+      const stored = block({
+        id,
+        authorKind: "user",
+        toAgentId: "agt_2",
+        text: "try again",
+        threadId: root.id,
+        replyTo: root.id,
+        createdAt: optimistic.createdAt,
+        updatedAt: optimistic.updatedAt,
+      });
+      const delivered = {
+        ...stored,
+        delivered: true,
+        delivery: [
+          {
+            agentId: "agt_2",
+            state: "delivered" as const,
+            receipt: { pickedUpAt: "2026-09-02T10:00:01.000Z" },
+          },
+        ],
+      };
+      // Delivery does not advance updatedAt. The live server copy wins
+      // even when the send response has exactly the same timestamp.
+      expect(delivered.updatedAt).toBe(stored.updatedAt);
+      act(() => applyStreamEntry(client, "agt_1", blockEntry(delivered)));
+      const streamed =
+        client.getQueryData<StreamThreadResponse>(threadKey)!.replies[0];
+      await act(async () => {
+        respond({ block: stored, delivered: null, held: false });
+        await sent;
+      });
+      const replies =
+        client.getQueryData<StreamThreadResponse>(threadKey)!.replies;
+      expect(replies).toHaveLength(1);
+      expect(replies[0]).toBe(streamed);
+      expect(replies[0]!.delivery).toEqual(delivered.delivery);
+      expect(feedBlocks(client).map((b) => b.id)).toEqual([root.id]);
+      expect(feedBlocks(client)[0]!.replyCount).toBe(1);
+    }
+  );
+
+  it("replaces a thread's optimistic reply when the send response arrives first", async () => {
+    const root = block({ id: "root" });
+    const client = seededClient([blockEntry(root)]);
+    const threadKey = threadQueryKey("agt_1", root.id);
+    client.setQueryData<StreamThreadResponse>(threadKey, { root, replies: [] });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    apiMock.mockImplementationOnce(async (_url, options) => {
+      const { id } = JSON.parse(options.body) as { id: string };
+      return {
+        block: block({ id, threadId: root.id, text: "stored reply" }),
+        delivered: null,
+        held: false,
+      };
+    });
+    const { result } = renderHook(() => usePostBlock("agt_1"), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ text: "reply", replyTo: root.id });
+    });
+    expect(
+      client.getQueryData<StreamThreadResponse>(threadKey)!.replies
+    ).toEqual([expect.objectContaining({ text: "stored reply" })]);
+  });
+
+  it("replaces a placeholder copied by structural sharing when the client clock is behind", async () => {
+    const root = block({ id: "root" });
+    const later = block({
+      id: "later",
+      threadId: root.id,
+      createdAt: "2999-01-01T00:00:00.000Z",
+    });
+    const client = seededClient([blockEntry(root)]);
+    const threadKey = threadQueryKey("agt_1", root.id);
+    client.setQueryData<StreamThreadResponse>(threadKey, {
+      root,
+      replies: [later],
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    let respond: (value: unknown) => void = () => undefined;
+    apiMock.mockImplementationOnce(
+      () => new Promise((resolve) => (respond = resolve))
+    );
+    const { result } = renderHook(() => usePostBlock("agt_1"), { wrapper });
+    let sent: Promise<unknown> = Promise.resolve();
+    act(() => {
+      sent = result.current.mutateAsync({ text: "reply", replyTo: root.id });
+    });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledOnce());
+    const replies =
+      client.getQueryData<StreamThreadResponse>(threadKey)!.replies;
+    expect(replies.map((b) => b.text)).toEqual(["reply", later.text]);
+    const stored = block({
+      id: replies[0]!.id,
+      authorKind: "user",
+      threadId: root.id,
+      text: "stored reply",
+      delivered: true,
+      attachments: [
+        {
+          type: "file",
+          fileId: 1,
+          fileName: "stored.txt",
+          sizeBytes: 12,
+          mimeType: "text/plain",
+        },
+      ],
+    });
+    await act(async () => {
+      respond({ block: stored, delivered: true, held: false });
+      await sent;
+    });
+    const settled =
+      client.getQueryData<StreamThreadResponse>(threadKey)!.replies;
+    expect(settled).toEqual([stored, later]);
+  });
+
   it("moves a post the server filed on a child's card out of the feed and into that thread", async () => {
     const card = launchBlock({ id: "card", toAgentId: "agt_2", replyCount: 0 });
     const client = seededClient([blockEntry(card)]);
