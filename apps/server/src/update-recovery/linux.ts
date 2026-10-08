@@ -426,6 +426,9 @@ export async function applyProtectedLinuxUpdate(input: {
     );
     await chmod(staging, 0o700);
     try {
+      input.onProgress(
+        "==> verifying release checksum and recovery capability"
+      );
       const targetCapability = await verifyRecoveryCapability(input);
       const candidate = path.join(staging, "candidate");
       await verifyAndStageRuntime({
@@ -434,6 +437,7 @@ export async function applyProtectedLinuxUpdate(input: {
         livePath: candidate,
         runCommand,
       });
+      input.onProgress("==> release verified; preparing recovery transaction");
       const prepared = await prepareLinuxUpdate(
         config,
         candidate,

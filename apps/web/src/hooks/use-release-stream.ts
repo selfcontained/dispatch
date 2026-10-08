@@ -117,8 +117,14 @@ export type UseReleaseStreamResult = {
 export type ReleaseStreamKind = "create" | "update";
 
 export function useReleaseStream(
-  kind: ReleaseStreamKind
+  kind: ReleaseStreamKind,
+  transport?: {
+    fetchStatus: typeof fetch;
+    createStream: (url: string) => EventSource;
+  }
 ): UseReleaseStreamResult {
+  const statusFetch = transport?.fetchStatus ?? fetch;
+  const createStream = transport?.createStream;
   const [status, setStatus] = useState<ReleaseStatus | null>(null);
   const [job, setJob] = useState<ReleaseJob | null>(null);
   const [infoProgress, setInfoProgress] = useState<ReleaseProgress | null>(
@@ -128,54 +134,134 @@ export function useReleaseStream(
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clientIdRef = useRef<string>(createClientId());
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/release/status");
+      const res = await statusFetch("/api/v1/release/status");
       noteServerVersion(res.headers.get("X-Dispatch-Version"));
       if (res.ok) setStatus((await res.json()) as ReleaseStatus);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [statusFetch]);
 
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
 
-  const startHealthPoll = useCallback((expectedTag: string | null) => {
+  // Start on the restart phase itself: a proxy or browser can keep the SSE
+  // connection open without ever delivering an error during a service restart.
+  const restartingTag =
+    job?.jobType === "update" && job.phase === "restarting" ? job.tag : null;
+  useEffect(() => {
+    if (!restartingTag) return;
     setPostRestartPolling(true);
-    if (healthPollRef.current) clearInterval(healthPollRef.current);
-
-    healthPollRef.current = setInterval(async () => {
-      if (document.hidden) return;
+    let cancelled = false;
+    let checking = false;
+    const started = Date.now();
+    let lastStep = "";
+    let lastMessageAt = started;
+    const report = (step: string, label: string, detail: string) => {
+      if (cancelled) return;
+      const changed = step !== lastStep;
+      if (!changed && Date.now() - lastMessageAt < 15_000) return;
+      lastStep = step;
+      lastMessageAt = Date.now();
+      const elapsed = Math.floor((Date.now() - started) / 1000);
+      setJob((prev) =>
+        prev?.jobType === "update" && prev.phase === "restarting"
+          ? {
+              ...prev,
+              progress: { step, label, detail },
+              log: [
+                ...prev.log,
+                changed
+                  ? `==> ${label}`
+                  : `==> ${label} (${elapsed}s elapsed; checking automatically)`,
+              ],
+            }
+          : prev
+      );
+    };
+    let controller: AbortController | undefined;
+    const check = async () => {
+      if (cancelled || checking || document.hidden) return;
+      checking = true;
       recordReleaseManagerPollFire();
+      controller = new AbortController();
+      const requestController = controller;
+      const timeout = setTimeout(() => requestController.abort(), 10_000);
       try {
-        const res = await fetch("/api/v1/release/status");
-        noteServerVersion(res.headers.get("X-Dispatch-Version"));
-        if (res.ok) {
-          const data = (await res.json()) as ReleaseStatus;
-          if (data.tag && data.tag === expectedTag) {
-            clearInterval(healthPollRef.current!);
-            healthPollRef.current = null;
-            setPostRestartPolling(false);
-            setStatus(data);
-            setJob((prev) =>
-              prev ? { ...prev, phase: "done", tag: data.tag } : prev
+        const res = await statusFetch("/api/v1/release/status", {
+          cache: "no-store",
+          signal: requestController.signal,
+        });
+        if (!res.ok) {
+          const error = (await res.json().catch(() => null)) as {
+            code?: string;
+          } | null;
+          if (error?.code === "PROBATION") {
+            report(
+              "restart-health-check",
+              "Checking startup health",
+              "Dispatch is back in recovery mode. The helper checks stability for at least a minute before committing and restarting normally."
             );
-            setTimeout(() => void reloadApp(), 1500);
+          } else {
+            report(
+              "restart-unavailable",
+              "Waiting for Dispatch to respond",
+              "Automatic checks continue while the update finishes. This page will reload when the updated server is ready."
+            );
           }
+          return;
         }
+        const data = (await res.json()) as ReleaseStatus;
+        if (cancelled) return;
+        if (data.tag !== restartingTag) {
+          report(
+            "restart-awaiting-version",
+            "Server responding; waiting for updated version",
+            "Dispatch is responding, but the new release has not been confirmed yet. Automatic checks continue."
+          );
+          return;
+        }
+        cancelled = true;
+        clearInterval(healthPollRef.current!);
+        healthPollRef.current = null;
+        eventSourceRef.current?.close();
+        eventSourceRef.current = null;
+        noteServerVersion(res.headers.get("X-Dispatch-Version"));
+        setPostRestartPolling(false);
+        setStatus(data);
+        setJob((prev) =>
+          prev ? { ...prev, phase: "done", tag: data.tag } : prev
+        );
+        reloadTimerRef.current = setTimeout(() => void reloadApp(), 1500);
       } catch {
-        /* server still down */
+        report(
+          "restart-offline",
+          "Server offline while the update runs",
+          "Backup and installation run independently while Dispatch is stopped. Automatic checks continue; this page will reload when ready."
+        );
+      } finally {
+        clearTimeout(timeout);
+        checking = false;
       }
-    }, 2000);
-  }, []);
+    };
+    healthPollRef.current = setInterval(() => void check(), 2000);
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (healthPollRef.current) clearInterval(healthPollRef.current);
+      setPostRestartPolling(false);
+    };
+  }, [restartingTag, statusFetch]);
 
   const connectStream = useCallback(() => {
     eventSourceRef.current?.close();
-    const es = new EventSource(
+    const es = (createStream ?? ((url: string) => new EventSource(url)))(
       `/api/v1/release/${kind}/stream?clientId=${encodeURIComponent(clientIdRef.current)}`
     );
     eventSourceRef.current = es;
@@ -199,7 +285,6 @@ export function useReleaseStream(
           prev?.jobType === "update" &&
           (prev.phase === "restarting" || prev.phase === "deploying")
         ) {
-          startHealthPoll(prev.tag);
           return { ...prev, phase: "restarting" };
         }
         return prev;
@@ -207,12 +292,13 @@ export function useReleaseStream(
       es.close();
       eventSourceRef.current = null;
     };
-  }, [kind, startHealthPoll]);
+  }, [kind, createStream]);
 
   useEffect(() => {
     connectStream();
     return () => {
       eventSourceRef.current?.close();
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
       if (healthPollRef.current) clearInterval(healthPollRef.current);
     };
   }, [connectStream]);

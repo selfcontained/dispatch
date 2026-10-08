@@ -214,7 +214,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const isRestarting =
     updateJob?.phase === "restarting" ||
     (updateJob !== null && postRestartPolling);
-  const showTakeover = updateJob !== null && !isDone;
+  const showTakeover = updateJob !== null;
 
   return {
     status,
