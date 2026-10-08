@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Database, Server, Settings } from "lucide-react";
 
 import { UserAvatarSettings } from "@/components/app/user-avatar/user-avatar-settings";
@@ -24,6 +25,10 @@ import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { type SettingsSection } from "@/components/app/settings-state";
 import { cn } from "@/lib/utils";
+
+const UpdatePreview = import.meta.env.DEV
+  ? lazy(() => import("./update-preview"))
+  : null;
 
 /** Settings nav for the sidebar. */
 export function SettingsNavContent({
@@ -224,7 +229,18 @@ export function SettingsContent({
         {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (
           <div className="flex flex-col">
-            <UpdatesSection stream={updateStream} />
+            {UpdatePreview &&
+            new URLSearchParams(window.location.search).has(
+              "simulateUpdate"
+            ) ? (
+              <Suspense
+                fallback={<div className="p-6">Loading update preview…</div>}
+              >
+                <UpdatePreview />
+              </Suspense>
+            ) : (
+              <UpdatesSection stream={updateStream} />
+            )}
             <PluginUpdateSettings />
           </div>
         )}

@@ -94,9 +94,8 @@ export function OperationLog({
           .map((line, i) => (
             <div key={i}>{line || "\u00A0"}</div>
           ))}
-        {(isRestarting || postRestartPolling) && !job.log.length && (
+        {(isRestarting || postRestartPolling) && (
           <div className="flex items-center gap-2 text-[hsl(var(--log-stream-muted-foreground))]">
-            <ActivityBars size={14} />
             Waiting for Dispatch to restart...
           </div>
         )}

@@ -205,14 +205,14 @@ describe("the operation log", () => {
     expect(screen.getByText("Waiting for Dispatch to restart...")).toBeTruthy();
   });
 
-  it("drops the placeholder once the restarted server streams again", () => {
+  it("keeps the wait message visible alongside existing logs", () => {
     renderTakeover({
       job: makeJob({ log: ["back up"] }),
       isRestarting: true,
       postRestartPolling: true,
     });
 
-    expect(screen.queryByText("Waiting for Dispatch to restart...")).toBeNull();
+    expect(screen.getByText("Waiting for Dispatch to restart...")).toBeTruthy();
     expect(screen.getByText("back up")).toBeTruthy();
   });
 });

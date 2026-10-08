@@ -261,6 +261,92 @@ describe("useReleaseStream", () => {
     expect(reloadApp).toHaveBeenCalledTimes(1);
   });
 
+  it("finishes and reloads even when SSE never reports a disconnect", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useReleaseStream("update"));
+    const source = lastSource();
+    act(() =>
+      source.emit({ type: "snapshot", job: updateJob({ tag: "v9.9.9" }) })
+    );
+    act(() => source.emit({ type: "phase", phase: "restarting" }));
+    expect(result.current.postRestartPolling).toBe(true);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      headers: { get: () => "9.9.9" },
+      json: async () => ({ tag: "v9.9.9", deployedAt: "today" }),
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.job?.phase).toBe("done");
+    expect(source.close).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/release/status",
+      expect.objectContaining({ cache: "no-store" })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(reloadApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a hung status request after its deadline", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useReleaseStream("update"));
+    fetchMock.mockImplementationOnce(
+      (_url, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () =>
+            reject(new Error("timeout"))
+          );
+        })
+    );
+    act(() =>
+      lastSource().emit({
+        type: "snapshot",
+        job: updateJob({ phase: "restarting", tag: "v9.9.9" }),
+      })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12000);
+    });
+    expect(result.current.postRestartPolling).toBe(true);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      json: async () => ({ tag: "v9.9.9", deployedAt: "today" }),
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.job?.phase).toBe("done");
+  });
+
+  it("reports actual recovery health checks and periodic wait messages", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useReleaseStream("update"));
+    act(() =>
+      lastSource().emit({
+        type: "snapshot",
+        job: updateJob({ phase: "restarting", tag: "v9.9.9" }),
+      })
+    );
+    fetchMock.mockResolvedValue({
+      ok: false,
+      json: async () => ({ code: "PROBATION" }),
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.job?.progress?.label).toBe("Checking startup health");
+    expect(result.current.job?.log.at(-1)).toBe("==> Checking startup health");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(16000);
+    });
+    expect(result.current.job?.log.at(-1)).toContain("checking automatically");
+    expect(result.current.job?.phase).toBe("restarting");
+  });
+
   it("keeps polling while the server still reports the old tag", async () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useReleaseStream("update"));

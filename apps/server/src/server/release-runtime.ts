@@ -404,7 +404,15 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
         tag,
         expectedTarballSha256,
         onProgress: (message) => appendReleaseLog(job, message),
-        onRestarting: () => setReleasePhase(job, "restarting"),
+        onRestarting: () => {
+          setReleaseProgress(job, {
+            step: "restarting-service",
+            label: "Restarting and verifying Dispatch",
+            detail:
+              "The recovery helper verifies the backup and checks the new version for at least a minute before committing. This page will reload automatically when ready.",
+          });
+          setReleasePhase(job, "restarting");
+        },
       });
     } catch (error) {
       await deps.unlinkCachedTarball(tag);
