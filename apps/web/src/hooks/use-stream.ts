@@ -459,6 +459,33 @@ export function upsertThreadReply(
   return { ...thread, replies };
 }
 
+/** A send response may predate delivery events, even with the same updatedAt. */
+function applyPostedThreadReply(
+  thread: StreamThreadResponse | undefined,
+  reply: Block,
+  placeholder: Block | undefined
+): StreamThreadResponse | undefined {
+  if (
+    thread &&
+    (thread.root.id === reply.id ||
+      showsBlock(thread.root, reply.id) ||
+      thread.replies.some(
+        (previous) =>
+          previous.id === reply.id &&
+          !(
+            previous.id === placeholder?.id &&
+            "__optimisticPost" in previous &&
+            previous.__optimisticPost === true
+          )
+      ))
+  ) {
+    // Only our optimistic row is ours to replace. A stored row already
+    // here came from the server and can include newer delivery/receipts.
+    return thread;
+  }
+  return upsertThreadReply(thread, reply);
+}
+
 function removeThreadReplyObject(
   thread: StreamThreadResponse | undefined,
   target: Block
@@ -595,6 +622,9 @@ export function optimisticUserBlock(
 ): Block {
   const now = new Date().toISOString();
   const base = {
+    // An enumerable client-only marker survives React Query copying a row
+    // during array structural sharing. Server blocks replace it wholesale.
+    __optimisticPost: true as const,
     id,
     streamId,
     author: { kind: "user" } as const,
@@ -1020,7 +1050,7 @@ export function usePostBlock(rootId: string | null) {
       if (context?.threadKey) {
         queryClient.setQueryData<StreamThreadResponse>(
           context.threadKey,
-          (old) => upsertThreadReply(old, data.block)
+          (old) => applyPostedThreadReply(old, data.block, context.placeholder)
         );
         queryClient.setQueryData<FeedCache>(key, (old) =>
           bumpReplyCount(old, data.block)
@@ -1039,7 +1069,7 @@ export function usePostBlock(rootId: string | null) {
         );
         queryClient.setQueryData<StreamThreadResponse>(
           threadQueryKey(rootId, reply.threadId),
-          (old) => upsertThreadReply(old, reply)
+          (old) => applyPostedThreadReply(old, reply, context?.placeholder)
         );
         return;
       }
