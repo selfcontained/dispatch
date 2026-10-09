@@ -110,10 +110,12 @@ function turnEntry({
   settled,
   running = false,
   blockId = "blk_turn",
+  agentId = AGENT_ID,
 }: {
   settled: boolean;
   running?: boolean;
   blockId?: string;
+  agentId?: string;
 }): StreamEntry {
   const at = "2026-07-15T12:00:00.000Z";
   return {
@@ -122,9 +124,9 @@ function turnEntry({
     at,
     block: {
       id: blockId,
-      streamId: AGENT_ID,
+      streamId: agentId,
       threadId: null,
-      author: { kind: "agent", agentId: AGENT_ID },
+      author: { kind: "agent", agentId },
       toAgentId: null,
       kind: "text",
       text: "",
@@ -135,7 +137,7 @@ function turnEntry({
       turn: {
         type: "turn",
         id: "turn_1",
-        agentId: AGENT_ID,
+        agentId,
         at,
         updatedAt: at,
         prompt: { text: "go" },
@@ -588,6 +590,74 @@ describe("AgentCardStatus wiring", () => {
       recordTurnLabel(client, turnEntry({ settled: true }));
     });
     await waitFor(() => expect(activity()).toBeNull());
+  });
+
+  it("shows the first sub agent with a step while collapsed and idle", async () => {
+    const client = new QueryClient();
+    const parent = makeAgent();
+    // Mid-turn, but with no step to show yet: the next child stands in.
+    const quietChild = makeChild({
+      id: "agt_quiet",
+      persona: "quiet-review",
+      currentTurn: { blockId: "blk_quiet", threadId: null },
+    });
+    const busyChild = makeChild({
+      currentTurn: { blockId: "blk_child", threadId: null },
+    });
+    const props = {
+      ...baseProps(parent),
+      agents: [parent, quietChild, busyChild],
+      childAgents: [quietChild, busyChild],
+    };
+    const shownChild = () =>
+      screen
+        .getByTestId(`agent-status-line-${AGENT_ID}`)
+        .querySelector('[data-testid^="agent-activity-"]');
+    const { rerender } = render(wrap(client, <AgentCard {...props} />));
+    act(() => {
+      recordTurnLabel(
+        client,
+        turnEntry({ settled: true, blockId: "blk_quiet", agentId: "agt_quiet" })
+      );
+      recordTurnLabel(
+        client,
+        turnEntry({
+          settled: false,
+          running: true,
+          blockId: "blk_child",
+          agentId: "agt_child",
+        })
+      );
+    });
+    await waitFor(() => expect(shownChild()?.textContent).toMatch(/bash$/));
+    expect(shownChild()?.getAttribute("data-testid")).toBe(
+      "agent-activity-agt_child"
+    );
+    expect(screen.queryByTestId("agent-activity-agt_quiet")).toBeNull();
+    expect(
+      screen.getByTestId(`agent-status-line-${AGENT_ID}`).textContent
+    ).not.toContain("security-review");
+    expect(activity()).toBeNull();
+
+    // The parent's own step wins once it has one.
+    const busyParent = {
+      ...parent,
+      currentTurn: { blockId: "blk_turn", threadId: null },
+    };
+    rerender(wrap(client, <AgentCard {...props} agent={busyParent} />));
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+    expect(screen.queryByTestId("agent-activity-agt_child")).toBeNull();
+
+    // Expanded cards show the sub agent in its own row instead.
+    rerender(wrap(client, <AgentCard {...props} expandedAgentId={AGENT_ID} />));
+    expect(
+      screen
+        .getByTestId(`agent-status-line-${AGENT_ID}`)
+        .querySelector('[data-testid="agent-activity-agt_child"]')
+    ).toBeNull();
   });
 
   it("keeps the running turn's step when an older turn is published again", async () => {

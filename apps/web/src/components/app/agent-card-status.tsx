@@ -4,6 +4,10 @@ import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { type Agent } from "@/components/app/types";
 import { agentProjectRoot } from "@/components/app/agents-view-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import {
+  useAgentTurnLabel,
+  useFirstAgentWithTurnLabel,
+} from "@/hooks/use-agent-turn-label";
 import { cn } from "@/lib/utils";
 
 function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
@@ -99,13 +103,30 @@ function hasPhaseStatus(agent: Agent): boolean {
  */
 export function AgentCardActivity({
   agent,
+  childAgents = [],
   onNavigate,
 }: {
   agent: Agent;
+  /**
+   * Sub agents whose activity stands in when the agent itself has none: the
+   * first one with a step to show.
+   */
+  childAgents?: Agent[];
   /** Called as the running-turn link navigates. */
   onNavigate?: () => void;
 }): JSX.Element {
   const repoName = agentProjectRoot(agent)?.split("/").pop() ?? null;
+  const ownStep = useAgentTurnLabel(
+    agent.id,
+    agent.currentTurn?.blockId ?? null
+  );
+  const hasOwnActivity =
+    hasPhaseStatus(agent) ||
+    Boolean(agent.reconnect) ||
+    Boolean(agent.currentTurn && ownStep);
+  const activeChild = useFirstAgentWithTurnLabel(
+    hasOwnActivity ? [] : childAgents.filter((child) => child.currentTurn)
+  );
 
   return (
     <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
@@ -117,7 +138,7 @@ export function AgentCardActivity({
           <AgentCardPhaseStatus agent={agent} className="mt-0" />
         ) : (
           <AgentActivityLabel
-            agent={agent}
+            agent={activeChild ?? agent}
             className="w-full"
             linkToTurn
             onNavigate={onNavigate}
