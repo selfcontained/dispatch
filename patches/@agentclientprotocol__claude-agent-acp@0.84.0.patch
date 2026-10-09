@@ -1,5 +1,5 @@
 diff --git a/dist/acp-agent.js b/dist/acp-agent.js
-index 27f71cad..1ccee0ce 100644
+index 27f71cad..3a2fb624 100644
 --- a/dist/acp-agent.js
 +++ b/dist/acp-agent.js
 @@ -204,10 +204,10 @@ function parseAsyncTaskStopRequest(value) {
@@ -147,32 +147,79 @@ index 27f71cad..1ccee0ce 100644
                                  }
                                  // Unrelated replay (e.g. the echo of an already-settled turn).
                                  break;
-@@ -4933,9 +4970,25 @@ export class ClaudeAcpAgent {
+@@ -4933,9 +4970,17 @@ export class ClaudeAcpAgent {
          // A priority steer may still be queued in the SDK when cancellation
          // settles its owning turn. Its later echo matches no live turn, and its
          // result must be skipped rather than promoted onto the next prompt.
 -        if (isSteering(session.activeTurn)) {
 -            for (const uuid of session.activeTurn.steeredEchoes) {
--                this.trackOrphanCommand(session, uuid, "pending");
-+        // Withdraw queued next/later steers before interrupting: otherwise the
-+        // SDK can run them after their owning turn has been cancelled. Include
-+        // turns not yet activated (their prompt echo may still be pending).
++        // Seed every candidate synchronously before any withdrawal can await.
++        // The consumer may drain lifecycle/result frames during a control request;
++        // never recreate an orphan after its terminal frame already passed.
++        const queuedSteers = [];
 +        const steeringTurns = new Set([session.activeTurn, ...(session.turnQueue ?? [])]);
 +        for (const turn of steeringTurns) {
 +            if (!turn || turn.settled || !isSteering(turn))
 +                continue;
-+            for (const uuid of [...turn.steeredEchoes]) {
-+                let withdrawn = false;
-+                try {
-+                    withdrawn = (await session.query.cancelAsyncMessage?.(uuid)) === true;
-+                }
-+                catch (error) {
-+                    this.logger.error(`Session ${params.sessionId}: could not withdraw queued steer ${uuid}`, error);
-+                }
-+                if (withdrawn)
-+                    turn.steeredEchoes.delete(uuid);
-+                else
-+                    this.trackOrphanCommand(session, uuid, "pending");
++            for (const uuid of turn.steeredEchoes) {
+                 this.trackOrphanCommand(session, uuid, "pending");
++                queuedSteers.push({ turn, uuid });
              }
          }
          // Capture the orphan-accounting lane before anything can await: the
+@@ -5087,7 +5132,7 @@ export class ClaudeAcpAgent {
+         if (isSteering(session.activeTurn) && session.activeTurn.steeredSettle !== undefined) {
+             session.owedTrailingIdles++;
+         }
+-        // Arm a backstop before interrupting: if a turn is actively consuming the
++        // Arm a backstop before withdrawing steers or interrupting: if a turn is actively consuming the
+         // query and interrupt() doesn't make the SDK yield (e.g. a wedged TaskOutput
+         // block — issue #680), force the consumer to settle the active turn
+         // "cancelled" after the floor elapses so the pending session/prompt still
+@@ -5108,6 +5153,46 @@ export class ClaudeAcpAgent {
+                 cancelController.abort();
+             }, this.forceCancelGraceMs);
+         }
++        // Withdraw next/later steers before interrupting, with one shared budget
++        // so an unresponsive control channel cannot strand Stop behind N requests.
++        // The cancellation floor above stays armed throughout this wait.
++        const cancellationTarget = session.activeTurn;
++        const withdrawalDeadline = Date.now() + Math.min(1000, this.forceCancelGraceMs / 2);
++        const ownsCancellation = () => this.sessions[params.sessionId] === session &&
++            session.activeTurn === cancellationTarget && !cancellationTarget?.settled;
++        for (const { turn, uuid } of queuedSteers) {
++            const remaining = withdrawalDeadline - Date.now();
++            if (remaining <= 0 || !ownsCancellation())
++                break;
++            let timer;
++            let withdrawn = false;
++            try {
++                withdrawn = (await Promise.race([
++                    session.query.cancelAsyncMessage?.(uuid),
++                    new Promise((resolve) => { timer = setTimeout(() => resolve(false), remaining); }),
++                ])) === true;
++            }
++            catch (error) {
++                this.logger.error(`Session ${params.sessionId}: could not withdraw queued steer ${uuid}`, error);
++            }
++            finally {
++                clearTimeout(timer);
++            }
++            if (!ownsCancellation())
++                return;
++            if (withdrawn) {
++                turn.steeredEchoes.delete(uuid);
++                if (lifecycleLane)
++                    session.orphanCommands?.delete(uuid);
++                else
++                    session.pendingOrphanResults = Math.max(0, (session.pendingOrphanResults ?? 0) - 1);
++            }
++            // Failed/timed-out withdrawal leaves existing accounting untouched:
++            // the consumer may already have advanced or drained the entry.
++        }
++        // Never let a late control reply interrupt a turn that replaced this one.
++        if (!ownsCancellation())
++            return;
+         const receipt = await session.query.interrupt();
+         // On CLIs advertising `interrupt_receipt_v1`, the receipt's `still_queued`
+         // lists exactly which queued messages survive the interrupt and will still

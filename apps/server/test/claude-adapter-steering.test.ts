@@ -1,4 +1,5 @@
 import { ClaudeAcpAgent } from "@agentclientprotocol/claude-agent-acp/dist/acp-agent.js";
+import { Pushable } from "@agentclientprotocol/claude-agent-acp/dist/utils.js";
 import { describe, expect, it, vi } from "vitest";
 
 const sessionId = "steering-test";
@@ -18,13 +19,19 @@ function fixture(active = true) {
       interrupt: vi.fn(async () => undefined),
     },
     pendingUserInputCount: 0,
+    msgLifecycleV1: true,
+    orphanCommands: new Map<string, string>(),
+    pendingOrphanResults: 0,
   };
   const agent = {
     sessions: { [sessionId]: session },
     respawnSignedOutSession: vi.fn(),
     publishGoalFromPrompt: vi.fn(),
     exitPlan: { cancel: vi.fn() },
-    trackOrphanCommand: vi.fn(),
+    trackOrphanCommand: vi.fn(
+      Reflect.get(ClaudeAcpAgent.prototype, "trackOrphanCommand")
+    ),
+    forceCancelGraceMs: 30_000,
     logger: { error: vi.fn() },
   };
   // Minimal session/transport doubles; the methods under test are the actual
@@ -71,7 +78,8 @@ describe("patched Claude adapter steering", () => {
         session.query.cancelAsyncMessage.mock.invocationCallOrder.at(-1)
       ).toBeLessThan(session.query.interrupt.mock.invocationCallOrder[0]!);
       for (const uuid of uuids) {
-        expect(agent.trackOrphanCommand).not.toHaveBeenCalledWith(
+        expect(session.orphanCommands.has(uuid)).toBe(false);
+        expect(agent.trackOrphanCommand).toHaveBeenCalledWith(
           session,
           uuid,
           "pending"
@@ -101,6 +109,39 @@ describe("patched Claude adapter steering", () => {
     expect(session.query.interrupt).toHaveBeenCalledOnce();
   });
 
+  it("reconciles successful withdrawal in the legacy count lane", async () => {
+    const { session, steer, cancel } = fixture();
+    session.msgLifecycleV1 = false;
+    await steer();
+    await steer();
+    await cancel();
+    expect(session.pendingOrphanResults).toBe(0);
+  });
+
+  it("does not interrupt a replacement turn after a late withdrawal response", async () => {
+    const { session, steer, cancel } = fixture();
+    await steer();
+    let release!: (withdrawn: boolean) => void;
+    session.query.cancelAsyncMessage.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          release = resolve;
+        })
+    );
+    const cancellation = cancel();
+    await vi.waitFor(() =>
+      expect(session.query.cancelAsyncMessage).toHaveBeenCalledOnce()
+    );
+    session.activeTurn = {
+      promptUuid: "replacement",
+      settled: false,
+      resolve: vi.fn(),
+    };
+    release(false);
+    await cancellation;
+    expect(session.query.interrupt).not.toHaveBeenCalled();
+  });
+
   it.each(["consumed", "error", "unsupported"])(
     "retains orphan tracking and interrupts when withdrawal is %s",
     async (outcome) => {
@@ -125,4 +166,192 @@ describe("patched Claude adapter steering", () => {
       expect(session.query.interrupt).toHaveBeenCalledOnce();
     }
   );
+});
+
+function consumerFixture() {
+  const messages = new Pushable<unknown>();
+  const iterator = messages[Symbol.asyncIterator]();
+  const updates = vi.fn();
+  const logger = { log: vi.fn(), error: vi.fn(), warn: vi.fn() };
+  const adapter = new ClaudeAcpAgent(
+    { sessionUpdate: updates } as never,
+    logger
+  );
+  const session = {
+    activeTurn: null as ReturnType<typeof makeTurn> | null,
+    turnQueue: [] as ReturnType<typeof makeTurn>[],
+    query: {
+      next: vi.fn(() => iterator.next()),
+      close: () => messages.end(),
+      cancelAsyncMessage: vi.fn(async (_uuid: string) => false),
+      interrupt: vi.fn(async () => undefined),
+    },
+    input: { push: vi.fn(), end: vi.fn() },
+    settingsManager: { dispose: vi.fn() },
+    msgLifecycleV1: true,
+    orphanCommands: new Map<string, string>(),
+    liveBackgroundTasks: new Map(),
+    emittedToolCalls: new Set(),
+    emittedAssistantText: false,
+    owedTrailingIdles: 0,
+    accumulatedUsage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedReadTokens: 0,
+      cachedWriteTokens: 0,
+    },
+    accumulatedModelUsage: {},
+    titles: { onAssistantText: vi.fn(), onTurnEnd: vi.fn() },
+  };
+  Object.assign(adapter, { sessions: { [sessionId]: session } });
+  Reflect.get(adapter, "ensureConsumer").call(adapter, session, sessionId);
+  const stop = async () => {
+    messages.end();
+    await Reflect.get(session, "consumer");
+  };
+  return { adapter, session, messages, logger, stop };
+}
+
+function makeTurn(uuid: string) {
+  return {
+    promptUuid: uuid,
+    settled: false,
+    isLocalOnlyCommand: true,
+    resolve: vi.fn(),
+    reject: vi.fn(),
+    steeredEchoes: undefined as Set<string> | undefined,
+  };
+}
+
+function result(uuid?: string) {
+  return {
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: "",
+    num_turns: 1,
+    ...(uuid ? { user_message_uuid: uuid } : {}),
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    },
+  };
+}
+
+const lifecycle = (uuid: string, state: string) => ({
+  type: "command_lifecycle",
+  command_uuid: uuid,
+  state,
+});
+const idle = {
+  type: "system",
+  subtype: "session_state_changed",
+  state: "idle",
+};
+
+describe("Claude cancellation with concurrent consumer events", () => {
+  it.each([
+    ["false", "completed"],
+    ["rejection", "completed"],
+    ["false", "cancelled"],
+    ["rejection", "cancelled"],
+  ])(
+    "does not recreate drained steer orphans after %s withdrawal and %s lifecycle",
+    async (outcome, terminal) => {
+      const { adapter, session, messages, logger, stop } = consumerFixture();
+      const active = makeTurn("original");
+      active.steeredEchoes = new Set(["first-steer", "second-steer"]);
+      session.activeTurn = active;
+      session.turnQueue.push(active);
+      let release!: (value: boolean) => void;
+      let reject!: (error: Error) => void;
+      session.query.cancelAsyncMessage.mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve, fail) => {
+            release = resolve;
+            reject = fail;
+          })
+      );
+      try {
+        const cancellation = adapter.cancel({ sessionId });
+        await vi.waitFor(() =>
+          expect(session.query.cancelAsyncMessage).toHaveBeenCalledOnce()
+        );
+        expect(session.orphanCommands.size).toBe(2);
+        const readsBefore = session.query.next.mock.calls.length;
+        for (const uuid of active.steeredEchoes) {
+          messages.push(lifecycle(uuid, "started"));
+          messages.push(result(uuid));
+          messages.push(lifecycle(uuid, terminal));
+        }
+        await vi.waitFor(() =>
+          expect(session.query.next.mock.calls.length).toBeGreaterThanOrEqual(
+            readsBefore + 6
+          )
+        );
+        expect(session.orphanCommands.size).toBe(0);
+        if (outcome === "rejection")
+          reject(new Error("late withdrawal failure"));
+        else release(false);
+        await cancellation;
+        messages.push(idle);
+        await vi.waitFor(() =>
+          expect(active.resolve).toHaveBeenCalledWith(
+            expect.objectContaining({ stopReason: "cancelled" })
+          )
+        );
+        expect(session.orphanCommands.size).toBe(0);
+        const next = makeTurn("echo-less-command");
+        session.turnQueue.push(next);
+        messages.push(result());
+        await vi.waitFor(() => {
+          expect(
+            logger.error.mock.calls.filter(([text]) =>
+              String(text).includes("query stream error")
+            )
+          ).toEqual([]);
+          expect(next.reject.mock.calls).toEqual([]);
+          expect(next.resolve).toHaveBeenCalledWith(
+            expect.objectContaining({ stopReason: "end_turn" })
+          );
+        });
+        expect(next.reject).not.toHaveBeenCalled();
+      } finally {
+        await stop();
+      }
+      expect(
+        logger.error.mock.calls.filter(([text]) =>
+          String(text).includes("consumer terminated")
+        )
+      ).toEqual([]);
+    }
+  );
+
+  it("settles the owning prompt at the floor when withdrawal never resolves", async () => {
+    const { adapter, session, stop } = consumerFixture();
+    adapter.forceCancelGraceMs = 40;
+    const active = makeTurn("wedged-original");
+    active.steeredEchoes = new Set(["queued-steer"]);
+    session.activeTurn = active;
+    session.turnQueue.push(active);
+    session.query.cancelAsyncMessage.mockImplementation(
+      () => new Promise<boolean>(() => {})
+    );
+    try {
+      const cancellation = adapter.cancel({ sessionId });
+      await vi.waitFor(
+        () =>
+          expect(active.resolve).toHaveBeenCalledWith(
+            expect.objectContaining({ stopReason: "cancelled" })
+          ),
+        { timeout: 500, interval: 5 }
+      );
+      expect(session.query.interrupt).toHaveBeenCalledOnce();
+      await cancellation;
+    } finally {
+      await stop();
+    }
+  });
 });
