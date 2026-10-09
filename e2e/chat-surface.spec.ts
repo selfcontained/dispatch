@@ -552,6 +552,12 @@ test.describe("Chat surface", () => {
     await expect(pane).toBeVisible();
 
     const posts = pane.getByTestId("chat-message");
+    await expect(posts).toHaveCount(2);
+    await page.getByTestId("chat-filters-trigger").click();
+    await page
+      .getByRole("switch", { name: "Show child messages" })
+      .setChecked(true);
+    await page.keyboard.press("Escape");
     await expect(posts).toHaveCount(4);
     await expect(posts.nth(0)).toContainText("Have a look at these.");
     await expect(
