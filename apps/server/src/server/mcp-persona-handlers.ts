@@ -157,7 +157,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     persona ??= getBuiltInPersona(opts.persona);
     if (!persona) {
       throw new Error(
-        `Persona "${opts.persona}" not found in .dispatch/personas/ and is not a built-in persona.`
+        `Persona "${opts.persona}" not found in .agents/personas/ and is not a built-in persona.`
       );
     }
 

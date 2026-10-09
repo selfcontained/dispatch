@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collectOwnerReviewFiles,
   launchOwnerReviewPlan,
+  hasCodeowners,
   loadCodeowners,
   matchesOwnerPattern,
   resolveCodeowners,
@@ -118,11 +119,11 @@ describe("code owner routing", () => {
   it("loads strict workspace configuration and rejects invalid maps", async () => {
     const root = await workspace();
     await expect(loadCodeowners(root)).rejects.toThrow(
-      "No .dispatch/codeowners.json"
+      "No .agents/owners.json"
     );
-    await mkdir(path.join(root, ".dispatch"));
+    await mkdir(path.join(root, ".agents"));
     await writeFile(
-      path.join(root, ".dispatch/codeowners.json"),
+      path.join(root, ".agents/owners.json"),
       JSON.stringify(config)
     );
     expect(await loadCodeowners(root)).toEqual(config);
@@ -135,17 +136,40 @@ describe("code owner routing", () => {
       { ...config, typo: true },
     ]) {
       await writeFile(
-        path.join(root, ".dispatch/codeowners.json"),
+        path.join(root, ".agents/owners.json"),
         JSON.stringify(invalid)
       );
       await expect(loadCodeowners(root)).rejects.toThrow(
-        "Invalid .dispatch/codeowners.json"
+        "Invalid .agents/owners.json"
       );
     }
+    await writeFile(path.join(root, ".agents/owners.json"), "{");
+    await expect(loadCodeowners(root)).rejects.toThrow(
+      "Invalid .agents/owners.json"
+    );
+  });
+  it("falls back to the legacy .dispatch/codeowners.json", async () => {
+    const root = await workspace();
+    await mkdir(path.join(root, ".dispatch"));
+    await writeFile(
+      path.join(root, ".dispatch/codeowners.json"),
+      JSON.stringify(config)
+    );
+    expect(await hasCodeowners(root)).toBe(true);
+    expect(await loadCodeowners(root)).toEqual(config);
+
     await writeFile(path.join(root, ".dispatch/codeowners.json"), "{");
     await expect(loadCodeowners(root)).rejects.toThrow(
       "Invalid .dispatch/codeowners.json"
     );
+
+    // .agents/owners.json takes precedence once present.
+    await mkdir(path.join(root, ".agents"));
+    await writeFile(
+      path.join(root, ".agents/owners.json"),
+      JSON.stringify(config)
+    );
+    expect(await loadCodeowners(root)).toEqual(config);
   });
   it("collects committed, staged, unstaged, untracked, deleted and both renamed paths from real git", async () => {
     const root = await workspace();

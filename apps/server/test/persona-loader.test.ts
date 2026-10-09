@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -174,7 +174,7 @@ describe("persona launch context", () => {
 
 describe("loadPersonas", () => {
   const tmpRoot = `/tmp/dispatch-persona-test-${process.pid}`;
-  const personasDir = path.join(tmpRoot, ".dispatch", "personas");
+  const personasDir = path.join(tmpRoot, ".agents", "personas");
 
   beforeAll(() => {
     mkdirSync(personasDir, { recursive: true });
@@ -294,14 +294,14 @@ describe("loadPersonasFromRoots", () => {
   const repoRoot = path.join(tmpBase, "repo");
 
   beforeAll(() => {
-    mkdirSync(path.join(worktreeRoot, ".dispatch", "personas"), {
+    mkdirSync(path.join(worktreeRoot, ".agents", "personas"), {
       recursive: true,
     });
-    mkdirSync(path.join(repoRoot, ".dispatch", "personas"), {
+    mkdirSync(path.join(repoRoot, ".agents", "personas"), {
       recursive: true,
     });
     writeFileSync(
-      path.join(worktreeRoot, ".dispatch", "personas", "security.md"),
+      path.join(worktreeRoot, ".agents", "personas", "security.md"),
       `---
 name: Worktree Security
 ---
@@ -309,7 +309,7 @@ name: Worktree Security
 # Worktree security`
     );
     writeFileSync(
-      path.join(repoRoot, ".dispatch", "personas", "security.md"),
+      path.join(repoRoot, ".agents", "personas", "security.md"),
       `---
 name: Repo Security
 ---
@@ -317,7 +317,7 @@ name: Repo Security
 # Repo security`
     );
     writeFileSync(
-      path.join(repoRoot, ".dispatch", "personas", "release.md"),
+      path.join(repoRoot, ".agents", "personas", "release.md"),
       `---
 name: Release
 ---
@@ -366,13 +366,13 @@ name: Release
 
   it("lets a repo file of the same slug replace the built-in", async () => {
     const overrideRoot = path.join(tmpBase, "override");
-    mkdirSync(path.join(overrideRoot, ".dispatch", "personas"), {
+    mkdirSync(path.join(overrideRoot, ".agents", "personas"), {
       recursive: true,
     });
     writeFileSync(
       path.join(
         overrideRoot,
-        ".dispatch",
+        ".agents",
         "personas",
         `${GENERIC_REVIEW_PERSONA_SLUG}.md`
       ),
@@ -424,7 +424,7 @@ describe("built-in personas", () => {
 
 describe("loadPersonaBySlug", () => {
   const tmpRoot = `/tmp/dispatch-persona-slug-test-${process.pid}`;
-  const personasDir = path.join(tmpRoot, ".dispatch", "personas");
+  const personasDir = path.join(tmpRoot, ".agents", "personas");
 
   beforeAll(() => {
     mkdirSync(personasDir, { recursive: true });
@@ -472,4 +472,60 @@ description: For testing
       "Invalid persona slug"
     );
   });
+});
+
+describe("legacy .dispatch/personas location", () => {
+  const tmpRoot = `/tmp/dispatch-persona-legacy-test-${process.pid}`;
+
+  beforeAll(() => {
+    mkdirSync(path.join(tmpRoot, ".agents", "personas"), { recursive: true });
+    mkdirSync(path.join(tmpRoot, ".dispatch", "personas"), { recursive: true });
+    writeFileSync(
+      path.join(tmpRoot, ".agents", "personas", "security.md"),
+      "---\nname: Current Security\ndescription: current\n---\n\ncurrent"
+    );
+    writeFileSync(
+      path.join(tmpRoot, ".dispatch", "personas", "security.md"),
+      "---\nname: Legacy Security\ndescription: legacy\n---\n\nlegacy"
+    );
+    writeFileSync(
+      path.join(tmpRoot, ".dispatch", "personas", "release.md"),
+      "---\nname: Release\ndescription: legacy only\n---\n\nrelease"
+    );
+  });
+
+  afterAll(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("reads legacy-only personas and lets .agents win on duplicate slugs", async () => {
+    const personas = await loadPersonas(tmpRoot);
+    expect(personas.map((p) => [p.slug, p.name])).toEqual([
+      ["security", "Current Security"],
+      ["release", "Release"],
+    ]);
+  });
+
+  it("resolves a slug from .agents first, then the legacy directory", async () => {
+    expect((await loadPersonaBySlug(tmpRoot, "security"))?.name).toBe(
+      "Current Security"
+    );
+    expect((await loadPersonaBySlug(tmpRoot, "release"))?.name).toBe("Release");
+    expect(await loadPersonaBySlug(tmpRoot, "missing")).toBeNull();
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "does not fall back to the legacy copy when the primary file is unreadable",
+    async () => {
+      const primary = path.join(tmpRoot, ".agents", "personas", "security.md");
+      chmodSync(primary, 0o000);
+      try {
+        await expect(loadPersonaBySlug(tmpRoot, "security")).rejects.toThrow(
+          "Could not read persona .agents/personas/security.md"
+        );
+      } finally {
+        chmodSync(primary, 0o644);
+      }
+    }
+  );
 });

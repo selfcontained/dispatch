@@ -184,7 +184,7 @@ describe("PersonaLauncher", () => {
 
     const option = await screen.findByTestId("launch-reviewer-codeowners");
     expect(option).toHaveProperty("disabled", true);
-    expect(option.textContent).toContain("No .dispatch/codeowners.json");
+    expect(option.textContent).toContain("No .agents/owners.json");
     fireEvent.click(option);
     expect(option.getAttribute("aria-checked")).toBe("false");
     expect(screen.getByTestId("launch-reviewer-submit")).toHaveProperty(

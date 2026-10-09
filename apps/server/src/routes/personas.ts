@@ -28,7 +28,7 @@ type PersonaRouteDeps = {
  */
 export function personaLaunchRequest(input: {
   personas: string[];
-  /** Also route reviewers by .dispatch/codeowners.json and the changed files. */
+  /** Also route reviewers by .agents/owners.json and the changed files. */
   codeowners?: boolean;
   agentType: string;
   model?: string;
@@ -48,7 +48,7 @@ export function personaLaunchRequest(input: {
     // `type`. Owner reviews receive their matched file scope.
     const args = [`agentType: "${input.agentType}"`, ...modelArgs];
     lines.unshift(
-      `- launch_owner_reviews({ ${args.join(", ")}, context: <your briefing> }) — the code owners for your changed files, selected from .dispatch/codeowners.json`
+      `- launch_owner_reviews({ ${args.join(", ")}, context: <your briefing> }) — the code owners for your changed files, selected from .agents/owners.json`
     );
   }
   const subject = input.codeowners

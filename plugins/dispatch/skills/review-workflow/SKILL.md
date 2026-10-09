@@ -27,7 +27,10 @@ overridden base is the usual cause of a PR containing someone else's commits.
 
 ## Getting it reviewed
 
-For code changes in a repo with `.dispatch/codeowners.json`, use:
+Changes with no behavior impact (a typo, comment, or copy edit) usually don't
+need a review unless the user or repo asks for one.
+
+For code changes in a repo with `.agents/owners.json`, use:
 
 ```
 launch_owner_reviews context, dryRun?, agentType?, model?

@@ -217,10 +217,10 @@ Live Playwright browser streaming via Chrome DevTools Protocol.
 
 ## Personas
 
-| Method | Path                         | Description                                                                              |
-| ------ | ---------------------------- | ---------------------------------------------------------------------------------------- |
-| GET    | `/personas`                  | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins) |
-| POST   | `/agents/:id/launch-persona` | Launch one or more persona agents as children of agent `:id`                             |
+| Method | Path                         | Description                                                                            |
+| ------ | ---------------------------- | -------------------------------------------------------------------------------------- |
+| GET    | `/personas`                  | List available personas (`.agents/personas/` in the repo at `cwd`, plus the built-ins) |
+| POST   | `/agents/:id/launch-persona` | Launch one or more persona agents as children of agent `:id`                           |
 
 ### `GET /personas`
 
@@ -228,7 +228,7 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
 
 Dispatch's built-in personas are appended after the repo's own, so the list is never empty — currently just `code-review` ("General Code Review"). A repo persona with the same slug replaces the built-in rather than appearing alongside it.
 
-The response also carries `codeowners: boolean` — whether the worktree root has a `.dispatch/codeowners.json`, so the UI can offer owner-routed reviews (see [Code owner reviews](code-owner-reviews.md)).
+The response also carries `codeowners: boolean` — whether the worktree root has a `.agents/owners.json`, so the UI can offer owner-routed reviews (see [Code owner reviews](code-owner-reviews.md)).
 
 ### `POST /agents/:id/launch-persona`
 
@@ -242,7 +242,7 @@ The response also carries `codeowners: boolean` — whether the worktree root ha
 }
 ```
 
-Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of up to 20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `codeowners` (optional, default `false`) additionally asks the agent to call `launch_owner_reviews`, which routes reviewers by `.dispatch/codeowners.json` and the files it changed; with it set, `personas` may be empty. One of the two is required. `agentType` must be `claude` or `codex`. `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. Reviewers inspect the material described by the persona and briefing themselves; code owner reviews additionally receive their matched files and review base. `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
+Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of up to 20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `codeowners` (optional, default `false`) additionally asks the agent to call `launch_owner_reviews`, which routes reviewers by `.agents/owners.json` and the files it changed; with it set, `personas` may be empty. One of the two is required. `agentType` must be `claude` or `codex`. `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. Reviewers inspect the material described by the persona and briefing themselves; code owner reviews additionally receive their matched files and review base. `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
 
 A reviewer persona finishes its pass by posting one `review` block (`{ summary, findings }`) to the parent; it lands on the reviewer's launch card, and each finding becomes a `finding` block whose thread is its discussion (a reply with `replyTo` = the finding). The reviewer (or a person, via `PATCH /streams/:rootId/blocks/:findingId/state` with `{ state: { status, note? } }`) resolves each finding as fixed or dismissed, or reopens it. There is no separate review API.
 

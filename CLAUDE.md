@@ -161,7 +161,7 @@ unrelated changes or CI.
 - When asked to launch a persona (e.g., "run security review", "test this as an end user"), use `launch_agent` with `persona: <slug>`; the `prompt` is the persona's briefing.
 - Make the briefing thorough: what was built, key files changed, areas of concern, and any specific instructions from the user.
 - Be explicit about scope in the briefing — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
-- Available personas are defined in `.dispatch/personas/` as markdown files, plus Dispatch's built-in `code-review` generalist. Call `list_personas` for the effective list.
+- Available personas are defined in `.agents/personas/` as markdown files, plus Dispatch's built-in `code-review` generalist. Call `list_personas` for the effective list.
 - A reviewer persona posts one `review` block (summary and findings) to the agent that launched it; each finding is a thread. The launcher replies with `post`, `replyTo: <finding id>`, and `to: <reviewer agent id>`. The reviewer verifies and resolves the finding with `update` on the finding's id (`{ state: { status: "fixed" } }`, or `{ state: { status: "dismissed", note } }`).
 - After launching a reviewer, finish independent work and end the turn when findings are needed. Reviews arrive as new prompts; do not sleep or poll for them.
 - When acting as a persona agent, only provide feedback on code and behavior that is part of or directly affected by the changes in the diff. Do not flag pre-existing issues.

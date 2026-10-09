@@ -2,7 +2,9 @@
 
 Code owners are review personas with specific knowledge of a subsystem. They
 can own server code, UI, shared contracts, and tests together. Their instructions
-live in `.dispatch/personas/<slug>.md`; routing lives in `.dispatch/codeowners.json`.
+live in `.agents/personas/<slug>.md`; routing lives in `.agents/owners.json`.
+The older `.dispatch/personas/` and `.dispatch/codeowners.json` locations are
+still read; a file under `.agents/` wins over its legacy counterpart.
 
 ## Launch
 
@@ -13,7 +15,7 @@ agents. This tool is available to parent agents and jobs; child agents ask their
 parent to launch reviews.
 
 From the UI, the Review dialog's **Code owners** option (offered when the
-checkout has a `.dispatch/codeowners.json`) asks the agent to make this call
+checkout has a `.agents/owners.json`) asks the agent to make this call
 with its own briefing, alone or alongside hand-picked personas.
 
 Dispatch resolves the normal review base once and selects owners for the union

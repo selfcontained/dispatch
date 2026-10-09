@@ -80,7 +80,7 @@ export function PersonaLauncher({
 
   const { data: personaCatalog } = useQuery<{
     personas: PersonaSummary[];
-    /** The checkout has a .dispatch/codeowners.json to route reviewers by. */
+    /** The checkout has a .agents/owners.json to route reviewers by. */
     codeowners: boolean;
   }>({
     queryKey: ["personas", cwd],
