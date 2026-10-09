@@ -5,7 +5,7 @@ import { useDeliveryAgents } from "@/hooks/use-agent-tree";
  * replies, and a composer whose posts reply under the root. Questions and
  * forms for the user also appear in the main stream.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Block, BlockOption } from "@dispatch/shared";
 import { ArrowLeft, X } from "lucide-react";
@@ -16,6 +16,7 @@ import {
 } from "@/components/app/chat/block-bodies";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
+import { StopTurnButton } from "./stop-turn-button";
 import { PermissionRequests } from "./permission-requests";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import {
@@ -196,6 +197,16 @@ export function ThreadPanel({
   // the finding in full, its status controls, and its discussion.
   const threadBlockId = findingId ?? blockId;
   const deliveryAgents = useDeliveryAgents();
+  const [stopError, setStopError] = useState<string | null>(null);
+  useEffect(() => setStopError(null), [rootId, threadBlockId]);
+  const hasActiveWork = deliveryAgents.some(
+    (agent) =>
+      agent.status === "running" &&
+      (agent.inputState?.active ?? Boolean(agent.currentTurn))
+  );
+  useEffect(() => {
+    if (!hasActiveWork) setStopError(null);
+  }, [hasActiveWork]);
   const thread = useThread(rootId, threadBlockId);
   const ctx = useMemo(
     () => withThreadNames(feedCtx, thread.agentNames),
@@ -244,6 +255,7 @@ export function ThreadPanel({
       attachments: ChatUserAttachmentInput[],
       options?: { delivery?: "auto" | "queue" | "interrupt" }
     ): Promise<void> => {
+      setStopError(null);
       await postAsync({
         text,
         attachments,
@@ -536,13 +548,13 @@ export function ThreadPanel({
         ) : null}
       </div>
       <div className="shrink-0 border-t border-foreground/20 bg-background px-4 pb-3 pt-3">
-        {error ? (
+        {error || stopError ? (
           <div
             role="alert"
             className="mb-1.5 truncate text-[11px] text-destructive"
             data-testid="chat-thread-action-error"
           >
-            {error}
+            {error ?? stopError}
           </div>
         ) : null}
         <PermissionRequests agentId={agentId} active />
@@ -553,6 +565,14 @@ export function ThreadPanel({
           agentId={null}
           onSend={onSend}
           canQueue
+          action={
+            <StopTurnButton
+              agents={deliveryAgents}
+              selectedAgentId={agentId}
+              onError={setStopError}
+              onStart={() => setStopError(null)}
+            />
+          }
           deliveryAgents={deliveryAgents}
           conversation={{ streamId: rootId, threadId: threadBlockId }}
           uploadFile={uploadFile}

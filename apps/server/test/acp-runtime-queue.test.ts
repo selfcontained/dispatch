@@ -245,13 +245,16 @@ describe("AcpRuntime legacy host replay", () => {
  * be queued behind a running turn.
  */
 async function heldTurnHost(
-  steering?: "injected" | "promptRequired" | "error",
-  interrupt?: "supported" | "error" | "deferred"
+  steering?: "injected" | "promptRequired" | "error" | "deferred",
+  interrupt?: "supported" | "error" | "deferred",
+  deferPrompt = false
 ): Promise<{
   steers: string[];
   cancels: () => number;
   interruptTargets: number[];
   finishInterrupt: () => void;
+  finishSteer: () => void;
+  finishPrompt: () => void;
   rejectInterrupt: () => void;
   disconnect: () => void;
   stateRoot: string;
@@ -262,6 +265,7 @@ async function heldTurnHost(
   }>;
   settle: () => void;
 }> {
+  let finishPrompt = () => {};
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
   const dir = path.join(stateRoot, agentId);
   mkdirSync(dir, { recursive: true });
@@ -275,6 +279,7 @@ async function heldTurnHost(
   let cancelCount = 0;
   const interruptTargets: number[] = [];
   let finishInterrupt = () => {};
+  let finishSteer = () => {};
   let rejectInterrupt = () => {};
   let seq = 0;
   let live: net.Socket | null = null;
@@ -338,17 +343,22 @@ async function heldTurnHost(
               encodeMessage(event({ type: "turn", agentId, state: "settled" }))
             );
           }
-          socket.write(
-            encodeMessage(
-              steering === "error"
-                ? { type: "error", id: message.id, message: "unconfirmed" }
-                : {
-                    type: "steer_result",
-                    id: message.id,
-                    outcome: steering ?? "promptRequired",
-                  }
-            )
-          );
+          finishSteer = () =>
+            socket.write(
+              encodeMessage(
+                steering === "error"
+                  ? { type: "error", id: message.id, message: "unconfirmed" }
+                  : {
+                      type: "steer_result",
+                      id: message.id,
+                      outcome:
+                        steering === "deferred"
+                          ? "injected"
+                          : (steering ?? "promptRequired"),
+                    }
+              )
+            );
+          if (steering !== "deferred") finishSteer();
         } else if (message.type === "prompt") {
           prompts.push({
             text: message.text,
@@ -356,19 +366,21 @@ async function heldTurnHost(
             ...(message.images ? { images: message.images } : {}),
           });
           socket.write(
-            [
+            encodeMessage(
               event({
                 type: "turn",
                 agentId,
                 state: "started",
                 text: message.text,
                 source: message.source,
-              }),
-              { type: "prompt_accepted", id: message.id } satisfies HostMessage,
-            ]
-              .map(encodeMessage)
-              .join("")
+              })
+            )
           );
+          finishPrompt = () =>
+            socket.write(
+              encodeMessage({ type: "prompt_accepted", id: message.id })
+            );
+          if (!deferPrompt) finishPrompt();
         }
       }
     });
@@ -393,6 +405,8 @@ async function heldTurnHost(
     cancels: () => cancelCount,
     interruptTargets,
     finishInterrupt: () => finishInterrupt(),
+    finishSteer: () => finishSteer(),
+    finishPrompt: () => finishPrompt(),
     rejectInterrupt: () => rejectInterrupt(),
     disconnect: () => live?.destroy(),
   };
@@ -740,6 +754,166 @@ describe("queued post controls", () => {
     await withinSeconds(queued.accepted, "queued post still delivered");
     host.settle();
     await Promise.all([active.settled, queued.settled]);
+  });
+});
+
+describe("AcpRuntime interrupt without replacing delivery", () => {
+  it("does not cancel the pending message's own turn before its ACK", async () => {
+    const host = await heldTurnHost("injected", "supported", true);
+    const runtime = await attached(host.stateRoot);
+    let started = false;
+    runtime.onEvent((_id, event) => {
+      if (event.type === "turn" && event.state === "started") started = true;
+    });
+    const pending = runtime.prompt(agentId, envelope(1), post(1));
+    await expect.poll(() => started).toBe(true);
+    await expect.poll(() => host.prompts.length).toBe(1);
+    expect(
+      await runtime.interruptDelivery!(
+        [agentId],
+        "00000000-0000-4000-8000-000000000001"
+      )
+    ).toBe(false);
+    expect(host.cancels()).toBe(0);
+    host.finishPrompt();
+    await pending.accepted;
+    host.settle();
+    await pending.settled;
+  });
+
+  it("does not cancel input already accepted into the current turn", async () => {
+    const host = await heldTurnHost("injected", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const pending = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await pending.accepted;
+    expect(
+      await runtime.interruptDelivery!(
+        [agentId],
+        "00000000-0000-4000-8000-000000000001"
+      )
+    ).toBe(false);
+    expect(host.cancels()).toBe(0);
+    host.settle();
+    await Promise.all([active.settled, pending.settled]);
+  });
+
+  it("holds later delivery until cancellation returns even if settlement arrives first", async () => {
+    const host = await heldTurnHost("injected", "deferred");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const queued = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "queue",
+    });
+    const interrupt = runtime.interruptDelivery!(
+      [agentId],
+      "00000000-0000-4000-8000-000000000002"
+    );
+    await expect.poll(host.cancels).toBe(1);
+    host.settle();
+    await active.settled;
+    expect(host.prompts).toHaveLength(1);
+    host.finishInterrupt();
+    await interrupt;
+    await queued.accepted;
+    host.settle();
+    await queued.settled;
+    expect(host.prompts.map((item) => item.text)).toEqual([
+      "active",
+      envelope(1),
+    ]);
+    expect(host.interruptTargets).toEqual([1]);
+  });
+
+  it("can interrupt while steering awaits acknowledgement, keeping that single attempt", async () => {
+    const host = await heldTurnHost("deferred", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const pending = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await expect.poll(() => host.steers.length).toBe(1);
+    expect(
+      await runtime.interruptDelivery!(
+        [agentId],
+        "00000000-0000-4000-8000-000000000002"
+      )
+    ).toBe(true);
+    expect(host.cancels()).toBe(1);
+    expect(host.interruptTargets).toEqual([1]);
+    host.finishSteer();
+    await pending.accepted;
+    host.settle();
+    await Promise.all([active.settled, pending.settled]);
+    expect(host.steers).toEqual([envelope(1)]);
+    expect(host.prompts.map((item) => item.text)).toEqual(["active"]);
+  });
+
+  it("interrupts once without resending accepted input or reordering queued input", async () => {
+    const host = await heldTurnHost("injected", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const steered = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await steered.accepted;
+    const queued = runtime.prompt(agentId, envelope(2), post(2), {
+      delivery: "queue",
+    });
+    expect(
+      await runtime.interruptDelivery!(
+        [agentId],
+        "00000000-0000-4000-8000-000000000002"
+      )
+    ).toBe(true);
+    expect(
+      await runtime.interruptDelivery!(
+        [agentId],
+        "00000000-0000-4000-8000-000000000002"
+      )
+    ).toBe(true);
+    expect(host.cancels()).toBe(1);
+    expect(host.interruptTargets).toEqual([1]);
+    expect(host.steers).toEqual([envelope(1)]);
+    expect(host.prompts.map((item) => item.text)).toEqual(["active"]);
+    host.settle();
+    await queued.accepted;
+    host.settle();
+    await Promise.all([active.settled, steered.settled, queued.settled]);
+    expect(host.prompts.map((item) => item.text)).toEqual([
+      "active",
+      envelope(2),
+    ]);
+    expect(host.steers).toEqual([envelope(1)]);
+  });
+
+  it("refuses unsupported interruption without changing pending delivery", async () => {
+    const host = await heldTurnHost();
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const queued = runtime.prompt(agentId, envelope(1), post(1));
+    expect(
+      await runtime.interruptDelivery!(
+        [agentId],
+        "00000000-0000-4000-8000-000000000002"
+      )
+    ).toBe(false);
+    expect(host.cancels()).toBe(0);
+    host.settle();
+    await queued.accepted;
+    host.settle();
+    await Promise.all([active.settled, queued.settled]);
+    expect(host.prompts.map((item) => item.text)).toEqual([
+      "active",
+      envelope(1),
+    ]);
   });
 });
 

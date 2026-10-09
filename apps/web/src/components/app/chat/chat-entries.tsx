@@ -1335,12 +1335,19 @@ export const BlockView = memo(function BlockView({
             onRetryDelivery={ctx.onRetryDelivery}
           />
           {block.inputReply.delivered === null &&
-          block.inputReply.delivery?.some((entry) => entry.state === "held") ? (
+          block.inputReply.delivery?.some(
+            (entry) => entry.state === "held" || entry.state === "pending"
+          ) ? (
             <QueuedMessageActions
               agentId={block.inputReply.streamId}
               messageId={block.inputReply.id}
+              pendingDelivery={block.inputReply.delivery?.some(
+                (entry) => entry.state === "pending"
+              )}
               recipientIds={block.inputReply.delivery
-                .filter((entry) => entry.state === "held")
+                .filter(
+                  (entry) => entry.state === "held" || entry.state === "pending"
+                )
                 .map((entry) => entry.agentId)}
               threadId={
                 block.inputReply.kind === "text"
@@ -1384,7 +1391,9 @@ export const BlockView = memo(function BlockView({
       block.delivered === null &&
       block.toAgentId &&
       !block.origin &&
-      block.delivery?.some((entry) => entry.state === "held");
+      block.delivery?.some(
+        (entry) => entry.state === "held" || entry.state === "pending"
+      );
     return (
       <Post
         author={author}
@@ -1436,8 +1445,13 @@ export const BlockView = memo(function BlockView({
             <QueuedMessageActions
               agentId={block.streamId}
               messageId={block.id}
+              pendingDelivery={block.delivery?.some(
+                (entry) => entry.state === "pending"
+              )}
               recipientIds={block.delivery
-                ?.filter((entry) => entry.state === "held")
+                ?.filter(
+                  (entry) => entry.state === "held" || entry.state === "pending"
+                )
                 .map((entry) => entry.agentId)}
               threadId={block.threadId}
               requiresNextTurn={block.attachments.some(

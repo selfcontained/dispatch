@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "@/lib/api";
 import type { Agent } from "@/components/app/types";
 import { StopTurnButton } from "./stop-turn-button";
 
@@ -100,6 +101,74 @@ describe("StopTurnButton focus", () => {
 
     const input = screen.getByTestId("chat-composer-input");
     await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(trigger.disabled).toBe(true);
+  });
+});
+
+describe("StopTurnButton runtime state", () => {
+  it("stops active runtime work before a persisted turn appears", async () => {
+    const { trigger, rerender } = setup();
+    rerender([
+      {
+        ...agent,
+        currentTurn: null,
+        inputState: {
+          active: true,
+          steeringSupported: true,
+          interruptSupported: true,
+          conversation: null,
+        },
+      },
+    ]);
+    expect(trigger.disabled).toBe(false);
+    fireEvent.click(trigger);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/v1/agents/agt_1/runtime/cancel", {
+        method: "POST",
+      })
+    );
+    expect(trigger.disabled).toBe(true);
+    rerender([
+      {
+        ...agent,
+        currentTurn: null,
+        inputState: {
+          active: false,
+          steeringSupported: true,
+          interruptSupported: true,
+          conversation: null,
+        },
+      },
+    ]);
+    expect(trigger.disabled).toBe(true);
+    rerender([
+      {
+        ...agent,
+        currentTurn: null,
+        inputState: {
+          active: true,
+          steeringSupported: true,
+          interruptSupported: true,
+          conversation: null,
+        },
+      },
+    ]);
+    expect(trigger.disabled).toBe(false);
+  });
+
+  it("does not stop a stale persisted turn when the runtime says it is idle", () => {
+    const { trigger, rerender } = setup();
+    rerender([
+      {
+        ...agent,
+        inputState: {
+          active: false,
+          steeringSupported: true,
+          interruptSupported: true,
+          conversation: null,
+        },
+      },
+    ]);
     expect(trigger.disabled).toBe(true);
   });
 });

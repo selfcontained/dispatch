@@ -1530,7 +1530,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 
   .chat-composer[data-mobile-idle="true"]:not(:focus-within):not(
       :has([data-state="open"])
-    ) {
+    ):not(:has([data-testid="chat-stop-turn"][data-active="true"])) {
     .chat-composer-details {
       grid-template-rows: 0fr;
       opacity: 0;

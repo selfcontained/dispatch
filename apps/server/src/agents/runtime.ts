@@ -111,6 +111,8 @@ export type AgentRuntime = {
     blockId: string,
     action: QueuedPromptAction
   ): boolean;
+  /** Interrupt the current turns without changing or resubmitting deliveries. */
+  interruptDelivery?(agentIds: string[], blockId: string): Promise<boolean>;
   /** A turn is running or prompts are waiting behind one. */
   isBusy(agentId: string): boolean;
   /** A turn is actually running, excluding prompts waiting in the queue. */

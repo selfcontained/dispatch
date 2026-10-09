@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Block, BlockDeliveryState } from "@dispatch/shared";
-import {
-  AlertTriangle,
-  Check,
-  CheckCheck,
-  Hourglass,
-  Loader2,
-  Zap,
-} from "lucide-react";
+import { AlertTriangle, Check, CheckCheck, Hourglass, Zap } from "lucide-react";
 
 /** The recipients of a post in one of the states worth reporting. */
 function inState(block: Block, state: BlockDeliveryState): readonly string[] {
@@ -231,7 +224,7 @@ export function DeliveryIndicator({
     received > 0 &&
     received === deliveries.length;
   const Icon =
-    status === "Sending…" ? Loader2 : status === "Sent" ? Check : CheckCheck;
+    status === "Sending…" ? Hourglass : status === "Sent" ? Check : CheckCheck;
   const label =
     status === "Sent" && deliveries.length > 1
       ? `Sent · ${received} of ${deliveries.length} agents received it`
@@ -246,7 +239,7 @@ export function DeliveryIndicator({
       title={label}
     >
       <Icon
-        className={`h-3 w-3 ${status === "Sending…" ? "animate-spin motion-reduce:animate-none" : ""}`}
+        className="h-3 w-3"
         aria-hidden="true"
         data-testid={
           status === "Sending…"
