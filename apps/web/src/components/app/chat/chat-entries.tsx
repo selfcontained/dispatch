@@ -1028,7 +1028,7 @@ function BlockBody({
         </div>
       );
     case "launch":
-      return <CompactLaunchCard block={block} ctx={ctx} />;
+      return <CompactLaunchCard block={block} ctx={ctx} inThread={inThread} />;
     case "tasks":
       return <TasksBlockBody block={block} />;
     case "link":
@@ -1140,9 +1140,11 @@ export type BlockViewProps = {
 function CompactLaunchCard({
   block,
   ctx,
+  inThread,
 }: {
   block: Extract<Block, { kind: "launch" }>;
   ctx: FeedContext;
+  inThread: boolean;
 }): JSX.Element {
   const agent = useAgentRecord(block.toAgentId);
   const name = agent?.name || agentDisplayName(block.toAgentId ?? "", ctx);
@@ -1218,7 +1220,8 @@ function CompactLaunchCard({
           >
             <ReviewBlockBody
               block={review}
-              compact
+              compact={!inThread}
+              defaultExpanded={inThread}
               onOpen={
                 ctx.onOpenThread
                   ? () => ctx.onOpenThread?.(review.id)
@@ -1256,7 +1259,9 @@ export const BlockView = memo(function BlockView({
   // side indent would only push the replies off the left edge.
   const side = inThread ? undefined : blockSide(block, ctx);
   const mirroredInput =
-    !inThread && block.threadId !== null && isUserInputBlock(block);
+    !inThread &&
+    block.threadId !== null &&
+    (isUserInputBlock(block) || isFailedParentInput(block));
   const replyAction =
     !inThread && ctx.onOpenThread ? (
       <ReplyInThreadButton
@@ -1369,7 +1374,7 @@ export const BlockView = memo(function BlockView({
   );
 
   if (block.kind === "launch") {
-    return <CompactLaunchCard block={block} ctx={ctx} />;
+    return <CompactLaunchCard block={block} ctx={ctx} inThread={inThread} />;
   }
 
   // A person's block, whoever it reads as: a launch-context post made by

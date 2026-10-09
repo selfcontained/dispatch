@@ -198,9 +198,7 @@ test("nested asks remain parent-owned and only root escalations count as user in
   const questionId = JSON.parse(response.result.content[0]!.text).id;
   await page.goto(`/agents/${root.id}`, { waitUntil: "domcontentloaded" });
   for (const show of [false, true]) {
-    await page
-      .getByRole("button", { name: "Chat options", exact: true })
-      .click();
+    await page.getByTestId("chat-filters-trigger").click();
     await page
       .getByRole("switch", { name: "Show child messages" })
       .setChecked(show);

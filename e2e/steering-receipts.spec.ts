@@ -8,6 +8,13 @@ import {
 } from "../apps/web/src/test-utils/blocks";
 import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
 
+// These scenarios inspect coordination; opt into it explicitly.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("dispatch:chatShowChildAgents", "true")
+  );
+});
+
 test("header receipts and folded messages remain operable at 320px and desktop", async ({
   page,
   request,

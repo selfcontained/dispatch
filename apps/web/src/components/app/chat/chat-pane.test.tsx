@@ -491,6 +491,13 @@ describe("entryOwner / filterStreamView", () => {
     ]);
   });
 
+  it("keeps the user's explicit messages to another root visible", () => {
+    const message = blockEntry(
+      block({ id: "external", authorKind: "user", toAgentId: "another-root" })
+    );
+    expect(filterStreamView([message], rootView, false)).toEqual([message]);
+  });
+
   it("keeps a child response's source visible on its own page with child activity hidden", () => {
     const source = blockEntry(
       block({

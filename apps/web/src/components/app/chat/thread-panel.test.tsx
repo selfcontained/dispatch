@@ -438,6 +438,25 @@ describe("ThreadPanel", () => {
     );
   });
 
+  it("opens attached review findings directly on a launch's thread page", () => {
+    const root = launchBlock({
+      id: "launch",
+      toAgentId: "agt_2",
+      blocks: [reviewWith()],
+    });
+    client.setQueryData(threadQueryKey("agt_1", "launch"), {
+      root,
+      replies: [],
+    });
+    apiMock.mockResolvedValue({ root, replies: [] });
+    const onOpenThread = vi.fn();
+    renderPanel({ blockId: "launch", ctx: { ...peerCtx, onOpenThread } });
+    expect(screen.getByTestId("chat-compact-launch")).toBeTruthy();
+    expect(screen.getAllByTestId("chat-review-finding")).toHaveLength(2);
+    fireEvent.click(screen.getAllByTestId("chat-review-finding-link")[1]!);
+    expect(onOpenThread).toHaveBeenCalledWith("rv", "f2");
+  });
+
   it("opens a finding from the review's page over that page", () => {
     client.setQueryData(threadQueryKey("agt_1", "rv"), {
       root: reviewWith(),

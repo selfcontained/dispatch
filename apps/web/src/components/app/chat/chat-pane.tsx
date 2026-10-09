@@ -158,7 +158,11 @@ export function filterStreamView(
       if (block.kind === "launch") return block.streamId === view.rootId;
       if (block.kind === "review") return true;
       if (block.author.kind === "user")
-        return !block.toAgentId || block.toAgentId === view.agentId;
+        return (
+          !block.toAgentId ||
+          block.toAgentId === view.agentId ||
+          !view.descendants.has(block.toAgentId)
+        );
       if (
         block.author.kind === "agent" &&
         block.author.agentId === view.agentId &&
