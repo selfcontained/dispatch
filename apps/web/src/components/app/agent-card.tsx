@@ -169,6 +169,8 @@ function AgentCardImpl({
 
         <AgentCardActivity
           agent={agent}
+          // Expanded cards list each sub agent's activity in its own row.
+          childAgents={isExpanded ? undefined : childAgents}
           onNavigate={closeOnSessionAction ? onRequestClose : undefined}
         />
 

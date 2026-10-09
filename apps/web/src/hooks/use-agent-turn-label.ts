@@ -8,6 +8,7 @@
  */
 import {
   type QueryClient,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -101,21 +102,23 @@ export function refreshTurnLabels(queryClient: QueryClient): void {
   );
 }
 
-/** The current turn's running step, or null when there is no running turn. */
-export function useAgentTurnLabel(
-  agentId: string,
-  blockId: string | null
-): string | null {
-  const queryClient = useQueryClient();
-  keepTurnLabels(queryClient);
-  const queryKey = turnLabelQueryKey(agentId, blockId ?? "");
-  const { data: reported } = useQuery<boolean>({
+function reportedQueryOptions(agentId: string) {
+  return {
     queryKey: reportedQueryKey(agentId),
     queryFn: () => false,
     enabled: false,
     staleTime: Infinity,
-  });
-  const { data } = useQuery<string | null>({
+  };
+}
+
+function turnLabelQueryOptions(
+  queryClient: QueryClient,
+  agentId: string,
+  blockId: string | null,
+  reported: boolean | undefined
+) {
+  const queryKey = turnLabelQueryKey(agentId, blockId ?? "");
+  return {
     queryKey,
     queryFn: async () => {
       const asked = Date.now();
@@ -144,6 +147,44 @@ export function useAgentTurnLabel(
     // A reported agent's turn is recorded by its own entries.
     enabled: blockId !== null && !reported,
     staleTime: Infinity,
-  });
+  };
+}
+
+/** The current turn's running step, or null when there is no running turn. */
+export function useAgentTurnLabel(
+  agentId: string,
+  blockId: string | null
+): string | null {
+  const queryClient = useQueryClient();
+  keepTurnLabels(queryClient);
+  const { data: reported } = useQuery<boolean>(reportedQueryOptions(agentId));
+  const { data } = useQuery<string | null>(
+    turnLabelQueryOptions(queryClient, agentId, blockId, reported)
+  );
   return blockId ? (data ?? null) : null;
+}
+
+/** The first of `agents` whose current turn has a running step to show. */
+export function useFirstAgentWithTurnLabel<
+  T extends { id: string; currentTurn?: { blockId: string } | null },
+>(agents: T[]): T | null {
+  const queryClient = useQueryClient();
+  keepTurnLabels(queryClient);
+  const reported = useQueries({
+    queries: agents.map((agent) => reportedQueryOptions(agent.id)),
+  });
+  const labels = useQueries({
+    queries: agents.map((agent, index) =>
+      turnLabelQueryOptions(
+        queryClient,
+        agent.id,
+        agent.currentTurn?.blockId ?? null,
+        reported[index]?.data
+      )
+    ),
+  });
+  return (
+    agents.find((agent, index) => agent.currentTurn && labels[index]?.data) ??
+    null
+  );
 }
