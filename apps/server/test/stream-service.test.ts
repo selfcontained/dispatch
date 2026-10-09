@@ -2550,7 +2550,11 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
         "Withdrawn."
       );
       await svc.waitForInFlightDeliveries(1_000);
-      expect(injected.some((entry) => entry.text.includes("Yes"))).toBe(false);
+      expect(
+        injected.some((entry) =>
+          entry.text.includes(`This answers your question ${q.id}`)
+        )
+      ).toBe(false);
     } finally {
       await pool.query(
         `UPDATE agents SET parent_agent_id = NULL WHERE id = $1`,
@@ -4761,15 +4765,18 @@ describe("StreamService turn blocks", () => {
                 },
               }
         );
-        const answer =
-          kind === "question"
-            ? await svc.answerQuestion(A, ask.id, { value: "Yes" })
-            : await svc.submitForm(A, ask.id, { values: { name: "Ada" } });
         await svc.waitForInFlightDeliveries(1_000);
-        const source = injectedOpts[0]!.source!;
+        if (kind === "question") {
+          await svc.post(A, { replyTo: ask.id, text: "Yes" });
+        } else {
+          await svc.update(A, ask.id, {
+            state: { submission: { values: { name: "Ada" } } },
+          });
+        }
+        await svc.waitForInFlightDeliveries(1_000);
+        const source = injectedOpts.at(-1)!.source!;
         expect(source).toMatchObject({
-          chatMessageId: answer.reply.id,
-          userMessage: true,
+          userMessage: false,
           conversation: { streamId: A, threadId: launchBlockId(B) },
         });
         const resolved = await svc.resolvePromptSource(B, source);
@@ -7194,5 +7201,502 @@ describe("shown-block context boundaries", () => {
     await expect(svc.getThread(A, finding.id)).rejects.toThrow(
       "Message not found"
     );
+  });
+});
+
+describe("Parent-owned child requests", () => {
+  beforeEach(async () => {
+    await pool.query("UPDATE agents SET parent_agent_id = $1 WHERE id = $2", [
+      A,
+      B,
+    ]);
+  });
+  afterEach(async () => {
+    await pool.query("UPDATE agents SET parent_agent_id = NULL WHERE id = $1", [
+      B,
+    ]);
+    await pool.query("DELETE FROM settings WHERE key = $1", [
+      `stream:${A}:parent-mode`,
+    ]);
+  });
+
+  it.each(["stopped", "injection"] as const)(
+    "persists and recovers child asks when parent delivery fails: %s",
+    async (failure) => {
+      const { svc } = build(
+        failure === "stopped"
+          ? {
+              access: async (id) => {
+                if (id === A) throw new Error("Agent is stopped");
+                return { mode: "live" };
+              },
+            }
+          : { failFor: [A] }
+      );
+      const launch = await svc.store.insert({
+        streamId: A,
+        author: { kind: "agent", agentId: A },
+        toAgentId: B,
+        kind: "launch",
+        text: "Child launch",
+        data: null,
+        state: null,
+      });
+      for (const input of [
+        { question: { options: [{ label: "Yes" }] } },
+        {
+          form: {
+            fields: [{ id: "name", label: "Name", type: "text" as const }],
+          },
+        },
+      ]) {
+        const ask = await svc.post(B, {
+          text: "Need guidance",
+          replyTo: launch.id,
+          ...input,
+        });
+        expect(await settled(svc, ask.id)).toMatchObject({
+          toAgentId: A,
+          delivered: false,
+          data: { parentHandled: true },
+        });
+        const feed = await svc.feed(A);
+        expect(feed.entries.map((e) => e.id)).toContain(ask.id);
+        expect(feed.openInputs?.map((b) => b.id)).toContain(ask.id);
+        const recovered = build();
+        await recovered.svc.retryDelivery(A, ask.id);
+        expect(await settled(recovered.svc, ask.id)).toMatchObject({
+          delivered: true,
+        });
+        expect(recovered.injected[0]).toMatchObject({ agentId: A });
+        expect(
+          (await recovered.svc.feed(A)).openInputs?.map((b) => b.id)
+        ).not.toContain(ask.id);
+      }
+    }
+  );
+
+  it.each(["stopped", "injection"] as const)(
+    "recovers explicit nested-parent requests and lets that parent settle them: %s",
+    async (failure) => {
+      const C = "agt_nested_parent_request";
+      await pool.query(
+        "INSERT INTO agents (id, name, cwd, status, parent_agent_id) VALUES ($1, 'Nested child', '/tmp', 'running', $2) ON CONFLICT (id) DO UPDATE SET parent_agent_id = $2",
+        [C, B]
+      );
+      AGENTS[C] = {
+        id: C,
+        name: "Nested child",
+        filesDir: null,
+        status: "running",
+      };
+      try {
+        const notify = vi.fn();
+        const { svc } = build({
+          ...(failure === "stopped"
+            ? {
+                access: async (id) => {
+                  if (id === B) throw new Error("Parent is stopped");
+                  return { mode: "live" as const };
+                },
+              }
+            : { failFor: [B] }),
+          deps: { notify },
+        });
+        const launch = await svc.store.insert({
+          streamId: A,
+          author: { kind: "agent", agentId: B },
+          toAgentId: C,
+          kind: "launch",
+          text: "Nested launch",
+          data: null,
+          state: null,
+        });
+        for (const input of [
+          { question: { options: [{ label: "Yes" }] } },
+          {
+            form: {
+              fields: [
+                {
+                  id: "name",
+                  label: "Name",
+                  type: "text" as const,
+                  required: true,
+                },
+              ],
+            },
+          },
+        ]) {
+          const ask = await svc.post(C, {
+            to: B,
+            replyTo: launch.id,
+            text: "Nested decision",
+            notify: true,
+            ...input,
+          });
+          expect(await settled(svc, ask.id)).toMatchObject({
+            streamId: A,
+            toAgentId: B,
+            delivered: false,
+            data: { parentHandled: true },
+          });
+          const feed = await svc.feed(A);
+          expect(feed.entries.map((e) => e.id)).toContain(ask.id);
+          expect(feed.openInputs?.map((b) => b.id)).toContain(ask.id);
+          expect(notify).not.toHaveBeenCalled();
+          const recovered = build();
+          await recovered.svc.retryDelivery(A, ask.id);
+          await settled(recovered.svc, ask.id);
+          expect(recovered.injected[0]).toMatchObject({ agentId: B });
+          expect(recovered.injected[0]!.text).toContain(
+            "You own answering this child request"
+          );
+          if (ask.kind === "question") {
+            await recovered.svc.post(B, { replyTo: ask.id, text: "Yes" });
+            expect(await recovered.svc.store.getById(ask.id)).toMatchObject({
+              state: {
+                answer: { by: { kind: "agent", agentId: B }, value: "Yes" },
+              },
+            });
+          } else {
+            await recovered.svc.update(B, ask.id, {
+              state: { submission: { values: { name: "Nested" } } },
+            });
+            expect(await recovered.svc.store.getById(ask.id)).toMatchObject({
+              state: {
+                submission: {
+                  by: { kind: "agent", agentId: B },
+                  values: { name: "Nested" },
+                },
+              },
+            });
+          }
+          await recovered.svc.waitForInFlightDeliveries(1000);
+          expect(recovered.injected.at(-1)).toMatchObject({ agentId: C });
+          expect(
+            (await recovered.svc.feed(A)).openInputs?.map((b) => b.id)
+          ).not.toContain(ask.id);
+        }
+      } finally {
+        delete AGENTS[C];
+        await pool.query("DELETE FROM agents WHERE id = $1", [C]);
+      }
+    }
+  );
+
+  it.each(["stopped", "injection"] as const)(
+    "keeps failed parent answers recoverable after reload: %s",
+    async (failure) => {
+      const healthy = build();
+      for (const input of [
+        { question: { options: [{ label: "Yes" }] } },
+        {
+          form: {
+            fields: [{ id: "name", label: "Name", type: "text" as const }],
+          },
+        },
+      ]) {
+        const ask = await healthy.svc.post(B, {
+          text: "Need answer",
+          ...input,
+        });
+        await settled(healthy.svc, ask.id);
+        const failing = build(
+          failure === "stopped"
+            ? {
+                access: async (id) => {
+                  if (id === B) throw new Error("Child stopped");
+                  return { mode: "live" };
+                },
+              }
+            : { failFor: [B] }
+        );
+        if (ask.kind === "question")
+          await failing.svc.post(A, { replyTo: ask.id, text: "Yes" });
+        else
+          await failing.svc.update(A, ask.id, {
+            state: { submission: { values: { name: "Done" } } },
+          });
+        await failing.svc.waitForInFlightDeliveries(1000);
+        const feed = await build().svc.feed(A);
+        const recoveredAsk = feed.openInputs!.find((b) => b.id === ask.id)!;
+        expect(recoveredAsk.inputReply).toMatchObject({
+          delivered: false,
+          toAgentId: B,
+        });
+        expect(
+          feed.entries.find((e) => e.id === ask.id)?.block.inputReply
+        ).toMatchObject({ delivered: false });
+        const retry = build();
+        await retry.svc.retryDelivery(A, recoveredAsk.inputReply!.id);
+        await settled(retry.svc, recoveredAsk.inputReply!.id);
+        expect(retry.injected[0]).toMatchObject({ agentId: B });
+        expect(
+          (await retry.svc.feed(A)).openInputs?.map((b) => b.id)
+        ).not.toContain(ask.id);
+      }
+    }
+  );
+
+  it("keeps foreign-turn requests in the owning root and resumes their source conversation", async () => {
+    const foreign = "agt_parent_request_foreign";
+    await pool.query(
+      "INSERT INTO agents (id, name, cwd, status) VALUES ($1, 'Foreign', '/tmp', 'running')",
+      [foreign]
+    );
+    AGENTS[foreign] = {
+      id: foreign,
+      name: "Foreign",
+      filesDir: null,
+      status: "running",
+    };
+    const { svc } = build({ failFor: [A] });
+    try {
+      const root = await svc.store.insert({
+        streamId: foreign,
+        author: { kind: "user" },
+        toAgentId: B,
+        kind: "text",
+        text: "Source task",
+        data: null,
+        state: null,
+      });
+      const turn = await svc.store.insert({
+        streamId: foreign,
+        author: { kind: "agent", agentId: B },
+        threadId: root.id,
+        replyTo: root.id,
+        kind: "text",
+        text: "",
+        data: null,
+        state: null,
+      });
+      await pool.query(
+        "INSERT INTO agent_stream_events (agent_id, seq, kind, payload) VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_stream_events WHERE agent_id = $1), 'turn', $2)",
+        [B, JSON.stringify({ state: "started", blockId: turn.id })]
+      );
+      for (const input of [
+        { question: { options: [{ label: "Yes" }] } },
+        {
+          form: {
+            fields: [{ id: "name", label: "Name", type: "text" as const }],
+          },
+        },
+      ]) {
+        const ask = await svc.post(B, {
+          text: "Foreign task decision",
+          ...input,
+        });
+        await settled(svc, ask.id);
+        expect(ask).toMatchObject({
+          streamId: A,
+          toAgentId: A,
+          data: {
+            parentHandled: true,
+            parentRequestConversation: { streamId: foreign, threadId: root.id },
+          },
+        });
+        const recovered = build();
+        expect(
+          (await recovered.svc.feed(A)).openInputs?.map((b) => b.id)
+        ).toContain(ask.id);
+        await recovered.svc.retryDelivery(A, ask.id);
+        await settled(recovered.svc, ask.id);
+        if (ask.kind === "question")
+          await recovered.svc.post(A, { replyTo: ask.id, text: "Yes" });
+        else
+          await recovered.svc.update(A, ask.id, {
+            state: { submission: { values: { name: "Done" } } },
+          });
+        await recovered.svc.waitForInFlightDeliveries(1000);
+        expect(recovered.injected.at(-1)).toMatchObject({ agentId: B });
+        expect(recovered.injectedOpts.at(-1)?.source?.conversation).toEqual({
+          streamId: foreign,
+          threadId: root.id,
+        });
+      }
+    } finally {
+      await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+        B,
+      ]);
+      delete AGENTS[foreign];
+      await pool.query("DELETE FROM agents WHERE id = $1", [foreign]);
+    }
+  });
+
+  it("lets the user settle failed parent requests and saves failed child delivery", async () => {
+    const { svc } = build({
+      access: async () => {
+        throw new Error("Agent stopped");
+      },
+    });
+    const question = await svc.post(B, {
+      text: "Need decision",
+      question: { options: [{ label: "Yes" }] },
+    });
+    const answer = await svc.answerQuestion(A, question.id, { value: "Yes" });
+    expect(answer.block).toMatchObject({
+      state: { answer: { by: { kind: "user" }, value: "Yes" } },
+    });
+    expect(answer.reply.delivered).toBe(false);
+    const form = await svc.post(B, {
+      text: "Need value",
+      form: {
+        fields: [{ id: "name", label: "Name", type: "text", required: true }],
+      },
+    });
+    const submission = await svc.submitForm(A, form.id, {
+      values: { name: "User choice" },
+    });
+    expect(submission.block).toMatchObject({
+      state: {
+        submission: { by: { kind: "user" }, values: { name: "User choice" } },
+      },
+    });
+    expect(submission.reply.delivered).toBe(false);
+    expect((await svc.feed(A)).openInputs?.map((b) => b.id)).toEqual(
+      expect.arrayContaining([question.id, form.id])
+    );
+  });
+
+  it("routes child asks, delivers context, and records the parent's answer as an agent", async () => {
+    const { svc, injected } = build();
+    const ask = await svc.post(B, {
+      text: "Which color?",
+      question: { options: [{ label: "Blue", value: "blue" }] },
+    });
+    expect(ask.toAgentId).toBe(A);
+    await settled(svc, ask.id);
+    expect(injected[0]).toMatchObject({ agentId: A });
+    expect(injected[0].text).toContain('"value":"blue"');
+    expect(injected[0].text).toContain("If uncertain");
+    const reply = await svc.post(A, { replyTo: ask.id, text: "Blue" });
+    await settled(svc, reply.id);
+    expect(await svc.store.getById(ask.id)).toMatchObject({
+      toAgentId: A,
+      data: { parentHandled: true },
+      state: { answer: { value: "blue", by: { kind: "agent", agentId: A } } },
+    });
+    expect(injected.at(-1)).toMatchObject({ agentId: B });
+    expect(injected.at(-1)!.text).toContain(
+      `This answers your question ${ask.id}`
+    );
+  });
+
+  it("always routes child asks and leaves parent escalations for the user", async () => {
+    const { svc } = build();
+    const input = {
+      text: "Proceed?",
+      question: { options: [{ label: "Yes" }] },
+    };
+    expect((await svc.post(B, input)).toAgentId).toBe(A);
+    expect(await svc.post(B, { ...input, to: A })).toMatchObject({
+      toAgentId: A,
+      data: { parentHandled: true },
+    });
+    expect((await svc.post(A, input)).toAgentId).toBeNull();
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ($1, 'false') ON CONFLICT (key) DO UPDATE SET value = 'false'",
+      [`stream:${A}:parent-mode`]
+    );
+    expect((await svc.post(B, input)).toAgentId).toBe(A);
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
+  it("accepts form values only from the addressed parent and resumes the child", async () => {
+    const { svc, injected } = build();
+    const form = await svc.post(B, {
+      text: "Configure",
+      form: {
+        fields: [{ id: "name", label: "Name", type: "text", required: true }],
+      },
+    });
+    await settled(svc, form.id);
+    expect(injected[0].text).toContain('"id":"name"');
+    await expect(
+      svc.submitForm(
+        A,
+        form.id,
+        { values: { name: "No" } },
+        { kind: "agent", agentId: B }
+      )
+    ).rejects.toThrow("Only the addressed agent");
+    await expect(
+      svc.update(A, form.id, { state: { submission: { values: {} } } })
+    ).rejects.toThrow("required");
+    const updated = await svc.update(A, form.id, {
+      state: { submission: { values: { name: "Demo" } } },
+    });
+    expect(updated).toMatchObject({
+      state: {
+        submission: {
+          values: { name: "Demo" },
+          by: { kind: "agent", agentId: A },
+        },
+      },
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect(injected.at(-1)!.text).toContain(
+      `This answers your form ${form.id}`
+    );
+    await expect(
+      svc.update(A, form.id, {
+        state: { submission: { values: { name: "Again" } } },
+      })
+    ).rejects.toThrow("already submitted");
+  });
+
+  it("includes review cards and their findings, but no other child artifacts", async () => {
+    const { svc } = build();
+    await svc.recordLaunchContext({ agentId: B, text: "Review the work" });
+    const review = await svc.post(B, {
+      to: A,
+      review: {
+        summary: "Review result",
+        findings: [
+          { severity: "minor", title: "Inspect this", body: "Finding details" },
+        ],
+      },
+    });
+    const entry = (await svc.feed(A)).entries.find((e) => e.id === review.id);
+    expect(entry?.block).toMatchObject({
+      kind: "review",
+      blocks: [
+        expect.objectContaining({
+          kind: "finding",
+          data: expect.objectContaining({
+            title: "Inspect this",
+            body: "Finding details",
+          }),
+        }),
+      ],
+    });
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
+  it("keeps threaded child artifacts and coordination out of the conversation feed", async () => {
+    const { svc } = build();
+    const host = await svc.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      kind: "text",
+      text: "Thread",
+    });
+    const artifact = await svc.post(B, {
+      replyTo: host.id,
+      text: "Deliverable",
+      link: { url: "https://example.com/report" },
+    });
+    const chatter = await svc.post(B, {
+      replyTo: host.id,
+      text: "Working on it",
+    });
+    expect((await svc.feed(A)).entries.map((e) => e.id)).not.toContain(
+      artifact.id
+    );
+    const ids = (await svc.feed(A)).entries.map((e) => e.id);
+    expect(ids).not.toContain(artifact.id);
+    expect(ids).not.toContain(chatter.id);
+    await svc.waitForInFlightDeliveries(1000);
   });
 });

@@ -1,25 +1,23 @@
 import { ScheduledMessageEntry } from "./scheduled-message-entry";
-import { isUserInputBlock, qualifyExternalMentions } from "@dispatch/shared";
+import {
+  isUserInputBlock,
+  isFailedParentInput,
+  qualifyExternalMentions,
+} from "@dispatch/shared";
 import { Link } from "react-router-dom";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
-import { memo, type ReactNode, useMemo } from "react";
+import { memo, type ReactNode } from "react";
 import {
   type Block,
   type BlockAuthor,
-  type BlockStartup,
   type BlockOption,
   type ChatUserAttachmentInput,
   fileMedia,
 } from "@dispatch/shared";
-import {
-  ChevronRight,
-  MessageSquarePlus,
-  MessagesSquare,
-  Rocket,
-} from "lucide-react";
+import { MessageSquarePlus, MessagesSquare, Rocket } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -28,11 +26,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
-import { Collapse } from "@/components/app/chat/collapse";
-import { StepList } from "@/components/app/chat/turn/activity-block";
 import { turnAnswerText } from "@/components/app/chat/turn/answer-text";
-import type { Trace } from "@/components/app/chat/turn/contracts";
-import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { type FoldedEntry } from "@/components/app/chat/turn/turn-attachments";
 import {
   isPendingTurn,
@@ -965,13 +959,16 @@ function BlockBody({
     setState && block.author.kind === "agent" && block.toAgentId === null
       ? () => setState({ cancellation: true })
       : undefined;
+  const recovery = isFailedParentInput(block);
   switch (block.kind) {
     case "question":
       return (
         <QuestionOptions
           block={block}
           answering={answering}
-          answersDisabled={answersDisabled}
+          answersDisabled={
+            !recovery && (answersDisabled || block.data.parentHandled === true)
+          }
           canceling={ctx.settingBlockStateId === block.id}
           onAnswer={(option, attachments) =>
             onAnswer(block.id, option, attachments)
@@ -984,7 +981,11 @@ function BlockBody({
         <FormBlockBody
           block={block}
           submitting={submitting}
-          disabled={answersDisabled || !onSubmitForm}
+          disabled={
+            !onSubmitForm ||
+            (!recovery &&
+              (answersDisabled || block.data.parentHandled === true))
+          }
           canceling={ctx.settingBlockStateId === block.id}
           onSubmit={(values) => onSubmitForm?.(block.id, values)}
           onCancel={cancelAsk}
@@ -1027,7 +1028,7 @@ function BlockBody({
         </div>
       );
     case "launch":
-      return <LaunchCardBody block={block} ctx={ctx} />;
+      return <CompactLaunchCard block={block} ctx={ctx} />;
     case "tasks":
       return <TasksBlockBody block={block} />;
     case "link":
@@ -1136,74 +1137,7 @@ export type BlockViewProps = {
   folded?: readonly FoldedEntry[];
 };
 
-/** "Started in 12s": how long a finished startup took. */
-function startupDuration(startup: BlockStartup): string | null {
-  const first = Date.parse(startup.steps[0]?.startedAt ?? "");
-  const last = Date.parse(startup.readyAt ?? "");
-  if (!Number.isFinite(first) || !Number.isFinite(last)) return null;
-  const seconds = Math.max(0, (last - first) / 1000);
-  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
-}
-
-/**
- * One part of a launch card that folds: a short line (what it is, and a
- * note on it) that opens onto the whole.
- */
-function LaunchSection({
-  title,
-  aside,
-  stateKey,
-  defaultOpen,
-  testId,
-  children,
-}: {
-  title: string;
-  aside?: string;
-  stateKey: string;
-  defaultOpen: boolean;
-  testId: string;
-  children: ReactNode;
-}): JSX.Element {
-  const [open, setOpen] = useChatRowState<boolean>(stateKey, defaultOpen);
-  return (
-    <div data-testid={testId} data-open={open ? "true" : "false"}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-[12px] text-muted-foreground hover:text-foreground"
-        data-testid={`${testId}-toggle`}
-      >
-        <ChevronRight
-          className={cn(
-            "h-3 w-3 shrink-0 transition-transform",
-            open && "rotate-90"
-          )}
-          aria-hidden="true"
-        />
-        <span className="shrink-0 font-medium">{title}</span>
-        {aside ? <span className="min-w-0 truncate">{aside}</span> : null}
-      </button>
-      <Collapse open={open} data-testid={`${testId}-body`}>
-        <div className="pb-1 pl-[18px] pt-1">{children}</div>
-      </Collapse>
-    </div>
-  );
-}
-
-/** The first line of some text, for a folded section's note. */
-function firstLineOf(text: string): string {
-  const line = text.split("\n").find((l) => l.trim().length > 0) ?? "";
-  return line.length > 90 ? `${line.slice(0, 89).trimEnd()}…` : line;
-}
-
-/**
- * A launch card's own body: who launched the agent, where it stands now
- * (read from the agent, so it stays current), the briefing it was given,
- * its workspace coming up, and the instructions it runs with. Startup
- * stands open while it runs and folds to one line once the agent is up.
- */
-function LaunchCardBody({
+function CompactLaunchCard({
   block,
   ctx,
 }: {
@@ -1211,147 +1145,96 @@ function LaunchCardBody({
   ctx: FeedContext;
 }): JSX.Element {
   const agent = useAgentRecord(block.toAgentId);
-  const state = block.state ?? {};
-  const startup = state.startup;
-  const trace = useMemo(() => startupTrace(startup), [startup]);
-  const launcher = block.launchedByAgentId
-    ? agentDisplayName(block.launchedByAgentId, ctx)
-    : "you";
-  const starting = !!startup && !startup.readyAt && !startup.failed;
-  const took = startup ? startupDuration(startup) : null;
+  const name = agent?.name || agentDisplayName(block.toAgentId ?? "", ctx);
+  const engine =
+    agent?.type && isAgentType(agent.type)
+      ? AGENT_TYPE_LABELS[agent.type]
+      : agent?.type;
   return (
-    <div className="flex flex-col gap-0.5" data-testid="chat-launch-card-body">
+    <div
+      className="mx-3 my-4 sm:mx-4 sm:my-[18px]"
+      data-testid="chat-compact-launch"
+      data-block-id={block.id}
+    >
       <div
-        className="mb-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground"
-        data-testid="chat-launch-meta"
+        className="flex min-w-0 items-center justify-center gap-2 sm:gap-3.5"
+        data-testid="launch-agent-details"
       >
-        <span className="inline-flex items-center gap-1">
-          <Rocket className="h-3 w-3" aria-hidden="true" />
-          Launched by {launcher}
-        </span>
-        {agent?.persona ? (
-          <span
-            className="rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium"
-            data-testid="chat-launch-persona"
-          >
-            {agent.persona}
-          </span>
-        ) : null}
-      </div>
-      {block.text ? (
-        <LaunchSection
-          title="Briefing"
-          aside={firstLineOf(block.text)}
-          stateKey="launch-briefing-open"
-          // A person's own words open; a briefing an agent wrote folds.
-          defaultOpen={!block.launchedByAgentId}
-          testId="chat-launch-briefing"
-        >
-          <Markdown
-            renderText={(text) => (
-              <MentionText
-                spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
-              />
-            )}
-          >
-            {block.text}
-          </Markdown>
-        </LaunchSection>
-      ) : null}
-      {startup && startup.steps.length > 0 ? (
-        starting ? (
-          <div
-            className="w-full min-w-0 font-terminal"
-            data-testid="chat-launch-startup"
-          >
-            <StepList trace={trace} />
+        <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
+        <AgentSeatBadge
+          seat={
+            block.toAgentId === ctx.agentId
+              ? (ctx.agentSeat ?? null)
+              : (ctx.peers?.[block.toAgentId ?? ""]?.seat ?? null)
+          }
+          name={name}
+          size="sm"
+          className="h-[26px] w-[26px]"
+        />
+        <div className="min-w-0 max-w-[calc(100%-4rem)]">
+          <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap leading-[21px] sm:gap-2">
+            <span className="text-[10px] font-normal uppercase tracking-[0.065em] text-emerald-300/70">
+              Launched
+            </span>
+            {engine ? (
+              <span className="text-[11px] text-muted-foreground">
+                {engine}
+              </span>
+            ) : null}
+            {agent?.model ? (
+              <span
+                className="truncate text-xs font-medium"
+                title={agent.model}
+              >
+                {ctx.modelLabel?.(agent.type ?? null, agent.model) ??
+                  agent.model}
+              </span>
+            ) : null}
           </div>
-        ) : (
-          <LaunchSection
-            title={startup.failed ? "Startup failed" : "Started"}
-            aside={startup.failed ?? (took ? `in ${took}` : undefined)}
-            stateKey="launch-startup-open"
-            defaultOpen={!!startup.failed}
-            testId="chat-launch-startup"
+          <div className="flex min-w-0 items-center justify-between gap-3.5 whitespace-nowrap text-[11px] leading-[21px] text-muted-foreground">
+            {agent?.persona ? (
+              <span className="truncate" title={agent.persona}>
+                {agent.persona}
+              </span>
+            ) : null}
+            <time
+              className="shrink-0 text-[10px]"
+              dateTime={block.createdAt}
+              title={formatDateTime(block.createdAt)}
+            >
+              {clockTime(block.createdAt)}
+            </time>
+          </div>
+        </div>
+        <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
+      </div>
+      {block.blocks
+        ?.filter((item) => item.kind === "review")
+        .map((review) => (
+          <div
+            key={review.id}
+            className="mt-3 sm:mx-8"
+            data-testid="compact-launch-review"
           >
-            <div className="w-full min-w-0 font-terminal">
-              <StepList trace={trace} />
-            </div>
-          </LaunchSection>
-        )
-      ) : null}
-      {state.instructions ? (
-        <LaunchSection
-          title="Instructions"
-          aside={`${state.instructions.split("\n").length} lines`}
-          stateKey="launch-instructions-open"
-          defaultOpen={false}
-          testId="chat-launch-instructions"
-        >
-          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-            {state.instructions}
-          </pre>
-        </LaunchSection>
-      ) : null}
+            <ReviewBlockBody
+              block={review}
+              compact
+              onOpen={
+                ctx.onOpenThread
+                  ? () => ctx.onOpenThread?.(review.id)
+                  : undefined
+              }
+              onOpenFinding={
+                ctx.onOpenThread
+                  ? (findingId) => ctx.onOpenThread?.(review.id, findingId)
+                  : undefined
+              }
+              onOpenPath={ctx.onOpenPath}
+            />
+          </div>
+        ))}
     </div>
   );
-}
-
-/**
- * One block as a post: the author header, the text, the kind's own body,
- * the blocks it shows, the attachments, and then the delivery state (a
- * person's block), the reactions, and the thread's reply line.
- */
-/**
- * The startup record as the step list's own model. The worktree step
- * carries the directory it made and a failed step carries the reason, in
- * the aside the list shows beside a step's name.
- */
-function startupTrace(startup: BlockStartup | undefined): Trace {
-  const steps = startup?.steps ?? [];
-  const at = (iso: string | undefined): number | undefined => {
-    if (!iso) return undefined;
-    const ms = Date.parse(iso);
-    return Number.isFinite(ms) ? ms : undefined;
-  };
-  const first = at(steps[0]?.startedAt) ?? Date.now();
-  const last = steps.reduce(
-    (latest, step) => Math.max(latest, at(step.endedAt) ?? 0),
-    0
-  );
-  const ended = startup?.failed || startup?.readyAt ? last || first : undefined;
-  return {
-    startedAt: first,
-    ...(ended !== undefined ? { endedAt: ended } : {}),
-    ...(startup?.failed ? { finalResult: "error" as const } : {}),
-    steps: steps.map((step) => {
-      const startedAt = at(step.startedAt) ?? first;
-      const endedAt = at(step.endedAt);
-      // A path keeps its end, where the directory's own name is; a reason
-      // keeps its start.
-      const path =
-        !step.detail && step.phase === "worktree" ? startup?.cwd : undefined;
-      const aside = step.detail ?? path;
-      return {
-        id: step.phase,
-        kind: "setup",
-        label: step.label,
-        status:
-          step.status === "failed"
-            ? ("error" as const)
-            : step.status === "done"
-              ? ("ok" as const)
-              : ("running" as const),
-        startedAt,
-        ...(endedAt !== undefined
-          ? { endedAt, durMs: Math.max(0, endedAt - startedAt) }
-          : {}),
-        ...(aside
-          ? { detail: { text: aside, ...(path ? { clipStart: true } : {}) } }
-          : {}),
-      };
-    }),
-  };
 }
 
 export const BlockView = memo(function BlockView({
@@ -1390,14 +1273,40 @@ export const BlockView = memo(function BlockView({
         {copyText ? <MessageCopyButton text={copyText} /> : null}
       </div>
     ) : undefined;
+  const settledParentRequest =
+    (block.kind === "question" || block.kind === "form") &&
+    block.data.parentHandled === true &&
+    (block.kind === "question"
+      ? !!block.state?.answer
+      : !!block.state?.submission);
   const deliveryIndicator =
-    block.toAgentId && block.delivery?.length && block.kind !== "launch" ? (
+    !settledParentRequest &&
+    block.toAgentId &&
+    block.delivery?.length &&
+    block.kind !== "launch" ? (
       <DeliveryIndicator block={block} />
     ) : undefined;
   const reactions = block.reactions ?? [];
   const threadLine = inThread ? null : <ThreadLine block={block} ctx={ctx} />;
   // The thread this post opens onto: its own, or the one it is drawn in.
   const threadRootId = threadRoot ?? block.id;
+  const failedRequest = isFailedParentInput(block);
+  const failedRecipient =
+    block.inputReply?.delivered === false
+      ? block.inputReply.toAgentId
+      : block.toAgentId;
+  const failureNotice =
+    failedRequest && failedRecipient ? (
+      <p
+        className="mb-2 text-sm text-destructive"
+        role="status"
+        data-testid="parent-request-delivery-failure"
+      >
+        {block.inputReply?.delivered === false
+          ? `Couldn’t deliver the answer to ${agentDisplayName(failedRecipient, ctx)}. You can retry delivery or ask the parent for help.`
+          : `Couldn’t deliver this request to ${agentDisplayName(failedRecipient, ctx)}. You can answer it here or ask the parent to handle it.`}
+      </p>
+    ) : null;
   const body = (
     <>
       <BlockBody
@@ -1459,11 +1368,13 @@ export const BlockView = memo(function BlockView({
     </>
   );
 
+  if (block.kind === "launch") {
+    return <CompactLaunchCard block={block} ctx={ctx} />;
+  }
+
   // A person's block, whoever it reads as: a launch-context post made by
   // another agent keeps the user-post layout under that agent's name.
-  // A launch card reads as the agent it launched (see `blockAuthor`), so
-  // it takes the agent layout below, whoever wrote the briefing.
-  if (block.author.kind === "user" && block.kind !== "launch") {
+  if (block.author.kind === "user") {
     const queued =
       block.delivered === null &&
       block.toAgentId &&
@@ -1572,12 +1483,10 @@ export const BlockView = memo(function BlockView({
   }
 
   const { onToggleReaction } = ctx;
-  // A launch card is a record Dispatch keeps, not something to react to.
-  const toggleReaction =
-    onToggleReaction && block.kind !== "launch"
-      ? (emoji: string, remove: boolean) =>
-          onToggleReaction(block.id, emoji, remove)
-      : undefined;
+  const toggleReaction = onToggleReaction
+    ? (emoji: string, remove: boolean) =>
+        onToggleReaction(block.id, emoji, remove)
+    : undefined;
   // Adding a reaction is delivered like a message, so the picker is disabled
   // whenever a message could not be sent; taking one back off never needs
   // the agent.
@@ -1601,12 +1510,7 @@ export const BlockView = memo(function BlockView({
       grouped={grouped}
       rule={rule}
       side={side}
-      data-launch-card={block.kind === "launch" ? "true" : undefined}
-      // A launch card is a record of an agent, not a message in the
-      // conversation: it answers to its own name.
-      data-testid={
-        block.kind === "launch" ? "chat-launch-card" : "chat-message"
-      }
+      data-testid="chat-message"
       data-author={author.kind === "peer" ? "peer" : "agent"}
       data-kind={block.kind}
       data-origin={block.origin}
@@ -1637,6 +1541,7 @@ export const BlockView = memo(function BlockView({
           multiple={block.data.responseTo.length > 1}
         />
       ) : null}
+      {failureNotice}
       <InputSurface block={block}>
         {block.turn ? (
           <TurnAnswer
@@ -1669,7 +1574,7 @@ export const BlockView = memo(function BlockView({
               ).scheduledMessage
             }
           />
-        ) : block.text && block.kind !== "launch" ? (
+        ) : block.text ? (
           <Markdown
             renderText={(text) => (
               <MentionText
@@ -1683,7 +1588,7 @@ export const BlockView = memo(function BlockView({
         {body}
       </InputSurface>
       <AttachmentList block={block} ctx={ctx} />
-      {block.kind === "launch" ? null : (
+      {!settledParentRequest && (
         <DeliveryMeta
           block={block}
           recipientName={(id) => agentDisplayName(id, ctx)}

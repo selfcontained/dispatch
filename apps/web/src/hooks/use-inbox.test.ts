@@ -100,6 +100,39 @@ function card(id: string, child: string, when: string, shown: Block[]) {
 }
 
 describe("deriveInbox reviews", () => {
+  it("ranks a late review by its own date rather than its old launch before capping", () => {
+    const late = reviewOf("late", "child", "root", "2026-09-02T14:00:00Z");
+    const entries = [
+      card("old-launch", "child", "2026-09-02T00:00:00Z", [late]),
+      ...Array.from({ length: 12 }, (_, i) =>
+        review(
+          "r" + i,
+          "child",
+          "root",
+          `2026-09-02T${String(i + 1).padStart(2, "0")}:00:00Z`
+        )
+      ),
+      blockEntry(late),
+    ];
+    const inbox = deriveInbox(entries, "root", "root");
+    expect(inbox.reviews).toHaveLength(12);
+    expect(inbox.reviews[0]!.id).toBe("late");
+    expect(inbox.reviews.map((r) => r.id)).not.toContain("r0");
+  });
+
+  it("counts attached and standalone copies once before applying the review cap", () => {
+    const result = reviewOf("r1", "child", "root", "2026-09-02T10:00:00Z");
+    const inbox = deriveInbox(
+      [
+        card("launch", "child", "2026-09-02T09:00:00Z", [result]),
+        blockEntry(result),
+      ],
+      "root",
+      "root"
+    );
+    expect(inbox.reviews.map((r) => r.id)).toEqual(["r1"]);
+  });
+
   it("lists reviews of the page's agent newest first, open ones before resolved", () => {
     const inbox = deriveInbox(
       [

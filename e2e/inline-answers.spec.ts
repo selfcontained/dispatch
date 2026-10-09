@@ -178,11 +178,10 @@ for (const width of [390, 1280]) {
   });
 }
 
-test("a child pane includes grandchild requests only when child agents are visible", async ({
+test("nested asks remain parent-owned and only root escalations count as user input", async ({
   page,
   request,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
   const root = await createAgentViaAPI(request, { name: "e2e-nested-root" });
   const child = await createAgentViaAPI(request, {
     name: "e2e-nested-child",
@@ -197,23 +196,29 @@ test("a child pane includes grandchild requests only when child agents are visib
     question: { options: [{ label: "Proceed" }] },
   })) as { result: { content: { text: string }[] } };
   const questionId = JSON.parse(response.result.content[0]!.text).id;
-  await page.goto(`/agents/${child.id}`, { waitUntil: "domcontentloaded" });
-  const badge = page.getByTestId("chat-pending-inputs");
-  await expect(badge).toContainText("1");
-  await badge.click();
-  await expect(
-    page
-      .getByTestId("chat-pane")
-      .locator(`[data-chat-entry-id="${questionId}"]`)
-  ).toBeInViewport();
-  await page.screenshot({
-    path: "/tmp/dispatch-question-design/nested-input-visible.png",
+  await page.goto(`/agents/${root.id}`, { waitUntil: "domcontentloaded" });
+  for (const show of [false, true]) {
+    await page
+      .getByRole("button", { name: "Chat options", exact: true })
+      .click();
+    await page
+      .getByRole("switch", { name: "Show child messages" })
+      .setChecked(show);
+    await page.keyboard.press("Escape");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const saved = await request.get(
+      `/api/v1/streams/${root.id}/blocks/${questionId}/thread`,
+      { headers: authHeaders() }
+    );
+    expect((await saved.json()).root).toMatchObject({
+      toAgentId: root.id,
+      data: { parentHandled: true },
+    });
+    await expect(page.getByTestId("chat-pending-inputs")).toHaveCount(0);
+  }
+  await callMcpToolViaAPI(request, root.id, "post", {
+    text: "I need your decision before answering the child",
+    question: { options: [{ label: "Proceed" }] },
   });
-  await page.getByRole("button", { name: "Chat options", exact: true }).click();
-  await page.getByRole("switch", { name: "Child agents" }).click();
-  await expect(badge).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await page.screenshot({
-    path: "/tmp/dispatch-question-design/nested-input-hidden.png",
-  });
+  await expect(page.getByTestId("chat-pending-inputs")).toContainText("1");
 });

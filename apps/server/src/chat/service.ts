@@ -1,3 +1,4 @@
+import * as z from "zod/v4";
 import {
   AUTO_CONTEXT_CHARS,
   automaticExcerpt,
@@ -646,13 +647,32 @@ type TurnPublish = { done: Promise<void>; again: boolean };
  */
 /**
  * The text a block delivers as a prompt: its own text, plus what its data
- * says when the data is the point (a review's findings). A question's
- * options are not spelled out: the recipient of a question is a person.
+ * says when the data is the point (review findings, question options, form fields).
  */
 function envelopeText(block: Block): string {
   if (block.kind === "review") {
     const review = describeReview(block, reviewFindings(block));
     return block.text.trim() ? `${block.text.trim()}\n\n${review}` : review;
+  }
+  if (block.kind === "question" || block.kind === "form") {
+    const details =
+      block.kind === "question"
+        ? `Options: ${JSON.stringify(block.data.options)}`
+        : `Fields: ${JSON.stringify(block.data.fields)}`;
+    const instructions =
+      block.kind === "question"
+        ? `Answer with post({ replyTo: "${block.id}", text: "<answer>" }).`
+        : `Submit with update({ id: "${block.id}", state: { submission: { values: { "<field id>": "<value>" } } } }).`;
+    return [
+      block.text,
+      details,
+      instructions,
+      ...(block.data.parentHandled
+        ? [
+            "You own answering this child request. Use the user's instructions and available context when confident. If uncertain, or this requires the user's explicit permission, ask the user a question with the relevant context, omitting to and replyTo so it is addressed to the user. When their answer arrives, settle this original request using the command above. Do not guess permissions or simply relay every child question. Keep routine coordination out of your user-facing narration.",
+          ]
+        : []),
+    ].join("\n\n");
   }
   return block.text;
 }
@@ -1144,7 +1164,12 @@ export class StreamService {
       resolved = await this.resolveAttachmentsFor(recipient, attachments);
       attachmentLines = await this.describeAttachments(recipient, resolved);
     }
-    const live = await this.canDeliver(toAgentId, true);
+    const live = await this.canDeliver(toAgentId, true).catch(
+      (error: unknown) => {
+        if (question.data.parentHandled) return false;
+        throw error;
+      }
+    );
 
     const client = await this.deps.pool.connect();
     let reply: Block;
@@ -1208,7 +1233,8 @@ export class StreamService {
   async submitForm(
     streamId: string,
     blockId: string,
-    input: { id?: string; values: Record<string, string | number | boolean> }
+    input: { id?: string; values: Record<string, string | number | boolean> },
+    by: BlockAuthor = USER
   ): Promise<StreamAnswerResponse> {
     const form = await this.store.getById(blockId);
     if (
@@ -1218,6 +1244,11 @@ export class StreamService {
       form.kind !== "form"
     ) {
       throw new StreamNotFoundError("Form not found.");
+    }
+    if (by.kind === "agent" && form.toAgentId !== by.agentId) {
+      throw new StreamForbiddenError(
+        "Only the addressed agent can submit this form."
+      );
     }
     if (form.state?.submission) {
       throw new StreamConflictError("Form already submitted.");
@@ -1237,7 +1268,12 @@ export class StreamService {
       values[field.id] = value;
     }
     const toAgentId = form.author.agentId;
-    const live = await this.canDeliver(toAgentId, true);
+    const live = await this.canDeliver(toAgentId, true).catch(
+      (error: unknown) => {
+        if (form.data.parentHandled) return false;
+        throw error;
+      }
+    );
     const text = form.data.fields
       .filter((f) => values[f.id] !== undefined)
       .map((f) => `${f.label}: ${String(values[f.id])}`)
@@ -1251,7 +1287,7 @@ export class StreamService {
       const inserted = await tx.insertIfAbsent({
         id: input.id ?? randomUUID(),
         streamId,
-        author: USER,
+        author: by,
         toAgentId,
         kind: "text",
         threadId: form.threadId ?? form.id,
@@ -1267,7 +1303,7 @@ export class StreamService {
       reply = inserted;
       submitted = await tx.recordSubmission(form.id, {
         values,
-        by: USER,
+        by,
         blockId: reply.id,
         at: new Date().toISOString(),
       });
@@ -1285,7 +1321,7 @@ export class StreamService {
     await this.publishEntry(streamId, submitted.id);
     await this.publishEntry(streamId, reply.id);
     if (live) {
-      await this.deliverBlock(reply, { kind: "user" }, [], {
+      await this.deliverBlock(reply, await this.senderOf(by), [], {
         answers: { blockId: form.id, kind: "form" },
       });
     }
@@ -2044,7 +2080,7 @@ export class StreamService {
     let streamId = await this.streamOf(agentId);
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
-    const data = resolved.data;
+    let data = resolved.data;
     const text = requireText(input.text);
     const attachmentInputs = input.attachments ?? [];
     if (attachmentInputs.length > BLOCK_ATTACHMENTS_MAX) {
@@ -2057,7 +2093,7 @@ export class StreamService {
         "A post needs text, an attachment, or one of question, form, link, review or tasks."
       );
     }
-    const replyTo = input.replyTo ?? null;
+    let replyTo = input.replyTo ?? null;
     if (input.placement !== undefined) {
       if (!["current", "home", "root"].includes(input.placement)) {
         throw new StreamValidationError(
@@ -2076,6 +2112,19 @@ export class StreamService {
       }
     }
     let toAgentId = input.to ?? null;
+    if (
+      (kind === "question" || kind === "form") &&
+      streamId !== agentId &&
+      (toAgentId === null ||
+        toAgentId === streamId ||
+        toAgentId === (await parentAgentId(this.deps.pool, agentId)))
+    ) {
+      toAgentId ??= streamId;
+      data = { ...(data as object), parentHandled: true };
+    }
+    const parentRequest =
+      (kind === "question" || kind === "form") &&
+      (data as { parentHandled?: boolean }).parentHandled === true;
     if (toAgentId === agentId) {
       throw new StreamValidationError("to must name another agent.");
     }
@@ -2091,10 +2140,20 @@ export class StreamService {
       turn.author.agentId === agentId &&
       (kind !== "review" || turn.streamId !== streamId)
     ) {
-      streamId = turn.streamId;
-      home = turn.threadId
-        ? { threadId: turn.threadId, replyTo: turn.replyTo ?? turn.threadId }
-        : null;
+      if (parentRequest && turn.streamId !== streamId) {
+        data = {
+          ...(data as object),
+          parentRequestConversation: {
+            streamId: turn.streamId,
+            threadId: turn.threadId,
+          },
+        };
+      } else {
+        streamId = turn.streamId;
+        home = turn.threadId
+          ? { threadId: turn.threadId, replyTo: turn.replyTo ?? turn.threadId }
+          : null;
+      }
     }
     const attachments = await this.resolveAgentAttachments(
       agent,
@@ -2130,7 +2189,18 @@ export class StreamService {
     if (replyTo) {
       const target = await this.store.getById(replyTo);
       if (target && addressedTo(target).includes(agentId)) {
-        streamId = target.streamId;
+        if (parentRequest && target.streamId !== streamId) {
+          data = {
+            ...(data as object),
+            parentRequestConversation: {
+              streamId: target.streamId,
+              threadId: target.threadId,
+            },
+          };
+          replyTo = null;
+        } else {
+          streamId = target.streamId;
+        }
       }
     }
     const thread = replyTo ? await this.resolveThread(streamId, replyTo) : home;
@@ -2145,8 +2215,36 @@ export class StreamService {
         : toAgentId
           ? [toAgentId]
           : [];
+    const target =
+      kind === "text" && replyTo && thread && text.trim()
+        ? await this.store.getById(thread.replyTo)
+        : null;
+    const answering =
+      target?.kind === "question" &&
+      target.toAgentId === agentId &&
+      !target.state?.answer &&
+      !target.state?.cancellation;
     const liveAll = await Promise.all(
-      recipients.map((id) => this.canDeliver(id, true))
+      recipients.map(async (id) => {
+        try {
+          return await this.canDeliver(id, true);
+        } catch (error) {
+          // Persist child requests even when their owner is unavailable.
+          // The failed row remains discoverable and can be retried on restart.
+          if (
+            (kind === "question" || kind === "form") &&
+            (data as { parentHandled?: boolean }).parentHandled
+          )
+            return false;
+          if (
+            answering &&
+            target?.kind === "question" &&
+            target.data.parentHandled
+          )
+            return false;
+          throw error;
+        }
+      })
     );
     const live = recipients.length > 0 && liveAll.every(Boolean);
     const insert: Parameters<BlockStore["insert"]>[0] = {
@@ -2172,18 +2270,14 @@ export class StreamService {
     // A reply to an open question addressed to this agent closes that
     // question. The reply and answer must commit together: a cancellation
     // that wins the race must not leave a visible or delivered answer reply.
-    const target =
-      kind === "text" && replyTo && thread && text.trim()
-        ? await this.store.getById(thread.replyTo)
-        : null;
-    const answering =
-      target?.kind === "question" &&
-      target.toAgentId === agentId &&
-      !target.state?.answer &&
-      !target.state?.cancellation;
     let block: Block;
     let answered: Block | null = null;
     if (answering && target) {
+      if (target.kind === "question" && target.data.parentHandled)
+        insert.data = {
+          ...((insert.data as object) ?? {}),
+          inlineAnswer: true,
+        };
       const client = await this.deps.pool.connect();
       try {
         await client.query("BEGIN");
@@ -2239,7 +2333,14 @@ export class StreamService {
           );
         });
     }
-    if (input.notify && this.deps.notify) {
+    if (
+      input.notify &&
+      this.deps.notify &&
+      !(
+        (block.kind === "question" || block.kind === "form") &&
+        block.data.parentHandled
+      )
+    ) {
       await this.deps
         .notify(agentId, { message: text || describeInput(block) })
         .catch((error: unknown) => {
@@ -2289,6 +2390,23 @@ export class StreamService {
         );
       }
       if (!input.state) throw new StreamValidationError("state is required.");
+      if (block.kind === "form" && "submission" in input.state) {
+        const parsed = z
+          .object({
+            values: z.record(
+              z.string(),
+              z.union([z.string(), z.number(), z.boolean()])
+            ),
+          })
+          .safeParse(input.state.submission);
+        if (!parsed.success)
+          throw new StreamValidationError(
+            "submission must contain field values."
+          );
+        return (
+          await this.submitForm(block.streamId, block.id, parsed.data, author)
+        ).block;
+      }
       return this.setState(block.streamId, block.id, input.state, author);
     }
     if (
@@ -2312,9 +2430,24 @@ export class StreamService {
     if (input.text !== undefined) patch.text = requireText(input.text);
     if (input.data !== undefined) {
       const data = validUpdateData(block, input.data);
-      patch.data = block.data?.delivery
-        ? { ...((data as object) ?? {}), delivery: block.data.delivery }
-        : data;
+      if (
+        (block.kind === "question" || block.kind === "form") &&
+        block.data.parentHandled
+      ) {
+        patch.data = {
+          ...(data as object),
+          parentHandled: true,
+          ...(block.data.parentRequestConversation
+            ? {
+                parentRequestConversation: block.data.parentRequestConversation,
+              }
+            : {}),
+          ...(block.data.delivery ? { delivery: block.data.delivery } : {}),
+        };
+      } else
+        patch.data = block.data?.delivery
+          ? { ...((data as object) ?? {}), delivery: block.data.delivery }
+          : data;
     }
     if (input.attachments !== undefined) {
       const agent = await this.requireAgent(agentId);
@@ -2692,6 +2825,7 @@ export class StreamService {
   ): Promise<StreamFeedResponse> {
     return composeStreamFeed(this.store, streamId, {
       ...opts,
+      includeReviews: true,
       isHeld: this.heldCheck(),
     });
   }
@@ -3159,6 +3293,18 @@ export class StreamService {
           : {}),
       };
       // Both runtime routing and prompt prose must name the resumed conversation.
+      const answeredRequest =
+        structuredAnswer && closes
+          ? await this.store.getById(closes.blockId)
+          : null;
+      if (
+        (answeredRequest?.kind === "question" ||
+          answeredRequest?.kind === "form") &&
+        answeredRequest.data.parentHandled &&
+        answeredRequest.data.parentRequestConversation
+      ) {
+        source.conversation = answeredRequest.data.parentRequestConversation;
+      }
       const deliverySource = structuredAnswer
         ? await this.resolvePromptSource(agentId, source)
         : source;

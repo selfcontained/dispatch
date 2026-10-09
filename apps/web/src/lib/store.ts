@@ -454,7 +454,7 @@ export const CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY =
 
 export const chatShowChildAgentsAtom = atomWithLocalStorage<boolean>(
   CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
-  true,
+  false,
   { validate: (value): value is boolean => typeof value === "boolean" }
 );
 

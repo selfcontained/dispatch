@@ -96,6 +96,7 @@ export function deriveInbox(
   const inputs: InboxInput[] = [];
   const links: InboxLink[] = [];
   const reviews: InboxReview[] = [];
+  const reviewIds = new Set<string>();
   const seen = new Set<string>();
   const blocks: Block[] = [];
   const asked = new Set<string>();
@@ -107,7 +108,13 @@ export function deriveInbox(
     // shows it, rather than a row of its own.
     for (const review of [block, ...(block.blocks ?? [])]) {
       if (review.kind !== "review") continue;
-      if (own(review) || review.toAgentId === agentId) reviews.unshift(review);
+      if (
+        !reviewIds.has(review.id) &&
+        (own(review) || review.toAgentId === agentId)
+      ) {
+        reviewIds.add(review.id);
+        reviews.unshift(review);
+      }
     }
     if (block.kind === "review") continue;
     if (!own(block)) continue;
@@ -127,7 +134,12 @@ export function deriveInbox(
   inputs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const settled = (review: InboxReview) =>
     reviewStatus(reviewFindings(review)) === "resolved";
-  reviews.sort((a, b) => Number(settled(a)) - Number(settled(b)));
+  reviews.sort(
+    (a, b) =>
+      Number(settled(a)) - Number(settled(b)) ||
+      b.createdAt.localeCompare(a.createdAt) ||
+      b.id.localeCompare(a.id)
+  );
   reviews.length = Math.min(reviews.length, REVIEWS_MAX);
   // A child's links are posted in its own thread, which the feed does not
   // list; the first page carries the newest of those. Newest first, all

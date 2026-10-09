@@ -24,6 +24,7 @@ import {
   FILE_BODY,
   launchBlock,
   questionBody,
+  reviewBlock,
   turnEntry as turnRow,
 } from "@/test-utils/blocks";
 import { api } from "@/lib/api";
@@ -34,6 +35,7 @@ import {
   entryOwner,
   filterStreamView,
   isMainColumnEntry,
+  visibleStreamEntries,
   type StreamView,
   readChatScrollPosition,
   REMEMBER_THROTTLE_MS,
@@ -336,6 +338,144 @@ describe("entryOwner / filterStreamView", () => {
   ];
   const ids = (list: StreamEntry[]) => list.map((entry) => entry.id);
 
+  it("retains root and archived launches without live descendants", () => {
+    const launches = ["agt_1", "archived-child"].map((toAgentId) =>
+      blockEntry(launchBlock({ id: toAgentId, streamId: "agt_1", toAgentId }))
+    );
+    expect(
+      filterStreamView(launches, { ...rootView, descendants: new Set() }, false)
+    ).toEqual(launches);
+  });
+
+  it.each([false, true])(
+    "retains standalone reviews and deduplicates loaded launches (children=%s)",
+    (show) => {
+      const review = reviewBlock({
+        id: "review",
+        threadId: "launch",
+        replyTo: "launch",
+        author: { kind: "agent", agentId: "agt_child" },
+        toAgentId: "agt_1",
+      });
+      const row = blockEntry(review);
+      const launch = blockEntry(
+        launchBlock({
+          id: "launch",
+          streamId: "agt_1",
+          toAgentId: "agt_child",
+          blocks: [review],
+        })
+      );
+      for (const view of [rootView, childView]) {
+        expect(visibleStreamEntries([row], view, show)).toEqual([row]);
+        expect(visibleStreamEntries([launch, row], view, show)).toEqual([
+          launch,
+        ]);
+      }
+    }
+  );
+
+  it("exposes unresolved failed parent requests but hides them once recovered", () => {
+    const failed = blockEntry(
+      block({
+        id: "failed",
+        author: { kind: "agent", agentId: "agt_child" },
+        toAgentId: "agt_1",
+        threadId: "launch",
+        delivered: false,
+        body: {
+          kind: "question",
+          data: { options: [{ label: "Yes" }], parentHandled: true },
+          state: {},
+        },
+      })
+    );
+    expect(visibleStreamEntries([failed], rootView, false)).toEqual([failed]);
+    failed.block.delivered = true;
+    expect(visibleStreamEntries([failed], rootView, false)).toEqual([]);
+  });
+
+  it.each(["question", "form"] as const)(
+    "keeps a settled %s visible until its answer reaches the child",
+    (kind) => {
+      const actor = {
+        by: { kind: "agent" as const, agentId: "agt_1" },
+        at: T,
+        blockId: "reply",
+      };
+      const reply = block({
+        id: "reply",
+        toAgentId: "agt_child",
+        delivered: false,
+      });
+      const ask = blockEntry(
+        block({
+          id: "ask",
+          author: { kind: "agent", agentId: "agt_child" },
+          toAgentId: "agt_1",
+          threadId: "launch",
+          delivered: true,
+          inputReply: reply,
+          body:
+            kind === "question"
+              ? {
+                  kind,
+                  data: { options: [{ label: "Yes" }], parentHandled: true },
+                  state: { answer: { ...actor, value: "Yes" } },
+                }
+              : {
+                  kind,
+                  data: { fields: [], parentHandled: true },
+                  state: { submission: { ...actor, values: {} } },
+                },
+        })
+      );
+      expect(visibleStreamEntries([ask], rootView, false)).toEqual([ask]);
+      reply.delivered = true;
+      expect(visibleStreamEntries([ask], rootView, false)).toEqual([]);
+    }
+  );
+
+  it("parent mode hides coordination and child attachments in both directions", () => {
+    const artifact = agentPost("report", "agt_child", "agt_1", "Report");
+    artifact.block.attachments = [
+      { type: "link", url: "https://example.com/report" },
+    ];
+    const review = blockEntry({
+      ...artifact.block,
+      id: "review",
+      kind: "review",
+      data: { summary: "Review" },
+      state: {},
+    });
+    const handoff = agentPost(
+      "handoff",
+      "agt_1",
+      "agt_child",
+      "Attached instructions"
+    );
+    handoff.block.attachments = [{ type: "code", code: "build this" }];
+    expect(
+      ids(
+        filterStreamView(
+          [...entries, artifact, handoff, review],
+          rootView,
+          false
+        )
+      )
+    ).toEqual([
+      "root-turn",
+      "human-chat",
+      "root-reply",
+      "child-launch",
+      "grandchild-launch",
+      "review",
+    ]);
+    expect(filterStreamView(entries, childView, true)).toEqual(
+      filterStreamView(entries, childView, true)
+    );
+  });
+
   it("gives the root's page everything, with descendants' rows as child activity", () => {
     expect(ids(filterStreamView(entries, rootView, true))).toEqual(
       ids(entries)
@@ -344,10 +484,8 @@ describe("entryOwner / filterStreamView", () => {
     // stays with child activity hidden.
     expect(ids(filterStreamView(entries, rootView, false))).toEqual([
       "root-turn",
-      "sibling-turn",
       "human-chat",
       "root-reply",
-      "to-child",
       "child-launch",
       "grandchild-launch",
     ]);
@@ -1196,7 +1334,7 @@ describe("ChatPane scroll memory", () => {
 });
 
 describe("isMainColumnEntry", () => {
-  it("shows threaded user asks even when child activity is hidden", () => {
+  it("keeps child asks out of the quiet view", () => {
     const ask = blockEntry(
       block({
         id: "ask",
@@ -1213,7 +1351,7 @@ describe("isMainColumnEntry", () => {
         { agentId: "root", rootId: "root", descendants: new Set(["child"]) },
         false
       )
-    ).toEqual([ask]);
+    ).toEqual([]);
     expect(
       isMainColumnEntry({
         ...ask,

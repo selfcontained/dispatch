@@ -177,8 +177,8 @@ describe("ChatFiltersButton", () => {
 
     fireEvent.click(screen.getByTestId("chat-filters-trigger"));
     expect(screen.getByTestId("chat-filters-popover")).toBeTruthy();
-    const toggle = screen.getByTestId("show-child-agents-switch");
-    expect(toggle.getAttribute("data-state")).toBe("checked");
+    const toggle = screen.getByRole("switch", { name: "Show child messages" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(toggle);
     expect(onShowChildAgentsChange).toHaveBeenCalledWith(false);
 

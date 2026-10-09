@@ -31,6 +31,8 @@ import {
 export { clampFeedLimit, decodeFeedCursor, encodeFeedCursor };
 
 export type ComposeFeedOptions = {
+  /** Include review cards from child launch threads for quiet and full views. */
+  includeReviews?: boolean;
   /** Opaque cursor from a previous page's `nextCursor`; already decoded. */
   cursor?: FeedCursor | null;
   limit?: number;
@@ -78,12 +80,21 @@ const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
  * re-aggregated — one function scan and a hash join for the planner to price
  * instead of a per-row lookup it would estimate at a hundred index scans.
  */
+const FAILED_PARENT_INPUT_SQL = `(b.to_agent_id IS NOT NULL
+  AND b.data->>'parentHandled' = 'true'
+  AND ((b.delivered = false AND ${OPEN_INPUT_SQL}) OR EXISTS (
+    SELECT 1 FROM blocks answer
+    WHERE answer.id::text = COALESCE(b.state->'answer'->>'blockId', b.state->'submission'->>'blockId')
+      AND answer.delivered = false
+  )))`;
+
 async function listBlockEntries(
   db: Queryable,
   streamId: string,
   cursor: FeedCursor | null,
   limit: number,
-  onlyIds?: readonly string[]
+  onlyIds?: readonly string[],
+  includeReviews = false
 ): Promise<Keyed<StreamBlockEntry>[]> {
   const params: unknown[] = [streamId];
   let clause = cursorClause("block", "uuid", cursor, params, "b");
@@ -91,8 +102,12 @@ async function listBlockEntries(
   // name any reply (or a block another one shows), which is published as its own entry so a
   // client can file it into its thread.
   let scope = `AND (b.thread_id IS NULL OR
-    (b.author_kind = 'agent' AND b.to_agent_id IS NULL
+    (b.author_kind = 'agent' AND (b.to_agent_id IS NULL OR ${FAILED_PARENT_INPUT_SQL})
       AND b.kind IN ('question', 'form')))`;
+  if (includeReviews) {
+    scope = `AND (b.thread_id IS NULL OR b.kind = 'review' OR
+      (b.author_kind = 'agent' AND (b.to_agent_id IS NULL OR ${FAILED_PARENT_INPUT_SQL}) AND b.kind IN ('question', 'form')))`;
+  }
   if (onlyIds !== undefined) {
     params.push([...onlyIds]);
     clause += ` AND b.id = ANY($${params.length}::uuid[])`;
@@ -363,7 +378,14 @@ export async function composeStreamFeed(
   const cursor = opts.cursor ?? null;
   const { db } = store;
   const [rows, unreadCount] = await Promise.all([
-    listBlockEntries(db, streamId, cursor, limit + 1),
+    listBlockEntries(
+      db,
+      streamId,
+      cursor,
+      limit + 1,
+      undefined,
+      opts.includeReviews
+    ),
     store.countUnread(streamId),
   ]);
   const merged: Keyed<StreamEntry>[] = rows.sort(compareNewestFirst);
@@ -376,6 +398,7 @@ export async function composeStreamFeed(
     attachTurns(db, blocks),
     attachShown(db, streamId, blocks, opts.isHeld),
   ]);
+  if (openInputs) await attachShown(db, streamId, openInputs, opts.isHeld);
   if (opts.compactTurns !== false) compactFeedTurnDetails(blocks);
   // Names last: the blocks the page shows, and the asks and links it
   // carries, name agents of their own.
@@ -445,7 +468,7 @@ async function listOpenInputs(
   const result = await db.query<BlockRow>(
     `SELECT b.* FROM blocks b
       WHERE b.stream_id = $1 AND b.author_kind = 'agent'
-        AND b.to_agent_id IS NULL AND ${OPEN_INPUT_SQL}
+        AND ((b.to_agent_id IS NULL AND ${OPEN_INPUT_SQL}) OR ${FAILED_PARENT_INPUT_SQL})
       ORDER BY b.created_at, b.id
       LIMIT ${OPEN_INPUTS_MAX}`,
     [streamId]

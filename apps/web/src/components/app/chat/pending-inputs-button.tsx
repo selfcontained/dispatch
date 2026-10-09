@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useRootAgentId, useDescendantAgentIds } from "@/hooks/use-agent-tree";
 import { useStreamFeedSelect } from "@/hooks/use-stream";
+import { isOpenInput } from "@/hooks/use-inbox";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
 
 /** A navigation shortcut in the existing header, including asks outside the loaded page. */
@@ -19,6 +20,7 @@ export function PendingInputsButton({
     rootId,
     (_entries, across) =>
       across.openInputs
+        .filter(isOpenInput)
         .filter(
           (block) =>
             agentId === rootId ||

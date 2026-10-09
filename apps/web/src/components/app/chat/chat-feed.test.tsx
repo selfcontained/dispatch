@@ -600,61 +600,95 @@ describe("ChatFeed", () => {
     }),
   };
 
-  it("lists the startup steps on the agent's card while its workspace comes up", () => {
+  it("renders a static launch event without startup controls or reactions", () => {
     renderFeed(
       [
         blockEntry(
           launchBlock({
             id: "l1",
             toAgentId: AGENT_ID,
-            launchState: {
-              startup: {
-                steps: [
-                  steps.worktree(),
-                  {
-                    phase: "deps",
-                    label: "Installing dependencies",
-                    startedAt: "2026-09-02T10:00:04.000Z",
-                    status: "running",
-                  },
-                ],
-              },
-            },
+            launchState: { startup: { steps: [steps.worktree()] } },
           })
         ),
       ],
       {},
       { onToggleReaction: vi.fn() }
     );
-    const post = screen.getByTestId("chat-launch-card");
-    expect(post.getAttribute("data-launch-card")).toBe("true");
-    expect(post.getAttribute("data-kind")).toBe("launch");
-    // The card stands for the agent it launched, this page's agent, under
-    // a launch mark: a record of it starting, not a post it wrote.
-    expect(screen.getByTestId("chat-post-author").textContent).toBe(
-      "Started builder"
-    );
-    expect(screen.getByTestId("chat-avatar-launch")).toBeTruthy();
-    expect(post.getAttribute("data-author-kind")).toBe("agent");
-    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
-      "Launched by you"
-    );
-    // The step list stands open while it runs, with no fold over it: each
-    // step can be watched as it runs.
-    const startup = screen.getByTestId("chat-launch-startup");
-    expect(screen.queryByTestId("chat-launch-startup-toggle")).toBeNull();
-    expect(screen.queryByTestId("harness-activity-summary")).toBeNull();
-    const rows = within(startup).getAllByRole("listitem");
-    expect(rows).toHaveLength(2);
-    expect(rows[0]!.textContent).toContain("creating git worktree");
-    expect(rows[0]!.textContent).toContain("4.0s");
-    expect(
-      rows[1]!.querySelector("[aria-label]")?.getAttribute("aria-label")
-    ).toBe("installing dependencies, running");
-    // A launch card is a record Dispatch keeps: nothing to react to, even
-    // where the feed offers reactions.
+    const event = screen.getByTestId("chat-compact-launch");
+    expect(event.textContent).toContain("Launched");
+    expect(within(event).queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("chat-launch-startup")).toBeNull();
     expect(screen.queryByTestId("chat-add-reaction")).toBeNull();
-    expect(screen.queryByTestId("chat-add-reaction-disabled")).toBeNull();
+  });
+
+  it("lets the user answer a failed parent request even when the parent is stopped", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "failed-request",
+            toAgentId: AGENT_ID,
+            delivered: false,
+            author: { kind: "agent", agentId: "agt_2" },
+            body: {
+              kind: "question",
+              data: { options: [{ label: "Yes" }], parentHandled: true },
+              state: {},
+            },
+          })
+        ),
+      ],
+      { answersDisabled: true },
+      { peers: REVIEWER_PEER }
+    );
+    expect(
+      screen.getByTestId("parent-request-delivery-failure").textContent
+    ).toContain("Couldn’t deliver this request to builder");
+    expect(
+      screen.getByTestId("parent-request-delivery-failure").textContent
+    ).toContain("answer it here");
+    expect(
+      screen.getByTestId("chat-question-option").hasAttribute("disabled")
+    ).toBe(false);
+  });
+
+  it("offers only the answer retry when a parent settles an undelivered ask", () => {
+    const retry = vi.fn();
+    const reply = block({
+      id: "answer-reply",
+      toAgentId: "agt_2",
+      delivered: false,
+    });
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "ask",
+            toAgentId: AGENT_ID,
+            delivered: false,
+            author: { kind: "agent", agentId: "agt_2" },
+            inputReply: reply,
+            body: {
+              kind: "question",
+              data: { options: [{ label: "Yes" }], parentHandled: true },
+              state: {
+                answer: {
+                  value: "Yes",
+                  by: { kind: "agent", agentId: AGENT_ID },
+                  at: "2026-09-02T10:00:00Z",
+                  blockId: reply.id,
+                },
+              },
+            },
+          })
+        ),
+      ],
+      {},
+      { onRetryDelivery: retry, peers: REVIEWER_PEER }
+    );
+    expect(screen.getAllByTestId("chat-delivery-retry")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("chat-delivery-retry"));
+    expect(retry).toHaveBeenCalledWith(reply.id);
   });
 
   it("offers reactions on the agent's posts but not on its card", () => {
@@ -672,7 +706,7 @@ describe("ChatFeed", () => {
       {},
       { onToggleReaction: vi.fn() }
     );
-    const card = screen.getByTestId("chat-launch-card");
+    const card = screen.getByTestId("chat-compact-launch");
     const reply = screen.getByTestId("chat-message");
     expect(card!.querySelector('[data-testid="chat-add-reaction"]')).toBeNull();
     expect(
@@ -680,139 +714,25 @@ describe("ChatFeed", () => {
     ).not.toBeNull();
   });
 
-  it("folds the startup to how long it took once the agent is up", () => {
-    renderFeed([
-      blockEntry(
-        launchBlock({
-          id: "l1",
-          toAgentId: AGENT_ID,
-          launchState: {
-            startup: {
-              steps: [
-                steps.worktree("done", "2026-09-02T10:00:02.000Z"),
-                {
-                  phase: "deps",
-                  label: "Installing dependencies",
-                  startedAt: "2026-09-02T10:00:02.000Z",
-                  endedAt: "2026-09-02T10:00:09.000Z",
-                  status: "done",
-                },
-              ],
-              readyAt: "2026-09-02T10:00:09.000Z",
-              cwd: "/Users/brad/dev/thing/.dispatch/worktrees/a-long-branch-name-that-goes-on",
-            },
-          },
-        })
-      ),
-    ]);
-    const section = screen.getByTestId("chat-launch-startup");
-    const toggle = screen.getByTestId("chat-launch-startup-toggle");
-    expect(toggle.textContent).toContain("Started");
-    expect(toggle.textContent).toContain("in 9.0s");
-    expect(section.getAttribute("data-open")).toBe("false");
-    fireEvent.click(toggle);
-    expect(section.getAttribute("data-open")).toBe("true");
-    // The whole path, never cut to a count of characters; when the row is
-    // too narrow it gives up its start, so the directory's name stays.
-    const aside = within(section).getByTestId("harness-step-aside");
-    expect(aside.textContent).toContain(
-      "/Users/brad/dev/thing/.dispatch/worktrees/a-long-branch-name-that-goes-on"
-    );
-    expect(aside.querySelector('[dir="rtl"] > bdi[dir="ltr"]')).not.toBeNull();
-  });
-
-  it("says which step failed when the workspace never came up, standing open", () => {
-    renderFeed([
-      blockEntry(
-        launchBlock({
-          id: "l1",
-          toAgentId: AGENT_ID,
-          launchState: {
-            startup: {
-              steps: [
-                {
-                  ...steps.worktree("failed", "2026-09-02T10:00:02.000Z"),
-                  detail: "branch already checked out",
-                },
-              ],
-              failed: "branch already checked out",
-            },
-          },
-        })
-      ),
-    ]);
-    const section = screen.getByTestId("chat-launch-startup");
-    expect(section.getAttribute("data-open")).toBe("true");
-    expect(
-      screen.getByTestId("chat-launch-startup-toggle").textContent
-    ).toContain("Startup failed");
-    // The step list reads a failed step the way it reads one in a turn.
-    const row = within(section).getAllByRole("listitem")[0]!;
-    expect(row.querySelector("[aria-label]")?.getAttribute("aria-label")).toBe(
-      "creating git worktree, failed"
-    );
-    expect(row.textContent).toContain("branch already checked out");
-    // A reason is read from its start: it clips at the end, as text does.
-    expect(row.querySelector('[dir="rtl"]')).toBeNull();
-  });
-
-  it("folds the instructions the agent was started with to a line count", () => {
-    renderFeed([
-      blockEntry(
-        launchBlock({
-          id: "l1",
-          toAgentId: AGENT_ID,
-          launchState: {
-            instructions: "You are builder.\nBe brief.\nShip it.",
-          },
-        })
-      ),
-    ]);
-    const section = screen.getByTestId("chat-launch-instructions");
-    const toggle = screen.getByTestId("chat-launch-instructions-toggle");
-    expect(toggle.textContent).toContain("Instructions");
-    expect(toggle.textContent).toContain("3 lines");
-    expect(section.getAttribute("data-open")).toBe("false");
-    fireEvent.click(toggle);
-    expect(section.getAttribute("data-open")).toBe("true");
-    expect(section.querySelector("pre")?.textContent).toBe(
-      "You are builder.\nBe brief.\nShip it."
-    );
-  });
-
-  it("draws a shown block whole on its card: its own words and attachments too", () => {
+  it("keeps attached review results visible without child chatter or attachments", () => {
     const review = reviewBlock({
       id: "rv1",
-      author: { kind: "agent", agentId: "agt_2" },
-      toAgentId: AGENT_ID,
-      threadId: "l1",
-      replyTo: "l1",
-      text: "Checked both edits; screenshot attached.",
+      text: "Child chatter",
       attachments: [
         { type: "link", url: "https://example.com/run", title: "The run" },
       ],
-      summary: "Fine.",
+      summary: "Review result",
     });
-    renderFeed(
-      [
-        blockEntry(
-          launchBlock({
-            id: "l1",
-            toAgentId: "agt_2",
-            launchedByAgentId: AGENT_ID,
-            blocks: [review],
-          })
-        ),
-      ],
-      {},
-      { peers: REVIEWER_PEER }
+    renderFeed([
+      blockEntry(
+        launchBlock({ id: "l1", toAgentId: "agt_2", blocks: [review] })
+      ),
+    ]);
+    expect(screen.getByTestId("chat-review-block").textContent).toContain(
+      "Review result"
     );
-    const shown = screen.getByTestId("chat-shown-block");
-    expect(shown.textContent).toContain(
-      "Checked both edits; screenshot attached."
-    );
-    expect(within(shown).getByTestId("chat-attachment-link")).toBeTruthy();
-    expect(within(shown).getByTestId("chat-review-block")).toBeTruthy();
+    expect(screen.queryByText("Child chatter")).toBeNull();
+    expect(screen.queryByTestId("chat-attachment-link")).toBeNull();
   });
 
   it("never shows a launched agent's running step on its launch card", () => {
@@ -843,11 +763,11 @@ describe("ChatFeed", () => {
       ["agent-turn-label", "agt_2", "live-turn"],
       "post"
     );
-    expect(screen.getByTestId("chat-launch-card")).toBeTruthy();
+    expect(screen.getByTestId("chat-compact-launch")).toBeTruthy();
     expect(screen.queryByTestId("agent-activity-agt_2")).toBeNull();
   });
 
-  it("shows the review a launched reviewer posted on its card, compactly, opening the card's thread", () => {
+  it("shows an attached review with its own thread opener", () => {
     const onOpenThread = vi.fn();
     const finding = findingBlock(
       "f1",
@@ -878,20 +798,9 @@ describe("ChatFeed", () => {
       {},
       { peers: REVIEWER_PEER, onOpenThread }
     );
-    // One post, the reviewer's card, with the review inside it.
-    expect(screen.getAllByTestId("chat-launch-card")).toHaveLength(1);
+    expect(screen.getAllByTestId("chat-compact-launch")).toHaveLength(1);
     expect(screen.queryAllByTestId("chat-message")).toHaveLength(0);
-    expect(screen.getByTestId("chat-post-author").textContent).toBe(
-      "Started Reviewer"
-    );
-    const shown = screen.getAllByTestId("chat-shown-block");
-    expect(
-      shown.map((el) => [
-        el.getAttribute("data-block-id"),
-        el.getAttribute("data-kind"),
-      ])
-    ).toEqual([["rv1", "review"]]);
-    const card = within(shown[0]!).getByTestId("chat-review-block");
+    const card = screen.getByTestId("chat-review-block");
     expect(card.getAttribute("data-compact")).toBe("true");
     expect(within(card).getByTestId("chat-review-status").textContent).toBe(
       "Changes requested"
@@ -902,7 +811,7 @@ describe("ChatFeed", () => {
     // Compact in the stream: the findings wait for the drawer.
     expect(screen.queryByTestId("chat-review-finding")).toBeNull();
     fireEvent.click(within(card).getByTestId("chat-review-header"));
-    expect(onOpenThread).toHaveBeenCalledWith("l1");
+    expect(onOpenThread).toHaveBeenCalledWith("rv1");
   });
 
   it("names an archived agent's posts, and posts to it, from the page's names", () => {
@@ -953,14 +862,7 @@ describe("ChatFeed", () => {
     expect(post.textContent).not.toContain("old name");
   });
 
-  it("folds the briefing one agent wrote for another, on the launched agent's card", () => {
-    const peers = {
-      agt_2: {
-        name: "architecture review",
-        agentType: "claude",
-        relation: "child" as const,
-      },
-    };
+  it("uses the launched agent record for its engine, model and persona", () => {
     renderFeed(
       [
         blockEntry(
@@ -968,102 +870,52 @@ describe("ChatFeed", () => {
             id: "l1",
             toAgentId: "agt_2",
             launchedByAgentId: AGENT_ID,
-            text: "Review the UNCOMMITTED changes in this worktree.\n\n## What changed and why\nA long briefing.",
+            text: "Long internal briefing",
           })
         ),
       ],
       {},
-      { peers },
+      { peers: REVIEWER_PEER },
       [
         {
           id: "agt_2",
-          name: "architecture review",
-          type: "claude",
-          status: "running",
+          name: "Reviewer",
+          type: "codex",
+          model: "gpt-6",
           persona: "architecture-review",
-          parentAgentId: AGENT_ID,
+          status: "running",
         } as Agent,
       ]
     );
-    // The card is a post by the agent it launched, not by its launcher.
-    const post = screen.getByTestId("chat-launch-card");
-    expect(post.getAttribute("data-launch-card")).toBe("true");
-    expect(post.getAttribute("data-author")).toBe("peer");
-    expect(screen.getByTestId("chat-post-author").textContent).toBe(
-      "Started architecture review"
-    );
-    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
-      "Launched by builder"
-    );
-    // Who the agent is comes from its record.
-    expect(screen.getByTestId("chat-launch-persona").textContent).toBe(
-      "architecture-review"
-    );
-    const row = screen.getByTestId("chat-launch-briefing");
-    const header = screen.getByTestId("chat-launch-briefing-toggle");
-    expect(header.textContent).toContain("Briefing");
-    expect(header.textContent).toContain(
-      "Review the UNCOMMITTED changes in this worktree."
-    );
-    expect(header.textContent).not.toContain("What changed and why");
-    expect(row.getAttribute("data-open")).toBe("false");
-    fireEvent.click(header);
-    expect(row.getAttribute("data-open")).toBe("true");
-    expect(
-      screen.getByTestId("chat-launch-briefing-body").textContent
-    ).toContain("What changed and why");
-    // Not a side conversation: the card has no "→ recipient".
-    expect(screen.queryByTestId("chat-side-header")).toBeNull();
+    const event = screen.getByTestId("chat-compact-launch");
+    expect(event.textContent).toContain("Codex");
+    expect(event.textContent).toContain("gpt-6");
+    expect(event.textContent).toContain("architecture-review");
+    expect(event.textContent).not.toContain("Long internal briefing");
+    expect(event.querySelector("time")).not.toBeNull();
   });
 
-  it("opens the briefing a person wrote to start this agent, on the agent's card", () => {
-    const launch = launchBlock({
-      id: "l0",
-      toAgentId: AGENT_ID,
-      text: "Build the widget",
-      attachments: [
-        { type: "link", url: "https://example.com/spec" },
-        fileAttachment({ fileId: 7, fileName: "brief.md", sizeBytes: 300 }),
-      ],
-      createdAt: "2026-09-02T10:00:00.000Z",
-    });
-    const followUp = block({
-      id: "follow",
-      authorKind: "user",
-      text: "Also add tests",
-      delivered: true,
-      createdAt: "2026-09-02T10:01:00.000Z",
-    });
-    renderFeed([blockEntry(launch), blockEntry(followUp)]);
-    const posts = [
-      screen.getByTestId("chat-launch-card"),
-      ...screen.getAllByTestId("chat-message"),
-    ];
-    expect(posts[0]!.getAttribute("data-launch-card")).toBe("true");
-    expect(posts[0]!.getAttribute("data-author-kind")).toBe("agent");
-    expect(
-      screen.getAllByTestId("chat-post-author").map((a) => a.textContent)
-    ).toEqual(["Started builder", "You"]);
-    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
-      "Launched by you"
-    );
-    // A person's own words stand open.
-    expect(
-      screen.getByTestId("chat-launch-briefing").getAttribute("data-open")
-    ).toBe("true");
-    expect(
-      screen.getByTestId("chat-launch-briefing-body").textContent
-    ).toContain("Build the widget");
-    expect(screen.getByTestId("chat-attachment-link")).toBeTruthy();
-    expect(screen.getByTestId("chat-attachment-file")).toBeTruthy();
-    // No delivery marker: the prompt went out with the launch.
-    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
-    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
-    // The card is the agent's, so the person's next post starts a group.
-    expect(posts.map((p) => p.getAttribute("data-grouped"))).toEqual([
-      null,
-      null,
+  it("uses the same static treatment for a human-initiated root launch", () => {
+    renderFeed([
+      blockEntry(
+        launchBlock({ id: "l0", toAgentId: AGENT_ID, text: "Build the widget" })
+      ),
+      blockEntry(
+        block({
+          id: "follow",
+          authorKind: "user",
+          text: "Also add tests",
+          delivered: true,
+        })
+      ),
     ]);
+    const event = screen.getByTestId("chat-compact-launch");
+    expect(event.textContent).toContain("Launched");
+    expect(within(event).queryByRole("button")).toBeNull();
+    expect(screen.getByTestId("chat-message").textContent).toContain(
+      "Also add tests"
+    );
+    expect(screen.queryByTestId("chat-launch-card")).toBeNull();
   });
 
   it("offers no Retry when the feed has no way to send again", () => {
@@ -1294,51 +1146,16 @@ describe("ChatFeed", () => {
     ).toBe("builder → Reviewer");
   });
 
-  it("names who launched an agent on its card, falling back to Agent", () => {
-    const peers = peerDirectory(AGENT_ID, [
-      {
-        id: AGENT_ID,
-        name: "builder",
-        type: "claude",
-        parentAgentId: "agt_root",
-      },
-      {
-        id: "agt_root",
-        name: "orchestrator",
-        type: "codex",
-        parentAgentId: null,
-      },
+  it("renders a launch even when its agent record is unavailable", () => {
+    renderFeed([
+      blockEntry(launchBlock({ id: "launch", toAgentId: "agt_gone" })),
     ]);
-    const launch = launchBlock({
-      id: "launch",
-      toAgentId: AGENT_ID,
-      launchedByAgentId: "agt_root",
-      text: "Build the widget",
-      createdAt: "2026-09-02T10:00:00.000Z",
-    });
-    renderFeed([blockEntry(launch)], {}, { peers });
-    const post = screen.getByTestId("chat-launch-card");
-    // The card is the launched agent's: this page's.
-    expect(post.getAttribute("data-author-kind")).toBe("agent");
-    expect(screen.getByTestId("chat-post-author").textContent).toBe(
-      "Started builder"
-    );
-    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
-      "Launched by orchestrator"
-    );
-    expect(screen.queryByTestId("chat-avatar-user")).toBeNull();
-    // An agent's briefing folds.
-    expect(
-      screen.getByTestId("chat-launch-briefing").getAttribute("data-open")
-    ).toBe("false");
-    cleanup();
-
-    // The launcher is gone from the list: a generic name.
-    renderFeed([blockEntry(launch)], {}, { peers: {} });
-    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
-      "Launched by Agent"
-    );
+    const event = screen.getByTestId("chat-compact-launch");
+    expect(event.textContent).toContain("Launched");
+    expect(event.querySelector("time")).not.toBeNull();
+    expect(event.textContent).not.toContain("undefined");
   });
+
   it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {
     renderFeed([
       blockEntry(block({ id: "a1", text: "agent one" })),
