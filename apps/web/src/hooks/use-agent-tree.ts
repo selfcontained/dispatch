@@ -6,7 +6,7 @@
  * root's id.
  */
 import { useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import type { Agent } from "@/components/app/types";
 import { api } from "@/lib/api";
@@ -107,23 +107,61 @@ export function useDescendantAgentIds(
   return data ?? NO_DESCENDANTS;
 }
 
-/**
- * One agent as the live agents list has it, or null (not loaded yet, or
- * archived). A card that stands for an agent reads it here, so its name,
- * model and status follow the agent rather than what was true at launch.
- */
-export function useAgentRecord(agentId: string | null): Agent | null {
-  const select = useCallback(
-    (agents: Agent[]) => agents.find((agent) => agent.id === agentId) ?? null,
-    [agentId]
+export type AgentIdentity = Pick<
+  Agent,
+  "id" | "name" | "type" | "model" | "persona" | "parentAgentId" | "createdAt"
+> & { seat: number | null; rootId: string | null };
+
+const AGENT_RECORD_STALE_TIME = 5 * 60 * 1000;
+
+function agentIdentityOptions(agentId: string | null) {
+  return {
+    queryKey: ["agent-identity", agentId],
+    queryFn: async () => {
+      const payload = await api<{ agent: AgentIdentity }>(
+        `/api/v1/agents/${encodeURIComponent(agentId!)}/identity`
+      );
+      return payload.agent;
+    },
+    enabled: agentId !== null,
+    staleTime: AGENT_RECORD_STALE_TIME,
+  } as const;
+}
+
+/** Reuse the same per-ID queries for the live peers shown by the composer. */
+export function useAgentSeats(
+  agentIds: readonly string[]
+): Readonly<Record<string, number>> {
+  const combine = useCallback(
+    (results: readonly { data: AgentIdentity | undefined }[]) => {
+      const seats: Record<string, number> = {};
+      results.forEach((result, index) => {
+        if (result.data?.seat != null)
+          seats[agentIds[index]!] = result.data.seat;
+      });
+      return seats;
+    },
+    [agentIds]
   );
-  const { data } = useQuery<Agent[], Error, Agent | null>({
+  return useQueries({ queries: agentIds.map(agentIdentityOptions), combine });
+}
+
+/** One cached record, including archived agents; live metadata wins. */
+export function useAgentRecord(agentId: string | null): AgentIdentity | null {
+  const { data } = useQuery(agentIdentityOptions(agentId));
+  const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ["agents"],
     queryFn: fetchAgents,
-    select,
     enabled: agentId !== null,
+    // Reading the live cache from each avatar must not trigger fresh list fetches.
+    staleTime: AGENT_RECORD_STALE_TIME,
   });
-  return data ?? null;
+  const live = agents.find((agent) => agent.id === agentId);
+  return data
+    ? { ...data, ...live, seat: data.seat }
+    : live
+      ? { ...live, seat: null, rootId: null }
+      : null;
 }
 
 /** Live recipient snapshots for conversation-aware composer timing. */

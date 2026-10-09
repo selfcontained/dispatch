@@ -28,7 +28,8 @@ export function PendingInputsButton({
               (block.author.agentId === agentId ||
                 (showChildAgents && descendants.has(block.author.agentId))))
         )
-        .map((block) => ({ id: block.id, kind: block.kind }))
+        .map((block) => ({ id: block.id, kind: block.kind })),
+    agentId !== rootId ? (agentId ?? false) : showChildAgents
   );
   const [lastId, setLastId] = useState<string | null>(null);
   const jump = useJumpToTurn();

@@ -172,6 +172,7 @@ test("a queued post confirms a combined delivery and pickup update, then stays q
           page.getByTestId(id).boundingBox()
         )
       );
+    await page.evaluate(() => document.fonts.ready);
     const queuedHeader = await headerBounds();
     await page.getByRole("button", { name: "Send now", exact: true }).click();
     await expect(page.getByTestId("chat-receipt-received")).toBeVisible();

@@ -16,7 +16,10 @@ test("Parent conversation keeps review findings and hides other child posts", as
   request,
 }) => {
   const parent = await createAgentViaAPI(request);
-  const child = await createAgentViaAPI(request, { parentAgentId: parent.id });
+  const child = await createAgentViaAPI(request, {
+    parentAgentId: parent.id,
+    initialPrompt: "Inspect the parent-mode launch briefing.",
+  });
   await callMcpToolViaAPI(request, parent.id, "post", {
     text: "Parent talking to you",
   });
@@ -57,7 +60,13 @@ test("Parent conversation keeps review findings and hides other child posts", as
   await expect(launch).toContainText("Launched");
   await expect(
     launch.getByTestId("launch-agent-details").getByRole("button")
-  ).toHaveCount(0);
+  ).toHaveCount(1);
+  await launch.getByTestId("launch-agent-details").getByRole("button").click();
+  await expect(page.getByTestId("chat-thread-panel")).toContainText(
+    "Inspect the parent-mode launch briefing."
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByTestId("chat-thread-panel")).not.toBeVisible();
   await expect(launch.getByTestId("compact-launch-review")).toContainText(
     "Useful completed review"
   );
@@ -86,8 +95,8 @@ test("Parent conversation keeps review findings and hides other child posts", as
     page.getByText("An inspectable finding", { exact: true })
   ).toBeVisible();
   await page
+    .locator('[data-testid="drawer-page"][data-top="true"]')
     .getByTestId("chat-review-finding-link")
-    .filter({ visible: true })
     .click();
   await expect(
     page

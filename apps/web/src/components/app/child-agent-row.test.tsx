@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgentReviewSummary } from "@dispatch/shared";
 import type { ComponentProps } from "react";
@@ -8,6 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Avatar } from "./chat/chat-entries";
+import { useChatFeedContext } from "./chat/use-chat-feed-context";
 import { ChildAgentRow } from "./child-agent-row";
 
 // The chat badge reads an app-wide React Query summary; the row only has to
@@ -34,6 +43,9 @@ vi.mock("@/hooks/use-agent-turn-label", () => ({
   useAgentTurnLabel: (_agentId: string, blockId: string | null) =>
     blockId ? turnLabel.value : null,
 }));
+
+const identityApi = vi.hoisted(() => vi.fn(() => new Promise(() => {})));
+vi.mock("@/lib/api", () => ({ api: identityApi }));
 
 const baseAgent: Agent = {
   id: "agt_child",
@@ -73,9 +85,19 @@ function RowLocation() {
 
 function renderRow(
   agent: Agent,
-  overrides: Partial<ComponentProps<typeof ChildAgentRow>> = {}
+  overrides: Partial<ComponentProps<typeof ChildAgentRow>> = {},
+  historicalSeat?: number
 ) {
-  const client = new QueryClient();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client.setQueryData(["agents"], [agent]);
+  if (historicalSeat !== undefined)
+    client.setQueryData(["agent-identity", agent.id], {
+      ...agent,
+      seat: historicalSeat,
+      rootId: agent.parentAgentId,
+    });
   const openAgent = vi.fn().mockResolvedValue(undefined);
   const closeAgent = vi.fn();
   const startAgent = vi.fn().mockResolvedValue(undefined);
@@ -112,6 +134,7 @@ function renderRow(
   );
   const { rerender } = render(buildElement(overrides));
   return {
+    client,
     openAgent,
     closeAgent,
     startAgent,
@@ -134,6 +157,100 @@ function openMenu(agentId = "agt_child") {
 }
 
 describe("ChildAgentRow", () => {
+  it("keeps the known avatar seat while identity loads and if it fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["agents"], [baseAgent]);
+    identityApi.mockImplementationOnce(() =>
+      Promise.reject(new Error("offline"))
+    );
+    render(
+      <QueryClientProvider client={client}>
+        <Avatar
+          author={{
+            key: "child",
+            kind: "peer",
+            agentId: baseAgent.id,
+            treeRootId: baseAgent.parentAgentId!,
+            name: baseAgent.name,
+            seat: 2,
+          }}
+        />
+      </QueryClientProvider>
+    );
+    expect(
+      screen.getByTestId("chat-avatar-agent").getAttribute("data-seat")
+    ).toBe("2");
+    await waitFor(() =>
+      expect(
+        client.getQueryState(["agent-identity", baseAgent.id])?.status
+      ).toBe("error")
+    );
+    expect(
+      screen.getByTestId("chat-avatar-agent").getAttribute("data-seat")
+    ).toBe("2");
+  });
+  it("uses the same historical seat in the composer peer directory", async () => {
+    const { client } = renderRow(baseAgent, { seat: 2 }, 3);
+    const parent = {
+      ...baseAgent,
+      id: baseAgent.parentAgentId!,
+      parentAgentId: null,
+    };
+    client.setQueryData(["agents"], [parent, baseAgent]);
+    client.setQueryData(["agent-identity", parent.id], {
+      ...parent,
+      seat: 1,
+      rootId: parent.id,
+    });
+    const hook = renderHook(
+      () =>
+        useChatFeedContext({
+          agentId: parent.id,
+          rootId: parent.id,
+          agent: parent,
+          openLightbox: () => {},
+        }),
+      {
+        wrapper: ({ children }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      }
+    );
+    await waitFor(() =>
+      expect(hook.result.current.ctx.peers?.[baseAgent.id]?.seat).toBe(3)
+    );
+    expect(hook.result.current.ctx.agentSeat).toBe(1);
+  });
+  it("matches the stream's historical seat after an earlier sibling is archived", () => {
+    // The live-only lineage supplies 2; the historical identity still seats
+    // this later child at 3 because the earlier archived sibling keeps 2.
+    const { client } = renderRow(baseAgent, { seat: 2 }, 3);
+    render(
+      <QueryClientProvider client={client}>
+        <Avatar
+          author={{
+            key: `peer:${baseAgent.id}`,
+            kind: "peer",
+            agentId: baseAgent.id,
+            treeRootId: baseAgent.parentAgentId!,
+            name: baseAgent.name,
+            seat: 2,
+          }}
+        />
+      </QueryClientProvider>
+    );
+    expect(
+      screen
+        .getByTestId(`child-agent-avatar-${baseAgent.id}`)
+        .getAttribute("data-seat")
+    ).toBe("3");
+    expect(
+      screen.getByTestId("chat-avatar-agent").getAttribute("data-seat")
+    ).toBe("3");
+  });
+
   describe("chat unread badge", () => {
     it("shows nothing while the child has no unread chat", () => {
       renderRow(baseAgent);

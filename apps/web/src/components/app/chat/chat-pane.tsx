@@ -157,6 +157,14 @@ export function filterStreamView(
       if (isFailedParentInput(block)) return true;
       if (block.kind === "launch") return block.streamId === view.rootId;
       if (block.kind === "review") return true;
+      // A child deliberately placing a post at the stream root addresses
+      // the person; its launch-thread detail still follows the toggle.
+      if (
+        block.threadId === null &&
+        block.toAgentId === null &&
+        block.origin !== "turn"
+      )
+        return true;
       if (block.author.kind === "user")
         return (
           !block.toAgentId ||
@@ -201,7 +209,19 @@ export function visibleStreamEntries(
 ): StreamEntry[] {
   const filtered = (
     view ? filterStreamView(entries, view, showChildAgents) : entries
-  ).filter(isMainColumnEntry);
+  ).filter((entry) => {
+    // Direct child pages show their own launch-thread conversation even
+    // when the root stream's child-activity toggle is off.
+    if (
+      entry.launchThread &&
+      view &&
+      view.agentId !== view.rootId &&
+      entryOwner(entry, view) === "own"
+    )
+      return true;
+    if (showChildAgents && entry.launchThread) return true;
+    return isMainColumnEntry(entry);
+  });
   // Reviews stay attached to their launch when that launch is on this page.
   // A review whose launch is on an older page remains independently visible.
   const attachedReviews = new Set(
@@ -477,7 +497,10 @@ export function ChatPane({
   const deliveryAgents = useDeliveryAgents();
   const slashCommands = useAgentCommands(agentId, active);
   const descendants = useDescendantAgentIds(agentId);
-  const feed = useStreamFeed(rootId);
+  const feed = useStreamFeed(
+    rootId,
+    agentId !== rootId ? (agentId ?? false) : showChildAgents
+  );
   const send = usePostBlock(rootId);
   const answer = useAnswerQuestion(rootId);
   const submitForm = useSubmitForm(rootId);

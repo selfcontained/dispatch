@@ -18,6 +18,7 @@ import { useDrawerClosing } from "@/components/app/drawer";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
+import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useThread } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
 
@@ -100,10 +101,16 @@ export function ThreadDrawer({
   // The header names the page on top: a finding's own thread when one is
   // open over its review.
   const thread = useThread(targetRootId, findingId ?? threadId);
+  const launchedAgent = useAgentRecord(
+    thread.root?.kind === "launch" ? thread.root.toAgentId : null
+  );
   const nameOf = (agentId: string) =>
-    agentId === selectedAgentId
-      ? (selectedAgentName ?? "Agent")
-      : (agentNameById?.(agentId) ?? "Agent");
+    launchedAgent?.id === agentId
+      ? launchedAgent.name
+      : (thread.agentNames?.[agentId] ??
+        (agentId === selectedAgentId
+          ? (selectedAgentName ?? "Agent")
+          : (agentNameById?.(agentId) ?? "Agent")));
   const heading = threadTitle(thread.root, findingId !== null, nameOf);
   // Who the page is about, as the stream draws them — the reviewer on a
   // finding, the launched agent on its card — so the header keeps their
@@ -114,7 +121,20 @@ export function ThreadDrawer({
     agent: pageAgent,
     openLightbox,
   });
-  const identity = thread.root ? blockIdentity(thread.root, ctx) : null;
+  const identity = launchedAgent
+    ? {
+        key: `peer:${launchedAgent.id}`,
+        agentId: launchedAgent.id,
+        treeRootId: targetRootId ?? undefined,
+        kind: "peer" as const,
+        name: launchedAgent.name,
+        agentType: launchedAgent.type,
+        model: launchedAgent.model,
+        ...(launchedAgent.seat !== null ? { seat: launchedAgent.seat } : {}),
+      }
+    : thread.root
+      ? blockIdentity(thread.root, ctx)
+      : null;
   const { openThread, back, closeAll } = route;
 
   const pages = useMemo<DrawerPage[]>(() => {

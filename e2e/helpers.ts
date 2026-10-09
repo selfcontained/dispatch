@@ -50,6 +50,7 @@ export async function createAgentViaAPI(
     worktreeBranch?: string;
     /** Launch as a child of this agent (renders as a sub agent row). */
     parentAgentId?: string;
+    initialPrompt?: string;
   } = {}
 ): Promise<AgentResult> {
   const res = await request.post(`${API}/agents`, {
@@ -64,6 +65,7 @@ export async function createAgentViaAPI(
         : {}),
       worktreeBranch: overrides.worktreeBranch,
       parentAgentId: overrides.parentAgentId,
+      initialPrompt: overrides.initialPrompt,
     },
   });
   const body = (await res.json()) as { agent: AgentResult };

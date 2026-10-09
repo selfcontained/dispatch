@@ -8,8 +8,20 @@ import type {
   StreamFeedResponse,
 } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { createStore, Provider } from "jotai";
+import { chatShowChildAgentsAtom } from "@/lib/store";
+import { PendingInputsButton } from "@/components/app/chat/pending-inputs-button";
+import { useInbox } from "@/hooks/use-inbox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -406,7 +418,7 @@ describe("useSetBlockState", () => {
     expect(shown(feedBlocks(client)[0], "f1")?.state).toEqual(f1().state);
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: streamFeedQueryKey("agt_1"),
-      exact: true,
+      predicate: expect.any(Function),
     });
   });
 
@@ -1107,6 +1119,89 @@ describe("shareFeedByEntryId", () => {
     );
   });
 
+  it("keys and requests quiet, all-child and direct-child pages separately", async () => {
+    apiMock.mockResolvedValue(page([], { nextCursor: null }));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const hook = renderHook(({ scope }) => useStreamFeed("agt_1", scope), {
+      wrapper,
+      initialProps: { scope: false as boolean | string },
+    });
+    await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/streams/agt_1/blocks?limit=100"
+    );
+    hook.rerender({ scope: true });
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(
+        "/api/v1/streams/agt_1/blocks?limit=100&launchReplies=all"
+      )
+    );
+    hook.rerender({ scope: "child" });
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(
+        "/api/v1/streams/agt_1/blocks?limit=100&launchReplies=child"
+      )
+    );
+    expect(
+      client.getQueryCache().findAll({ queryKey: ["stream", "agt_1"] })
+    ).toHaveLength(3);
+  });
+
+  it.each(["child", "root"])(
+    "shares one scoped feed request between pane, pending button and Inbox on a %s view",
+    async (view) => {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const agents = [
+        { id: "agt_1", parentAgentId: null },
+        { id: "child", parentAgentId: "agt_1" },
+      ];
+      client.setQueryData(["agents"], agents);
+      const store = createStore();
+      store.set(chatShowChildAgentsAtom, true);
+      apiMock.mockImplementation(async (url) =>
+        url === "/api/v1/agents"
+          ? { agents }
+          : page([], { nextCursor: null, openInputs: [], threadLinks: [] })
+      );
+      const agentId = view === "child" ? "child" : "agt_1";
+      function View() {
+        const feed = useStreamFeed("agt_1", view === "child" ? "child" : true);
+        const inbox = useInbox(agentId);
+        return (
+          <>
+            <span>
+              {feed.isLoading || inbox.isLoading ? "loading" : "ready"}
+            </span>
+            <PendingInputsButton agentId={agentId} showChildAgents />
+          </>
+        );
+      }
+      render(
+        <Provider store={store}>
+          <QueryClientProvider client={client}>
+            <MemoryRouter>
+              <View />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </Provider>
+      );
+      await screen.findByText("ready");
+      expect(
+        apiMock.mock.calls.filter(([url]) => String(url).includes("/blocks?"))
+      ).toHaveLength(1);
+      expect(
+        client.getQueryCache().findAll({ queryKey: ["stream", "agt_1"] })
+      ).toHaveLength(1);
+    }
+  );
+
   it("shares by id through the query's structuralSharing option", async () => {
     const m = (i: number) =>
       blockEntry(
@@ -1649,7 +1744,7 @@ describe("usePostBlock", () => {
     ]);
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: streamFeedQueryKey("agt_1"),
-      exact: true,
+      predicate: expect.any(Function),
     });
   });
 });
@@ -1899,7 +1994,7 @@ describe("useToggleReaction", () => {
     });
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: streamFeedQueryKey("agt_1"),
-      exact: true,
+      predicate: expect.any(Function),
     });
   });
 });

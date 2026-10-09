@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test("a child can surface a root outcome while keeping its detail in its home thread", async ({
+test("a child can surface a root outcome while showing home-thread detail when child messages are enabled", async ({
   page,
   request,
 }) => {
@@ -70,8 +70,29 @@ test("a child can surface a root outcome while keeping its detail in its home th
     await expect(page.getByTestId("chat-pane")).toContainText(
       "Overall result: change ready for review."
     );
+    await expect(page.getByTestId("chat-pane")).toContainText(
+      "Finding fixed; detailed verification here."
+    );
+    await post({ text: "Live root child home update.", placement: "home" });
+    await expect(page.getByTestId("chat-pane")).toContainText(
+      "Live root child home update."
+    );
+    await page.getByTestId("chat-filters-trigger").click();
+    await page.getByRole("switch", { name: "Show child messages" }).click();
+    await page.keyboard.press("Escape");
     await expect(page.getByTestId("chat-pane")).not.toContainText(
       "Finding fixed; detailed verification here."
+    );
+    await expect(page.getByTestId("chat-pane")).toContainText(
+      "Overall result: change ready for review."
+    );
+    await page.goto(`/agents/${child.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("chat-pane")).toContainText(
+      "Live root child home update."
+    );
+    await post({ text: "Live direct child home update.", placement: "home" });
+    await expect(page.getByTestId("chat-pane")).toContainText(
+      "Live direct child home update."
     );
   } finally {
     await cleanupE2EAgents(request);

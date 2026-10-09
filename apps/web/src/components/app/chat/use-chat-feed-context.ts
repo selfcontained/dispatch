@@ -12,6 +12,7 @@ import {
   peerDirectory,
 } from "@/components/app/chat/chat-entries";
 import { type Agent } from "@/components/app/types";
+import { useAgentRecord, useAgentSeats } from "@/hooks/use-agent-tree";
 import { lineageSeats } from "@/lib/agent-seat";
 import { api } from "@/lib/api";
 
@@ -96,8 +97,27 @@ export function useChatFeedContext({
     },
     select: selectPeers,
   });
-  const peers = directory?.peers;
-  const agentSeat = directory?.seat ?? null;
+  const peerIds = useMemo(
+    () =>
+      Object.entries(directory?.peers ?? {})
+        .filter(([, peer]) => peer.seat !== undefined)
+        .map(([id]) => id),
+    [directory?.peers]
+  );
+  const historicalSeats = useAgentSeats(peerIds);
+  const peers = useMemo(() => {
+    if (!directory?.peers) return undefined;
+    return Object.fromEntries(
+      Object.entries(directory.peers).map(([id, peer]) => [
+        id,
+        historicalSeats[id] !== undefined
+          ? { ...peer, seat: historicalSeats[id] }
+          : peer,
+      ])
+    );
+  }, [directory?.peers, historicalSeats]);
+  const record = useAgentRecord(agentId);
+  const agentSeat = record?.seat ?? directory?.seat ?? null;
   const names = useKnownNames(peers, agentNames);
 
   const agentName = agent?.name;

@@ -438,6 +438,25 @@ describe("ThreadPanel", () => {
     );
   });
 
+  it("retains the launch prompt and exposes instructions in its thread", () => {
+    const root = launchBlock({
+      id: "briefing",
+      text: "Review the retry flow",
+      launchState: { instructions: "Check recovery before approval" },
+    });
+    client.setQueryData(threadQueryKey("agt_1", "briefing"), {
+      root,
+      replies: [],
+    });
+    apiMock.mockResolvedValue({ root, replies: [] });
+    renderPanel({ blockId: "briefing" });
+    expect(screen.getByTestId("launch-briefing").textContent).toContain(
+      "Review the retry flow"
+    );
+    fireEvent.click(screen.getByText("Instructions"));
+    expect(screen.getByText("Check recovery before approval")).toBeTruthy();
+  });
+
   it("opens attached review findings directly on a launch's thread page", () => {
     const root = launchBlock({
       id: "launch",

@@ -75,7 +75,9 @@ vi.mock("@/lib/api", () => ({
   api: vi.fn(async () => ({ agents: H.agents })),
 }));
 
+const emptyHistoricalSeats = {};
 vi.mock("@/hooks/use-agent-tree", () => ({
+  useAgentSeats: () => emptyHistoricalSeats,
   useDeliveryAgents: () => H.agents,
   useRootAgentId: (agentId: string | null) => H.rootId ?? agentId,
   useDescendantAgentIds: () => H.descendants,
@@ -467,6 +469,7 @@ describe("entryOwner / filterStreamView", () => {
       "root-turn",
       "human-chat",
       "root-reply",
+      "child-reply",
       "child-launch",
       "grandchild-launch",
       "review",
@@ -486,6 +489,7 @@ describe("entryOwner / filterStreamView", () => {
       "root-turn",
       "human-chat",
       "root-reply",
+      "child-reply",
       "child-launch",
       "grandchild-launch",
     ]);
@@ -1337,6 +1341,49 @@ describe("ChatPane scroll memory", () => {
     expect(readChatScrollPosition("agt_9")).toBeNull();
     expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
     expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
+  });
+});
+
+describe("launch-thread activity visibility", () => {
+  const reply = {
+    ...blockEntry(
+      block({
+        id: "child-launch-reply",
+        author: { kind: "agent", agentId: "child" },
+        threadId: "launch",
+        replyTo: "launch",
+        text: "Child progress",
+      })
+    ),
+    launchThread: true,
+  };
+  it("shows launch-thread replies in a directly selected child with the toggle off", () => {
+    expect(
+      visibleStreamEntries(
+        [reply],
+        { agentId: "child", rootId: "root", descendants: new Set() },
+        false
+      )
+    ).toEqual([reply]);
+  });
+  it("keeps own replies in non-launch threads out of a directly selected child's column", () => {
+    const ordinary = { ...reply, launchThread: undefined };
+    expect(
+      visibleStreamEntries(
+        [ordinary],
+        { agentId: "child", rootId: "root", descendants: new Set() },
+        false
+      )
+    ).toEqual([]);
+  });
+  it("shows child thread activity in the root only when enabled", () => {
+    const view = {
+      agentId: "root",
+      rootId: "root",
+      descendants: new Set(["child"]),
+    };
+    expect(visibleStreamEntries([reply], view, false)).toEqual([]);
+    expect(visibleStreamEntries([reply], view, true)).toEqual([reply]);
   });
 });
 

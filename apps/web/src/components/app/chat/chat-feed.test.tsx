@@ -621,6 +621,20 @@ describe("ChatFeed", () => {
     expect(screen.queryByTestId("chat-add-reaction")).toBeNull();
   });
 
+  it("opens the launch thread and reveals prompt and instructions there", () => {
+    const onOpenThread = vi.fn();
+    const launch = blockEntry(
+      launchBlock({
+        id: "launch-details",
+        text: "Review the retry flow",
+        launchState: { instructions: "Check recovery before approval" },
+      })
+    );
+    renderFeed([launch], {}, { onOpenThread });
+    fireEvent.click(screen.getByTestId("launch-open-thread"));
+    expect(onOpenThread).toHaveBeenCalledWith("launch-details");
+  });
+
   it("lets the user answer a failed parent request even when the parent is stopped", () => {
     renderFeed(
       [
@@ -1085,9 +1099,9 @@ describe("ChatFeed", () => {
           ?.getAttribute("aria-label")
       )
     ).toEqual([
-      "kid, agent 4",
+      "kid, agent 3",
       "root, agent 1",
-      "sib, agent 3",
+      "sib, agent 4",
       "far, agent",
       "Agent, agent",
     ]);

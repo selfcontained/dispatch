@@ -705,6 +705,7 @@ describe("useSSE message handling", () => {
       ["templates"],
       ["brain"],
       ["agent-models"],
+      ["agent-identity"],
       CACHED_RELEASE_INFO_QUERY_KEY,
       MAC_APP_UPDATE_QUERY_KEY,
       ["chat-unread"],
@@ -1275,6 +1276,69 @@ describe("applyStreamEntry and blocks shown in threads", () => {
       { severity: "minor", title: "Naming", body: "" },
       { record, updatedAt: "2026-09-02T10:05:00.000Z" }
     );
+
+  it("inserts live launch replies only into the full and matching child feeds, while updating their thread", () => {
+    const client = new QueryClient();
+    const launch = launchBlock({ id: "launch-child", toAgentId: "child" });
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: [blockEntry(launch)],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    };
+    for (const scope of [false, true, "child", "sibling"] as const)
+      client.setQueryData(streamFeedQueryKey("agt_1", scope), cache);
+    client.setQueryData(threadQueryKey("agt_1", launch.id), {
+      root: launch,
+      replies: [],
+    });
+    const reply = block({
+      id: "live-launch",
+      threadId: launch.id,
+      replyTo: launch.id,
+      author: { kind: "agent", agentId: "child" },
+      text: "Live progress",
+      createdAt: "2026-09-02T10:10:00.000Z",
+    });
+    applyStreamEntry(client, "agt_1", {
+      ...blockEntry(reply),
+      launchThread: true,
+      launchAgentId: "child",
+    });
+    for (const scope of [false, true, "child", "sibling"] as const) {
+      const entries = client.getQueryData<FeedCache>(
+        streamFeedQueryKey("agt_1", scope)
+      )!.pages[0]!.entries;
+      expect(entries.some((entry) => entry.id === reply.id)).toBe(
+        scope === true || scope === "child"
+      );
+      expect(
+        entries.find((entry) => entry.id === launch.id)!.block.replyCount
+      ).toBe(1);
+    }
+    expect(
+      client.getQueryData<StreamThreadResponse>(
+        threadQueryKey("agt_1", launch.id)
+      )!.replies
+    ).toEqual([reply]);
+    const ordinary = {
+      ...reply,
+      id: "ordinary-thread-reply",
+      threadId: "ordinary",
+      replyTo: "ordinary",
+    };
+    applyStreamEntry(client, "agt_1", blockEntry(ordinary));
+    expect(
+      client
+        .getQueryData<FeedCache>(streamFeedQueryKey("agt_1", true))!
+        .pages[0]!.entries.some((entry) => entry.id === ordinary.id)
+    ).toBe(false);
+  });
 
   it("files a finding's change into the review that shows it and the finding's own page", () => {
     const queryClient = new QueryClient();

@@ -177,6 +177,8 @@ export type FeedContext = {
 };
 
 export type PostAuthor = {
+  agentId?: string;
+  treeRootId?: string;
   /** Consecutive posts with the same key can collapse under one header. */
   key: string;
   name: string;
@@ -204,6 +206,8 @@ function userAuthor(): PostAuthor {
 export function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
   return {
     key: "agent",
+    agentId: ctx.agentId,
+    treeRootId: ctx.rootId ?? ctx.agentId,
     name: ctx.agentName ?? fallback,
     kind: "agent",
     agentType: ctx.agentType ?? null,
@@ -235,6 +239,8 @@ export function peerAuthor(
   const peer = ctx.peers?.[agentId];
   return {
     key: `peer:${agentId}`,
+    agentId,
+    treeRootId: ctx.rootId ?? ctx.agentId,
     name,
     kind: "peer",
     agentType: peer?.agentType ?? null,
@@ -433,6 +439,13 @@ export function historicalMentionablesOf(
 }
 
 export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+  const record = useAgentRecord(author.agentId ?? null);
+  const seat =
+    record?.rootId != null
+      ? record.rootId === author.treeRootId
+        ? record.seat
+        : null
+      : (author.seat ?? null);
   if (author.launch) {
     return (
       <span
@@ -450,11 +463,11 @@ export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
   // badge and root accent without borrowing a number from another tree.
   return (
     <AgentSeatBadge
-      seat={author.seat ?? null}
-      name={author.name}
-      title={author.seat === undefined ? author.name : undefined}
+      seat={seat}
+      name={record?.name ?? author.name}
+      title={seat == null ? (record?.name ?? author.name) : undefined}
       aria-label={
-        author.seat === undefined ? `${author.name}, agent` : undefined
+        seat == null ? `${record?.name ?? author.name}, agent` : undefined
       }
     />
   );
@@ -1148,10 +1161,9 @@ function CompactLaunchCard({
 }): JSX.Element {
   const agent = useAgentRecord(block.toAgentId);
   const name = agent?.name || agentDisplayName(block.toAgentId ?? "", ctx);
-  const engine =
-    agent?.type && isAgentType(agent.type)
-      ? AGENT_TYPE_LABELS[agent.type]
-      : agent?.type;
+  const type = agent?.type ?? ctx.peers?.[block.toAgentId ?? ""]?.agentType;
+  const model = agent?.model ?? ctx.peers?.[block.toAgentId ?? ""]?.model;
+  const engine = type && isAgentType(type) ? AGENT_TYPE_LABELS[type] : type;
   return (
     <div
       className="mx-3 my-4 sm:mx-4 sm:my-[18px]"
@@ -1165,9 +1177,10 @@ function CompactLaunchCard({
         <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
         <AgentSeatBadge
           seat={
-            block.toAgentId === ctx.agentId
+            agent?.seat ??
+            (block.toAgentId === ctx.agentId
               ? (ctx.agentSeat ?? null)
-              : (ctx.peers?.[block.toAgentId ?? ""]?.seat ?? null)
+              : (ctx.peers?.[block.toAgentId ?? ""]?.seat ?? null))
           }
           name={name}
           size="sm"
@@ -1178,18 +1191,17 @@ function CompactLaunchCard({
             <span className="text-[10px] font-normal uppercase tracking-[0.065em] text-emerald-300/70">
               Launched
             </span>
+            <span className="truncate text-xs font-medium" title={name}>
+              {name}
+            </span>
             {engine ? (
               <span className="text-[11px] text-muted-foreground">
                 {engine}
               </span>
             ) : null}
-            {agent?.model ? (
-              <span
-                className="truncate text-xs font-medium"
-                title={agent.model}
-              >
-                {ctx.modelLabel?.(agent.type ?? null, agent.model) ??
-                  agent.model}
+            {model ? (
+              <span className="truncate text-xs font-medium" title={model}>
+                {ctx.modelLabel?.(type ?? null, model) ?? model}
               </span>
             ) : null}
           </div>
@@ -1208,8 +1220,46 @@ function CompactLaunchCard({
             </time>
           </div>
         </div>
+        {!inThread && ctx.onOpenThread ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto shrink-0 px-2 py-1 text-xs"
+            data-testid="launch-open-thread"
+            onClick={() => ctx.onOpenThread?.(block.id)}
+            aria-label={`Open launch thread for ${name}`}
+          >
+            <MessagesSquare className="mr-1 h-3.5 w-3.5" />
+            {block.replyCount
+              ? `${block.replyCount} ${block.replyCount === 1 ? "reply" : "replies"}`
+              : "Details"}
+          </Button>
+        ) : null}
         <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
       </div>
+      {inThread ? (
+        <div className="mt-4 space-y-4" data-testid="launch-briefing">
+          {block.text ? (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Prompt
+              </p>
+              <Markdown>{block.text}</Markdown>
+            </div>
+          ) : null}
+          <AttachmentList block={block} ctx={ctx} />
+          {block.state?.instructions ? (
+            <details>
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                Instructions
+              </summary>
+              <div className="mt-2">
+                <Markdown>{block.state.instructions}</Markdown>
+              </div>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
       {block.blocks
         ?.filter((item) => item.kind === "review")
         .map((review) => (

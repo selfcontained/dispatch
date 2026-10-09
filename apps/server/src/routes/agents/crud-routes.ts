@@ -38,6 +38,43 @@ export async function registerAgentCrudRoutes(
     return { agents: agents.map(deps.withStreamFlag) };
   });
 
+  // One historical identity. Compute the seat against archived lineage too,
+  // without transferring the rest of the tree to the browser.
+  app.get("/api/v1/agents/:id/identity", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = await deps.pool.query(
+      `
+      WITH RECURSIVE ancestors AS (
+        SELECT id, parent_agent_id FROM agents WHERE id = $1
+        UNION
+        SELECT a.id, a.parent_agent_id FROM agents a
+        JOIN ancestors child ON a.id = child.parent_agent_id
+      ), root AS (
+        SELECT id FROM ancestors
+        WHERE parent_agent_id IS NULL OR NOT EXISTS (SELECT 1 FROM agents p WHERE p.id = ancestors.parent_agent_id)
+        ORDER BY id LIMIT 1
+      ), lineage AS (
+        SELECT a.id, a.parent_agent_id, a.created_at FROM agents a
+        WHERE a.id = (SELECT id FROM root)
+        UNION
+        SELECT a.id, a.parent_agent_id, a.created_at FROM agents a
+        JOIN lineage parent ON a.parent_agent_id = parent.id
+      ), seats AS (
+        SELECT id, row_number() OVER (ORDER BY (id <> (SELECT id FROM root)), created_at, id)::int AS seat
+        FROM lineage
+      )
+      SELECT a.id, a.name, a.type, a.model, a.persona,
+             a.parent_agent_id AS "parentAgentId", a.created_at AS "createdAt", seats.seat,
+             (SELECT id FROM root) AS "rootId"
+      FROM agents a LEFT JOIN seats ON seats.id = a.id WHERE a.id = $1
+    `,
+      [id]
+    );
+    if (!result.rows[0])
+      return reply.code(404).send({ error: "Agent not found." });
+    return { agent: result.rows[0] };
+  });
+
   app.get("/api/v1/agents/git-context", async (request) => {
     const query = request.query as { ids?: unknown };
     const ids =

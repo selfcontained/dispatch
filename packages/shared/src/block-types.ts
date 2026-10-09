@@ -446,6 +446,10 @@ export type Block = {
 // ---------------------------------------------------------------------------
 
 export type StreamBlockEntry = {
+  /** This row lives in an agent launch thread and can appear in child activity. */
+  launchThread?: boolean;
+  /** Recipient of the launch hosting this reply, for view-scoped live caches. */
+  launchAgentId?: string | null;
   type: "block";
   id: string;
   at: string;
