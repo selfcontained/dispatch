@@ -26,9 +26,18 @@ public struct RecoveryRefusal: LocalizedError, Equatable {
 
 /// Authenticated, installation-scoped recovery API. Ordinary health is insufficient.
 public enum RecoveryProtocol {
+    /// Saved settings may describe the next start, including a legacy HTTP URL.
+    /// Use the worker's published configuration for the server actually running.
+    static func serverConfiguration(root: URL) throws -> Configuration {
+        let running = root.appendingPathComponent("running-configuration.json")
+        let path = FileManager.default.fileExists(atPath: running.path)
+            ? running : root.appendingPathComponent("configuration.json")
+        return try Configuration.read(from: path)
+    }
+
     /// Advisory, authenticated check. The installation fence remains authoritative.
     public static func updateBusy(root: URL) async throws -> Bool {
-        let config = try Configuration.read(from: root.appendingPathComponent("configuration.json"))
+        let config = try serverConfiguration(root: root)
         guard let token = AppControlToken.read(root: root) else { throw ConfigurationError("Cannot check agent activity. Start the Dispatch server and try again.") }
         let challenge = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         var components = URLComponents(url: config.serverURL.appendingPathComponent(String(prefix.dropFirst()) + "status"), resolvingAgainstBaseURL: false)!
@@ -67,7 +76,7 @@ public enum RecoveryProtocol {
         return HMAC<SHA256>.isValidAuthenticationCode(bytes, authenticating: Data(payload.utf8), using: SymmetricKey(data: Data(key.utf8)))
     }
     public static func request(_ action: String, journal: NativeRecoveryJournal, root: URL) async throws -> [String: Any] {
-        let config = try Configuration.read(from: root.appendingPathComponent("configuration.json"))
+        let config = try serverConfiguration(root: root)
         guard let token = AppControlToken.read(root: root) else { throw ConfigurationError("Start Dispatch once before preparing a protected update.") }
         let session = URLSession(configuration: .ephemeral, delegate: LocalServerTrust(root: root), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
