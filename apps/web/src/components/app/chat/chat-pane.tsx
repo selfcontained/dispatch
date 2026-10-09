@@ -1,4 +1,4 @@
-import { isUserInputBlock } from "@dispatch/shared";
+import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import {
   useCallback,
   useEffect,
@@ -152,6 +152,32 @@ export function filterStreamView(
   showChildAgents: boolean
 ): StreamEntry[] {
   return entries.filter((entry) => {
+    if (!showChildAgents && view.agentId === view.rootId) {
+      const { block } = entry;
+      if (isFailedParentInput(block)) return true;
+      if (block.kind === "launch") return block.streamId === view.rootId;
+      if (block.kind === "review") return true;
+      if (block.author.kind === "user")
+        return (
+          !block.toAgentId ||
+          block.toAgentId === view.agentId ||
+          !view.descendants.has(block.toAgentId)
+        );
+      if (
+        block.author.kind === "agent" &&
+        block.author.agentId === view.agentId &&
+        block.toAgentId &&
+        block.toAgentId !== view.agentId
+      )
+        return false;
+      if (
+        block.author.kind === "agent" &&
+        block.author.agentId !== view.agentId
+      )
+        return false;
+      if (block.toAgentId && block.toAgentId !== view.agentId) return false;
+      return true;
+    }
     // Asking the user must remain visible even with child activity hidden.
     if (isUserInputBlock(entry.block) && view.agentId === view.rootId)
       return true;
@@ -168,9 +194,37 @@ export function filterStreamView(
  * threads under the child's launch post, and folds into the parent's turn
  * as "Sent to").
  */
+export function visibleStreamEntries(
+  entries: StreamEntry[],
+  view: StreamView | null,
+  showChildAgents: boolean
+): StreamEntry[] {
+  const filtered = (
+    view ? filterStreamView(entries, view, showChildAgents) : entries
+  ).filter(isMainColumnEntry);
+  // Reviews stay attached to their launch when that launch is on this page.
+  // A review whose launch is on an older page remains independently visible.
+  const attachedReviews = new Set(
+    filtered.flatMap((entry) =>
+      entry.block.kind === "launch"
+        ? (entry.block.blocks ?? [])
+            .filter((block) => block.kind === "review")
+            .map((block) => block.id)
+        : []
+    )
+  );
+  return filtered.filter((entry) => !attachedReviews.has(entry.id));
+}
+
 export function isMainColumnEntry(entry: StreamEntry): boolean {
   const { block } = entry;
-  if (block.threadId === null || isUserInputBlock(block)) return true;
+  if (
+    block.threadId === null ||
+    isUserInputBlock(block) ||
+    isFailedParentInput(block) ||
+    block.kind === "review"
+  )
+    return true;
   return block.author.kind === "agent" && block.toAgentId !== null;
 }
 
@@ -418,6 +472,7 @@ export function ChatPane({
   // The stream is the root's: a child agent's page reads its root's feed
   // and filters it down to the child (see `entryOwner`).
   const rootId = useRootAgentId(agentId);
+  const quiet = !showChildAgents && agentId === rootId;
   const showLastMessage = useAtomValue(chatShowLastMessageAtom);
   const deliveryAgents = useDeliveryAgents();
   const slashCommands = useAgentCommands(agentId, active);
@@ -446,11 +501,7 @@ export function ChatPane({
     [agentId, descendants, rootId]
   );
   const visibleEntries = useMemo(
-    () =>
-      (view
-        ? filterStreamView(entries, view, showChildAgents)
-        : entries
-      ).filter(isMainColumnEntry),
+    () => visibleStreamEntries(entries, view, showChildAgents),
     [entries, showChildAgents, view]
   );
   // The page agent's own rows: what its composer answers, what its Stop
@@ -1102,6 +1153,7 @@ export function ChatPane({
       <div
         className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden bg-background"
         data-testid="chat-pane"
+        data-parent-mode={quiet}
       >
         <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {showLastMessage && (

@@ -1309,6 +1309,56 @@ describe("applyStreamEntry and blocks shown in threads", () => {
     expect(row.block.replyCount).toBeUndefined();
   });
 
+  it("promotes a standalone threaded review before its launch is loaded", () => {
+    const queryClient = new QueryClient();
+    seed(queryClient, []);
+    const review = reviewBlock({
+      id: "rv-unloaded",
+      threadId: "old-launch",
+      replyTo: "old-launch",
+    });
+    applyStreamEntry(queryClient, "agt_1", blockEntry(review));
+    expect(
+      queryClient
+        .getQueryData<FeedCache>(feedKey)!
+        .pages[0]!.entries.map((e) => e.id)
+    ).toEqual(["rv-unloaded"]);
+  });
+
+  it("promotes failed parent asks and updates recovery state through SSE", () => {
+    const queryClient = new QueryClient();
+    seed(queryClient, []);
+    const ask = block({
+      id: "failed-parent",
+      threadId: "old-launch",
+      replyTo: "old-launch",
+      toAgentId: "agt_1",
+      delivered: false,
+      author: { kind: "agent", agentId: "agt_2" },
+      body: {
+        kind: "question",
+        data: { options: [{ label: "Yes" }], parentHandled: true },
+        state: {},
+      },
+    });
+    applyStreamEntry(queryClient, "agt_1", blockEntry(ask));
+    let page = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(page.entries.map((e) => e.id)).toEqual(["failed-parent"]);
+    expect(page.openInputs?.map((b) => b.id)).toEqual(["failed-parent"]);
+    applyStreamEntry(
+      queryClient,
+      "agt_1",
+      blockEntry({
+        ...ask,
+        delivered: true,
+        updatedAt: "2026-09-02T10:07:00.000Z",
+      })
+    );
+    page = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(page.openInputs).toEqual([]);
+    expect(page.entries[0]!.block.delivered).toBe(true);
+  });
+
   it("keeps the first page's open asks in step with a question asked in a thread", () => {
     const queryClient = new QueryClient();
     const card = launchBlock({ id: "card", toAgentId: "agt_2" });

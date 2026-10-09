@@ -1079,6 +1079,34 @@ describe("shareFeedByEntryId", () => {
     expect(shareFeedCache(prevPlain, { pages: "nope" })).toBe(prevPlain);
   });
 
+  it("surfaces failed parent requests even when their page is not loaded", async () => {
+    const failed = block({
+      id: "failed-old",
+      toAgentId: "agt_1",
+      delivered: false,
+      author: { kind: "agent", agentId: "agt_child" },
+      threadId: "old-launch",
+      body: {
+        kind: "question",
+        data: { options: [{ label: "Yes" }], parentHandled: true },
+        state: {},
+      },
+    });
+    apiMock.mockResolvedValueOnce(
+      page([], { openInputs: [failed], nextCursor: null })
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useStreamFeed("agt_1"), { wrapper });
+    await waitFor(() =>
+      expect(result.current.entries.map((e) => e.id)).toEqual(["failed-old"])
+    );
+  });
+
   it("shares by id through the query's structuralSharing option", async () => {
     const m = (i: number) =>
       blockEntry(

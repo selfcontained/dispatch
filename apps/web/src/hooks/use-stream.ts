@@ -6,6 +6,7 @@
  * optimistically and lets the stored row arrive as a `stream.entry`.
  */
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import { isFailedParentInput } from "@dispatch/shared";
 import type {
   Block,
   BlockOption,
@@ -104,7 +105,16 @@ function flattenFeedPages(pages: StreamFeedResponse[]): StreamEntry[] {
   for (let i = pages.length - 1; i >= 0; i -= 1) {
     out.push(...pages[i]!.entries);
   }
-  return out;
+  let addedRecovery = false;
+  const seen = new Set(out.map((entry) => entry.id));
+  for (const block of pages[0]?.openInputs ?? []) {
+    if (isFailedParentInput(block) && !seen.has(block.id)) {
+      out.push({ type: "block", id: block.id, at: block.createdAt, block });
+      seen.add(block.id);
+      addedRecovery = true;
+    }
+  }
+  return addedRecovery ? out.sort((a, b) => a.at.localeCompare(b.at)) : out;
 }
 
 /**
@@ -541,7 +551,12 @@ export function syncAcrossStream(
       (block.kind === "form" &&
         block.state?.submission === undefined &&
         block.state?.cancellation === undefined));
-  const inputs = upsertListed(first.openInputs ?? [], block, open, "end");
+  const inputs = upsertListed(
+    first.openInputs ?? [],
+    block,
+    open || isFailedParentInput(block),
+    "end"
+  );
   const links =
     block.threadId !== null
       ? upsertListed(

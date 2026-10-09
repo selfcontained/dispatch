@@ -45,6 +45,20 @@ it("includes visible grandchildren, cycles them, and keeps root inputs when chil
       })
     )
   );
+  inputs.push(
+    block({
+      id: "failed-parent-request",
+      streamId: "root",
+      toAgentId: "root",
+      author: { kind: "agent", agentId: "child" },
+      delivered: false,
+      body: {
+        kind: "question",
+        data: { options: [{ label: "Yes" }], parentHandled: true },
+        state: {},
+      },
+    })
+  );
   const view = (id: string, children: boolean) => (
     <QueryClientProvider client={client}>
       <PendingInputsButton agentId={id} showChildAgents={children} />

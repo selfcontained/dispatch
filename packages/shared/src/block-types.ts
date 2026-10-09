@@ -42,6 +42,10 @@ export type BlockOption = {
 };
 
 export type BlockQuestionData = {
+  /** Routed to the session parent for an answer. */
+  parentHandled?: boolean;
+  /** Conversation to resume when the child asked while working in another stream. */
+  parentRequestConversation?: { streamId: string; threadId: string | null };
   options: BlockOption[];
   /** When true the UI hints that a typed reply is also acceptable. */
   allowFreeform?: boolean;
@@ -107,6 +111,10 @@ export type BlockFormField = {
 };
 
 export type BlockFormData = {
+  /** Routed to the session parent for an answer. */
+  parentHandled?: boolean;
+  /** Conversation to resume when the child asked while working in another stream. */
+  parentRequestConversation?: { streamId: string; threadId: string | null };
   title?: string;
   fields: BlockFormField[];
   submitLabel?: string;
@@ -620,5 +628,21 @@ export function isUserInputBlock(block: Block): boolean {
     block.author.kind === "agent" &&
     block.toAgentId === null &&
     (block.kind === "question" || block.kind === "form")
+  );
+}
+
+/** Failed parent-owned asks stay visible so the user can retry their delivery. */
+export function isFailedParentInput(block: Block): boolean {
+  return (
+    block.author.kind === "agent" &&
+    block.toAgentId !== null &&
+    (block.kind === "question" || block.kind === "form") &&
+    block.data.parentHandled === true &&
+    !block.state?.cancellation &&
+    (block.inputReply?.delivered === false ||
+      (block.delivered === false &&
+        (block.kind === "question"
+          ? !block.state?.answer
+          : !block.state?.submission)))
   );
 }

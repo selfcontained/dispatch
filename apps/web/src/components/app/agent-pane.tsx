@@ -24,7 +24,7 @@ export type ChatFiltersButtonProps = {
 
 /** The Chat options popover in the Agent pane header. */
 export function ChatFiltersButton({
-  showChildAgents = true,
+  showChildAgents = false,
   onShowChildAgentsChange,
 }: ChatFiltersButtonProps): JSX.Element {
   const [showLastMessage, setShowLastMessage] = useAtom(
@@ -72,19 +72,20 @@ export function ChatFiltersButton({
           className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
         >
           <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
-              Child agents
+            <span className="block text-sm font-medium">
+              Show child messages
             </span>
             <span className="block text-xs text-muted-foreground">
-              Show what the agents under this one did and posted.
+              Include agent coordination. Launches and reviews stay visible when
+              off.
             </span>
           </span>
           <Switch
             id="show-child-agents"
+            data-testid="show-child-agents-switch"
             checked={showChildAgents}
             onCheckedChange={onShowChildAgentsChange}
-            aria-label="Child agents"
-            data-testid="show-child-agents-switch"
+            aria-label="Show child messages"
           />
         </label>
         <label

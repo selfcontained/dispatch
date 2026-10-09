@@ -1,4 +1,4 @@
-import { isUserInputBlock } from "@dispatch/shared";
+import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import { useEffect } from "react";
 import type {
   SharedUiEvent,
@@ -231,7 +231,20 @@ export function applyStreamEntry(
     queryClient.setQueryData<FeedCache>(key, (old) =>
       syncAcrossStream(bumpReplyCount(old, reply), reply)
     );
-    if (!isUserInputBlock(reply)) return;
+    const showReview = reply.kind === "review";
+    const alreadyListed =
+      (reply.kind === "question" || reply.kind === "form") &&
+      reply.data.parentHandled === true &&
+      queryClient
+        .getQueryData<FeedCache>(key)
+        ?.pages.some((page) => page.entries.some((row) => row.id === reply.id));
+    if (
+      !isUserInputBlock(reply) &&
+      !isFailedParentInput(reply) &&
+      !showReview &&
+      !alreadyListed
+    )
+      return;
   }
   if (entry.type === "block") {
     // The panel shows a thread's root too; keep it in step with the feed.

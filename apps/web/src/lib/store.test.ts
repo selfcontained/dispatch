@@ -535,12 +535,13 @@ describe("chatShowChildAgentsAtom", () => {
     window.localStorage.clear();
   });
 
-  it("shows child-agent messages until the user says otherwise", () => {
-    expect(createStore().get(chatShowChildAgentsAtom)).toBe(true);
+  it("hides child-agent messages by default", () => {
+    expect(createStore().get(chatShowChildAgentsAtom)).toBe(false);
   });
 
   it("persists the filter under one key, not one per agent", () => {
     const store = createStore();
+    store.set(chatShowChildAgentsAtom, true);
     store.set(chatShowChildAgentsAtom, false);
     expect(store.get(chatShowChildAgentsAtom)).toBe(false);
     expect(

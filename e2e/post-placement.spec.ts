@@ -5,6 +5,13 @@ import {
   createAgentViaAPI,
 } from "./helpers";
 
+// These scenarios inspect coordination; opt into it explicitly.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("dispatch:chatShowChildAgents", "true")
+  );
+});
+
 test("a child can surface a root outcome while keeping its detail in its home thread", async ({
   page,
   request,
