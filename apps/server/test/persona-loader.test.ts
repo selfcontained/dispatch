@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -513,4 +513,19 @@ describe("legacy .dispatch/personas location", () => {
     expect((await loadPersonaBySlug(tmpRoot, "release"))?.name).toBe("Release");
     expect(await loadPersonaBySlug(tmpRoot, "missing")).toBeNull();
   });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "does not fall back to the legacy copy when the primary file is unreadable",
+    async () => {
+      const primary = path.join(tmpRoot, ".agents", "personas", "security.md");
+      chmodSync(primary, 0o000);
+      try {
+        await expect(loadPersonaBySlug(tmpRoot, "security")).rejects.toThrow(
+          "Could not read persona .agents/personas/security.md"
+        );
+      } finally {
+        chmodSync(primary, 0o644);
+      }
+    }
+  );
 });

@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { appendBuiltInPersonas, BUILT_IN_PERSONAS } from "./built-in.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 import { PERSONA_DIRS } from "./paths.js";
 
 export type PersonaDefinition = {
@@ -138,8 +139,14 @@ export async function loadPersonaBySlug(
     const filePath = path.join(repoRoot, personasDir, `${slug}.md`);
     try {
       return toPersonaDefinition(slug, await readFile(filePath, "utf-8"));
-    } catch {
-      // Try the next location.
+    } catch (error) {
+      // Only a missing file falls through; anything else must not silently
+      // select a stale legacy copy.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error(
+          `Could not read persona ${path.join(personasDir, `${slug}.md`)}: ${errorMessage(error)}`
+        );
+      }
     }
   }
   return null;

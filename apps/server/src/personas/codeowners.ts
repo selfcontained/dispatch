@@ -69,8 +69,9 @@ async function findOwnersPath(root: string): Promise<string | null> {
     try {
       await access(path.join(root, candidate));
       return candidate;
-    } catch {
-      // Try the next location.
+    } catch (error) {
+      // Only a missing map falls through to the legacy location.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
   return null;
