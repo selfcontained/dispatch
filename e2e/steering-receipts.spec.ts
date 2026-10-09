@@ -244,12 +244,14 @@ test("receipt stays after the time while actions use the right edge", async ({
           top: s!.y - r!.y,
         };
       };
+      await page.evaluate(() => document.fonts.ready);
       const original = await offset();
       for (const withCopy of [true, false]) {
         if (!withCopy) {
           post.text = "";
           await page.reload({ waitUntil: "domcontentloaded" });
           await expect(row.getByTestId("chat-receipt-sent")).toBeVisible();
+          await page.evaluate(() => document.fonts.ready);
         }
         await row.hover();
         expect(await offset()).toEqual(original);
