@@ -1,7 +1,20 @@
 diff --git a/dist/acp-agent.js b/dist/acp-agent.js
-index 27f71ca..c7fe416 100644
+index 27f71cad..b68c0b03 100644
 --- a/dist/acp-agent.js
 +++ b/dist/acp-agent.js
+@@ -204,10 +204,10 @@ function parseAsyncTaskStopRequest(value) {
+ }
+ /** How urgently the SDK delivers a steered message relative to the running
+  *  turn — an internal Claude implementation detail, not part of the wire
+- *  contract. `now` pre-empts the current generation, while `later` waits for a
++ *  contract. `next` waits for the current tool batch, while `later` waits for a
+  *  pending permission/elicitation callback to settle instead of cancelling its
+  *  ACP request and hiding the client's user-input card (IJAI-1191). */
+-const STEER_PRIORITY_NOW = "now";
++const STEER_PRIORITY_NEXT = "next";
+ const STEER_PRIORITY_LATER = "later";
+ /** Validate raw JSON-RPC params into a {@link SteerRequest}. Kept minimal — the
+  *  content blocks are handed to `promptToClaude`, which tolerates unknown block
 @@ -1302,6 +1302,7 @@ export class ClaudeAcpAgent {
                          actions: [...GOAL_ACTIONS],
                      })
@@ -29,7 +42,28 @@ index 27f71ca..c7fe416 100644
              isLocalOnlyCommand,
              ...(isUsageCommand ? { isUsageCommand: true } : {}),
              ...(usageMarkdownAbort ? { usageMarkdownAbort } : {}),
-@@ -2105,7 +2109,9 @@ export class ClaudeAcpAgent {
+@@ -2042,16 +2046,15 @@ export class ClaudeAcpAgent {
+      *  into the in-flight turn. The injected message's echo carries a uuid that
+      *  matches no queued turn, so the consumer drops it as an unrelated replay
+      *  without promoting/settling anything. It is normally delivered at priority
+-     *  `now` so it pre-empts the current generation (interrupting a single-shot
+-     *  response, or slotting in between a multi-step turn's tool calls). While a
++     *  `next` so it folds in after the current tool batch, before the next model
++     *  call, without aborting running tools. While a
+      *  permission or elicitation is awaiting user input it uses `later`, because
+      *  interrupting that SDK callback cancels the ACP request and can strand the
+      *  prompt (IJAI-1191). The steered message's own output streams via
+      *  `session/update`, not this response.
+      *
+-     *  Pre-empting means ABORTING: the interrupted cycle emits a `result` of its
+-     *  own and the steered message runs as a second one, so the turn is marked
+-     *  (`Turn.steeredEchoes`) to settle only once a result answers the steer.
++     *  The turn is marked (`Turn.steeredEchoes`) to settle only once a result
++     *  answers the steer, including when the CLI defers it to another cycle.
+      *
+      *  When the session is idle, the opt-in path returns `promptRequired` WITHOUT
+      *  calling `prompt()`, pushing SDK input, or mutating `turnQueue`: the content
+@@ -2105,15 +2108,17 @@ export class ClaudeAcpAgent {
              prompt: params.prompt,
          };
          const userMessage = promptToClaude(promptRequest);
@@ -40,7 +74,18 @@ index 27f71ca..c7fe416 100644
          userMessage.uuid = steeredUuid;
          // Deliver into the running turn rather than queuing behind it as a fresh
          // prompt would.
-@@ -3009,6 +3015,17 @@ export class ClaudeAcpAgent {
+         userMessage.priority =
+-            (session.pendingUserInputCount ?? 0) > 0 ? STEER_PRIORITY_LATER : STEER_PRIORITY_NOW;
++            (session.pendingUserInputCount ?? 0) > 0 ? STEER_PRIORITY_LATER : STEER_PRIORITY_NEXT;
+         // Mark before the push and in the same synchronous section as the in-flight
+-        // check: the interrupt can have the CLI finalizing the aborted cycle by the
+-        // time the consumer next runs, and an unmarked result would settle the turn
++        // check: the CLI can finish the current cycle before consuming the steer,
++        // and an unmarked result would settle the turn
+         // (see Turn.steeredEchoes).
+         (turnInFlight.steeredEchoes ??= new Set()).add(steeredUuid);
+         (turnInFlight.steeredUuids ??= new Set()).add(steeredUuid);
+@@ -3009,6 +3014,17 @@ export class ClaudeAcpAgent {
                              if (queued) {
                                  queued.commandStarted = true;
                                  compaction.resume();
@@ -58,7 +103,7 @@ index 27f71ca..c7fe416 100644
                              }
                              // ...and promote an already-orphaned command: once dispatched,
                              // a bare `cancelled` no longer means "dropped without running".
-@@ -3809,7 +3826,14 @@ export class ClaudeAcpAgent {
+@@ -3809,7 +3825,14 @@ export class ClaudeAcpAgent {
                                          (message.user_message_uuid !== undefined ? [message.user_message_uuid] : []);
                                      let answersSteer = false;
                                      for (const uuid of consumed) {
@@ -74,7 +119,7 @@ index 27f71ca..c7fe416 100644
                                          if (steeredTurn.steeredUuids?.has(uuid))
                                              answersSteer = true;
                                      }
-@@ -4530,6 +4554,13 @@ export class ClaudeAcpAgent {
+@@ -4530,6 +4553,13 @@ export class ClaudeAcpAgent {
                                      // result re-emit the answer.
                                      activateTurn(queued);
                                  }
@@ -88,7 +133,7 @@ index 27f71ca..c7fe416 100644
                                  break;
                              }
                              if ("isReplay" in message && message.isReplay) {
-@@ -4542,6 +4573,13 @@ export class ClaudeAcpAgent {
+@@ -4542,6 +4572,13 @@ export class ClaudeAcpAgent {
                                  if (isSteering(session.activeTurn) &&
                                      session.activeTurn.steeredEchoes.delete(message.uuid)) {
                                      session.activeTurn.steeredAwaitingResult = true;
@@ -102,3 +147,81 @@ index 27f71ca..c7fe416 100644
                                  }
                                  // Unrelated replay (e.g. the echo of an already-settled turn).
                                  break;
+@@ -4933,9 +4970,17 @@ export class ClaudeAcpAgent {
+         // A priority steer may still be queued in the SDK when cancellation
+         // settles its owning turn. Its later echo matches no live turn, and its
+         // result must be skipped rather than promoted onto the next prompt.
+-        if (isSteering(session.activeTurn)) {
+-            for (const uuid of session.activeTurn.steeredEchoes) {
++        // Seed every candidate synchronously before any withdrawal can await.
++        // The consumer may drain lifecycle/result frames during a control request;
++        // never recreate an orphan after its terminal frame already passed.
++        const queuedSteers = [];
++        const steeringTurns = new Set([session.activeTurn, ...(session.turnQueue ?? [])]);
++        for (const turn of steeringTurns) {
++            if (!turn || turn.settled || !isSteering(turn))
++                continue;
++            for (const uuid of turn.steeredEchoes) {
+                 this.trackOrphanCommand(session, uuid, "pending");
++                queuedSteers.push({ turn, uuid });
+             }
+         }
+         // Capture the orphan-accounting lane before anything can await: the
+@@ -5087,7 +5132,7 @@ export class ClaudeAcpAgent {
+         if (isSteering(session.activeTurn) && session.activeTurn.steeredSettle !== undefined) {
+             session.owedTrailingIdles++;
+         }
+-        // Arm a backstop before interrupting: if a turn is actively consuming the
++        // Arm a backstop before withdrawing steers or interrupting: if a turn is actively consuming the
+         // query and interrupt() doesn't make the SDK yield (e.g. a wedged TaskOutput
+         // block — issue #680), force the consumer to settle the active turn
+         // "cancelled" after the floor elapses so the pending session/prompt still
+@@ -5108,6 +5153,48 @@ export class ClaudeAcpAgent {
+                 cancelController.abort();
+             }, this.forceCancelGraceMs);
+         }
++        // Withdraw next/later steers before interrupting, with one shared budget
++        // so an unresponsive control channel cannot strand Stop behind N requests.
++        // The cancellation floor above stays armed throughout this wait.
++        const cancellationTarget = session.activeTurn;
++        const withdrawalDeadline = Date.now() + Math.min(1000, this.forceCancelGraceMs / 2);
++        const ownsCancellation = () => this.sessions[params.sessionId] === session &&
++            (session.activeTurn == null || session.activeTurn === cancellationTarget) &&
++            !(session.turnQueue ?? []).some((turn) => !turn.settled && turn !== cancellationTarget);
++        for (const { turn, uuid } of queuedSteers) {
++            const remaining = withdrawalDeadline - Date.now();
++            if (remaining <= 0 || !ownsCancellation())
++                break;
++            let timer;
++            let withdrawn = false;
++            try {
++                withdrawn = (await Promise.race([
++                    session.query.cancelAsyncMessage?.(uuid),
++                    new Promise((resolve) => { timer = setTimeout(() => resolve(false), remaining); }),
++                ])) === true;
++            }
++            catch (error) {
++                this.logger.error(`Session ${params.sessionId}: could not withdraw queued steer ${uuid}`, error);
++            }
++            finally {
++                clearTimeout(timer);
++            }
++            if (!ownsCancellation())
++                return;
++            if (withdrawn) {
++                turn.steeredEchoes.delete(uuid);
++                if (lifecycleLane)
++                    session.orphanCommands?.delete(uuid);
++                else
++                    session.pendingOrphanResults = Math.max(0, (session.pendingOrphanResults ?? 0) - 1);
++            }
++            // Failed/timed-out withdrawal leaves existing accounting untouched:
++            // the consumer may already have advanced or drained the entry.
++        }
++        // A cancelled turn may settle at idle during withdrawal. Continue while
++        // no successor is active or queued, but never interrupt a replacement.
++        if (!ownsCancellation())
++            return;
+         const receipt = await session.query.interrupt();
+         // On CLIs advertising `interrupt_receipt_v1`, the receipt's `still_queued`
+         // lists exactly which queued messages survive the interrupt and will still
