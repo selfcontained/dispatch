@@ -19,6 +19,8 @@ Trace the affected producer, stored message, route, and browser consumer in `age
 - Authorization and workspace/agent filters must prevent one subscriber receiving another scope's private messages.
 - Validate concrete UI-ready signals for streaming pages; an active SSE/WebSocket makes network-idle readiness unsuitable.
 
+- Notification delivery must respect focus/suppression rules, recipient scope, retries/deduplication, and subscription cleanup. A reconnect or late response must not repeat a notification or regress confirmed delivery state.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

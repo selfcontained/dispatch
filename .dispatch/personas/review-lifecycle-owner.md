@@ -16,7 +16,7 @@ Read `personas/loader.ts`, `server/mcp-persona-handlers.ts`, `chat/service.ts`, 
 - Persona lookup and ownership configuration must respect workspace scope. Unknown owners, bad configuration, failed git commands, and partial launches must be visible; never turn an error into a clean approval.
 - A reviewer posts a review block to its launcher. Each finding is its own block and discussion thread. The launcher replies with `post` using the finding id as `replyTo` and reviewer id as `to`; the reviewer verifies and settles it with `update`.
 - Verify stream participant authorization, reply and delivery routing, transactional writes, derived review state, and notifications after mutations. A clean review is a review block with a summary and zero findings.
-- Prompts have an 8KB launch ceiling. Scope and change context must survive useful truncation; no huge embedded diff or launch argument growth.
+- Preserve complete persona instructions, assigned paths, and briefing. The current inline budget is 64KiB; larger contexts use a private 0600 file without trimming. Verify that the reviewer can read the complete context, that restart preserves it, and that unreadable context is an explicit failure rather than a partial review.
 - UI and tool responses must distinguish launched, submitted, unresolved, and approved states. Test duplicate submissions, concurrent replies, and failed launches where changed.
 
 ## Findings
