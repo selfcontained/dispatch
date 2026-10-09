@@ -630,7 +630,9 @@ describe("AcpDriver", () => {
           },
         })
       )
-    ).rejects.toThrow(/was not found on the server's PATH/);
+    ).rejects.toThrow(
+      /definitely-not-a-real-binary-xyz was not found on PATH \([^)]+\); configure PATH in ~\/\.dispatch\/env/
+    );
   });
 
   it("falls back to a new session when the stored one cannot be resumed", async () => {

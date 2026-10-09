@@ -260,7 +260,7 @@ export async function resolveExecutable(
     if (await executable(candidate)) return candidate;
   }
   throw new Error(
-    `${bin} was not found on the server's PATH; set the engine's DISPATCH_*_BIN to an absolute path`
+    `${bin} was not found on PATH (${searchPath}); configure PATH in ~/.dispatch/env or set the engine's DISPATCH_*_BIN to an absolute path`
   );
 }
 

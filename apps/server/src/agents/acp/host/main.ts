@@ -170,6 +170,11 @@ async function main(): Promise<void> {
   // The engine child's environment: the host's own (a login shell's), the
   // launch's additions, and Dispatch's bin directories ahead on PATH.
   const childEnv = buildHostEnv(launch, stateDir);
+  // Record only executable lookup context, never the full environment (tokens).
+  logger.info(
+    { agentId, engine: launch.engine, path: childEnv.PATH },
+    "Agent executable search PATH; configure additional runtimes in ~/.dispatch/env"
+  );
 
   const driver = new AcpDriver({
     logger,
