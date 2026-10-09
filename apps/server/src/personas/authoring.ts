@@ -11,8 +11,8 @@ import path from "node:path";
 
 import { errorMessage } from "../shared/lib/error-message.js";
 import { parseFrontmatter, PERSONA_SIZE_WARNING_BYTES } from "./loader.js";
+import { LEGACY_PERSONAS_DIR, PERSONA_DIRS, PERSONAS_DIR } from "./paths.js";
 
-const PERSONAS_DIR = ".dispatch/personas";
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export type PersonaTemplate = {
@@ -92,10 +92,28 @@ function isWithin(root: string, target: string): boolean {
   );
 }
 
-async function ensureSafePersonaDirectory(root: string): Promise<string> {
+/**
+ * New personas go in `.agents/personas/`. A persona that so far exists only
+ * in the legacy directory is updated where it is, so a stale copy is not left
+ * shadowed behind the new one.
+ */
+async function personaDirectoryFor(root: string, slug: string) {
+  const inNew = await lstat(path.join(root, PERSONAS_DIR, `${slug}.md`)).catch(
+    () => null
+  );
+  const inLegacy = await lstat(
+    path.join(root, LEGACY_PERSONAS_DIR, `${slug}.md`)
+  ).catch(() => null);
+  return !inNew && inLegacy ? LEGACY_PERSONAS_DIR : PERSONAS_DIR;
+}
+
+async function ensureSafePersonaDirectory(
+  root: string,
+  personasDir: string
+): Promise<string> {
   const realRoot = await realpath(root);
   let current = realRoot;
-  for (const segment of [".dispatch", "personas"]) {
+  for (const segment of personasDir.split("/")) {
     current = path.join(current, segment);
     const entry = await lstat(current).catch(() => null);
     if (entry?.isSymbolicLink()) {
@@ -134,7 +152,8 @@ export async function upsertPersona(input: {
     throw new Error("name and description must be single-line text.");
   }
   const content = renderPersona(input);
-  const directory = await ensureSafePersonaDirectory(input.root);
+  const personasDir = await personaDirectoryFor(input.root, input.slug);
+  const directory = await ensureSafePersonaDirectory(input.root, personasDir);
   const filePath = path.join(directory, `${input.slug}.md`);
   const entry = await lstat(filePath).catch(() => null);
   if (entry?.isSymbolicLink()) {
@@ -155,7 +174,7 @@ export async function upsertPersona(input: {
     await handle.close();
   }
   return {
-    path: path.join(PERSONAS_DIR, `${input.slug}.md`),
+    path: path.join(personasDir, `${input.slug}.md`),
     created: !existed,
     content,
   };
@@ -164,43 +183,61 @@ export async function upsertPersona(input: {
 export async function validatePersonas(
   root: string
 ): Promise<PersonaValidation[]> {
-  const directory = path.join(root, PERSONAS_DIR);
-  const files = await readdir(directory).catch(() => [] as string[]);
+  const entries: Array<{ personasDir: string; file: string }> = [];
+  for (const personasDir of PERSONA_DIRS) {
+    const files = await readdir(path.join(root, personasDir)).catch(
+      () => [] as string[]
+    );
+    for (const file of files.filter((name) => name.endsWith(".md")).sort()) {
+      entries.push({ personasDir, file });
+    }
+  }
+  const primarySlugs = new Set(
+    entries
+      .filter((entry) => entry.personasDir === PERSONAS_DIR)
+      .map((entry) => entry.file.slice(0, -3))
+  );
   return Promise.all(
-    files
-      .filter((file) => file.endsWith(".md"))
-      .sort()
-      .map(async (file) => {
-        const content = await readFile(path.join(directory, file), "utf8");
-        const slug = file.slice(0, -3);
-        const { frontmatter, body } = parseFrontmatter(content);
-        const errors: string[] = [];
-        const warnings: string[] = [];
-        try {
-          validatePersonaSlug(slug);
-        } catch (error) {
-          errors.push(errorMessage(error));
-        }
-        if (!frontmatter.name?.trim())
-          errors.push("Missing required frontmatter field: name.");
-        if (!frontmatter.description?.trim())
-          errors.push("Missing required frontmatter field: description.");
-        if (!body.trim())
-          errors.push("Persona instructions must not be empty.");
-        if (Buffer.byteLength(body, "utf8") >= PERSONA_SIZE_WARNING_BYTES)
-          warnings.push(
-            "Persona instructions are at least 48KiB. The complete launch context may exceed the 64KiB inline budget and require the reviewer to read a private context file; no content will be trimmed."
-          );
-        if (!frontmatter.feedbackFormat)
-          warnings.push("feedbackFormat is omitted; it defaults to findings.");
-        return {
-          slug,
-          path: path.join(PERSONAS_DIR, file),
-          valid: errors.length === 0,
-          errors,
-          warnings,
-        };
-      })
+    entries.map(async ({ personasDir, file }) => {
+      const content = await readFile(
+        path.join(root, personasDir, file),
+        "utf8"
+      );
+      const slug = file.slice(0, -3);
+      const { frontmatter, body } = parseFrontmatter(content);
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      if (personasDir === LEGACY_PERSONAS_DIR) {
+        warnings.push(
+          primarySlugs.has(slug)
+            ? `Ignored: ${PERSONAS_DIR}/${file} takes precedence. Delete this legacy copy.`
+            : `${LEGACY_PERSONAS_DIR}/ is a legacy location; move this file to ${PERSONAS_DIR}/.`
+        );
+      }
+      try {
+        validatePersonaSlug(slug);
+      } catch (error) {
+        errors.push(errorMessage(error));
+      }
+      if (!frontmatter.name?.trim())
+        errors.push("Missing required frontmatter field: name.");
+      if (!frontmatter.description?.trim())
+        errors.push("Missing required frontmatter field: description.");
+      if (!body.trim()) errors.push("Persona instructions must not be empty.");
+      if (Buffer.byteLength(body, "utf8") >= PERSONA_SIZE_WARNING_BYTES)
+        warnings.push(
+          "Persona instructions are at least 48KiB. The complete launch context may exceed the 64KiB inline budget and require the reviewer to read a private context file; no content will be trimmed."
+        );
+      if (!frontmatter.feedbackFormat)
+        warnings.push("feedbackFormat is omitted; it defaults to findings.");
+      return {
+        slug,
+        path: path.join(personasDir, file),
+        valid: errors.length === 0,
+        errors,
+        warnings,
+      };
+    })
   );
 }
 

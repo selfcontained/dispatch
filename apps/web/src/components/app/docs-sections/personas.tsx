@@ -63,7 +63,7 @@ export function PersonasContent() {
           generally&quot; option.
         </P>
         <P>
-          A <Code>.dispatch/personas/code-review.md</Code> file replaces it
+          A <Code>.agents/personas/code-review.md</Code> file replaces it
           entirely, which is how a project specializes the generic reviewer
           without changing the slug agents and the UI already use.
         </P>
@@ -73,17 +73,19 @@ export function PersonasContent() {
         <H3>Defining personas</H3>
         <P>
           Each repo defines its own personas as markdown files in{" "}
-          <Code>.dispatch/personas/</Code>. The filename (without extension)
+          <Code>.agents/personas/</Code>. The filename (without extension)
           becomes the persona slug used when launching. Files use YAML
           frontmatter for metadata and the body is the persona&apos;s
           instructions. Dispatch delivers the persona and briefing with the
           first message, while keeping standard review guidance separate. Launch
           context over 64KiB is preserved in a private file that the reviewer is
           instructed to read in full. Persona files should not include their own
-          context or diff placeholders.
+          context or diff placeholders. Personas in the legacy{" "}
+          <Code>.dispatch/personas/</Code> directory are still loaded; a file
+          with the same slug in <Code>.agents/personas/</Code> wins.
         </P>
         <CodeBlock>{`
-# .dispatch/personas/security-review.md
+# .agents/personas/security-review.md
 ---
 name: Security Review
 description: Reviews code for security vulnerabilities

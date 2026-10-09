@@ -57,7 +57,7 @@ untouched and are unsupported.
 - Git worktree isolation for parallel agent work on separate branches.
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
 - Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery.
-- Personas — launch profiles for reviewers and other roles (`.dispatch/personas/`); a reviewer posts one structured review block back to the agent that launched it. A built-in General Code Review persona means review works with no repo setup.
+- Personas — launch profiles for reviewers and other roles (`.agents/personas/`); a reviewer posts one structured review block back to the agent that launched it. A built-in General Code Review persona means review works with no repo setup.
 - Personalities — short system-prompt blocks appended to every agent for voice or standing preferences.
 - Keyboard shortcuts and a command palette (`Mod+K`) for fast navigation and actions.
 - Browser Feedback — a Chrome extension to select an element on any web page, comment, and send it with bounded DOM context and a cropped element screenshot to a running agent (paired under Settings → Connections).
@@ -199,7 +199,7 @@ limits mean unknown capacity.
 | `delete_file`              | Permanently remove a shared file                                                                    |
 | `list_personas`            | List available personas for this project                                                            |
 | `persona_templates`        | Get built-in starter templates for authoring personas                                               |
-| `persona_upsert`           | Create or update a persona file in `.dispatch/personas/`                                            |
+| `persona_upsert`           | Create or update a persona file in `.agents/personas/`                                              |
 | `persona_validate`         | Validate persona files for required metadata and instructions                                       |
 | `launch_agent`             | Launch a new agent to work on a subtask, as a child or standalone; `persona` launches a reviewer    |
 | `archive_agent`            | Archive an agent this session launched, or itself, with worktree cleanup                            |

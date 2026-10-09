@@ -77,7 +77,7 @@ export function PersonaLauncherDialog({
   personas: PersonaSummary[];
   selectedPersonas: string[];
   setSelectedPersonas: Dispatch<SetStateAction<string[]>>;
-  /** The checkout has a .dispatch/codeowners.json to route reviewers by. */
+  /** The checkout has a .agents/owners.json to route reviewers by. */
   codeownersAvailable: boolean;
   /** Ask the agent to launch the code owners of its changed files. */
   codeownersSelected: boolean;
@@ -291,8 +291,8 @@ export function PersonaLauncherDialog({
                         </span>
                         <span className="block text-xs text-muted-foreground">
                           {codeownersAvailable
-                            ? "Route reviewers by the files this agent changed, using .dispatch/codeowners.json. Each matching owner launches once."
-                            : "No .dispatch/codeowners.json in this checkout. Add ownership rules to route reviewers by changed files."}
+                            ? "Route reviewers by the files this agent changed, using .agents/owners.json. Each matching owner launches once."
+                            : "No .agents/owners.json in this checkout. Add ownership rules to route reviewers by changed files."}
                         </span>
                       </span>
                       <span

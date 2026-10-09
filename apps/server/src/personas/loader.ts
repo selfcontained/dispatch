@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { appendBuiltInPersonas, BUILT_IN_PERSONAS } from "./built-in.js";
+import { PERSONA_DIRS } from "./paths.js";
 
 export type PersonaDefinition = {
   /** Filename without extension (used as persona ID) */
@@ -21,8 +22,6 @@ type PersonaFrontmatter = {
   description?: string;
   feedbackFormat?: string;
 };
-
-const PERSONAS_DIR = ".dispatch/personas";
 
 /** Inline ACP context budget; larger launches use a complete private file. */
 export const MAX_PERSONA_PROMPT_BYTES = 64 * 1024;
@@ -62,32 +61,40 @@ export function parseFrontmatter(content: string): {
 export async function loadPersonas(
   repoRoot: string
 ): Promise<PersonaDefinition[]> {
-  const dir = path.join(repoRoot, PERSONAS_DIR);
-  let entries: string[];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return [];
-  }
-
-  const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
   const personas: PersonaDefinition[] = [];
+  const seen = new Set<string>();
 
-  for (const file of mdFiles) {
-    const content = await readFile(path.join(dir, file), "utf-8");
-    const { frontmatter, body } = parseFrontmatter(content);
-    const slug = file.replace(/\.md$/, "");
+  for (const personasDir of PERSONA_DIRS) {
+    const dir = path.join(repoRoot, personasDir);
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      continue;
+    }
 
-    personas.push({
-      slug,
-      name: frontmatter.name ?? slug,
-      description: frontmatter.description ?? "",
-      feedbackFormat: frontmatter.feedbackFormat ?? "findings",
-      body,
-    });
+    const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
+    for (const file of mdFiles) {
+      const slug = file.replace(/\.md$/, "");
+      if (seen.has(slug)) continue;
+      seen.add(slug);
+      const content = await readFile(path.join(dir, file), "utf-8");
+      personas.push(toPersonaDefinition(slug, content));
+    }
   }
 
   return personas;
+}
+
+function toPersonaDefinition(slug: string, content: string): PersonaDefinition {
+  const { frontmatter, body } = parseFrontmatter(content);
+  return {
+    slug,
+    name: frontmatter.name ?? slug,
+    description: frontmatter.description ?? "",
+    feedbackFormat: frontmatter.feedbackFormat ?? "findings",
+    body,
+  };
 }
 
 export function mergePersonasWithWorktreePrecedence<
@@ -127,22 +134,15 @@ export async function loadPersonaBySlug(
   if (slug.includes("/") || slug.includes("\\") || slug.includes("..")) {
     throw new Error("Invalid persona slug.");
   }
-  const filePath = path.join(repoRoot, PERSONAS_DIR, `${slug}.md`);
-  let content: string;
-  try {
-    content = await readFile(filePath, "utf-8");
-  } catch {
-    return null;
+  for (const personasDir of PERSONA_DIRS) {
+    const filePath = path.join(repoRoot, personasDir, `${slug}.md`);
+    try {
+      return toPersonaDefinition(slug, await readFile(filePath, "utf-8"));
+    } catch {
+      // Try the next location.
+    }
   }
-
-  const { frontmatter, body } = parseFrontmatter(content);
-  return {
-    slug,
-    name: frontmatter.name ?? slug,
-    description: frontmatter.description ?? "",
-    feedbackFormat: frontmatter.feedbackFormat ?? "findings",
-    body,
-  };
+  return null;
 }
 
 /**

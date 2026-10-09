@@ -1,6 +1,6 @@
 ---
 name: personas
-description: Author repository-specific reviewers in .dispatch/personas/. Use when generic review keeps missing this repo's real risks, or when a reviewer would need domain rules nobody has written down.
+description: Author repository-specific reviewers in .agents/personas/. Use when generic review keeps missing this repo's real risks, or when a reviewer would need domain rules nobody has written down.
 ---
 
 # Authoring review personas
@@ -29,7 +29,7 @@ a persona yet — use `code-review`.
 ```
 list_personas     — effective list: repo personas plus the built-in generalist
 persona_templates — starting points with the exact authoring fields
-persona_upsert    — create or update a persona in .dispatch/personas/
+persona_upsert    — create or update a persona in .agents/personas/
 persona_validate  — check personas parse and have required fields
 ```
 
@@ -70,7 +70,8 @@ persona_upsert  slug: "migration-safety",
   which failure modes are cheap to miss.
 - **`feedbackFormat`** — single-line, defaults to `findings`.
 
-Writes land in `.dispatch/personas/<slug>.md` inside the current workspace, and
+Writes land in `.agents/personas/<slug>.md` inside the current workspace (a
+persona that still lives in the legacy `.dispatch/personas/` is updated there), and
 only there — the writer refuses symlinked directories and paths that escape the
 workspace. Rendered file:
 
@@ -113,7 +114,7 @@ shared contracts, and tests. Name the subsystem and write its concrete invariant
 known failure modes, and dependency boundaries. A generic job title is not a
 substitute for repository knowledge.
 
-Map repo-relative paths to persona slugs in `.dispatch/codeowners.json`:
+Map repo-relative paths to persona slugs in `.agents/owners.json`:
 
 ```json
 {

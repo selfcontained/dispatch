@@ -92,7 +92,7 @@ export function registerPersonaInteractionTools(
       "persona_upsert",
       {
         description:
-          "Create or update a repository persona in .dispatch/personas/. Provide repo-specific instructions; optionally start from a short built-in template. This writes only in the current workspace.",
+          "Create or update a repository persona in .agents/personas/. Provide repo-specific instructions; optionally start from a short built-in template. This writes only in the current workspace.",
         inputSchema: {
           slug: z.string().min(1).max(80),
           template: z
@@ -220,7 +220,7 @@ export function registerPersonaInteractionTools(
       "launch_owner_reviews",
       {
         description:
-          "Launch all code owner reviewers selected by .dispatch/codeowners.json for committed, uncommitted, and untracked changes in your workspace. Every matching rule contributes owners; each persona launches once with your context and its matched paths. Returns selected owners, uncovered files, launched agents, and failures. Use dryRun to preview routing without launching. After launching, end the turn; reviewers post their review blocks to you automatically.",
+          "Launch all code owner reviewers selected by .agents/owners.json for committed, uncommitted, and untracked changes in your workspace. Every matching rule contributes owners; each persona launches once with your context and its matched paths. Returns selected owners, uncovered files, launched agents, and failures. Use dryRun to preview routing without launching. After launching, end the turn; reviewers post their review blocks to you automatically.",
         inputSchema: {
           context: z
             .string()

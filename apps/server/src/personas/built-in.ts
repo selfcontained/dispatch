@@ -2,7 +2,7 @@ import type { PersonaDefinition } from "./loader.js";
 
 /**
  * Personas Dispatch ships itself. They exist in every repository, so persona
- * review works before anyone writes a `.dispatch/personas/` file — and they
+ * review works before anyone writes a `.agents/personas/` file — and they
  * stay pickable alongside repo-defined personas as the "just review this
  * generally" option.
  *

@@ -4,8 +4,7 @@ import * as z from "zod/v4";
 
 import type { CommandRunner } from "../shared/lib/run-command.js";
 import { validatePersonaSlug } from "./authoring.js";
-
-export const CODEOWNERS_PATH = ".dispatch/codeowners.json";
+import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "./paths.js";
 
 // Deliberately small glob language: repo-relative paths, *, **, and ?.
 // All matching rules contribute owners; there is no last-rule-wins behavior.
@@ -64,34 +63,37 @@ export type OwnerReviewResult = OwnerReviewPlan & {
   failures: Array<{ persona: string; error: string; files: string[] }>;
 };
 
+/** The owners map in use: `.agents/owners.json`, else the legacy location. */
+async function findOwnersPath(root: string): Promise<string | null> {
+  for (const candidate of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
+    try {
+      await access(path.join(root, candidate));
+      return candidate;
+    } catch {
+      // Try the next location.
+    }
+  }
+  return null;
+}
+
 /** Whether the checkout has an ownership map at all; validity is checked at launch. */
 export async function hasCodeowners(root: string): Promise<boolean> {
-  try {
-    await access(path.join(root, CODEOWNERS_PATH));
-    return true;
-  } catch {
-    return false;
-  }
+  return (await findOwnersPath(root)) !== null;
 }
 
 export async function loadCodeowners(root: string): Promise<CodeownersConfig> {
-  const file = path.join(root, CODEOWNERS_PATH);
-  let content: string;
-  try {
-    content = await readFile(file, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(
-        `No ${CODEOWNERS_PATH} found in this workspace. Add ownership rules before launching owner reviews.`
-      );
-    }
-    throw error;
+  const ownersPath = await findOwnersPath(root);
+  if (!ownersPath) {
+    throw new Error(
+      `No ${OWNERS_PATH} found in this workspace. Add ownership rules before launching owner reviews.`
+    );
   }
+  const content = await readFile(path.join(root, ownersPath), "utf8");
   try {
     return configSchema.parse(JSON.parse(content));
   } catch (error) {
     throw new Error(
-      `Invalid ${CODEOWNERS_PATH}: ${error instanceof Error ? error.message : String(error)}`
+      `Invalid ${ownersPath}: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }

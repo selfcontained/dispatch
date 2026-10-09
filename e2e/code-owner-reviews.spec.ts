@@ -54,16 +54,16 @@ test("code owners launch once, preserve context, and show tracked findings", asy
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: root, stdio: "pipe" });
   try {
-    await mkdir(path.join(root, ".dispatch/personas"), { recursive: true });
+    await mkdir(path.join(root, ".agents/personas"), { recursive: true });
     await mkdir(path.join(root, "src"));
     for (const slug of ["runtime-owner", "contract-owner"]) {
       await writeFile(
-        path.join(root, `.dispatch/personas/${slug}.md`),
+        path.join(root, `.agents/personas/${slug}.md`),
         `---\nname: ${slug}\ndescription: Reviews this fixture subsystem\nfeedbackFormat: findings\n---\nCheck changed subsystem contracts.\n`
       );
     }
     await writeFile(
-      path.join(root, ".dispatch/codeowners.json"),
+      path.join(root, ".agents/owners.json"),
       JSON.stringify({
         version: 1,
         rules: [

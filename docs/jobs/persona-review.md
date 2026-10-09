@@ -2,7 +2,7 @@ Assess the effectiveness of persona-driven code reviews and tune the persona set
 
 ## Important context
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona is a launch profile for a reviewer agent: it posts one `review` block (summary, findings) to the agent that launched it; each finding is a block of its own, open, fixed or dismissed (with a note) by the reviewer, and can be reopened. The primary codebase conventions are documented in `CLAUDE.md`.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.agents/personas/` as markdown files. Each persona is a launch profile for a reviewer agent: it posts one `review` block (summary, findings) to the agent that launched it; each finding is a block of its own, open, fixed or dismissed (with a note) by the reviewer, and can be reopened. The primary codebase conventions are documented in `CLAUDE.md`.
 
 The goal is to keep the persona set effective: tune prompts that are producing noise, wait for data when a prompt just changed, retire personas that consistently underperform, and add new ones only when there's concrete evidence of a recurring gap.
 
@@ -33,14 +33,14 @@ If the core state object is not found (first run), fall through to the bootstrap
 ### Normal run (state exists with a valid `next_focus`)
 
 1. Read the `next_focus` entry. That is your assignment for this run.
-2. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the last run. Check whether any persona files in `.dispatch/personas/` were modified — if so, update tracking for those personas (new `prompt_sha`, reset `post_change_sample_size` to 0).
+2. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the last run. Check whether any persona files in `.agents/personas/` were modified — if so, update tracking for those personas (new `prompt_sha`, reset `post_change_sample_size` to 0).
 3. Keep the scope to **one or two personas** per run. If you discover issues with other personas while working, add them to `backlog`.
 
 ### Bootstrap run (no state in Brain or first run)
 
 Do a broad assessment to seed the Brain. The goal is to produce a baseline for future runs, not to fix everything at once.
 
-1. **Inventory personas.** List all files in `.dispatch/personas/`. For each, record the latest commit SHA touching that file (`git log -1 --format=%H -- .dispatch/personas/<file>`).
+1. **Inventory personas.** List all files in `.agents/personas/`. For each, record the latest commit SHA touching that file (`git log -1 --format=%H -- .agents/personas/<file>`).
 2. **Gather recent data.** Call `get_feedback_summary` for the last 14 days to get aggregate patterns, then call it again with `group` set to each persona's key to read that group's findings in full.
 3. **Baseline each persona.** For each persona, determine:
    - How many reviews were run and completed
@@ -98,7 +98,7 @@ For each persona in scope, assess:
 Use the core state's prior assessment as context, not as the current verdict. Let new data override old conclusions.
 
 - **Keep as-is** if post-change findings are specific, relevant, and frequently resolved.
-- **Adjust prompt** if findings are still noisy, generic, badly scoped, or poorly calibrated. Implement the edit directly in `.dispatch/personas/`.
+- **Adjust prompt** if findings are still noisy, generic, badly scoped, or poorly calibrated. Implement the edit directly in `.agents/personas/`.
 - **Wait for more data** if the persona changed recently and there aren't enough post-change reviews to judge fairly.
 - **Consider removing** only if there is enough evidence that the persona consistently produces low-value output across multiple runs. Prefer documenting the rationale first; only delete when the evidence is strong.
 - **Consider adding a persona** only if review history shows a recurring gap. Include what gap it covers, what evidence supports it, and whether an existing persona could be widened instead.
