@@ -118,29 +118,37 @@ describe("patched Claude adapter steering", () => {
     expect(session.pendingOrphanResults).toBe(0);
   });
 
-  it("does not interrupt a replacement turn after a late withdrawal response", async () => {
-    const { session, steer, cancel } = fixture();
-    await steer();
-    let release!: (withdrawn: boolean) => void;
-    session.query.cancelAsyncMessage.mockImplementation(
-      () =>
-        new Promise<boolean>((resolve) => {
-          release = resolve;
-        })
-    );
-    const cancellation = cancel();
-    await vi.waitFor(() =>
-      expect(session.query.cancelAsyncMessage).toHaveBeenCalledOnce()
-    );
-    session.activeTurn = {
-      promptUuid: "replacement",
-      settled: false,
-      resolve: vi.fn(),
-    };
-    release(false);
-    await cancellation;
-    expect(session.query.interrupt).not.toHaveBeenCalled();
-  });
+  it.each(["active", "queued"])(
+    "does not interrupt an %s replacement turn after a late withdrawal response",
+    async (state) => {
+      const { session, steer, cancel } = fixture();
+      await steer();
+      let release!: (withdrawn: boolean) => void;
+      session.query.cancelAsyncMessage.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            release = resolve;
+          })
+      );
+      const cancellation = cancel();
+      await vi.waitFor(() =>
+        expect(session.query.cancelAsyncMessage).toHaveBeenCalledOnce()
+      );
+      const replacement = {
+        promptUuid: "replacement",
+        settled: false,
+        resolve: vi.fn(),
+      };
+      if (state === "active") session.activeTurn = replacement;
+      else {
+        session.activeTurn = null;
+        session.turnQueue.push(replacement);
+      }
+      release(false);
+      await cancellation;
+      expect(session.query.interrupt).not.toHaveBeenCalled();
+    }
+  );
 
   it.each(["consumed", "error", "unsupported"])(
     "retains orphan tracking and interrupts when withdrawal is %s",
@@ -328,6 +336,45 @@ describe("Claude cancellation with concurrent consumer events", () => {
       ).toEqual([]);
     }
   );
+
+  it("withdraws all remaining steers when idle settles the owner during withdrawal", async () => {
+    const { adapter, session, messages, stop } = consumerFixture();
+    const active = makeTurn("settles-during-withdrawal");
+    active.steeredEchoes = new Set(["first-steer", "second-steer"]);
+    session.activeTurn = active;
+    session.turnQueue.push(active);
+    let release!: (value: boolean) => void;
+    session.query.cancelAsyncMessage.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          release = resolve;
+        })
+    );
+    session.query.cancelAsyncMessage.mockResolvedValue(true);
+    try {
+      const cancellation = adapter.cancel({ sessionId });
+      await vi.waitFor(() =>
+        expect(session.query.cancelAsyncMessage).toHaveBeenCalledOnce()
+      );
+      messages.push(idle);
+      await vi.waitFor(() =>
+        expect(active.resolve).toHaveBeenCalledWith(
+          expect.objectContaining({ stopReason: "cancelled" })
+        )
+      );
+      expect(session.activeTurn).toBeNull();
+      release(true);
+      await cancellation;
+      expect(session.query.cancelAsyncMessage.mock.calls).toEqual([
+        ["first-steer"],
+        ["second-steer"],
+      ]);
+      expect(session.orphanCommands.size).toBe(0);
+      expect(session.query.interrupt).toHaveBeenCalledOnce();
+    } finally {
+      await stop();
+    }
+  });
 
   it("settles the owning prompt at the floor when withdrawal never resolves", async () => {
     const { adapter, session, stop } = consumerFixture();
