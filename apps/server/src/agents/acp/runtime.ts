@@ -215,7 +215,10 @@ type Live = {
   /** Prompts not yet sent, oldest first. */
   waiting: Waiting[];
   pending: number;
+  /** Keep later prompts behind an outstanding scoped cancellation. */
+  deliveryInterrupts: Map<number, Promise<void>>;
   turnOpen: boolean;
+  turnBlockIds: Set<string>;
   turnSeq: number | undefined;
   interruptedTurnSeq: number | undefined;
   conversation: PromptConversation | undefined;
@@ -309,6 +312,12 @@ function combine(batch: Waiting[]): { text: string; source?: PromptSource } {
   };
 }
 
+function sourceBlockIds(source?: PromptSource): string[] {
+  return source?.source === "chat"
+    ? [source.chatMessageId, ...(source.chatMessageIds ?? [])]
+    : [];
+}
+
 export type AcpRuntimeDeps = {
   config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
   logger: FastifyBaseLogger;
@@ -374,10 +383,19 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   /** Submit input one request at a time while allowing steering during a turn. */
   async function pump(agentId: string, entry: Live): Promise<void> {
-    if (entry.pumping || live.get(agentId) !== entry) return;
+    if (
+      entry.pumping ||
+      entry.deliveryInterrupts.size ||
+      live.get(agentId) !== entry
+    )
+      return;
     entry.pumping = true;
     try {
-      while (entry.waiting.length && live.get(agentId) === entry) {
+      while (
+        entry.waiting.length &&
+        !entry.deliveryInterrupts.size &&
+        live.get(agentId) === entry
+      ) {
         const urgent = entry.waiting.filter((w) => w.delivery === "interrupt");
         for (const w of urgent) {
           // A steering request may settle the arrival-time turn while the pump
@@ -524,6 +542,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           } else {
             // Set this before submitting: ack and settle can arrive together.
             entry.turnOpen = true;
+            entry.turnBlockIds = new Set(sourceBlockIds(source));
             entry.conversation = source?.conversation;
             const images = batch.flatMap((item) => item.images ?? []);
             await entry.client.prompt(
@@ -532,6 +551,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               source,
               images.length ? images : undefined
             );
+          }
+          if (steering && !ended) {
+            for (const blockId of sourceBlockIds(source))
+              entry.turnBlockIds.add(blockId);
           }
           accepted = true;
           for (const w of batch) {
@@ -562,6 +585,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     if (event.type === "turn") {
       entry.turnOpen = event.state === "started";
       entry.turnSeq = event.state === "started" ? seq : undefined;
+      entry.turnBlockIds = new Set(
+        event.state === "started" ? sourceBlockIds(event.source) : []
+      );
       entry.conversation =
         event.state === "started" ? event.source?.conversation : undefined;
       if (event.state === "settled") {
@@ -613,7 +639,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       pumping: false,
       waiting: [],
       pending: 0,
+      deliveryInterrupts: new Map(),
       turnOpen: false,
+      turnBlockIds: new Set(),
       turnSeq: undefined,
       interruptedTurnSeq: undefined,
       conversation: undefined,
@@ -668,6 +696,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         }
         entry.turnOpen = welcome.turn !== null;
         entry.turnSeq = welcome.turn?.seq;
+        entry.turnBlockIds = new Set(sourceBlockIds(welcome.turn?.source));
         entry.conversation = welcome.turn?.source?.conversation;
         entry.commands = welcome.commands;
         if (welcome.configOptions) entry.configOptions = welcome.configOptions;
@@ -1014,6 +1043,51 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       }
       for (let i = 0; i < targets.length; i++)
         void pump(agentIds[i]!, targets[i]!.entry);
+      return true;
+    },
+
+    async interruptDelivery(agentIds, blockId) {
+      const targets = agentIds.flatMap((agentId) => {
+        const entry = live.get(agentId);
+        return entry?.turnOpen ? [{ agentId, entry }] : [];
+      });
+      if (
+        !targets.length ||
+        targets.some(
+          ({ entry }) =>
+            !entry.client.welcome?.interruptSupported ||
+            entry.turnSeq === undefined ||
+            entry.turnBlockIds.has(blockId)
+        )
+      )
+        return false;
+      // Capture the turn before any awaits: an interrupt must never hit later work.
+      const requests = targets.map(({ agentId, entry }) => ({
+        agentId,
+        entry,
+        seq: entry.turnSeq!,
+      }));
+      await Promise.all(
+        requests.map(async ({ agentId, entry, seq }) => {
+          const existing = entry.deliveryInterrupts.get(seq);
+          if (existing) return existing;
+          if (entry.interruptedTurnSeq === seq) return;
+          entry.interruptedTurnSeq = seq;
+          const request = entry.client
+            .interrupt(crypto.randomUUID(), seq)
+            .catch((error) => {
+              if (entry.turnSeq === seq && entry.interruptedTurnSeq === seq)
+                entry.interruptedTurnSeq = undefined;
+              throw error;
+            })
+            .finally(() => {
+              entry.deliveryInterrupts.delete(seq);
+              void pump(agentId, entry);
+            });
+          entry.deliveryInterrupts.set(seq, request);
+          await request;
+        })
+      );
       return true;
     },
 

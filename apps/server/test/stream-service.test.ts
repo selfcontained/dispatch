@@ -85,6 +85,7 @@ function build(
     deps?: Partial<StreamServiceDeps>;
     withDelivery?: boolean;
     controlQueuedPrompt?: StreamDeliveryAdapter["controlQueuedPrompt"];
+    interruptDelivery?: StreamDeliveryAdapter["interruptDelivery"];
     commands?: readonly string[];
   } = {}
 ) {
@@ -128,6 +129,7 @@ function build(
             held: () => opts.held ?? queued.size > 0,
             activeTurn: () => opts.held ?? false,
             controlQueuedPrompt: opts.controlQueuedPrompt,
+            interruptDelivery: opts.interruptDelivery,
             commands: () => opts.commands ?? [],
             cancel: async (agentId) => {
               cancelled.push(agentId);
@@ -6332,6 +6334,36 @@ describe("StreamService.retryTurn", () => {
 });
 
 describe("StreamService queued message controls", () => {
+  it("interrupts pending delivery without reinjection or persisted resend intent", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const interrupt = vi.fn(async () => true);
+    const control = vi.fn(() => false);
+    const { svc, injected } = build({
+      gate,
+      held: false,
+      interruptDelivery: interrupt,
+      controlQueuedPrompt: control,
+    });
+    const { block } = await svc.sendUserPost(A, { text: "Pending" });
+    await svc.controlQueuedMessage(A, block.id, "interrupt", true);
+    expect(interrupt).toHaveBeenCalledWith([A], block.id);
+    expect(control).not.toHaveBeenCalled();
+    expect(injected).toEqual([]);
+    expect((await svc.store.getById(block.id))?.data).not.toMatchObject({
+      delivery: "interrupt",
+    });
+    release();
+    await svc.waitForInFlightDeliveries(1000);
+    expect(injected).toHaveLength(1);
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "interrupt", true)
+    ).rejects.toThrow("cannot interrupt now");
+    expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects Send now for a queued ACP command while allowing deletion", async () => {
     const control = vi.fn(() => true);
     const { svc } = build({ controlQueuedPrompt: control });

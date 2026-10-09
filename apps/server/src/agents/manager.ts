@@ -843,6 +843,13 @@ export class AgentManager {
     return this.runtime.controlQueuedPrompt(agentIds, blockId, action);
   }
 
+  interruptDelivery(agentIds: string[], blockId: string): Promise<boolean> {
+    return (
+      this.runtime.interruptDelivery?.(agentIds, blockId) ??
+      Promise.resolve(false)
+    );
+  }
+
   /** Cancel the running turn (Stop). */
   async cancelTurn(id: string): Promise<void> {
     await this.cancelSchedules?.(id).catch((err) =>

@@ -97,10 +97,15 @@ const submitBodySchema = z.object({
   values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
 }) satisfies z.ZodType<StreamSubmitRequest, unknown>;
 
-const sendNowBodySchema = z.object({
-  /** Stop the running turn and give the queued post its own turn next. */
-  interrupt: z.boolean().optional(),
-});
+const sendNowBodySchema = z
+  .object({
+    /** Stop the running turn and give the queued post its own turn next. */
+    interrupt: z.boolean().optional(),
+    keepDelivery: z.boolean().optional(),
+  })
+  .refine((body) => !body.keepDelivery || body.interrupt, {
+    message: "keepDelivery requires interrupt",
+  });
 
 const stateBodySchema = z.object({
   state: z.record(z.string(), z.unknown()),
@@ -329,7 +334,8 @@ export async function registerStreamRoutes(
           return await streams.controlQueuedMessage(
             params.rootId,
             params.blockId,
-            parsed?.data.interrupt ? "interrupt" : action
+            parsed?.data.interrupt ? "interrupt" : action,
+            parsed?.data.keepDelivery
           );
         } catch (error) {
           return sendError(reply, error);

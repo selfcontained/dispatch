@@ -20,10 +20,12 @@ export function StopTurnButton({
   agents,
   selectedAgentId,
   onError,
+  onStart,
 }: {
   agents: readonly Agent[];
   selectedAgentId: string | null;
   onError: (message: string) => void;
+  onStart?: () => void;
 }): JSX.Element {
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
   const [menuOpen, setMenuOpen] = useState(false);
@@ -39,15 +41,35 @@ export function StopTurnButton({
   const turns = useMemo(
     () =>
       agents
-        .filter((agent) => agent.status === "running" && agent.currentTurn)
+        .filter(
+          (agent) =>
+            agent.status === "running" &&
+            (agent.inputState?.active ?? Boolean(agent.currentTurn))
+        )
         .sort((a, b) =>
           a.id === selectedAgentId ? -1 : b.id === selectedAgentId ? 1 : 0
         ),
     [agents, selectedAgentId]
   );
   useEffect(() => {
+    for (const [id, timer] of timers.current) {
+      if (!turns.some((agent) => agent.id === id)) {
+        window.clearTimeout(timer);
+        timers.current.delete(id);
+      }
+    }
+    setRequests((previous) => {
+      const next = Object.fromEntries(
+        Object.entries(previous).filter(([id]) =>
+          turns.some((agent) => agent.id === id)
+        )
+      );
+      return Object.keys(next).length === Object.keys(previous).length
+        ? previous
+        : next;
+    });
     if (turns.length < 2) setMenuOpen(false);
-  }, [turns.length]);
+  }, [turns]);
   const cancel = useMutation<unknown, Error, StopRequest>({
     mutationFn: ({ agentId }) =>
       api(`/api/v1/agents/${encodeURIComponent(agentId)}/runtime/cancel`, {
@@ -65,8 +87,8 @@ export function StopTurnButton({
   });
 
   function stop(agent: Agent): void {
-    const blockId = agent.currentTurn?.blockId;
-    if (!blockId) return;
+    onStart?.();
+    const blockId = agent.currentTurn?.blockId ?? "runtime";
     window.clearTimeout(timers.current.get(agent.id));
     setRequests((previous) => ({
       ...previous,
@@ -87,7 +109,7 @@ export function StopTurnButton({
 
   function stateOf(agent: Agent): RequestState["status"] | null {
     const request = requests[agent.id];
-    return request?.blockId === agent.currentTurn?.blockId
+    return request?.blockId === (agent.currentTurn?.blockId ?? "runtime")
       ? request.status
       : null;
   }
@@ -113,6 +135,7 @@ export function StopTurnButton({
       onClick={single ? () => stop(single) : undefined}
       disabled={turns.length === 0 || singleState === "stopping"}
       data-testid="chat-stop-turn"
+      data-active={turns.length > 0 ? "true" : undefined}
       title={label}
       aria-label={label}
       aria-haspopup={turns.length > 1 ? "menu" : undefined}

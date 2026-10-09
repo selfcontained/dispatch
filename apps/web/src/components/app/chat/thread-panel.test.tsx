@@ -3,6 +3,7 @@ vi.mock(
   "@/components/app/chat/composer-input",
   () => import("@/test-utils/composer-input")
 );
+import type { Agent } from "@/components/app/types";
 import type { ReactNode } from "react";
 import type { Block, StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -150,6 +151,69 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ThreadPanel", () => {
+  it("clears a failed Stop on retry and when runtime work ends", async () => {
+    const activeAgent = {
+      id: "agt_1",
+      name: "builder",
+      status: "running",
+      inputState: { active: true, interruptSupported: true },
+    } as Agent;
+    client.setQueryDefaults(["agents"], { staleTime: Infinity });
+    client.setQueryData(["agents"], [activeAgent]);
+    let failStop = true;
+    apiMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/runtime/cancel")) {
+        if (failStop) throw new Error("Temporary stop failure");
+        return {};
+      }
+      return thread;
+    });
+    renderPanel();
+    const stop = await screen.findByTestId("chat-stop-turn");
+    fireEvent.click(stop);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("chat-thread-action-error").textContent
+      ).toContain("Temporary stop failure")
+    );
+    failStop = false;
+    fireEvent.click(stop);
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-thread-action-error")).toBeNull()
+    );
+    client.setQueryData(
+      ["agents"],
+      [
+        {
+          ...activeAgent,
+          inputState: { ...activeAgent.inputState, active: false },
+        },
+      ]
+    );
+    await waitFor(() =>
+      expect((stop as HTMLButtonElement).disabled).toBe(true)
+    );
+    client.setQueryData(["agents"], [activeAgent]);
+    await waitFor(() =>
+      expect((stop as HTMLButtonElement).disabled).toBe(false)
+    );
+    failStop = true;
+    fireEvent.click(stop);
+    await screen.findByTestId("chat-thread-action-error");
+    client.setQueryData(
+      ["agents"],
+      [
+        {
+          ...activeAgent,
+          inputState: { ...activeAgent.inputState, active: false },
+        },
+      ]
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-thread-action-error")).toBeNull()
+    );
+  });
+
   it("loads the thread route and shows the root with its replies, no reply line", async () => {
     apiMock.mockResolvedValueOnce(thread);
     renderPanel();

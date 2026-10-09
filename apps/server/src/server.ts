@@ -412,6 +412,8 @@ const streamService = new StreamService({
     cancel: (agentId) => agentManager.cancelTurn(agentId),
     controlQueuedPrompt: (ids, blockId, action) =>
       agentManager.controlQueuedPrompt(ids, blockId, action),
+    interruptDelivery: (ids, blockId) =>
+      agentManager.interruptDelivery(ids, blockId),
     commands: (agentId) =>
       (agentManager.getCommands(agentId) ?? []).map((command) => command.name),
   },

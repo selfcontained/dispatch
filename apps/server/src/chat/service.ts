@@ -178,6 +178,8 @@ export type StreamDeliveryAdapter = {
     blockId: string,
     action: QueuedPromptAction
   ) => boolean;
+  /** Interrupt active work while leaving each existing delivery attempt alone. */
+  interruptDelivery?: (agentIds: string[], blockId: string) => Promise<boolean>;
   /** Names of commands this agent's ACP session currently accepts. */
   commands?: (agentId: string) => readonly string[];
 };
@@ -3600,7 +3602,8 @@ export class StreamService {
   async controlQueuedMessage(
     streamId: string,
     blockId: string,
-    action: QueuedPromptAction
+    action: QueuedPromptAction,
+    keepDelivery = false
   ): Promise<{ ok: true }> {
     const block = await this.store.getById(blockId);
     if (
@@ -3620,6 +3623,23 @@ export class StreamService {
       throw new StreamValidationError(
         "ACP commands must wait for the current turn to finish."
       );
+    }
+    if (keepDelivery) {
+      const recipients = (block.delivery ?? [])
+        .filter((entry) => entry.state === "pending" || entry.state === "held")
+        .map((entry) => entry.agentId);
+      if (
+        action !== "interrupt" ||
+        block.delivered !== null ||
+        !recipients.length ||
+        !(await this.delivery().interruptDelivery?.(recipients, blockId))
+      ) {
+        throw new StreamConflictError(
+          "This message cannot interrupt now: no recipient has interruptible active work. Your delivery attempt is unchanged."
+        );
+      }
+      // No injection, queue promotion, or persisted interrupt intent: keep the attempt.
+      return { ok: true };
     }
     if (
       block.delivered !== null ||
