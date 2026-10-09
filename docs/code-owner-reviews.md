@@ -70,9 +70,27 @@ with `launch_agent` and its `persona` field rather than duplicating successful l
 ## Dispatch owners
 
 The repository defines owners for agent runtime, review lifecycle, stream delivery,
-MCP contracts, stream interactions, jobs/templates, and releases/updates. Shared boundary
-files can select multiple owners. Unmapped paths receive the built-in generalist.
-The old role-based repository personas are replaced by these owners. The built-in generalist remains available.
+MCP contracts, stream interactions, jobs/templates/scheduled messages, releases/updates,
+authentication/local trust, workspace files, and browser feedback.
+
+`frontend-react-review` is an additional reviewer for `apps/web/src/**` changes.
+It checks React correctness, state ownership, accessibility, and rendering behavior
+alongside the matching subsystem owners. Each reviewer launches only once even
+when several changed paths match. Shared boundary files intentionally select more
+than one subsystem owner; unrelated files retain the generalist fallback.
+
+Essential shared frontend rules remain in root `AGENTS.md` and `CLAUDE.md`.
+The frontend persona carries its specialized checklist directly in its launch
+context. We do not depend on automatic discovery of nested instruction files or
+add a new instruction-injection mechanism. Subsystem owners check domain behavior;
+the frontend reviewer checks frontend behavior. Findings must demonstrate a defect
+or violated repository rule, not a style preference or speculative optimization.
+
+The old role-based repository personas are replaced by these owners. Inherited
+personas can still appear in a session's effective list; the ownership map uses
+checkout-local definitions and the built-in generalist. Routing regression tests
+in `apps/server/test/codeowners-routing.test.ts` pin representative server, UI,
+shared-contract, and nested-test paths, including intentional overlap.
 
 When changing a subsystem, update its owner instructions for newly established
 invariants and update routing when files move. Keep instructions focused on

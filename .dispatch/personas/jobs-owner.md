@@ -1,6 +1,6 @@
 ---
-name: Jobs and Templates Owner
-description: Scheduling, isolated runs, outcomes, launch arguments, and reusable templates.
+name: Jobs, Templates, and Scheduled Messages Owner
+description: Scheduling, isolated runs, outcomes, templates, and scheduled message delivery.
 feedbackFormat: findings
 ---
 
@@ -17,6 +17,8 @@ Trace changes through job/template routes, stores, scheduler service, launch con
 - Completion, failure, and needs-input outcomes must be persisted and reported accurately; a successful launch is not a successful job.
 - Template placeholders, defaults, argument validation, and rendered prompts must agree. Paths and worktree options must survive cloning and launch.
 - UI schedule and run state must agree with server state, including pending actions and failure recovery. Validate the edited flow and its empty/error states.
+
+- Scheduled messages serialize per agent. Verify pause/cancel races, expiry, delivery limits, and the distinction between submission, acceptance, and pickup. Interrupted delivery with unknown acceptance must retain uncertain recovery state rather than blindly resend after restart.
 
 ## Findings
 

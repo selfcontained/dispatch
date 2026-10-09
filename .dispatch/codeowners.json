@@ -16,14 +16,37 @@
         "apps/server/test/*worktree*",
         "apps/server/test/*acp*",
         "e2e/*agent-live*",
-        "e2e/*agent*"
+        "e2e/*agent*",
+        "apps/web/src/components/app/create-agent-*",
+        "apps/web/src/components/app/use-create-agent-form*",
+        "apps/web/src/components/app/stop-agent-dialog*",
+        "apps/web/src/components/app/delete-agent-dialog*",
+        "apps/web/src/hooks/use-agent-*",
+        "apps/web/src/hooks/use-agents*",
+        "apps/server/src/routes/agent-startup.ts",
+        "apps/server/src/agent-type-settings.ts",
+        "apps/server/src/worktree-location-settings.ts",
+        "apps/server/src/shared/agent-types.ts",
+        "apps/server/src/shared/agent-models.ts",
+        "apps/server/src/shared/access-ceiling.ts",
+        "apps/server/src/startup/**",
+        "apps/server/src/routes/personalities.ts",
+        "apps/server/src/db/personalities.ts",
+        "apps/server/src/shared/mcp/personality-tools.ts",
+        "apps/web/src/components/app/personality-*",
+        "apps/server/test/*personalit*",
+        "apps/server/test/db/*personalit*",
+        "apps/server/test/db/*agent*",
+        "apps/server/test/db/*worktree*",
+        "packages/shared/src/agent-*.ts",
+        "packages/shared/src/permission-types.ts",
+        "packages/shared/src/usage-types.ts"
       ],
       "personas": ["agent-runtime-owner"]
     },
     {
       "paths": [
         "apps/server/src/personas/**",
-        "apps/server/src/chat/review*.ts",
         "apps/server/src/chat/service.ts",
         "apps/server/src/server/mcp-persona-handlers.ts",
         "apps/server/src/shared/mcp/persona-interaction-tools.ts",
@@ -31,9 +54,6 @@
         "apps/server/src/routes/personas.ts",
         "apps/server/src/routes/streams.ts",
         "apps/web/src/components/app/*review*",
-        "apps/web/src/components/app/*persona*",
-        "apps/web/src/hooks/use-stream-review*.ts",
-        "apps/server/test/*persona*",
         "apps/server/test/codeowners.test.ts",
         "docs/code-owner-reviews.md",
         "apps/server/test/*review*",
@@ -43,8 +63,13 @@
         "apps/server/test/mcp-persona-codeowners.test.ts",
         "e2e/review-loop.spec.ts",
         "apps/web/src/components/app/diff-finding*",
-        "apps/web/src/components/app/chat/blocks/review*",
-        "apps/web/src/components/app/chat/review*"
+        "apps/web/src/components/app/persona-*",
+        "apps/server/test/persona-*.test.ts",
+        "apps/server/test/personas-*.test.ts",
+        "apps/server/test/codeowners-routing.test.ts",
+        "apps/web/src/components/app/chat/block-bodies*",
+        "apps/web/src/hooks/use-agent-review-summary.ts",
+        "packages/shared/src/block-types.ts"
       ],
       "personas": ["review-lifecycle-owner"]
     },
@@ -56,7 +81,6 @@
         "apps/server/src/routes/agents/streaming-routes.ts",
         "apps/server/src/server/ui-events.ts",
         "apps/server/src/chat/envelope.ts",
-        "apps/server/src/routes/chat.ts",
         "apps/web/src/components/app/chat/**",
         "apps/web/src/hooks/*stream*",
         "apps/web/src/hooks/*chat*",
@@ -66,7 +90,16 @@
         "apps/server/test/*message*",
         "apps/server/test/*chat*",
         "e2e/*chat*",
-        "e2e/*stream*"
+        "e2e/*stream*",
+        "apps/server/src/stream-manager.ts",
+        "apps/web/src/hooks/use-sse*",
+        "packages/shared/src/conversation-delivery.ts",
+        "apps/server/src/notifications/**",
+        "apps/server/src/server/notification-runtime.ts",
+        "apps/server/test/*notification*",
+        "apps/web/src/components/app/*notification*",
+        "apps/web/src/lib/web-notifications.ts",
+        "e2e/web-notifications.spec.ts"
       ],
       "personas": ["stream-delivery-owner"]
     },
@@ -95,7 +128,12 @@
         "packages/shared/src/chat-types.ts",
         "apps/server/test/stream-tools.test.ts",
         "apps/server/test/stream-service.test.ts",
-        "e2e/stream-blocks.spec.ts"
+        "e2e/stream-blocks.spec.ts",
+        "apps/web/src/components/app/chat/chat-entries*",
+        "apps/web/src/components/app/chat/chat-attachment*",
+        "apps/web/src/lib/chat-draft*",
+        "apps/web/src/lib/store*",
+        "packages/shared/src/block-types.ts"
       ],
       "personas": ["stream-interactions-owner"]
     },
@@ -111,7 +149,17 @@
         "apps/server/test/*job*",
         "apps/server/test/*template*",
         "e2e/*job*",
-        "e2e/*template*"
+        "e2e/*template*",
+        "apps/server/src/scheduled-messages/**",
+        "apps/server/src/routes/scheduled-messages.ts",
+        "apps/server/src/shared/mcp/scheduled-message-tools.ts",
+        "apps/web/src/components/app/scheduled-messages*",
+        "apps/web/src/components/app/chat/scheduled-message-entry*",
+        "apps/web/src/hooks/use-jobs.ts",
+        "apps/web/src/hooks/use-templates.ts",
+        "packages/shared/src/scheduled-messages.ts",
+        "apps/server/test/scheduled-messages.test.ts",
+        "e2e/scheduled-messages.spec.ts"
       ],
       "personas": ["jobs-owner"]
     },
@@ -130,9 +178,93 @@
         "apps/web/src/components/app/release*",
         "apps/server/test/*release*",
         "apps/server/test/*update*",
-        "e2e/*release*"
+        "e2e/*release*",
+        "apps/macos/**",
+        "apps/server/src/update-recovery/**",
+        "apps/server/src/update-owner.ts",
+        "apps/server/src/mac-app-update-bridge.ts",
+        "apps/server/src/server/update-recovery-runtime.ts",
+        "apps/server/src/routes/mac-app.ts",
+        "apps/server/src/routes/update-recovery.ts",
+        "apps/server/src/db/migrate.ts",
+        "apps/server/test/db/*migrat*",
+        "apps/web/src/components/app/updates-*",
+        "apps/web/src/components/app/update-*",
+        "apps/web/src/components/app/mac-app-updates-card*",
+        "apps/web/src/components/app/use-release-admin-data.ts",
+        "apps/web/src/hooks/use-release-*",
+        "apps/web/src/hooks/use-cached-release-info.ts",
+        "apps/web/src/hooks/use-mac-app-update.ts",
+        "packages/shared/src/mac-app-update-types.ts",
+        "scripts/sparkle*",
+        "scripts/test_sparkle*",
+        "scripts/fixtures/sparkle*",
+        "scripts/write-bun-checksums.mjs",
+        "scripts/smoke-bun-binary.mjs"
       ],
       "personas": ["release-update-owner"]
+    },
+    {
+      "paths": ["apps/web/src/**", "apps/web/eslint.config.js"],
+      "personas": ["frontend-react-review"]
+    },
+    {
+      "paths": [
+        "apps/server/src/auth.ts",
+        "apps/server/src/browser-origin.ts",
+        "apps/server/src/server-origin.ts",
+        "apps/server/src/local-tls.ts",
+        "apps/server/src/multi-listener.ts",
+        "apps/server/src/server/auth-runtime.ts",
+        "apps/server/src/routes/auth.ts",
+        "apps/server/src/routes/local-trust.ts",
+        "apps/server/src/routes/browser-extension.ts",
+        "apps/server/src/routes/mcp.ts",
+        "apps/server/src/server.ts",
+        "apps/server/test/*auth*",
+        "apps/server/test/*origin*",
+        "apps/server/test/*tls*",
+        "apps/server/test/*trust*",
+        "apps/server/test/*multi-listener*",
+        "apps/web/src/contexts/auth-*",
+        "apps/web/src/hooks/use-auth.ts",
+        "apps/web/src/layouts/auth-layout.tsx",
+        "apps/web/src/components/app/login-page.tsx",
+        "apps/web/src/components/app/security-settings.tsx",
+        "apps/server/src/shared/mcp/login-link-tools.ts",
+        "apps/server/test/*login-link*"
+      ],
+      "personas": ["auth-trust-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/files/**",
+        "apps/server/src/routes/files.ts",
+        "apps/server/src/shared/files.ts",
+        "apps/server/src/shared/file-types.ts",
+        "apps/web/src/components/app/file-*",
+        "apps/web/src/components/app/files-*",
+        "apps/web/src/hooks/use-files*",
+        "apps/web/src/lib/file-*",
+        "apps/server/test/*file*",
+        "apps/server/test/*workspace-directory*",
+        "apps/server/test/*workspace-ignore*",
+        "apps/server/test/db/files-*",
+        "e2e/*file*"
+      ],
+      "personas": ["workspace-files-owner"]
+    },
+    {
+      "paths": [
+        "apps/browser-extension/**",
+        "apps/server/src/routes/browser-extension.ts",
+        "apps/web/src/components/app/browser-extension-*",
+        "apps/web/src/components/app/use-extension-pairing.ts",
+        "apps/server/test/*browser-extension*",
+        "e2e/*browser-extension*",
+        "scripts/sync-browser-extension*"
+      ],
+      "personas": ["browser-feedback-owner"]
     }
   ],
   "fallback": ["code-review"]
