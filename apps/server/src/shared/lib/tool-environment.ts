@@ -29,13 +29,12 @@ export function defaultSearchDirs(home: string): string[] {
 }
 
 /**
- * Repo commands run directly, without loading interactive shell profiles.
+ * Agent engines, MCP servers, and repo commands share these runtime fallbacks.
  * Preserve the caller's PATH precedence and add the same installation locations
  * used by engine discovery for services and packaged apps with a minimal PATH.
  * Pass this environment to the child only; never mutate the server environment.
  */
-export function repoCommandEnvironment(
-  agentId: string,
+export function withToolSearchPath(
   inherited: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const home = inherited.HOME || os.homedir();
@@ -58,6 +57,13 @@ export function repoCommandEnvironment(
   return {
     ...inherited,
     PATH: [...new Set(dirs)].join(path.delimiter),
-    DISPATCH_AGENT_ID: agentId,
   };
+}
+
+/** Repo tools also identify the agent that owns the command. */
+export function repoCommandEnvironment(
+  agentId: string,
+  inherited: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  return { ...withToolSearchPath(inherited), DISPATCH_AGENT_ID: agentId };
 }

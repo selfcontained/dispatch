@@ -1,5 +1,6 @@
 import path from "node:path";
 import { localAgentCaBundle } from "../../local-tls.js";
+import { withToolSearchPath } from "../../shared/lib/tool-environment.js";
 import { withEngineBinDir } from "./engine-bin-dir.js";
 import type { AcpEngineId, EngineBins } from "./engine-spec.js";
 import type { HostLaunch } from "./host-protocol.js";
@@ -39,7 +40,7 @@ export function buildHostEnv(
     [...launch.pathPrefix, shellEnv.PATH ?? ""].join(path.delimiter),
     launch.bins && launchedBin(launch.engine, launch.bins)
   );
-  return env;
+  return withToolSearchPath(env);
 }
 
 function launchedBin(engine: AcpEngineId, bins: EngineBins): string | null {

@@ -153,6 +153,12 @@ export NVM_DIR="$HOME/.nvm"
 export GH_TOKEN="ghp_..."
 ```
 
+The login shell is non-interactive: it does not load `~/.zshrc` or interactive-only sections of `~/.bashrc`. After loading the profile and `~/.dispatch/env`, Dispatch preserves their PATH selection, adds the engine executable's directory, and appends common installation locations shared with repo tools: `~/.local/bin`, `~/.opencode/bin`, `~/.bun/bin`, `~/.volta/bin`, installed `~/.nvm/versions/node/*/bin` directories, `/opt/homebrew/bin`, and `/usr/local/bin`. When no earlier PATH entry selects Node, nvm versions are tried newest first. This environment is inherited by the engine and its MCP subprocesses, so a native Claude installation can still launch `npx` servers.
+
+For other language managers, custom installation locations, or a specific runtime version, export PATH or initialize the manager in `~/.dispatch/env`. Dispatch does not activate project virtual environments or guess project toolchains. Restart the agent after changing this file or updating Dispatch; reattaching to a running host retains its existing environment.
+
+The agent's `host.log` records the effective executable search PATH without dumping environment secrets. For a missing MCP command, compare that PATH with the executable named in the engine's startup diagnostic. MCP failures are reported by the engine; some engines can continue running with a failed MCP server. Set PATH in `~/.dispatch/env` to include both the command and its interpreter (an absolute `npx` command still needs `node` for its shebang).
+
 The engine child additionally gets `DISPATCH_AGENT_ID`, `DISPATCH_FILES_DIR`, `DISPATCH_PORT`, `DISPATCH_SCHEME`, Dispatch's `bin/` and `~/.local/bin` ahead on `PATH`, and (for Claude) `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`. It does not inherit the server's `DATABASE_URL`, `DISPATCH_*` settings, TLS material or provider API keys: each engine authenticates through the host CLI's own login.
 
 ## Stop Contract

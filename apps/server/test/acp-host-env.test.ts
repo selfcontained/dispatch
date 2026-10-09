@@ -158,8 +158,66 @@ it("lets an engine CLI found off PATH run the node installed beside it", () => {
       bins: { claudeBin: "/elsewhere/claude", codexBin: codex },
     },
     root,
-    { PATH: "/usr/bin:/bin" }
+    { HOME: root, PATH: "/usr/bin:/bin" }
   );
-  expect(env.PATH).toBe(`/dispatch/bin:/usr/bin:/bin:${bin}`);
+  expect(env.PATH?.split(path.delimiter).slice(0, 4)).toEqual([
+    "/dispatch/bin",
+    "/usr/bin",
+    "/bin",
+    bin,
+  ]);
   expect(execFileSync(codex, { env, encoding: "utf8" }).trim()).toBe("ran");
 });
+
+for (const engine of ["claude", "codex", "opencode"] as const) {
+  it(`${engine} can launch an npx MCP command with Node outside the login PATH`, () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-mcp-path-"));
+    roots.push(root);
+    const localBin = path.join(root, ".local/bin");
+    const bin = path.join(root, ".nvm/versions/node/v22.22.1/bin");
+    const oldBin = path.join(root, ".nvm/versions/node/v9.9.9/bin");
+    for (const dir of [localBin, bin, oldBin])
+      mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(bin, "node"),
+      '#!/bin/sh\nprintf "mcp-started\\n"\n',
+      { mode: 0o755 }
+    );
+    writeFileSync(
+      path.join(oldBin, "node"),
+      '#!/bin/sh\nprintf "selected-old-node\\n"\n',
+      { mode: 0o755 }
+    );
+    // Like real npx, the command needs both executable lookup and its Node shebang.
+    writeFileSync(path.join(bin, "npx"), "#!/usr/bin/env node\n", {
+      mode: 0o755,
+    });
+    const inherited = { HOME: root, PATH: "/usr/bin:/bin", KEEP: "unchanged" };
+    const launch = {
+      env: {},
+      engine,
+      pathPrefix: ["/dispatch/bin", localBin],
+      bins: {
+        claudeBin: path.join(localBin, "claude"),
+        codexBin: path.join(localBin, "codex"),
+        opencodeBin: path.join(localBin, "opencode"),
+      },
+    };
+    const env = buildHostEnv(launch, root, inherited);
+    expect(
+      execFileSync("npx", ["@playwright/mcp"], { env, encoding: "utf8" }).trim()
+    ).toBe("mcp-started");
+    expect(env.KEEP).toBe("unchanged");
+    expect(inherited.PATH).toBe("/usr/bin:/bin");
+    const selected = buildHostEnv(launch, root, {
+      ...inherited,
+      PATH: `${oldBin}:/usr/bin:/bin`,
+    });
+    expect(
+      execFileSync("npx", [], { env: selected, encoding: "utf8" }).trim()
+    ).toBe("selected-old-node");
+    expect(new Set(env.PATH!.split(path.delimiter)).size).toBe(
+      env.PATH!.split(path.delimiter).length
+    );
+  });
+}
