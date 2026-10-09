@@ -197,7 +197,7 @@ try {
       "-insert",
       "SUScheduledCheckInterval",
       "-integer",
-      "14400",
+      "3600",
       plist,
     ]);
     // Only a feed signed with SUPublicEDKey is trusted, so appcast item metadata

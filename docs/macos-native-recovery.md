@@ -3,7 +3,7 @@
 The native Sparkle handoff now requires a verified recovery point before invoking
 Sparkle's postponed install continuation. Remote check/install control continues
 to use the existing Mac bridge. The packaged default scheduled check interval is
-four hours (`SUScheduledCheckInterval = 14400`); explicit Sparkle user preferences
+one hour (`SUScheduledCheckInterval = 3600`); explicit Sparkle user preferences
 still take precedence.
 
 ## Ownership and files
