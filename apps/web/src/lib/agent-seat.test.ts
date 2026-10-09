@@ -20,6 +20,19 @@ describe("lineageSeats", () => {
     expect(lineageSeats("", agents)).toEqual({});
   });
 
+  it("uses the identity endpoint's ID tie-break for simultaneous launches", () => {
+    const members = [
+      { id: "root" },
+      { id: "z", parentAgentId: "root", createdAt: "same" },
+      { id: "a", parentAgentId: "root", createdAt: "same" },
+    ];
+    expect(lineageSeats("root", members)).toEqual({ root: 1, a: 2, z: 3 });
+    expect(lineageSeats("root", [...members].reverse())).toEqual({
+      root: 1,
+      a: 2,
+      z: 3,
+    });
+  });
   it("gives each seat its own accent and wraps past the palette", () => {
     expect(seatClasses(1)).not.toEqual(seatClasses(2));
     expect(seatClasses(11)).toEqual(seatClasses(1));

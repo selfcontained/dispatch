@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
 import { agentRoute, THREAD_PARAM } from "@/lib/agent-routes";
 
@@ -66,6 +67,8 @@ export function ChildAgentRow({
   closeOnSessionAction = false,
 }: ChildAgentRowProps): JSX.Element {
   const navigate = useNavigate();
+  const identity = useAgentRecord(agent.id);
+  const historicalSeat = identity?.seat ?? seat;
   const isStopped = state === "stopped";
   // Not the raw isConnected/connectedAgentId-equality prop: that stays true
   // through a mid-reconnect or a dropped socket, which would make a click
@@ -151,7 +154,7 @@ export function ChildAgentRow({
       )}
     >
       <AgentSeatBadge
-        seat={seat}
+        seat={historicalSeat}
         name={displayName}
         type={agent.type}
         size="sm"

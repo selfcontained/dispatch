@@ -31,6 +31,7 @@ import type {
 } from "@dispatch/shared";
 import {
   type InfiniteData,
+  type QueryFilters,
   type QueryClient,
   replaceEqualDeep,
   useInfiniteQuery,
@@ -58,8 +59,36 @@ export const LIVE_HEAD_ROWS = PAGE_SIZE * 2;
 export const STREAM_QUERY_PREFIX = ["stream"] as const;
 
 /** The feed of one stream, keyed by the root agent whose stream it is. */
-export function streamFeedQueryKey(rootId: string | null) {
-  return [...STREAM_QUERY_PREFIX, rootId] as const;
+export type LaunchReplyScope = boolean | string;
+export function streamFeedQueryKey(
+  rootId: string | null,
+  launchReplies: LaunchReplyScope = false
+) {
+  return launchReplies
+    ? ([
+        ...STREAM_QUERY_PREFIX,
+        rootId,
+        "launch-replies",
+        launchReplies,
+      ] as const)
+    : ([...STREAM_QUERY_PREFIX, rootId] as const);
+}
+
+/** Only feed variants; threads and turn-detail queries share the prefix. */
+export function streamFeedFilters(rootId: string | null): QueryFilters {
+  return {
+    queryKey: [...STREAM_QUERY_PREFIX, rootId],
+    predicate: (query) =>
+      query.queryKey.length === 2 || query.queryKey[2] === "launch-replies",
+  };
+}
+
+export function setStreamFeedData(
+  queryClient: QueryClient,
+  rootId: string | null,
+  update: (old: FeedCache | undefined) => FeedCache | undefined
+): void {
+  queryClient.setQueriesData<FeedCache>(streamFeedFilters(rootId), update);
 }
 
 /** One block's thread: its root and its replies. */
@@ -84,10 +113,13 @@ function blockPath(rootId: string | null, blockId: string): string {
  */
 function fetchFeedPage(
   rootId: string | null,
-  cursor: string | undefined
+  cursor: string | undefined,
+  launchReplies: LaunchReplyScope = false
 ): Promise<StreamFeedResponse> {
   const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (cursor) params.set("cursor", cursor);
+  if (launchReplies)
+    params.set("launchReplies", launchReplies === true ? "all" : launchReplies);
   if (agentSwitchValidationMode === "before") {
     params.set("fullTurnDetails", "1");
   }
@@ -265,11 +297,14 @@ function hasUnsettledTurn(block: Block): boolean {
   return block.turn !== undefined && !block.turn.settled;
 }
 
-function feedQueryOptions(rootId: string | null) {
+function feedQueryOptions(
+  rootId: string | null,
+  launchReplies: LaunchReplyScope = false
+) {
   return {
-    queryKey: streamFeedQueryKey(rootId),
+    queryKey: streamFeedQueryKey(rootId, launchReplies),
     queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
-      fetchFeedPage(rootId, pageParam),
+      fetchFeedPage(rootId, pageParam, launchReplies),
     initialPageParam: undefined,
     getNextPageParam: (lastPage: StreamFeedResponse) =>
       lastPage.nextCursor ?? undefined,
@@ -289,14 +324,17 @@ function feedQueryOptions(rootId: string | null) {
   } as const;
 }
 
-export function useStreamFeed(rootId: string | null): StreamFeedState {
+export function useStreamFeed(
+  rootId: string | null,
+  launchReplies: LaunchReplyScope = false
+): StreamFeedState {
   const query = useInfiniteQuery<
     StreamFeedResponse,
     Error,
     FeedCache,
     ReturnType<typeof streamFeedQueryKey>,
     string | undefined
-  >(feedQueryOptions(rootId));
+  >(feedQueryOptions(rootId, launchReplies));
 
   const entries = useMemo(
     () => (query.data ? flattenFeedPages(query.data.pages) : []),
@@ -340,7 +378,8 @@ export function useStreamFeedSelect<T>(
   select: (
     entries: StreamEntry[],
     across: { openInputs: readonly Block[]; threadLinks: readonly Block[] }
-  ) => T
+  ) => T,
+  launchReplies: LaunchReplyScope = false
 ): { data: T | undefined; isLoading: boolean } {
   const query = useInfiniteQuery<
     StreamFeedResponse,
@@ -349,7 +388,7 @@ export function useStreamFeedSelect<T>(
     ReturnType<typeof streamFeedQueryKey>,
     string | undefined
   >({
-    ...feedQueryOptions(rootId),
+    ...feedQueryOptions(rootId, launchReplies),
     select: (data) =>
       select(flattenFeedPages(data.pages), {
         openInputs: data.pages[0]?.openInputs ?? [],
@@ -678,10 +717,10 @@ function rollbackPlaceholder(
   key: ReturnType<typeof streamFeedQueryKey>,
   placeholder: StreamEntry
 ): void {
-  queryClient.setQueryData<FeedCache>(key, (old) =>
+  setStreamFeedData(queryClient, key[1], (old) =>
     removeEntryObject(old, placeholder)
   );
-  void queryClient.invalidateQueries({ queryKey: key, exact: true });
+  void queryClient.invalidateQueries(streamFeedFilters(key[1]));
 }
 
 /** Take a placeholder block out of the feed, by identity. */
@@ -1024,8 +1063,8 @@ export function usePostBlock(rootId: string | null) {
         );
         return { placeholder, threadKey };
       }
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      await queryClient.cancelQueries(streamFeedFilters(key[1]));
+      setStreamFeedData(queryClient, key[1], (old) =>
         appendEntry(old, entryOf(placeholder))
       );
       return { placeholder, threadKey: null };
@@ -1048,15 +1087,17 @@ export function usePostBlock(rootId: string | null) {
         return;
       }
       const entries = queryClient
-        .getQueryData<FeedCache>(key)
-        ?.pages.flatMap((page) => page.entries);
+        .getQueriesData<FeedCache>(streamFeedFilters(rootId))
+        .flatMap(
+          ([, cache]) => cache?.pages.flatMap((page) => page.entries) ?? []
+        );
       const placeholderEntry = entries?.find(
         (entry) => entry.type === "block" && entry.block === context.placeholder
       );
       if (placeholderEntry) {
         rollbackPlaceholder(queryClient, key, placeholderEntry);
       } else {
-        void queryClient.invalidateQueries({ queryKey: key, exact: true });
+        void queryClient.invalidateQueries(streamFeedFilters(key[1]));
       }
     },
     // No refetch on settle: the stored row reaches the cache as a
@@ -1067,7 +1108,7 @@ export function usePostBlock(rootId: string | null) {
           context.threadKey,
           (old) => applyPostedThreadReply(old, data.block, context.placeholder)
         );
-        queryClient.setQueryData<FeedCache>(key, (old) =>
+        setStreamFeedData(queryClient, key[1], (old) =>
           bumpReplyCount(old, data.block)
         );
         return;
@@ -1076,7 +1117,7 @@ export function usePostBlock(rootId: string | null) {
       // card: the placeholder leaves the channel for that thread.
       if (data.block.threadId) {
         const reply = data.block;
-        queryClient.setQueryData<FeedCache>(key, (old) =>
+        setStreamFeedData(queryClient, key[1], (old) =>
           bumpReplyCount(
             context ? removeEntryObjectByBlock(old, context.placeholder) : old,
             reply
@@ -1088,7 +1129,7 @@ export function usePostBlock(rootId: string | null) {
         );
         return;
       }
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         replaceBlock(old, data.block.id, data.block)
       );
     },
@@ -1166,10 +1207,10 @@ export function useAnswerQuestion(rootId: string | null) {
       });
     },
     onMutate: async ({ id, blockId, value, label }) => {
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      await queryClient.cancelQueries(streamFeedFilters(key[1]));
       let previous: Block | null = null;
       const now = new Date().toISOString();
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         mapBlock(old, blockId, (block) => {
           if (block.kind !== "question") return block;
           previous = block;
@@ -1193,16 +1234,16 @@ export function useAnswerQuestion(rootId: string | null) {
     onError: (_err, { blockId }, context) => {
       const previous = context?.previous;
       if (previous) {
-        queryClient.setQueryData<FeedCache>(key, (old) =>
+        setStreamFeedData(queryClient, key[1], (old) =>
           mapBlock(old, blockId, (block) =>
             block.updatedAt === previous.updatedAt ? previous : block
           )
         );
       }
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries(streamFeedFilters(key[1]));
     },
     onSuccess: (data) => {
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         syncAcrossStream(
           replaceBlock(old, data.block.id, data.block),
           data.block
@@ -1235,10 +1276,10 @@ export function useSubmitForm(rootId: string | null) {
         body: JSON.stringify({ id, values } satisfies StreamSubmitRequest),
       }),
     onMutate: async ({ id, blockId, values }) => {
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      await queryClient.cancelQueries(streamFeedFilters(key[1]));
       let previous: Block | null = null;
       const now = new Date().toISOString();
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         mapBlock(old, blockId, (block) => {
           if (block.kind !== "form") return block;
           previous = block;
@@ -1261,16 +1302,16 @@ export function useSubmitForm(rootId: string | null) {
     onError: (_err, { blockId }, context) => {
       const previous = context?.previous;
       if (previous) {
-        queryClient.setQueryData<FeedCache>(key, (old) =>
+        setStreamFeedData(queryClient, key[1], (old) =>
           mapBlock(old, blockId, (block) =>
             block.updatedAt === previous.updatedAt ? previous : block
           )
         );
       }
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries(streamFeedFilters(key[1]));
     },
     onSuccess: (data) => {
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         syncAcrossStream(
           replaceBlock(old, data.block.id, data.block),
           data.block
@@ -1406,8 +1447,8 @@ export function useRetryDelivery(rootId: string | null) {
         { method: "POST" }
       ),
     onMutate: async (blockId) => {
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      await queryClient.cancelQueries(streamFeedFilters(key[1]));
+      setStreamFeedData(queryClient, key[1], (old) =>
         mapBlock(old, blockId, (block) => ({
           ...block,
           delivered: null,
@@ -1428,10 +1469,10 @@ export function useRetryDelivery(rootId: string | null) {
     // A refused retry (the agent is not running) puts the row back as it
     // was, with the reason surfaced by the caller.
     onError: () => {
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries(streamFeedFilters(key[1]));
     },
     onSuccess: (data) => {
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         replaceBlock(old, data.block.id, data.block)
       );
       mapThreads(queryClient, rootId, (thread) =>
@@ -1459,8 +1500,8 @@ export function useRetryTurn(rootId: string | null) {
         method: "POST",
       }),
     onMutate: async (blockId) => {
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      await queryClient.cancelQueries(streamFeedFilters(key[1]));
+      setStreamFeedData(queryClient, key[1], (old) =>
         mapBlock(old, blockId, (block) =>
           block.turn
             ? { ...block, turn: { ...block.turn, retry: "retried" as const } }
@@ -1471,7 +1512,7 @@ export function useRetryTurn(rootId: string | null) {
     // A refused retry (the agent stopped, or moved on) puts the entry back
     // as the server has it, with the reason surfaced by the caller.
     onError: () => {
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries(streamFeedFilters(key[1]));
     },
   });
 }
@@ -1492,9 +1533,9 @@ export function useSetBlockState(rootId: string | null) {
         body: JSON.stringify({ state } satisfies StreamStateRequest),
       }),
     onMutate: async ({ blockId, state }) => {
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      await queryClient.cancelQueries(streamFeedFilters(key[1]));
       let previous: Block | null = null;
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         mapBlock(old, blockId, (block) => {
           previous = block;
           return optimisticState(block, state);
@@ -1512,13 +1553,13 @@ export function useSetBlockState(rootId: string | null) {
     onError: (_err, { blockId }, context) => {
       const previous = context?.previous;
       if (previous) {
-        queryClient.setQueryData<FeedCache>(key, (old) =>
+        setStreamFeedData(queryClient, key[1], (old) =>
           mapBlock(old, blockId, (block) =>
             block.updatedAt === previous.updatedAt ? previous : block
           )
         );
       }
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries(streamFeedFilters(key[1]));
       void queryClient.invalidateQueries({
         queryKey: [...STREAM_QUERY_PREFIX, rootId, "thread"],
       });
@@ -1538,7 +1579,7 @@ export function useSetBlockState(rootId: string | null) {
           repliers: stored.repliers ?? previous.repliers,
           unreadReplies: stored.unreadReplies ?? previous.unreadReplies,
         }) as Block;
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         mapBlock(old, stored.id, keep)
       );
       mapThreads(queryClient, rootId, (thread) =>
@@ -1641,8 +1682,8 @@ export function useToggleReaction(rootId: string | null) {
           });
     },
     onMutate: async ({ blockId, emoji, remove }) => {
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      await queryClient.cancelQueries(streamFeedFilters(key[1]));
+      setStreamFeedData(queryClient, key[1], (old) =>
         updateBlockReactions(old, blockId, (reactions) => {
           const mine = (r: BlockReaction) =>
             r.author.kind === "user" && r.emoji === emoji;
@@ -1669,7 +1710,7 @@ export function useToggleReaction(rootId: string | null) {
       const mine = (r: BlockReaction) =>
         r.author.kind === "user" && r.emoji === emoji;
       const stored = data.reactions.find(mine);
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         updateBlockReactions(old, data.blockId, (reactions) => {
           const index = reactions.findIndex(mine);
           const current = index === -1 ? undefined : reactions[index];
@@ -1686,7 +1727,7 @@ export function useToggleReaction(rootId: string | null) {
     },
     // Whatever the failure left behind, the server's copy settles it.
     onError: () => {
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries(streamFeedFilters(key[1]));
     },
   });
 }
@@ -1716,7 +1757,7 @@ export function useMarkThreadRead(rootId: string | null) {
       // is unseen now.
       const seen = (block: Block): Block =>
         (block.unreadReplies ?? 0) > 0 ? { ...block, unreadReplies: 0 } : block;
-      queryClient.setQueryData<FeedCache>(streamFeedQueryKey(rootId), (old) =>
+      setStreamFeedData(queryClient, rootId, (old) =>
         mapBlock(old, blockId, seen)
       );
       mapThreads(queryClient, rootId, (thread) =>
@@ -1768,7 +1809,7 @@ export function useMarkStreamRead(
     // The count is all that moved; the server's `stream.read` says the same
     // to every other tab. Nothing on screen needs a refetch.
     onSuccess: (data) => {
-      queryClient.setQueryData<FeedCache>(key, (old) =>
+      setStreamFeedData(queryClient, key[1], (old) =>
         applyStreamRead(old, data.unreadCount)
       );
     },

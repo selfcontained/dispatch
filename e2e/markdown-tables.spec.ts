@@ -40,24 +40,34 @@ for (const width of [390, 1280]) {
       await expect(tables).toHaveCount(3);
       const readable = tables.nth(0);
       await readable.evaluate((el) => el.scrollIntoView({ block: "nearest" }));
-      const layout = await readable.evaluate((wrapper) => {
-        const table = wrapper.querySelector("table")!;
-        const labels = [...table.querySelectorAll("tr > :first-child")];
-        return {
-          availableWidth: wrapper.clientWidth,
-          widths: labels.map((cell) => cell.getBoundingClientRect().width),
-          lines: labels.map((cell) => {
-            const range = document.createRange();
-            range.selectNodeContents(cell);
-            return new Set([...range.getClientRects()].map((rect) => rect.top))
-              .size;
-          }),
-          descriptionWidth: table
-            .querySelector("td:nth-child(2)")!
-            .getBoundingClientRect().width,
-        };
-      });
-      expect(layout.lines).toEqual([1, 1, 1, 1]);
+      const measure = () =>
+        readable.evaluate((wrapper) => {
+          const table = wrapper.querySelector("table")!;
+          const labels = [...table.querySelectorAll("tr > :first-child")];
+          return {
+            availableWidth: wrapper.clientWidth,
+            widths: labels.map((cell) => cell.getBoundingClientRect().width),
+            lines: labels.map((cell) => {
+              const range = document.createRange();
+              range.selectNodeContents(cell);
+              return new Set(
+                [...range.getClientRects()].map((rect) => rect.top)
+              ).size;
+            }),
+            descriptionWidth: table
+              .querySelector("td:nth-child(2)")!
+              .getBoundingClientRect().width,
+          };
+        });
+      // The browser may defer text layout as this surface scrolls into view.
+      // Capture and validate one rendered measurement before checking widths.
+      let layout = await measure();
+      await expect
+        .poll(async () => {
+          layout = await measure();
+          return layout.lines;
+        })
+        .toEqual([1, 1, 1, 1]);
       expect(Math.min(...layout.widths)).toBeGreaterThan(70);
       expect(layout.descriptionWidth).toBeLessThanOrEqual(
         Math.max(550, layout.availableWidth)

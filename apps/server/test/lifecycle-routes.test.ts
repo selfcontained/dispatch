@@ -44,6 +44,62 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agents");
 });
 
+describe("GET /api/v1/agents/:id/identity", () => {
+  it("roots a surviving tree at its first ancestor whose parent was purged, and leaves cycles unseated", async () => {
+    await ctx.pool
+      .query(`INSERT INTO agents (id, name, cwd, status, parent_agent_id, created_at) VALUES
+      ('orphan', 'Orphan', '/tmp', 'stopped', 'purged', '2026-01-02'),
+      ('survivor', 'Survivor', '/tmp', 'stopped', 'orphan', '2026-01-01'),
+      ('cycle-a', 'A', '/tmp', 'stopped', 'cycle-b', '2026-01-01'),
+      ('cycle-b', 'B', '/tmp', 'stopped', 'cycle-a', '2026-01-02')`);
+    expect(
+      (await authedInject("GET", "/api/v1/agents/orphan/identity")).json().agent
+    ).toMatchObject({ rootId: "orphan", seat: 1 });
+    expect(
+      (await authedInject("GET", "/api/v1/agents/survivor/identity")).json()
+        .agent
+    ).toMatchObject({ rootId: "orphan", seat: 2 });
+    expect(
+      (await authedInject("GET", "/api/v1/agents/cycle-a/identity")).json()
+        .agent
+    ).toMatchObject({ rootId: null, seat: null });
+  });
+  it("returns only the requested archived identity with its original lineage seat", async () => {
+    await ctx.pool
+      .query(`INSERT INTO agents (id, name, cwd, status, parent_agent_id, deleted_at, model, persona, created_at)
+      VALUES ('identity-root', 'Root', '/tmp', 'stopped', NULL, NULL, NULL, NULL, '2026-01-01'),
+      ('identity-archived', 'Archived reviewer', '/tmp', 'stopped', 'identity-root', NOW(), 'test-model', 'reviewer', '2026-01-02'),
+      ('identity-live', 'Later child', '/tmp', 'stopped', 'identity-root', NULL, NULL, NULL, '2026-01-03'),
+      ('identity-unrelated', 'Unrelated archive', '/tmp', 'stopped', NULL, NOW(), NULL, NULL, '2026-01-01')`);
+    const res = await authedInject(
+      "GET",
+      "/api/v1/agents/identity-archived/identity"
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      agent: {
+        id: "identity-archived",
+        name: "Archived reviewer",
+        type: "codex",
+        model: "test-model",
+        persona: "reviewer",
+        parentAgentId: "identity-root",
+        createdAt: "2026-01-02T00:00:00.000Z",
+        seat: 2,
+        rootId: "identity-root",
+      },
+    });
+    const later = await authedInject(
+      "GET",
+      "/api/v1/agents/identity-live/identity"
+    );
+    expect(later.json().agent.seat).toBe(3);
+    expect(
+      (await authedInject("GET", "/api/v1/agents/missing/identity")).statusCode
+    ).toBe(404);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // GET /api/v1/agents/:id/diff-stats
 // ---------------------------------------------------------------------------

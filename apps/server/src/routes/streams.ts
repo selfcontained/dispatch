@@ -167,6 +167,7 @@ export async function registerStreamRoutes(
       cursor?: string;
       limit?: string;
       fullTurnDetails?: string;
+      launchReplies?: string;
     };
     if (!(await agentExists(rootId))) {
       return reply.code(404).send({ error: "Agent not found." });
@@ -183,6 +184,8 @@ export async function registerStreamRoutes(
     return streams.feed(rootId, {
       cursor,
       limit,
+      includeLaunchReplies:
+        query.launchReplies === "all" ? true : query.launchReplies || false,
       compactTurns:
         process.env.DISPATCH_DEV_STACK === "1" && query.fullTurnDetails === "1"
           ? false

@@ -25,7 +25,8 @@ import {
   LIVE_HEAD_ROWS,
   replaceThreadRoot,
   STREAM_QUERY_PREFIX,
-  streamFeedQueryKey,
+  streamFeedFilters,
+  setStreamFeedData,
   threadQueryKey,
   upsertFeedEntry,
   upsertThreadReply,
@@ -150,8 +151,7 @@ export function applyAgentUpsert(
  */
 function invalidateStreamFeed(queryClient: QueryClient, agentId: string): void {
   void queryClient.invalidateQueries({
-    queryKey: streamFeedQueryKey(agentId),
-    exact: true,
+    ...streamFeedFilters(agentId),
   });
 }
 
@@ -215,7 +215,7 @@ export function applyStreamEntry(
   agentId: string,
   entry: StreamEntry
 ): void {
-  const key = streamFeedQueryKey(agentId);
+  const feeds = queryClient.getQueryCache().findAll(streamFeedFilters(agentId));
   if (entry.type === "block" && entry.block.threadId !== null) {
     const reply = entry.block;
     queryClient.setQueryData<StreamThreadResponse>(
@@ -228,17 +228,20 @@ export function applyStreamEntry(
       threadQueryKey(agentId, reply.id),
       (old) => replaceThreadRoot(old, reply)
     );
-    queryClient.setQueryData<FeedCache>(key, (old) =>
+    setStreamFeedData(queryClient, agentId, (old) =>
       syncAcrossStream(bumpReplyCount(old, reply), reply)
     );
     const showReview = reply.kind === "review";
     const alreadyListed =
       (reply.kind === "question" || reply.kind === "form") &&
       reply.data.parentHandled === true &&
-      queryClient
-        .getQueryData<FeedCache>(key)
-        ?.pages.some((page) => page.entries.some((row) => row.id === reply.id));
+      feeds.some((feed) =>
+        (feed.state.data as FeedCache | undefined)?.pages.some((page) =>
+          page.entries.some((row) => row.id === reply.id)
+        )
+      );
     if (
+      !entry.launchThread &&
       !isUserInputBlock(reply) &&
       !isFailedParentInput(reply) &&
       !showReview &&
@@ -253,6 +256,31 @@ export function applyStreamEntry(
       (old) => replaceThreadRoot(old, entry.block)
     );
   }
+  for (const feed of feeds) {
+    const scope =
+      feed.queryKey[2] === "launch-replies" ? feed.queryKey[3] : false;
+    if (
+      entry.launchThread &&
+      entry.block.kind !== "review" &&
+      !isUserInputBlock(entry.block) &&
+      !isFailedParentInput(entry.block)
+    ) {
+      if (
+        !scope ||
+        (typeof scope === "string" && entry.launchAgentId !== scope)
+      )
+        continue;
+    }
+    applyFeedEntry(queryClient, agentId, feed.queryKey, entry);
+  }
+}
+
+function applyFeedEntry(
+  queryClient: QueryClient,
+  agentId: string,
+  key: readonly unknown[],
+  entry: StreamEntry
+): void {
   const state = queryClient.getQueryState<FeedCache>(key);
   if (!state) return;
   // A fetch in flight (the feed's first load, or a refetch) may already have
@@ -330,6 +358,7 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
           void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
+          void queryClient.invalidateQueries({ queryKey: ["agent-identity"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
@@ -351,6 +380,10 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.upsert") {
+          queryClient.setQueryData<import("./use-agent-tree").AgentIdentity>(
+            ["agent-identity", payload.agent.id],
+            (old) => (old ? { ...old, ...payload.agent, seat: old.seat } : old)
+          );
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
@@ -422,13 +455,11 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "stream.read") {
-          queryClient.setQueryData<FeedCache>(
-            streamFeedQueryKey(payload.agentId),
-            (old) =>
-              applyStreamRead(old, payload.unreadCount, {
-                readAt: payload.readAt,
-                upToAt: payload.upToAt,
-              })
+          setStreamFeedData(queryClient, payload.agentId, (old) =>
+            applyStreamRead(old, payload.unreadCount, {
+              readAt: payload.readAt,
+              upToAt: payload.upToAt,
+            })
           );
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,

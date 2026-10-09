@@ -217,6 +217,65 @@ describe("composeStreamFeed", () => {
     });
   });
 
+  it("does not spend quiet or direct-child page budget on other launch threads", async () => {
+    const launch = await store.insert({
+      streamId: A,
+      author: agent(A),
+      toAgentId: ARCHIVED_CHILD,
+      kind: "launch",
+      text: "child",
+    });
+    const sibling = await store.insert({
+      streamId: A,
+      author: agent(A),
+      toAgentId: OTHER,
+      kind: "launch",
+      text: "sibling",
+    });
+    const root = await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "root outcome",
+    });
+    await stamp(root.id, at(1));
+    const own = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      threadId: launch.id,
+      replyTo: launch.id,
+      text: "own progress",
+    });
+    await stamp(own.id, at(2));
+    for (let i = 0; i < 5; i++) {
+      const hidden = await store.insert({
+        streamId: A,
+        author: agent(OTHER),
+        threadId: sibling.id,
+        replyTo: sibling.id,
+        text: "sibling progress",
+      });
+      await stamp(hidden.id, at(3 + i));
+    }
+    await stamp(launch.id, at(0));
+    await stamp(sibling.id, at(0));
+    const quiet = await composeStreamFeed(store, A, { limit: 1 });
+    expect(quiet.entries.map((entry) => entry.id)).toEqual([root.id]);
+    const child = await composeStreamFeed(store, A, {
+      limit: 1,
+      includeLaunchReplies: ARCHIVED_CHILD,
+    });
+    expect(child.entries.map((entry) => entry.id)).toEqual([own.id]);
+    expect(child.entries[0]).toMatchObject({
+      launchThread: true,
+      launchAgentId: ARCHIVED_CHILD,
+    });
+    const live = await loadBlockEntry(pool, A, own.id);
+    expect(live).toMatchObject({
+      launchThread: true,
+      launchAgentId: ARCHIVED_CHILD,
+    });
+  });
+
   it("lists top-level blocks only, with each thread's reply count and last reply time", async () => {
     const root = await store.insert({
       streamId: A,
@@ -811,6 +870,10 @@ describe("composeStreamFeed", () => {
     const feed = await composeStreamFeed(store, A);
     const listed = blockEntries(feed);
     expect(listed.map((e) => e.id)).toEqual([card.id]);
+    const expanded = await composeStreamFeed(store, A, {
+      includeLaunchReplies: true,
+    });
+    expect(blockEntries(expanded).map((e) => e.id)).toContain(onCard.id);
     const read = listed[0]!.block;
     // The card counts its reply, not the review it shows.
     expect(read.replyCount).toBe(1);

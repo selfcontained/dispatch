@@ -32,7 +32,9 @@ export function lineageSeats(
   if (!agentId) return {};
   const rootId = rootOf(agentId, new Map(agents.map((a) => [a.id, a])));
   const members = descendantAgents(rootId, agents as SeatedAgent[]).sort(
-    (a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "")
+    (a, b) =>
+      (a.createdAt ?? "").localeCompare(b.createdAt ?? "") ||
+      a.id.localeCompare(b.id)
   );
   const seats: Record<string, number> = { [rootId]: 1 };
   members.forEach((agent, index) => {

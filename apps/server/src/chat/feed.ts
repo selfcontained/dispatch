@@ -33,6 +33,8 @@ export { clampFeedLimit, decodeFeedCursor, encodeFeedCursor };
 export type ComposeFeedOptions = {
   /** Include review cards from child launch threads for quiet and full views. */
   includeReviews?: boolean;
+  /** Surface activity whose home is an agent launch thread. */
+  includeLaunchReplies?: boolean | string;
   /** Opaque cursor from a previous page's `nextCursor`; already decoded. */
   cursor?: FeedCursor | null;
   limit?: number;
@@ -94,27 +96,43 @@ async function listBlockEntries(
   cursor: FeedCursor | null,
   limit: number,
   onlyIds?: readonly string[],
-  includeReviews = false
+  includeReviews = false,
+  includeLaunchReplies: boolean | string = false
 ): Promise<Keyed<StreamBlockEntry>[]> {
   const params: unknown[] = [streamId];
   let clause = cursorClause("block", "uuid", cursor, params, "b");
   // A page also lists user-directed asks from threads. A read by id may
   // name any reply (or a block another one shows), which is published as its own entry so a
   // client can file it into its thread.
-  let scope = `AND (b.thread_id IS NULL OR
-    (b.author_kind = 'agent' AND (b.to_agent_id IS NULL OR ${FAILED_PARENT_INPUT_SQL})
-      AND b.kind IN ('question', 'form')))`;
-  if (includeReviews) {
-    scope = `AND (b.thread_id IS NULL OR b.kind = 'review' OR
-      (b.author_kind = 'agent' AND (b.to_agent_id IS NULL OR ${FAILED_PARENT_INPUT_SQL}) AND b.kind IN ('question', 'form')))`;
+  const scopes = [
+    "b.thread_id IS NULL",
+    `(b.author_kind = 'agent' AND (b.to_agent_id IS NULL OR ${FAILED_PARENT_INPUT_SQL}) AND b.kind IN ('question', 'form'))`,
+  ];
+  if (includeReviews) scopes.push("b.kind = 'review'");
+  if (includeLaunchReplies) {
+    let viewer = "";
+    if (typeof includeLaunchReplies === "string") {
+      params.push(includeLaunchReplies);
+      viewer = ` AND host.to_agent_id = $${params.length}`;
+    }
+    scopes.push(
+      `EXISTS (SELECT 1 FROM blocks host WHERE host.id = b.thread_id AND host.kind = 'launch'${viewer})`
+    );
   }
+  let scope = `AND (${scopes.join(" OR ")})`;
   if (onlyIds !== undefined) {
     params.push([...onlyIds]);
     clause += ` AND b.id = ANY($${params.length}::uuid[])`;
     scope = "";
   }
   params.push(limit);
-  const result = await db.query<BlockRow & { at_key: string }>(
+  const result = await db.query<
+    BlockRow & {
+      at_key: string;
+      launch_thread: boolean;
+      launch_agent_id: string | null;
+    }
+  >(
     `WITH page AS MATERIALIZED (
        SELECT ${BLOCK_COLUMNS_SQL}, b.attachments,
               to_char(b.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
@@ -197,7 +215,9 @@ async function listBlockEntries(
             COALESCE(replies.reply_count, 0) AS reply_count,
             replies.last_reply_at,
             COALESCE(replies.unread_replies, 0) AS unread_replies,
-            replies.repliers
+            replies.repliers,
+            EXISTS (SELECT 1 FROM blocks host WHERE host.id = p.thread_id AND host.kind = 'launch') AS launch_thread,
+            (SELECT host.to_agent_id FROM blocks host WHERE host.id = p.thread_id AND host.kind = 'launch') AS launch_agent_id
        FROM page p
        LEFT JOIN live ON live.block_id = p.id
        LEFT JOIN rx ON rx.block_id = p.id
@@ -207,7 +227,15 @@ async function listBlockEntries(
   return result.rows.map((row) => {
     const block = toBlock(row);
     return {
-      entry: { type: "block", id: block.id, at: block.createdAt, block },
+      entry: {
+        type: "block",
+        id: block.id,
+        at: block.createdAt,
+        block,
+        ...(row.launch_thread
+          ? { launchThread: true, launchAgentId: row.launch_agent_id }
+          : {}),
+      },
       atKey: row.at_key,
       rawId: block.id,
       idKey: block.id,
@@ -384,7 +412,8 @@ export async function composeStreamFeed(
       cursor,
       limit + 1,
       undefined,
-      opts.includeReviews
+      opts.includeReviews,
+      opts.includeLaunchReplies
     ),
     store.countUnread(streamId),
   ]);

@@ -5,6 +5,8 @@
  * fills and every `stream.entry` keeps current.
  */
 import { useCallback } from "react";
+import { useAtomValue } from "jotai";
+import { chatShowChildAgentsAtom } from "@/lib/store";
 import type { Block, ChatAttachment, StreamEntry } from "@dispatch/shared";
 import { reviewFindings, reviewStatus } from "@dispatch/shared";
 
@@ -168,6 +170,7 @@ const EMPTY: Pick<Inbox, "inputs" | "links" | "reviews"> = {
 /** The Inbox for one agent's page, live off the stream feed cache. */
 export function useInbox(agentId: string | null): Inbox {
   const rootId = useRootAgentId(agentId);
+  const showChildAgents = useAtomValue(chatShowChildAgentsAtom);
   // Selected, not read whole: the page that holds the Inbox re-renders only
   // when the Inbox changes, not on every step of every turn in the stream.
   const select = useCallback(
@@ -184,7 +187,11 @@ export function useInbox(agentId: string | null): Inbox {
       ),
     [agentId, rootId]
   );
-  const feed = useStreamFeedSelect(rootId, select);
+  const feed = useStreamFeedSelect(
+    rootId,
+    select,
+    agentId !== rootId ? (agentId ?? false) : showChildAgents
+  );
   const derived = rootId === null ? EMPTY : (feed.data ?? EMPTY);
   return {
     rootId,
