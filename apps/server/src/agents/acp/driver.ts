@@ -161,7 +161,95 @@ type Live = {
   cancelling: boolean;
   config: { options: acp.SessionConfigOption[] };
   commands: { list: acp.AvailableCommand[] };
+  /** From a prompt's `turn started` to its `turn settled`, both emitted. */
+  prompting: boolean;
+  /** A turn the engine started on its own, between prompts. */
+  selfTurn: SelfTurn | null;
+  /** Tool calls this session has announced; a repeat is not new work. */
+  toolCalls: Set<string>;
+  /** Codex: the engine turn the prompt in flight runs as. */
+  promptTurnId?: string;
+  /** Codex: an engine turn that started while a prompt was still settling. */
+  pendingSelfTurnId?: string;
 };
+
+type SelfTurn = {
+  /** Codex names its turns; Claude's are told apart by order alone. */
+  turnId?: string;
+  cancelled: boolean;
+  /** Tool calls still running: a long tool is not a silent turn. */
+  running: Set<string>;
+  timer: NodeJS.Timeout | null;
+  /** Resolves when the turn settles; a prompt waits on it. */
+  done: Promise<void>;
+  resolve: () => void;
+};
+
+/**
+ * Claude's result origins for work the model did on its own; the adapter
+ * tags the cycle's final `usage_update` with one (see claude-agent-acp's
+ * AUTONOMOUS_RESULT_ORIGINS). `human` and `channel` end a prompt's turn.
+ */
+const AUTONOMOUS_ORIGINS = new Set([
+  "task-notification",
+  "peer",
+  "coordinator",
+  "observer",
+  "observer-activity",
+]);
+/** Updates that are work, and so can begin a turn the engine started itself. */
+const CONTENT_UPDATES = new Set([
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+]);
+const TOOL_CALLS_REMEMBERED = 1_000;
+/**
+ * A self-started turn whose end signal never came: settle it after this long
+ * without an update and with no tool running, so the agent does not show as
+ * working, and hold its queue, for ever.
+ */
+const SELF_TURN_QUIET_MS = 10 * 60_000;
+/** After Stop, the engine has this long to wind the turn down quietly. */
+const SELF_TURN_CANCEL_QUIET_MS = 10_000;
+
+const SELF_STARTED_TEXT = "The agent started this turn on its own.";
+
+function claudeOrigin(update: DriverUpdate): string | null {
+  const origin = update._meta?.["_claude/origin"];
+  const kind =
+    origin && typeof origin === "object"
+      ? (origin as { kind?: unknown }).kind
+      : undefined;
+  return typeof kind === "string" ? kind : null;
+}
+
+/**
+ * Codex's app-server turn boundaries, which Dispatch's codex-acp patch
+ * forwards as a `session_info_update` carrying `_meta["dispatch/turn"]`.
+ */
+function codexTurnMarker(update: DriverUpdate): {
+  state: "started" | "completed";
+  turnId: string;
+  status?: string;
+  error?: string;
+} | null {
+  if (update.sessionUpdate !== "session_info_update") return null;
+  const marker = update._meta?.["dispatch/turn"];
+  if (!marker || typeof marker !== "object") return null;
+  const { state, turnId, status, error } = marker as Record<string, unknown>;
+  if (
+    (state !== "started" && state !== "completed") ||
+    typeof turnId !== "string"
+  )
+    return null;
+  return {
+    state,
+    turnId,
+    ...(typeof status === "string" ? { status } : {}),
+    ...(typeof error === "string" ? { error } : {}),
+  };
+}
 
 const STDERR_TAIL_LINES = 20;
 const STDERR_LINE_MAX_CHARS = 1024;
@@ -333,6 +421,8 @@ export class AcpDriver {
       /** Injectable for tests that spawn a fake; defaults to a PATH lookup. */
       resolveBinary?: (bin: string, env: NodeJS.ProcessEnv) => Promise<string>;
       logger: DriverLogger;
+      /** Tests shorten the self-started turn watchdog. */
+      selfTurnQuietMs?: { quiet: number; cancelled: number };
     }
   ) {
     this.permissions = new PermissionRequests((agentId) => {
@@ -446,11 +536,15 @@ export class AcpDriver {
         ) {
           commands.list = params.update.availableCommands ?? [];
         }
+        const entry = this.live.get(launch.agentId);
+        const own = entry && params.sessionId === entry.sessionId;
+        if (own) this.beforeUpdate(launch.agentId, entry, params.update);
         this.emit({
           type: "update",
           agentId: launch.agentId,
           update: params.update,
         });
+        if (own) this.afterUpdate(launch.agentId, entry, params.update);
       },
       // Full access preserves automatic approval; restricted sessions wait for the user.
       requestPermission: async (params) => {
@@ -643,6 +737,9 @@ export class AcpDriver {
       cancelling: false,
       config,
       commands,
+      prompting: false,
+      selfTurn: null,
+      toolCalls: new Set(),
     };
     this.live.set(launch.agentId, entry);
     this.emit({
@@ -654,6 +751,11 @@ export class AcpDriver {
       if (this.live.get(launch.agentId) === entry) {
         this.live.delete(launch.agentId);
       }
+      // The exit settles whatever turn was open, a self-started one included.
+      const self = entry.selfTurn;
+      entry.selfTurn = null;
+      if (self?.timer) clearTimeout(self.timer);
+      self?.resolve();
       this.emit({
         type: "exit",
         agentId: launch.agentId,
@@ -811,17 +913,16 @@ export class AcpDriver {
     images?: PromptImage[]
   ): Promise<void> {
     const entry = this.require(agentId);
+    // The engine runs its own turn and this prompt one after the other; so
+    // does the stream, or the rest of that turn would land in this one.
+    while (entry.selfTurn) await entry.selfTurn.done;
+    if (this.live.get(agentId) !== entry)
+      throw new Error("the agent exited before the turn started");
+    entry.prompting = true;
+    entry.promptTurnId = undefined;
     entry.cancelling = false;
     entry.turnOpen = true;
-    // The model this turn runs on, as the engine publishes it now: a model
-    // switched mid-session must not relabel the turns before it.
-    const modelOption = entry.config.options.find(
-      (o) => o.id === "model" || o.category === "model"
-    );
-    const model =
-      modelOption && modelOption.type === "select"
-        ? String(modelOption.currentValue)
-        : null;
+    const model = this.currentModel(entry);
     this.emit({
       type: "turn",
       agentId,
@@ -898,6 +999,7 @@ export class AcpDriver {
         stopReason: res.stopReason,
         ...(res.usage ? { usage: res.usage } : {}),
       });
+      this.promptSettled(agentId, entry);
     } catch (err) {
       entry.turnOpen = false;
       await entry.steering.catch(() => {});
@@ -914,6 +1016,7 @@ export class AcpDriver {
           ...(errorKind ? { errorKind } : {}),
         });
       }
+      this.promptSettled(agentId, entry);
       throw new Error(message, { cause: err });
     } finally {
       this.permissions.cancel(agentId);
@@ -924,7 +1027,193 @@ export class AcpDriver {
     const entry = this.require(agentId);
     entry.cancelling = true;
     this.permissions.cancel(agentId);
+    const self = entry.selfTurn;
+    if (self && !entry.prompting) {
+      // The engine still ends the turn its own way; if it goes quiet first,
+      // the watchdog settles it as stopped.
+      self.cancelled = true;
+      this.armSelfTurn(agentId, entry);
+    }
     await entry.conn.cancel({ sessionId: entry.sessionId });
+  }
+
+  /** The model a turn runs on, as the engine publishes it now. */
+  private currentModel(entry: Live): string | null {
+    // A model switched mid-session must not relabel the turns before it.
+    const modelOption = entry.config.options.find(
+      (o) => o.id === "model" || o.category === "model"
+    );
+    return modelOption && modelOption.type === "select"
+      ? String(modelOption.currentValue)
+      : null;
+  }
+
+  private promptSettled(agentId: string, entry: Live): void {
+    entry.prompting = false;
+    entry.promptTurnId = undefined;
+    const pending = entry.pendingSelfTurnId;
+    entry.pendingSelfTurnId = undefined;
+    if (pending && this.live.get(agentId) === entry)
+      this.openSelfTurn(agentId, entry, pending);
+  }
+
+  /**
+   * Engines start turns of their own between prompts: Claude answers a
+   * finished background task, a Monitor or a wakeup; Codex continues an
+   * active goal. Such a turn opens on its first piece of work. Claude marks
+   * no start, so that is its first content while no prompt runs; content
+   * after a prompt's response is new work, because the adapter ends the
+   * prompt's turn with its tagged usage before responding. Codex says when
+   * its turns start (Dispatch's adapter patch), and its prompt's tail can
+   * trail the response, so only that marker opens one.
+   */
+  private beforeUpdate(agentId: string, entry: Live, update: DriverUpdate) {
+    const marker = codexTurnMarker(update);
+    if (marker?.state === "started") {
+      if (entry.prompting) {
+        if (entry.promptTurnId === undefined)
+          entry.promptTurnId = marker.turnId;
+        else if (marker.turnId !== entry.promptTurnId)
+          entry.pendingSelfTurnId = marker.turnId;
+      } else if (!entry.selfTurn) {
+        this.openSelfTurn(agentId, entry, marker.turnId);
+      }
+      return;
+    }
+    const isNewTool =
+      update.sessionUpdate === "tool_call" &&
+      !entry.toolCalls.has(update.toolCallId);
+    if (update.sessionUpdate === "tool_call") {
+      entry.toolCalls.add(update.toolCallId);
+      if (entry.toolCalls.size > TOOL_CALLS_REMEMBERED) {
+        const [oldest] = entry.toolCalls;
+        if (oldest !== undefined) entry.toolCalls.delete(oldest);
+      }
+    }
+    if (
+      entry.engine === "claude" &&
+      !entry.prompting &&
+      !entry.selfTurn &&
+      CONTENT_UPDATES.has(update.sessionUpdate) &&
+      (update.sessionUpdate !== "tool_call" || isNewTool)
+    ) {
+      this.openSelfTurn(agentId, entry);
+    }
+  }
+
+  private afterUpdate(agentId: string, entry: Live, update: DriverUpdate) {
+    const self = entry.selfTurn;
+    if (!self || entry.prompting) return;
+    if (
+      update.sessionUpdate === "tool_call" ||
+      update.sessionUpdate === "tool_call_update"
+    ) {
+      if (update.status === "pending" || update.status === "in_progress")
+        self.running.add(update.toolCallId);
+      else if (update.status) self.running.delete(update.toolCallId);
+    }
+    const marker = codexTurnMarker(update);
+    if (marker?.state === "completed") {
+      if (marker.turnId !== self.turnId) return;
+      this.settleSelfTurn(
+        agentId,
+        entry,
+        self.cancelled || marker.status === "interrupted"
+          ? "cancelled"
+          : "end_turn",
+        marker.status === "failed"
+          ? (marker.error ?? "the engine failed the turn")
+          : undefined
+      );
+      return;
+    }
+    if (
+      entry.engine === "claude" &&
+      update.sessionUpdate === "usage_update" &&
+      AUTONOMOUS_ORIGINS.has(claudeOrigin(update) ?? "")
+    ) {
+      this.settleSelfTurn(
+        agentId,
+        entry,
+        self.cancelled ? "cancelled" : "end_turn"
+      );
+      return;
+    }
+    this.armSelfTurn(agentId, entry);
+  }
+
+  private openSelfTurn(agentId: string, entry: Live, turnId?: string): void {
+    let resolve!: () => void;
+    const done = new Promise<void>((r) => (resolve = r));
+    entry.selfTurn = {
+      ...(turnId ? { turnId } : {}),
+      cancelled: false,
+      running: new Set(),
+      timer: null,
+      done,
+      resolve,
+    };
+    // A Stop meant for an earlier turn does not refuse this one's requests.
+    entry.cancelling = false;
+    const model = this.currentModel(entry);
+    this.emit({
+      type: "turn",
+      agentId,
+      state: "started",
+      text: SELF_STARTED_TEXT,
+      source: { source: "engine", text: SELF_STARTED_TEXT },
+      ...(model ? { model } : {}),
+      sessionId: entry.sessionId,
+    });
+    this.armSelfTurn(agentId, entry);
+  }
+
+  /** (Re)start the watchdog of the open self-started turn. */
+  private armSelfTurn(agentId: string, entry: Live): void {
+    const self = entry.selfTurn;
+    if (!self) return;
+    if (self.timer) clearTimeout(self.timer);
+    const quiet = self.cancelled
+      ? (this.opts.selfTurnQuietMs?.cancelled ?? SELF_TURN_CANCEL_QUIET_MS)
+      : (this.opts.selfTurnQuietMs?.quiet ?? SELF_TURN_QUIET_MS);
+    self.timer = setTimeout(() => {
+      if (entry.selfTurn !== self) return;
+      if (self.running.size && !self.cancelled) {
+        this.armSelfTurn(agentId, entry);
+        return;
+      }
+      this.opts.logger.warn(
+        { agentId, cancelled: self.cancelled },
+        "self-started turn went quiet without an end signal; settling it"
+      );
+      this.settleSelfTurn(
+        agentId,
+        entry,
+        self.cancelled ? "cancelled" : "end_turn"
+      );
+    }, quiet);
+    self.timer.unref?.();
+  }
+
+  private settleSelfTurn(
+    agentId: string,
+    entry: Live,
+    stopReason: acp.StopReason,
+    error?: string
+  ): void {
+    const self = entry.selfTurn;
+    if (!self) return;
+    entry.selfTurn = null;
+    if (self.timer) clearTimeout(self.timer);
+    this.permissions.cancel(agentId);
+    this.emit({
+      type: "turn",
+      agentId,
+      state: "settled",
+      stopReason,
+      ...(error ? { error } : {}),
+    });
+    self.resolve();
   }
 
   /** Close the session, then walk stdin EOF, SIGTERM, SIGKILL until exit. */

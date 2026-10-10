@@ -218,6 +218,8 @@ type Live = {
   /** Keep later prompts behind an outstanding scoped cancellation. */
   deliveryInterrupts: Map<number, Promise<void>>;
   turnOpen: boolean;
+  /** The open turn is one the engine started itself, not a prompt's. */
+  selfStarted: boolean;
   turnBlockIds: Set<string>;
   turnSeq: number | undefined;
   interruptedTurnSeq: number | undefined;
@@ -591,11 +593,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       entry.conversation =
         event.state === "started" ? event.source?.conversation : undefined;
       if (event.state === "settled") {
-        const waiters = entry.settleWaiters;
-        entry.settleWaiters = [];
-        for (const resolve of waiters) resolve();
+        // A turn the engine started itself settles no prompt: one submitted
+        // meanwhile waits behind it and settles with its own turn.
+        if (!entry.selfStarted) {
+          const waiters = entry.settleWaiters;
+          entry.settleWaiters = [];
+          for (const resolve of waiters) resolve();
+        }
         void pump(agentId, entry);
       }
+      entry.selfStarted =
+        event.state === "started" && event.source?.source === "engine";
     }
     if (
       event.type === "update" &&
@@ -641,6 +649,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       pending: 0,
       deliveryInterrupts: new Map(),
       turnOpen: false,
+      selfStarted: false,
       turnBlockIds: new Set(),
       turnSeq: undefined,
       interruptedTurnSeq: undefined,
@@ -695,6 +704,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           );
         }
         entry.turnOpen = welcome.turn !== null;
+        entry.selfStarted = welcome.turn?.source?.source === "engine";
         entry.turnSeq = welcome.turn?.seq;
         entry.turnBlockIds = new Set(sourceBlockIds(welcome.turn?.source));
         entry.conversation = welcome.turn?.source?.conversation;

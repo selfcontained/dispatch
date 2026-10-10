@@ -3631,6 +3631,42 @@ describe("StreamService review threads", () => {
     await svc.waitForInFlightDeliveries(1_000);
   });
 
+  it("answers a turn the engine started itself beside the answer before it", async () => {
+    const { svc } = build();
+    const main = await svc.sendUserPost(A, { text: "@Peer start the job" });
+    const reply = await svc.sendUserPost(A, {
+      text: "@Peer and report back",
+      replyTo: main.block.id,
+    });
+    const answered = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(56, B),
+      prompt: { source: "chat", chatMessageId: reply.block.id },
+    });
+    const self = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(57, B),
+      prompt: { source: "engine", text: "on its own", after: answered! },
+    });
+    expect(self).not.toBe(answered);
+    expect(await svc.store.getById(self!)).toMatchObject({
+      streamId: A,
+      threadId: main.block.id,
+      replyTo: reply.block.id,
+      origin: "turn",
+    });
+    // Another agent's block is no place to answer: the agent's own place is.
+    const foreign = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(58, B),
+      prompt: { source: "engine", text: "on its own", after: main.block.id },
+    });
+    expect(await svc.store.getById(foreign!)).toMatchObject({
+      streamId: await svc.streamOf(B),
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+  });
+
   it("places a child's structured posts with its active response, preserving explicit replies", async () => {
     const { svc } = build({ held: true });
     const main = await svc.sendUserPost(A, { text: "@Peer status?" });

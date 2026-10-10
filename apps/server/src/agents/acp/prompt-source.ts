@@ -43,6 +43,12 @@ export type PromptSource = {
     }
   | { source: "agent"; senderId: string; senderName: string; text: string }
   | { source: "system"; text: string }
+  /**
+   * A turn the engine started on its own between prompts (a background
+   * task finished, a goal continued). `after` is the block that answered
+   * the turn before it: this one answers next to it.
+   */
+  | { source: "engine"; text: string; after?: string }
 );
 
 const SYSTEM_MAX = 500;

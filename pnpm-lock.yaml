@@ -9,7 +9,7 @@ patchedDependencies:
     hash: sbrcl22uiqtivr3de2c6mz4fui
     path: patches/@agentclientprotocol__claude-agent-acp@0.84.0.patch
   '@agentclientprotocol/codex-acp@2.0.1':
-    hash: yqweshtcmzikkcqtpevv34d4ge
+    hash: tfud4gtspa6iusbb4hvtl5duqi
     path: patches/@agentclientprotocol__codex-acp@2.0.1.patch
 
 importers:
@@ -67,7 +67,7 @@ importers:
         version: 0.84.0(patch_hash=sbrcl22uiqtivr3de2c6mz4fui)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.31.0(zod@4.3.6))
       '@agentclientprotocol/codex-acp':
         specifier: 2.0.1
-        version: 2.0.1(patch_hash=yqweshtcmzikkcqtpevv34d4ge)
+        version: 2.0.1(patch_hash=tfud4gtspa6iusbb4hvtl5duqi)
       '@agentclientprotocol/sdk':
         specifier: 1.5.1
         version: 1.5.1(zod@4.3.6)
@@ -7724,7 +7724,7 @@ snapshots:
       - '@anthropic-ai/sdk'
       - '@modelcontextprotocol/sdk'
 
-  '@agentclientprotocol/codex-acp@2.0.1(patch_hash=yqweshtcmzikkcqtpevv34d4ge)':
+  '@agentclientprotocol/codex-acp@2.0.1(patch_hash=tfud4gtspa6iusbb4hvtl5duqi)':
     dependencies:
       '@agentclientprotocol/sdk': 1.5.1(zod@4.6.5)
       '@openai/codex': 0.159.2

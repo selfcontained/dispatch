@@ -315,7 +315,9 @@ async function main(): Promise<void> {
           });
           return;
         }
-        if (openTurn) {
+        // A turn the engine started itself was not the server's to wait
+        // for; the driver holds this prompt until that turn settles.
+        if (openTurn && openTurn.source?.source !== "engine") {
           send(socket, { type: "error", id: message.id, message: "busy" });
           return;
         }

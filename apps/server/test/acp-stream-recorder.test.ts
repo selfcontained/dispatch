@@ -515,6 +515,67 @@ describe("StreamRecorder", () => {
     expect(auth.retry).toBeUndefined();
   });
 
+  it("a turn the engine started itself gets its own rows, usage and answer beside the previous one", async () => {
+    const rec = new StreamRecorder(store);
+    const started = vi.fn(async (input: { prompt: unknown }) =>
+      started.mock.calls.length === 1 ? "blk_prompted" : "blk_self"
+    );
+    const settled = vi.fn(async () => undefined);
+    rec.setTurnBlocks({ started, settled });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(chunk("STARTED"));
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    const source = { source: "engine" as const, text: "on its own" };
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "on its own",
+      source,
+    });
+    await rec.handle(chunk("BG-DONE"));
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: { sessionUpdate: "usage_update", used: 42, size: 100 },
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    expect(started.mock.calls[1]![0].prompt).toEqual({
+      ...source,
+      after: "blk_prompted",
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(
+      rows.map((r) => [r.kind, r.payload.text ?? r.payload.state])
+    ).toEqual([
+      ["turn", "settled"],
+      ["assistant", "STARTED"],
+      ["turn", "settled"],
+      ["assistant", "BG-DONE"],
+    ]);
+    expect(rows[3]!.payload.streaming).toBe(false);
+    expect(rows[2]!.payload).toMatchObject({
+      blockId: "blk_self",
+      usage: { used: 42, size: 100 },
+    });
+    expect(settled).toHaveBeenCalledTimes(2);
+  });
+
   it("a new turn closes the retry an earlier failed turn offered, and republishes it", async () => {
     const rec = new StreamRecorder(store);
     const settled = vi.fn(async () => undefined);

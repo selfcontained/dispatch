@@ -1,8 +1,37 @@
 diff --git a/dist/index.js b/dist/index.js
-index 746f33e..caf4a1c 100755
+index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..377104790c8ea38738d667be1e6cff79afa19249 100755
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -30651,9 +30651,13 @@ ${event.details}` : event.summary;
+@@ -30384,13 +30384,26 @@ var CodexEventHandler = class {
+       case "turn/started":
+         this.sessionState.currentTurnId = notification.params.turn.id;
+         await this.flushPendingErrors();
+-        return null;
++        return {
++          sessionUpdate: "session_info_update",
++          _meta: { "dispatch/turn": { state: "started", turnId: notification.params.turn.id } }
++        };
+       case "turn/completed":
+         await this.plans.flush();
+         this.plans.clearTurn();
+         this.sessionState.currentTurnId = null;
+         this.sessionState.toolCallReports.releaseOpen(this.subagents.notificationSessionId(notification));
+-        return null;
++        return {
++          sessionUpdate: "session_info_update",
++          _meta: {
++            "dispatch/turn": {
++              state: "completed",
++              turnId: notification.params.turn.id,
++              status: notification.params.turn.status,
++              ...notification.params.turn.error?.message ? { error: notification.params.turn.error.message } : {}
++            }
++          }
++        };
+       case "thread/tokenUsage/updated":
+         return this.createUsageUpdate(notification.params);
+       case "thread/name/updated":
+@@ -30651,9 +30664,13 @@ ${event.details}` : event.summary;
          ) : this.renderer.render(CompactionReporter.started(event.item));
        case "subAgentActivity":
          return this.renderer.render(this.subagents.legacyActivityStarted(event.item));
@@ -17,7 +46,7 @@ index 746f33e..caf4a1c 100755
        case "hookPrompt":
        case "reasoning":
        case "enteredReviewMode":
-@@ -34236,6 +34240,7 @@ var CodexAcpClient = class {
+@@ -34236,6 +34253,7 @@ var CodexAcpClient = class {
      }
      return await this.codexClient.runTurn({
        threadId: request.sessionId,
@@ -25,7 +54,7 @@ index 746f33e..caf4a1c 100755
        input: input2,
        approvalPolicy: agentMode.approvalPolicy,
        approvalsReviewer: agentMode.approvalsReviewer,
-@@ -34364,6 +34369,7 @@ var CodexAcpClient = class {
+@@ -34364,6 +34382,7 @@ var CodexAcpClient = class {
      return await this.codexClient.turnSteer({
        threadId: params.threadId,
        expectedTurnId: params.turnId,
@@ -33,7 +62,7 @@ index 746f33e..caf4a1c 100755
        input: buildPromptItems(params.prompt)
      });
    }
-@@ -37356,6 +37362,7 @@ var CodexAcpServer = class {
+@@ -37356,6 +37375,7 @@ var CodexAcpServer = class {
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities),
        _meta: {
@@ -41,7 +70,7 @@ index 746f33e..caf4a1c 100755
          steering: {
            supported: true
          },
-@@ -38427,6 +38434,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38427,6 +38447,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
          return { outcome: "injected" };
        }
      }
@@ -51,7 +80,7 @@ index 746f33e..caf4a1c 100755
      return await this.startNewTurnFromSteering(params);
    }
    /**
-@@ -38455,7 +38465,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38455,7 +38478,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
        await this.runWithProcessCheck(() => this.codexAcpClient.steerTurn({
          threadId: params.sessionId,
          turnId,
@@ -61,7 +90,7 @@ index 746f33e..caf4a1c 100755
        }));
        return true;
      } catch (err) {
-@@ -38565,7 +38576,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38565,7 +38589,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
      }
      return {
        sessionId,

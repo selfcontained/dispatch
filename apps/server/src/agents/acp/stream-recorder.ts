@@ -329,16 +329,14 @@ export class StreamRecorder {
     Partial<Record<TextKind, OpenText>>
   >();
   private readonly cwd = new Map<string, string>();
-  private readonly openTurn = new Map<string, StreamEventRow>();
   /**
    * ACP defines the prompt response as the turn boundary. An adapter can
-   * still flush transport notifications behind that response; retain them as
-   * trailing output of the closed prompt rather than inventing a second live
-   * turn that races the next prompt. The window is deliberately open until
-   * the next prompt, exit, or reconcile: no bridged engine starts work of its
-   * own after a response, so anything that arrives in between is a tail.
+   * still flush notifications behind that response; with no turn open they
+   * are kept as trailing output of the closed prompt. Work the engine starts
+   * on its own between prompts is not a tail: the driver opens a turn for it
+   * (see AcpDriver.beforeUpdate), so its rows land there.
    */
-  private readonly trailingPrompt = new Set<string>();
+  private readonly openTurn = new Map<string, StreamEventRow>();
   /** Agents whose open-turn state has been read back from the rows. */
   private readonly loaded = new Set<string>();
   /**
@@ -494,7 +492,6 @@ export class StreamRecorder {
           // its own assistant row under that turn; close it so this turn's
           // reply starts a row of its own.
           await this.closeText(event.agentId);
-          this.trailingPrompt.delete(event.agentId);
           this.stopping.delete(event.agentId);
           // A retry still offered on an earlier failed turn no longer
           // applies once the conversation moves on; its entry drops it.
@@ -504,7 +501,14 @@ export class StreamRecorder {
           }
           // Normal delivery supplies the source explicitly. If an event lacks
           // it, record an internal turn without interpreting its prompt text.
-          const prompt = event.source ?? systemPromptSource(event.text);
+          let prompt = event.source ?? systemPromptSource(event.text);
+          if (prompt.source === "engine" && !prompt.after) {
+            // A turn the engine started itself answers next to the answer
+            // before it.
+            const previous = await this.store.lastTurn(event.agentId);
+            const after = previous?.payload.blockId;
+            if (typeof after === "string") prompt = { ...prompt, after };
+          }
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
             prompt,
@@ -537,7 +541,6 @@ export class StreamRecorder {
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
-          this.trailingPrompt.add(event.agentId);
           await this.settleTurnBlock(event.agentId, open);
         }
         if (event.error && !cut) {
@@ -548,7 +551,6 @@ export class StreamRecorder {
       case "exit": {
         await this.closeText(event.agentId);
         this.cwd.delete(event.agentId);
-        this.trailingPrompt.delete(event.agentId);
         // The child is gone, so the turn it was running can never settle
         // through the prompt path; settle it here or the view spins forever.
         const stopping = this.stopping.has(event.agentId);
@@ -595,7 +597,6 @@ export class StreamRecorder {
   async reconcile(agentId: string): Promise<number> {
     this.loaded.add(agentId);
     this.openTurn.delete(agentId);
-    this.trailingPrompt.delete(agentId);
     this.stopping.delete(agentId);
     const cut = await this.store.settleInterrupted(
       agentId,
@@ -626,7 +627,6 @@ export class StreamRecorder {
     this.stopping.add(agentId);
     await this.closeText(agentId);
     this.openTurn.delete(agentId);
-    this.trailingPrompt.delete(agentId);
     const cut = await this.store.settleInterrupted(agentId, STOPPED_ON_REQUEST);
     for (const row of cut) await this.settleTurnBlock(agentId, row);
     return cut.length;

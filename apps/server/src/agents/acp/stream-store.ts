@@ -307,6 +307,14 @@ export class StreamStore {
 
   /** The agent's newest turn row when it is still open; null otherwise. */
   async openTurn(agentId: string): Promise<StreamEventRow | null> {
+    const row = await this.lastTurn(agentId);
+    return row && (row.payload as { state?: string }).state === "started"
+      ? row
+      : null;
+  }
+
+  /** The agent's newest turn row, open or settled. */
+  async lastTurn(agentId: string): Promise<StreamEventRow | null> {
     const result = await this.db.query<Row>(
       `SELECT * FROM agent_stream_events
         WHERE agent_id = $1 AND kind = 'turn'
@@ -314,10 +322,7 @@ export class StreamStore {
       [agentId]
     );
     const row = result.rows[0];
-    if (!row || (row.payload as { state?: string }).state !== "started") {
-      return null;
-    }
-    return toRow(row);
+    return row ? toRow(row) : null;
   }
 
   /** How the agent's newest turn ended: its error, if any, and when. */

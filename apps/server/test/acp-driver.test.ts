@@ -960,3 +960,266 @@ describe("unstableSessionCapabilities", () => {
     ).toBeUndefined();
   });
 });
+
+describe("self-started turns", () => {
+  const text = (t: string): acp.SessionUpdate => ({
+    sessionUpdate: "agent_message_chunk",
+    content: { type: "text", text: t },
+  });
+  const usage = (origin?: string): acp.SessionUpdate => ({
+    sessionUpdate: "usage_update",
+    used: 10,
+    size: 100,
+    ...(origin ? { _meta: { "_claude/origin": { kind: origin } } } : {}),
+  });
+  const marker = (
+    state: "started" | "completed",
+    turnId: string,
+    status?: string
+  ): acp.SessionUpdate => ({
+    sessionUpdate: "session_info_update",
+    _meta: {
+      "dispatch/turn": { state, turnId, ...(status ? { status } : {}) },
+    },
+  });
+  /** Turn boundaries and update kinds, in order. */
+  const shape = (events: DriverEvent[]) =>
+    events.flatMap((e) =>
+      e.type === "turn"
+        ? [
+            `turn:${e.state}${e.state === "started" ? `:${e.source?.source ?? "-"}` : `:${e.stopReason ?? e.error}`}`,
+          ]
+        : e.type === "update"
+          ? [e.update.sessionUpdate]
+          : []
+    );
+
+  async function claude(opts: Parameters<typeof createFakeAcpAgent>[0] = {}) {
+    const fake = createFakeAcpAgent({
+      turn: async (_p, emit) => {
+        await emit({
+          sessionUpdate: "tool_call",
+          toolCallId: "bg_1",
+          title: "sleep 45",
+          status: "completed",
+        });
+        await emit(text("STARTED"));
+        await emit(usage("human"));
+        return "end_turn";
+      },
+      ...opts,
+    });
+    const driver = new AcpDriver({
+      spawn: () => fake.child,
+      resolveBinary,
+      logger,
+      selfTurnQuietMs: { quiet: 200, cancelled: 50 },
+    });
+    const events: DriverEvent[] = [];
+    driver.onEvent((e) => events.push(e));
+    const { sessionId } = await driver.start(launch());
+    return {
+      fake,
+      driver,
+      events,
+      emit: (u: acp.SessionUpdate) => fake.emit(sessionId, u),
+    };
+  }
+
+  it("claude: work after a prompt settles is its own turn, closed by the tagged usage", async () => {
+    const { driver, events, emit } = await claude();
+    await driver.prompt("agt_1", "start a background task");
+    events.length = 0;
+    // Metadata, untagged usage and a late update for a known call open nothing.
+    await emit({
+      sessionUpdate: "available_commands_update",
+      availableCommands: [],
+    });
+    await emit(usage());
+    await emit({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "bg_1",
+      status: "completed",
+    });
+    await emit({
+      sessionUpdate: "tool_call",
+      toolCallId: "bg_1",
+      title: "again",
+    });
+    await emit(text("BG-DONE-7731"));
+    await emit(usage("task-notification"));
+    await vi.waitFor(() =>
+      expect(shape(events)).toEqual([
+        "available_commands_update",
+        "usage_update",
+        "tool_call_update",
+        "tool_call",
+        "turn:started:engine",
+        "agent_message_chunk",
+        "usage_update",
+        "turn:settled:end_turn",
+      ])
+    );
+    await driver.stop("agt_1");
+  });
+
+  it("claude: a prompt sent during a self-started turn waits for it", async () => {
+    const { fake, driver, events, emit } = await claude();
+    await driver.prompt("agt_1", "start");
+    events.length = 0;
+    await emit(text("background answer"));
+    await vi.waitFor(() =>
+      expect(shape(events)).toContain("turn:started:engine")
+    );
+    const next = driver.prompt("agt_1", "next");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.seen.prompts).toHaveLength(1);
+    await emit(text(" more"));
+    await emit(usage("task-notification"));
+    await next;
+    expect(fake.seen.prompts).toHaveLength(2);
+    expect(shape(events)).toEqual([
+      "turn:started:engine",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "usage_update",
+      "turn:settled:end_turn",
+      "turn:started:-",
+      "tool_call",
+      "agent_message_chunk",
+      "usage_update",
+      "turn:settled:end_turn",
+    ]);
+    await driver.stop("agt_1");
+  });
+
+  it("claude: Stop settles a self-started turn as cancelled", async () => {
+    const { fake, driver, events, emit } = await claude();
+    await driver.prompt("agt_1", "start");
+    events.length = 0;
+    await emit(text("working"));
+    await vi.waitFor(() =>
+      expect(shape(events)).toContain("turn:started:engine")
+    );
+    await driver.cancel("agt_1");
+    expect(fake.seen.cancels).toBe(1);
+    await vi.waitFor(() =>
+      expect(shape(events).at(-1)).toBe("turn:settled:cancelled")
+    );
+    await driver.stop("agt_1");
+  });
+
+  it("claude: the watchdog settles a silent turn, but not while a tool runs", async () => {
+    const { driver, events, emit } = await claude();
+    await driver.prompt("agt_1", "start");
+    events.length = 0;
+    await emit({
+      sessionUpdate: "tool_call",
+      toolCallId: "t2",
+      title: "build",
+      status: "in_progress",
+    });
+    await new Promise((r) => setTimeout(r, 450));
+    expect(shape(events)).toEqual(["turn:started:engine", "tool_call"]);
+    await emit({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t2",
+      status: "completed",
+    });
+    await vi.waitFor(() =>
+      expect(shape(events).at(-1)).toBe("turn:settled:end_turn")
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agt_1" }),
+      expect.stringContaining("went quiet")
+    );
+    await driver.stop("agt_1");
+  });
+
+  it("an exit ends a self-started turn and fails a prompt waiting on it", async () => {
+    const { fake, driver, events, emit } = await claude();
+    await driver.prompt("agt_1", "start");
+    events.length = 0;
+    await emit(text("working"));
+    await vi.waitFor(() =>
+      expect(shape(events)).toContain("turn:started:engine")
+    );
+    const waiting = driver.prompt("agt_1", "next");
+    fake.child.kill("SIGKILL");
+    await expect(waiting).rejects.toThrow(/exited/);
+    expect(events.at(-1)).toMatchObject({ type: "exit" });
+    expect(shape(events)).not.toContain("turn:started:-");
+  });
+
+  it("codex: only the adapter's turn markers open and close a self-started turn", async () => {
+    let promptTurn = 0;
+    const fake = createFakeAcpAgent({
+      turn: async (_p, emit) => {
+        const id = `turn_p${++promptTurn}`;
+        await emit(marker("started", id));
+        await emit(text("answer"));
+        await emit(marker("completed", id, "completed"));
+        return "end_turn";
+      },
+    });
+    const driver = new AcpDriver({
+      spawn: () => fake.child,
+      resolveBinary,
+      logger,
+      selfTurnQuietMs: { quiet: 200, cancelled: 50 },
+    });
+    const events: DriverEvent[] = [];
+    driver.onEvent((e) => events.push(e));
+    const { sessionId } = await driver.start(launch({}, "codex"));
+    await driver.prompt("agt_1", "go");
+    events.length = 0;
+    // A tail without a marker stays a tail.
+    await fake.emit(sessionId, text("tail"));
+    await fake.emit(sessionId, marker("started", "turn_goal"));
+    await fake.emit(sessionId, text("continuing the goal"));
+    await fake.emit(sessionId, marker("completed", "turn_goal", "interrupted"));
+    await vi.waitFor(() =>
+      expect(shape(events)).toEqual([
+        "agent_message_chunk",
+        "turn:started:engine",
+        "session_info_update",
+        "agent_message_chunk",
+        "session_info_update",
+        "turn:settled:cancelled",
+      ])
+    );
+    await driver.stop("agt_1");
+  });
+
+  it("codex: an engine turn that starts before the prompt settles opens after it", async () => {
+    const fake = createFakeAcpAgent({
+      turn: async (_p, emit) => {
+        await emit(marker("started", "turn_p"));
+        await emit(marker("completed", "turn_p", "completed"));
+        await emit(marker("started", "turn_goal"));
+        return "end_turn";
+      },
+    });
+    const driver = new AcpDriver({
+      spawn: () => fake.child,
+      resolveBinary,
+      logger,
+      selfTurnQuietMs: { quiet: 200, cancelled: 50 },
+    });
+    const events: DriverEvent[] = [];
+    driver.onEvent((e) => events.push(e));
+    const { sessionId } = await driver.start(launch({}, "codex"));
+    await driver.prompt("agt_1", "go");
+    await fake.emit(sessionId, text("goal work"));
+    await fake.emit(sessionId, marker("completed", "turn_goal", "completed"));
+    await vi.waitFor(() =>
+      expect(shape(events).filter((s) => s.startsWith("turn:"))).toEqual([
+        "turn:started:-",
+        "turn:settled:end_turn",
+        "turn:started:engine",
+        "turn:settled:end_turn",
+      ])
+    );
+    await driver.stop("agt_1");
+  });
+});

@@ -151,6 +151,115 @@ describe("AcpRuntime prompt queue", () => {
     ]);
     expect(prompts).toEqual(["one", "two"]);
   });
+
+  it("a turn the engine started itself does not settle a prompt waiting behind it", async () => {
+    const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
+    const dir = path.join(stateRoot, agentId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    let seq = 0;
+    const event = (e: unknown): HostMessage =>
+      ({
+        type: "event",
+        seq: ++seq,
+        at: new Date().toISOString(),
+        event: e,
+      }) as HostMessage;
+    let finish!: () => void;
+    const server = net.createServer((socket) => {
+      const decode = ndjsonDecoder<ClientMessage>();
+      socket.on("data", (chunk) => {
+        for (const message of decode(chunk)) {
+          if (message.type === "hello") {
+            socket.write(
+              encodeMessage({
+                type: "welcome",
+                agentId,
+                engine: "claude",
+                sessionId: "sess",
+                resumed: false,
+                running: true,
+                turn: null,
+                journalSeq: seq,
+              } satisfies HostMessage)
+            );
+          } else if (message.type === "prompt") {
+            // The engine's own turn was under way when the prompt arrived;
+            // the driver holds the prompt until it settles.
+            const source = { source: "engine", text: "on its own" };
+            socket.write(
+              [
+                event({
+                  type: "turn",
+                  agentId,
+                  state: "started",
+                  text: "",
+                  source,
+                }),
+                event({
+                  type: "turn",
+                  agentId,
+                  state: "settled",
+                  stopReason: "end_turn",
+                }),
+                event({
+                  type: "turn",
+                  agentId,
+                  state: "started",
+                  text: message.text,
+                }),
+                {
+                  type: "prompt_accepted",
+                  id: message.id,
+                } satisfies HostMessage,
+              ]
+                .map(encodeMessage)
+                .join("")
+            );
+            finish = () =>
+              socket.write(
+                encodeMessage(
+                  event({
+                    type: "turn",
+                    agentId,
+                    state: "settled",
+                    stopReason: "end_turn",
+                  })
+                )
+              );
+          }
+        }
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(hostFile(dir, "socket"), resolve)
+    );
+    cleanup.push(() => {
+      server.close();
+      rmSync(stateRoot, { recursive: true, force: true });
+    });
+    const runtime = createAcpRuntime({
+      config: {
+        agentStateRoot: stateRoot,
+        agentRuntime: "acp",
+        dispatchBinDir: "/nonexistent",
+      },
+      logger,
+      hostSeq: async () => ({ seq: 0, journalId: null }),
+      syncJournal: async () => {},
+    });
+    expect(await runtime.attach(agentId)).toBe(true);
+    const prompt = runtime.prompt(agentId, "next");
+    await prompt.accepted;
+    let settled = false;
+    void prompt.settled.then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
+    expect(runtime.isBusy(agentId)).toBe(true);
+    finish();
+    await prompt.settled;
+    expect(runtime.isBusy(agentId)).toBe(false);
+  });
 });
 
 describe("AcpRuntime legacy host replay", () => {

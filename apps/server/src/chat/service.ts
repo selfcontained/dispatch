@@ -2884,10 +2884,25 @@ export class StreamService {
     turnRow: StreamEventRow;
     prompt: PromptSource;
   }): Promise<string | null> {
-    const streamId = await this.promptStreamOf(input.agentId, input.prompt);
+    // A turn the engine started itself is a second answer beside the one
+    // before it: same place, replying to what that one replied to.
+    const previous =
+      input.prompt.source === "engine" && input.prompt.after
+        ? await this.store.getById(input.prompt.after)
+        : null;
+    const after =
+      previous?.author.kind === "agent" &&
+      previous.author.agentId === input.agentId
+        ? previous
+        : null;
+    const streamId = after
+      ? after.streamId
+      : await this.promptStreamOf(input.agentId, input.prompt);
     let thread: { threadId: string | null; replyTo: string | null } | null =
       null;
-    if (input.prompt.conversation?.streamId === streamId) {
+    if (after) {
+      thread = { threadId: after.threadId, replyTo: after.replyTo };
+    } else if (input.prompt.conversation?.streamId === streamId) {
       const threadId = input.prompt.conversation.threadId;
       thread = {
         threadId,
