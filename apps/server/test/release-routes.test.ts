@@ -262,6 +262,28 @@ describe("release metadata route handling", () => {
     });
   });
 
+  it("reports the packaged version as the current tag when no deploy is recorded", async () => {
+    await rm(releaseStorePath, { force: true });
+
+    const status = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/release/status",
+      headers: { cookie: sessionCookie },
+    });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toEqual({
+      tag: packagedCurrentTag,
+      deployedAt: null,
+    });
+
+    const version = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/app/version",
+      headers: { cookie: sessionCookie },
+    });
+    expect(version.json()).toMatchObject({ releaseTag: packagedCurrentTag });
+  });
+
   it("falls back to the packaged app version when no release tag is recorded", async () => {
     await rm(releaseStorePath, { force: true });
     mockReleaseCommands({

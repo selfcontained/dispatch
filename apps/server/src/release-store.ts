@@ -17,6 +17,17 @@ export type ReleaseRecord = {
   deployedAt: string;
 };
 
+/**
+ * The release tag a packaged build's own version stands for ("1.2.4" ->
+ * "v1.2.4"), or null for anything that isn't a plain release version.
+ * Installs that never write the release store (the Mac app updates itself)
+ * still know what they are from this.
+ */
+export function packageVersionTag(version: string | null): string | null {
+  const trimmed = version?.trim() ?? "";
+  return /^\d+\.\d+\.\d+$/.test(trimmed) ? `v${trimmed}` : null;
+}
+
 export async function readReleaseStore(): Promise<ReleaseRecord | null> {
   try {
     const raw = await readFile(RELEASE_STORE_PATH, "utf-8");

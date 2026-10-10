@@ -340,6 +340,39 @@ describe("plugin-status", () => {
   });
 
   describe("createPluginStatusChecker", () => {
+    it("gives a CLI found outside PATH its own directory on PATH, and the first call room for a cold start", async () => {
+      const seen: Array<{ env?: NodeJS.ProcessEnv; timeoutMs?: number }> = [];
+      const checker = createPluginStatusChecker({
+        binFor: async () => "/opt/nvm/bin/codex",
+        commandRunner: async (_command, _args, options) => {
+          seen.push({ env: options?.env, timeoutMs: options?.timeoutMs });
+          return ok(JSON.stringify({ installed: [] }));
+        },
+      });
+
+      await checker.getStatus("codex");
+
+      expect(seen[0]!.timeoutMs).toBe(30_000);
+      expect(seen[0]!.env?.PATH?.split(path.delimiter)).toContain(
+        "/opt/nvm/bin"
+      );
+    });
+
+    it("leaves the environment alone for a bare CLI name", async () => {
+      const seen: Array<NodeJS.ProcessEnv | undefined> = [];
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: async (_command, _args, options) => {
+          seen.push(options?.env);
+          return ok(JSON.stringify([]));
+        },
+      });
+
+      await checker.getStatus("claude");
+
+      expect(seen).toEqual([undefined]);
+    });
+
     it("caches a successful check and does not re-run the CLI within the TTL", async () => {
       const { runner, calls } = fakeRunner([
         ok(JSON.stringify([])), // claude: not installed

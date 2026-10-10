@@ -32,6 +32,7 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 
+import { withEngineBinDir } from "../agents/acp/engine-bin-dir.js";
 import { isPluginAgentType, PLUGIN_AGENT_TYPES } from "./agent-types.js";
 import type { PluginAgentType } from "./agent-types.js";
 import { compareSemver } from "./lib/compare-semver.js";
@@ -69,13 +70,14 @@ const noopLogger: PluginStatusLogger = { warn: () => {} };
 
 const PLUGIN_ID = "dispatch@dispatch";
 const MARKETPLACE_NAME = "dispatch";
-// `plugin list` is a local read (no network) — short. `marketplace list` is
-// also local. `marketplace update`/`upgrade` does a real `git fetch` against
-// a real remote, so it gets the most room, but it's also the one call in
-// each check that's explicitly best-effort (falls back to whatever's
-// already on disk on failure), so a slow/unreachable remote can't turn a
-// single status check into the ~90s worst case a flat 30s-per-call budget
-// would allow.
+// `plugin list` is the first CLI call of a check, often the first in a
+// while, and a cold `codex` start can take well over 10s before it answers
+// (16s seen on a Mac after idle) — so it gets 30s. Once it has answered the
+// CLI is warm, so `marketplace list` is a quick local read. `marketplace
+// update`/`upgrade` does a real `git fetch` but is explicitly best-effort
+// (falls back to whatever's already on disk on failure). A CLI that hangs
+// outright holds a check for at most 30 + 15 + 10 = 55s.
+const FIRST_CALL_TIMEOUT_MS = 30_000;
 const LOCAL_TIMEOUT_MS = 10_000;
 const MARKETPLACE_REFRESH_TIMEOUT_MS = 15_000;
 // `plugin update -y` / `plugin add` are installs, not reads — they copy the
@@ -126,7 +128,12 @@ async function runStep(
   timeoutMs: number
 ): Promise<StepResult> {
   try {
-    const result = await run(bin, args, { timeoutMs });
+    // A CLI found outside PATH may be an npm script whose `node` sits only
+    // beside it — the same PATH fix agent launches get.
+    const env = path.isAbsolute(bin)
+      ? { PATH: withEngineBinDir(process.env.PATH, bin) }
+      : undefined;
+    const result = await run(bin, args, { timeoutMs, env });
     return { stdout: result.stdout };
   } catch (err) {
     return { error: errorMessage(err) };
@@ -300,7 +307,7 @@ async function checkClaude(
     run,
     bin,
     ["plugin", "list", "--json"],
-    LOCAL_TIMEOUT_MS
+    FIRST_CALL_TIMEOUT_MS
   );
   if (stepFailed(listResult)) {
     logger.warn(
@@ -365,7 +372,7 @@ async function checkCodex(
     run,
     bin,
     ["plugin", "list", "--json"],
-    LOCAL_TIMEOUT_MS
+    FIRST_CALL_TIMEOUT_MS
   );
   if (stepFailed(listResult)) {
     logger.warn(
@@ -527,7 +534,7 @@ export async function applyPluginUpdate(
       commandRunner,
       bin,
       ["plugin", "marketplace", "list", "--json"],
-      LOCAL_TIMEOUT_MS
+      FIRST_CALL_TIMEOUT_MS
     );
     let registered = false;
     try {
@@ -645,7 +652,7 @@ const FAILURE_TTL_MS = 60 * 1000;
  * under a `readManifestVersion` read.
  */
 export function createPluginStatusChecker(deps: {
-  binFor: (agentType: PluginAgentType) => string;
+  binFor: (agentType: PluginAgentType) => string | Promise<string>;
   commandRunner?: CommandRunner;
   logger?: PluginStatusLogger;
   now?: () => number;
@@ -692,7 +699,7 @@ export function createPluginStatusChecker(deps: {
       }
       const outcome = await checkPluginStatusInternal(
         agentType,
-        deps.binFor(agentType),
+        await deps.binFor(agentType),
         run,
         true,
         logger
@@ -713,7 +720,7 @@ export function createPluginStatusChecker(deps: {
     return await serialize(agentType, async () => {
       const result = await applyPluginUpdate(
         agentType,
-        deps.binFor(agentType),
+        await deps.binFor(agentType),
         run,
         logger,
         action

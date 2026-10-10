@@ -2,6 +2,7 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
+import { findEngineBin } from "../agents/engine-availability.js";
 import type { AppConfig } from "../config.js";
 import {
   createPluginStatusChecker,
@@ -21,8 +22,13 @@ export async function registerPluginRoutes(
   deps: PluginRouteDeps
 ): Promise<void> {
   const checker: PluginStatusChecker = createPluginStatusChecker({
-    binFor: (agentType) =>
-      agentType === "claude" ? deps.config.claudeBin : deps.config.codexBin,
+    // Find the CLI the way agent launches do: a service's PATH (the Mac
+    // app's especially) rarely has ~/.local/bin, where claude installs.
+    binFor: async (agentType) => {
+      const configured =
+        agentType === "claude" ? deps.config.claudeBin : deps.config.codexBin;
+      return (await findEngineBin(configured)) ?? configured;
+    },
     logger: deps.appLog,
   });
 

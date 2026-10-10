@@ -220,9 +220,12 @@ async function handleAppVersion(deps: ReleaseRouteDeps) {
   };
 }
 
-async function handleReleaseStatus() {
+async function handleReleaseStatus(deps: ReleaseRouteDeps) {
   const record = await readReleaseStore();
-  return { tag: record?.tag ?? null, deployedAt: record?.deployedAt ?? null };
+  if (record) return { tag: record.tag, deployedAt: record.deployedAt };
+  // No recorded deploy (the Mac app updates itself): the build's own version.
+  const { releaseTag } = await deps.getAppVersionInfo();
+  return { tag: releaseTag, deployedAt: null };
 }
 
 async function handleReleaseInfo(
@@ -585,7 +588,7 @@ export async function registerReleaseRoutes(
   deps: ReleaseRouteDeps
 ): Promise<void> {
   app.get("/api/v1/app/version", () => handleAppVersion(deps));
-  app.get("/api/v1/release/status", () => handleReleaseStatus());
+  app.get("/api/v1/release/status", () => handleReleaseStatus(deps));
   app.get("/api/v1/release/info", (req, reply) =>
     handleReleaseInfo(deps, req, reply)
   );

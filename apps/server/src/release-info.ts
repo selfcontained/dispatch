@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { GitHubReleaseListItem } from "./server/release-helpers.js";
 
 import { getSetting } from "./db/settings.js";
-import { readReleaseStore } from "./release-store.js";
+import { packageVersionTag, readReleaseStore } from "./release-store.js";
 import { errorMessage } from "./shared/lib/error-message.js";
 import type { ReleaseProgress } from "./server/release-wire.js";
 
@@ -181,6 +181,5 @@ async function deriveCurrentTag(
 ): Promise<string | null> {
   const record = await readReleaseStore();
   if (record?.tag) return record.tag;
-  const version = (await deps.getAppVersionInfo()).version?.trim() ?? null;
-  return version && /^\d+\.\d+\.\d+$/.test(version) ? `v${version}` : null;
+  return packageVersionTag((await deps.getAppVersionInfo()).version);
 }

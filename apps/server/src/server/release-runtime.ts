@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
+import { packageVersionTag } from "../release-store.js";
 
 import type { ReleaseLogStreamProcessor } from "../release-log-stream.js";
 import {
@@ -186,7 +187,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
 
     const gitSha = embeddedGitSha?.trim() || null;
 
-    const releaseTag = record?.tag ?? null;
+    const releaseTag = record?.tag ?? packageVersionTag(version);
     const releaseNotes = releaseNotesMarkdown.trim() || null;
     const releaseUrl = releaseTag
       ? `https://github.com/${await getGitHubRepo()}/releases/tag/${releaseTag}`

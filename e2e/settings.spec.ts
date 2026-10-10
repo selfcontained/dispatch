@@ -87,7 +87,7 @@ test.describe("Settings pane", () => {
     await expect(page.getByText("Current version")).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText("Release tag")).toBeVisible();
+    await expect(page.getByTestId("current-version")).toHaveText(/^v?\d+\./);
     await expect(page.getByText("Release channel")).toBeVisible();
   });
 

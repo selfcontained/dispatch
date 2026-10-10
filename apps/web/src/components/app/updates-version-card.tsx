@@ -22,48 +22,42 @@ export function UpdatesVersionCard({
   notesExpanded,
   onToggleNotes,
 }: UpdatesVersionCardProps): JSX.Element {
+  const version = versionInfo?.version ?? null;
+  const headline = status?.tag ?? versionInfo?.releaseTag ?? version;
+  // The package version only adds anything when the headline isn't already
+  // it (a recorded deploy that disagrees with the build).
+  const packageVersion =
+    version && version !== headline && `v${version}` !== headline
+      ? version
+      : null;
+  const details = [
+    packageVersion ? `package ${packageVersion}` : null,
+    versionInfo?.gitSha ?? null,
+    status?.deployedAt ? formatShortDateTime(status.deployedAt) : null,
+  ].filter(Boolean);
+
   return (
     <>
       <div>
         <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
           Current version
         </div>
-        {status ? (
-          <div className="flex items-baseline gap-2">
-            <span className="font-mono text-xl font-bold text-foreground">
-              {status.tag ?? "unknown"}
+        {status || versionInfo ? (
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span
+              data-testid="current-version"
+              className="font-mono text-xl font-bold text-foreground"
+            >
+              {headline ?? "unknown"}
             </span>
-            {status.deployedAt ? (
-              <span className="text-xs text-muted-foreground">
-                {formatShortDateTime(status.deployedAt)}
+            {details.length > 0 ? (
+              <span className="font-mono text-xs text-muted-foreground">
+                {details.join(" · ")}
               </span>
             ) : null}
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">Loading...</span>
-        )}
-
-        {versionInfo && (
-          <div className="mt-3 grid gap-2 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3 text-sm">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-muted-foreground">Release tag</span>
-              <span className="font-mono">
-                {versionInfo.releaseTag ?? "unreleased"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-muted-foreground">Package version</span>
-              <span className="font-mono">
-                {versionInfo.version ?? "unknown"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-muted-foreground">Git SHA</span>
-              <span className="font-mono">
-                {versionInfo.gitSha ?? "unavailable"}
-              </span>
-            </div>
-          </div>
         )}
       </div>
 

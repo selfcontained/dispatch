@@ -13,7 +13,8 @@ vi.mock("../src/db/settings.js", () => ({
   getSetting: getSettingMock,
 }));
 
-vi.mock("../src/release-store.js", () => ({
+vi.mock("../src/release-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/release-store.js")>()),
   readReleaseStore: readReleaseStoreMock,
 }));
 

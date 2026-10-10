@@ -9,17 +9,27 @@ const mocks = vi.hoisted(() => ({
   install: vi.fn(),
   update: vi.fn(),
   getStatus: vi.fn(),
+  findEngineBin: vi.fn(),
+  checkerDeps: null as null | {
+    binFor: (agentType: "claude" | "codex") => string | Promise<string>;
+  },
+}));
+vi.mock("../src/agents/engine-availability.js", () => ({
+  findEngineBin: mocks.findEngineBin,
 }));
 vi.mock("../src/agent-type-settings.js", () => ({
   getEnabledAgentTypes: mocks.enabled,
 }));
 vi.mock("../src/shared/plugin-status.js", async (original) => ({
   ...(await original<typeof import("../src/shared/plugin-status.js")>()),
-  createPluginStatusChecker: () => ({
-    install: mocks.install,
-    update: mocks.update,
-    getStatus: mocks.getStatus,
-  }),
+  createPluginStatusChecker: (deps: typeof mocks.checkerDeps) => {
+    mocks.checkerDeps = deps;
+    return {
+      install: mocks.install,
+      update: mocks.update,
+      getStatus: mocks.getStatus,
+    };
+  },
 }));
 afterEach(() => vi.resetAllMocks());
 async function request(body: unknown) {
@@ -80,5 +90,26 @@ describe("plugin install route", () => {
     const response = await request({ agentType: "claude" });
     expect(response.statusCode).toBe(502);
     expect(response.json()).toEqual(result);
+  });
+});
+
+describe("plugin CLI resolution", () => {
+  it("runs the CLI agent launches would find, not the bare configured name", async () => {
+    const app = Fastify();
+    await registerPluginRoutes(app, {
+      pool: {} as Pool,
+      config: { claudeBin: "claude", codexBin: "codex" } as AppConfig,
+      appLog: app.log,
+    });
+    await app.close();
+    mocks.findEngineBin.mockImplementation(async (bin: string) =>
+      bin === "claude" ? "/Users/me/.local/bin/claude" : null
+    );
+    // Found off the service PATH: the absolute path.
+    await expect(mocks.checkerDeps!.binFor("claude")).resolves.toBe(
+      "/Users/me/.local/bin/claude"
+    );
+    // Not found anywhere: the configured name, so the probe reports it.
+    await expect(mocks.checkerDeps!.binFor("codex")).resolves.toBe("codex");
   });
 });

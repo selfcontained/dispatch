@@ -21,6 +21,7 @@ export type CommandRunner = (
   args: string[],
   options?: {
     cwd?: string;
+    env?: NodeJS.ProcessEnv;
     allowedExitCodes?: number[];
     timeoutMs?: number;
     trimOutput?: boolean;
