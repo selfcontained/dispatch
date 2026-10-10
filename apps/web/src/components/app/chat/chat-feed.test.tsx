@@ -606,7 +606,8 @@ describe("ChatFeed", () => {
         blockEntry(
           launchBlock({
             id: "l1",
-            toAgentId: AGENT_ID,
+            toAgentId: "agt_child",
+            launchedByAgentId: AGENT_ID,
             launchState: { startup: { steps: [steps.worktree()] } },
           })
         ),
@@ -626,6 +627,8 @@ describe("ChatFeed", () => {
     const launch = blockEntry(
       launchBlock({
         id: "launch-details",
+        toAgentId: "agt_child",
+        launchedByAgentId: AGENT_ID,
         text: "Review the retry flow",
         launchState: { instructions: "Check recovery before approval" },
       })
@@ -708,7 +711,14 @@ describe("ChatFeed", () => {
   it("offers reactions on the agent's posts but not on its card", () => {
     renderFeed(
       [
-        blockEntry(launchBlock({ id: "l1", toAgentId: AGENT_ID, text: "Go" })),
+        blockEntry(
+          launchBlock({
+            id: "l1",
+            toAgentId: "agt_child",
+            text: "Go",
+            launchedByAgentId: AGENT_ID,
+          })
+        ),
         blockEntry(
           block({
             id: "a1",
@@ -909,10 +919,98 @@ describe("ChatFeed", () => {
     expect(event.querySelector("time")).not.toBeNull();
   });
 
-  it("uses the same static treatment for a human-initiated root launch", () => {
+  it("keeps a user-created child launch condensed using its stream", () => {
+    renderFeed(
+      [
+        blockEntry(
+          launchBlock({
+            id: "child-launch",
+            toAgentId: "agt_child",
+            text: "Child briefing",
+          })
+        ),
+      ],
+      {},
+      {},
+      [
+        {
+          id: "agt_child",
+          name: "Child",
+          type: "codex",
+          parentAgentId: AGENT_ID,
+        } as Agent,
+      ]
+    );
+    expect(screen.getByTestId("chat-compact-launch")).toBeTruthy();
+    expect(screen.queryByTestId("chat-launch-card")).toBeNull();
+    expect(screen.queryByText("Child briefing")).toBeNull();
+  });
+
+  it("keeps an agent-launched top-level launch full even without its agent record", () => {
+    renderFeed(
+      [
+        blockEntry(
+          launchBlock({
+            id: "independent-launch",
+            streamId: AGENT_ID,
+            toAgentId: AGENT_ID,
+            launchedByAgentId: "agt_launcher",
+            text: "Independent builder briefing",
+            launchState: { instructions: "Independent builder instructions" },
+            attachments: [
+              {
+                type: "code",
+                code: "Independent attachment",
+                language: "text",
+              },
+            ],
+          })
+        ),
+      ],
+      {},
+      { names: { agt_launcher: "Launcher" } }
+    );
+    const card = screen.getByTestId("chat-launch-card");
+    expect(card.textContent).toContain("Independent builder briefing");
+    expect(card.textContent).toContain("Independent attachment");
+    expect(card.textContent).toContain("Independent builder instructions");
+    expect(card.textContent).toContain("Launched by Launcher");
+    expect(screen.queryByTestId("chat-compact-launch")).toBeNull();
+  });
+
+  it("opens replies on the root launch from its thread line", () => {
+    const onOpenThread = vi.fn();
+    renderFeed(
+      [
+        blockEntry(
+          launchBlock({
+            id: "root-launch-replies",
+            streamId: AGENT_ID,
+            toAgentId: AGENT_ID,
+            text: "Root briefing",
+            replyCount: 1,
+          })
+        ),
+      ],
+      {},
+      { onOpenThread }
+    );
+    fireEvent.click(screen.getByTestId("chat-thread-line"));
+    expect(onOpenThread).toHaveBeenCalledWith("root-launch-replies");
+  });
+
+  it("keeps the root launch briefing, instructions and attachments in the stream", () => {
     renderFeed([
       blockEntry(
-        launchBlock({ id: "l0", toAgentId: AGENT_ID, text: "Build the widget" })
+        launchBlock({
+          id: "l0",
+          toAgentId: AGENT_ID,
+          text: "Build the widget",
+          launchState: { instructions: "Follow the project rules" },
+          attachments: [
+            { type: "code", code: "launch context", language: "text" },
+          ],
+        })
       ),
       blockEntry(
         block({
@@ -923,13 +1021,19 @@ describe("ChatFeed", () => {
         })
       ),
     ]);
-    const event = screen.getByTestId("chat-compact-launch");
-    expect(event.textContent).toContain("Launched");
-    expect(within(event).queryByRole("button")).toBeNull();
+    const card = screen.getByTestId("chat-launch-card");
+    expect(card.textContent).toContain("Build the widget");
+    expect(card.textContent).toContain("launch context");
+    const instructions = within(card).getByText("Instructions");
+    fireEvent.click(instructions);
+    expect(instructions.closest("details")?.open).toBe(true);
+    expect(card.textContent).toContain("Follow the project rules");
+    fireEvent.click(instructions);
+    expect(instructions.closest("details")?.open).toBe(false);
     expect(screen.getByTestId("chat-message").textContent).toContain(
       "Also add tests"
     );
-    expect(screen.queryByTestId("chat-launch-card")).toBeNull();
+    expect(screen.queryByTestId("chat-compact-launch")).toBeNull();
   });
 
   it("offers no Retry when the feed has no way to send again", () => {
@@ -1162,12 +1266,21 @@ describe("ChatFeed", () => {
 
   it("renders a launch even when its agent record is unavailable", () => {
     renderFeed([
-      blockEntry(launchBlock({ id: "launch", toAgentId: "agt_gone" })),
+      blockEntry(
+        launchBlock({
+          id: "launch",
+          streamId: AGENT_ID,
+          toAgentId: "agt_gone",
+          text: "Missing child briefing",
+        })
+      ),
     ]);
     const event = screen.getByTestId("chat-compact-launch");
     expect(event.textContent).toContain("Launched");
     expect(event.querySelector("time")).not.toBeNull();
     expect(event.textContent).not.toContain("undefined");
+    expect(screen.queryByTestId("chat-launch-card")).toBeNull();
+    expect(screen.queryByTestId("launch-briefing")).toBeNull();
   });
 
   it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {

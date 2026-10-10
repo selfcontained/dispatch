@@ -17,7 +17,12 @@ import {
   type ChatUserAttachmentInput,
   fileMedia,
 } from "@dispatch/shared";
-import { MessageSquarePlus, MessagesSquare, Rocket } from "lucide-react";
+import {
+  ChevronRight,
+  MessageSquarePlus,
+  MessagesSquare,
+  Rocket,
+} from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -1041,7 +1046,7 @@ function BlockBody({
         </div>
       );
     case "launch":
-      return <CompactLaunchCard block={block} ctx={ctx} inThread={inThread} />;
+      return <LaunchCard block={block} ctx={ctx} inThread={inThread} />;
     case "tasks":
       return <TasksBlockBody block={block} />;
     case "link":
@@ -1150,7 +1155,80 @@ export type BlockViewProps = {
   folded?: readonly FoldedEntry[];
 };
 
-function CompactLaunchCard({
+function LaunchBriefing({
+  block,
+  ctx,
+}: {
+  block: Extract<Block, { kind: "launch" }>;
+  ctx: FeedContext;
+}): JSX.Element {
+  return (
+    <div className="mt-4 space-y-4" data-testid="launch-briefing">
+      {block.text ? (
+        <div>
+          <p className="mb-2 text-xs font-medium text-muted-foreground">
+            Prompt
+          </p>
+          <Markdown>{block.text}</Markdown>
+        </div>
+      ) : null}
+      <AttachmentList block={block} ctx={ctx} />
+      {block.state?.instructions ? (
+        <details>
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+            Instructions
+          </summary>
+          <div className="mt-2">
+            <Markdown>{block.state.instructions}</Markdown>
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function LaunchReviews({
+  block,
+  ctx,
+  inThread,
+}: {
+  block: Extract<Block, { kind: "launch" }>;
+  ctx: FeedContext;
+  inThread: boolean;
+}): JSX.Element {
+  return (
+    <>
+      {block.blocks
+        ?.filter((item) => item.kind === "review")
+        .map((review) => (
+          <div
+            key={review.id}
+            className="mt-3 sm:mx-8"
+            data-testid="compact-launch-review"
+          >
+            <ReviewBlockBody
+              block={review}
+              compact={!inThread}
+              defaultExpanded={inThread}
+              onOpen={
+                ctx.onOpenThread
+                  ? () => ctx.onOpenThread?.(review.id)
+                  : undefined
+              }
+              onOpenFinding={
+                ctx.onOpenThread
+                  ? (findingId) => ctx.onOpenThread?.(review.id, findingId)
+                  : undefined
+              }
+              onOpenPath={ctx.onOpenPath}
+            />
+          </div>
+        ))}
+    </>
+  );
+}
+
+function LaunchCard({
   block,
   ctx,
   inThread,
@@ -1164,34 +1242,115 @@ function CompactLaunchCard({
   const type = agent?.type ?? ctx.peers?.[block.toAgentId ?? ""]?.agentType;
   const model = agent?.model ?? ctx.peers?.[block.toAgentId ?? ""]?.model;
   const engine = type && isAgentType(type) ? AGENT_TYPE_LABELS[type] : type;
+  const seat =
+    agent?.seat ??
+    (block.toAgentId === ctx.agentId
+      ? (ctx.agentSeat ?? null)
+      : (ctx.peers?.[block.toAgentId ?? ""]?.seat ?? null));
+  const mobileSummary = (
+    <>
+      <AgentSeatBadge
+        seat={seat}
+        name={name}
+        size="sm"
+        className="h-[26px] w-[26px] shrink-0"
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium" title={name}>
+          {name}
+        </span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+          <span className="shrink-0 text-emerald-300/70">Launched</span>
+          {engine ? <span className="shrink-0">{engine}</span> : null}
+          {model ? (
+            <span className="truncate">
+              {ctx.modelLabel?.(type ?? null, model) ?? model}
+            </span>
+          ) : null}
+          <time
+            className="ml-auto shrink-0"
+            dateTime={block.createdAt}
+            title={formatDateTime(block.createdAt)}
+          >
+            {clockTime(block.createdAt)}
+          </time>
+        </span>
+      </span>
+      {!inThread && ctx.onOpenThread ? (
+        <ChevronRight
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+      ) : null}
+    </>
+  );
+  // Launches live in the root's stream. Classify from the stored block so
+  // attribution and loading or archived agent records cannot change the layout.
+  if (block.streamId === block.toAgentId) {
+    return (
+      <Post
+        author={blockAuthor(block, ctx)}
+        at={block.createdAt}
+        grouped={false}
+        data-testid="chat-launch-card"
+        data-launch-card="true"
+        data-kind="launch"
+        data-block-id={block.id}
+      >
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Rocket className="h-3 w-3" aria-hidden="true" />
+          Launched by{" "}
+          {block.launchedByAgentId
+            ? agentDisplayName(block.launchedByAgentId, ctx)
+            : "you"}
+        </div>
+        <LaunchBriefing block={block} ctx={ctx} />
+        <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
+        {!inThread ? <ThreadLine block={block} ctx={ctx} /> : null}
+      </Post>
+    );
+  }
   return (
     <div
       className="mx-3 my-4 sm:mx-4 sm:my-[18px]"
       data-testid="chat-compact-launch"
       data-block-id={block.id}
     >
+      {!inThread && ctx.onOpenThread ? (
+        <Button
+          variant="ghost"
+          className="flex h-auto min-h-11 w-full items-center gap-2 rounded-md px-1 py-2 text-left sm:hidden"
+          data-testid="launch-open-thread-mobile"
+          aria-label={`Open launch thread for ${name}`}
+          onClick={() => ctx.onOpenThread?.(block.id)}
+        >
+          {mobileSummary}
+        </Button>
+      ) : (
+        <div className="flex min-h-11 items-center gap-2 px-1 py-2 sm:hidden">
+          {mobileSummary}
+        </div>
+      )}
       <div
-        className="flex min-w-0 items-center justify-center gap-2 sm:gap-3.5"
+        className="hidden min-w-0 items-center justify-center gap-3.5 sm:flex"
         data-testid="launch-agent-details"
       >
         <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
         <AgentSeatBadge
-          seat={
-            agent?.seat ??
-            (block.toAgentId === ctx.agentId
-              ? (ctx.agentSeat ?? null)
-              : (ctx.peers?.[block.toAgentId ?? ""]?.seat ?? null))
-          }
+          seat={seat}
           name={name}
           size="sm"
           className="h-[26px] w-[26px]"
         />
-        <div className="min-w-0 max-w-[calc(100%-4rem)]">
-          <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap leading-[21px] sm:gap-2">
+        <div className="min-w-0 max-w-[min(60%,24rem)]">
+          <div className="flex min-w-0 items-center gap-2 whitespace-nowrap leading-[21px]">
             <span className="text-[10px] font-normal uppercase tracking-[0.065em] text-emerald-300/70">
               Launched
             </span>
-            <span className="truncate text-xs font-medium" title={name}>
+            <span
+              className="max-w-64 truncate text-xs font-medium"
+              title={name}
+            >
               {name}
             </span>
             {engine ? (
@@ -1220,72 +1379,23 @@ function CompactLaunchCard({
             </time>
           </div>
         </div>
+        <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
         {!inThread && ctx.onOpenThread ? (
           <Button
             variant="ghost"
-            size="sm"
-            className="h-auto shrink-0 px-2 py-1 text-xs"
+            size="icon"
+            className="h-8 w-8 shrink-0 text-muted-foreground"
             data-testid="launch-open-thread"
             onClick={() => ctx.onOpenThread?.(block.id)}
             aria-label={`Open launch thread for ${name}`}
+            title={`Open launch thread for ${name}`}
           >
-            <MessagesSquare className="mr-1 h-3.5 w-3.5" />
-            {block.replyCount
-              ? `${block.replyCount} ${block.replyCount === 1 ? "reply" : "replies"}`
-              : "Details"}
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Button>
         ) : null}
-        <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
       </div>
-      {inThread ? (
-        <div className="mt-4 space-y-4" data-testid="launch-briefing">
-          {block.text ? (
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">
-                Prompt
-              </p>
-              <Markdown>{block.text}</Markdown>
-            </div>
-          ) : null}
-          <AttachmentList block={block} ctx={ctx} />
-          {block.state?.instructions ? (
-            <details>
-              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                Instructions
-              </summary>
-              <div className="mt-2">
-                <Markdown>{block.state.instructions}</Markdown>
-              </div>
-            </details>
-          ) : null}
-        </div>
-      ) : null}
-      {block.blocks
-        ?.filter((item) => item.kind === "review")
-        .map((review) => (
-          <div
-            key={review.id}
-            className="mt-3 sm:mx-8"
-            data-testid="compact-launch-review"
-          >
-            <ReviewBlockBody
-              block={review}
-              compact={!inThread}
-              defaultExpanded={inThread}
-              onOpen={
-                ctx.onOpenThread
-                  ? () => ctx.onOpenThread?.(review.id)
-                  : undefined
-              }
-              onOpenFinding={
-                ctx.onOpenThread
-                  ? (findingId) => ctx.onOpenThread?.(review.id, findingId)
-                  : undefined
-              }
-              onOpenPath={ctx.onOpenPath}
-            />
-          </div>
-        ))}
+      {inThread ? <LaunchBriefing block={block} ctx={ctx} /> : null}
+      <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
     </div>
   );
 }
@@ -1431,7 +1541,7 @@ export const BlockView = memo(function BlockView({
   );
 
   if (block.kind === "launch") {
-    return <CompactLaunchCard block={block} ctx={ctx} inThread={inThread} />;
+    return <LaunchCard block={block} ctx={ctx} inThread={inThread} />;
   }
 
   // A person's block, whoever it reads as: a launch-context post made by
