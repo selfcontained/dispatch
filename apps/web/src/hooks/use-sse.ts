@@ -385,7 +385,10 @@ export function useSSE(authState: AuthState): void {
             (old) => (old ? { ...old, ...payload.agent, seat: old.seat } : old)
           );
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
-            applyAgentUpsert(old, payload.agent)
+            // A delta is not a complete list. Seeding the cold cache here
+            // makes routing treat every other agent as missing before the
+            // initial REST response or SSE snapshot arrives.
+            old ? applyAgentUpsert(old, payload.agent) : undefined
           );
           return;
         }
@@ -488,9 +491,8 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.deleted") {
-          queryClient.setQueryData<Agent[]>(
-            ["agents"],
-            (old) => old?.filter((a) => a.id !== payload.agentId) ?? []
+          queryClient.setQueryData<Agent[]>(["agents"], (old) =>
+            old?.filter((a) => a.id !== payload.agentId)
           );
           return;
         }
