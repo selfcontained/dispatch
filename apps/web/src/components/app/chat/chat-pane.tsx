@@ -1013,6 +1013,12 @@ export function ChatPane({
       options?: { delivery?: "auto" | "queue" | "interrupt" }
     ): Promise<void> => {
       setSendError(null);
+      // Sending is a return to the bottom, even from the start of a tall
+      // reply or a jumped-to row: drop that hold, or isFollowing() stays
+      // false and the reader's own message lands out of sight.
+      anchoredRef.current = 0;
+      anchorTurnRef.current = null;
+      followingRef.current = true;
       setFollowing(true);
       await sendAsync({
         text,
