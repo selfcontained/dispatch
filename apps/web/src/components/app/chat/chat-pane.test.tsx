@@ -1661,6 +1661,40 @@ describe("ChatPane jump to a block", () => {
     expect(scroll.scrollTop).toBe(420);
   });
 
+  it("follows the reader's own message to the bottom after a jump", async () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    const { rerenderPane } = renderAt("");
+    const scroll = stubLayout();
+    placeRow("t1", 500, scroll);
+    act(() => jump!("t1"));
+    expect(scroll.scrollTop).toBe(420);
+
+    // Held at the jumped-to row, the reader sends without scrolling down.
+    vi.mocked(Element.prototype.scrollTo).mockClear();
+    typeAndSend("next");
+    await waitFor(() => expect(H.send).toHaveBeenCalled());
+    H.entries = [
+      ...H.entries,
+      blockEntry(
+        block({
+          id: "u1",
+          authorKind: "user",
+          text: "next",
+          createdAt: "2026-09-02T10:02:00.000Z",
+        })
+      ),
+    ];
+    rerenderPane();
+
+    expect(Element.prototype.scrollTo).toHaveBeenCalledWith({
+      top: 1_000,
+      behavior: "auto",
+    });
+  });
+
   it("does not jump again on its own once the reader moved on", () => {
     H.entries = [
       ...older,
