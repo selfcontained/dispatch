@@ -27,6 +27,91 @@ test.describe("Agent routing", () => {
     await cleanupE2EAgents(request);
   });
 
+  for (const type of ["agent.upsert", "agent.deleted"]) {
+    test(`a cold deep link survives ${type} before the initial agent list`, async ({
+      page,
+      request,
+    }) => {
+      const selected = await createAgentViaAPI(request);
+      const unrelated = await createAgentViaAPI(request);
+      await page.addInitScript(() => {
+        const sources: EventSource[] = [];
+        class ControlledEventSource extends EventTarget {
+          onmessage: ((event: MessageEvent) => void) | null = null;
+          onerror = null;
+          readyState = 1;
+          constructor() {
+            super();
+            sources.push(this as unknown as EventSource);
+          }
+          close() {}
+        }
+        Object.assign(window, {
+          EventSource: ControlledEventSource,
+          emitAgentEvent: (payload: unknown) => {
+            for (const source of sources) {
+              source.onmessage?.(
+                new MessageEvent("message", { data: JSON.stringify(payload) })
+              );
+            }
+            return sources.length;
+          },
+        });
+      });
+      let releaseList!: () => void;
+      const listGate = new Promise<void>((resolve) => {
+        releaseList = resolve;
+      });
+      let listRequested = false;
+      await page.route("**/api/v1/agents", async (route) => {
+        listRequested = true;
+        await listGate;
+        await route.continue();
+      });
+      try {
+        await page.goto(`/agents/${selected.id}`, {
+          waitUntil: "domcontentloaded",
+        });
+        await expect.poll(() => listRequested).toBe(true);
+        const payload =
+          type === "agent.upsert"
+            ? { type, agent: unrelated }
+            : { type, agentId: unrelated.id };
+        await expect
+          .poll(() =>
+            page.evaluate((event) => {
+              const emit = (
+                window as unknown as {
+                  emitAgentEvent: (event: unknown) => number;
+                }
+              ).emitAgentEvent;
+              return emit(event);
+            }, payload)
+          )
+          .toBeGreaterThan(0);
+        // Flush React's render/effect work before checking the route. The
+        // old implementation redirects here, while REST is still blocked.
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve())
+              );
+            })
+        );
+        await expect(page).toHaveURL(new RegExp(`/agents/${selected.id}$`));
+        releaseList();
+        await expect(page.getByTestId("chat-pane")).toContainText(
+          selected.name
+        );
+        await expect(page).toHaveURL(new RegExp(`/agents/${selected.id}$`));
+        await page.screenshot({ path: `/tmp/dispatch-cold-route-${type}.png` });
+      } finally {
+        releaseList();
+      }
+    });
+  }
+
   for (const ownChild of [false, true]) {
     test(`sidebar activity ${ownChild ? "preserves a child's own page" : "opens a foreign stream"}`, async ({
       page,

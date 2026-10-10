@@ -731,7 +731,15 @@ describe("useSSE message handling", () => {
     ).toEqual(["fresh", "old"]);
   });
 
-  it("removes only the deleted agent, and empties an unseeded list", () => {
+  it("does not treat an upsert before the initial snapshot as a complete list", () => {
+    const { queryClient, emit } = renderMessages();
+    emit({ type: "agent.upsert", agent: agent("unrelated") });
+    expect(queryClient.getQueryData(["agents"])).toBeUndefined();
+    emit({ type: "snapshot", agents: [agent("selected"), agent("unrelated")] });
+    expect(queryClient.getQueryData<Agent[]>(["agents"])).toHaveLength(2);
+  });
+
+  it("removes only the deleted agent without seeding an uninitialized list", () => {
     const { queryClient, emit } = renderMessages();
     queryClient.setQueryData<Agent[]>(
       ["agents"],
@@ -744,11 +752,11 @@ describe("useSSE message handling", () => {
       queryClient.getQueryData<Agent[]>(["agents"])?.map((a) => a.id)
     ).toEqual(["keep"]);
 
-    // A delete for an agent list this tab never fetched must still leave a
-    // defined (empty) list rather than writing undefined back over the key.
+    // An unrelated delete must not turn a pending list into a successful
+    // empty list, which would redirect a valid deep link to /agents.
     queryClient.removeQueries({ queryKey: ["agents"] });
     emit({ type: "agent.deleted", agentId: "drop" });
-    expect(queryClient.getQueryData<Agent[]>(["agents"])).toEqual([]);
+    expect(queryClient.getQueryData<Agent[]>(["agents"])).toBeUndefined();
   });
 
   it("routes diff state to the include-uncommitted stats key", () => {
