@@ -30,6 +30,7 @@ export type ChatFeedContextInput = {
   settingBlockStateId?: FeedContext["settingBlockStateId"];
   onRetryDelivery?: FeedContext["onRetryDelivery"];
   onRetryTurn?: FeedContext["onRetryTurn"];
+  onResendAfterSignIn?: FeedContext["onResendAfterSignIn"];
   /** Must keep its identity while nothing retries: the rows memo on it. */
   retrying?: FeedContext["retrying"];
   /** Names the feed's pages carry for the agents they mention. */
@@ -69,6 +70,7 @@ export function useChatFeedContext({
   settingBlockStateId,
   onRetryDelivery,
   onRetryTurn,
+  onResendAfterSignIn,
   retrying,
   agentNames,
 }: ChatFeedContextInput): ChatFeedContextResult {
@@ -149,6 +151,7 @@ export function useChatFeedContext({
       settingBlockStateId,
       onRetryDelivery,
       onRetryTurn,
+      onResendAfterSignIn,
       retrying,
     }),
     [
@@ -167,6 +170,7 @@ export function useChatFeedContext({
       settingBlockStateId,
       onRetryDelivery,
       onRetryTurn,
+      onResendAfterSignIn,
       retrying,
       openLightbox,
       peers,

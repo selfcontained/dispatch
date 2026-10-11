@@ -22,6 +22,18 @@ export type ResultRetry = {
   pending?: boolean;
 };
 
+/**
+ * A turn that failed because the engine's sign-in lapsed: it offers the
+ * sign-in in place of the error and the retry, and the sign-in sends the
+ * turn again once it succeeds.
+ */
+export type ResultSignIn = {
+  /** The engine as people call it: "Claude Code", "Codex". */
+  label: string;
+  /** The sign-in itself, in place (see EngineSignIn). */
+  body: ReactNode;
+};
+
 function sameText(a: string, b: string): boolean {
   return a.trim() === b.trim();
 }
@@ -29,10 +41,13 @@ function sameText(a: string, b: string): boolean {
 function ResultTurnImpl({
   turn,
   retry,
+  signIn,
   renderText,
 }: {
   turn: Turn;
   retry?: ResultRetry;
+  /** Only while the turn's retry is open: the offer ends with the retry. */
+  signIn?: ResultSignIn;
   renderText?: (text: string) => ReactNode;
 }): JSX.Element {
   const error = turn.error;
@@ -75,10 +90,25 @@ function ResultTurnImpl({
       data-testid="harness-result"
     >
       {showContent ? <ResultBody turn={turn} renderText={renderText} /> : null}
-      {error && !echoesError ? (
+      {error && signIn ? (
+        <div
+          className="min-w-0 space-y-2 rounded border border-status-blocked/40 bg-status-blocked/10 px-3 py-2"
+          data-testid="harness-sign-in"
+        >
+          <div>
+            <p className="text-[12.5px] leading-[1.6] text-status-blocked">
+              {signIn.label} is signed out on this Dispatch server.
+            </p>
+            <p className="text-[11.5px] text-muted-foreground">
+              Sign in and this message is sent again.
+            </p>
+          </div>
+          {signIn.body}
+        </div>
+      ) : error && !echoesError ? (
         <ResultText content={error.message} error />
       ) : null}
-      {error && retry?.state === "open" && retry.onRetry ? (
+      {error && !signIn && retry?.state === "open" && retry.onRetry ? (
         // Worded like a post's "Not delivered · Send again": the same
         // failure line. "Turn" is what tells the two apart — this one runs
         // the agent again, where that one re-sends words it never took.

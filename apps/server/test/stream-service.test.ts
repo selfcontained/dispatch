@@ -6333,6 +6333,195 @@ describe("StreamService.retryTurn", () => {
   });
 });
 
+describe("StreamService.resendAfterSignIn", () => {
+  /**
+   * The agent's newest turn, failed on a lapsed sign-in, opened by `posts`
+   * (or by a system prompt when there are none).
+   */
+  async function signedOutTurn(
+    posts: string[] = [],
+    errorKind = "authentication_required"
+  ) {
+    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+      A,
+    ]);
+    const prompt =
+      posts.length > 0
+        ? { source: "chat", chatMessageId: posts[0], chatMessageIds: posts }
+        : { source: "system", text: "go" };
+    const row = await pool.query<{ id: string }>(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 1, 'turn', $2::jsonb) RETURNING id`,
+      [
+        A,
+        JSON.stringify({
+          state: "settled",
+          prompt,
+          error: "Claude sign-in required.",
+          errorKind,
+          retry: "open",
+        }),
+      ]
+    );
+    const turnId = Number(row.rows[0]!.id);
+    const block = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      kind: "text",
+      origin: "turn",
+      data: { turnEventId: turnId },
+      text: "",
+    });
+    await pool.query(
+      `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+      [turnId, JSON.stringify({ blockId: block.id })]
+    );
+    return { turnId, blockId: block.id };
+  }
+
+  async function retryOf(turnId: number): Promise<unknown> {
+    const res = await pool.query<{ retry: string | null }>(
+      `SELECT payload->>'retry' AS retry FROM agent_stream_events WHERE id = $1`,
+      [turnId]
+    );
+    return res.rows[0]?.retry ?? null;
+  }
+
+  async function userPost(text: string): Promise<string> {
+    const { svc } = build();
+    const { block } = await svc.sendUserPost(A, { text });
+    await settled(svc, block.id);
+    return block.id;
+  }
+
+  it("restarts the agent, then sends the turn's posts again, once", async () => {
+    const first = await userPost("first ask");
+    const second = await userPost("second ask");
+    const { turnId, blockId } = await signedOutTurn([first, second]);
+    const order: string[] = [];
+    const restart = vi.fn(async () => {
+      order.push("restart");
+    });
+    const { svc, injected } = build();
+    await svc.resendAfterSignIn(A, blockId, restart);
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(restart).toHaveBeenCalledWith(A);
+    expect(order).toEqual(["restart"]);
+    expect(injected.map((entry) => entry.text)).toEqual([
+      expect.stringContaining("first ask"),
+      expect.stringContaining("second ask"),
+    ]);
+    expect(await retryOf(turnId)).toBe("retried");
+    await expect(
+      svc.resendAfterSignIn(A, blockId, restart)
+    ).rejects.toBeInstanceOf(StreamConflictError);
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets exactly one of two concurrent sends through", async () => {
+    const post = await userPost("once");
+    const { blockId } = await signedOutTurn([post]);
+    const restart = vi.fn(async () => {});
+    const { svc, injected } = build();
+    const results = await Promise.allSettled([
+      svc.resendAfterSignIn(A, blockId, restart),
+      svc.resendAfterSignIn(A, blockId, restart),
+    ]);
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(results.map((r) => r.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(injected).toHaveLength(1);
+  });
+
+  it("refuses a turn that did not fail on sign-in, and leaves its retry open", async () => {
+    const { turnId, blockId } = await signedOutTurn([], "server_error");
+    const restart = vi.fn(async () => {});
+    const { svc, events } = build();
+    await expect(svc.resendAfterSignIn(A, blockId, restart)).rejects.toThrow(
+      /did not fail on sign-in/
+    );
+    expect(restart).not.toHaveBeenCalled();
+    expect(await retryOf(turnId)).toBe("open");
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "stream.entry" })
+    );
+  });
+
+  it("refuses a turn the agent has had another turn since", async () => {
+    const { turnId, blockId } = await signedOutTurn();
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 2, 'turn', '{"state":"settled","prompt":{"source":"system","text":"next"}}')`,
+      [A]
+    );
+    const restart = vi.fn(async () => {});
+    const { svc } = build();
+    await expect(svc.resendAfterSignIn(A, blockId, restart)).rejects.toThrow(
+      /latest turn/
+    );
+    expect(restart).not.toHaveBeenCalled();
+    expect(await retryOf(turnId)).toBe("open");
+  });
+
+  it("offers the sign-in again when the restart fails", async () => {
+    const post = await userPost("hello");
+    const { turnId, blockId } = await signedOutTurn([post]);
+    const { svc, injected, events } = build();
+    events.length = 0;
+    await expect(
+      svc.resendAfterSignIn(A, blockId, async () => {
+        throw new Error("host would not start");
+      })
+    ).rejects.toThrow("host would not start");
+    expect(injected).toEqual([]);
+    expect(await retryOf(turnId)).toBe("open");
+    // Republished open after it was published taken.
+    const retries = events
+      .filter(
+        (event): event is { entry: { block: { turn?: { retry?: string } } } } =>
+          (event as { type?: string }).type === "stream.entry"
+      )
+      .map((event) => event.entry.block.turn?.retry);
+    expect(retries).toEqual(["retried", "open"]);
+  });
+
+  it("offers the sign-in again when the agent can't take the post after the restart", async () => {
+    const post = await userPost("hello");
+    const { turnId, blockId } = await signedOutTurn([post]);
+    const { svc, injected } = build({ access: inert });
+    await expect(
+      svc.resendAfterSignIn(A, blockId, async () => {})
+    ).rejects.toThrow("No engine.");
+    expect(injected).toEqual([]);
+    expect(await retryOf(turnId)).toBe("open");
+  });
+
+  it("sends the retry notice for a turn no post opened, and reopens if it never lands", async () => {
+    const { turnId, blockId } = await signedOutTurn();
+    const { svc, injected } = build({ fail: true });
+    await svc.resendAfterSignIn(A, blockId, async () => {});
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([
+      {
+        agentId: A,
+        text: expect.stringContaining("The user retried the turn"),
+      },
+    ]);
+    expect(await retryOf(turnId)).toBe("open");
+  });
+
+  it("is not what Retry turn runs", async () => {
+    const { turnId, blockId } = await signedOutTurn();
+    const { svc, injected } = build();
+    await expect(svc.retryTurn(A, blockId)).rejects.toThrow(/sign-in/);
+    expect(injected).toEqual([]);
+    expect(await retryOf(turnId)).toBe("open");
+  });
+});
+
 describe("StreamService queued message controls", () => {
   it("interrupts pending delivery without reinjection or persisted resend intent", async () => {
     let release!: () => void;

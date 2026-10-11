@@ -6,6 +6,7 @@
 // three that publish one, nested tool calls for Claude, a permission ask
 // for OpenCode, and honors set_mode for Gemini. It never calls a model and
 // never touches the workspace.
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -70,6 +71,9 @@ const cwdBySession = new Map();
 const modelBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 const RUN = /run:(\d+)/;
+// `signed-out:<file>` fails the turn as an engine whose sign-in lapsed while
+// that file exists; removing it stands in for signing in again.
+const SIGNED_OUT = /signed-out:(\S+)/;
 const sleeping = new Map();
 const steeringMessages = new Map();
 
@@ -191,6 +195,10 @@ const agent = {
           sessionUpdate: "session_info_update",
           _meta: { "dispatch/steering": { pickedUp: receiptId } },
         });
+      }
+      const signedOut = SIGNED_OUT.exec(text);
+      if (signedOut && existsSync(signedOut[1])) {
+        throw acp.RequestError.authRequired();
       }
       const sleep = SLEEP.exec(text);
       if (sleep) {

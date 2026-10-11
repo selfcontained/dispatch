@@ -1,4 +1,5 @@
 import path from "node:path";
+import { AUTHENTICATION_REQUIRED } from "@dispatch/shared";
 
 import type { DriverEvent, DriverUpdate, DriverUsage } from "./driver.js";
 import { systemPromptSource, type PromptSource } from "./prompt-source.js";
@@ -35,8 +36,9 @@ const LOCATIONS_MAX = 200;
  * The adapter's error kinds a later attempt can clear: the provider, or the
  * connection to it, was down. The engine CLI already retried the API call
  * with backoff before it gave the turn up, so a second attempt is the
- * user's to take. Auth, quota, budget and context failures need something
- * changed first and are never offered one.
+ * user's to take. Quota, budget and context failures need something
+ * changed first and are never offered one; an auth failure is offered a
+ * sign-in that ends in one.
  *
  * `unknown` is in the list on purpose: it is what the SDK reports for a
  * failure it could not place, which is where a dropped stream or a
@@ -49,6 +51,9 @@ const RETRYABLE_ERROR_KINDS = new Set([
   "unknown",
   "no_result",
   "transport_lost",
+  // Not retried as it stands: the offer is a sign-in, and the turn's own
+  // prompt is sent again once it succeeds.
+  AUTHENTICATION_REQUIRED,
 ]);
 
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";

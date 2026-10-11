@@ -53,6 +53,10 @@ vi.mock(
   "@/components/app/plugin-update-settings",
   stubModule("PluginUpdateSettings")
 );
+vi.mock(
+  "@/components/app/engine-sign-in-settings",
+  stubModule("EngineSignInSettings")
+);
 vi.mock("@/components/app/ide-settings", stubModule("IdeSettings"));
 vi.mock(
   "@/components/app/instance-name-settings",
@@ -263,7 +267,10 @@ describe("SettingsContent", () => {
       "general",
       ["InstanceNameSettings", "UserAvatarSettings", "AppearanceSettings"],
     ],
-    ["agents", ["AgentTypeSettings", "PersonalitySettings"]],
+    [
+      "agents",
+      ["AgentTypeSettings", "EngineSignInSettings", "PersonalitySettings"],
+    ],
     ["workspace", ["IdeSettings", "WorktreeLocationSettings"]],
     ["security", ["SecuritySettings"]],
     ["notifications", ["NotificationSettings"]],

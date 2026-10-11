@@ -2036,6 +2036,42 @@ describe("AgentManager", () => {
     });
   });
 
+  describe("restartHost", () => {
+    it("restarts the host without a Stop's side effects", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const cancel = vi.fn(async () => {});
+      manager.attachScheduleCancellation(cancel);
+      runtime.launch.mockClear();
+
+      const restarted = await manager.restartHost(agent.id);
+
+      expect(restarted.status).toBe("running");
+      expect(runtime.stop).toHaveBeenCalledWith(agent.id, false);
+      expect(runtime.launch).toHaveBeenCalledTimes(1);
+      // Schedules belong to the agent's work, which a sign-in leaves alone.
+      expect(cancel).not.toHaveBeenCalled();
+    });
+
+    it("starts a stopped agent", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.stopAgent(agent.id, { force: true });
+      runtime.stop.mockClear();
+      runtime.launch.mockClear();
+
+      const restarted = await manager.restartHost(agent.id);
+
+      expect(restarted.status).toBe("running");
+      expect(runtime.stop).not.toHaveBeenCalled();
+      expect(runtime.launch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("startAgent", () => {
     async function createStoppedAgent(
       opts: { type?: "claude" | "codex"; persona?: string } = {}

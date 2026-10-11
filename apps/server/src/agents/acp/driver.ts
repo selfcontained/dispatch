@@ -1,5 +1,8 @@
 import { PermissionRequests } from "./permissions.js";
-import type { AgentPermissionRequest } from "@dispatch/shared";
+import {
+  AUTHENTICATION_REQUIRED,
+  type AgentPermissionRequest,
+} from "@dispatch/shared";
 import type { PromptSource, PromptImage } from "./prompt-source.js";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { access, constants as fsConstants } from "node:fs/promises";
@@ -200,7 +203,7 @@ function describeRpcError(
           : "Codex";
     return {
       message: `${name} sign-in required. Run \`${command}\` in a terminal on the machine running Dispatch, using the same OS account as the Dispatch server. Then restart this agent and resend your message.`,
-      errorKind: "authentication_required",
+      errorKind: AUTHENTICATION_REQUIRED,
     };
   }
   const raw = (err as { data?: unknown }).data;

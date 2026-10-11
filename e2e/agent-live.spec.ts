@@ -1,3 +1,7 @@
+import { rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import {
@@ -76,6 +80,105 @@ test.describe("Live agent", () => {
 
   test.afterAll(async ({ request }) => {
     await cleanupE2EAgents(request, "all");
+  });
+
+  test("a turn that fails on a lapsed sign-in offers a sign-in and is sent again after it", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    // The fake engine fails `signed-out:<file>` as auth-required while the
+    // file exists. The login itself is mocked: e2e must not run a real CLI's
+    // sign-in. Submitting the code removes the file, as signing in would.
+    const marker = path.join(
+      os.tmpdir(),
+      `dispatch-e2e-signed-out-${Date.now()}`
+    );
+    writeFileSync(marker, "");
+    const url = "https://claude.com/cai/oauth/authorize?code=true&state=e2e";
+    let login = {
+      id: "e2e-login",
+      engine: "claude",
+      status: "waiting",
+      url,
+      needsCode: true,
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    } as Record<string, unknown>;
+    let submitted = "";
+    let started = false;
+    // GET is the engine's current login (none until one starts); POST starts it.
+    await page.route("**/api/v1/system/engines/claude/login", (route) => {
+      if (route.request().method() === "POST") started = true;
+      return route.fulfill({ json: { login: started ? login : null } });
+    });
+    await page.route("**/api/v1/system/engines/logins/e2e-login", (route) =>
+      route.fulfill({ json: { login } })
+    );
+    await page.route(
+      "**/api/v1/system/engines/logins/e2e-login/code",
+      async (route) => {
+        submitted = (route.request().postDataJSON() as { code: string }).code;
+        rmSync(marker, { force: true });
+        const { url: _url, ...rest } = login;
+        login = {
+          ...rest,
+          status: "succeeded",
+          detail: "e2e@example.com",
+          finishedAt: new Date().toISOString(),
+        };
+        await route.fulfill({ json: { login } });
+      }
+    );
+    try {
+      const agent = await createAgentViaAPI(request, {
+        name: `e2e-sign-in-${Date.now()}`,
+        type: "claude",
+      });
+      await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+      await sendChat(page, `hello signed-out:${marker}`);
+
+      const turns = page.getByTestId("chat-turn");
+      const offer = turns.first().getByTestId("harness-sign-in");
+      await expect(offer).toContainText(
+        "Claude Code is signed out on this Dispatch server.",
+        { timeout: TURN_TIMEOUT }
+      );
+      await expect(turns.first().getByTestId("harness-retry-turn")).toHaveCount(
+        0
+      );
+      await offer.getByTestId("engine-sign-in-start").click();
+
+      // The sign-in runs in the card itself. The link is text to copy, not
+      // a link that opens in this browser.
+      await expect(offer.getByTestId("engine-sign-in-url")).toHaveText(url);
+      await expect(offer.getByTestId("engine-sign-in-url-copy")).toBeVisible();
+      await expect(offer.locator("a")).toHaveCount(0);
+
+      // A reload finds the sign-in where it stands.
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(offer.getByTestId("engine-sign-in-url")).toHaveText(url, {
+        timeout: TURN_TIMEOUT,
+      });
+
+      await offer.getByTestId("engine-sign-in-code").fill("  pasted-code  ");
+      await offer.getByTestId("engine-sign-in-submit").click();
+      await expect.poll(() => submitted).toBe("  pasted-code  ");
+
+      // The agent restarts and the same post is sent again: a new turn
+      // answers it, and the failed one no longer offers a sign-in.
+      await expect(turns).toHaveCount(2, { timeout: TURN_TIMEOUT });
+      await expect(turns.nth(1).getByTestId("harness-result")).toContainText(
+        "You said:",
+        { timeout: TURN_TIMEOUT }
+      );
+      await expect(turns.nth(1).getByTestId("harness-result")).toContainText(
+        "hello signed-out:"
+      );
+      await expect(offer).toHaveCount(0);
+      await expect(turns.first().getByTestId("harness-retried")).toBeVisible();
+    } finally {
+      rmSync(marker, { force: true });
+    }
   });
 
   test("composer chooses which of two active agents to stop", async ({

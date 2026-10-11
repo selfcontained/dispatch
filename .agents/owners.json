@@ -39,6 +39,12 @@
         "apps/server/test/db/*agent*",
         "apps/server/test/db/*worktree*",
         "packages/shared/src/agent-*.ts",
+        "packages/shared/src/engine-*.ts",
+        "apps/server/src/routes/engine-*.ts",
+        "apps/server/test/engine-*",
+        "apps/web/src/components/app/engine-*",
+        "apps/web/src/hooks/use-engine*",
+        "e2e/fixtures/fake-acp-agent.mjs",
         "packages/shared/src/permission-types.ts",
         "packages/shared/src/usage-types.ts"
       ],
@@ -232,6 +238,8 @@
         "apps/web/src/components/app/login-page.tsx",
         "apps/web/src/components/app/security-settings.tsx",
         "apps/server/src/shared/mcp/login-link-tools.ts",
+        "apps/server/src/agents/engine-login.ts",
+        "apps/server/src/routes/engine-login.ts",
         "apps/server/test/*login-link*"
       ],
       "personas": ["auth-trust-owner"]

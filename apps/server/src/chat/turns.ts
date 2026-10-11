@@ -576,6 +576,7 @@ export function toTurnEntry(
     settled,
     interrupted: trace.finalResult === "interrupted",
     ...(error ? { error } : {}),
+    ...(error && payload?.errorKind ? { errorKind: payload.errorKind } : {}),
     ...(retry ? { retry } : {}),
     ...(turn.plan ? { plan: turn.plan } : {}),
     ...(turn.usage ? { usage: turn.usage } : {}),

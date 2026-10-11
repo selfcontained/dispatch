@@ -1517,6 +1517,25 @@ export function useRetryTurn(rootId: string | null) {
   });
 }
 
+/**
+ * After the engine is signed in again: restart the agent and send the turn
+ * that failed on the lapsed sign-in again. The server folds the entry to
+ * "retried" before the restart; the feed refetches either way.
+ */
+export function useResendAfterSignIn(rootId: string | null) {
+  const queryClient = useQueryClient();
+  const key = streamFeedQueryKey(rootId);
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: async (blockId) =>
+      api<{ ok: true }>(`${blockPath(rootId, blockId)}/resend-after-sign-in`, {
+        method: "POST",
+      }),
+    onSettled: () => {
+      void queryClient.invalidateQueries(streamFeedFilters(key[1]));
+    },
+  });
+}
+
 export function useSetBlockState(rootId: string | null) {
   const queryClient = useQueryClient();
   const key = streamFeedQueryKey(rootId);

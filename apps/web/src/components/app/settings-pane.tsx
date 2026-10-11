@@ -8,6 +8,7 @@ import { BrowserExtensionSettings } from "@/components/app/browser-extension-set
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
+import { EngineSignInSettings } from "@/components/app/engine-sign-in-settings";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { PersonalitySettings } from "@/components/app/personality-settings";
 import { PluginUpdateSettings } from "@/components/app/plugin-update-settings";
@@ -203,6 +204,7 @@ export function SettingsContent({
               enabledAgentTypes={enabledAgentTypes}
               onChange={onEnabledAgentTypesChange}
             />
+            <EngineSignInSettings />
             <div className="border-t border-border">
               <PersonalitySettings />
             </div>

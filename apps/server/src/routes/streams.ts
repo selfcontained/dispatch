@@ -28,6 +28,8 @@ type StreamRouteDeps = {
   streams: StreamService;
   /** Maps `AgentError` (and anything else) from the service to a response. */
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
+  /** Stop and start an agent, so its engine picks up a new sign-in. */
+  restartAgent?: (agentId: string) => Promise<void>;
 };
 
 /**
@@ -355,6 +357,26 @@ export async function registerStreamRoutes(
       const params = request.params as { rootId?: string; blockId?: string };
       try {
         await streams.retryTurn(params.rootId ?? "", params.blockId ?? "");
+        return { ok: true };
+      } catch (error) {
+        return sendError(reply, error);
+      }
+    }
+  );
+
+  // The engine is signed in again: restart the agent on the new sign-in and
+  // send the turn that failed on the old one again. The block is the
+  // turn's own answer block.
+  app.post(
+    "/api/v1/streams/:rootId/blocks/:blockId/resend-after-sign-in",
+    async (request, reply) => {
+      const params = request.params as { rootId?: string; blockId?: string };
+      try {
+        await streams.resendAfterSignIn(
+          params.rootId ?? "",
+          params.blockId ?? "",
+          deps.restartAgent ?? (async () => {})
+        );
         return { ok: true };
       } catch (error) {
         return sendError(reply, error);

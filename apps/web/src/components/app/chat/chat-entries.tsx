@@ -177,6 +177,11 @@ export type FeedContext = {
   onRetryDelivery?: (blockId: string) => void;
   /** Runs a failed turn again, from the turn's own answer block. */
   onRetryTurn?: (blockId: string) => void;
+  /**
+   * After the engine is signed in again, sends a turn that failed on the
+   * lapsed sign-in again, from the turn's own answer block.
+   */
+  onResendAfterSignIn?: (blockId: string) => void;
   /** Blocks with a retry in flight, so the row can say so. */
   retrying?: ReadonlySet<string>;
 };

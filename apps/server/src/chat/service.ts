@@ -4,7 +4,10 @@ import {
   automaticExcerpt,
   messageExcerpt,
 } from "./context.js";
-import { qualifyExternalMentions } from "@dispatch/shared";
+import {
+  AUTHENTICATION_REQUIRED,
+  qualifyExternalMentions,
+} from "@dispatch/shared";
 import { createHash, randomUUID } from "node:crypto";
 import type { DriverEvent } from "../agents/acp/driver.js";
 import path from "node:path";
@@ -3709,8 +3712,6 @@ export class StreamService {
           : "That post is still being delivered."
       );
     }
-    const mentioned =
-      block.kind === "text" ? (block.data?.mentions ?? []) : undefined;
     const named = addressedTo(block);
     // Only the agents that never took it. A post to three agents where one
     // engine died is sent again to that one alone; the other two have read
@@ -3719,6 +3720,26 @@ export class StreamService {
       .filter((entry) => entry.state === "failed")
       .map((entry) => entry.agentId);
     const recipients = missed.length > 0 ? missed : named;
+    // An agent that cannot take a prompt gets the reason now rather than a
+    // second spinner: a retry is for a message that missed, not a way to
+    // wake something that is not running.
+    for (const id of recipients) await this.canDeliver(id, false);
+    return this.deliverAgain(block, recipients);
+  }
+
+  /**
+   * Send a post to `recipients` once more, as the post it was: the same
+   * words, attachments and the ask it answered. Its row goes back to
+   * pending for them while it goes.
+   */
+  private async deliverAgain(
+    block: Block,
+    recipients: string[]
+  ): Promise<{ block: Block; held: boolean }> {
+    const streamId = block.streamId;
+    const mentioned =
+      block.kind === "text" ? (block.data?.mentions ?? []) : undefined;
+    const named = addressedTo(block);
     // The first send persisted this intent. Retrying must not reclassify it
     // against the host's current command list: it may be unavailable while
     // the host reconnects, and wrapping the prompt would change its meaning.
@@ -3731,10 +3752,6 @@ export class StreamService {
       named.length === 1 &&
       recipients.length === 1;
     const agents = await Promise.all(named.map((id) => this.requireAgent(id)));
-    // An agent that cannot take a prompt gets the reason now rather than a
-    // second spinner: a retry is for a message that missed, not a way to
-    // wake something that is not running.
-    for (const id of recipients) await this.canDeliver(id, false);
     const lines = new Map(
       await Promise.all(
         agents.map(
@@ -3816,6 +3833,15 @@ export class StreamService {
     if (!taken) {
       throw new StreamConflictError("That turn can't be retried.");
     }
+    // A lapsed sign-in fails again on the same engine; its offer is the
+    // sign-in (resendAfterSignIn), which restarts the agent first.
+    if ((taken.payload as TurnPayload).errorKind === AUTHENTICATION_REQUIRED) {
+      await this.turns.reopenRetry(agentId, turnId);
+      await this.publishBlockEntry(streamId, blockId);
+      throw new StreamConflictError(
+        "That turn failed on sign-in; sign the engine in to send it again."
+      );
+    }
     const error = (taken.payload as TurnPayload).error ?? "";
     await this.publishBlockEntry(streamId, blockId);
     this.injectDetached({
@@ -3830,6 +3856,87 @@ export class StreamService {
       // Not the failed turn's block being delivered: a prompt of
       // Dispatch's own, which the feed shows as the notice above the
       // turn it opens.
+      source: { source: "system", text: RETRY_TURN_NOTICE },
+    });
+  }
+
+  /**
+   * After the engine is signed in again: the turn that failed on the lapsed
+   * sign-in is sent again as it was. `restart` brings the agent back up on
+   * the new sign-in first. The posts that opened the turn go to the agent
+   * once more; a turn some other prompt opened gets the retry notice. The
+   * entry says "retried" at once, and offers the sign-in again if the
+   * restart or the send fails.
+   */
+  async resendAfterSignIn(
+    streamId: string,
+    blockId: string,
+    restart: (agentId: string) => Promise<void>
+  ): Promise<void> {
+    const block = await this.store.getById(blockId);
+    const turnId = block ? turnAnchorOf(block) : null;
+    if (
+      !block ||
+      block.streamId !== streamId ||
+      turnId === null ||
+      block.author.kind !== "agent"
+    ) {
+      throw new StreamValidationError("Turn not found.");
+    }
+    const agentId = block.author.agentId;
+    if ((await loadNewestTurnBlockId(this.store.db, agentId)) !== blockId) {
+      throw new StreamConflictError(
+        "The agent has had a turn since; only its latest turn can be sent again."
+      );
+    }
+    const taken = await this.turns.takeRetry(agentId, turnId);
+    if (!taken) throw new StreamConflictError("That turn can't be sent again.");
+    const payload = taken.payload as TurnPayload;
+    const reopen = async () => {
+      await this.turns.reopenRetry(agentId, turnId);
+      await this.publishBlockEntry(streamId, blockId);
+    };
+    if (payload.errorKind !== AUTHENTICATION_REQUIRED) {
+      await reopen();
+      throw new StreamConflictError("That turn did not fail on sign-in.");
+    }
+    await this.publishBlockEntry(streamId, blockId);
+    // Once a post has gone, the offer stays taken: taking it again would
+    // send that post twice. A later post that failed says so on its own row.
+    let sent = false;
+    try {
+      await restart(agentId);
+      await this.canDeliver(agentId, false);
+      const prompt = payload.prompt;
+      const posts =
+        prompt.source === "chat"
+          ? await Promise.all(
+              (prompt.chatMessageIds ?? [prompt.chatMessageId]).map((id) =>
+                this.store.getById(id)
+              )
+            )
+          : [];
+      const resend = posts.filter(
+        (post): post is Block => !!post && addressedTo(post).includes(agentId)
+      );
+      if (resend.length > 0) {
+        for (const post of resend) {
+          await this.deliverAgain(post, [agentId]);
+          sent = true;
+        }
+        return;
+      }
+    } catch (error) {
+      if (!sent) await reopen();
+      throw error;
+    }
+    this.injectDetached({
+      agentId,
+      envelope: buildRetryTurnEnvelope(payload.error ?? ""),
+      record: async (delivered) => {
+        if (!delivered) await reopen();
+      },
+      logContext: { blockId, reason: "resend-after-sign-in" },
       source: { source: "system", text: RETRY_TURN_NOTICE },
     });
   }

@@ -369,6 +369,11 @@ export type ChatTurnEntry = {
   interrupted: boolean;
   error?: string;
   /**
+   * The engine's category for `error`, when it gave one that changes what
+   * the turn offers: `authentication_required` offers a sign-in.
+   */
+  errorKind?: string;
+  /**
    * A failed turn a later attempt could clear: `open` while it is the
    * agent's latest turn, `retried` once the user retried it.
    */

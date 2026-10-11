@@ -1,5 +1,9 @@
 import { memo, type ReactNode, useMemo } from "react";
-import type { Block, ChatTurnEntry } from "@dispatch/shared";
+import {
+  AUTHENTICATION_REQUIRED,
+  type Block,
+  type ChatTurnEntry,
+} from "@dispatch/shared";
 import {
   BlockView,
   historicalMentionablesOf,
@@ -7,6 +11,8 @@ import {
   POST_BODY_MEASURE,
 } from "@/components/app/chat/chat-entries";
 import { MentionText } from "@/components/app/chat/mention-picker";
+import { EngineSignIn } from "@/components/app/engine-sign-in";
+import { ENGINE_LOGIN_LABELS, isLoginEngine } from "@/hooks/use-engine-login";
 import { mentionSpans } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +22,12 @@ import { AutoHeight } from "./auto-height";
 import type { Trace, Turn } from "./contracts";
 import { turnLabelFromSteps } from "./registry";
 import { turnTrace } from "./trace";
-import { type ResultRetry, ResultText, ResultTurn } from "./result-turn";
+import {
+  type ResultRetry,
+  type ResultSignIn,
+  ResultText,
+  ResultTurn,
+} from "./result-turn";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
@@ -130,6 +141,49 @@ export function TurnAnswer({
         : undefined,
     [turn.retry, onRetryTurn, retryPending, block.id]
   );
+  // A turn that failed on the engine's lapsed sign-in offers the sign-in
+  // while its retry is open; signing in sends the turn again.
+  const engine =
+    turn.agentId === ctx.agentId
+      ? ctx.agentType
+      : ctx.peers?.[turn.agentId]?.agentType;
+  const onResend = ctx.onResendAfterSignIn;
+  const authFailed = turn.errorKind === AUTHENTICATION_REQUIRED;
+  const sincePending = retryPending;
+  const failedAt = turn.trace.endedAt ?? block.createdAt;
+  const signIn = useMemo<ResultSignIn | undefined>(
+    () =>
+      authFailed && turn.retry === "open" && isLoginEngine(engine) && onResend
+        ? {
+            label: ENGINE_LOGIN_LABELS[engine],
+            body: sincePending ? (
+              <p className="text-[12px] text-muted-foreground">
+                Sending again…
+              </p>
+            ) : (
+              <EngineSignIn
+                engine={engine}
+                since={failedAt}
+                // A sign-in that succeeded after this turn failed sends it
+                // again, wherever it was started from.
+                onSignedIn={() => onResend(block.id)}
+                extra={
+                  <button
+                    type="button"
+                    className="text-[11.5px] text-muted-foreground underline underline-offset-2 hover:no-underline"
+                    onClick={() => onResend(block.id)}
+                    data-testid="harness-send-again"
+                  >
+                    Already signed in? Send again
+                  </button>
+                }
+              />
+            ),
+          }
+        : undefined,
+    [authFailed, turn.retry, engine, onResend, sincePending, failedAt, block.id]
+  );
+
   return (
     <div
       className={cn(
@@ -147,7 +201,12 @@ export function TurnAnswer({
         {turn.settled ? (
           <ResultTurn
             turn={result}
-            retry={retry}
+            // Retry turn cannot clear a lapsed sign-in; without the sign-in
+            // offer, the error's own instructions are what is left.
+            retry={
+              authFailed && !signIn && turn.retry === "open" ? undefined : retry
+            }
+            signIn={signIn}
             renderText={(text) => (
               <MentionText
                 spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}

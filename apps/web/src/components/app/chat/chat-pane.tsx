@@ -57,6 +57,7 @@ import {
   usePostBlock,
   useRetryDelivery,
   useRetryTurn,
+  useResendAfterSignIn,
   useSetBlockState,
   useStreamFeed,
   useSubmitForm,
@@ -507,6 +508,7 @@ export function ChatPane({
   const setBlockState = useSetBlockState(rootId);
   const retry = useRetryDelivery(rootId);
   const retryTurn = useRetryTurn(rootId);
+  const resendAfterSignIn = useResendAfterSignIn(rootId);
   const reaction = useToggleReaction(rootId);
   const markRead = useMarkStreamRead(rootId, feed.unreadCount);
   // A post from a child's page goes to the child; the root's page posts to
@@ -1087,6 +1089,7 @@ export function ChatPane({
   // distinct from the others when a few failed together.
   const { mutate: retryNow } = retry;
   const { mutate: retryTurnNow } = retryTurn;
+  const { mutate: resendAfterSignInNow } = resendAfterSignIn;
   const retrying = useMemo(
     () =>
       new Set([
@@ -1094,8 +1097,18 @@ export function ChatPane({
         ...(retryTurn.isPending && retryTurn.variables
           ? [retryTurn.variables]
           : []),
+        ...(resendAfterSignIn.isPending && resendAfterSignIn.variables
+          ? [resendAfterSignIn.variables]
+          : []),
       ]),
-    [retry.isPending, retry.variables, retryTurn.isPending, retryTurn.variables]
+    [
+      retry.isPending,
+      retry.variables,
+      retryTurn.isPending,
+      retryTurn.variables,
+      resendAfterSignIn.isPending,
+      resendAfterSignIn.variables,
+    ]
   );
   const onRetryDelivery = useCallback(
     (blockId: string) => {
@@ -1118,6 +1131,19 @@ export function ChatPane({
       });
     },
     [retryTurnNow]
+  );
+
+  // Signed in again: the agent restarts on the new sign-in and the turn's
+  // message goes to it once more.
+  const onResendAfterSignIn = useCallback(
+    (blockId: string) => {
+      setSendError(null);
+      resendAfterSignInNow(blockId, {
+        onError: (err) =>
+          setSendError(`Couldn't send that message again: ${err.message}`),
+      });
+    },
+    [resendAfterSignInNow]
   );
 
   const { mutate: toggleReactionNow } = reaction;
@@ -1155,6 +1181,7 @@ export function ChatPane({
     settingBlockStateId,
     onRetryDelivery,
     onRetryTurn,
+    onResendAfterSignIn,
     retrying,
     agentNames: feed.agentNames,
   });

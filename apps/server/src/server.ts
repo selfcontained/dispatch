@@ -94,6 +94,9 @@ import { isMacAppManaged } from "./update-owner.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { registerEngineLoginRoutes } from "./routes/engine-login.js";
+import { EngineLogins } from "./agents/engine-login.js";
+import { engineStatuses } from "./agents/engine-availability.js";
 import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
@@ -750,6 +753,18 @@ async function registerRoutes() {
       opencode: config.opencodeBin,
     },
   });
+  await registerEngineLoginRoutes(
+    app,
+    new EngineLogins({
+      resolveBin: async (engine) =>
+        (
+          await engineStatuses({
+            claude: config.claudeBin,
+            codex: config.codexBin,
+          })
+        ).find((status) => status.id === engine)?.path ?? null,
+    })
+  );
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -825,6 +840,9 @@ async function registerRoutes() {
     pool,
     streams: streamService,
     handleAgentError,
+    restartAgent: async (agentId) => {
+      await agentManager.restartHost(agentId);
+    },
   });
 
   await registerAgentRoutes(app, {

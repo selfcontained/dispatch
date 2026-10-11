@@ -1980,6 +1980,33 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
+  /**
+   * Bring the agent's host down and up again so its engine picks up a new
+   * sign-in. Not a Stop: the repo's stop hook does not run and the agent's
+   * scheduled messages stay, since nothing about the agent's work changed.
+   * A host that is not running is just started.
+   */
+  async restartHost(id: string): Promise<AgentRecord> {
+    return this.serializeLifecycle(id, async () => {
+      const agent = await this.getRequiredAgent(id);
+      if (agent.status === "running") {
+        await this.setAgentStatus(id, "stopping", null);
+        try {
+          this.streamRecorder.beginStop(id);
+          await this.runtime.stop(id, false);
+          await this.streamRecorder.settleStopped(id);
+          await this.setAgentStatus(id, "stopped", null);
+          this.notifyStreamWrite(id, true);
+        } catch (error) {
+          const message = errorMessage(error);
+          await this.setAgentStatus(id, "error", message);
+          throw new AgentError(`Failed to restart agent: ${message}`, 500);
+        }
+      }
+      return this.claimAndStartAgent(id);
+    });
+  }
+
   async stopAgent(
     id: string,
     input: StopAgentInput = {}
