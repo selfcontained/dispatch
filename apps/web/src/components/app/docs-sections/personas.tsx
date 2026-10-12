@@ -6,10 +6,46 @@ export function PersonasContent() {
       <P>
         Personas are reusable launch profiles defined per repository. Each one
         looks at work from a specific perspective — for example, security, UX,
-        or architecture. A persona agent runs as a child of the agent that
+        or architecture. A review persona runs as a child of the agent that
         launched it and posts what it produces into that agent&apos;s stream; a
         reviewer persona posts one <Code>review</Code> block.
       </P>
+
+      <Section>
+        <H3>Personas for agent launches</H3>
+        <P>
+          The optional Persona picker on Create agent, templates, and jobs adds
+          reusable instructions to a normal task. Select No persona to clear it.
+          Available personas come from the selected working directory.
+        </P>
+        <P>
+          Set frontmatter <Code>type: task</Code> for normal launches or
+          <Code>type: review</Code> for reviewers. Each persona has one type.
+          New personas created with persona_upsert default to task without
+          requiring a type argument. Existing files without a type remain
+          reviewers for compatibility, including files without feedbackFormat.
+          Normal launches receive the persona instructions without the review
+          reporting workflow. The old <Code>feedbackFormat</Code> field is no
+          longer needed and is recognized as a review marker in older files
+          without an explicit type. An explicit type always wins.
+        </P>
+        <CodeBlock>{`# .agents/personas/implementer.md
+---
+type: task
+name: Implementer
+description: Builds and verifies small, focused changes
+---
+Implement the requested change using repository conventions.
+Verify the result and explain any limitations.`}</CodeBlock>
+        <P>
+          MCP callers can filter <Code>list_personas</Code> by <Code>type</Code>
+          . Pass <Code>persona</Code> to <Code>launch_agent</Code>; its type
+          determines the launch behavior. Normal launches retain the usual
+          directory, worktree, template, and child options. Template and job MCP
+          tools also accept an optional task <Code>persona</Code>; pass null to
+          clear a saved selection.
+        </P>
+      </Section>
 
       <Section>
         <H3>How personas work</H3>
@@ -89,7 +125,7 @@ export function PersonasContent() {
 ---
 name: Security Review
 description: Reviews code for security vulnerabilities
-feedbackFormat: findings
+type: review
 ---
 
 You are a security reviewer. Analyze the changes below for
@@ -97,8 +133,10 @@ vulnerabilities, injection risks, and auth issues. Flag only
 issues caused or worsened by this diff.`}</CodeBlock>
         <P>
           The <Code>name</Code> and <Code>description</Code> fields are shown in
-          the persona picker UI. The <Code>feedbackFormat</Code> field is
-          optional and defaults to <Code>findings</Code>.
+          the persona picker UI. New <Code>persona_upsert</Code> calls default
+          to <Code>task</Code>
+          and write the type into the file. Handwritten task personas need
+          <Code>type: task</Code>; untyped files retain review behavior.
         </P>
         <P>
           Agents can author personas too: standard agents and jobs get{" "}

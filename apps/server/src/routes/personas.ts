@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/lib/error-message.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
@@ -5,7 +6,10 @@ import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { hasCodeowners } from "../personas/codeowners.js";
-import { loadPersonasFromRoots } from "../personas/loader.js";
+import {
+  loadPersonasFromRoots,
+  supportsPersonaType,
+} from "../personas/loader.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
@@ -110,7 +114,7 @@ export async function registerPersonaRoutes(
   deps: PersonaRouteDeps
 ): Promise<void> {
   app.get("/api/v1/personas", async (request, reply) => {
-    const query = request.query as { cwd?: unknown };
+    const query = request.query as { cwd?: unknown; type?: unknown };
     if (typeof query.cwd !== "string") {
       return reply
         .code(400)
@@ -119,15 +123,25 @@ export async function registerPersonaRoutes(
     try {
       const worktreeRoot = await resolveOptionalWorktreeRoot(query.cwd);
       const repoRoot = await resolveOptionalRepoRoot(query.cwd);
-      const personas = await loadPersonasFromRoots({ worktreeRoot, repoRoot });
+      const warnings: string[] = [];
+      const personas = await loadPersonasFromRoots({
+        warnings,
+        worktreeRoot: worktreeRoot ?? query.cwd,
+        repoRoot,
+      });
       // Owner reviews read the map from the checkout being reviewed, so only
       // the worktree decides whether the option is offered.
       const codeowners = worktreeRoot
         ? await hasCodeowners(worktreeRoot)
         : false;
-      return { personas, codeowners };
-    } catch {
-      return { personas: [], codeowners: false };
+      const type = query.type === "task" ? "task" : "review";
+      return {
+        personas: personas.filter((p) => supportsPersonaType(p, type)),
+        codeowners,
+        ...(warnings.length ? { warnings } : {}),
+      };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
     }
   });
 

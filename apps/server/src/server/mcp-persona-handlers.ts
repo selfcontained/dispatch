@@ -9,6 +9,7 @@ import {
 } from "../agent-type-settings.js";
 import { getBuiltInPersona } from "../personas/built-in.js";
 import {
+  supportsPersonaType,
   assemblePersonaPrompt,
   buildStandardFeedbackGuidance,
   MAX_PERSONA_PROMPT_BYTES,
@@ -161,6 +162,10 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       );
     }
 
+    if (!supportsPersonaType(persona, "review"))
+      throw new Error(
+        `Persona "${opts.persona}" is not available for review launches.`
+      );
     const prompt = assemblePersonaPrompt(persona, opts.context);
 
     const agentArgs: string[] = [
@@ -215,6 +220,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         fullAccess: parent.fullAccess,
         useWorktree: false,
         persona: opts.persona,
+        role: "review",
         parentAgentId: parentId,
         launchedByAgentId: parentId,
         personaContext: opts.context,
@@ -275,6 +281,10 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         throw new Error(
           `Owner persona "${owner.persona}" not found in this workspace or built-ins.`
         );
+      if (!supportsPersonaType(persona, "review"))
+        throw new Error(
+          `Owner persona "${owner.persona}" is not available for review launches.`
+        );
       if (!persona.body.trim())
         throw new Error(
           `Owner persona "${owner.persona}" has no instructions.`
@@ -292,15 +302,16 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     );
   }
 
-  async function listPersonas(
-    agentCwd: string
-  ): Promise<Array<{ slug: string; name: string; description: string }>> {
-    const personas = await loadPersonas(agentCwd);
-    return personas.map(({ slug, name, description }) => ({
+  async function listPersonas(agentCwd: string) {
+    const warnings: string[] = [];
+    const loaded = await loadPersonas(agentCwd, warnings);
+    const personas = loaded.map(({ slug, name, description, type }) => ({
+      type: type ?? "review",
       slug,
       name,
       description,
     }));
+    return { personas, warnings };
   }
 
   return {

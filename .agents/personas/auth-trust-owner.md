@@ -1,7 +1,7 @@
 ---
 name: Authentication and Local Trust Owner
 description: Session authentication, browser origin protection, scoped credentials, and local TLS trust boundaries.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

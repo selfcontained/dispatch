@@ -1,7 +1,13 @@
-import { GitBranch } from "lucide-react";
+import { GitBranch, Info } from "lucide-react";
 
 import { BranchSelect } from "@/components/app/branch-select";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -42,36 +48,55 @@ export function WorktreeSection({
       )}
       data-testid="create-agent-worktree-section"
     >
-      <label
-        className={cn(
-          "flex items-start gap-3",
-          worktreeAvailable ? "cursor-pointer" : "cursor-not-allowed"
-        )}
-      >
-        <Checkbox
-          checked={worktreeChecked}
-          onCheckedChange={(checked) => onUseWorktreeChange(checked === true)}
-          disabled={!worktreeAvailable}
-          className="mt-0.5"
-          title={
-            worktreeAvailable
-              ? "Toggle managed git worktree"
-              : "Not a git repository"
-          }
-          data-testid="create-agent-worktree"
-        />
-        <span className="space-y-1">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <GitBranch className="h-3.5 w-3.5" />
-            Create managed git worktree
+      <div className="flex items-start gap-2">
+        <label
+          className={cn(
+            "flex items-start gap-3",
+            worktreeAvailable ? "cursor-pointer" : "cursor-not-allowed"
+          )}
+        >
+          <Checkbox
+            checked={worktreeChecked}
+            onCheckedChange={(checked) => onUseWorktreeChange(checked === true)}
+            disabled={!worktreeAvailable}
+            className="mt-0.5"
+            title={
+              worktreeAvailable
+                ? "Toggle managed git worktree"
+                : "Not a git repository"
+            }
+            data-testid="create-agent-worktree"
+          />
+          <span className="space-y-1">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <GitBranch className="h-3.5 w-3.5" />
+              Create managed git worktree
+            </span>
+            {!worktreeAvailable && (
+              <span className="block text-xs text-muted-foreground">
+                Requires a Git repository.
+              </span>
+            )}
           </span>
-          <span className="block text-xs text-muted-foreground">
-            {worktreeAvailable
-              ? "Creates an isolated worktree for this agent. Dispatch tracks and cleans it up when the agent is archived."
-              : "Working directory isn't a git repository, so a managed worktree isn't available here."}
-          </span>
-        </span>
-      </label>
+        </label>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="About managed worktrees"
+                className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <Info className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-64">
+              Creates an isolated worktree for this agent. Dispatch tracks and
+              cleans it up when the agent is archived.
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
       <div
         aria-disabled={!branchControlsEnabled}
         className={cn(
@@ -122,8 +147,7 @@ export function WorktreeSection({
                     Create a new branch in this worktree
                   </span>
                   <span className="block text-xs text-muted-foreground">
-                    Creates a new working branch from the starting branch so the
-                    agent can make isolated changes for later submission.
+                    Branch off the starting branch for this agent’s changes.
                   </span>
                 </span>
               </label>

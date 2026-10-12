@@ -145,6 +145,35 @@ describe("registerPersonaInteractionTools", () => {
   });
 
   describe("tool handlers", () => {
+    it("returns per-file warnings alongside healthy personas", async () => {
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["list_personas"]),
+        {
+          agentId,
+          worktreeRoot: "/wt",
+          listPersonas: async () => ({
+            personas: [
+              {
+                slug: "builder",
+                name: "Builder",
+                description: "",
+                type: "task",
+              },
+            ],
+            warnings: ["Invalid persona type in broken.md"],
+          }),
+        }
+      );
+      const result = await server.tools[0].handler({});
+      expect((result as any).structuredContent).toMatchObject({
+        personas: expect.arrayContaining([
+          expect.objectContaining({ slug: "builder", type: "task" }),
+        ]),
+        warnings: ["Invalid persona type in broken.md"],
+      });
+    });
+
     it("list_personas calls resolvePersonaList with correct roots", async () => {
       const personas = [
         { slug: "sec", name: "Security", description: "review" },
@@ -165,7 +194,7 @@ describe("registerPersonaInteractionTools", () => {
       const result = await server.tools[0].handler({});
       expect(result).toHaveProperty("structuredContent");
       expect((result as any).structuredContent.personas).toEqual([
-        ...personas,
+        ...personas.map((p) => ({ ...p, type: "review" })),
         ...BUILT_IN_PERSONA_SUMMARIES,
       ]);
     });

@@ -93,6 +93,8 @@ export function useCreateAgentForm({
     remove: removeCwdHistory,
   } = useCwdHistory();
   const {
+    persona: createPersona,
+    setPersona: setCreatePersona,
     fullAccess: createFullAccess,
     setFullAccess: setCreateFullAccess,
     useWorktree: createUseWorktree,
@@ -226,6 +228,7 @@ export function useCreateAgentForm({
           name: createName.trim(),
           cwd,
           type: createType,
+          persona: createPersona ?? undefined,
           model: modelOptions.some((option) => option.id === createModel)
             ? createModel
             : undefined,
@@ -291,6 +294,7 @@ export function useCreateAgentForm({
       createFullAccess,
       createName,
       createModel,
+      createPersona,
       createNewBranch,
       createType,
       createUseWorktree,
@@ -330,6 +334,8 @@ export function useCreateAgentForm({
     creating,
     createFullAccess,
     setCreateFullAccess,
+    createPersona,
+    setCreatePersona,
     createModel,
     setCreateModel,
     modelOptions,

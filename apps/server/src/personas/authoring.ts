@@ -16,6 +16,7 @@ import { LEGACY_PERSONAS_DIR, PERSONA_DIRS, PERSONAS_DIR } from "./paths.js";
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export type PersonaTemplate = {
+  type: "review";
   id: string;
   description: string;
   name: string;
@@ -26,6 +27,7 @@ export type PersonaTemplate = {
 export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   {
     id: "code-review",
+    type: "review",
     description:
       "A focused engineering reviewer for correctness and maintainability.",
     name: "Code Review",
@@ -36,6 +38,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "product-ux",
+    type: "review",
     description: "A product and UX reviewer for user-facing flows and clarity.",
     name: "Product & UX Review",
     personaDescription:
@@ -45,6 +48,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "domain-review",
+    type: "review",
     description:
       "A blank starting point for a repository-specific expert reviewer.",
     name: "Domain Review",
@@ -75,13 +79,11 @@ export function renderPersona(input: {
   name: string;
   description: string;
   instructions: string;
-  feedbackFormat?: string;
+  type?: "review" | "task";
 }): string {
-  const feedbackFormat = input.feedbackFormat ?? "findings";
-  if (!feedbackFormat.trim() || /[\r\n]/.test(feedbackFormat)) {
-    throw new Error("feedbackFormat must be non-empty single-line text.");
-  }
-  return `---\nname: ${input.name}\ndescription: ${input.description}\nfeedbackFormat: ${feedbackFormat}\n---\n\n${input.instructions.trim()}\n`;
+  if (input.type && !["review", "task"].includes(input.type))
+    throw new Error("Invalid persona type.");
+  return `---\ntype: ${input.type ?? "task"}\nname: ${input.name}\ndescription: ${input.description}\n---\n\n${input.instructions.trim()}\n`;
 }
 
 function isWithin(root: string, target: string): boolean {
@@ -138,7 +140,7 @@ export async function upsertPersona(input: {
   name: string;
   description: string;
   instructions: string;
-  feedbackFormat?: string;
+  type?: "review" | "task";
 }): Promise<{ path: string; created: boolean; content: string }> {
   validatePersonaSlug(input.slug);
   if (
@@ -151,7 +153,6 @@ export async function upsertPersona(input: {
   if (/[\r\n]/.test(input.name) || /[\r\n]/.test(input.description)) {
     throw new Error("name and description must be single-line text.");
   }
-  const content = renderPersona(input);
   const personasDir = await personaDirectoryFor(input.root, input.slug);
   const directory = await ensureSafePersonaDirectory(input.root, personasDir);
   const filePath = path.join(directory, `${input.slug}.md`);
@@ -160,6 +161,16 @@ export async function upsertPersona(input: {
     throw new Error("Refusing to overwrite a symlinked persona file.");
   }
   const existed = entry !== null;
+  // Editing instructions must not silently turn a task persona into a reviewer.
+  const existingType =
+    existed && input.type === undefined
+      ? (parseFrontmatter(await readFile(filePath, "utf8")).frontmatter.type ??
+        "review")
+      : undefined;
+  const content = renderPersona({
+    ...input,
+    type: input.type ?? (existingType as "review" | "task" | undefined),
+  });
   const handle = await open(
     filePath,
     constants.O_WRONLY |
@@ -219,6 +230,8 @@ export async function validatePersonas(
       } catch (error) {
         errors.push(errorMessage(error));
       }
+      if (frontmatter.type && !["review", "task"].includes(frontmatter.type))
+        errors.push("type must be review or task.");
       if (!frontmatter.name?.trim())
         errors.push("Missing required frontmatter field: name.");
       if (!frontmatter.description?.trim())
@@ -228,8 +241,6 @@ export async function validatePersonas(
         warnings.push(
           "Persona instructions are at least 48KiB. The complete launch context may exceed the 64KiB inline budget and require the reviewer to read a private context file; no content will be trimmed."
         );
-      if (!frontmatter.feedbackFormat)
-        warnings.push("feedbackFormat is omitted; it defaults to findings.");
       return {
         slug,
         path: path.join(personasDir, file),

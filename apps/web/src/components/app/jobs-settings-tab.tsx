@@ -11,6 +11,7 @@ import {
   SwitchToggle,
   WebhookUrl,
 } from "@/components/app/jobs-form-fields";
+import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import {
@@ -49,6 +50,7 @@ export function SettingsTab({
     minutesFromMs(job.needsInputTimeoutMs)
   );
   const [agentType, setAgentType] = useState<CliAgentType>(job.agentType);
+  const [persona, setPersona] = useState<string | null>(job.persona ?? null);
   const [model, setModel] = useState<string | null>(job.model);
   const {
     options: modelOptions,
@@ -94,6 +96,7 @@ export function SettingsTab({
     setNeedsInputTimeoutMinutes(minutesFromMs(job.needsInputTimeoutMs));
     setAgentType(job.agentType);
     setModel(job.model);
+    setPersona(job.persona ?? null);
     setFullAccess(job.fullAccess);
     setUseWorktree(job.useWorktree);
     setBaseBranch(job.baseBranch ?? "main");
@@ -187,6 +190,11 @@ export function SettingsTab({
             showEnabled={false}
             onScheduleChange={setSchedule}
             onEnabledChange={setEnabled}
+          />
+          <AgentPersonaSelect
+            cwd={job.directory}
+            value={persona}
+            onChange={setPersona}
           />
           <JobAgentTypeField
             value={agentType}
@@ -341,6 +349,7 @@ export function SettingsTab({
                 needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
                 agentType,
                 model: normalizeModel(model),
+                persona,
                 useWorktree,
                 baseBranch: useWorktree ? baseBranch : null,
                 branchName: useWorktree ? branchName : null,

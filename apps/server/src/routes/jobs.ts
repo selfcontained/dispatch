@@ -29,6 +29,7 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   needsInputTimeoutMs: z.number().int().positive().optional(),
   agentType: z.enum(CLI_AGENT_TYPES).optional(),
   model: z.string().nullable().optional(),
+  persona: z.string().min(1).nullable().optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),

@@ -31,7 +31,8 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
     stderr: "",
   })),
 }));
-vi.mock("../src/personas/loader.js", () => ({
+vi.mock("../src/personas/loader.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/personas/loader.js")>()),
   loadPersonas: vi.fn(async () => []),
   loadPersonaBySlug: vi.fn(),
   assemblePersonaPrompt: vi.fn(() => "assembled-prompt"),
@@ -95,7 +96,8 @@ beforeEach(() => {
     slug,
     name: slug,
     description: "Owner",
-    feedbackFormat: "findings",
+    type: "review",
+
     body: "Verify subsystem contracts",
   }));
   vi.mocked(runCommand).mockResolvedValue({
@@ -212,7 +214,8 @@ describe("ACP code owner launches", () => {
             slug,
             name: slug,
             description: "Owner",
-            feedbackFormat: "findings",
+            type: "review",
+
             body: "Instructions",
           }
     );

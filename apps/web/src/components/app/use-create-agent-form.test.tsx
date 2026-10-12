@@ -15,6 +15,7 @@ import type { Agent } from "@/components/app/types";
 import type { AgentType } from "@/lib/agent-types";
 import {
   createAgentModelPrefAtom,
+  createPersonaPrefAtom,
   createBaseBranchPrefAtom,
   createFullAccessPrefAtom,
   createNewBranchPrefAtom,
@@ -150,6 +151,7 @@ beforeEach(() => {
   });
   jotaiStore = createStore();
   apiMock.mockImplementation(async (path: string) => {
+    if (path.startsWith("/api/v1/personas?")) return { personas: [] };
     if (path.startsWith("/api/v1/history/projects")) return { projects: [] };
     if (path === "/api/v1/system/defaults") return { homeDir: "/home/srv" };
     if (path === "/api/v1/agents") return { agent: createdAgent };
@@ -176,6 +178,8 @@ afterEach(() => {
   // read happens against that test's localStorage state.
   createNewBranchPrefAtom.setShouldRemove(() => true);
   createNewBranchPrefAtom.setShouldRemove(null);
+  createPersonaPrefAtom.setShouldRemove(() => true);
+  createPersonaPrefAtom.setShouldRemove(null);
   for (const family of [
     createBaseBranchPrefAtom,
     createFullAccessPrefAtom,
@@ -642,5 +646,58 @@ describe("worktree checkbox state vs. cwd repo-ness", () => {
     expect(result.current.worktreeAvailable).toBe(true);
     expect(result.current.createUseWorktree).toBe(true);
     expect(result.current.createNewBranch).toBe(true);
+  });
+});
+
+describe("repo-specific launch personas", () => {
+  it("remembers each directory independently, including no persona and remounts", async () => {
+    const first = await setup();
+    act(() => first.result.current.setCreatePersona("builder"));
+    expect(first.result.current.createName).toBe("");
+    act(() => first.result.current.setCreateCwd("/repo/other"));
+    expect(first.result.current.createPersona).toBeNull();
+    expect(first.result.current.createName).toBe("");
+    act(() => first.result.current.setCreatePersona("builder"));
+    expect(first.result.current.createName).toBe("");
+    act(() => first.result.current.setCreateCwd("/repo/app"));
+    expect(first.result.current.createPersona).toBe("builder");
+    expect(first.result.current.createName).toBe("");
+    act(() => first.result.current.setCreatePersona(null));
+    expect(first.result.current.createName).toBe("");
+    first.unmount();
+    const second = await setup({ resolveDefaultCwd: () => "/repo/other" });
+    expect(second.result.current.createPersona).toBe("builder");
+    expect(second.result.current.createName).toBe("");
+    act(() => second.result.current.setCreateCwd("/repo/app"));
+    expect(second.result.current.createPersona).toBeNull();
+  });
+
+  it("leaves names independent of persona and directory changes", async () => {
+    const { result } = await setup();
+    act(() => result.current.setCreatePersona("builder"));
+    expect(result.current.createName).toBe("");
+    act(() => result.current.setCreatePersona("planner"));
+    expect(result.current.createName).toBe("");
+    act(() => result.current.setCreateName("My task"));
+    act(() => result.current.setCreatePersona("builder"));
+    act(() => result.current.setCreateCwd("/repo/other"));
+    expect(result.current.createName).toBe("My task");
+    act(() => result.current.setCreateName(""));
+    expect(result.current.createName).toBe("");
+    act(() => result.current.setCreatePersona("builder"));
+    expect(result.current.createName).toBe("");
+  });
+
+  it("submits a restored persona without supplying a session name", async () => {
+    window.localStorage.setItem(
+      "dispatch:persona:/repo/app",
+      JSON.stringify("builder")
+    );
+    const { result } = await setup();
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      persona: "builder",
+      name: "",
+    });
   });
 });

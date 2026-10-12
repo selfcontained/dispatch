@@ -6,6 +6,7 @@ import { type AgentType, isAgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import {
   createAgentModelPrefAtom,
+  createPersonaPrefAtom,
   createBaseBranchPrefAtom,
   createFullAccessPrefAtom,
   createNewBranchPrefAtom,
@@ -197,6 +198,9 @@ export function useCwdHistory() {
 
 export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
   const trimmedCwd = cwd.trim();
+  const [persona, setPersona] = useAtom(
+    useMemo(() => createPersonaPrefAtom(trimmedCwd), [trimmedCwd])
+  );
   const [fullAccess, setFullAccess] = useAtom(
     useMemo(() => createFullAccessPrefAtom(trimmedCwd), [trimmedCwd])
   );
@@ -219,6 +223,8 @@ export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
   const [model, setModel] = useAtom(modelAtom);
 
   return {
+    persona,
+    setPersona,
     fullAccess,
     setFullAccess,
     baseBranch,

@@ -1,7 +1,7 @@
 ---
 name: Agent Runtime Owner
 description: Agent launch, worktrees, ACP engine processes, restart, cancellation, and cleanup.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

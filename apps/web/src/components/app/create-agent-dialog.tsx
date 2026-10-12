@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
+import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { engineSummary, useEngines } from "@/hooks/use-engines";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
@@ -95,6 +96,9 @@ function CreateAgentDialogContent({
 
   return (
     <DialogContent
+      aria-describedby={
+        form.step === "config" ? undefined : "create-agent-context-description"
+      }
       onEscapeKeyDown={(e) => {
         swallowEscapeFromCombobox(e);
         if (e.defaultPrevented) return;
@@ -111,9 +115,6 @@ function CreateAgentDialogContent({
         <>
           <DialogHeader>
             <DialogTitle>Create Agent</DialogTitle>
-            <DialogDescription>
-              Name, type, and working directory for a new agent session.
-            </DialogDescription>
           </DialogHeader>
 
           <form
@@ -165,10 +166,7 @@ function CreateAgentDialogContent({
                     placeholder="agent name"
                     data-testid="create-agent-name"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Leave blank and the agent will set its own name based on the
-                    task.
-                  </p>
+                  <p className="text-xs text-muted-foreground">Optional</p>
                 </div>
 
                 <PathInput
@@ -184,6 +182,11 @@ function CreateAgentDialogContent({
                   historyItemTestId="create-agent-cwd-history-option"
                 />
 
+                <AgentPersonaSelect
+                  cwd={form.createCwd}
+                  value={form.createPersona}
+                  onChange={form.setCreatePersona}
+                />
                 <WorktreeSection
                   cwd={form.createCwd}
                   worktreeAvailable={form.worktreeAvailable}
@@ -211,10 +214,7 @@ function CreateAgentDialogContent({
                       Start in full access mode
                     </span>
                     <span className="block text-xs text-muted-foreground">
-                      Skip permission prompts. Turn off to use restricted access
-                      and answer approval requests in chat. Codex uses a
-                      workspace sandbox; Claude and OpenCode use their
-                      permission checks.
+                      Skip permission prompts. Turn off to require approvals.
                     </span>
                   </span>
                 </label>
@@ -259,7 +259,7 @@ function CreateAgentDialogContent({
         <>
           <DialogHeader>
             <DialogTitle>Create with context</DialogTitle>
-            <DialogDescription>
+            <DialogDescription id="create-agent-context-description">
               Add startup instructions, files, and links for the agent to use
               when the session starts.
             </DialogDescription>

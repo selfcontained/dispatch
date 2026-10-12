@@ -82,7 +82,11 @@ import {
   missingEngineMessage,
 } from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
-import { extractPersonaContext } from "./acp/persona-context.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
+import {
+  PERSONA_CONTEXT_ARG,
+  extractPersonaContext,
+} from "./acp/persona-context.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
   AgentGitContext,
@@ -1248,6 +1252,21 @@ export class AgentManager {
       beforeLaunch?: (agentId: string) => Promise<void>;
     } = {}
   ): Promise<AgentRecord> {
+    if (input.persona && input.role !== "review") {
+      const persona = await resolveLaunchPersona(
+        input.cwd,
+        input.persona,
+        "task"
+      );
+      input = {
+        ...input,
+        agentArgs: [
+          ...(input.agentArgs ?? []),
+          PERSONA_CONTEXT_ARG,
+          persona.body,
+        ],
+      };
+    }
     const p = await this.prepareCreateInputs(input);
     await this.insertAgentRecord(p, input);
 
@@ -1777,14 +1796,14 @@ export class AgentManager {
     );
     await mkdir(filesDir, { recursive: true });
     const personality =
-      agent.persona || opts.jobRunId
+      agent.role === "review" || opts.jobRunId
         ? null
         : await getActivePersonality(this.pool);
     const systemPrompt = buildSystemPrompt({
       agent,
       personalityPrompt: personality?.prompt ?? null,
       suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
-        persona: agent.persona,
+        role: agent.role,
         jobRunId: opts.jobRunId,
       }),
       jobRunId: opts.jobRunId ?? null,

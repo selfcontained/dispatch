@@ -1,7 +1,7 @@
 ---
 name: Release and Update Owner
 description: Release artifacts, update channels, migration compatibility, and recovery.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

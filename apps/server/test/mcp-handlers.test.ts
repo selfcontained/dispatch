@@ -20,14 +20,21 @@ vi.mock("../src/shared/github/pr.js", () => ({
   getPrStatus: vi.fn(async () => ({ baseRefName: null })),
 }));
 
-vi.mock("../src/personas/loader.js", () => ({
+vi.mock("../src/personas/loader.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/personas/loader.js")>()),
   loadPersonas: vi.fn(async () => [
-    { slug: "security", name: "Security", description: "Security review" },
+    {
+      slug: "security",
+      name: "Security",
+      description: "Security review",
+      type: "review",
+    },
   ]),
   loadPersonaBySlug: vi.fn(async () => ({
     slug: "security",
     name: "Security",
-    prompt: "Review for security",
+    body: "Review for security",
+    type: "review",
   })),
   assemblePersonaPrompt: vi.fn(() => "assembled-prompt"),
   buildStandardFeedbackGuidance: vi.fn(() => "protected-review-guidance"),
@@ -433,9 +440,17 @@ describe("createMcpHandlers", () => {
   describe("listPersonas", () => {
     it("returns personas mapped to slug/name/description", async () => {
       const result = await handlers.listPersonas("/repo");
-      expect(result).toEqual([
-        { slug: "security", name: "Security", description: "Security review" },
-      ]);
+      expect(result).toEqual({
+        warnings: [],
+        personas: [
+          {
+            slug: "security",
+            name: "Security",
+            description: "Security review",
+            type: "review",
+          },
+        ],
+      });
     });
   });
 
@@ -592,7 +607,8 @@ describe("createMcpHandlers", () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValue({
         slug: "security",
         name: "Security",
-        prompt: "Review for security",
+        body: "Review for security",
+        type: "review",
       } as any);
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",
@@ -626,7 +642,8 @@ describe("createMcpHandlers", () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValue({
         slug: "security",
         name: "Security",
-        prompt: "Review for security",
+        body: "Review for security",
+        type: "review",
       } as any);
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",
@@ -662,7 +679,8 @@ describe("createMcpHandlers", () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValue({
         slug: "security",
         name: "Security",
-        prompt: "Review for security",
+        body: "Review for security",
+        type: "review",
       } as any);
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",
@@ -794,6 +812,57 @@ describe("createMcpHandlers", () => {
   });
 
   describe("launchAgent", () => {
+    it("rejects a review persona from a different requested workspace", async () => {
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          prompt: "Review",
+          persona: "security",
+          cwd: "/different",
+        })
+      ).rejects.toThrow("Review personas run in the parent workspace");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
+    it("uses the classified review definition without reading it twice", async () => {
+      vi.mocked(loadPersonaBySlug).mockClear();
+      await handlers.launchAgent("agt_test1", {
+        prompt: "Review",
+        persona: "security",
+      });
+      expect(loadPersonaBySlug).toHaveBeenCalledTimes(1);
+      expect(
+        deps.agentManager.createAgent.mock.calls.at(-1)?.[0]
+      ).toMatchObject({ role: "review", persona: "security" });
+    });
+
+    it("uses normal launch options for a task persona", async () => {
+      vi.mocked(loadPersonaBySlug).mockResolvedValueOnce({
+        slug: "builder",
+        name: "Builder",
+        description: "Build",
+        type: "task",
+        body: "Build the requested task",
+      });
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "builder",
+        prompt: "Implement feature",
+        persona: "builder",
+        child: false,
+        cwd: "/other",
+        useWorktree: false,
+      });
+      expect(result.personaType).toBe("task");
+      const created = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(created).toMatchObject({
+        persona: "builder",
+        cwd: "/other",
+        useWorktree: false,
+      });
+      expect(created.parentAgentId).toBeUndefined();
+      expect(created.initialPrompt).toContain("Implement feature");
+      expect(created.agentArgs).toBeUndefined();
+    });
+
     it("refuses to launch a child under a parent that is being archived", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",

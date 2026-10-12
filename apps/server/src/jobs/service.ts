@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
+
+import { resolveLaunchPersona } from "../personas/resolve.js";
 import { Cron } from "croner";
 
 import type { AgentManager } from "../agents/manager.js";
@@ -196,6 +198,7 @@ export class JobService {
           name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
           type: agentType,
           model: agentConfig.model ?? undefined,
+          persona: agentConfig.persona ?? undefined,
           cwd: job.directory,
           agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
           // The CLI receives generated job-run scaffolding through agentArgs;
@@ -471,6 +474,7 @@ export class JobService {
         name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
         type: agentConfig.agentType as JobAgentType,
         model: agentConfig.model ?? undefined,
+        persona: agentConfig.persona ?? undefined,
         cwd: job.directory,
         agentArgs: buildAgentArgs(
           agentConfig.agentType as JobAgentType,
@@ -615,6 +619,8 @@ export class JobService {
       continuationEnabled: input.continuationEnabled,
     });
 
+    if (input.persona)
+      await resolveLaunchPersona(input.directory, input.persona, "task");
     const agentConfig = applyAgentConfigDefaults(input);
 
     // Create a backing template for this job (hidden from Cmd+K by default).
@@ -741,6 +747,9 @@ export class JobService {
       existingAgentType: existing.agentType,
       existingModel: existing.model,
     });
+    if (input.persona && input.persona !== existing.persona)
+      await resolveLaunchPersona(existing.directory, input.persona, "task");
+    if (input.persona !== undefined) config.persona = input.persona;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)
       config.model = nextModel;
@@ -786,6 +795,7 @@ export class JobService {
     // Propagate agent-config changes to the backing template
     if (updated.templateId) {
       const templateUpdates: Record<string, unknown> = {};
+      if (input.persona !== undefined) templateUpdates.persona = input.persona;
       if (input.prompt !== undefined) templateUpdates.prompt = input.prompt;
       if (input.agentType !== undefined)
         templateUpdates.agentType = input.agentType;

@@ -235,11 +235,11 @@ export async function registerAgentLifecycleRoutes(
       }
       // Mirror the gates the launch guidance and the sidebar UI apply, so a
       // direct API caller can't paste the rename prompt into an agent that
-      // wouldn't be eligible via the UI: personas / job agents / already-
+      // wouldn't be eligible via the UI: reviewers / job agents / already-
       // renamed agents already carry a meaningful name.
       if (
         !shouldSuggestSessionRename(agent.name, agent.id, {
-          persona: agent.persona,
+          role: agent.role,
         })
       ) {
         return reply

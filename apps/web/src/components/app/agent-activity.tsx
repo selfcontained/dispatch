@@ -116,7 +116,7 @@ export function AgentActivityLabel({
       data-testid={`agent-activity-${agent.id}`}
       data-agent-control="true"
       data-turn-link={turn.blockId}
-      aria-label={`Go to ${agent.persona ?? agent.name}'s current turn`}
+      aria-label={`Go to ${agent.role === "review" ? (agent.persona ?? agent.name) : agent.name}'s current turn`}
       title="Go to the current turn"
       onClick={(event) => {
         event.stopPropagation();

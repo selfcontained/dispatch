@@ -1,0 +1,2 @@
+ALTER TABLE templates ADD COLUMN persona TEXT;
+ALTER TABLE jobs ADD COLUMN persona TEXT;

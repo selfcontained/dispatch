@@ -35,7 +35,7 @@ feedbackFormat: findings
     expect(result.frontmatter).toEqual({
       name: "Test Persona",
       description: "A test persona",
-      feedbackFormat: "findings",
+      type: "review",
     });
     expect(result.body).toBe("# Body content here");
   });
@@ -103,7 +103,7 @@ describe("persona launch context", () => {
     slug: "reviewer",
     name: "Reviewer",
     description: "Review",
-    feedbackFormat: "findings",
+
     body: "# Persona instructions",
   };
 
@@ -183,6 +183,7 @@ describe("loadPersonas", () => {
       `---
 name: Security Review
 description: Reviews for vulnerabilities
+type: review
 ---
 
 # Security Reviewer
@@ -206,6 +207,27 @@ feedbackFormat: checklist
     rmSync(tmpRoot, { recursive: true, force: true });
   });
 
+  it("keeps valid personas discoverable and reports invalid files", async () => {
+    const invalid = path.join(personasDir, "broken.md");
+    writeFileSync(invalid, "---\ntype: reviewer\n---\nBad type");
+    try {
+      const warnings: string[] = [];
+      const personas = await loadPersonas(tmpRoot, warnings);
+      expect(personas.map((p) => p.slug).sort()).toEqual([
+        "design-review",
+        "security-review",
+      ]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("broken.md");
+      expect(warnings[0]).toContain("Invalid persona type");
+      await expect(loadPersonaBySlug(tmpRoot, "broken")).rejects.toThrow(
+        "Invalid persona type"
+      );
+    } finally {
+      rmSync(invalid);
+    }
+  });
+
   it("loads all .md files from the personas directory", async () => {
     const personas = await loadPersonas(tmpRoot);
     expect(personas).toHaveLength(2);
@@ -223,13 +245,14 @@ feedbackFormat: checklist
     const security = personas.find((p) => p.slug === "security-review")!;
     expect(security.name).toBe("Security Review");
     expect(security.description).toBe("Reviews for vulnerabilities");
-    expect(security.feedbackFormat).toBe("findings");
+    expect(security.type).toBe("review");
   });
 
-  it("uses custom feedbackFormat when specified", async () => {
+  it("ignores legacy feedbackFormat metadata", async () => {
     const personas = await loadPersonas(tmpRoot);
     const design = personas.find((p) => p.slug === "design-review")!;
-    expect(design.feedbackFormat).toBe("checklist");
+    expect(design).not.toHaveProperty("feedbackFormat");
+    expect(design.type).toBe("review");
   });
 
   it("returns empty array when directory does not exist", async () => {
@@ -262,7 +285,7 @@ describe("mergePersonasWithWorktreePrecedence", () => {
     slug,
     name,
     description: "",
-    feedbackFormat: "findings",
+
     body: "",
   });
 
@@ -361,7 +384,7 @@ name: Release
 
     expect(personas.map((p) => p.slug)).toEqual([GENERIC_REVIEW_PERSONA_SLUG]);
     expect(personas[0]?.body).toContain("General Code Reviewer");
-    expect(personas[0]?.feedbackFormat).toBe("findings");
+    expect(personas[0]?.type).toBe("review");
   });
 
   it("lets a repo file of the same slug replace the built-in", async () => {
@@ -417,6 +440,7 @@ describe("built-in personas", () => {
         "description",
         "name",
         "slug",
+        "type",
       ]);
     }
   });

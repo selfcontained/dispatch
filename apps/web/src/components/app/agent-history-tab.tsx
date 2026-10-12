@@ -330,7 +330,8 @@ function AgentHistoryList({
                         >
                           <div className="flex items-center gap-2">
                             <Badge className="h-4 px-1.5 text-[10px] font-normal">
-                              {child.persona ?? "review"}
+                              {child.persona ??
+                                (child.role === "review" ? "review" : "agent")}
                             </Badge>
                             <span className="truncate text-muted-foreground">
                               {child.name}

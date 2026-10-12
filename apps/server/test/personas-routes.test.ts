@@ -12,7 +12,8 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { registerPersonaRoutes } from "../src/routes/personas.js";
 import { StreamServiceError } from "../src/chat/service.js";
 
-vi.mock("../src/personas/loader.js", () => ({
+vi.mock("../src/personas/loader.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/personas/loader.js")>()),
   loadPersonasFromRoots: vi.fn(async () => []),
 }));
 
@@ -86,7 +87,7 @@ describe("GET /api/v1/personas", () => {
   it("loads personas from the worktree and repo roots", async () => {
     const { loadPersonasFromRoots } = await import("../src/personas/loader.js");
     vi.mocked(loadPersonasFromRoots).mockResolvedValueOnce([
-      { slug: "security-review", name: "Security Review" },
+      { slug: "security-review", name: "Security Review", type: "review" },
     ] as never);
     const response = await app.inject({
       method: "GET",
@@ -98,7 +99,59 @@ describe("GET /api/v1/personas", () => {
     expect(loadPersonasFromRoots).toHaveBeenCalledWith({
       worktreeRoot: "/tmp",
       repoRoot: "/tmp",
+      warnings: [],
     });
+  });
+
+  it("returns discovery warnings without hiding valid personas", async () => {
+    const { loadPersonasFromRoots } = await import("../src/personas/loader.js");
+    vi.mocked(loadPersonasFromRoots).mockImplementationOnce(async (input) => {
+      input.warnings?.push("Invalid persona type in broken.md");
+      return [
+        {
+          slug: "builder",
+          name: "Builder",
+          description: "",
+          body: "Build",
+          type: "task",
+        },
+      ];
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/personas?cwd=/tmp&type=task",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      personas: [expect.objectContaining({ slug: "builder" })],
+      warnings: ["Invalid persona type in broken.md"],
+    });
+  });
+
+  it("separates agent and review pickers", async () => {
+    const { loadPersonasFromRoots } = await import("../src/personas/loader.js");
+    const personas = [
+      { slug: "legacy", type: "review" },
+      { slug: "builder", type: "task" },
+      { slug: "default" },
+    ];
+    vi.mocked(loadPersonasFromRoots).mockResolvedValueOnce(personas as never);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/personas?cwd=/tmp&type=task",
+        })
+      )
+        .json()
+        .personas.map((p: { slug: string }) => p.slug)
+    ).toEqual(["builder"]);
+    vi.mocked(loadPersonasFromRoots).mockResolvedValueOnce(personas as never);
+    expect(
+      (await app.inject({ method: "GET", url: "/api/v1/personas?cwd=/tmp" }))
+        .json()
+        .personas.map((p: { slug: string }) => p.slug)
+    ).toEqual(["legacy", "default"]);
   });
 
   it("reports an ownership map found in the worktree", async () => {

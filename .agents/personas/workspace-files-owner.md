@@ -1,7 +1,7 @@
 ---
 name: Workspace Files Owner
 description: Workspace confinement, attachment ownership, upload metadata, file indexing, and preview/download behavior.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

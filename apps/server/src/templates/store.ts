@@ -19,6 +19,7 @@ export type TemplateRecord = {
   prompt: string | null;
   agentType: AgentType;
   model: string | null;
+  persona?: string | null;
   useWorktree: boolean;
   baseBranch: string | null;
   branchName: string | null;
@@ -37,6 +38,7 @@ export type AddTemplateInput = {
   prompt?: string | null;
   agentType?: AgentType;
   model?: string | null;
+  persona?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -53,6 +55,7 @@ export type TemplateConfigUpdate = {
   prompt?: string | null;
   agentType?: AgentType;
   model?: string | null;
+  persona?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -72,6 +75,7 @@ export class TemplateStore {
     prompt: string | null;
     agentType: AgentType;
     model?: string | null;
+    persona?: string | null;
     useWorktree: boolean;
     baseBranch: string | null;
     branchName: string | null;
@@ -84,8 +88,8 @@ export class TemplateStore {
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO templates (id, directory, name, description, prompt, agent_type, model, use_worktree, base_branch, branch_name, full_access, callable, allow_files, self_improve)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        INSERT INTO templates (id, directory, name, description, prompt, agent_type, model, use_worktree, base_branch, branch_name, full_access, callable, allow_files, self_improve, persona)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING ${this.columns()}
         `,
         [
@@ -103,6 +107,7 @@ export class TemplateStore {
           input.callable,
           input.allowFiles,
           input.selfImprove ?? false,
+          input.persona ?? null,
         ]
       );
       return mapTemplate(result.rows[0]);
@@ -196,6 +201,7 @@ export class TemplateStore {
             callable = COALESCE($17, callable),
             allow_files = COALESCE($18, allow_files),
             self_improve = COALESCE($19, self_improve),
+            persona = CASE WHEN $20 THEN $21 ELSE persona END,
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.columns()}
@@ -220,6 +226,8 @@ export class TemplateStore {
           input.callable,
           input.allowFiles,
           input.selfImprove,
+          input.persona !== undefined,
+          input.persona ?? null,
         ]
       );
       if (!result.rows[0]) throw new Error(`Template ${id} not found.`);
@@ -264,6 +272,7 @@ export class TemplateStore {
       prompt,
       agent_type AS "agentType",
       model,
+      persona,
       use_worktree AS "useWorktree",
       base_branch AS "baseBranch",
       branch_name AS "branchName",

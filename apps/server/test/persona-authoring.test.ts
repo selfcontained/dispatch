@@ -12,6 +12,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  loadPersonaBySlug,
+  supportsPersonaType,
+} from "../src/personas/loader.js";
+import {
   PERSONA_TEMPLATES,
   upsertPersona,
   validatePersonaSlug,
@@ -48,6 +52,99 @@ describe("persona authoring", () => {
     roots.push(root);
     return root;
   }
+
+  it("round-trips persona purposes and defaults new personas to task", async () => {
+    const root = await makeRoot();
+    for (const type of [undefined, "review", "task"] as const) {
+      await upsertPersona({
+        root,
+        slug: "helper",
+        name: "Helper",
+        description: "Help",
+        instructions: "Do the task",
+        type,
+      });
+      const persona = (await loadPersonaBySlug(root, "helper"))!;
+      expect(persona.type).toBe(type ?? "task");
+      expect(supportsPersonaType(persona, "task")).toBe(type !== "review");
+      expect(supportsPersonaType(persona, "review")).toBe(type === "review");
+      expect((await validatePersonas(root))[0].valid).toBe(true);
+    }
+    await writeFile(
+      path.join(root, ".agents/personas/helper.md"),
+      "---\nname: Helper\ndescription: Help\ntype: typo\n---\nDo work"
+    );
+    expect((await validatePersonas(root))[0].valid).toBe(false);
+    await expect(loadPersonaBySlug(root, "helper")).rejects.toThrow(
+      "Invalid persona type"
+    );
+  });
+
+  it("recognizes legacy feedbackFormat but gives explicit type precedence", async () => {
+    const root = await makeRoot();
+    await mkdir(path.join(root, ".agents/personas"), { recursive: true });
+    const file = path.join(root, ".agents/personas/legacy.md");
+    for (const [metadata, expected] of [
+      ["", "review"],
+      ["feedbackFormat: findings", "review"],
+      ["type: task\nfeedbackFormat: findings", "task"],
+      ["feedbackFormat: checklist\ntype: task", "task"],
+      ["type: review", "review"],
+    ]) {
+      await writeFile(
+        file,
+        `---\nname: Legacy\ndescription: Test\n${metadata}\n---\nDo work`
+      );
+      const persona = await loadPersonaBySlug(root, "legacy");
+      expect(persona?.type).toBe(expected);
+      expect(persona).not.toHaveProperty("feedbackFormat");
+    }
+    await writeFile(
+      file,
+      "---\nname: Legacy\ndescription: Test\nfeedbackFormat: findings\n---\nReview work"
+    );
+    const updated = await upsertPersona({
+      root,
+      slug: "legacy",
+      name: "Legacy",
+      description: "Updated",
+      instructions: "Review carefully",
+    });
+    expect(updated.content).toContain("type: review");
+    expect(updated.content).not.toContain("feedbackFormat");
+  });
+
+  it("preserves an old untyped reviewer even without feedbackFormat when edited", async () => {
+    const root = await makeRoot();
+    await mkdir(path.join(root, ".agents/personas"), { recursive: true });
+    await writeFile(
+      path.join(root, ".agents/personas/reviewer.md"),
+      "---\nname: Reviewer\ndescription: Reviews\n---\nReview work"
+    );
+    const result = await upsertPersona({
+      root,
+      slug: "reviewer",
+      name: "Reviewer",
+      description: "Updated",
+      instructions: "Review carefully",
+    });
+    expect(result.content).toContain("type: review");
+    expect((await loadPersonaBySlug(root, "reviewer"))?.type).toBe("review");
+  });
+
+  it("preserves purpose when updating only instructions", async () => {
+    const root = await makeRoot();
+    const fields = {
+      root,
+      slug: "builder",
+      name: "Builder",
+      description: "Build",
+      instructions: "Build",
+    };
+    await upsertPersona({ ...fields, type: "task" });
+    await upsertPersona({ ...fields, instructions: "Build and verify" });
+    expect((await loadPersonaBySlug(root, "builder"))?.type).toBe("task");
+  });
 
   it("offers concise authoring templates", () => {
     expect(PERSONA_TEMPLATES.map((template) => template.id)).toEqual([
@@ -232,16 +329,17 @@ describe("persona authoring", () => {
     await expect(readFile(external, "utf8")).resolves.toBe("outside content\n");
   });
 
-  it("does not permit feedbackFormat to inject frontmatter or instructions", async () => {
+  it("rejects invalid persona types before writing", async () => {
+    const root = await makeRoot();
     await expect(
       upsertPersona({
-        root: "/unused",
-        slug: "security",
-        name: "Security",
-        description: "Checks security.",
-        instructions: "Inspect authentication.",
-        feedbackFormat: "findings\n---\ninjected body",
+        root,
+        slug: "bad",
+        name: "Bad",
+        description: "Bad",
+        instructions: "Do work",
+        type: "both" as never,
       })
-    ).rejects.toThrow("feedbackFormat");
+    ).rejects.toThrow("Invalid persona type");
   });
 });

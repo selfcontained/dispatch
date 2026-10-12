@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { GitBranch, Paperclip } from "lucide-react";
 
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
+import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { BranchSelect } from "@/components/app/branch-select";
@@ -97,6 +98,8 @@ export function TemplateFullAccessOption({
 export interface TemplateConfigFieldsProps {
   agentType: AgentType;
   onAgentTypeChange: (value: AgentType) => void;
+  persona?: string | null;
+  onPersonaChange: (value: string | null) => void;
   model: string | null;
   onModelChange: (value: string | null) => void;
   enabledAgentTypes: AgentType[];
@@ -130,6 +133,8 @@ export function TemplateConfigFields({
   onAgentTypeChange,
   model,
   onModelChange,
+  persona,
+  onPersonaChange,
   enabledAgentTypes,
   name,
   onNameChange,
@@ -227,6 +232,12 @@ export function TemplateConfigFields({
           onRemoveHistory={removeCwdHistory}
         />
       </div>
+
+      <AgentPersonaSelect
+        cwd={directory}
+        value={persona ?? null}
+        onChange={onPersonaChange}
+      />
 
       <>
         <TemplateWorktreeOption

@@ -254,7 +254,7 @@ function AgentCardImpl({
                   </div>
                 ) : null}
               </div>
-              {!agent.persona ? (
+              {agent.role !== "review" ? (
                 <AgentCardActions
                   agent={agent}
                   isStopped={isStopped}

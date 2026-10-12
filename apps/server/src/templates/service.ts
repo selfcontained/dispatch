@@ -5,6 +5,7 @@ import type { SeedFileInput } from "../agents/file-seed.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
@@ -56,6 +57,8 @@ export class TemplateService {
     callerFullAccess?: boolean
   ): Promise<TemplateRecord> {
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
+    if (input.persona)
+      await resolveLaunchPersona(input.directory, input.persona, "task");
     const template = await this.store.createTemplate({
       name: input.name.trim(),
       directory: input.directory,
@@ -84,7 +87,21 @@ export class TemplateService {
       existing.fullAccess || input.fullAccess === true,
       callerFullAccess
     );
+    const persona =
+      input.persona !== undefined ? input.persona : existing.persona;
+    if (
+      persona &&
+      (persona !== existing.persona ||
+        (input.directory !== undefined &&
+          input.directory !== existing.directory))
+    )
+      await resolveLaunchPersona(
+        input.directory ?? existing.directory,
+        persona,
+        "task"
+      );
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
+    if (input.persona !== undefined) updates.persona = input.persona;
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)
       updates.description = input.description;
@@ -193,6 +210,7 @@ export class TemplateService {
       name: sanitizeAgentName(template.name),
       type: resolvedType,
       model: resolvedModel,
+      persona: template.persona ?? undefined,
       cwd,
       initialPrompt: finalPrompt,
       launchContext: {

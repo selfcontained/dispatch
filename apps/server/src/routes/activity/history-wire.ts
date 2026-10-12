@@ -6,12 +6,13 @@
  * apps/web/src/hooks/use-agent-history.ts.
  */
 
-import type { FileMedia } from "@dispatch/shared";
+import type { AgentRole, FileMedia } from "@dispatch/shared";
 
 export type HistoryChildAgent = {
   id: string;
   name: string;
   persona: string | null;
+  role?: AgentRole;
   status: string;
   totalTokens: number;
   createdAt: string;
@@ -52,6 +53,7 @@ export type HistoryFeedbackItem = {
   id: number;
   agentId: string;
   persona: string | null;
+  role?: AgentRole;
   severity: string;
   filePath: string | null;
   lineNumber: number | null;

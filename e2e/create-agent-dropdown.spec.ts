@@ -1,7 +1,116 @@
 import { test, expect } from "@playwright/test";
-import { loadApp } from "./helpers";
+import { loadApp, trackAgent, cleanupE2EAgents } from "./helpers";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 test.describe("Create agent dialog", () => {
+  test("task persona sessions retain normal role and lifecycle controls", async ({
+    page,
+    request,
+  }) => {
+    const directory = mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-task-persona-e2e-")
+    );
+    const personas = path.join(directory, ".agents/personas");
+    mkdirSync(personas, { recursive: true });
+    writeFileSync(
+      path.join(personas, "builder.md"),
+      "---\ntype: task\nname: Builder\ndescription: Build tasks\n---\nImplement the task."
+    );
+    try {
+      await loadApp(page);
+      await page.getByTestId("create-agent-button").click();
+      await page.getByTestId("create-agent-cwd").fill(directory);
+      await page.getByTestId("create-agent-name").click();
+      await page
+        .getByRole("combobox", { name: "Persona", exact: true })
+        .click();
+      await page.getByRole("option", { name: "Builder", exact: true }).click();
+      const response = page.waitForResponse(
+        (r) =>
+          r.url().endsWith("/api/v1/agents") && r.request().method() === "POST"
+      );
+      await page.getByTestId("create-agent-submit").click();
+      const body = await (await response).json();
+      const agent = body.agent;
+      trackAgent(agent.id);
+      expect(agent.role).toBe("standard");
+      expect(agent.persona).toBe("builder");
+      await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
+      const card = page.getByTestId(`agent-card-${agent.id}`);
+      await expect(
+        card.getByRole("button", { name: "Archive", exact: true })
+      ).toBeVisible();
+      await expect(
+        card.getByRole("button", { name: "Session details", exact: true })
+      ).toBeVisible();
+      await expect(
+        page.getByTestId(`agent-prompt-rename-${agent.id}`)
+      ).toBeVisible();
+    } finally {
+      await cleanupE2EAgents(request);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("personas follow the selected directory without setting the session name", async ({
+    page,
+  }) => {
+    await page.route("**/api/v1/personas?*", async (route) => {
+      const cwd = new URL(route.request().url()).searchParams.get("cwd");
+      await route.fulfill({
+        json: {
+          personas:
+            cwd === "/tmp"
+              ? [
+                  {
+                    slug: "builder",
+                    name: "Builder",
+                    description: "Build focused changes.",
+                  },
+                ]
+              : [],
+        },
+      });
+    });
+    await loadApp(page);
+    await page.getByTestId("create-agent-button").click();
+    const cwd = page.getByTestId("create-agent-cwd");
+    const name = page.getByTestId("create-agent-name");
+    const persona = page.getByRole("combobox", {
+      name: "Persona",
+      exact: true,
+    });
+    await cwd.fill("/tmp");
+    await name.click();
+    await persona.click();
+    await page.getByRole("option", { name: "Builder", exact: true }).click();
+    await expect(name).toHaveValue("");
+    await cwd.fill("/");
+    await name.click();
+    await expect(persona).toContainText("No persona");
+    await expect(name).toHaveValue("");
+    await cwd.fill("/tmp");
+    await name.click();
+    await expect(persona).toContainText("Builder");
+    await expect(name).toHaveValue("");
+    await name.fill("My task");
+    await persona.click();
+    await page.getByRole("option", { name: "No persona", exact: true }).click();
+    await expect(name).toHaveValue("My task");
+    await persona.click();
+    await page.getByRole("option", { name: "Builder", exact: true }).click();
+    await expect(name).toHaveValue("My task");
+    await page.getByTestId("create-agent-cancel").click();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByTestId("create-agent-button").click();
+    await cwd.fill("/tmp");
+    await name.click();
+    await expect(persona).toContainText("Builder");
+    await expect(name).toHaveValue("");
+  });
+
   test("full access defaults on and remembers an explicit off choice", async ({
     page,
   }) => {

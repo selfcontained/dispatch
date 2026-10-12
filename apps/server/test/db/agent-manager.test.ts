@@ -1,3 +1,5 @@
+import * as gitContext from "../../src/shared/git/git-context.js";
+import { upsertPersona } from "../../src/personas/authoring.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -985,6 +987,69 @@ describe("AgentManager", () => {
       ).rejects.toThrow("does not exist");
     });
 
+    it("delivers a normal persona without review guidance and preserves it on restart", async () => {
+      const cwd = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-launch-persona-")
+      );
+      const worktreeRoot = vi
+        .spyOn(gitContext, "resolveWorktreeRoot")
+        .mockResolvedValue(cwd);
+      const repoRoot = vi
+        .spyOn(gitContext, "resolveRepoRoot")
+        .mockResolvedValue(cwd);
+      try {
+        await upsertPersona({
+          root: cwd,
+          slug: "builder",
+          name: "Builder",
+          description: "Build features",
+          type: "task",
+          instructions: "Implement the requested feature and verify it.",
+        });
+        await pool.query(
+          "INSERT INTO personalities (id, name, prompt) VALUES ('task-style', 'Task style', 'Keep answers terse.') ON CONFLICT (id) DO UPDATE SET prompt = EXCLUDED.prompt"
+        );
+        await pool.query(
+          "INSERT INTO settings (key, value) VALUES ('active_personality_id', 'task-style') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+        );
+        const agent = await manager.createAgent({
+          cwd,
+          useWorktree: false,
+          persona: "builder",
+          initialPrompt: "Build the thing",
+        });
+        expect(agent.persona).toBe("builder");
+        expect(agent.role).toBe("standard");
+        expect(lastLaunch().systemPrompt).toContain("Keep answers terse.");
+        expect(lastLaunch().systemPrompt).toContain(
+          "Name the session. Once the topic of work is clear"
+        );
+        expect(lastLaunch().personaContext).toBe(
+          "Implement the requested feature and verify it."
+        );
+        expect(lastLaunch().systemPrompt).not.toContain("Feedback Guidelines");
+        await manager.stopAgent(agent.id);
+        await manager.startAgent(agent.id);
+        expect(lastLaunch().personaContext).toBe(
+          "Implement the requested feature and verify it."
+        );
+        await expect(
+          manager.createAgent({
+            cwd,
+            useWorktree: false,
+            persona: "code-review",
+          })
+        ).rejects.toThrow("not available for task launches");
+      } finally {
+        await pool.query(
+          "DELETE FROM settings WHERE key = 'active_personality_id'"
+        );
+        worktreeRoot.mockRestore();
+        repoRoot.mockRestore();
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
     describe("system prompt", () => {
       const RENAME = "Name the session. Once the topic of work is clear";
 
@@ -996,7 +1061,12 @@ describe("AgentManager", () => {
           { name: "bug bash" },
           // Custom names that merely resemble the default pattern count too.
           { name: "agent-foobar" },
-          { name: "security-review-123456", persona: "security-review" },
+          {
+            name: "security-review-123456",
+            persona: "security-review",
+            role: "review" as const,
+            agentArgs: ["--dispatch-persona-context", "Review instructions"],
+          },
         ]) {
           await manager.createAgent({
             cwd: "/tmp",
@@ -1015,6 +1085,7 @@ describe("AgentManager", () => {
           type: "codex",
           useWorktree: false,
           persona: "reviewer",
+          role: "review",
           agentArgs: [
             "--append-system-prompt",
             "Protected review instructions",
@@ -2074,13 +2145,20 @@ describe("AgentManager", () => {
 
   describe("startAgent", () => {
     async function createStoppedAgent(
-      opts: { type?: "claude" | "codex"; persona?: string } = {}
+      opts: {
+        type?: "claude" | "codex";
+        persona?: string;
+        role?: "standard" | "review";
+        agentArgs?: string[];
+      } = {}
     ) {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         type: opts.type ?? "claude",
         useWorktree: false,
         persona: opts.persona,
+        role: opts.role,
+        agentArgs: opts.agentArgs,
       });
       await manager.stopAgent(agent.id, { force: true });
       runtime.launch.mockClear();
@@ -2242,7 +2320,11 @@ describe("AgentManager", () => {
          ON CONFLICT (id) DO UPDATE SET prompt = 'You are very formal.'`
       );
       try {
-        const agent = await createStoppedAgent({ persona: "security-review" });
+        const agent = await createStoppedAgent({
+          persona: "security-review",
+          role: "review",
+          agentArgs: ["--dispatch-persona-context", "Review instructions"],
+        });
 
         await manager.startAgent(agent.id);
 
@@ -2670,6 +2752,8 @@ describe("AgentManager", () => {
         cwd: "/tmp",
         useWorktree: false,
         persona: "security-review",
+        role: "review",
+        agentArgs: ["--dispatch-persona-context", "Review instructions"],
         parentAgentId: parent.id,
       });
 
