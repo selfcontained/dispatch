@@ -72,7 +72,11 @@ codex-acp maps app-server `turn/started` / `turn/completed` to no ACP update,
 so a client cannot tell where such a turn begins or ends. The patch forwards
 both as a `session_info_update` carrying
 `_meta["dispatch/turn"] = { state: "started" | "completed", turnId, status?, error? }`.
-The driver opens a self-started turn on a `started` that is not the in-flight
-prompt's, and settles it on the matching `completed`. Claude needs no patch:
+A prompt's response also carries `_meta["dispatch/turn"] = { turnId }`, the
+turn it ran as, so ownership never depends on marker order (a goal
+continuation can start just before the prompt's own turn). Once the prompt
+settles, the driver opens a self-started turn for any other turn that started
+during it and is still running; while idle, a `started` opens one, and the
+matching `completed` settles it. Claude needs no patch:
 claude-agent-acp tags an autonomous cycle's final `usage_update` with
 `_meta["_claude/origin"]`.

@@ -1,5 +1,5 @@
 diff --git a/dist/index.js b/dist/index.js
-index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..377104790c8ea38738d667be1e6cff79afa19249 100755
+index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad01122b4870a 100755
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -30384,13 +30384,26 @@ var CodexEventHandler = class {
@@ -100,3 +100,39 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..377104790c8ea38738d667be1e6cff79
      };
    }
    createSessionConfigOptions(sessionState) {
+@@ -39411,6 +39436,17 @@ Check ${configPath} and project .codex directories, especially their config.toml
+     return turnId;
+   }
+   async prompt(params, signal, onTurnStarted) {
++    let dispatchTurnId;
++    const response = await this.promptTurn(params, signal, (turnId) => {
++      dispatchTurnId = turnId;
++      onTurnStarted?.(turnId);
++    });
++    return dispatchTurnId === void 0 ? response : {
++      ...response,
++      _meta: { ...response?._meta, "dispatch/turn": { turnId: dispatchTurnId } }
++    };
++  }
++  async promptTurn(params, signal, onTurnStarted) {
+     if (this.providerUpdate !== null) {
+       await this.providerUpdate;
+     }
+@@ -39521,7 +39557,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+           }
+           sessionState.currentTurnId = turnId;
+           pendingTurnStart?.resolve(turnId);
+-          onTurnStarted?.();
++          onTurnStarted?.(turnId);
+         },
+         setConfigOption: async (configId, value) => {
+           await this.applySessionConfigOption(sessionState, {
+@@ -39626,7 +39662,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+             }
+             sessionState.currentTurnId = turnId;
+             pendingTurnStart?.resolve(turnId);
+-            onTurnStarted?.();
++            onTurnStarted?.(turnId);
+           },
+           () => this.promptShouldStop(params.sessionId, activePrompt)
+         )

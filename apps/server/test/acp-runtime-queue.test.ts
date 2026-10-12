@@ -152,7 +152,7 @@ describe("AcpRuntime prompt queue", () => {
     expect(prompts).toEqual(["one", "two"]);
   });
 
-  it("a turn the engine started itself does not settle a prompt waiting behind it", async () => {
+  it("a prompt that races a turn the engine started itself goes back to the queue", async () => {
     const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
@@ -165,68 +165,51 @@ describe("AcpRuntime prompt queue", () => {
         at: new Date().toISOString(),
         event: e,
       }) as HostMessage;
-    let finish!: () => void;
-    const server = net.createServer((socket) => {
+    const prompts: string[] = [];
+    let socket!: net.Socket;
+    const write = (...messages: HostMessage[]) =>
+      socket.write(messages.map(encodeMessage).join(""));
+    const server = net.createServer((s) => {
+      socket = s;
       const decode = ndjsonDecoder<ClientMessage>();
-      socket.on("data", (chunk) => {
+      s.on("data", (chunk) => {
         for (const message of decode(chunk)) {
           if (message.type === "hello") {
-            socket.write(
-              encodeMessage({
-                type: "welcome",
-                agentId,
-                engine: "claude",
-                sessionId: "sess",
-                resumed: false,
-                running: true,
-                turn: null,
-                journalSeq: seq,
-              } satisfies HostMessage)
-            );
+            write({
+              type: "welcome",
+              agentId,
+              engine: "claude",
+              sessionId: "sess",
+              resumed: false,
+              running: true,
+              turn: null,
+              journalSeq: seq,
+            } satisfies HostMessage);
           } else if (message.type === "prompt") {
-            // The engine's own turn was under way when the prompt arrived;
-            // the driver holds the prompt until it settles.
-            const source = { source: "engine", text: "on its own" };
-            socket.write(
-              [
+            prompts.push(message.text);
+            if (prompts.length === 1) {
+              // The engine's own turn opened just before the prompt arrived.
+              write(
                 event({
                   type: "turn",
                   agentId,
                   state: "started",
                   text: "",
-                  source,
+                  source: { source: "engine", text: "on its own" },
                 }),
-                event({
-                  type: "turn",
-                  agentId,
-                  state: "settled",
-                  stopReason: "end_turn",
-                }),
+                { type: "prompt_deferred", id: message.id }
+              );
+            } else {
+              write(
                 event({
                   type: "turn",
                   agentId,
                   state: "started",
                   text: message.text,
                 }),
-                {
-                  type: "prompt_accepted",
-                  id: message.id,
-                } satisfies HostMessage,
-              ]
-                .map(encodeMessage)
-                .join("")
-            );
-            finish = () =>
-              socket.write(
-                encodeMessage(
-                  event({
-                    type: "turn",
-                    agentId,
-                    state: "settled",
-                    stopReason: "end_turn",
-                  })
-                )
+                { type: "prompt_accepted", id: message.id }
               );
+            }
           }
         }
       });
@@ -250,13 +233,24 @@ describe("AcpRuntime prompt queue", () => {
     });
     expect(await runtime.attach(agentId)).toBe(true);
     const prompt = runtime.prompt(agentId, "next");
-    await prompt.accepted;
+    let accepted = false;
     let settled = false;
+    void prompt.accepted.then(() => (accepted = true));
     void prompt.settled.then(() => (settled = true));
     await new Promise((r) => setTimeout(r, 50));
-    expect(settled).toBe(false);
+    // Handed back, not held: it waits in the runtime's queue, unsent.
+    expect(prompts).toEqual(["next"]);
+    expect(accepted).toBe(false);
     expect(runtime.isBusy(agentId)).toBe(true);
-    finish();
+    write(
+      event({ type: "turn", agentId, state: "settled", stopReason: "end_turn" })
+    );
+    await prompt.accepted;
+    expect(prompts).toEqual(["next", "next"]);
+    expect(settled).toBe(false);
+    write(
+      event({ type: "turn", agentId, state: "settled", stopReason: "end_turn" })
+    );
     await prompt.settled;
     expect(runtime.isBusy(agentId)).toBe(false);
   });

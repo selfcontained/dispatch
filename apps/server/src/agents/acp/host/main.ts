@@ -315,9 +315,13 @@ async function main(): Promise<void> {
           });
           return;
         }
-        // A turn the engine started itself was not the server's to wait
-        // for; the driver holds this prompt until that turn settles.
-        if (openTurn && openTurn.source?.source !== "engine") {
+        // A turn the engine started itself raced this prompt: hand it back
+        // to the server's queue rather than hold it here unacknowledged.
+        if (openTurn?.source?.source === "engine") {
+          send(socket, { type: "prompt_deferred", id: message.id });
+          return;
+        }
+        if (openTurn) {
           send(socket, { type: "error", id: message.id, message: "busy" });
           return;
         }

@@ -167,10 +167,12 @@ type Live = {
   selfTurn: SelfTurn | null;
   /** Tool calls this session has announced; a repeat is not new work. */
   toolCalls: Set<string>;
-  /** Codex: the engine turn the prompt in flight runs as. */
-  promptTurnId?: string;
-  /** Codex: an engine turn that started while a prompt was still settling. */
-  pendingSelfTurnId?: string;
+  /**
+   * Codex: the engine turns seen starting while a prompt was in flight, in
+   * order, and whether each has completed. One that is not the prompt's
+   * and still runs when the prompt settles is a turn of the engine's own.
+   */
+  promptTurns: Map<string, boolean>;
 };
 
 type SelfTurn = {
@@ -215,6 +217,20 @@ const SELF_TURN_CANCEL_QUIET_MS = 10_000;
 
 const SELF_STARTED_TEXT = "The agent started this turn on its own.";
 
+/**
+ * The `usage_update` Claude sends when a cycle's result arrives, which ends
+ * the cycle whatever its origin. The adapter routes an absent, unclassified
+ * or unknown origin to the user's lane, so with no prompt in flight the
+ * origin is only a hint; only the result-time update carries a cost (the
+ * mid-stream, compaction and rate-limit ones do not).
+ */
+function isClaudeResultUsage(update: DriverUpdate): boolean {
+  if (update.sessionUpdate !== "usage_update") return false;
+  return (
+    update.cost != null || AUTONOMOUS_ORIGINS.has(claudeOrigin(update) ?? "")
+  );
+}
+
 function claudeOrigin(update: DriverUpdate): string | null {
   const origin = update._meta?.["_claude/origin"];
   const kind =
@@ -249,6 +265,16 @@ function codexTurnMarker(update: DriverUpdate): {
     ...(typeof status === "string" ? { status } : {}),
     ...(typeof error === "string" ? { error } : {}),
   };
+}
+
+/** The engine turn a prompt ran as, when the (patched) adapter says. */
+function promptTurnIdOf(res: acp.PromptResponse): string | undefined {
+  const turn = res._meta?.["dispatch/turn"];
+  const turnId =
+    turn && typeof turn === "object"
+      ? (turn as { turnId?: unknown }).turnId
+      : undefined;
+  return typeof turnId === "string" ? turnId : undefined;
 }
 
 const STDERR_TAIL_LINES = 20;
@@ -740,6 +766,7 @@ export class AcpDriver {
       prompting: false,
       selfTurn: null,
       toolCalls: new Set(),
+      promptTurns: new Map(),
     };
     this.live.set(launch.agentId, entry);
     this.emit({
@@ -919,7 +946,7 @@ export class AcpDriver {
     if (this.live.get(agentId) !== entry)
       throw new Error("the agent exited before the turn started");
     entry.prompting = true;
-    entry.promptTurnId = undefined;
+    entry.promptTurns.clear();
     entry.cancelling = false;
     entry.turnOpen = true;
     const model = this.currentModel(entry);
@@ -999,7 +1026,7 @@ export class AcpDriver {
         stopReason: res.stopReason,
         ...(res.usage ? { usage: res.usage } : {}),
       });
-      this.promptSettled(agentId, entry);
+      this.promptSettled(agentId, entry, promptTurnIdOf(res));
     } catch (err) {
       entry.turnOpen = false;
       await entry.steering.catch(() => {});
@@ -1048,11 +1075,21 @@ export class AcpDriver {
       : null;
   }
 
-  private promptSettled(agentId: string, entry: Live): void {
+  private promptSettled(
+    agentId: string,
+    entry: Live,
+    promptTurnId?: string
+  ): void {
     entry.prompting = false;
-    entry.promptTurnId = undefined;
-    const pending = entry.pendingSelfTurnId;
-    entry.pendingSelfTurnId = undefined;
+    // The adapter names the turn the prompt ran as. Without that (a failed
+    // prompt, an unpatched adapter) the first turn to start was the prompt's.
+    const [first] = entry.promptTurns.keys();
+    const own = promptTurnId ?? first;
+    const running = [...entry.promptTurns]
+      .filter(([turnId, completed]) => !completed && turnId !== own)
+      .map(([turnId]) => turnId);
+    entry.promptTurns.clear();
+    const pending = running.at(-1);
     if (pending && this.live.get(agentId) === entry)
       this.openSelfTurn(agentId, entry, pending);
   }
@@ -1069,15 +1106,16 @@ export class AcpDriver {
    */
   private beforeUpdate(agentId: string, entry: Live, update: DriverUpdate) {
     const marker = codexTurnMarker(update);
+    if (marker && entry.prompting) {
+      // Which of these was the prompt's is settled when its response names it.
+      if (marker.state === "completed")
+        entry.promptTurns.set(marker.turnId, true);
+      else if (!entry.promptTurns.has(marker.turnId))
+        entry.promptTurns.set(marker.turnId, false);
+      return;
+    }
     if (marker?.state === "started") {
-      if (entry.prompting) {
-        if (entry.promptTurnId === undefined)
-          entry.promptTurnId = marker.turnId;
-        else if (marker.turnId !== entry.promptTurnId)
-          entry.pendingSelfTurnId = marker.turnId;
-      } else if (!entry.selfTurn) {
-        this.openSelfTurn(agentId, entry, marker.turnId);
-      }
+      if (!entry.selfTurn) this.openSelfTurn(agentId, entry, marker.turnId);
       return;
     }
     const isNewTool =
@@ -1127,11 +1165,7 @@ export class AcpDriver {
       );
       return;
     }
-    if (
-      entry.engine === "claude" &&
-      update.sessionUpdate === "usage_update" &&
-      AUTONOMOUS_ORIGINS.has(claudeOrigin(update) ?? "")
-    ) {
+    if (entry.engine === "claude" && isClaudeResultUsage(update)) {
       this.settleSelfTurn(
         agentId,
         entry,

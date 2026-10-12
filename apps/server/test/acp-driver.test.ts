@@ -994,7 +994,10 @@ describe("self-started turns", () => {
           : []
     );
 
-  async function claude(opts: Parameters<typeof createFakeAcpAgent>[0] = {}) {
+  async function claude(
+    opts: Parameters<typeof createFakeAcpAgent>[0] = {},
+    quiet = 200
+  ) {
     const fake = createFakeAcpAgent({
       turn: async (_p, emit) => {
         await emit({
@@ -1013,7 +1016,7 @@ describe("self-started turns", () => {
       spawn: () => fake.child,
       resolveBinary,
       logger,
-      selfTurnQuietMs: { quiet: 200, cancelled: 50 },
+      selfTurnQuietMs: { quiet, cancelled: 50 },
     });
     const events: DriverEvent[] = [];
     driver.onEvent((e) => events.push(e));
@@ -1062,6 +1065,40 @@ describe("self-started turns", () => {
     );
     await driver.stop("agt_1");
   });
+
+  it.each([
+    ["an unclassified origin", { "_claude/origin": { kind: "unclassified" } }],
+    ["no origin", undefined],
+  ] as const)(
+    "claude: the result usage ends a self-started turn whatever its origin (%s)",
+    async (_label, meta) => {
+      // A watchdog far off: only the result usage can end the turn here.
+      const { fake, driver, events, emit } = await claude({}, 60_000);
+      await driver.prompt("agt_1", "start");
+      events.length = 0;
+      await emit(text("background answer"));
+      // Mid-stream usage carries no cost and ends nothing.
+      await emit(usage());
+      const next = driver.prompt("agt_1", "next");
+      await emit({
+        sessionUpdate: "usage_update",
+        used: 12,
+        size: 100,
+        cost: { amount: 0.01, currency: "USD" },
+        ...(meta ? { _meta: meta } : {}),
+      });
+      await next;
+      expect(fake.seen.prompts).toHaveLength(2);
+      expect(shape(events).slice(0, 5)).toEqual([
+        "turn:started:engine",
+        "agent_message_chunk",
+        "usage_update",
+        "usage_update",
+        "turn:settled:end_turn",
+      ]);
+      await driver.stop("agt_1");
+    }
+  );
 
   it("claude: a prompt sent during a self-started turn waits for it", async () => {
     const { fake, driver, events, emit } = await claude();
@@ -1190,6 +1227,46 @@ describe("self-started turns", () => {
     );
     await driver.stop("agt_1");
   });
+
+  it.each([
+    ["both completed", true, []],
+    ["the goal turn still running", false, ["turn:started:engine"]],
+  ] as const)(
+    "codex: a goal turn that starts before the prompt's own is told apart by id (%s)",
+    async (_label, goalCompletes, after) => {
+      const fake = createFakeAcpAgent({
+        turn: async (_p, emit) => {
+          // The goal continuation wins the race to start.
+          await emit(marker("started", "turn_goal"));
+          await emit(marker("started", "turn_p"));
+          await emit(marker("completed", "turn_p", "completed"));
+          if (goalCompletes)
+            await emit(marker("completed", "turn_goal", "completed"));
+          return {
+            stopReason: "end_turn",
+            _meta: { "dispatch/turn": { turnId: "turn_p" } },
+          };
+        },
+      });
+      const driver = new AcpDriver({
+        spawn: () => fake.child,
+        resolveBinary,
+        logger,
+        selfTurnQuietMs: { quiet: 200, cancelled: 50 },
+      });
+      const events: DriverEvent[] = [];
+      driver.onEvent((e) => events.push(e));
+      await driver.start(launch({}, "codex"));
+      await driver.prompt("agt_1", "go");
+      const turns = () => shape(events).filter((s) => s.startsWith("turn:"));
+      expect(turns()).toEqual([
+        "turn:started:-",
+        "turn:settled:end_turn",
+        ...after,
+      ]);
+      await driver.stop("agt_1");
+    }
+  );
 
   it("codex: an engine turn that starts before the prompt settles opens after it", async () => {
     const fake = createFakeAcpAgent({

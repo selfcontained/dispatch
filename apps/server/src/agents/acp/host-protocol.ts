@@ -115,6 +115,8 @@ export type HostMessage =
     }
   | ({ type: "event" } & JournalEntry)
   | { type: "prompt_accepted"; id: string }
+  /** Not submitted: the engine's own turn is open. Send it again after it settles. */
+  | { type: "prompt_deferred"; id: string }
   | { type: "interrupt_result"; id: string }
   | { type: "steer_result"; id: string; outcome: "injected" | "promptRequired" }
   /** A set_config took; the engine's options after it. */

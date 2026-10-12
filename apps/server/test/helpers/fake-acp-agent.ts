@@ -11,7 +11,12 @@ export type FakeTurn = (
   /** Fires when the client cancels the turn; a long turn should stop then. */
   signal: AbortSignal
 ) => Promise<
-  acp.StopReason | { stopReason: acp.StopReason; usage?: acp.Usage }
+  | acp.StopReason
+  | {
+      stopReason: acp.StopReason;
+      usage?: acp.Usage;
+      _meta?: Record<string, unknown>;
+    }
 >;
 
 /**

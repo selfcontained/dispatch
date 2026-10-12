@@ -66,7 +66,10 @@ export class HostClient {
   private attempts = 0;
   private readonly pendingPrompts = new Map<
     string,
-    { resolve: () => void; reject: (err: Error) => void }
+    {
+      resolve: (outcome: "accepted" | "deferred") => void;
+      reject: (err: Error) => void;
+    }
   >();
   private readonly pendingConfig = new Map<
     string,
@@ -252,11 +255,14 @@ export class HostClient {
         pending?.resolve();
         return;
       }
-      case "prompt_accepted": {
+      case "prompt_accepted":
+      case "prompt_deferred": {
         const pending = this.pendingPrompts.get(message.id);
         if (pending) {
           this.pendingPrompts.delete(message.id);
-          pending.resolve();
+          pending.resolve(
+            message.type === "prompt_accepted" ? "accepted" : "deferred"
+          );
         }
         return;
       }
@@ -367,14 +373,17 @@ export class HostClient {
     });
   }
 
-  /** Resolves once the adapter has accepted the prompt. */
+  /**
+   * Resolves once the adapter has accepted the prompt, or with "deferred"
+   * when the host handed it back because the engine's own turn is open.
+   */
   prompt(
     id: string,
     text: string,
     source?: PromptSource,
     images?: PromptImage[]
-  ): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+  ): Promise<"accepted" | "deferred"> {
+    return new Promise<"accepted" | "deferred">((resolve, reject) => {
       this.pendingPrompts.set(id, { resolve, reject });
       try {
         this.send({
