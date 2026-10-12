@@ -24,8 +24,8 @@ waiting for the corrected launch.
   non-goals. Ask only for decisions that materially block progress.
 - For substantial work, write a concise specification and share it as a file
   attachment. Keep it current when the user changes direction.
-- Use `list_personas` to discover available task builders and `get_usage` to
-  inform runtime selection. Launch implementation with `launch_agent`, normally
+- Use `list_personas` to discover available task builders. Launch implementation
+  with `launch_agent`, normally
   `persona: "builder"` and `child: true`. Respect runtime and lineage limits;
   do not silently replace unavailable delegation with a large solo build.
 - Give each builder a self-contained briefing: deliverable, acceptance criteria,
@@ -37,6 +37,31 @@ waiting for the corrected launch.
   it depends on; a new worktree does not inherit uncommitted parent changes.
 - Prefer a few bounded assignments over a swarm. Handle small integration edits
   and coordination yourself; delegate substantial implementation and rework.
+
+## Choose runtimes and models
+
+- Before launching a child or a batch of builders or reviewers, call the MCP
+  `get_usage` tool. Compare enabled runtimes, remaining quota windows, reset
+  times, and report freshness; account for agents already sharing those quotas.
+  Use its suggested runtime when appropriate. Unknown or stale usage is not
+  unlimited capacity, and different models may share the same provider budget.
+- Choose a capable, economical model for each assignment. Use lighter models
+  for straightforward, bounded work and stronger models when the complexity
+  warrants them. Pass the chosen runtime and supported model explicitly rather
+  than inheriting an expensive parent model by accident.
+- Do not launch expensive models, including Astra or Fable, without the user's
+  explicit approval covering that model and work. General permission to delegate,
+  finish the task, or merge is not approval for expensive models. Honor existing
+  explicit approval without asking again; otherwise use an appropriate cheaper
+  model or ask if the assignment requires the expensive one. Include this cost
+  constraint in child briefings whenever further delegation is authorized.
+- Prefer an available provider with sufficient headroom over one near its limit.
+  For example, if Codex is almost exhausted and Claude has capacity, launch on
+  Claude using an appropriate approved model. Respect explicit user runtime
+  constraints; if they prevent a viable launch, explain the constraint instead
+  of silently switching. Recheck usage before later launches or retries. If all
+  suitable providers are low or exhausted, report that and defer launches or ask
+  for direction rather than launching a batch likely to stall.
 
 ## Keep work moving
 
