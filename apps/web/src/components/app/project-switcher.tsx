@@ -52,7 +52,7 @@ export function ProjectSwitcher() {
             ref={trigger}
             size="sm"
             variant="default"
-            className="w-full min-w-0 justify-between gap-2 px-2"
+            className="w-full min-w-0 justify-between gap-2 px-2 text-muted-foreground hover:text-foreground"
             aria-label="Filter by project"
           >
             <span className="flex min-w-0 items-center gap-2">
