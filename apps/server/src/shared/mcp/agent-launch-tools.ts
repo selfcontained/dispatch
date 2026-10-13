@@ -6,6 +6,7 @@ import { describeAgentModelCatalog } from "../agent-models.js";
 import { toToolError } from "./tool-error.js";
 
 export type LaunchAgentResult = {
+  personaType?: "task" | "review";
   warnings?: string[];
   agentId: string;
   name: string;
@@ -72,7 +73,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Persona slug from list_personas. The agent gets the persona's instructions; prompt becomes its briefing (the review target, relevant base branch for code changes, what to look at, and what is out of scope). The reviewer inspects relevant material itself."
+            "Persona slug from list_personas. Task personas add instructions to a normal launch with all usual options. Review personas launch a reviewer child in your workspace; prompt is its review briefing."
           ),
         name: z
           .string()
@@ -184,9 +185,10 @@ export function registerAgentLaunchTools(
 
         const result = await launchAgent(agentId, input);
         const text = `Launched agent "${result.name}" (${result.agentId}).`;
-        const reviewHandoff = args.persona
-          ? " Dispatch will send you a new prompt when this persona posts its result. After launching any other intended reviewers and finishing independent work, end this turn; do not poll list_agents, sleep, or wait here for the result. Work through any review findings when that prompt arrives."
-          : "";
+        const reviewHandoff =
+          args.persona && (result.personaType ?? "review") === "review"
+            ? " Dispatch will send you a new prompt when this persona posts its result. After launching any other intended reviewers and finishing independent work, end this turn; do not poll list_agents, sleep, or wait here for the result. Work through any review findings when that prompt arrives."
+            : "";
         return {
           content: [
             {

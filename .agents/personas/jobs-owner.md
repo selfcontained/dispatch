@@ -1,7 +1,7 @@
 ---
 name: Jobs, Templates, and Scheduled Messages Owner
 description: Scheduling, isolated runs, outcomes, templates, and scheduled message delivery.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

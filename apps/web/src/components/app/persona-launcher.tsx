@@ -82,16 +82,20 @@ export function PersonaLauncher({
     personas: PersonaSummary[];
     /** The checkout has a .agents/owners.json to route reviewers by. */
     codeowners: boolean;
+    refreshing: boolean;
   }>({
     queryKey: ["personas", cwd],
+    refetchInterval: (query) => (query.state.data?.refreshing ? 2000 : false),
     queryFn: async () => {
       const result = await api<{
         personas: PersonaSummary[];
         codeowners?: boolean;
+        refreshing?: boolean;
       }>(`/api/v1/personas?cwd=${encodeURIComponent(cwd)}`);
       return {
         personas: result.personas,
         codeowners: result.codeowners === true,
+        refreshing: result.refreshing === true,
       };
     },
   });

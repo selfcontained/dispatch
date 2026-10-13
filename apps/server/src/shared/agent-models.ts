@@ -163,6 +163,7 @@ export function validateAgentModel(
 export type AgentConfigInput<T extends AgentType = AgentType> = {
   agentType?: T;
   model?: string | null;
+  persona?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -172,6 +173,7 @@ export type AgentConfigInput<T extends AgentType = AgentType> = {
 export type AgentConfigDefaults<T extends AgentType = AgentType> = {
   agentType: T | "claude";
   model: string | null;
+  persona?: string | null;
   useWorktree: boolean;
   baseBranch: string | null;
   branchName: string | null;
@@ -193,6 +195,7 @@ export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
   const agentType = input.agentType ?? "claude";
   return {
     agentType,
+    ...(input.persona !== undefined ? { persona: input.persona } : {}),
     model: validateAgentModel(agentType, input.model ?? undefined) ?? null,
     useWorktree: input.useWorktree ?? false,
     baseBranch: input.baseBranch ?? null,

@@ -57,6 +57,13 @@ export async function runMigrations(
       "SELECT to_regclass('pgmigrations') AS name"
     );
     if (migrationTable.rows[0]?.name) {
+      // Development previews applied Projects before the released persona
+      // migrations. Replay their idempotent DDL at its final sequence number,
+      // preserving project data while allowing the intervening migrations.
+      await lockClient.query(
+        "DELETE FROM pgmigrations WHERE name IN ('0019_projects', '0020_project_icons')"
+      );
+
       const renamed = await lockClient.query(
         `UPDATE pgmigrations
          SET name = '0011_remove_launch_guidance_setting'

@@ -30,29 +30,23 @@ export async function registerProjectRoutes(
     if (!input) return;
     try {
       const cwd = await realpath(resolveTilde(input.repoRoot));
-      const { stdout } = await promisify(execFile)("git", [
-        "-C",
-        cwd,
+      const git = async (...args: string[]) =>
+        (await promisify(execFile)("git", ["-C", cwd, ...args])).stdout.trim();
+      const common = await git(
         "rev-parse",
         "--path-format=absolute",
-        "--git-common-dir",
-      ]);
-      const common = stdout.trim();
-      const { stdout: root } = await promisify(execFile)(
-        "git",
-        [
-          "--git-dir",
-          common,
-          "rev-parse",
-          "--path-format=absolute",
-          "--show-toplevel",
-        ],
-        { cwd }
+        "--git-common-dir"
       );
-      // --show-toplevel can reflect a worktree cwd; common git dir identifies the main checkout.
-      const repoRoot = await realpath(
-        common.endsWith("/.git") ? common.slice(0, -5) : root.trim()
-      );
+      const gitDir = await git("rev-parse", "--absolute-git-dir");
+      // Normal discovery handles nested paths and separate Git metadata.
+      // A linked worktree instead uses the primary checkout from Git's registry.
+      const root =
+        common === gitDir
+          ? await git("rev-parse", "--show-toplevel")
+          : (await git("worktree", "list", "--porcelain", "-z"))
+              .split("\0")[0]!
+              .slice("worktree ".length);
+      const repoRoot = await realpath(root);
       const result = await store.create({ ...input, repoRoot });
       publishUiEvent({ type: "project.changed" });
       return result;

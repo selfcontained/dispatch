@@ -45,6 +45,7 @@ export type JobRecord = {
   enabled: boolean;
   agentType: JobAgentType;
   model: string | null;
+  persona?: string | null;
   useWorktree: boolean;
   baseBranch: string | null;
   branchName: string | null;
@@ -149,6 +150,7 @@ export type AddJobInput = {
   needsInputTimeoutMs?: number;
   agentType?: JobAgentType;
   model?: string | null;
+  persona?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -174,6 +176,7 @@ export type JobConfigUpdate = {
   needsInputTimeoutMs?: number;
   agentType?: JobAgentType;
   model?: string | null;
+  persona?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -205,6 +208,7 @@ export class JobStore {
     needsInputTimeoutMs: number;
     agentType: JobAgentType;
     model?: string | null;
+    persona?: string | null;
     useWorktree: boolean;
     baseBranch: string | null;
     branchName: string | null;
@@ -227,8 +231,8 @@ export class JobStore {
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, model, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled, self_improve, continuation_enabled, max_iterations, completion_criteria, recovery_instructions)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, model, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled, self_improve, continuation_enabled, max_iterations, completion_criteria, recovery_instructions, persona)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26, $27)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -258,6 +262,7 @@ export class JobStore {
           input.maxIterations ?? null,
           input.completionCriteria ?? null,
           input.recoveryInstructions ?? null,
+          input.persona ?? null,
         ]
       );
       return mapJob(result.rows[0]);
@@ -777,6 +782,7 @@ export class JobStore {
         j.enabled,
         j.agent_type AS "agentType",
         j.model,
+        j.persona,
         j.use_worktree AS "useWorktree",
         j.base_branch AS "baseBranch",
         j.branch_name AS "branchName",
@@ -999,6 +1005,7 @@ export class JobStore {
             max_iterations = CASE WHEN $31 THEN $32 ELSE max_iterations END,
             completion_criteria = CASE WHEN $33 THEN $34 ELSE completion_criteria END,
             recovery_instructions = CASE WHEN $35 THEN $36 ELSE recovery_instructions END,
+            persona = CASE WHEN $37 THEN $38 ELSE persona END,
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -1040,6 +1047,8 @@ export class JobStore {
           input.completionCriteria ?? null,
           Object.prototype.hasOwnProperty.call(input, "recoveryInstructions"),
           input.recoveryInstructions ?? null,
+          input.persona !== undefined,
+          input.persona ?? null,
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -1144,6 +1153,7 @@ export class JobStore {
       enabled,
       agent_type AS "agentType",
       model,
+      persona,
       use_worktree AS "useWorktree",
       base_branch AS "baseBranch",
       branch_name AS "branchName",

@@ -5,13 +5,20 @@ description: Author repository-specific reviewers in .agents/personas/. Use when
 
 # Authoring review personas
 
-A persona is a reviewer with a point of view, stored as a markdown file in the
-repo. Dispatch ships a built-in generalist (`code-review`) that works anywhere;
+A persona is a reusable set of instructions stored as a markdown file in the
+repo. This skill focuses on review personas. Dispatch ships a built-in generalist (`code-review`) that works anywhere;
 a repo-specific persona is what you write when the generalist keeps missing
 things only this codebase knows about — a migration invariant, a tenancy
 boundary, a wire format two services agree on.
 
-Launching an existing persona is covered by the `review-workflow` skill. This
+New personas created with `persona_upsert` default to `task`; callers can omit
+the type. Handwritten task files use `type: task` and appear in Create agent, templates, and jobs.
+They do not receive review reporting instructions. Call `launch_agent` with their
+slug as `persona`; normal child, directory, and worktree options still apply.
+For a reviewer, use `type: review` instead. `feedbackFormat` is obsolete; in older files without `type`, its presence
+still identifies a reviewer. An explicit type always wins.
+
+Launching an existing review persona is covered by the `review-workflow` skill. This
 skill is about creating one.
 
 ## When it is worth writing
@@ -58,7 +65,7 @@ persona_upsert  slug: "migration-safety",
                 name: "Migration Safety",
                 description: "Reviews schema and data migrations for irreversible or blocking operations.",
                 instructions: "…",
-                feedbackFormat: "findings"
+                type: "review"
 ```
 
 - **`slug`** — lowercase letters, numbers, single hyphens, max 80 chars. It is
@@ -68,7 +75,7 @@ persona_upsert  slug: "migration-safety",
 - **`instructions`** — the persona's whole brief. Write the checklist you wish
   someone had handed you: the invariants, what "wrong" looks like concretely,
   which failure modes are cheap to miss.
-- **`feedbackFormat`** — single-line, defaults to `findings`.
+- **`type`** — `review` or `task`. New `persona_upsert` calls default to `task` and write `type: task`. Existing untyped files remain reviewers for compatibility, with or without the legacy `feedbackFormat` field. Updating a persona without a type preserves its existing type. Review personas receive the review reporting workflow; task personas add instructions to a normal task.
 
 Writes land in `.agents/personas/<slug>.md` inside the current workspace (a
 persona that still lives in the legacy `.dispatch/personas/` is updated there), and
@@ -79,7 +86,7 @@ workspace. Rendered file:
 ---
 name: Migration Safety
 description: Reviews schema and data migrations for irreversible or blocking operations.
-feedbackFormat: findings
+type: review
 ---
 
 <instructions>
@@ -135,3 +142,17 @@ personas receive paths without an explicit owner. `launch_owner_reviews` selects
 and launches owners with the caller's context; `dryRun: true` previews routing.
 Keep paths aligned with the subsystem as files move. Existing manual persona
 launches remain available for an additional review perspective.
+
+## Discovery and freshness
+
+New agent, template, and job configurations use personas from origin's default
+branch, served from a repository cache shared across worktrees. Opening a picker
+can trigger a background refresh, limited to once every five minutes. Failures
+retain cached definitions and back off up to an hour. Refreshing does not change
+the checkout. Merge new or edited personas into the default branch for these
+pickers; a recent refresh may delay their appearance by up to five minutes.
+
+Existing agents retain current-worktree overrides, including uncommitted persona
+edits, ahead of that catalog when listing or launching personas. Code owner
+reviews remain strictly scoped to their workspace's ownership map and personas.
+Repositories without origin and non-Git folders continue to use local files.

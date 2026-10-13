@@ -1,7 +1,7 @@
 ---
 name: Frontend and React Review
 description: React correctness, state ownership, accessibility, and user-visible rendering behavior across the web app.
-feedbackFormat: findings
+type: review
 ---
 
 # Scope

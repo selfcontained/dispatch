@@ -374,6 +374,14 @@ export function registerCrudTools(
             .default("claude")
             .describe("Agent runtime type."),
           model: modelSchema("create", JOB_AGENT_TYPES),
+          persona: z
+            .string()
+            .min(1)
+            .nullable()
+            .optional()
+            .describe(
+              "Optional task persona slug from list_personas; null clears the selection."
+            ),
           useWorktree: z
             .boolean()
             .default(false)
@@ -496,6 +504,14 @@ export function registerCrudTools(
             .optional()
             .describe("Agent runtime type."),
           model: modelSchema("update", JOB_AGENT_TYPES),
+          persona: z
+            .string()
+            .min(1)
+            .nullable()
+            .optional()
+            .describe(
+              "Optional task persona slug from list_personas; null clears the selection."
+            ),
           useWorktree: z
             .boolean()
             .optional()
@@ -730,6 +746,14 @@ export function registerCrudTools(
             .default("claude")
             .describe("Agent runtime type."),
           model: modelSchema("create", TEMPLATE_AGENT_TYPES),
+          persona: z
+            .string()
+            .min(1)
+            .nullable()
+            .optional()
+            .describe(
+              "Optional task persona slug from list_personas; null clears the selection."
+            ),
           useWorktree: z
             .boolean()
             .default(false)
@@ -808,6 +832,14 @@ export function registerCrudTools(
             .optional()
             .describe("Agent runtime type."),
           model: modelSchema("update", TEMPLATE_AGENT_TYPES),
+          persona: z
+            .string()
+            .min(1)
+            .nullable()
+            .optional()
+            .describe(
+              "Optional task persona slug from list_personas; null clears the selection."
+            ),
           useWorktree: z
             .boolean()
             .optional()

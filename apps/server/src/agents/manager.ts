@@ -82,7 +82,11 @@ import {
   missingEngineMessage,
 } from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
-import { extractPersonaContext } from "./acp/persona-context.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
+import {
+  PERSONA_CONTEXT_ARG,
+  extractPersonaContext,
+} from "./acp/persona-context.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
   AgentGitContext,
@@ -150,6 +154,8 @@ type CreateAgentInput = {
   baseBranch?: string;
   worktreeLocation?: WorktreeLocation;
   persona?: string;
+  /** Existing agents use workspace overrides; UI/templates/jobs use the catalog. */
+  personaSource?: "catalog" | "workspace";
   parentAgentId?: string;
   /** Launcher of this agent, recorded even when it is not the parent. */
   launchedByAgentId?: string;
@@ -1300,6 +1306,23 @@ export class AgentManager {
       // A child can use its parent's worktree while retaining explicit membership.
       if (!input.parentAgentId) input.cwd = project.repo_root;
     }
+    const taskPersona = Boolean(input.persona && input.role !== "review");
+    if (taskPersona && !options.detachLaunch) {
+      const persona = await resolveLaunchPersona(
+        input.cwd,
+        input.persona!,
+        "task",
+        input.personaSource ?? "catalog"
+      );
+      input = {
+        ...input,
+        agentArgs: [
+          ...(input.agentArgs ?? []),
+          PERSONA_CONTEXT_ARG,
+          persona.body,
+        ],
+      };
+    }
     const p = await this.prepareCreateInputs(input);
     await this.insertAgentRecord(p, input);
 
@@ -1374,6 +1397,30 @@ export class AgentManager {
       resolveLaunchPost,
       jobRunId: input.jobRunId,
       beforeLaunch: options.beforeLaunch,
+      preparePersona:
+        taskPersona && options.detachLaunch
+          ? async () => {
+              const persona = await resolveLaunchPersona(
+                input.cwd,
+                input.persona!,
+                "task",
+                input.personaSource ?? "catalog"
+              );
+              const result = await this.pool.query(
+                "UPDATE agents SET agent_args = $2::jsonb, updated_at = NOW() WHERE id = $1 AND status = 'creating' RETURNING id",
+                [
+                  p.id,
+                  JSON.stringify([
+                    ...p.agentArgs,
+                    PERSONA_CONTEXT_ARG,
+                    persona.body,
+                  ]),
+                ]
+              );
+              if (!result.rowCount)
+                throw new AgentError("Agent launch was cancelled.", 409);
+            }
+          : undefined,
     });
 
     if (options.detachLaunch) {
@@ -1681,9 +1728,12 @@ export class AgentManager {
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     jobRunId: string | undefined;
     beforeLaunch?: (agentId: string) => Promise<void>;
+    /** Catalog fetches must not block the detached create response. */
+    preparePersona?: () => Promise<void>;
   }): Promise<void> {
     const { id } = opts;
     try {
+      await opts.preparePersona?.();
       const workspace = await prepareWorkspace(
         {
           agentName: opts.name,
@@ -1830,14 +1880,14 @@ export class AgentManager {
     );
     await mkdir(filesDir, { recursive: true });
     const personality =
-      agent.persona || opts.jobRunId
+      agent.role === "review" || opts.jobRunId
         ? null
         : await getActivePersonality(this.pool);
     const systemPrompt = buildSystemPrompt({
       agent,
       personalityPrompt: personality?.prompt ?? null,
       suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
-        persona: agent.persona,
+        role: agent.role,
         jobRunId: opts.jobRunId,
       }),
       jobRunId: opts.jobRunId ?? null,

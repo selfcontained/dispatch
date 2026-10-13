@@ -1,7 +1,7 @@
 ---
 name: Browser Feedback Owner
 description: Extension pairing, tab capture, element picking, feedback submission, and delivery recovery.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

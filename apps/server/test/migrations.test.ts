@@ -56,10 +56,12 @@ describe("block_reactions uniqueness migration", () => {
     await pool.query("ALTER TABLE agents DROP COLUMN project_id");
     await pool.query("ALTER TABLE templates DROP COLUMN project_id");
     await pool.query("DROP TABLE projects");
+    await pool.query("ALTER TABLE templates DROP COLUMN persona");
+    await pool.query("ALTER TABLE jobs DROP COLUMN persona");
     await pool.query("DROP TABLE block_delivery_context");
     await pool.query("DROP TABLE scheduled_messages");
     await pool.query(
-      `DELETE FROM pgmigrations WHERE name IN ('0016_block_reactions_pg14_unique', '0017_scheduled_messages', '0018_message_context', '0019_projects', '0020_project_icons')`
+      `DELETE FROM pgmigrations WHERE name IN ('0016_block_reactions_pg14_unique', '0017_scheduled_messages', '0018_message_context', '0019_launch_personas', '0020_persona_agent_roles', '0021_projects', '0022_project_icons')`
     );
 
     await runTestMigrations();
@@ -67,5 +69,43 @@ describe("block_reactions uniqueness migration", () => {
     const state = await reactionUniqueness();
     expect(state.constraints).toEqual([]);
     expect(state.index).toContain("COALESCE(author_agent_id, ''::text)");
+  });
+});
+
+describe("Project upgrade ordering", () => {
+  it("upgrades an existing persona-era database", async () => {
+    await pool.query("ALTER TABLE agents DROP COLUMN project_id");
+    await pool.query("ALTER TABLE templates DROP COLUMN project_id");
+    await pool.query("DROP TABLE projects");
+    await pool.query(
+      "DELETE FROM pgmigrations WHERE name IN ('0021_projects', '0022_project_icons')"
+    );
+    const released = await pool.query(
+      "SELECT name FROM pgmigrations WHERE name IN ('0019_launch_personas', '0020_persona_agent_roles')"
+    );
+    expect(released.rows).toHaveLength(2);
+    await runTestMigrations();
+    await pool.query("SELECT project_id FROM agents LIMIT 0");
+    await pool.query("SELECT icon_data, icon_mime FROM projects LIMIT 0");
+  });
+
+  it("preserves preview projects while replaying at the new sequence", async () => {
+    await pool.query(
+      "INSERT INTO projects (id, name, repo_root, icon_data, icon_mime) VALUES ('preview', 'Preview', '/tmp/preview', 'logo'::bytea, 'image/svg+xml')"
+    );
+    await pool.query(
+      "UPDATE pgmigrations SET name = CASE name WHEN '0021_projects' THEN '0019_projects' WHEN '0022_project_icons' THEN '0020_project_icons' ELSE name END"
+    );
+    await pool.query(
+      "DELETE FROM pgmigrations WHERE name IN ('0019_launch_personas', '0020_persona_agent_roles')"
+    );
+    await pool.query("ALTER TABLE templates DROP COLUMN persona");
+    await pool.query("ALTER TABLE jobs DROP COLUMN persona");
+    await runTestMigrations();
+    const result = await pool.query(
+      "SELECT name, icon_data FROM projects WHERE id='preview'"
+    );
+    expect(result.rows[0].name).toBe("Preview");
+    expect(result.rows[0].icon_data.toString()).toBe("logo");
   });
 });

@@ -16,7 +16,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 function hasDefaultSessionName(agent: Agent): boolean {
-  if (agent.persona) return false;
+  if (agent.role === "review") return false;
   if (agent.name.startsWith("job-")) return false;
   return agent.name.trim() === `agent-${agent.id.slice(-6)}`;
 }

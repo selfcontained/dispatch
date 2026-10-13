@@ -5,6 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
 
 import { PathInput } from "@/components/app/path-input";
+import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
@@ -101,6 +102,7 @@ export function AddJobFlow({
   const [agentType, setAgentType] = useState<CliAgentType>(
     jobAgentTypes[0] ?? "codex"
   );
+  const [persona, setPersona] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const { options: modelOptions, loading: modelCatalogLoading } =
     useAgentModelCatalog(agentType);
@@ -188,6 +190,11 @@ export function AddJobFlow({
                   />
                 </ProjectLocation>
               </div>
+              <AgentPersonaSelect
+                cwd={directory}
+                value={persona}
+                onChange={setPersona}
+              />
               <JobScheduleField
                 id="job-schedule"
                 schedule={schedule}
@@ -425,6 +432,7 @@ export function AddJobFlow({
               needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
               agentType,
               model,
+              persona,
               useWorktree,
               baseBranch: useWorktree ? baseBranch : null,
               branchName: useWorktree ? branchName : null,

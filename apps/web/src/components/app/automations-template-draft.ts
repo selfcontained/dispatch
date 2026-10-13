@@ -13,6 +13,7 @@ export interface TemplateDraft {
   prompt: string;
   agentType: AgentType;
   model: string | null;
+  persona?: string | null;
   useWorktree: boolean;
   baseBranch: string;
   branchName: string;
@@ -49,6 +50,7 @@ export function templateDraftFrom(template: Template): TemplateDraft {
     prompt: template.prompt ?? "",
     agentType: template.agentType,
     model: template.model,
+    persona: template.persona ?? null,
     useWorktree: template.useWorktree,
     baseBranch: template.baseBranch ?? "main",
     branchName: template.branchName ?? "",
@@ -72,6 +74,7 @@ export function templateConfigFromDraft(
   Pick<
     AddTemplateConfig,
     | "projectId"
+    | "persona"
     | "description"
     | "prompt"
     | "agentType"
@@ -86,6 +89,7 @@ export function templateConfigFromDraft(
 > {
   return {
     projectId: draft.projectId ?? null,
+    persona: draft.persona ?? null,
     description: draft.description.trim() || null,
     prompt: draft.prompt || null,
     agentType: draft.agentType,
@@ -136,6 +140,8 @@ export function useTemplateDraft(
         setDraft((prev) => ({ ...prev, prompt: value })),
       onAgentTypeChange: (value: AgentType) =>
         setDraft((prev) => ({ ...prev, agentType: value })),
+      onPersonaChange: (value: string | null) =>
+        setDraft((prev) => ({ ...prev, persona: value })),
       onModelChange: (value: string | null) =>
         setDraft((prev) => ({ ...prev, model: value })),
       onUseWorktreeChange: (checked: boolean) =>

@@ -152,6 +152,9 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
 
 // Per-cwd preferences for the Create Agent dialog. Each cwd gets its own
 // atom backed by localStorage; the family caches them by trimmed cwd.
+export const createPersonaPrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<string | null>(`dispatch:persona:${cwd}`, null)
+);
 export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
 );

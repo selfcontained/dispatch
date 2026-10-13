@@ -12,8 +12,13 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { registerPersonaRoutes } from "../src/routes/personas.js";
 import { StreamServiceError } from "../src/chat/service.js";
 
-vi.mock("../src/personas/loader.js", () => ({
-  loadPersonasFromRoots: vi.fn(async () => []),
+vi.mock("../src/personas/resolve.js", () => ({
+  discoverPersonas: vi.fn(async () => ({
+    personas: [],
+    warnings: [],
+    refreshing: false,
+    updatedAt: null,
+  })),
 }));
 
 vi.mock("../src/personas/codeowners.js", () => ({
@@ -84,10 +89,15 @@ describe("GET /api/v1/personas", () => {
   });
 
   it("loads personas from the worktree and repo roots", async () => {
-    const { loadPersonasFromRoots } = await import("../src/personas/loader.js");
-    vi.mocked(loadPersonasFromRoots).mockResolvedValueOnce([
-      { slug: "security-review", name: "Security Review" },
-    ] as never);
+    const { discoverPersonas } = await import("../src/personas/resolve.js");
+    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+      personas: [
+        { slug: "security-review", name: "Security Review", type: "review" },
+      ],
+      warnings: [],
+      refreshing: false,
+      updatedAt: null,
+    } as never);
     const response = await app.inject({
       method: "GET",
       url: "/api/v1/personas?cwd=/tmp",
@@ -95,10 +105,72 @@ describe("GET /api/v1/personas", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().personas[0].slug).toBe("security-review");
     expect(response.json().codeowners).toBe(false);
-    expect(loadPersonasFromRoots).toHaveBeenCalledWith({
-      worktreeRoot: "/tmp",
-      repoRoot: "/tmp",
+    expect(discoverPersonas).toHaveBeenCalledWith("/tmp", "workspace");
+  });
+
+  it("returns discovery warnings without hiding valid personas", async () => {
+    const { discoverPersonas } = await import("../src/personas/resolve.js");
+    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+      warnings: ["Invalid persona type in broken.md"],
+      refreshing: true,
+      updatedAt: null,
+      personas: [
+        {
+          slug: "builder",
+          name: "Builder",
+          description: "",
+          body: "Build",
+          type: "task",
+        },
+      ],
     });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/personas?cwd=/tmp&type=task",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(discoverPersonas).toHaveBeenCalledWith("/tmp", "catalog");
+    expect(response.json()).toMatchObject({
+      refreshing: true,
+      personas: [expect.objectContaining({ slug: "builder" })],
+      warnings: ["Invalid persona type in broken.md"],
+    });
+  });
+
+  it("separates agent and review pickers", async () => {
+    const { discoverPersonas } = await import("../src/personas/resolve.js");
+    const personas = [
+      { slug: "legacy", type: "review" },
+      { slug: "builder", type: "task" },
+      { slug: "default" },
+    ];
+    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+      personas,
+      warnings: [],
+      refreshing: false,
+      updatedAt: null,
+    } as never);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/personas?cwd=/tmp&type=task",
+        })
+      )
+        .json()
+        .personas.map((p: { slug: string }) => p.slug)
+    ).toEqual(["builder"]);
+    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+      personas,
+      warnings: [],
+      refreshing: false,
+      updatedAt: null,
+    } as never);
+    expect(
+      (await app.inject({ method: "GET", url: "/api/v1/personas?cwd=/tmp" }))
+        .json()
+        .personas.map((p: { slug: string }) => p.slug)
+    ).toEqual(["legacy", "default"]);
   });
 
   it("reports an ownership map found in the worktree", async () => {

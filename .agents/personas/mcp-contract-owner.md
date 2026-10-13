@@ -1,7 +1,7 @@
 ---
 name: MCP Contract Owner
 description: Tool registration, session scope, authorization, schemas, and runtime wiring.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

@@ -1,3 +1,4 @@
+import { personaCatalog } from "../src/personas/catalog.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
 import { loadCodeowners } from "../src/personas/codeowners.js";
@@ -31,7 +32,8 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
     stderr: "",
   })),
 }));
-vi.mock("../src/personas/loader.js", () => ({
+vi.mock("../src/personas/loader.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/personas/loader.js")>()),
   loadPersonas: vi.fn(async () => []),
   loadPersonaBySlug: vi.fn(),
   assemblePersonaPrompt: vi.fn(() => "assembled-prompt"),
@@ -95,7 +97,8 @@ beforeEach(() => {
     slug,
     name: slug,
     description: "Owner",
-    feedbackFormat: "findings",
+    type: "review",
+
     body: "Verify subsystem contracts",
   }));
   vi.mocked(runCommand).mockResolvedValue({
@@ -193,7 +196,14 @@ describe("ACP code owner launches", () => {
       "/main-checkout",
       "code-review"
     );
-    // Ordinary manual launches retain their existing main-checkout fallback.
+    // Ordinary manual launches may use the shared remote catalog, but owner
+    // reviews must stay pinned to their own workspace.
+    vi.spyOn(personaCatalog, "get").mockResolvedValueOnce({
+      personas: [override],
+      warnings: [],
+      refreshing: false,
+      updatedAt: null,
+    });
     await handlers.preparePersonaLaunch(parent as any, {
       persona: "code-review",
       context: "Manual review",
@@ -212,7 +222,8 @@ describe("ACP code owner launches", () => {
             slug,
             name: slug,
             description: "Owner",
-            feedbackFormat: "findings",
+            type: "review",
+
             body: "Instructions",
           }
     );

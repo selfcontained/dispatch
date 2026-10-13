@@ -49,6 +49,7 @@ import type {
   PublishUiEvent,
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
 import { createPersonaHandlers } from "./mcp-persona-handlers.js";
 import {
   activatePersonality,
@@ -344,7 +345,18 @@ async function handleLaunchAgent(
 ): Promise<LaunchAgentResult> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
-  if (input.persona) {
+  const selectedPersona = input.persona
+    ? await resolveLaunchPersona(
+        input.cwd ?? agentWorkspaceDir(parent) ?? parent.cwd,
+        input.persona
+      )
+    : null;
+  if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
+    if (input.cwd && input.cwd !== (agentWorkspaceDir(parent) ?? parent.cwd)) {
+      throw new Error(
+        "Review personas run in the parent workspace; omit cwd for a review launch."
+      );
+    }
     // A persona launch is an ordinary child launch with a profile applied:
     // the persona's instructions ride in the first ACP message, the caller's
     // prompt is its briefing, and it works in the parent's worktree.
@@ -354,7 +366,8 @@ async function handleLaunchAgent(
       publishUiEvent: deps.publishUiEvent,
       withStreamFlag: deps.withStreamFlag,
     }).launchPersonaAgent(agentId, {
-      persona: input.persona,
+      persona: input.persona!,
+      resolvedPersona: selectedPersona,
       context: input.prompt,
       name: input.name,
       ...(input.type
@@ -363,6 +376,7 @@ async function handleLaunchAgent(
       ...(input.model ? { model: input.model } : {}),
     });
     return {
+      personaType: "review",
       agentId: launched.agentId,
       name: launched.name,
       ...(launched.warnings ? { warnings: launched.warnings } : {}),
@@ -479,6 +493,8 @@ async function handleLaunchAgent(
     // template instructions or the launch header.
     launchContext: { prompt: input.prompt },
     templateId: input.templateId,
+    persona: input.persona ?? template?.persona ?? undefined,
+    personaSource: "workspace",
   });
 
   deps.publishUiEvent({
@@ -500,7 +516,14 @@ async function handleLaunchAgent(
     );
   }
   const note = notes.length > 0 ? notes.join(" ") : undefined;
-  return { agentId: agent.id, name: agent.name, ...(note ? { note } : {}) };
+  return {
+    agentId: agent.id,
+    name: agent.name,
+    ...((input.persona ?? template?.persona)
+      ? { personaType: "task" as const }
+      : {}),
+    ...(note ? { note } : {}),
+  };
 }
 
 /**

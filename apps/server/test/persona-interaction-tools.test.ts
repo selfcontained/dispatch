@@ -39,7 +39,7 @@ describe("resolvePersonaList", () => {
     expect(listPersonas).toHaveBeenCalledWith("/repo");
   });
 
-  it("merges with worktree precedence", async () => {
+  it("does not overlay stale main-checkout files on the effective workspace catalog", async () => {
     const worktreeSecurity = {
       slug: "security",
       name: "Custom Security",
@@ -51,7 +51,8 @@ describe("resolvePersonaList", () => {
     });
 
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
-    expect(defined(result)).toEqual([worktreeSecurity, perf, ux]);
+    expect(defined(result)).toEqual([worktreeSecurity, perf]);
+    expect(listPersonas).toHaveBeenCalledTimes(1);
   });
 
   it("skips repo when repoRoot equals worktreeRoot", async () => {
@@ -74,7 +75,7 @@ describe("resolvePersonaList", () => {
       return [security];
     });
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
-    expect(defined(result)).toEqual([security]);
+    expect(defined(result)).toEqual([]);
   });
 
   it("handles repo listPersonas failure gracefully", async () => {
@@ -145,6 +146,35 @@ describe("registerPersonaInteractionTools", () => {
   });
 
   describe("tool handlers", () => {
+    it("returns per-file warnings alongside healthy personas", async () => {
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["list_personas"]),
+        {
+          agentId,
+          worktreeRoot: "/wt",
+          listPersonas: async () => ({
+            personas: [
+              {
+                slug: "builder",
+                name: "Builder",
+                description: "",
+                type: "task",
+              },
+            ],
+            warnings: ["Invalid persona type in broken.md"],
+          }),
+        }
+      );
+      const result = await server.tools[0].handler({});
+      expect((result as any).structuredContent).toMatchObject({
+        personas: expect.arrayContaining([
+          expect.objectContaining({ slug: "builder", type: "task" }),
+        ]),
+        warnings: ["Invalid persona type in broken.md"],
+      });
+    });
+
     it("list_personas calls resolvePersonaList with correct roots", async () => {
       const personas = [
         { slug: "sec", name: "Security", description: "review" },
@@ -165,7 +195,7 @@ describe("registerPersonaInteractionTools", () => {
       const result = await server.tools[0].handler({});
       expect(result).toHaveProperty("structuredContent");
       expect((result as any).structuredContent.personas).toEqual([
-        ...personas,
+        ...personas.map((p) => ({ ...p, type: "review" })),
         ...BUILT_IN_PERSONA_SUMMARIES,
       ]);
     });

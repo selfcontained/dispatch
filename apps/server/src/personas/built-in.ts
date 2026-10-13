@@ -99,7 +99,7 @@ export const BUILT_IN_PERSONAS: readonly PersonaDefinition[] = [
     name: "General Code Review",
     description:
       "Built-in generalist reviewer — correctness, clarity, and fit with the surrounding code. No repo setup needed.",
-    feedbackFormat: "findings",
+    type: "review",
     body: GENERIC_REVIEW_BODY,
   },
 ];
@@ -109,10 +109,12 @@ export const BUILT_IN_PERSONA_SUMMARIES: readonly {
   slug: string;
   name: string;
   description: string;
+  type: "review";
 }[] = BUILT_IN_PERSONAS.map(({ slug, name, description }) => ({
   slug,
   name,
   description,
+  type: "review",
 }));
 
 export function getBuiltInPersona(slug: string): PersonaDefinition | null {

@@ -6,6 +6,7 @@ import type { SeedFileInput } from "../agents/file-seed.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
@@ -64,6 +65,13 @@ export class TemplateService {
       if (!project) throw new Error("Project not found.");
       input = { ...input, directory: project.repoRoot };
     }
+    if (input.persona)
+      await resolveLaunchPersona(
+        input.directory,
+        input.persona,
+        "task",
+        "catalog"
+      );
     const template = await this.store.createTemplate({
       projectId: input.projectId ?? null,
       name: input.name.trim(),
@@ -100,7 +108,22 @@ export class TemplateService {
       if (!project) throw new Error("Project not found.");
       input = { ...input, directory: project.repoRoot };
     }
+    const persona =
+      input.persona !== undefined ? input.persona : existing.persona;
+    if (
+      persona &&
+      (persona !== existing.persona ||
+        (input.directory !== undefined &&
+          input.directory !== existing.directory))
+    )
+      await resolveLaunchPersona(
+        input.directory ?? existing.directory,
+        persona,
+        "task",
+        "catalog"
+      );
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
+    if (input.persona !== undefined) updates.persona = input.persona;
     if (input.projectId !== undefined) updates.projectId = input.projectId;
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)
@@ -216,6 +239,7 @@ export class TemplateService {
       name: sanitizeAgentName(template.name),
       type: resolvedType,
       model: resolvedModel,
+      persona: template.persona ?? undefined,
       cwd,
       initialPrompt: finalPrompt,
       launchContext: {

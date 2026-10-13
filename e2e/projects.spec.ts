@@ -145,3 +145,75 @@ test("explicit membership survives template moves and project deletion clears me
   for (const a of after.agents.filter((a: { cwd: string }) => a.cwd === repo))
     await request.delete(`/api/v1/agents/${a.id}`, { headers });
 });
+
+test("canonicalizes nested and linked checkouts and separate Git metadata", async ({
+  request,
+}) => {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-project-roots-"));
+  const ids: string[] = [];
+  try {
+    for (const separate of [false, true]) {
+      const checkout = join(root, separate ? "separate" : "normal");
+      execFileSync("git", [
+        "init",
+        ...(separate ? ["--separate-git-dir", join(root, "metadata")] : []),
+        checkout,
+      ]);
+      mkdirSync(join(checkout, "nested"));
+      const created = await request.post("/api/v1/projects", {
+        headers,
+        data: {
+          name: "Root test",
+          repoRoot: join(checkout, "nested"),
+          color: "#9575ed",
+        },
+      });
+      expect(created.ok(), await created.text()).toBeTruthy();
+      const project = await created.json();
+      ids.push(project.id);
+      expect(project.repoRoot).toBe(
+        execFileSync("git", ["-C", checkout, "rev-parse", "--show-toplevel"], {
+          encoding: "utf8",
+        }).trim()
+      );
+      const duplicate = await request.post("/api/v1/projects", {
+        headers,
+        data: { name: "Duplicate root", repoRoot: checkout, color: "#9575ed" },
+      });
+      expect(duplicate.status()).toBe(409);
+      if (!separate) {
+        execFileSync("git", [
+          "-C",
+          checkout,
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Initial",
+        ]);
+        const linked = join(root, "linked");
+        execFileSync("git", [
+          "-C",
+          checkout,
+          "worktree",
+          "add",
+          "-b",
+          "linked",
+          linked,
+        ]);
+        const linkedDuplicate = await request.post("/api/v1/projects", {
+          headers,
+          data: { name: "Linked", repoRoot: linked, color: "#9575ed" },
+        });
+        expect(linkedDuplicate.status()).toBe(409);
+      }
+    }
+  } finally {
+    for (const id of ids)
+      await request.delete(`/api/v1/projects/${id}`, { headers });
+    rmSync(root, { recursive: true, force: true });
+  }
+});

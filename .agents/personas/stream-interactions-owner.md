@@ -1,7 +1,7 @@
 ---
 name: Stream Interactions Owner
 description: Stream blocks, questions, forms, attachments, threads, and persistent UI interaction state.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

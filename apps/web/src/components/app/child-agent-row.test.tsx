@@ -739,3 +739,13 @@ describe("ChildAgentRow running-turn link", () => {
     expect(closeAgent).not.toHaveBeenCalled();
   });
 });
+
+it("uses task child session names rather than their shared persona", () => {
+  renderRow({
+    ...baseAgent,
+    role: "standard",
+    persona: "builder",
+    name: "Fix login",
+  });
+  expect(screen.getByText("Fix login")).toBeTruthy();
+});

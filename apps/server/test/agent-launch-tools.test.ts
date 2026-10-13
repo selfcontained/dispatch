@@ -167,6 +167,33 @@ describe("registerAgentLaunchTools", () => {
     // must not offer a per-call override, at either layer: the schema has no
     // such key (so the SDK's z.object strips it off the wire), and the handler
     // copies named keys only (so nothing survives even if the schema changes).
+    it("does not attach review handoff instructions to task personas", async () => {
+      const ctx = baseContext();
+      (ctx.launchAgent as ReturnType<typeof vi.fn>).mockResolvedValue({
+        agentId: "builder",
+        name: "Builder",
+        personaType: "task",
+      });
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
+      const result = (await tool.handler({
+        name: "Builder",
+        prompt: "Build it",
+        persona: "builder",
+        child: false,
+      })) as { content: Array<{ text: string }> };
+      expect(result.content[0].text).not.toContain("review");
+      expect(ctx.launchAgent).toHaveBeenCalledWith(AGENT_ID, {
+        name: "Builder",
+        prompt: "Build it",
+        persona: "builder",
+        child: false,
+      });
+      expect(Object.keys(tool.config.inputSchema as object)).not.toContain(
+        "personaMode"
+      );
+    });
+
     it("does not declare a worktreeLocation input", () => {
       registerAgentLaunchTools(
         server as never,

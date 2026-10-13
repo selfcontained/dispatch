@@ -99,7 +99,9 @@ export function ChildAgentRow({
       : isStopped
         ? "Review agent — paused"
         : "Review in progress";
-  const displayName = agent.persona ?? agent.name;
+  const displayName = isReviewAgent
+    ? (agent.persona ?? agent.name)
+    : agent.name;
 
   const row = (
     <div

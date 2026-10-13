@@ -381,6 +381,20 @@ describe("AgentCardHeader wiring", () => {
     expect(apiMock).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps session controls and rename for a task persona", () => {
+    renderCard({
+      agent: makeAgent({
+        name: "agent-parent",
+        persona: "builder",
+        role: "standard",
+      }),
+      expandedAgentId: AGENT_ID,
+    });
+    expect(screen.getByTestId(`agent-prompt-rename-${AGENT_ID}`)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+  });
+
   // The `startsWith("job-")` guard in hasDefaultSessionName is unreachable — a
   // job- name can never equal the `agent-<id suffix>` default it also requires —
   // so there is no case for it here.
@@ -389,7 +403,11 @@ describe("AgentCardHeader wiring", () => {
     ["a stopped agent", makeAgent({ name: "agent-parent", status: "stopped" })],
     [
       "a persona agent",
-      makeAgent({ name: "agent-parent", persona: "security-review" }),
+      makeAgent({
+        name: "agent-parent",
+        persona: "security-review",
+        role: "review",
+      }),
     ],
   ])("hides the rename prompt for %s", (_label, agent) => {
     renderCard({ agent });

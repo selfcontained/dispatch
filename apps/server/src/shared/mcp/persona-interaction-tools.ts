@@ -6,7 +6,7 @@ import {
   BUILT_IN_PERSONA_SUMMARIES,
   GENERIC_REVIEW_PERSONA_SLUG,
 } from "../../personas/built-in.js";
-import { mergePersonasWithWorktreePrecedence } from "../../personas/loader.js";
+import { supportsPersonaType } from "../../personas/loader.js";
 import {
   getPersonaTemplate,
   PERSONA_TEMPLATES,
@@ -34,26 +34,37 @@ export type PersonaInteractionCallbacks = {
   launchOwnerReviews?: McpRequestContext["launchOwnerReviews"];
 };
 
-type PersonaSummary = { slug: string; name: string; description: string };
+type PersonaSummary = {
+  slug: string;
+  name: string;
+  description: string;
+  type?: "review" | "task";
+};
 
 export async function resolvePersonaList(
-  listPersonas: (root: string) => Promise<PersonaSummary[]>,
+  listPersonas: NonNullable<McpRequestContext["listPersonas"]>,
   worktreeRoot?: string | null,
-  repoRoot?: string | null
+  repoRoot?: string | null,
+  warnings: string[] = []
 ): Promise<PersonaSummary[]> {
-  const worktreePersonas = worktreeRoot
-    ? await listPersonas(worktreeRoot).catch(() => [])
-    : [];
-  const repoPersonas =
-    repoRoot && repoRoot !== worktreeRoot
-      ? await listPersonas(repoRoot).catch(() => [])
-      : [];
-
+  async function read(root: string): Promise<PersonaSummary[]> {
+    try {
+      const result = await listPersonas(root);
+      if (Array.isArray(result)) return result;
+      warnings.push(...result.warnings);
+      return result.personas;
+    } catch {
+      warnings.push(
+        "Could not load repository personas. Run persona_validate to diagnose the configuration."
+      );
+      return [];
+    }
+  }
+  // The server returns the effective workspace + shared catalog list. Do not
+  // merge the main checkout again: its stale files would resurrect old personas.
+  const root = worktreeRoot ?? repoRoot;
   return appendBuiltInPersonas(
-    mergePersonasWithWorktreePrecedence({
-      worktreePersonas,
-      repoPersonas,
-    }),
+    root ? await read(root) : [],
     BUILT_IN_PERSONA_SUMMARIES
   );
 }
@@ -102,7 +113,12 @@ export function registerPersonaInteractionTools(
           name: z.string().max(200).optional(),
           description: z.string().max(500).optional(),
           instructions: z.string().max(20_000).optional(),
-          feedbackFormat: z.string().max(100).optional(),
+          type: z
+            .enum(["review", "task"])
+            .optional()
+            .describe(
+              "Review personas report findings; task personas are available on normal launches, templates and jobs. New files default to task; updates preserve the existing type when omitted."
+            ),
         },
       },
       async (args) => {
@@ -127,7 +143,7 @@ export function registerPersonaInteractionTools(
             name,
             description,
             instructions,
-            feedbackFormat: args.feedbackFormat,
+            type: args.type ?? template?.type,
           });
           return {
             content: [
@@ -194,19 +210,35 @@ export function registerPersonaInteractionTools(
       "list_personas",
       {
         description:
-          "List the personas available for this project: each one's slug, name and description — the repo's own personas plus Dispatch's built-in generalist reviewer. Launch one with launch_agent and its slug as persona.",
-        inputSchema: {},
+          "List available personas with slug, name, description and type (review or task). Optionally filter by type. Pass the slug as persona to launch_agent; the persona type determines whether it launches as a reviewer or a normal agent.",
+        inputSchema: { type: z.enum(["task", "review"]).optional() },
       },
-      async () => {
+      async (args) => {
         try {
-          const personas = await resolvePersonaList(
+          const warnings: string[] = [];
+          const available = await resolvePersonaList(
             listPersonas,
             worktreeRoot,
-            repoRoot
+            repoRoot,
+            warnings
           );
+          const personas = available
+            .filter((p) => !args.type || supportsPersonaType(p, args.type))
+            .map((p) => ({ ...p, type: p.type ?? "review" }));
           return {
-            content: [{ type: "text", text: jsonText({ personas }) }],
-            structuredContent: { personas },
+            content: [
+              {
+                type: "text",
+                text: jsonText({
+                  personas,
+                  ...(warnings.length ? { warnings } : {}),
+                }),
+              },
+            ],
+            structuredContent: {
+              personas,
+              ...(warnings.length ? { warnings } : {}),
+            },
           };
         } catch (error) {
           return toToolError(error);

@@ -5,23 +5,31 @@ import { appendBuiltInPersonas, BUILT_IN_PERSONAS } from "./built-in.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { PERSONA_DIRS } from "./paths.js";
 
+export type PersonaType = "review" | "task";
+
+export function supportsPersonaType(
+  persona: { type?: PersonaType },
+  type: "review" | "task"
+): boolean {
+  return (persona.type ?? "review") === type;
+}
+
 export type PersonaDefinition = {
+  type?: PersonaType;
   /** Filename without extension (used as persona ID) */
   slug: string;
   /** Display name from frontmatter */
   name: string;
   /** Short description from frontmatter */
   description: string;
-  /** Feedback format hint (default: "findings") */
-  feedbackFormat: string;
   /** Raw markdown body (after frontmatter) */
   body: string;
 };
 
 type PersonaFrontmatter = {
+  type?: string;
   name?: string;
   description?: string;
-  feedbackFormat?: string;
 };
 
 /** Inline ACP context budget; larger launches use a complete private file. */
@@ -46,21 +54,28 @@ export function parseFrontmatter(content: string): {
   const body = trimmed.slice(endIndex + 4).trim();
 
   const frontmatter: Record<string, string> = {};
+  let legacyFeedbackFormat = false;
   for (const line of fmBlock.split("\n")) {
     const colonIdx = line.indexOf(":");
     if (colonIdx === -1) continue;
     const key = line.slice(0, colonIdx).trim();
     const value = line.slice(colonIdx + 1).trim();
-    if (key && value) {
+    if (key === "feedbackFormat") legacyFeedbackFormat = true;
+    // Read this legacy marker without exposing the obsolete metadata.
+    if (key && value && key !== "feedbackFormat") {
       frontmatter[key] = value;
     }
   }
 
+  if (legacyFeedbackFormat && frontmatter.type === undefined) {
+    frontmatter.type = "review";
+  }
   return { frontmatter: frontmatter as PersonaFrontmatter, body };
 }
 
 export async function loadPersonas(
-  repoRoot: string
+  repoRoot: string,
+  warnings: string[] = []
 ): Promise<PersonaDefinition[]> {
   const personas: PersonaDefinition[] = [];
   const seen = new Set<string>();
@@ -79,21 +94,35 @@ export async function loadPersonas(
       const slug = file.replace(/\.md$/, "");
       if (seen.has(slug)) continue;
       seen.add(slug);
-      const content = await readFile(path.join(dir, file), "utf-8");
-      personas.push(toPersonaDefinition(slug, content));
+      try {
+        const content = await readFile(path.join(dir, file), "utf-8");
+        personas.push(toPersonaDefinition(slug, content));
+      } catch (error) {
+        warnings.push(
+          `Could not load persona ${path.join(personasDir, file)}: ${errorMessage(error)}`
+        );
+      }
     }
   }
 
   return personas;
 }
 
-function toPersonaDefinition(slug: string, content: string): PersonaDefinition {
+export function toPersonaDefinition(
+  slug: string,
+  content: string
+): PersonaDefinition {
   const { frontmatter, body } = parseFrontmatter(content);
+  if (frontmatter.type && !["review", "task"].includes(frontmatter.type)) {
+    throw new Error(
+      `Invalid persona type "${frontmatter.type}" in ${slug}. Expected review or task.`
+    );
+  }
   return {
+    type: (frontmatter.type ?? "review") as PersonaType,
     slug,
     name: frontmatter.name ?? slug,
     description: frontmatter.description ?? "",
-    feedbackFormat: frontmatter.feedbackFormat ?? "findings",
     body,
   };
 }
@@ -111,13 +140,18 @@ export function mergePersonasWithWorktreePrecedence<
 export async function loadPersonasFromRoots(input: {
   worktreeRoot?: string | null;
   repoRoot?: string | null;
+  warnings?: string[];
 }): Promise<PersonaDefinition[]> {
   const worktreeRoot = input.worktreeRoot ?? null;
   const repoRoot = input.repoRoot ?? null;
 
-  const worktreePersonas = worktreeRoot ? await loadPersonas(worktreeRoot) : [];
+  const worktreePersonas = worktreeRoot
+    ? await loadPersonas(worktreeRoot, input.warnings)
+    : [];
   const repoPersonas =
-    repoRoot && repoRoot !== worktreeRoot ? await loadPersonas(repoRoot) : [];
+    repoRoot && repoRoot !== worktreeRoot
+      ? await loadPersonas(repoRoot, input.warnings)
+      : [];
 
   return appendBuiltInPersonas(
     mergePersonasWithWorktreePrecedence({

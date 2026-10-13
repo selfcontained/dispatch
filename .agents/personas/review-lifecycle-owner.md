@@ -1,7 +1,7 @@
 ---
 name: Review Lifecycle Owner
 description: Persona selection, reviewer launches, submissions, findings, and verification.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

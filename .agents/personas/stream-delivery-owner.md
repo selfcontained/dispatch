@@ -1,7 +1,7 @@
 ---
 name: Stream Delivery Owner
 description: Agent output, stream replay, message ordering, reconnects, and client delivery.
-feedbackFormat: findings
+type: review
 ---
 
 # Ownership

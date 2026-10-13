@@ -210,11 +210,11 @@ export function shouldSuggestSessionRename(
   agentName: string | null | undefined,
   agentId: string,
   opts: {
-    persona?: string | null;
+    role?: "standard" | "review";
     jobRunId?: string;
   }
 ): boolean {
-  if (opts.persona) {
+  if (opts.role === "review") {
     return false;
   }
 

@@ -55,10 +55,7 @@ export function AgentModelSelect({
           <SelectValue>{loading ? "Loading models…" : undefined}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={DEFAULT_VALUE}>
-            Default{" "}
-            <span className="text-xs text-muted-foreground">(CLI setting)</span>
-          </SelectItem>
+          <SelectItem value={DEFAULT_VALUE}>Default</SelectItem>
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
               {option.label}

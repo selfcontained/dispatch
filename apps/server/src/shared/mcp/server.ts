@@ -252,9 +252,18 @@ export type McpRequestContext = UsageCallbacks & {
       dryRun?: boolean;
     }
   ) => Promise<import("../../personas/codeowners.js").OwnerReviewResult>;
-  listPersonas?: (
-    agentCwd: string
-  ) => Promise<Array<{ slug: string; name: string; description: string }>>;
+  listPersonas?: (agentCwd: string) => Promise<
+    | Array<{ slug: string; name: string; description: string }>
+    | {
+        personas: Array<{
+          slug: string;
+          name: string;
+          description: string;
+          type?: "task" | "review";
+        }>;
+        warnings: string[];
+      }
+  >;
   listPersonalities?: () => Promise<{
     personalities: Array<{
       id: string;

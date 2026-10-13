@@ -66,6 +66,7 @@ function basePayload() {
     needsInputTimeoutMs: 86_400_000,
     agentType: "claude",
     model: null,
+    persona: null,
     useWorktree: false,
     baseBranch: null,
     branchName: null,
@@ -466,6 +467,7 @@ describe("agent type and model", () => {
       ...basePayload(),
       agentType: "codex",
       model: null,
+      persona: null,
     });
   });
 });

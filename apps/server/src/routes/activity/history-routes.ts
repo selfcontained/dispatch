@@ -169,6 +169,7 @@ async function handleHistoryAgents(
           a.id,
           a.name,
           a.persona,
+          a.role,
           a.status,
           COALESCE((
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
@@ -191,6 +192,7 @@ async function handleHistoryAgents(
         id: child.id,
         name: child.name,
         persona: child.persona,
+        role: child.role,
         status: child.status,
         totalTokens: child.totalTokens,
         createdAt: child.createdAt,
