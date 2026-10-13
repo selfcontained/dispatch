@@ -49,10 +49,21 @@ export function SettingsTab({
   isUpdating: boolean;
   isRemoving: boolean;
 }) {
-  const { data: projects = [] } = useProjects();
-  const [projectId, setProjectId] = useState<string | null>(
-    job.projectId ?? null
-  );
+  const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
+  const [membershipEdit, setMembershipEdit] = useState<{
+    id: string;
+    value: string | null;
+  } | null>(null);
+  const hasMembershipEdit =
+    membershipEdit?.id === job.id &&
+    (membershipEdit.value === null ||
+      !projectsLoaded ||
+      projects.some((p) => p.id === membershipEdit.value));
+  const projectId = hasMembershipEdit
+    ? membershipEdit!.value
+    : (job.projectId ?? null);
+  const membershipChanged =
+    hasMembershipEdit && projectId !== (job.projectId ?? null);
   const [displayName, setDisplayName] = useState(job.name);
   const [schedule, setSchedule] = useState(job.schedule ?? "");
   const [timeoutMinutes, setTimeoutMinutes] = useState(
@@ -103,7 +114,7 @@ export function SettingsTab({
   // (updatedAt, lastRun*, nextRun) which would otherwise clobber unsaved edits.
   useEffect(() => {
     setDisplayName(job.name);
-    setProjectId(job.projectId ?? null);
+    setMembershipEdit(null);
     setSchedule(job.schedule ?? "");
     setTimeoutMinutes(minutesFromMs(job.timeoutMs));
     setNeedsInputTimeoutMinutes(minutesFromMs(job.needsInputTimeoutMs));
@@ -133,7 +144,9 @@ export function SettingsTab({
         Project (via template)
         <Select
           value={projectId ?? "none"}
-          onValueChange={(v) => setProjectId(v === "none" ? null : v)}
+          onValueChange={(v) =>
+            setMembershipEdit({ id: job.id, value: v === "none" ? null : v })
+          }
         >
           <SelectTrigger aria-label="Project membership">
             <SelectValue />
@@ -376,7 +389,7 @@ export function SettingsTab({
                 name: job.name,
                 directory: job.directory,
                 displayName,
-                projectId,
+                ...(membershipChanged ? { projectId } : {}),
                 schedule: schedule.trim() || null,
                 timeoutMs: msFromMinutes(timeoutMinutes),
                 needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
@@ -393,6 +406,7 @@ export function SettingsTab({
                 webhookEnabled,
               })
                 .then(() => {
+                  setMembershipEdit(null);
                   setSaved(true);
                 })
                 .catch((error) => {

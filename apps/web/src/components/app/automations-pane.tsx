@@ -310,7 +310,9 @@ export function AutomationsSidebarContent({
 
   const openAgent = useCallback(
     async (agent: Agent) => {
-      navigate(agentRoute(agent.id));
+      navigate(
+        `${agentRoute(agent.id)}?project=${encodeURIComponent(agent.projectId ?? "")}`
+      );
     },
     [navigate]
   );
@@ -353,7 +355,9 @@ export function AutomationsDetailContent({
 
   const openAgent = useCallback(
     async (agent: Agent) => {
-      navigate(agentRoute(agent.id));
+      navigate(
+        `${agentRoute(agent.id)}?project=${encodeURIComponent(agent.projectId ?? "")}`
+      );
     },
     [navigate]
   );

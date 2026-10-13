@@ -1,3 +1,4 @@
+import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Play, Trash2 } from "lucide-react";
@@ -70,6 +71,27 @@ function TemplateDetail({
   const { draft, setDraft, fieldProps } = useTemplateDraft(
     templateDraftFrom(template)
   );
+  const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
+  const [locationEdit, setLocationEdit] = useState<{
+    id: string;
+    projectId: string | null;
+    directory: string;
+  } | null>(null);
+  const hasLocationEdit =
+    locationEdit?.id === template.id &&
+    (locationEdit.projectId === null ||
+      !projectsLoaded ||
+      projects.some((p) => p.id === locationEdit.projectId));
+  const location = useMemo(
+    () =>
+      hasLocationEdit
+        ? locationEdit!
+        : {
+            projectId: template.projectId ?? null,
+            directory: template.directory,
+          },
+    [hasLocationEdit, locationEdit, template.projectId, template.directory]
+  );
   const { normalizeModel } = useAgentModelCatalog(draft.agentType);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
@@ -92,7 +114,7 @@ function TemplateDetail({
     setLaunchDialogOpen(true);
   }, []);
 
-  const canSave = !!draft.name.trim() && !!draft.directory.trim();
+  const canSave = !!draft.name.trim() && !!location.directory.trim();
 
   const handleSave = useCallback(() => {
     setSaveError(null);
@@ -100,16 +122,26 @@ function TemplateDetail({
       .mutateAsync({
         id: template.id,
         name: draft.name.trim(),
-        directory: draft.directory.trim(),
         model: normalizeModel(draft.model),
         ...templateConfigFromDraft(draft),
+        projectId: hasLocationEdit ? location.projectId : undefined,
+        directory: hasLocationEdit ? location.directory.trim() : undefined,
       })
       .then(() => {
-        addCwdHistory(draft.directory);
+        addCwdHistory(location.directory);
+        setLocationEdit(null);
         toast.success("Settings saved.");
       })
       .catch((err: Error) => setSaveError(err.message));
-  }, [updateTemplate, template.id, draft, normalizeModel, addCwdHistory]);
+  }, [
+    updateTemplate,
+    template.id,
+    draft,
+    normalizeModel,
+    addCwdHistory,
+    hasLocationEdit,
+    location,
+  ]);
 
   const handleDelete = useCallback(() => {
     removeTemplate
@@ -183,6 +215,18 @@ function TemplateDetail({
             <div className="mt-4">
               <TemplateConfigFields
                 {...fieldProps}
+                projectId={location.projectId}
+                directory={location.directory}
+                onProjectChange={(projectId, directory) =>
+                  setLocationEdit({ id: template.id, projectId, directory })
+                }
+                onDirectoryChange={(directory) =>
+                  setLocationEdit({
+                    id: template.id,
+                    projectId: null,
+                    directory,
+                  })
+                }
                 enabledAgentTypes={enabledAgentTypes}
               />
             </div>

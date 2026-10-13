@@ -549,7 +549,8 @@ export class JobStore {
     const result = await this.pool.query(
       `
       UPDATE job_runs
-      SET agent_id = $2, status = 'running', status_updated_at = NOW()
+      SET agent_id = $2, status = 'running', status_updated_at = NOW(),
+          config = config || jsonb_build_object('directory', COALESCE((SELECT cwd FROM agents WHERE id=$2), config->>'directory'))
       WHERE id = $1 AND agent_id IS NULL
       RETURNING ${this.runColumns()}
       `,
@@ -973,7 +974,11 @@ export class JobStore {
 
   async updateJobConfig(
     jobId: string,
-    input: JobConfigUpdate
+    input: JobConfigUpdate,
+    updateRelated?: (
+      client: import("pg").PoolClient,
+      job: JobRecord
+    ) => Promise<void>
   ): Promise<JobRecord> {
     const client = await this.pool.connect();
     try {
@@ -1054,6 +1059,7 @@ export class JobStore {
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
       const updated = mapJob(result.rows[0]);
       await this.clearDisabledContinuationBarriers(client, updated);
+      await updateRelated?.(client, updated);
       await client.query("COMMIT");
       return updated;
     } catch (error) {

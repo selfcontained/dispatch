@@ -113,6 +113,93 @@ beforeEach(async () => {
 });
 
 describe("continuation jobs", () => {
+  it.each([false, true])(
+    "writes handoffs in the run repository across project moves (active=%s)",
+    async (moveWhileActive) => {
+      const brain = {
+        getObject: vi.fn().mockResolvedValue(null),
+        storeObject: vi.fn().mockResolvedValue({}),
+      };
+      const service = new JobService(
+        pool,
+        agents,
+        logger,
+        config,
+        brain as never
+      );
+      const store = new JobStore(pool);
+      const suffix = moveWhileActive ? "active" : "before";
+      const source = `/tmp/projects-loop-${suffix}-a`;
+      const target = `/tmp/projects-loop-${suffix}-b`;
+      try {
+        await pool.query(
+          "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Loop target', $2)",
+          [suffix, target]
+        );
+        const created = await service.addJob({
+          name: `move-${suffix}`,
+          directory: source,
+          prompt: "Work",
+          continuationEnabled: true,
+          enabled: true,
+        });
+        let sequence = 0;
+        vi.mocked(agents.createAgent).mockImplementation(
+          async (input, options) => {
+            const id = `agt_cont_move_${suffix}_${++sequence}`;
+            await addAgent(id);
+            await pool.query("UPDATE agents SET cwd=$2 WHERE id=$1", [
+              id,
+              input.cwd,
+            ]);
+            await options?.beforeLaunch?.(id);
+            return { id, cwd: input.cwd, status: "running" } as never;
+          }
+        );
+        const move = () =>
+          service.updateJob({
+            name: created.name,
+            directory: source,
+            projectId: suffix,
+          });
+        if (!moveWhileActive) await move();
+        const first = await service.runJob({
+          name: created.name,
+          directory: source,
+          wait: false,
+        });
+        if (moveWhileActive) await move();
+        const firstRun = (await store.getRun(first.runId))!;
+        expect(firstRun.config.directory).toBe(
+          moveWhileActive ? source : target
+        );
+        await service.completeRunForAgent(firstRun.agentId!, {
+          status: "completed",
+          summary: "Done",
+          tasks: [],
+          continuation: {
+            action: "continue",
+            nextIntent: "Next",
+            summary: "Context",
+          },
+        });
+        expect(brain.storeObject.mock.calls[0]![0]).toBe(
+          moveWhileActive ? source : target
+        );
+        await service.launchPendingContinuation(firstRun.id);
+        expect(vi.mocked(agents.createAgent).mock.calls.at(-1)![0].cwd).toBe(
+          target
+        );
+        expect(brain.storeObject.mock.calls.at(-1)![0]).toBe(target);
+        expect((await store.getRun(firstRun.id))!.config.directory).toBe(
+          moveWhileActive ? source : target
+        );
+      } finally {
+        await service.shutdown();
+      }
+    }
+  );
+
   it("arms without cron, defaults to ten, and exposes its complete list shape", async () => {
     const service = new JobService(pool, agents, logger, config);
     const created = await service.addJob({

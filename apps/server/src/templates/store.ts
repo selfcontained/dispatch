@@ -69,7 +69,7 @@ export type TemplateConfigUpdate = {
 };
 
 export class TemplateStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pick<Pool, "query">) {}
 
   async createTemplate(input: {
     name: string;

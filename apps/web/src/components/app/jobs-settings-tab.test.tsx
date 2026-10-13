@@ -93,7 +93,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 // accidental change to a neighboring field also fails.
 function basePayload() {
   return {
-    projectId: null,
     name: "nightly-audit",
     directory: "/repo",
     displayName: "nightly-audit",
@@ -568,4 +567,16 @@ describe("remove flow", () => {
     );
     expect(screen.getByText("Remove job?")).toBeTruthy();
   });
+});
+
+it("does not restore externally moved membership when saving unrelated edits", async () => {
+  const original = makeJob({ projectId: "project-a" });
+  const { rerenderJob, onUpdateJob } = renderTab(original);
+  fireEvent.change(nameInput(), { target: { value: "Unsaved name" } });
+  rerenderJob({ ...original, projectId: null });
+  expect(nameInput().value).toBe("Unsaved name");
+  fireEvent.click(saveButton());
+  await waitFor(() => expect(onUpdateJob).toHaveBeenCalled());
+  expect(onUpdateJob.mock.calls[0]![0]).not.toHaveProperty("projectId");
+  expect(onUpdateJob.mock.calls[0]![0].displayName).toBe("Unsaved name");
 });

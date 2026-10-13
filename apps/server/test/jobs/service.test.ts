@@ -754,6 +754,58 @@ describe("JobService", () => {
   });
 
   describe("updateJob validation and logic", () => {
+    it("rolls back job settings and retains the scheduler when a template move conflicts", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      try {
+        await pool.query(
+          "INSERT INTO projects (id, name, repo_root) VALUES ('atomic-project', 'Atomic', '/tmp/atomic-target')"
+        );
+        await service.addJob({
+          name: "atomic",
+          directory: "/tmp/atomic-target",
+          prompt: "Other",
+        });
+        const original = await service.addJob({
+          name: "atomic",
+          directory: "/tmp/atomic-source",
+          prompt: "Original",
+          schedule: "*/30 * * * *",
+          enabled: true,
+        });
+        expect(service.getRuntimeMetrics().scheduledJobs).toBe(1);
+        await expect(
+          service.updateJob({
+            name: original.name,
+            directory: original.directory,
+            projectId: "atomic-project",
+            schedule: "*/15 * * * *",
+            enabled: false,
+          })
+        ).rejects.toThrow(/already exists/);
+        const saved = await new JobStore(pool).getJob(original.id);
+        expect(saved).toMatchObject({
+          schedule: original.schedule,
+          enabled: true,
+        });
+        expect(service.getRuntimeMetrics().scheduledJobs).toBe(1);
+        const template = await pool.query(
+          "SELECT directory, project_id FROM templates WHERE id=$1",
+          [original.templateId]
+        );
+        expect(template.rows[0]).toEqual({
+          directory: original.directory,
+          project_id: null,
+        });
+      } finally {
+        await service.shutdown();
+      }
+    });
+
     it("rejects invalid cron on update", async () => {
       const service = new JobService(
         pool,
