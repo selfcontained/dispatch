@@ -1,3 +1,4 @@
+import { personaCatalog } from "../src/personas/catalog.js";
 import { randomUUID } from "node:crypto";
 import type { AgentManager } from "../src/agents/manager.js";
 import { JobStore } from "../src/jobs/store.js";
@@ -56,6 +57,68 @@ afterAll(async () => {
 });
 
 describe("saved launch personas", () => {
+  it("validates job/template creation and updates against the catalog, not local-only personas", async () => {
+    const catalog = vi.spyOn(personaCatalog, "get").mockResolvedValue({
+      personas: [
+        {
+          slug: "remote-builder",
+          name: "Remote Builder",
+          type: "task",
+          description: "",
+          body: "Remote instructions",
+        },
+      ],
+      warnings: [],
+      refreshing: false,
+      updatedAt: Date.now(),
+    });
+    try {
+      // builder.md exists locally, but has not been merged into the catalog.
+      await expect(
+        templates.addTemplate({
+          name: "Local only",
+          directory,
+          persona: "builder",
+        })
+      ).rejects.toThrow('Persona "builder" not found');
+      const template = await templates.addTemplate({
+        name: "Remote template",
+        directory,
+        persona: "remote-builder",
+      });
+      await expect(
+        templates.updateTemplate(template.id, { persona: "builder" })
+      ).rejects.toThrow('Persona "builder" not found');
+      expect((await templates.getTemplate(template.id))?.persona).toBe(
+        "remote-builder"
+      );
+      await expect(
+        jobs.addJob({
+          name: "local-only-job",
+          directory,
+          prompt: "Build",
+          persona: "builder",
+          enabled: false,
+        })
+      ).rejects.toThrow('Persona "builder" not found');
+      const job = await jobs.addJob({
+        name: "remote-catalog-job",
+        directory,
+        prompt: "Build",
+        persona: "remote-builder",
+        enabled: false,
+      });
+      await expect(
+        jobs.updateJob({ name: job.name, directory, persona: "builder" })
+      ).rejects.toThrow('Persona "builder" not found');
+      expect(
+        (await jobs.listJobs()).find((j) => j.id === job.id)?.persona
+      ).toBe("remote-builder");
+    } finally {
+      catalog.mockRestore();
+    }
+  });
+
   it("persists, applies, preserves on unrelated edits, and clears a template persona", async () => {
     const template = await templates.addTemplate({
       name: "Build",

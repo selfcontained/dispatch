@@ -1,3 +1,4 @@
+import { personaCatalog } from "../../src/personas/catalog.js";
 import * as gitContext from "../../src/shared/git/git-context.js";
 import { upsertPersona } from "../../src/personas/authoring.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -1049,6 +1050,121 @@ describe("AgentManager", () => {
         await rm(cwd, { recursive: true, force: true });
       }
     });
+
+    it("uses catalog definitions by default and local overrides for explicit workspace launches", async () => {
+      const cwd = await mkdtemp(path.join(os.tmpdir(), "persona-source-"));
+      const root = vi
+        .spyOn(gitContext, "resolveWorktreeRoot")
+        .mockResolvedValue(cwd);
+      const catalog = vi.spyOn(personaCatalog, "get").mockResolvedValue({
+        personas: [
+          {
+            slug: "builder",
+            name: "Builder",
+            type: "task",
+            description: "",
+            body: "Catalog body",
+          },
+        ],
+        warnings: [],
+        refreshing: false,
+        updatedAt: Date.now(),
+      });
+      try {
+        await upsertPersona({
+          root: cwd,
+          slug: "builder",
+          name: "Builder",
+          type: "task",
+          description: "Workspace builder",
+          instructions: "Workspace body",
+        });
+        const remote = await manager.createAgent({
+          cwd,
+          persona: "builder",
+          useWorktree: false,
+        });
+        expect(lastLaunch().personaContext).toBe("Catalog body");
+        await manager.stopAgent(remote.id);
+        await manager.createAgent({
+          cwd,
+          persona: "builder",
+          personaSource: "workspace",
+          useWorktree: false,
+        });
+        expect(lastLaunch().personaContext).toBe("Workspace body");
+        const before = await pool.query("SELECT count(*) FROM agents");
+        await expect(
+          manager.createAgent({ cwd, persona: "missing", useWorktree: false })
+        ).rejects.toThrow('Persona "missing" not found');
+        expect((await pool.query("SELECT count(*) FROM agents")).rows).toEqual(
+          before.rows
+        );
+      } finally {
+        catalog.mockRestore();
+        root.mockRestore();
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    it.each([false, true])(
+      "returns a creating row while a detached persona lookup is pending (missing=%s)",
+      async (missing) => {
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const catalog = vi
+          .spyOn(personaCatalog, "get")
+          .mockImplementation(async () => {
+            await held;
+            return {
+              personas: missing
+                ? []
+                : [
+                    {
+                      slug: "builder",
+                      name: "Builder",
+                      type: "task",
+                      description: "",
+                      body: "Deferred body",
+                    },
+                  ],
+              warnings: [],
+              refreshing: false,
+              updatedAt: Date.now(),
+            };
+          });
+        try {
+          const agent = await manager.createAgent(
+            { cwd: "/tmp", persona: "builder", useWorktree: false },
+            { detachLaunch: true }
+          );
+          expect(agent.status).toBe("creating");
+          expect(runtime.launch).not.toHaveBeenCalled();
+          release();
+          await vi.waitFor(async () =>
+            expect((await manager.getAgent(agent.id))?.status).toBe(
+              missing ? "error" : "running"
+            )
+          );
+          if (missing) {
+            expect((await manager.getAgent(agent.id))?.lastError).toContain(
+              'Persona "builder" not found'
+            );
+            expect(runtime.launch).not.toHaveBeenCalled();
+          } else {
+            expect(lastLaunch().personaContext).toBe("Deferred body");
+            await manager.stopAgent(agent.id);
+            await manager.startAgent(agent.id);
+            expect(lastLaunch().personaContext).toBe("Deferred body");
+          }
+        } finally {
+          release();
+          catalog.mockRestore();
+        }
+      }
+    );
 
     describe("system prompt", () => {
       const RENAME = "Name the session. Once the topic of work is clear";

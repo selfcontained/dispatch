@@ -620,7 +620,12 @@ export class JobService {
     });
 
     if (input.persona)
-      await resolveLaunchPersona(input.directory, input.persona, "task");
+      await resolveLaunchPersona(
+        input.directory,
+        input.persona,
+        "task",
+        "catalog"
+      );
     const agentConfig = applyAgentConfigDefaults(input);
 
     // Create a backing template for this job (hidden from Cmd+K by default).
@@ -748,7 +753,12 @@ export class JobService {
       existingModel: existing.model,
     });
     if (input.persona && input.persona !== existing.persona)
-      await resolveLaunchPersona(existing.directory, input.persona, "task");
+      await resolveLaunchPersona(
+        existing.directory,
+        input.persona,
+        "task",
+        "catalog"
+      );
     if (input.persona !== undefined) config.persona = input.persona;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)

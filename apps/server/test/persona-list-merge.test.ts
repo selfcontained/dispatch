@@ -15,24 +15,24 @@ const persona = (slug: string, name = slug) => ({
 const BUILT_IN_SLUGS = new Set(BUILT_IN_PERSONA_SUMMARIES.map((p) => p.slug));
 
 /**
- * Every listing carries the built-ins. These cases are about how the two repo
- * roots merge, so they assert on the repo-defined slice; built-in behavior has
+ * Every listing carries the built-ins. These cases are about how the effective repository
+ * catalog is selected, so they assert on the repo-defined slice; built-in behavior has
  * its own cases at the bottom.
  */
 const defined = <T extends { slug: string }>(personas: T[]): T[] =>
   personas.filter((p) => !BUILT_IN_SLUGS.has(p.slug));
 
 describe("resolvePersonaList", () => {
-  it("includes personas from both the worktree and repo root", async () => {
+  it("uses the effective worktree catalog without reintroducing main-checkout definitions", async () => {
     const listPersonas = vi.fn(async (root: string) =>
       root === "/wt" ? [persona("local")] : [persona("repo")]
     );
 
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
 
-    expect(defined(result).map((p) => p.slug)).toEqual(["local", "repo"]);
+    expect(defined(result).map((p) => p.slug)).toEqual(["local"]);
     expect(listPersonas).toHaveBeenCalledWith("/wt");
-    expect(listPersonas).toHaveBeenCalledWith("/repo");
+    expect(listPersonas).not.toHaveBeenCalledWith("/repo");
   });
 
   it("uses worktree personas as the override for duplicate slugs", async () => {
@@ -44,10 +44,7 @@ describe("resolvePersonaList", () => {
 
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
 
-    expect(defined(result)).toEqual([
-      persona("review", "Worktree Review"),
-      persona("release"),
-    ]);
+    expect(defined(result)).toEqual([persona("review", "Worktree Review")]);
   });
 
   it("uses the repo root directly when there is no worktree root", async () => {
@@ -80,19 +77,26 @@ describe("resolvePersonaList", () => {
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
 
     expect(defined(result)).toEqual([persona("local")]);
-    expect(listPersonas).toHaveBeenCalledTimes(2);
+    expect(listPersonas).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps repo personas when the worktree root listing fails", async () => {
+  it("reports a failed effective-catalog load without using stale main-checkout files", async () => {
     const listPersonas = vi.fn(async (root: string) => {
       if (root === "/wt") throw new Error("worktree unavailable");
       return [persona("repo")];
     });
 
-    const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
+    const warnings: string[] = [];
+    const result = await resolvePersonaList(
+      listPersonas,
+      "/wt",
+      "/repo",
+      warnings
+    );
 
-    expect(defined(result)).toEqual([persona("repo")]);
-    expect(listPersonas).toHaveBeenCalledTimes(2);
+    expect(defined(result)).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(listPersonas).toHaveBeenCalledTimes(1);
   });
 
   it("returns only the built-ins when neither root is available", async () => {

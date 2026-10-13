@@ -1,3 +1,4 @@
+import { BUILT_IN_PERSONA_SUMMARIES } from "../src/personas/built-in.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildStartupTurn } from "../src/agents/launch-guidance.js";
@@ -449,6 +450,7 @@ describe("createMcpHandlers", () => {
             description: "Security review",
             type: "review",
           },
+          ...BUILT_IN_PERSONA_SUMMARIES,
         ],
       });
     });

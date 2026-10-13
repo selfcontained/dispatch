@@ -39,7 +39,7 @@ describe("resolvePersonaList", () => {
     expect(listPersonas).toHaveBeenCalledWith("/repo");
   });
 
-  it("merges with worktree precedence", async () => {
+  it("does not overlay stale main-checkout files on the effective workspace catalog", async () => {
     const worktreeSecurity = {
       slug: "security",
       name: "Custom Security",
@@ -51,7 +51,8 @@ describe("resolvePersonaList", () => {
     });
 
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
-    expect(defined(result)).toEqual([worktreeSecurity, perf, ux]);
+    expect(defined(result)).toEqual([worktreeSecurity, perf]);
+    expect(listPersonas).toHaveBeenCalledTimes(1);
   });
 
   it("skips repo when repoRoot equals worktreeRoot", async () => {
@@ -74,7 +75,7 @@ describe("resolvePersonaList", () => {
       return [security];
     });
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
-    expect(defined(result)).toEqual([security]);
+    expect(defined(result)).toEqual([]);
   });
 
   it("handles repo listPersonas failure gracefully", async () => {

@@ -17,10 +17,15 @@ export function useTaskPersonas(cwd: string) {
   const query = useQuery({
     queryKey: ["personas", directory, "task"],
     queryFn: () =>
-      api<{ personas: TaskPersona[]; warnings?: string[] }>(
+      api<{
+        personas: TaskPersona[];
+        warnings?: string[];
+        refreshing?: boolean;
+      }>(
         `/api/v1/personas?${new URLSearchParams({ cwd: directory, type: "task" })}`
       ),
     enabled: Boolean(directory) && !settling,
+    refetchInterval: (query) => (query.state.data?.refreshing ? 2000 : false),
   });
   return { ...query, isLoading: query.isLoading || settling };
 }

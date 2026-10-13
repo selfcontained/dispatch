@@ -494,6 +494,7 @@ async function handleLaunchAgent(
     launchContext: { prompt: input.prompt },
     templateId: input.templateId,
     persona: input.persona ?? template?.persona ?? undefined,
+    personaSource: "workspace",
   });
 
   deps.publishUiEvent({

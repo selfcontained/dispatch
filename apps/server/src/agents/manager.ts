@@ -154,6 +154,8 @@ type CreateAgentInput = {
   baseBranch?: string;
   worktreeLocation?: WorktreeLocation;
   persona?: string;
+  /** Existing agents use workspace overrides; UI/templates/jobs use the catalog. */
+  personaSource?: "catalog" | "workspace";
   parentAgentId?: string;
   /** Launcher of this agent, recorded even when it is not the parent. */
   launchedByAgentId?: string;
@@ -1252,11 +1254,13 @@ export class AgentManager {
       beforeLaunch?: (agentId: string) => Promise<void>;
     } = {}
   ): Promise<AgentRecord> {
-    if (input.persona && input.role !== "review") {
+    const taskPersona = Boolean(input.persona && input.role !== "review");
+    if (taskPersona && !options.detachLaunch) {
       const persona = await resolveLaunchPersona(
         input.cwd,
-        input.persona,
-        "task"
+        input.persona!,
+        "task",
+        input.personaSource ?? "catalog"
       );
       input = {
         ...input,
@@ -1341,6 +1345,30 @@ export class AgentManager {
       resolveLaunchPost,
       jobRunId: input.jobRunId,
       beforeLaunch: options.beforeLaunch,
+      preparePersona:
+        taskPersona && options.detachLaunch
+          ? async () => {
+              const persona = await resolveLaunchPersona(
+                input.cwd,
+                input.persona!,
+                "task",
+                input.personaSource ?? "catalog"
+              );
+              const result = await this.pool.query(
+                "UPDATE agents SET agent_args = $2::jsonb, updated_at = NOW() WHERE id = $1 AND status = 'creating' RETURNING id",
+                [
+                  p.id,
+                  JSON.stringify([
+                    ...p.agentArgs,
+                    PERSONA_CONTEXT_ARG,
+                    persona.body,
+                  ]),
+                ]
+              );
+              if (!result.rowCount)
+                throw new AgentError("Agent launch was cancelled.", 409);
+            }
+          : undefined,
     });
 
     if (options.detachLaunch) {
@@ -1647,9 +1675,12 @@ export class AgentManager {
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     jobRunId: string | undefined;
     beforeLaunch?: (agentId: string) => Promise<void>;
+    /** Catalog fetches must not block the detached create response. */
+    preparePersona?: () => Promise<void>;
   }): Promise<void> {
     const { id } = opts;
     try {
+      await opts.preparePersona?.();
       const workspace = await prepareWorkspace(
         {
           agentName: opts.name,

@@ -108,7 +108,10 @@ export async function loadPersonas(
   return personas;
 }
 
-function toPersonaDefinition(slug: string, content: string): PersonaDefinition {
+export function toPersonaDefinition(
+  slug: string,
+  content: string
+): PersonaDefinition {
   const { frontmatter, body } = parseFrontmatter(content);
   if (frontmatter.type && !["review", "task"].includes(frontmatter.type)) {
     throw new Error(

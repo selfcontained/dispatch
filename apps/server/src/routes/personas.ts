@@ -1,3 +1,4 @@
+import { discoverPersonas } from "../personas/resolve.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
@@ -6,14 +7,8 @@ import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { hasCodeowners } from "../personas/codeowners.js";
-import {
-  loadPersonasFromRoots,
-  supportsPersonaType,
-} from "../personas/loader.js";
-import {
-  resolveRepoRoot,
-  resolveWorktreeRoot,
-} from "../shared/git/git-context.js";
+import { supportsPersonaType } from "../personas/loader.js";
+import { resolveWorktreeRoot } from "../shared/git/git-context.js";
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
@@ -101,14 +96,6 @@ async function resolveOptionalWorktreeRoot(
   }
 }
 
-async function resolveOptionalRepoRoot(cwd: string): Promise<string | null> {
-  try {
-    return await resolveRepoRoot(cwd);
-  } catch {
-    return null;
-  }
-}
-
 export async function registerPersonaRoutes(
   app: FastifyInstance,
   deps: PersonaRouteDeps
@@ -122,22 +109,22 @@ export async function registerPersonaRoutes(
     }
     try {
       const worktreeRoot = await resolveOptionalWorktreeRoot(query.cwd);
-      const repoRoot = await resolveOptionalRepoRoot(query.cwd);
-      const warnings: string[] = [];
-      const personas = await loadPersonasFromRoots({
-        warnings,
-        worktreeRoot: worktreeRoot ?? query.cwd,
-        repoRoot,
-      });
+      const type = query.type === "task" ? "task" : "review";
+      const { personas, warnings, refreshing, updatedAt } =
+        await discoverPersonas(
+          query.cwd,
+          type === "task" ? "catalog" : "workspace"
+        );
       // Owner reviews read the map from the checkout being reviewed, so only
       // the worktree decides whether the option is offered.
       const codeowners = worktreeRoot
         ? await hasCodeowners(worktreeRoot)
         : false;
-      const type = query.type === "task" ? "task" : "review";
       return {
         personas: personas.filter((p) => supportsPersonaType(p, type)),
         codeowners,
+        refreshing,
+        updatedAt,
         ...(warnings.length ? { warnings } : {}),
       };
     } catch (error) {

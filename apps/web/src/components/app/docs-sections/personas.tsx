@@ -16,7 +16,12 @@ export function PersonasContent() {
         <P>
           The optional Persona picker on Create agent, templates, and jobs adds
           reusable instructions to a normal task. Select No persona to clear it.
-          Available personas come from the selected working directory.
+          For repositories with an origin remote, this list comes from its
+          default branch, independently of your checkout and launch branch.
+          Dispatch serves a shared local cache immediately and refreshes it in
+          the background at most once every five minutes. Failed refreshes
+          retain cached definitions and back off up to an hour. Repositories
+          without origin and ordinary folders use local files.
         </P>
         <P>
           Set frontmatter <Code>type: task</Code> for normal launches or
@@ -53,11 +58,13 @@ Verify the result and explain any limitations.`}</CodeBlock>
           An agent calls <Code>launch_agent</Code> with{" "}
           <Code>persona: &lt;slug&gt;</Code>; the <Code>prompt</Code> is the
           persona&apos;s briefing. Dispatch loads the persona definition from
-          the repo and spawns a child agent with the persona&apos;s instructions
-          and the briefing. Reviewers inspect the relevant material themselves:
-          code reviewers can read local diffs, while reviews of PRDs, docs, or
-          images follow the supplied target. Code owner reviews also receive
-          their matched file list and review base.
+          the agent&apos;s current worktree first, including uncommitted edits,
+          then falls back to the shared default-branch catalog. It spawns a
+          child agent with the persona&apos;s instructions and the briefing.
+          Reviewers inspect the relevant material themselves: code reviewers can
+          read local diffs, while reviews of PRDs, docs, or images follow the
+          supplied target. Code owner reviews also receive their matched file
+          list and review base.
         </P>
         <P>
           Persona agents run as <Code>claude</Code>, <Code>codex</Code>, or{" "}

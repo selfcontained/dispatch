@@ -1,3 +1,4 @@
+import { discoverPersonas, resolveLaunchPersona } from "../personas/resolve.js";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
@@ -14,7 +15,6 @@ import {
   buildStandardFeedbackGuidance,
   MAX_PERSONA_PROMPT_BYTES,
   loadPersonaBySlug,
-  loadPersonas,
   type PersonaDefinition,
 } from "../personas/loader.js";
 import {
@@ -28,10 +28,7 @@ import {
   refreshRemoteBaseRef,
   resolveBaseRef,
 } from "../shared/git/base-ref.js";
-import {
-  resolveRepoRoot,
-  resolveWorktreeRoot,
-} from "../shared/git/git-context.js";
+import { resolveWorktreeRoot } from "../shared/git/git-context.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import { runCommand } from "../shared/lib/run-command.js";
@@ -132,36 +129,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const model = validateAgentModel(agentType, opts.model);
 
     const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
-    let personaRoot: string;
-    try {
-      personaRoot = await resolveWorktreeRoot(parentCwd);
-    } catch {
-      try {
-        personaRoot = await resolveRepoRoot(parentCwd);
-      } catch {
-        throw new Error("Parent agent is not in a git repository.");
-      }
-    }
-    let persona =
+    const persona =
       opts.resolvedPersona ??
-      (await loadPersonaBySlug(personaRoot, opts.persona));
-    if (!persona) {
-      try {
-        const repoRoot = await resolveRepoRoot(parentCwd);
-        if (repoRoot !== personaRoot) {
-          persona = await loadPersonaBySlug(repoRoot, opts.persona);
-        }
-      } catch {
-        // No repo root either; the built-ins are the last resort.
-      }
-    }
-    persona ??= getBuiltInPersona(opts.persona);
-    if (!persona) {
-      throw new Error(
-        `Persona "${opts.persona}" not found in .agents/personas/ and is not a built-in persona.`
-      );
-    }
-
+      (await resolveLaunchPersona(parentCwd, opts.persona, "review"));
     if (!supportsPersonaType(persona, "review"))
       throw new Error(
         `Persona "${opts.persona}" is not available for review launches.`
@@ -303,8 +273,15 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   }
 
   async function listPersonas(agentCwd: string) {
-    const warnings: string[] = [];
-    const loaded = await loadPersonas(agentCwd, warnings);
+    const {
+      personas: loaded,
+      warnings,
+      refreshing,
+    } = await discoverPersonas(agentCwd, "workspace");
+    if (refreshing)
+      warnings.push(
+        "Default-branch persona catalog is refreshing in the background. This list contains currently available definitions; list again shortly for newly merged personas."
+      );
     const personas = loaded.map(({ slug, name, description, type }) => ({
       type: type ?? "review",
       slug,

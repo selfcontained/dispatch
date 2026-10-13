@@ -6,10 +6,7 @@ import {
   BUILT_IN_PERSONA_SUMMARIES,
   GENERIC_REVIEW_PERSONA_SLUG,
 } from "../../personas/built-in.js";
-import {
-  supportsPersonaType,
-  mergePersonasWithWorktreePrecedence,
-} from "../../personas/loader.js";
+import { supportsPersonaType } from "../../personas/loader.js";
 import {
   getPersonaTemplate,
   PERSONA_TEMPLATES,
@@ -63,15 +60,11 @@ export async function resolvePersonaList(
       return [];
     }
   }
-  const worktreePersonas = worktreeRoot ? await read(worktreeRoot) : [];
-  const repoPersonas =
-    repoRoot && repoRoot !== worktreeRoot ? await read(repoRoot) : [];
-
+  // The server returns the effective workspace + shared catalog list. Do not
+  // merge the main checkout again: its stale files would resurrect old personas.
+  const root = worktreeRoot ?? repoRoot;
   return appendBuiltInPersonas(
-    mergePersonasWithWorktreePrecedence({
-      worktreePersonas,
-      repoPersonas,
-    }),
+    root ? await read(root) : [],
     BUILT_IN_PERSONA_SUMMARIES
   );
 }

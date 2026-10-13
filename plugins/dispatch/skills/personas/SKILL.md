@@ -142,3 +142,17 @@ personas receive paths without an explicit owner. `launch_owner_reviews` selects
 and launches owners with the caller's context; `dryRun: true` previews routing.
 Keep paths aligned with the subsystem as files move. Existing manual persona
 launches remain available for an additional review perspective.
+
+## Discovery and freshness
+
+New agent, template, and job configurations use personas from origin's default
+branch, served from a repository cache shared across worktrees. Opening a picker
+can trigger a background refresh, limited to once every five minutes. Failures
+retain cached definitions and back off up to an hour. Refreshing does not change
+the checkout. Merge new or edited personas into the default branch for these
+pickers; a recent refresh may delay their appearance by up to five minutes.
+
+Existing agents retain current-worktree overrides, including uncommitted persona
+edits, ahead of that catalog when listing or launching personas. Code owner
+reviews remain strictly scoped to their workspace's ownership map and personas.
+Repositories without origin and non-Git folders continue to use local files.

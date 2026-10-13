@@ -58,7 +58,12 @@ export class TemplateService {
   ): Promise<TemplateRecord> {
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     if (input.persona)
-      await resolveLaunchPersona(input.directory, input.persona, "task");
+      await resolveLaunchPersona(
+        input.directory,
+        input.persona,
+        "task",
+        "catalog"
+      );
     const template = await this.store.createTemplate({
       name: input.name.trim(),
       directory: input.directory,
@@ -98,7 +103,8 @@ export class TemplateService {
       await resolveLaunchPersona(
         input.directory ?? existing.directory,
         persona,
-        "task"
+        "task",
+        "catalog"
       );
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
     if (input.persona !== undefined) updates.persona = input.persona;

@@ -43,11 +43,11 @@ export function AgentPersonaSelect({
             <SelectItem value="__status__" disabled>
               {!cwd.trim()
                 ? "Choose a directory first"
-                : isLoading
+                : isLoading || data?.refreshing
                   ? "Loading personas…"
                   : isError
                     ? "Could not load personas"
-                    : "No task personas in this directory"}
+                    : "No task personas available"}
             </SelectItem>
           )}
           {data?.warnings?.length ? (
@@ -55,14 +55,15 @@ export function AgentPersonaSelect({
               value="__warnings__"
               disabled
               title={data.warnings.join("\n")}
+              className="max-w-[min(24rem,80vw)] whitespace-normal"
             >
-              Some persona files could not be loaded
+              {data.warnings[0]}
             </SelectItem>
           ) : null}
           {value && !selected ? (
             <SelectItem value={value}>
               {value}
-              {isSuccess ? " (unavailable)" : ""}
+              {isSuccess && !data?.refreshing ? " (unavailable)" : ""}
             </SelectItem>
           ) : null}
           {personas.map((p) => (
