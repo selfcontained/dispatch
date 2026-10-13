@@ -158,7 +158,10 @@ function CreateAgentDialogContent({
                 ) : null}
 
                 <div className="space-y-1">
-                  <label className="text-sm text-muted-foreground">Name</label>
+                  <label className="text-sm text-muted-foreground">
+                    Name{" "}
+                    <span className="text-muted-foreground/70">(optional)</span>
+                  </label>
                   <Input
                     autoFocus
                     value={form.createName}
@@ -166,7 +169,6 @@ function CreateAgentDialogContent({
                     placeholder="agent name"
                     data-testid="create-agent-name"
                   />
-                  <p className="text-xs text-muted-foreground">Optional</p>
                 </div>
 
                 <PathInput
