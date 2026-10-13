@@ -89,7 +89,7 @@ test.describe("Create agent dialog", () => {
     await expect(name).toHaveValue("");
     await cwd.fill("/");
     await name.click();
-    await expect(persona).toContainText("No persona");
+    await expect(persona).toContainText("None");
     await expect(name).toHaveValue("");
     await cwd.fill("/tmp");
     await name.click();
@@ -97,7 +97,7 @@ test.describe("Create agent dialog", () => {
     await expect(name).toHaveValue("");
     await name.fill("My task");
     await persona.click();
-    await page.getByRole("option", { name: "No persona", exact: true }).click();
+    await page.getByRole("option", { name: "None", exact: true }).click();
     await expect(name).toHaveValue("My task");
     await persona.click();
     await page.getByRole("option", { name: "Builder", exact: true }).click();
