@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
 
+import { withToolSearchPath } from "../shared/lib/tool-environment.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
@@ -73,6 +74,7 @@ export async function setupAgentWorkspace(
     try {
       await runCommand(bin, [...args], {
         cwd: worktreePath,
+        env: withToolSearchPath(),
         timeoutMs: 120_000,
       });
       logger.info(

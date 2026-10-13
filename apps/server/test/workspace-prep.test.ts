@@ -9,6 +9,8 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
 }));
 
 const { setupAgentWorkspace } = await import("../src/agents/workspace-prep.js");
+const { withToolSearchPath } =
+  await import("../src/shared/lib/tool-environment.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");
 
 const noopLogger = (() => {
@@ -81,6 +83,7 @@ describe("setupAgentWorkspace — auto deps install", () => {
     expect(installCall).toBeDefined();
     expect(installCall?.[1]).toEqual(["install"]);
     expect(installCall?.[2]?.cwd).toBe(worktreePath);
+    expect(installCall?.[2]?.env).toEqual(withToolSearchPath());
   });
 
   it("falls through the priority order — pnpm > yarn > npm > bun", async () => {

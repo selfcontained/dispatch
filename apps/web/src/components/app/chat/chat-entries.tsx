@@ -1242,7 +1242,7 @@ function LaunchStartup({
   block: Extract<Block, { kind: "launch" }>;
 }): JSX.Element | null {
   const startup = block.state?.startup;
-  if (!startup?.steps.length) return null;
+  if (!startup || (!startup.steps.length && !startup.failed)) return null;
   const warnings = startup.steps.some((step) => step.status === "failed");
   return (
     <div

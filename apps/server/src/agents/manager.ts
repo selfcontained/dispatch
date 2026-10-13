@@ -1813,6 +1813,12 @@ export class AgentManager {
     } catch (error) {
       if (error instanceof GitWorktreeError) {
         const lastError = `Worktree creation failed: ${error.message}`;
+        await this.recordStartup(() =>
+          this.launchContextRecorder?.recordStartupDone?.({
+            agentId: id,
+            error: lastError,
+          })
+        );
         await this.setAgentStatus(id, "stopped", lastError);
         await this.setSetupPhase(id, null);
         await this.emitAttention(id, "blocked", lastError);

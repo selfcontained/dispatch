@@ -519,6 +519,16 @@ describe("AgentManager", () => {
       const [failed] = await manager.listAgents();
       expect(failed!.status).toBe("stopped");
       expect(failed!.lastError).toContain("Worktree creation failed");
+      const card = await pool.query(
+        "SELECT state->'startup' AS startup FROM blocks WHERE to_agent_id = $1 AND kind = 'launch'",
+        [failed!.id]
+      );
+      expect(card.rows[0].startup).toMatchObject({
+        failed: failed!.lastError,
+        steps: [
+          { phase: "worktree", status: "failed", detail: failed!.lastError },
+        ],
+      });
     });
 
     it("should use a custom name when provided", async () => {

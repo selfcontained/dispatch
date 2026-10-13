@@ -624,6 +624,25 @@ describe("ChatFeed", () => {
     expect(screen.queryByTestId("chat-add-reaction")).toBeNull();
   });
 
+  it("shows root launch failure before any workspace phase was recorded", () => {
+    renderFeed([
+      blockEntry(
+        launchBlock({
+          toAgentId: AGENT_ID,
+          streamId: AGENT_ID,
+          launchState: {
+            startup: { steps: [], failed: "Persona preparation failed" },
+          },
+        })
+      ),
+    ]);
+    const root = screen.getByTestId("chat-launch-card");
+    expect(
+      within(root).getByTestId("chat-launch-startup").textContent
+    ).toContain("Startup failed");
+    expect(root.textContent).toContain("Persona preparation failed");
+  });
+
   it("keeps dependency failure visible when the engine starts successfully", () => {
     renderFeed([
       blockEntry(
