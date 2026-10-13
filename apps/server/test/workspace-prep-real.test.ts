@@ -20,7 +20,10 @@ it("installs real pnpm dependencies with service PATH, no CI, and ignored stdin"
   const home = path.join(root, "home");
   const workspace = path.join(root, "worktree");
   const bin = path.join(home, ".local/bin");
+  const serviceBin = path.join(root, "service-bin");
   await mkdir(bin, { recursive: true });
+  await mkdir(serviceBin);
+  await symlink("/bin/sh", path.join(serviceBin, "sh"));
   await mkdir(path.join(workspace, "dependency"), { recursive: true });
   // Model a user-installed manager outside the service's PATH. Both links
   // point to actual executables; no command runner or package manager is mocked.
@@ -57,11 +60,20 @@ it("installs real pnpm dependencies with service PATH, no CI, and ignored stdin"
   const progress = vi.fn().mockResolvedValue(undefined);
   try {
     vi.stubEnv("HOME", home);
-    vi.stubEnv(
-      "PATH",
-      "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    );
+    // Control the baseline so a system-installed pnpm cannot mask a missing
+    // fallback environment. Only the lifecycle shell is initially discoverable.
+    vi.stubEnv("PATH", serviceBin);
     vi.stubEnv("CI", undefined);
+    await expect(runCommand("pnpm", ["--version"])).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(
+      (
+        await runCommand("/bin/sh", ["-c", "command -v pnpm"], {
+          env: withToolSearchPath(),
+        })
+      ).stdout
+    ).toBe(path.join(bin, "pnpm"));
     await runCommand(
       "pnpm",
       ["install", "--lockfile-only", "--ignore-scripts"],
