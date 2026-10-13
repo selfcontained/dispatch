@@ -9,6 +9,7 @@ export interface TemplateDraft {
   name: string;
   description: string;
   directory: string;
+  projectId?: string | null;
   prompt: string;
   agentType: AgentType;
   model: string | null;
@@ -41,6 +42,7 @@ export const EMPTY_TEMPLATE_DRAFT: TemplateDraft = {
 /** Starting point for the detail pane, which edits an existing template. */
 export function templateDraftFrom(template: Template): TemplateDraft {
   return {
+    projectId: template.projectId ?? null,
     name: template.name,
     description: template.description ?? "",
     directory: template.directory,
@@ -69,6 +71,7 @@ export function templateConfigFromDraft(
 ): Required<
   Pick<
     AddTemplateConfig,
+    | "projectId"
     | "description"
     | "prompt"
     | "agentType"
@@ -82,6 +85,7 @@ export function templateConfigFromDraft(
   >
 > {
   return {
+    projectId: draft.projectId ?? null,
     description: draft.description.trim() || null,
     prompt: draft.prompt || null,
     agentType: draft.agentType,
@@ -120,6 +124,8 @@ export function useTemplateDraft(
 
   const changeHandlers = useMemo(
     () => ({
+      onProjectChange: (projectId: string | null, directory: string) =>
+        setDraft((prev) => ({ ...prev, projectId, directory })),
       onNameChange: (value: string) =>
         setDraft((prev) => ({ ...prev, name: value })),
       onDescriptionChange: (value: string) =>

@@ -10,6 +10,15 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/hooks/use-projects", () => ({
+  useProjects: () => ({ data: [] }),
+  useProjectScope: () => ({
+    projectId: null,
+    project: undefined,
+    projects: [],
+  }),
+}));
+
 import type { Job } from "@/hooks/use-jobs";
 
 import { SettingsTab } from "./jobs-settings-tab";
@@ -83,6 +92,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 // accidental change to a neighboring field also fails.
 function basePayload() {
   return {
+    projectId: null,
     name: "nightly-audit",
     directory: "/repo",
     displayName: "nightly-audit",

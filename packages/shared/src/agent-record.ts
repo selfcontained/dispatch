@@ -61,6 +61,7 @@ export type AgentCurrentTurn = {
 };
 
 export type AgentRecord = {
+  projectId?: string | null;
   id: string;
   name: string;
   type: AgentType;

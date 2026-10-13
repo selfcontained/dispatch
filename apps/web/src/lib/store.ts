@@ -613,3 +613,11 @@ export const chatScrollPositionAtomFamily = atomFamily((agentId: string) =>
     { validate: isChatScrollPosition }
   )
 );
+
+/** Last open session per project; the active project itself stays in the URL. */
+export const projectLastSessionAtom = atomFamily((projectId: string) =>
+  atomWithLocalStorage<string | null>(
+    `dispatch:project:${projectId}:last-session`,
+    null
+  )
+);

@@ -1,3 +1,4 @@
+import { ProjectStore } from "../projects/store.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
@@ -90,7 +91,7 @@ export class JobService {
   private stopping = false;
 
   constructor(
-    pool: Pool,
+    private readonly pool: Pool,
     private readonly agentManager: AgentManager,
     private readonly logger: FastifyBaseLogger,
     private readonly config: AppConfig,
@@ -196,7 +197,7 @@ export class JobService {
           name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
           type: agentType,
           model: agentConfig.model ?? undefined,
-          cwd: job.directory,
+          cwd: template?.directory ?? job.directory,
           agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
           // The CLI receives generated job-run scaffolding through agentArgs;
           // Chat shows only the user-authored job prompt.
@@ -204,6 +205,7 @@ export class JobService {
           fullAccess: agentConfig.fullAccess,
           ...templateWorktreeConfig(agentConfig),
           jobRunId: run.id,
+          templateId: job.templateId ?? undefined,
         },
         {
           beforeLaunch: async (agentId) => {
@@ -471,7 +473,7 @@ export class JobService {
         name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
         type: agentConfig.agentType as JobAgentType,
         model: agentConfig.model ?? undefined,
-        cwd: job.directory,
+        cwd: template?.directory ?? job.directory,
         agentArgs: buildAgentArgs(
           agentConfig.agentType as JobAgentType,
           prompt,
@@ -481,6 +483,7 @@ export class JobService {
         fullAccess: agentConfig.fullAccess,
         ...templateWorktreeConfig(agentConfig),
         jobRunId: run.id,
+        templateId: job.templateId ?? undefined,
       },
       {
         beforeLaunch: async (agentId) => {
@@ -615,12 +618,18 @@ export class JobService {
       continuationEnabled: input.continuationEnabled,
     });
 
+    if (input.projectId) {
+      const project = await new ProjectStore(this.pool).get(input.projectId);
+      if (!project) throw new Error("Project not found.");
+      input = { ...input, directory: project.repoRoot };
+    }
     const agentConfig = applyAgentConfigDefaults(input);
 
     // Create a backing template for this job (hidden from Cmd+K by default).
     // If job creation fails, clean up the template to avoid orphans.
     const template = await this.templateStore.createTemplate({
       name: displayName,
+      projectId: input.projectId ?? null,
       directory: input.directory,
       description: null,
       prompt: input.prompt ?? null,
@@ -702,6 +711,15 @@ export class JobService {
       );
     }
 
+    let projectDirectory: string | undefined;
+    if (input.projectId !== undefined) {
+      const project = input.projectId
+        ? await new ProjectStore(this.pool).get(input.projectId)
+        : null;
+      if (input.projectId && !project) throw new Error("Project not found.");
+      if (!existing.templateId) throw new Error("Job has no backing template.");
+      projectDirectory = project?.repoRoot;
+    }
     const schedule = input.schedule === "" ? null : input.schedule;
     const nextSchedule =
       input.schedule === undefined ? existing.schedule : schedule;
@@ -786,6 +804,10 @@ export class JobService {
     // Propagate agent-config changes to the backing template
     if (updated.templateId) {
       const templateUpdates: Record<string, unknown> = {};
+      if (input.projectId !== undefined) {
+        templateUpdates.projectId = input.projectId;
+        if (projectDirectory) templateUpdates.directory = projectDirectory;
+      }
       if (input.prompt !== undefined) templateUpdates.prompt = input.prompt;
       if (input.agentType !== undefined)
         templateUpdates.agentType = input.agentType;
@@ -810,6 +832,7 @@ export class JobService {
             templateUpdates as Parameters<TemplateStore["updateTemplate"]>[1]
           )
           .catch((err) => {
+            if (input.projectId !== undefined) throw err;
             this.logger.warn(
               { err, templateId: updated.templateId },
               "Failed to propagate update to backing template"

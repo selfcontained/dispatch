@@ -1,3 +1,5 @@
+import { ProjectLocation } from "./project-location";
+import { useProjectScope } from "@/hooks/use-projects";
 import { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
@@ -65,6 +67,7 @@ function CreateAgentDialogContent({
   resolveDefaultCwd,
   onCreated,
 }: Omit<CreateAgentDialogProps, "open">): JSX.Element {
+  const { project } = useProjectScope();
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   // Engines whose CLI this machine does not have: pickable, but the picker
   // says what to install rather than letting the launch fail.
@@ -84,7 +87,8 @@ function CreateAgentDialogContent({
   const form = useCreateAgentForm({
     enabledAgentTypes,
     initialAgentType,
-    resolveDefaultCwd,
+    resolveDefaultCwd: () => project?.repoRoot ?? resolveDefaultCwd(),
+    initialProjectId: project?.id,
     onCreated,
   });
 
@@ -171,18 +175,27 @@ function CreateAgentDialogContent({
                   </p>
                 </div>
 
-                <PathInput
-                  value={form.createCwd}
-                  onChange={form.setCreateCwd}
-                  label="Working directory"
-                  history={form.cwdHistory}
-                  removableHistory={form.removableCwdHistory}
-                  historyMetadata={form.cwdHistoryMetadata}
-                  onRemoveHistory={form.removeCwdHistory}
-                  onPathInfoChange={form.handlePathInfoChange}
-                  data-testid="create-agent-cwd"
-                  historyItemTestId="create-agent-cwd-history-option"
-                />
+                <div className="space-y-1">
+                  <ProjectLocation
+                    projectId={form.createProjectId}
+                    onChange={(p) => {
+                      form.setCreateProjectId(p?.id ?? null);
+                      if (p) form.setCreateCwd(p.repoRoot);
+                    }}
+                  >
+                    <PathInput
+                      value={form.createCwd}
+                      onChange={form.setCreateCwd}
+                      history={form.cwdHistory}
+                      removableHistory={form.removableCwdHistory}
+                      historyMetadata={form.cwdHistoryMetadata}
+                      onRemoveHistory={form.removeCwdHistory}
+                      onPathInfoChange={form.handlePathInfoChange}
+                      data-testid="create-agent-cwd"
+                      historyItemTestId="create-agent-cwd-history-option"
+                    />
+                  </ProjectLocation>
+                </div>
 
                 <WorktreeSection
                   cwd={form.createCwd}

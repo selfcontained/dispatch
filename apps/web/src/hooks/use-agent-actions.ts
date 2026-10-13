@@ -1,5 +1,5 @@
+import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Agent } from "@/components/app/types";
 import { type AgentType } from "@/lib/agent-types";
@@ -24,7 +24,7 @@ export function useAgentActions({
   setLastUsedAgentType,
   refreshFiles,
 }: UseAgentActionsParams) {
-  const navigate = useNavigate();
+  const navigate = useProjectNavigate();
   const queryClient = useQueryClient();
 
   const ensureAuxExpanded = useCallback(
@@ -103,7 +103,7 @@ export function useAgentActions({
         // live entry with it strands the composer in its disabled state.
         return old;
       });
-      navigate(agentRoute(agent.id));
+      navigate(`${agentRoute(agent.id)}?project=${agent.projectId ?? ""}`);
       ensureAuxExpanded(agent.id);
       refreshFiles(agent.id);
     },

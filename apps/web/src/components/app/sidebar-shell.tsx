@@ -1,3 +1,4 @@
+import { ProjectSwitcher } from "./project-switcher";
 import { Activity, Zap, Bot, ChevronLeft, Settings, X } from "lucide-react";
 import React from "react";
 
@@ -145,6 +146,7 @@ export function SidebarShell({
         ) : null}
       </div>
 
+      <ProjectSwitcher />
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
 
       <SidebarNavBar

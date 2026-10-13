@@ -33,6 +33,7 @@ export type JobRunStatus =
 export type JobAgentType = CliAgentType;
 
 export type JobRecord = {
+  projectId?: string | null;
   id: string;
   directory: string;
   name: string;
@@ -138,6 +139,7 @@ export type JobRunConfig = {
 };
 
 export type AddJobInput = {
+  projectId?: string | null;
   name: string;
   directory: string;
   displayName?: string;
@@ -785,6 +787,7 @@ export class JobStore {
         j.webhook_enabled AS "webhookEnabled",
         j.webhook_secret AS "webhookSecret",
         j.template_id AS "templateId",
+        (SELECT project_id FROM templates WHERE id=j.template_id) AS "projectId",
         j.default_args AS "defaultArgs",
         j.self_improve AS "selfImprove",
         j.continuation_enabled AS "continuationEnabled",

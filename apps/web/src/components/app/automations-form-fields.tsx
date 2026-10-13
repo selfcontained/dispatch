@@ -1,3 +1,4 @@
+import { ProjectLocation } from "./project-location";
 import { useMemo } from "react";
 import { GitBranch, Paperclip } from "lucide-react";
 
@@ -105,6 +106,8 @@ export interface TemplateConfigFieldsProps {
   description: string;
   onDescriptionChange: (value: string) => void;
   directory: string;
+  projectId?: string | null;
+  onProjectChange?: (id: string | null, directory: string) => void;
   onDirectoryChange: (value: string) => void;
   useWorktree: boolean;
   onUseWorktreeChange: (checked: boolean) => void;
@@ -136,6 +139,8 @@ export function TemplateConfigFields({
   description,
   onDescriptionChange,
   directory,
+  projectId,
+  onProjectChange,
   onDirectoryChange,
   useWorktree,
   onUseWorktreeChange,
@@ -214,18 +219,22 @@ export function TemplateConfigFields({
       </div>
 
       <div className="space-y-1">
-        <label className="text-sm text-muted-foreground">
-          Working directory
-        </label>
-        <PathInput
-          value={directory}
-          onChange={onDirectoryChange}
-          placeholder="/path/to/repo"
-          history={cwdHistory}
-          removableHistory={removableCwdHistory}
-          historyMetadata={cwdHistoryMetadata}
-          onRemoveHistory={removeCwdHistory}
-        />
+        <ProjectLocation
+          projectId={projectId}
+          onChange={(p) =>
+            onProjectChange?.(p?.id ?? null, p?.repoRoot ?? directory)
+          }
+        >
+          <PathInput
+            value={directory}
+            onChange={onDirectoryChange}
+            placeholder="/path/to/repo"
+            history={cwdHistory}
+            removableHistory={removableCwdHistory}
+            historyMetadata={cwdHistoryMetadata}
+            onRemoveHistory={removeCwdHistory}
+          />
+        </ProjectLocation>
       </div>
 
       <>

@@ -1,5 +1,6 @@
+import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useMatches, useNavigate } from "react-router-dom";
+import { Outlet, useMatches } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { type NavSection } from "@/components/app/sidebar-shell";
@@ -34,7 +35,7 @@ type RouteHandle = {
 };
 
 export function DashboardLayout(): JSX.Element {
-  const navigate = useNavigate();
+  const navigate = useProjectNavigate();
   const matches = useMatches() as Array<{ handle?: RouteHandle }>;
 
   const currentNavItem =

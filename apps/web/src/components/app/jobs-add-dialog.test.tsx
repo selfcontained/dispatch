@@ -9,6 +9,15 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/hooks/use-projects", () => ({
+  useProjects: () => ({ data: [] }),
+  useProjectScope: () => ({
+    projectId: null,
+    project: undefined,
+    projects: [],
+  }),
+}));
+
 import {
   CWD_HISTORY_KEY,
   CWD_HISTORY_USAGE_KEY,
@@ -47,6 +56,7 @@ const MODEL_CATALOG = {
 // field also fails.
 function basePayload() {
   return {
+    projectId: null,
     name: "Nightly audit",
     directory: "/repo",
     displayName: "Nightly audit",

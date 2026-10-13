@@ -1,3 +1,4 @@
+import { ProjectStore } from "../projects/store.js";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
@@ -42,6 +43,7 @@ export type LaunchResult = {
 
 export class TemplateService {
   readonly store: TemplateStore;
+  readonly projects: ProjectStore;
 
   constructor(
     pool: Pool,
@@ -49,6 +51,7 @@ export class TemplateService {
     private readonly logger: FastifyBaseLogger
   ) {
     this.store = new TemplateStore(pool);
+    this.projects = new ProjectStore(pool);
   }
 
   async addTemplate(
@@ -56,7 +59,13 @@ export class TemplateService {
     callerFullAccess?: boolean
   ): Promise<TemplateRecord> {
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
+    if (input.projectId) {
+      const project = await this.projects.get(input.projectId);
+      if (!project) throw new Error("Project not found.");
+      input = { ...input, directory: project.repoRoot };
+    }
     const template = await this.store.createTemplate({
+      projectId: input.projectId ?? null,
       name: input.name.trim(),
       directory: input.directory,
       description: input.description ?? null,
@@ -84,7 +93,15 @@ export class TemplateService {
       existing.fullAccess || input.fullAccess === true,
       callerFullAccess
     );
+    const projectId =
+      input.projectId === undefined ? existing.projectId : input.projectId;
+    if (projectId) {
+      const project = await this.projects.get(projectId);
+      if (!project) throw new Error("Project not found.");
+      input = { ...input, directory: project.repoRoot };
+    }
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
+    if (input.projectId !== undefined) updates.projectId = input.projectId;
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)
       updates.description = input.description;
@@ -188,6 +205,12 @@ export class TemplateService {
       );
     }
 
+    if (
+      template.projectId &&
+      input.directory &&
+      input.directory !== template.directory
+    )
+      throw new Error("Project template directory cannot be overridden.");
     const cwd = input.directory ?? template.directory;
     const agent = await this.agentManager.createAgent({
       name: sanitizeAgentName(template.name),

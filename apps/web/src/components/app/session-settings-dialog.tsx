@@ -1,3 +1,11 @@
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -44,6 +52,8 @@ export function SessionSettingsDialog({
   onOpenChange,
   enabledIdes,
 }: SessionSettingsDialogProps) {
+  const { data: projects = [] } = useProjects();
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,10 +72,14 @@ export function SessionSettingsDialog({
   useEffect(() => {
     if (open && agent) {
       setName(agent.name);
+      setProjectId(agent.projectId ?? null);
     }
   }, [open, agent]);
 
-  const isDirty = agent != null && name.trim() !== "" && name !== agent.name;
+  const isDirty =
+    agent != null &&
+    name.trim() !== "" &&
+    (name !== agent.name || projectId !== (agent.projectId ?? null));
 
   const handleSave = useCallback(async () => {
     if (!agent || !isDirty) return;
@@ -78,9 +92,14 @@ export function SessionSettingsDialog({
           body: JSON.stringify({ name: name.trim() }),
         }
       );
+      if (projectId !== (agent.projectId ?? null))
+        await api(`/api/v1/agents/${agent.id}/project`, {
+          method: "PATCH",
+          body: JSON.stringify({ projectId }),
+        });
       queryClient.setQueryData<Agent[]>(["agents"], (old) =>
         old?.map((a) =>
-          a.id === agent.id ? { ...a, name: result.agent.name } : a
+          a.id === agent.id ? { ...a, name: result.agent.name, projectId } : a
         )
       );
       onOpenChange(false);
@@ -91,7 +110,7 @@ export function SessionSettingsDialog({
     } finally {
       setSaving(false);
     }
-  }, [agent, isDirty, name, queryClient, onOpenChange]);
+  }, [agent, isDirty, name, projectId, queryClient, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -136,6 +155,25 @@ export function SessionSettingsDialog({
                 />
               </div>
             ) : null}
+            <label className="space-y-1 text-sm">
+              Project
+              <Select
+                value={projectId ?? "none"}
+                onValueChange={(v) => setProjectId(v === "none" ? null : v)}
+              >
+                <SelectTrigger aria-label="Project membership">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No project</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="session-name"

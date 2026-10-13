@@ -9,6 +9,11 @@ import {
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/components/app/project-switcher", () => ({
+  ProjectBanner: () => null,
+  ProjectSwitcher: () => null,
+}));
+
 import { AutomationsRoute } from "./automations-route";
 import { ActivityRoute } from "./activity-route";
 import { SettingsRoute, serviceDotClass } from "./settings-route";

@@ -712,6 +712,13 @@ export function registerCrudTools(
           "Create a new template. Only name is required; everything else has sensible defaults.",
         inputSchema: {
           name: z.string().min(1).describe("Template name."),
+          projectId: z
+            .string()
+            .nullable()
+            .optional()
+            .describe(
+              "Explicit project membership. Omit for a standalone template."
+            ),
           directory: dirSchema(),
           description: z
             .string()
@@ -780,6 +787,11 @@ export function registerCrudTools(
           "Update an existing template. Only pass fields you want to change.",
         inputSchema: {
           templateId: z.string().describe("Template ID."),
+          projectId: z
+            .string()
+            .nullable()
+            .optional()
+            .describe("Project ID, or null to remove membership."),
           name: z.string().optional().describe("New name."),
           directory: z.string().optional().describe("New directory."),
           description: z

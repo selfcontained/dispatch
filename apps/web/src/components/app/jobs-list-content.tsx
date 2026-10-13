@@ -1,3 +1,4 @@
+import { useProjectScope } from "@/hooks/use-projects";
 import { Activity, AlarmClock, Clock } from "lucide-react";
 
 import { useJobsContext } from "@/components/app/jobs-context";
@@ -17,7 +18,7 @@ export function JobListContent({
   hideHeader?: boolean;
 }): JSX.Element {
   const {
-    jobs,
+    jobs: allJobs,
     isLoading,
     error,
     selectedJob,
@@ -28,6 +29,10 @@ export function JobListContent({
     navigate,
   } = useJobsContext();
 
+  const { projectId } = useProjectScope();
+  const jobs = projectId
+    ? allJobs.filter((j) => j.projectId === projectId)
+    : allJobs;
   return (
     <div data-testid="jobs-sidebar" className="flex min-h-0 flex-1 flex-col">
       {hideHeader ? (

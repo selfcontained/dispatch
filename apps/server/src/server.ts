@@ -1,3 +1,4 @@
+import { registerProjectRoutes } from "./routes/projects.js";
 import { ScheduledMessageService } from "./scheduled-messages/service.js";
 import { registerScheduledMessageRoutes } from "./routes/scheduled-messages.js";
 import { agentForClient } from "./server/agent-client-view.js";
@@ -685,6 +686,10 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
+  await registerProjectRoutes(app, {
+    pool,
+    publishUiEvent: (event) => uiEventBroker.publish(event),
+  });
   await registerTemplateRoutes(app, {
     templateService,
     publishUiEvent: (event) => uiEventBroker.publish(event),

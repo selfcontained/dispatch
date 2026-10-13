@@ -12,6 +12,16 @@ import {
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/hooks/use-projects", async () => ({
+  useProjectNavigate: (await import("react-router-dom")).useNavigate,
+  useProjects: () => ({ data: [] }),
+  useProjectScope: () => ({
+    projectId: null,
+    project: undefined,
+    projects: [],
+  }),
+}));
+
 import type { Agent } from "@/components/app/types";
 
 import { AgentsView } from "./agents-view";

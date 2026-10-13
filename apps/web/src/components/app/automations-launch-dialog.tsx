@@ -155,7 +155,9 @@ function LaunchTemplateDialogContent({
       })
       .then((result) => {
         onOpenChange(false);
-        navigate(agentRoute(result.agent.id));
+        navigate(
+          `${agentRoute(result.agent.id)}?project=${result.agent.projectId ?? ""}`
+        );
       })
       .catch((err: Error) => {
         toast.error(`Failed to launch: ${err.message}`);

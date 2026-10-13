@@ -28,6 +28,7 @@ const directoryField = z
 const AddTemplateBodySchema = z.object({
   name: z.string().min(1, "Template name is required."),
   directory: directoryField,
+  projectId: z.string().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
@@ -44,6 +45,7 @@ const AddTemplateBodySchema = z.object({
 const UpdateTemplateBodySchema = z.object({
   name: z.string().min(1).optional(),
   directory: directoryField.optional(),
+  projectId: z.string().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
@@ -60,6 +62,7 @@ const UpdateTemplateBodySchema = z.object({
 const LaunchBodySchema = z.object({
   args: z.record(z.string(), z.string()).optional(),
   directory: directoryField.optional(),
+  projectId: z.string().min(1).nullable().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
   // Multipart fields arrive as strings, so an empty string is how "use the CLI
   // default" reaches us there — distinct from omitting the field, which keeps
@@ -76,6 +79,7 @@ function classifyErrorCode(message: string): number {
   if (message.includes("already exists") || message.includes("referenced by"))
     return 409;
   if (
+    message.includes("cannot be overridden") ||
     message.includes("Missing required") ||
     message.includes("no prompt") ||
     message.includes("is not supported for")

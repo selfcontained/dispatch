@@ -37,6 +37,7 @@ function template(overrides: Partial<Template> = {}): Template {
 describe("templateDraftFrom", () => {
   it("substitutes editable defaults for the record's nulls", () => {
     expect(templateDraftFrom(template())).toEqual({
+      projectId: null,
       name: "Nightly",
       description: "",
       directory: "/repo",
@@ -71,6 +72,7 @@ describe("templateDraftFrom", () => {
         })
       )
     ).toEqual({
+      projectId: null,
       name: "Nightly",
       description: "Runs nightly",
       directory: "/repo",

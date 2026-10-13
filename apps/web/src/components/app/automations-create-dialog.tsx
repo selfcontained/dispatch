@@ -1,3 +1,4 @@
+import { useProjectScope } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
@@ -49,8 +50,13 @@ function CreateTemplateDialogContent({
   onOpenChange: (open: boolean) => void;
   enabledAgentTypes: AgentType[];
 }): JSX.Element {
+  const { project } = useProjectScope();
   const { addTemplate } = useTemplateActions();
-  const { draft, fieldProps } = useTemplateDraft(EMPTY_TEMPLATE_DRAFT);
+  const { draft, fieldProps } = useTemplateDraft({
+    ...EMPTY_TEMPLATE_DRAFT,
+    projectId: project?.id ?? null,
+    directory: project?.repoRoot ?? "",
+  });
   const [creating, setCreating] = useState(false);
   const { add: addCwdHistory } = useCwdHistory();
 

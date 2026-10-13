@@ -13,6 +13,15 @@ import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/hooks/use-projects", () => ({
+  useProjects: () => ({ data: [] }),
+  useProjectScope: () => ({
+    projectId: null,
+    project: undefined,
+    projects: [],
+  }),
+}));
+
 import type { StreamEntry } from "@dispatch/shared";
 
 import type { Agent } from "@/components/app/types";

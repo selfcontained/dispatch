@@ -541,7 +541,12 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
+        if (payload.type === "project.changed") {
+          for (const key of ["projects", "agents", "templates", "jobs"])
+            void queryClient.invalidateQueries({ queryKey: [key] });
+        }
         if (payload.type === "template.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           return;
         }

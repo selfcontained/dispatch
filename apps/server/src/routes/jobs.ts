@@ -22,6 +22,7 @@ const JobEnableDisableBodySchema = z.object({
   directory: directoryField,
 });
 const AddJobBodySchema = JobEnableDisableBodySchema.extend({
+  projectId: z.string().min(1).nullable().optional(),
   displayName: z.string().optional(),
   prompt: z.string().nullable().optional(),
   schedule: z.string().nullable().optional(),

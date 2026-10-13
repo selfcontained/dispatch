@@ -1,3 +1,5 @@
+import { ProjectBanner } from "./project-switcher";
+import { useProjectNavigate, useProjectScope } from "@/hooks/use-projects";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { PendingInputsButton } from "./chat/pending-inputs-button";
 import {
@@ -13,7 +15,7 @@ import {
 const FilesPane = lazy(() =>
   import("./files-pane").then((module) => ({ default: module.FilesPane }))
 );
-import { Routes, Route, useNavigate, useParams } from "react-router-dom";
+import { Routes, Route, useParams } from "react-router-dom";
 import { useAtom } from "jotai";
 
 import { chatShowChildAgentsAtom, type CenterTab } from "@/lib/store";
@@ -93,8 +95,9 @@ export function AgentsView({
   triggerNavAnimation,
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
+  const { projectId } = useProjectScope();
   const { agentId: routeAgentId } = useParams();
-  const navTo = useNavigate();
+  const navTo = useProjectNavigate();
 
   const [showChildAgents, setShowChildAgents] = useAtom(
     chatShowChildAgentsAtom
@@ -109,6 +112,12 @@ export function AgentsView({
     setOverflowAgentId,
     agentVisualState,
   } = useAgents(true, routeAgentId ?? null);
+
+  useEffect(() => {
+    if (projectId && selectedAgent && selectedAgent.projectId !== projectId) {
+      navTo("/agents", { replace: true });
+    }
+  }, [projectId, selectedAgent, navTo]);
 
   const { changesMatch, filesMatch, centerTabResolved, onTabChange } =
     useAgentsViewRouting({
@@ -522,7 +531,11 @@ export function AgentsView({
           onNavigate={onNavigateSection}
         >
           <AgentListContent
-            agents={agents}
+            agents={
+              projectId
+                ? agents.filter((a) => a.projectId === projectId)
+                : agents
+            }
             selectedAgentId={validatedSelectedAgentId}
             expandedAgentId={expandedAgentId}
             overflowAgentId={overflowAgentId}
@@ -562,10 +575,11 @@ export function AgentsView({
           />
         </NavigationSidebar>
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ProjectBanner />
           <div
             className={cn(
-              "grid h-full min-h-0 min-w-0",
+              "grid flex-1 min-h-0 min-w-0",
               isMobile
                 ? "grid-rows-[minmax(0,1fr)_auto]"
                 : "grid-rows-[minmax(0,1fr)]"

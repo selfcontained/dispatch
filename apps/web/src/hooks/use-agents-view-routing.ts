@@ -1,5 +1,6 @@
+import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useEffect } from "react";
-import { useLocation, useMatch, useNavigate } from "react-router-dom";
+import { useLocation, useMatch } from "react-router-dom";
 
 import { agentRoute } from "@/lib/agent-routes";
 import { type CenterTab, centerTabRoute } from "@/lib/center-tabs";
@@ -15,7 +16,7 @@ export function useAgentsViewRouting({
   agentsLoaded,
   validatedSelectedAgentId,
 }: UseAgentsViewRoutingOptions) {
-  const navigate = useNavigate();
+  const navigate = useProjectNavigate();
   const location = useLocation();
   const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
   const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");

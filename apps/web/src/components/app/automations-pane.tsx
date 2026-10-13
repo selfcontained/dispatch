@@ -1,5 +1,7 @@
+import { useProjectScope } from "@/hooks/use-projects";
+import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { AlarmClock, Brain, FormInput, Play } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -130,9 +132,13 @@ function TemplateListContent({
   enabledAgentTypes: AgentType[];
   onItemSelect?: () => void;
 }): JSX.Element {
-  const navigate = useNavigate();
+  const navigate = useProjectNavigate();
   const { templateId } = useParams<{ templateId?: string }>();
-  const { data: templates = [], isLoading } = useTemplates();
+  const { projectId } = useProjectScope();
+  const { data: allTemplates = [], isLoading } = useTemplates();
+  const templates = projectId
+    ? allTemplates.filter((t) => t.projectId === projectId)
+    : allTemplates;
   const [showCreate, setShowCreate] = useState(false);
 
   return (
@@ -285,7 +291,7 @@ export function AutomationsSidebarContent({
   isMobile: boolean;
   closeSidebar?: () => void;
 }): JSX.Element {
-  const navigate = useNavigate();
+  const navigate = useProjectNavigate();
   const location = useLocation();
   const activeTab = resolveTab(location.pathname);
 
@@ -341,7 +347,7 @@ export function AutomationsDetailContent({
   agents: Agent[];
   enabledAgentTypes: AgentType[];
 }): JSX.Element {
-  const navigate = useNavigate();
+  const navigate = useProjectNavigate();
   const location = useLocation();
   const activeTab = resolveTab(location.pathname);
 

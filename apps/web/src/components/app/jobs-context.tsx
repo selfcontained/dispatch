@@ -1,5 +1,6 @@
+import { useProjectNavigate } from "@/hooks/use-projects";
 import { createContext, useContext, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 
 import { type Agent } from "@/components/app/types";
 import { AddJobDialog, AddJobFlow } from "@/components/app/jobs-add-dialog";
@@ -42,7 +43,7 @@ type JobsContextValue = {
   selectJob: (job: Job) => void;
   openAddJob: () => void;
   actionErrorByJobId: Record<string, string>;
-  navigate: ReturnType<typeof useNavigate>;
+  navigate: ReturnType<typeof useProjectNavigate>;
   agents: Agent[];
   onOpenAgent: (agent: Agent) => Promise<void>;
   enabledAgentTypes: AgentType[];
@@ -89,7 +90,7 @@ export function JobsProvider({
   enabledAgentTypes,
   children,
 }: JobsProviderProps & { children: React.ReactNode }): JSX.Element {
-  const navigate = useNavigate();
+  const navigate = useProjectNavigate();
   const {
     jobId: routeJobId,
     section: routeSection,

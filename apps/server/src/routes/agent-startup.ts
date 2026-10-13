@@ -4,6 +4,7 @@ import { detectFileType } from "../files/file-type.js";
 import { sanitizeUploadedFileName } from "../shared/files.js";
 
 export type CreateAgentBody = {
+  projectId?: unknown;
   name?: unknown;
   type?: unknown;
   /** Not accepted — see the create route; typed so it can be refused. */

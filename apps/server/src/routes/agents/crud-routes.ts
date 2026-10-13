@@ -33,6 +33,26 @@ export async function registerAgentCrudRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
+  app.patch<{ Params: { id: string }; Body: { projectId: unknown } }>(
+    "/api/v1/agents/:id/project",
+    async (request, reply) => {
+      const id = request.body?.projectId;
+      if (id !== null && (typeof id !== "string" || !id))
+        return reply.code(400).send({ error: "Invalid project." });
+      try {
+        return {
+          agent: deps.withStreamFlag(
+            await deps.agentManager.setProject(
+              request.params.id,
+              id as string | null
+            )
+          ),
+        };
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
   app.get("/api/v1/agents", async () => {
     const agents = await deps.agentManager.listAgents();
     return { agents: agents.map(deps.withStreamFlag) };
@@ -187,8 +207,17 @@ export async function registerAgentCrudRoutes(
       });
     }
     const { body, startupFiles } = parsedRequest;
+    if (
+      body.projectId !== undefined &&
+      (typeof body.projectId !== "string" || !body.projectId)
+    )
+      return reply.code(400).send({ error: "Invalid project." });
+    if (body.projectId && body.cwd)
+      return reply
+        .code(400)
+        .send({ error: "Choose a project or a folder, not both." });
 
-    if (typeof body?.cwd !== "string") {
+    if (!body.projectId && typeof body?.cwd !== "string") {
       return reply
         .code(400)
         .send({ error: "Body must include cwd as a string." });
@@ -336,7 +365,9 @@ export async function registerAgentCrudRoutes(
         {
           name: typeof body.name === "string" ? body.name : undefined,
           type: agentType,
-          cwd: body.cwd,
+          cwd: typeof body.cwd === "string" ? body.cwd : "",
+          projectId:
+            typeof body.projectId === "string" ? body.projectId : undefined,
           agentArgs: resolvedAgentArgs,
           model,
           fullAccess: fullAccess === true,
