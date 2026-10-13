@@ -1,4 +1,3 @@
-import { ProjectBanner } from "@/components/app/project-switcher";
 import { PanelRightOpen } from "lucide-react";
 import { type NavSection } from "@/components/app/sidebar-shell";
 import { NavigationSidebar } from "@/components/app/navigation-sidebar";
@@ -67,7 +66,6 @@ export function SectionShell({
               !leftPanelOpen && "pt-14"
             )}
           >
-            <ProjectBanner />
             {children}
           </div>
         </main>

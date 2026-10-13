@@ -8,25 +8,31 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useProjects, type Project } from "@/hooks/use-projects";
-export function ProjectIcon({ project }: { project: Project }) {
+export function ProjectIcon({
+  project,
+  className = "h-6 w-6",
+  fallback,
+}: {
+  project: Project;
+  className?: string;
+  fallback?: ReactNode;
+}) {
   const [loaded, setLoaded] = useState<string | null>(null);
-  const src = `/api/v1/projects/${project.id}/icon`;
+  const src = `/api/v1/projects/${project.id}/icon?v=${encodeURIComponent(project.updatedAt)}`;
   return (
-    <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs font-semibold text-foreground">
-      {project.iconOverride || (
-        <>
-          <span aria-hidden className={loaded === src ? "invisible" : ""}>
-            {project.name.slice(0, 1).toUpperCase()}
-          </span>
-          <img
-            alt=""
-            className={`absolute inset-0 h-6 w-6 object-contain ${loaded === src ? "opacity-100" : "opacity-0"}`}
-            src={src}
-            onLoad={() => setLoaded(src)}
-            onError={() => setLoaded(null)}
-          />
-        </>
-      )}
+    <span
+      className={`relative flex shrink-0 items-center justify-center rounded text-xs font-semibold text-foreground ${className}`}
+    >
+      <span aria-hidden className={loaded === src ? "invisible" : ""}>
+        {fallback ?? project.name.slice(0, 1).toUpperCase()}
+      </span>
+      <img
+        alt=""
+        className={`absolute inset-0 h-full w-full object-contain ${loaded === src ? "opacity-100" : "opacity-0"}`}
+        src={src}
+        onLoad={() => setLoaded(src)}
+        onError={() => setLoaded(null)}
+      />
     </span>
   );
 }

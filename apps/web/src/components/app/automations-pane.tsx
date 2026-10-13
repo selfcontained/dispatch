@@ -1,3 +1,4 @@
+import { ProjectSwitcher } from "./project-switcher";
 import { useProjectScope } from "@/hooks/use-projects";
 import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
@@ -143,7 +144,10 @@ function TemplateListContent({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-end px-3 py-2">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <div className="min-w-0 flex-1">
+          <ProjectSwitcher />
+        </div>
         <Button
           size="sm"
           variant="default"

@@ -1,3 +1,5 @@
+import { useProjects } from "@/hooks/use-projects";
+import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { useAtom } from "jotai";
 import { chatShowLastMessageAtom } from "@/lib/store";
@@ -146,6 +148,8 @@ export function AgentPane({
   isMobile,
 }: AgentPaneProps): JSX.Element {
   const [mountedAgentId, setMountedAgentId] = useState(agentId);
+  const { data: projects = [] } = useProjects();
+  const project = projects.find((p) => p.id === agent?.projectId);
 
   // Route changes should paint the newly selected agent before mounting its
   // cached feed. Rendering a large cached stream in the navigation commit
@@ -172,9 +176,27 @@ export function AgentPane({
         <div
           className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-0 pl-3 pr-2 md:py-1.5"
           data-testid="agent-pane-header"
+          style={
+            project
+              ? {
+                  background: `linear-gradient(90deg, ${project.color}28, ${project.color}0d)`,
+                  boxShadow: `inset 3px 0 ${project.color}`,
+                }
+              : undefined
+          }
         >
           <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
-            <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            {project ? (
+              <ProjectIcon
+                project={project}
+                className="h-5 w-5"
+                fallback={
+                  <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+                }
+              />
+            ) : (
+              <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            )}
             <span className="truncate">{agent?.name ?? "Agent"}</span>
           </span>
           {agentSwitchValidationMode ? (

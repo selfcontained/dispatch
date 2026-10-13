@@ -1,3 +1,4 @@
+import { ProjectSwitcher } from "./project-switcher";
 import { ChevronDown } from "lucide-react";
 import { useAtom } from "jotai";
 
@@ -372,8 +373,8 @@ export function AgentListContent({
   return (
     <div data-testid="agent-sidebar" className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Agents
+        <div className="mr-2 min-w-0 flex-1">
+          <ProjectSwitcher />
         </div>
         <div className="ml-auto flex items-center">
           <Button

@@ -45,6 +45,44 @@ test("explicit membership survives template moves and project deletion clears me
   );
   expect(rememberedIcon.headers()["x-content-type-options"]).toBe("nosniff");
   expect(await rememberedIcon.text()).toBe(logo);
+  const custom =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=";
+  const saveIcon = await request.patch(`/api/v1/projects/${project.id}`, {
+    headers,
+    data: { name: project.name, color: "#123456", iconOverride: custom },
+  });
+  expect(saveIcon.ok(), await saveIcon.text()).toBeTruthy();
+  const customResponse = await request.get(
+    `/api/v1/projects/${project.id}/icon`,
+    { headers }
+  );
+  expect(customResponse.headers()["content-type"]).toContain("image/png");
+  expect((await customResponse.body()).toString("base64")).toBe(
+    custom.split(",")[1]
+  );
+  const invalidIcon = await request.patch(`/api/v1/projects/${project.id}`, {
+    headers,
+    data: {
+      name: project.name,
+      color: "#123456",
+      iconOverride: "data:image/svg+xml;base64,PHN2Zy8+",
+    },
+  });
+  expect(invalidIcon.status()).toBe(400);
+  await request.patch(`/api/v1/projects/${project.id}`, {
+    headers,
+    data: { name: project.name, color: project.color, iconOverride: null },
+  });
+  const restoredIcon = await request.get(
+    `/api/v1/projects/${project.id}/icon`,
+    { headers }
+  );
+  expect(await restoredIcon.text()).toBe(logo);
+  const preview = await request.get(
+    `/api/v1/projects/icon-preview?projectId=${project.id}`,
+    { headers }
+  );
+  expect((await preview.json()).source).toBe("saved");
   const duplicate = await request.post("/api/v1/projects", {
     headers,
     data: { name: "Duplicate", repoRoot: repo, color: "#9575ed" },

@@ -1,4 +1,3 @@
-import { ProjectBanner } from "./project-switcher";
 import { useProjectNavigate, useProjectScope } from "@/hooks/use-projects";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { PendingInputsButton } from "./chat/pending-inputs-button";
@@ -112,12 +111,6 @@ export function AgentsView({
     setOverflowAgentId,
     agentVisualState,
   } = useAgents(true, routeAgentId ?? null);
-
-  useEffect(() => {
-    if (projectId && selectedAgent && selectedAgent.projectId !== projectId) {
-      navTo("/agents", { replace: true });
-    }
-  }, [projectId, selectedAgent, navTo]);
 
   const { changesMatch, filesMatch, centerTabResolved, onTabChange } =
     useAgentsViewRouting({
@@ -576,7 +569,6 @@ export function AgentsView({
         </NavigationSidebar>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <ProjectBanner />
           <div
             className={cn(
               "grid flex-1 min-h-0 min-w-0",
