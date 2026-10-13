@@ -25,6 +25,27 @@ const appearance = z.object({
       "Choose a valid prepared icon image."
     ),
 });
+async function resolveProjectRoot(input: string): Promise<string> {
+  const cwd = await realpath(resolveTilde(input));
+  const git = async (...args: string[]) =>
+    (await promisify(execFile)("git", ["-C", cwd, ...args])).stdout.trim();
+  const common = await git(
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir"
+  );
+  const gitDir = await git("rev-parse", "--absolute-git-dir");
+  // Normal discovery handles nested paths and separate Git metadata.
+  // A linked worktree instead uses the primary checkout from Git's registry.
+  const root =
+    common === gitDir
+      ? await git("rev-parse", "--show-toplevel")
+      : (await git("worktree", "list", "--porcelain", "-z"))
+          .split("\0")[0]!
+          .slice("worktree ".length);
+  return realpath(root);
+}
+
 async function readRepositoryIcon(repoRoot: string) {
   try {
     const root = await realpath(resolveTilde(repoRoot));
@@ -73,9 +94,12 @@ export async function registerProjectRoutes(
         : null;
       if (!saved && !request.query.repoRoot?.trim())
         return { dataUrl: null, path: null, source: null };
-      const icon = await readRepositoryIcon(
-        saved?.repoRoot ?? request.query.repoRoot ?? ""
-      );
+      // Preview the same canonical checkout that Create will persist. Invalid
+      // in-progress input simply has no preview; saved offline icons still work.
+      const root =
+        saved?.repoRoot ??
+        (await resolveProjectRoot(request.query.repoRoot!).catch(() => null));
+      const icon = root ? await readRepositoryIcon(root) : null;
       if (icon)
         return {
           dataUrl: `data:${icon.mime};base64,${icon.bytes.toString("base64")}`,
@@ -107,24 +131,7 @@ export async function registerProjectRoutes(
     );
     if (!input) return;
     try {
-      const cwd = await realpath(resolveTilde(input.repoRoot));
-      const git = async (...args: string[]) =>
-        (await promisify(execFile)("git", ["-C", cwd, ...args])).stdout.trim();
-      const common = await git(
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-common-dir"
-      );
-      const gitDir = await git("rev-parse", "--absolute-git-dir");
-      // Normal discovery handles nested paths and separate Git metadata.
-      // A linked worktree instead uses the primary checkout from Git's registry.
-      const root =
-        common === gitDir
-          ? await git("rev-parse", "--show-toplevel")
-          : (await git("worktree", "list", "--porcelain", "-z"))
-              .split("\0")[0]!
-              .slice("worktree ".length);
-      const repoRoot = await realpath(root);
+      const repoRoot = await resolveProjectRoot(input.repoRoot);
       const result = await store.create({ ...input, repoRoot });
       await snapshotRepositoryIcon(result);
       publishUiEvent({ type: "project.changed" });

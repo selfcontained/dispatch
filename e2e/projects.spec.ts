@@ -198,6 +198,23 @@ test("canonicalizes nested and linked checkouts and separate Git metadata", asyn
         checkout,
       ]);
       mkdirSync(join(checkout, "nested"));
+      mkdirSync(join(checkout, ".dispatch"));
+      const logo =
+        '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>';
+      writeFileSync(join(checkout, ".dispatch/logo.svg"), logo);
+      const previewIcon = async (repoRoot: string) => {
+        const response = await request.get(
+          `/api/v1/projects/icon-preview?${new URLSearchParams({ repoRoot })}`,
+          { headers }
+        );
+        expect(response.ok()).toBeTruthy();
+        return response.json();
+      };
+      const nestedPreview = await previewIcon(join(checkout, "nested"));
+      expect(nestedPreview.dataUrl).toBe(
+        `data:image/svg+xml;base64,${Buffer.from(logo).toString("base64")}`
+      );
+
       const created = await request.post("/api/v1/projects", {
         headers,
         data: {
@@ -209,6 +226,12 @@ test("canonicalizes nested and linked checkouts and separate Git metadata", asyn
       expect(created.ok(), await created.text()).toBeTruthy();
       const project = await created.json();
       ids.push(project.id);
+      const savedIcon = await request.get(
+        `/api/v1/projects/${project.id}/icon`,
+        { headers }
+      );
+      expect(await savedIcon.text()).toBe(logo);
+
       expect(project.repoRoot).toBe(
         execFileSync("git", ["-C", checkout, "rev-parse", "--show-toplevel"], {
           encoding: "utf8",
@@ -242,6 +265,9 @@ test("canonicalizes nested and linked checkouts and separate Git metadata", asyn
           "linked",
           linked,
         ]);
+        // The linked checkout has no tracked logo: preview must resolve to
+        // the same primary checkout as project creation.
+        expect(await previewIcon(linked)).toEqual(nestedPreview);
         const linkedDuplicate = await request.post("/api/v1/projects", {
           headers,
           data: { name: "Linked", repoRoot: linked, color: "#9575ed" },

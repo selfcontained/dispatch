@@ -1601,3 +1601,39 @@ html[data-hidden] .animate-sidebar-nav-pulse {
     display: inline;
   }
 }
+
+/* Keep Radix mounted through the project filter's exit animation. */
+@keyframes project-filter-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes project-filter-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+.project-filter-menu {
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+}
+.project-filter-menu[data-state="open"] {
+  animation: project-filter-enter 160ms ease-out;
+}
+.project-filter-menu[data-state="closed"] {
+  animation: project-filter-exit 120ms ease-in forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-filter-menu[data-state] {
+    animation: none;
+  }
+}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -31,6 +31,7 @@ export function ProjectSwitcher() {
   const { project, projects } = useProjectScope();
   const navigate = useNavigate();
   const location = useLocation();
+  const trigger = useRef<HTMLButtonElement>(null);
   const [manage, setManage] = useState(false);
   const [edit, setEdit] = useState<Project | "new" | null>(null);
   const select = (id?: string) => {
@@ -48,6 +49,7 @@ export function ProjectSwitcher() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
+            ref={trigger}
             size="sm"
             variant="default"
             className="w-full min-w-0 justify-between gap-2 px-2"
@@ -68,7 +70,7 @@ export function ProjectSwitcher() {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-0"
+          className="project-filter-menu w-[var(--radix-dropdown-menu-trigger-width)] min-w-0"
         >
           <DropdownMenuItem
             className="flex items-center gap-2 text-foreground"
@@ -102,7 +104,12 @@ export function ProjectSwitcher() {
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={manage && !edit} onOpenChange={setManage}>
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            if (!edit) trigger.current?.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Projects</DialogTitle>
             <DialogDescription>
