@@ -703,6 +703,7 @@ describe("useSSE message handling", () => {
       ["agent-turn-label"],
       ["jobs"],
       ["templates"],
+      ["projects"],
       ["brain"],
       ["agent-models"],
       ["agent-identity"],

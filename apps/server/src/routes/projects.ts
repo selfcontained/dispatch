@@ -90,6 +90,11 @@ export async function registerProjectRoutes(
     async (request, reply) => {
       const project = await store.get(request.params.id);
       if (!project) return reply.code(404).send();
+      reply.header(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'"
+      );
+      reply.header("X-Content-Type-Options", "nosniff");
       // Keep a durable copy: repo files can disappear during branch switches or
       // when a checkout is unavailable. Project identity should not disappear.
       const cached = (

@@ -238,6 +238,39 @@ beforeEach(async () => {
 
 describe("AgentManager", () => {
   describe("createAgent", () => {
+    it.each([null, "project-b"])(
+      "inherits parent membership with template project %s",
+      async (templateProject) => {
+        await pool.query(
+          "INSERT INTO projects (id, name, repo_root) VALUES ('project-a', 'A', '/tmp'), ('project-b', 'B', '/var/tmp') ON CONFLICT DO NOTHING"
+        );
+        await pool.query(
+          "INSERT INTO templates (id, name, directory, project_id) VALUES ('child-template', 'Child', '/var/tmp', $1) ON CONFLICT (id) DO UPDATE SET project_id=$1",
+          [templateProject]
+        );
+        const parent = await manager.createAgent({
+          cwd: "/tmp",
+          projectId: "project-a",
+          useWorktree: false,
+        });
+        const child = await manager.createAgent({
+          cwd: parent.cwd,
+          parentAgentId: parent.id,
+          templateId: "child-template",
+          useWorktree: false,
+        });
+        expect(child.projectId).toBe("project-a");
+        expect(child.cwd).toBe(parent.cwd);
+        expect(child.templateId).toBe("child-template");
+        const standalone = await manager.createAgent({
+          cwd: "/tmp",
+          templateId: "child-template",
+          useWorktree: false,
+        });
+        expect(standalone.projectId).toBe(templateProject);
+      }
+    );
+
     it("should launch the host, go running, and record the ACP session id", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",

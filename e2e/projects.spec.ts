@@ -29,6 +29,10 @@ test("explicit membership survives template moves and project deletion clears me
     headers,
   });
   expect(icon.ok()).toBeTruthy();
+  expect(icon.headers()["content-security-policy"]).toBe(
+    "default-src 'none'; style-src 'unsafe-inline'"
+  );
+  expect(icon.headers()["x-content-type-options"]).toBe("nosniff");
   expect(await icon.text()).toBe(logo);
   rmSync(join(repo, ".dispatch/logo.svg"));
   const rememberedIcon = await request.get(
@@ -36,6 +40,10 @@ test("explicit membership survives template moves and project deletion clears me
     { headers }
   );
   expect(rememberedIcon.ok()).toBeTruthy();
+  expect(rememberedIcon.headers()["content-security-policy"]).toBe(
+    "default-src 'none'; style-src 'unsafe-inline'"
+  );
+  expect(rememberedIcon.headers()["x-content-type-options"]).toBe("nosniff");
   expect(await rememberedIcon.text()).toBe(logo);
   const duplicate = await request.post("/api/v1/projects", {
     headers,

@@ -1277,13 +1277,16 @@ export class AgentManager {
         ])
       ).rows[0];
       if (!template) throw new AgentError("Template not found.", 404);
-      if (
-        input.projectId !== undefined &&
-        input.projectId !== template.project_id
-      )
-        throw new AgentError("Template and project must match.", 400);
-      input.projectId = template.project_id;
-    } else if (input.projectId === undefined && input.parentAgentId) {
+      if (!input.parentAgentId) {
+        if (
+          input.projectId !== undefined &&
+          input.projectId !== template.project_id
+        )
+          throw new AgentError("Template and project must match.", 400);
+        input.projectId = template.project_id;
+      }
+    }
+    if (input.parentAgentId) {
       input.projectId =
         (await this.getAgent(input.parentAgentId))?.projectId ?? null;
     }

@@ -356,6 +356,7 @@ export function useSSE(authState: AuthState): void {
           // state forever (the query has staleTime: Infinity).
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
+          void queryClient.invalidateQueries({ queryKey: ["projects"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
           void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
           void queryClient.invalidateQueries({ queryKey: ["agent-identity"] });
