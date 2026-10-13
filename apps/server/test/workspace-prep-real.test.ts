@@ -23,11 +23,20 @@ it("installs real pnpm dependencies with service PATH, no CI, and ignored stdin"
   const serviceBin = path.join(root, "service-bin");
   await mkdir(bin, { recursive: true });
   await mkdir(serviceBin);
-  await symlink("/bin/sh", path.join(serviceBin, "sh"));
+  for (const utility of ["sh", "sed", "dirname", "uname"]) {
+    const executable = (await runCommand("which", [utility])).stdout;
+    await symlink(executable, path.join(serviceBin, utility));
+  }
   await mkdir(path.join(workspace, "dependency"), { recursive: true });
-  // Model a user-installed manager outside the service's PATH. Both links
-  // point to actual executables; no command runner or package manager is mocked.
-  await symlink(pnpmPath, path.join(bin, "pnpm"));
+  // Forward to the real manager at its original location: pnpm's shell shims
+  // locate their package relative to $0 and cannot be moved via a symlink.
+  // No command runner or package manager is mocked.
+  const quotedPnpmPath = `'${pnpmPath.replaceAll("'", "'\\''")}'`;
+  await writeFile(
+    path.join(bin, "pnpm"),
+    `#!/bin/sh\nexec ${quotedPnpmPath} "$@"\n`,
+    { mode: 0o755 }
+  );
   await symlink(process.execPath, path.join(bin, "node"));
   await writeFile(
     path.join(workspace, "dependency/package.json"),
@@ -61,7 +70,7 @@ it("installs real pnpm dependencies with service PATH, no CI, and ignored stdin"
   try {
     vi.stubEnv("HOME", home);
     // Control the baseline so a system-installed pnpm cannot mask a missing
-    // fallback environment. Only the lifecycle shell is initially discoverable.
+    // fallback environment. Only shell-shim utilities are discoverable.
     vi.stubEnv("PATH", serviceBin);
     vi.stubEnv("CI", undefined);
     await expect(runCommand("pnpm", ["--version"])).rejects.toMatchObject({
