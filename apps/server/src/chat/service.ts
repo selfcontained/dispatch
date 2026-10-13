@@ -2636,9 +2636,27 @@ export class StreamService {
     phase: string;
     label: string;
     cwd?: string;
+    status?: "done" | "failed";
+    detail?: string;
   }): Promise<Block | null> {
     const at = new Date().toISOString();
     return this.updateStartup(input.agentId, (startup) => {
+      if (input.status) {
+        const status = input.status;
+        return {
+          ...startup,
+          steps: startup.steps.map((step) =>
+            step.phase === input.phase
+              ? {
+                  ...step,
+                  status,
+                  endedAt: at,
+                  ...(input.detail ? { detail: input.detail } : {}),
+                }
+              : step
+          ),
+        };
+      }
       // Reaching a phase ends the one before it: the phases run in turn,
       // and nothing else reports when one finishes.
       const steps = startup.steps.map((step) =>

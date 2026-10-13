@@ -600,7 +600,7 @@ describe("ChatFeed", () => {
     }),
   };
 
-  it("renders a static launch event without startup controls or reactions", () => {
+  it("renders parent launch progress without reactions", () => {
     renderFeed(
       [
         blockEntry(
@@ -616,10 +616,52 @@ describe("ChatFeed", () => {
       { onToggleReaction: vi.fn() }
     );
     const event = screen.getByTestId("chat-compact-launch");
-    expect(event.textContent).toContain("Launched");
+    expect(event.textContent).toContain("Launching");
     expect(within(event).queryByRole("button")).toBeNull();
-    expect(screen.queryByTestId("chat-launch-startup")).toBeNull();
+    expect(screen.getByTestId("chat-launch-startup").textContent).toContain(
+      "Creating git worktree · Complete"
+    );
     expect(screen.queryByTestId("chat-add-reaction")).toBeNull();
+  });
+
+  it("keeps dependency failure visible when the engine starts successfully", () => {
+    renderFeed([
+      blockEntry(
+        launchBlock({
+          toAgentId: "agt_child",
+          launchState: {
+            startup: {
+              readyAt: "2026-09-02T10:00:10.000Z",
+              steps: [
+                steps.worktree(),
+                {
+                  phase: "deps",
+                  label: "Installing dependencies",
+                  startedAt: "2026-09-02T10:00:04.000Z",
+                  status: "failed",
+                  detail:
+                    "pnpm install failed; continuing launch without dependencies. spawn pnpm ENOENT",
+                },
+                {
+                  phase: "session",
+                  label: "Starting Codex",
+                  startedAt: "2026-09-02T10:00:05.000Z",
+                  status: "done",
+                },
+              ],
+            },
+          },
+        })
+      ),
+    ]);
+    const progress = screen.getByTestId("chat-launch-startup");
+    expect(progress.textContent).toContain("Started with warnings");
+    expect(progress.textContent).toContain("spawn pnpm ENOENT");
+    expect(
+      Array.from(progress.querySelectorAll("li")).map(
+        (row) => row.dataset.startupPhase
+      )
+    ).toEqual(["worktree", "deps", "session"]);
   });
 
   it("opens the launch thread and reveals prompt and instructions there", () => {

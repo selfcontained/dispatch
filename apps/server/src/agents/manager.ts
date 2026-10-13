@@ -258,6 +258,8 @@ export type LaunchContextRecorder = {
     phase: string;
     label: string;
     cwd?: string;
+    status?: "done" | "failed";
+    detail?: string;
   }) => Promise<unknown>;
   /** The workspace finished coming up, or failed to. */
   recordStartupDone?: (input: {
@@ -1743,6 +1745,15 @@ export class AgentManager {
           worktreeBranchName: opts.worktreeBranchName,
           baseBranch: opts.normalizedBaseBranch,
           worktreePathOverride: opts.worktreePathOverride,
+          onStepResult: async (progress) => {
+            await this.recordStartup(() =>
+              this.launchContextRecorder?.recordStartupStep?.({
+                agentId: id,
+                label: "Installing dependencies",
+                ...progress,
+              })
+            );
+          },
           onPhase: async (phase) => {
             await this.setSetupPhase(id, phase);
             await this.reportStartupPhase(id, phase, opts.type);

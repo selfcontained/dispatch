@@ -1,7 +1,10 @@
 import type { FastifyBaseLogger } from "fastify";
 
 import { createGitWorktree } from "../shared/git/worktree.js";
-import { setupAgentWorkspace } from "./workspace-prep.js";
+import {
+  setupAgentWorkspace,
+  type WorkspaceProgress,
+} from "./workspace-prep.js";
 import type { SetupPhase } from "./types.js";
 
 export type PrepareWorkspaceInput = {
@@ -14,6 +17,7 @@ export type PrepareWorkspaceInput = {
   worktreePathOverride: string | undefined;
   /** Phase transitions, for the sidebar's setup progress. */
   onPhase: (phase: SetupPhase) => Promise<void>;
+  onStepResult?: (progress: WorkspaceProgress) => Promise<void>;
 };
 
 export type PreparedWorkspace = {
@@ -57,8 +61,15 @@ export async function prepareWorkspace(
     { worktreePath: result.worktreePath, worktreeBranch: result.branchName },
     "Created worktree."
   );
-  await input.onPhase("deps");
-  await setupAgentWorkspace(input.originalCwd, result.worktreePath, logger);
+  await setupAgentWorkspace(
+    input.originalCwd,
+    result.worktreePath,
+    logger,
+    async (progress) => {
+      if (progress.status) await input.onStepResult?.(progress);
+      else await input.onPhase(progress.phase);
+    }
+  );
   await input.onPhase("session");
   return {
     effectiveCwd: result.worktreePath,

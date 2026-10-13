@@ -18,6 +18,9 @@ import {
   fileMedia,
 } from "@dispatch/shared";
 import {
+  Check,
+  CircleAlert,
+  LoaderCircle,
   ChevronRight,
   MessageSquarePlus,
   MessagesSquare,
@@ -1233,6 +1236,78 @@ function LaunchReviews({
   );
 }
 
+function LaunchStartup({
+  block,
+}: {
+  block: Extract<Block, { kind: "launch" }>;
+}): JSX.Element | null {
+  const startup = block.state?.startup;
+  if (!startup?.steps.length) return null;
+  const warnings = startup.steps.some((step) => step.status === "failed");
+  return (
+    <div
+      className="mt-3 min-w-0 text-xs"
+      data-testid="chat-launch-startup"
+      aria-live="polite"
+    >
+      <div className="mb-2 font-medium">
+        {startup.failed
+          ? "Startup failed"
+          : startup.readyAt
+            ? warnings
+              ? "Started with warnings"
+              : "Started"
+            : "Starting agent"}
+      </div>
+      <ol className="space-y-2">
+        {startup.steps.map((step) => (
+          <li
+            key={step.phase}
+            data-startup-phase={step.phase}
+            data-startup-status={step.status}
+            className="flex items-start gap-2"
+          >
+            {step.status === "running" ? (
+              <LoaderCircle
+                className="mt-0.5 h-3 w-3 shrink-0 animate-spin"
+                aria-hidden="true"
+              />
+            ) : step.status === "failed" ? (
+              <CircleAlert
+                className="mt-0.5 h-3 w-3 shrink-0 text-destructive"
+                aria-hidden="true"
+              />
+            ) : (
+              <Check
+                className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+            )}
+            <span className="min-w-0">
+              <span>
+                {step.label} ·{" "}
+                {step.status === "running"
+                  ? "In progress"
+                  : step.status === "failed"
+                    ? "Failed"
+                    : "Complete"}
+              </span>
+              {step.detail ? (
+                <span className="mt-0.5 block whitespace-pre-wrap break-words text-muted-foreground">
+                  {step.detail}
+                </span>
+              ) : null}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {startup.failed ? (
+        <p className="mt-2 break-words text-destructive">{startup.failed}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function LaunchCard({
   block,
   ctx,
@@ -1242,6 +1317,12 @@ function LaunchCard({
   ctx: FeedContext;
   inThread: boolean;
 }): JSX.Element {
+  const startup = block.state?.startup;
+  const launchStatus = startup?.failed
+    ? "Launch failed"
+    : startup?.steps.length && !startup.readyAt
+      ? "Launching"
+      : "Launched";
   const agent = useAgentRecord(block.toAgentId);
   const name = agent?.name || agentDisplayName(block.toAgentId ?? "", ctx);
   const type = agent?.type ?? ctx.peers?.[block.toAgentId ?? ""]?.agentType;
@@ -1265,7 +1346,7 @@ function LaunchCard({
           {name}
         </span>
         <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="shrink-0 text-emerald-300/70">Launched</span>
+          <span className="shrink-0 text-emerald-300/70">{launchStatus}</span>
           {engine ? <span className="shrink-0">{engine}</span> : null}
           {model ? (
             <span className="truncate">
@@ -1309,6 +1390,7 @@ function LaunchCard({
             ? agentDisplayName(block.launchedByAgentId, ctx)
             : "you"}
         </div>
+        <LaunchStartup block={block} />
         <LaunchBriefing block={block} ctx={ctx} />
         <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
         {!inThread ? <ThreadLine block={block} ctx={ctx} /> : null}
@@ -1350,7 +1432,7 @@ function LaunchCard({
         <div className="min-w-0 max-w-[min(60%,24rem)]">
           <div className="flex min-w-0 items-center gap-2 whitespace-nowrap leading-[21px]">
             <span className="text-[10px] font-normal uppercase tracking-[0.065em] text-emerald-300/70">
-              Launched
+              {launchStatus}
             </span>
             <span
               className="max-w-64 truncate text-xs font-medium"
@@ -1399,6 +1481,7 @@ function LaunchCard({
           </Button>
         ) : null}
       </div>
+      <LaunchStartup block={block} />
       {inThread ? <LaunchBriefing block={block} ctx={ctx} /> : null}
       <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
     </div>

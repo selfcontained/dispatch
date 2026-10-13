@@ -6049,6 +6049,39 @@ describe("StreamService launch card", () => {
     ).toBe(true);
   });
 
+  it("preserves a tolerated dependency failure through engine completion", async () => {
+    const { svc } = build();
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "deps",
+      label: "Installing dependencies",
+    });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "deps",
+      label: "Installing dependencies",
+      status: "failed",
+      detail: "spawn pnpm ENOENT; continuing launch",
+    });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "session",
+      label: "Starting Codex",
+    });
+    await svc.recordStartupDone({ agentId: A });
+    const startup = await startupOf(svc);
+    expect(startup.steps).toMatchObject([
+      {
+        phase: "deps",
+        status: "failed",
+        detail: "spawn pnpm ENOENT; continuing launch",
+      },
+      { phase: "session", status: "done" },
+    ]);
+    expect(startup.readyAt).toBeTruthy();
+    expect(startup.failed).toBeUndefined();
+  });
+
   it("writes the startup onto the card's state, with no text of its own", async () => {
     const { svc } = build();
     await svc.recordStartupStep({
