@@ -30,7 +30,7 @@ describe("AgentModelSelect", () => {
         <AgentModelSelect value={value} options={OPTIONS} onChange={vi.fn()} />
       );
       expect(screen.getByTestId("create-agent-model").textContent).toContain(
-        "Default (CLI setting)"
+        "Default"
       );
     }
   );
