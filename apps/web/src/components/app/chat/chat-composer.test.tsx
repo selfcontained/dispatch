@@ -282,6 +282,36 @@ describe("ChatComposer", () => {
     }
   );
 
+  it("keeps a disabled explanation visible for a retained draft and restores editing", () => {
+    const onSend = vi.fn();
+    const view = render(
+      <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
+    );
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Keep this draft" } });
+    view.rerender(
+      <ChatComposer
+        agentId={null}
+        onSend={onSend}
+        disabledReason="The agent is still starting up."
+      />
+    );
+    expect(input.disabled).toBe(true);
+    expect(input.value).toBe("Keep this draft");
+    expect(
+      screen.getByTestId("chat-composer-disabled-reason").textContent
+    ).toBe("The agent is still starting up.");
+    view.rerender(
+      <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
+    );
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe("Keep this draft");
+    expect(input.placeholder).toBe("Message the agent…");
+    expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
+  });
+
   it("keeps the input usable but holds the button while a send is in flight", () => {
     const { input } = renderComposer({ sending: true });
     fireEvent.change(input, { target: { value: "next" } });

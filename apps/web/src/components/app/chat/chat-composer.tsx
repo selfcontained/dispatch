@@ -1361,9 +1361,13 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-      {!disabled && (
+      {(!disabled || text.length > 0) && (
         <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
-          {slashBlockedReason ? (
+          {disabledReason ? (
+            <span data-testid="chat-composer-disabled-reason">
+              {disabledReason}
+            </span>
+          ) : slashBlockedReason ? (
             <span role="alert" data-testid="chat-composer-slash-hint">
               {slashBlockedReason}
             </span>
