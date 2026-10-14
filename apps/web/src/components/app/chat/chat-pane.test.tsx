@@ -1193,6 +1193,67 @@ describe("ChatPane running turn", () => {
   });
 });
 
+describe("ChatPane following", () => {
+  it("keeps following the next agent post after a delayed bottom-scroll event", async () => {
+    H.entries = [blockEntry(block({ id: "first", text: "first" }))];
+    const props = {
+      agentId: "agt_1",
+      agent,
+      active: true,
+      showChildAgents: true,
+      onShowChildAgentsChange: vi.fn(),
+      openLightbox: vi.fn(),
+      isMobile: false,
+    };
+    const { rerender } = renderPane(props);
+    const scroll = screen.getByTestId("chat-scroll");
+    let height = 1000;
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, get: () => height },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 800, writable: true },
+    });
+    vi.mocked(Element.prototype.scrollTo).mockImplementation(function (
+      this: HTMLElement
+    ) {
+      this.scrollTop = this.scrollHeight - this.clientHeight;
+    });
+    fireEvent.scroll(scroll);
+    // Sending from history restores following and scrolls the user's arrival.
+    scroll.scrollTop = 100;
+    fireEvent.scroll(scroll);
+    typeAndSend("next");
+    await waitFor(() => expect(H.send).toHaveBeenCalled());
+    H.entries = [
+      ...H.entries,
+      blockEntry(block({ id: "user", authorKind: "user", text: "next" })),
+    ];
+    rerender(<ChatPane {...props} />);
+    expect(scroll.scrollTop).toBe(800);
+    // Content grows after scrollTo but before the browser delivers its event.
+    height = 1400;
+    fireEvent.scroll(scroll);
+    vi.mocked(Element.prototype.scrollTo).mockClear();
+    H.entries = [
+      ...H.entries,
+      blockEntry(block({ id: "reply", text: "agent reply" })),
+    ];
+    rerender(<ChatPane {...props} />);
+    expect(scroll.scrollTop).toBe(1200);
+    expect(Element.prototype.scrollTo).toHaveBeenCalled();
+    // A real upward scroll still stops following successive arrivals.
+    scroll.scrollTop = 500;
+    fireEvent.scroll(scroll);
+    H.entries = [
+      ...H.entries,
+      blockEntry(block({ id: "later", text: "later" })),
+    ];
+    rerender(<ChatPane {...props} />);
+    expect(scroll.scrollTop).toBe(500);
+    expect(screen.getByTestId("chat-jump-to-bottom")).toBeTruthy();
+  });
+});
+
 describe("ChatPane scroll memory", () => {
   /** jsdom has no layout; hand the pane the geometry it reads. */
   function stubLayout(scrollTop: number) {

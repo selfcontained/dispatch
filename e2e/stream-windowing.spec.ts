@@ -101,6 +101,87 @@ test.describe("Stream windowing", () => {
   });
 
   for (const width of [1280, 390]) {
+    test(`sending from history follows successive posts and delayed growth at width ${width}`, async ({
+      page,
+      request,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const agent = await createAgentViaAPI(request);
+      const ids = await seedPosts(agent.id, 100);
+      await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+      const stream = scroller(page);
+      await expect(
+        page.locator(`[data-chat-entry-id="${ids[99]}"]`)
+      ).toBeInViewport();
+      await stream.hover();
+      await page.mouse.wheel(0, -600);
+      await expect(page.getByTestId("chat-jump-to-bottom")).toBeVisible();
+      const input = page.getByTestId("chat-composer-input");
+      await input.fill("Resume following from history");
+      // Resize in the scroll event's capture phase: by the time React sees
+      // the queued programmatic event, its destination is no longer bottom.
+      await stream.evaluate((el) => {
+        el.addEventListener(
+          "scroll",
+          () => {
+            const rows = el.querySelectorAll<HTMLElement>(
+              "[data-chat-entry-id]"
+            );
+            rows[rows.length - 1]!.style.paddingBottom = "450px";
+          },
+          { capture: true, once: true }
+        );
+      });
+      await input.press("Enter");
+      await expect(
+        stream.getByText("Resume following from history", { exact: true })
+      ).toBeVisible();
+      for (const text of [
+        "First agent arrival after sending",
+        "Second agent arrival after sending",
+      ]) {
+        await callMcpToolViaAPI(request, agent.id, "post", { text });
+        await expect(stream.getByText(text, { exact: true })).toBeInViewport();
+      }
+      await stream.evaluate((el) => {
+        const rows = el.querySelectorAll<HTMLElement>("[data-chat-entry-id]");
+        rows[rows.length - 1]!.style.paddingBottom = "300px";
+      });
+      await expect
+        .poll(() =>
+          stream.evaluate((el) =>
+            Math.round(el.scrollHeight - el.clientHeight - el.scrollTop)
+          )
+        )
+        .toBeLessThanOrEqual(2);
+      await stream.hover();
+      await page.mouse.wheel(0, -600);
+      await expect(page.getByTestId("chat-jump-to-bottom")).toBeVisible();
+      const before = await topRow(page);
+      await callMcpToolViaAPI(request, agent.id, "post", {
+        text: "Held while reading history",
+      });
+      await expect(page.getByTestId("chat-jump-to-bottom")).toHaveAttribute(
+        "data-pending",
+        "true"
+      );
+      await expect.poll(() => topRow(page)).toEqual(before);
+      await page.getByTestId("chat-jump-to-bottom").click();
+      await expect(
+        stream.getByText("Held while reading history", { exact: true })
+      ).toBeInViewport();
+      await expect(page.getByTestId("chat-jump-to-bottom")).toBeHidden();
+      await callMcpToolViaAPI(request, agent.id, "post", {
+        text: "Following after returning to bottom",
+      });
+      await expect(
+        stream.getByText("Following after returning to bottom", { exact: true })
+      ).toBeInViewport();
+      await page.screenshot({
+        path: `/tmp/dispatch-scroll-follow-${width}.png`,
+      });
+    });
+
     test(`context jump reaches an unobscured tall request through unmeasured rows at width ${width}`, async ({
       page,
       request,

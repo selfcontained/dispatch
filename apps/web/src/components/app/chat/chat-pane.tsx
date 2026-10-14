@@ -562,6 +562,11 @@ export function ChatPane({
   const [following, setFollowing] = useState(
     () => savedPositionRef.current?.following ?? true
   );
+  const followingRef = useRef(following);
+  const updateFollowing = useCallback((value: boolean) => {
+    followingRef.current = value;
+    setFollowing(value);
+  }, []);
   const [pendingBelow, setPendingBelow] = useState(false);
   /** Scrolled up far enough that a way back to the bottom is worth showing. */
   const [farFromBottom, setFarFromBottom] = useState(false);
@@ -590,12 +595,25 @@ export function ChatPane({
   const rememberedAtRef = useRef(0);
   const lastScrollTopRef = useRef(0);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+  // A queued event for our own jump can arrive after the content grew.
+  // Keep its destination separate from the last observed reader position.
+  const ownScrollTopRef = useRef<number | null>(null);
+  const recordOwnScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    ownScrollTopRef.current = el.scrollTop;
     lastScrollTopRef.current = el.scrollTop;
   }, []);
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTo({ top: el.scrollHeight, behavior });
+      if (behavior === "auto") recordOwnScroll();
+    },
+    [recordOwnScroll]
+  );
 
   // While following, the bottom stays in view through every change in the
   // content's height, not only the ones the layout effect below can name: a
@@ -603,8 +621,6 @@ export function ChatPane({
   // image sizing itself. The content is what is watched, not the scroller,
   // whose size only changes with the window.
   const contentRef = useRef<HTMLDivElement>(null);
-  const followingRef = useRef(following);
-  followingRef.current = following;
   const isFollowing = useCallback(() => {
     const el = scrollRef.current;
     // A scroll made after this frame's scroll-event phase is already in
@@ -616,11 +632,10 @@ export function ChatPane({
       el.scrollTop < lastScrollTopRef.current - 0.5 &&
       el.scrollHeight - el.clientHeight - el.scrollTop > FOLLOW_THRESHOLD_PX
     ) {
-      followingRef.current = false;
-      setFollowing(false);
+      updateFollowing(false);
     }
     return followingRef.current && anchoredRef.current === 0;
-  }, []);
+  }, [updateFollowing]);
   useEffect(() => {
     const el = contentRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -650,9 +665,8 @@ export function ChatPane({
     const el = scrollRef.current;
     if (!el || !agentId) return;
     rememberedAtRef.current = Date.now();
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     rememberChatScrollPosition(agentId, {
-      following: distance <= FOLLOW_THRESHOLD_PX,
+      following: followingRef.current && anchoredRef.current === 0,
       anchors: visibleAnchors(el),
     });
   }, [agentId]);
@@ -688,7 +702,15 @@ export function ChatPane({
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const own = ownScrollTopRef.current;
+    ownScrollTopRef.current = null;
     lastScrollTopRef.current = el.scrollTop;
+    if (own !== null && Math.abs(el.scrollTop - own) < 1) {
+      // Geometry may already describe newer content, not where this jump
+      // landed. It cannot change the reader's follow intent.
+      rememberSoon();
+      return;
+    }
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distance <= FOLLOW_THRESHOLD_PX;
     setFarFromBottom(distance > JUMP_BUTTON_PX);
@@ -700,11 +722,10 @@ export function ChatPane({
     // The ref too, at once: a windowed feed changes height as the rows
     // around the new position mount, and the content observer must not
     // take that for growth to follow before this state has rendered.
-    followingRef.current = atBottom;
-    setFollowing(atBottom);
+    updateFollowing(atBottom);
     if (atBottom) setPendingBelow(false);
     rememberSoon();
-  }, [rememberSoon]);
+  }, [rememberSoon, updateFollowing]);
 
   const { loadOlder: fetchOlder } = feed;
   /** The windowed feed's own hold on the reader's place (see ChatFeed). */
@@ -806,7 +827,7 @@ export function ChatPane({
       if (seekSaved(el)) return;
       seekingRef.current = false;
       restoredRef.current = true;
-      setFollowing(true);
+      updateFollowing(true);
       scrollToBottom();
       return;
     }
@@ -816,7 +837,7 @@ export function ChatPane({
     if (!restoredRef.current) {
       if (seekSaved(el)) return;
       restoredRef.current = true;
-      setFollowing(true);
+      updateFollowing(true);
       scrollToBottom();
       return;
     }
@@ -831,7 +852,7 @@ export function ChatPane({
       if (replyStartIfTall(el, landed.id) !== null) {
         anchoredRef.current = Date.now();
         anchorTurnRef.current = landed.id;
-        setFollowing(false);
+        updateFollowing(false);
         // A jump, not a smooth scroll: the first scroll events of a smooth
         // one still read as "at the bottom" and would re-arm following.
         alignReplyStart(el, landed.id);
@@ -847,6 +868,7 @@ export function ChatPane({
     agentId,
     following,
     isFollowing,
+    updateFollowing,
     scrollToBottom,
     seekSaved,
     showChildAgents,
@@ -864,7 +886,7 @@ export function ChatPane({
     restoredRef.current = false;
     seekingRef.current = false;
     seekPagesRef.current = 0;
-    setFollowing(savedPositionRef.current?.following ?? true);
+    updateFollowing(savedPositionRef.current?.following ?? true);
     setPendingBelow(false);
     lastEntryIdRef.current = null;
     lastEntryKeyRef.current = null;
@@ -872,7 +894,7 @@ export function ChatPane({
     settledTurnIdsRef.current = new Set();
     anchoredRef.current = 0;
     olderLoadRef.current = null;
-  }, [agentId]);
+  }, [agentId, updateFollowing]);
 
   useEffect(() => {
     // The ref, not the state: a jump in this same commit has already let
@@ -890,8 +912,7 @@ export function ChatPane({
     () => {
       anchoredRef.current = Date.now();
       anchorTurnRef.current = null;
-      followingRef.current = false;
-      setFollowing(false);
+      updateFollowing(false);
       setPendingBelow(false);
       return placeRef.current?.suspend();
     },
@@ -1020,8 +1041,9 @@ export function ChatPane({
       // false and the reader's own message lands out of sight.
       anchoredRef.current = 0;
       anchorTurnRef.current = null;
-      followingRef.current = true;
-      setFollowing(true);
+      updateFollowing(true);
+      setPendingBelow(false);
+      scrollToBottom();
       await sendAsync({
         text,
         attachments,
@@ -1029,7 +1051,7 @@ export function ChatPane({
         ...(options?.delivery ? { delivery: options.delivery } : {}),
       });
     },
-    [postTo, sendAsync]
+    [postTo, scrollToBottom, sendAsync, updateFollowing]
   );
 
   const uploadFile = useCallback(
@@ -1331,6 +1353,7 @@ export function ChatPane({
                     scrollRef={scrollRef}
                     pinnedIds={pinnedIds}
                     isFollowing={isFollowing}
+                    onScrollAdjustment={recordOwnScroll}
                     placeRef={placeRef}
                   />
                 ) : null}
