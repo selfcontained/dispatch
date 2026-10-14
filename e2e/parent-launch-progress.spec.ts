@@ -122,9 +122,18 @@ for (const scope of ["root", "child"] as const) {
           scope === "root" ? "chat-launch-card" : "chat-compact-launch"
         );
         const progress = card.getByTestId("chat-launch-startup");
-        await expect(progress).toContainText(
-          "Installing dependencies · In progress"
-        );
+        if (scope === "root") {
+          await progress.getByTestId("harness-activity-summary").click();
+          await expect(
+            progress
+              .getByTestId("harness-step")
+              .filter({ hasText: "installing dependencies" })
+          ).toBeVisible();
+        } else {
+          await expect(progress).toHaveCount(0);
+          await expect(card).toContainText("Launched");
+          await expect(card).not.toContainText("Launching");
+        }
         await expect
           .poll(
             async () => {
@@ -143,17 +152,18 @@ for (const scope of ["root", "child"] as const) {
         worktree = child.worktreePath;
         expect(child.status).toBe("running");
         expect(worktree).toBeTruthy();
-        await expect(progress).toContainText(
-          fail ? "Started with warnings" : "Started"
-        );
-        await expect(progress.locator("li")).toHaveCount(4);
-        expect(
-          await progress
-            .locator("li")
-            .evaluateAll((rows) =>
-              rows.map((row) => row.getAttribute("data-startup-phase"))
-            )
-        ).toEqual(["worktree", "env", "deps", "session"]);
+        if (scope === "root") {
+          await expect(
+            progress.getByTestId("harness-activity-summary")
+          ).toContainText(fail ? "Started with warnings" : "Started");
+          await expect(progress.getByTestId("harness-step")).toHaveCount(4);
+          await expect(progress.getByRole("listitem")).toHaveText([
+            /creating git worktree/,
+            /copying local config/,
+            /installing dependencies/,
+            /starting/,
+          ]);
+        }
         expect(readFileSync(path.join(worktree!, ".env"), "utf8")).toContain(
           "LAUNCH_CONFIG=copied"
         );
@@ -163,20 +173,35 @@ for (const scope of ["root", "child"] as const) {
           )
         ).toBe(true);
         if (fail) {
-          await expect(progress).toContainText("launch-install-fixture-failed");
-          await expect(
-            progress.locator('[data-startup-phase="deps"]')
-          ).toHaveAttribute("data-startup-status", "failed");
+          if (scope === "root") {
+            await expect(progress).toContainText(
+              "launch-install-fixture-failed"
+            );
+            await expect(
+              progress.getByLabel("installing dependencies, failed", {
+                exact: true,
+              })
+            ).toBeVisible();
+          }
         } else {
           expect(
             readFileSync(path.join(worktree!, "deps-installed.txt"), "utf8")
           ).toBe("installed");
-          await expect(progress).toContainText("npm install completed");
+          if (scope === "root")
+            await expect(progress).toContainText("npm install completed");
         }
         if (scope === "child") {
           await card.getByTestId("launch-open-thread").click();
           await expect(page.getByTestId("chat-thread-panel")).toContainText(
             "Validate managed worktree preparation."
+          );
+          await expect(
+            page
+              .getByTestId("chat-thread-panel")
+              .getByTestId("chat-launch-startup")
+          ).toHaveCount(0);
+          await expect(page.getByTestId("chat-thread-panel")).not.toContainText(
+            "Launching"
           );
           await page
             .getByRole("button", { name: "Close", exact: true })
@@ -186,14 +211,17 @@ for (const scope of ["root", "child"] as const) {
           await expect(card).toContainText(
             "Validate managed worktree preparation."
           );
+          await progress.getByTestId("harness-activity-summary").click();
+          await expect(
+            progress.getByTestId("harness-activity-summary")
+          ).toHaveAttribute("aria-expanded", "false");
+          await progress.getByTestId("harness-activity-summary").click();
           await page.reload({ waitUntil: "domcontentloaded" });
           await expect(
             page
               .getByTestId("chat-launch-card")
               .getByTestId("chat-launch-startup")
-          ).toContainText(
-            fail ? "Started with warnings" : "npm install completed"
-          );
+          ).toContainText(fail ? "Started with warnings" : "Started");
         }
       } finally {
         if (worktree) rmSync(worktree, { recursive: true, force: true });
@@ -257,19 +285,19 @@ test("root launch records and persists a failed worktree phase", async ({
     const progress = page
       .getByTestId("chat-launch-card")
       .getByTestId("chat-launch-startup");
-    await expect(progress).toContainText("Startup failed");
+    await expect(progress).toContainText("failed");
+    await progress.getByTestId("harness-activity-summary").click();
     await expect(progress).toContainText("Worktree creation failed");
     await expect(
-      progress.locator('[data-startup-phase="worktree"]')
-    ).toHaveAttribute("data-startup-status", "failed");
-    await expect(
-      progress.locator('[data-startup-status="running"]')
-    ).toHaveCount(0);
+      progress.getByLabel("creating git worktree, failed", { exact: true })
+    ).toBeVisible();
+    await expect(progress.locator('[aria-label$=", running"]')).toHaveCount(0);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(progress).toContainText("Startup failed");
+    await expect(progress).toContainText("failed");
+    await progress.getByTestId("harness-activity-summary").click();
     await expect(
-      progress.locator('[data-startup-phase="worktree"]')
-    ).toHaveAttribute("data-startup-status", "failed");
+      progress.getByLabel("creating git worktree, failed", { exact: true })
+    ).toBeVisible();
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
