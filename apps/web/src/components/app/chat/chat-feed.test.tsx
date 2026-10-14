@@ -697,6 +697,54 @@ describe("ChatFeed", () => {
     }
   );
 
+  it("unfolds the full nonfatal startup diagnostic using shared step details", () => {
+    const diagnostic = `npm install failed; continuing launch.\n${"Long diagnostic line with workspace and subprocess context. ".repeat(8)}\nError tail: missing package registry credentials.`;
+    renderFeed([
+      blockEntry(
+        launchBlock({
+          streamId: AGENT_ID,
+          toAgentId: AGENT_ID,
+          launchState: {
+            startup: {
+              readyAt: "2026-09-02T10:00:10.000Z",
+              steps: [
+                {
+                  ...steps.worktree("failed"),
+                  phase: "deps",
+                  label: "Installing dependencies",
+                  detail: diagnostic,
+                },
+              ],
+            },
+          },
+        })
+      ),
+    ]);
+    const progress = screen.getByTestId("chat-launch-startup");
+    const summary = within(progress).getByTestId("harness-activity-summary");
+    fireEvent.click(summary);
+    const step = within(progress).getByRole("button", {
+      name: "installing dependencies, failed",
+    });
+    expect(step.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(step);
+    expect(step.getAttribute("aria-expanded")).toBe("true");
+    expect(progress.querySelector("pre")?.textContent).toBe(diagnostic);
+    fireEvent.click(summary);
+    fireEvent.click(summary);
+    expect(
+      within(progress)
+        .getByRole("button", { name: "installing dependencies, failed" })
+        .getAttribute("aria-expanded")
+    ).toBe("true");
+    fireEvent.click(
+      within(progress).getByRole("button", {
+        name: "installing dependencies, failed",
+      })
+    );
+    expect(progress.querySelector("pre")).toBeNull();
+  });
+
   it("opens the launch thread and reveals prompt and instructions there", () => {
     const onOpenThread = vi.fn();
     const launch = blockEntry(

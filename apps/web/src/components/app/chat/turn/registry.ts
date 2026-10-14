@@ -222,8 +222,8 @@ export function stepSummary(step: Step): string | undefined {
       return text ? clip(text) : undefined;
     }
     // A setup step carries its own aside: the worktree it made, or why it
-    // failed. There is nothing to unfold under it, so the row itself clips
-    // the aside to whatever room it has rather than a count of characters.
+    // failed. The row clips the aside to its available room; diagnostic
+    // output, when supplied, unfolds through the shared detail body.
     case "setup": {
       const text = d.text?.replace(/\s+/g, " ").trim();
       return text || undefined;
@@ -333,7 +333,7 @@ export function hasSettledDetail(step: Step): boolean {
     case "compaction":
       return !!d.text?.trim();
     case "setup":
-      return false;
+      return output;
     default: {
       const record = inputRecord(d.input);
       return output || (!!record && Object.keys(record).length > 0);

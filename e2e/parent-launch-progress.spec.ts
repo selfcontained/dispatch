@@ -56,7 +56,7 @@ for (const scope of ["root", "child"] as const) {
       );
       writeFileSync(
         path.join(repo, "install.cjs"),
-        `setTimeout(() => { ${fail ? "console.error('launch-install-fixture-failed'); process.exit(1);" : "require('node:fs').writeFileSync('deps-installed.txt', require('launch-local-dependency'));"} }, 2000);\n`
+        `setTimeout(() => { ${fail ? "console.error('launch-install-fixture-failed: ' + 'Long dependency diagnostic with package registry and workspace context. '.repeat(8) + ' diagnostic-tail-visible-on-touch'); process.exit(1);" : "require('node:fs').writeFileSync('deps-installed.txt', require('launch-local-dependency'));"} }, 2000);\n`
       );
       writeFileSync(
         path.join(repo, ".gitignore"),
@@ -182,6 +182,35 @@ for (const scope of ["root", "child"] as const) {
                 exact: true,
               })
             ).toBeVisible();
+            await page.setViewportSize({ width: 390, height: 844 });
+            const diagnosticStep = progress.getByRole("button", {
+              name: "installing dependencies, failed",
+              exact: true,
+            });
+            await diagnosticStep.click();
+            await expect(diagnosticStep).toHaveAttribute(
+              "aria-expanded",
+              "true"
+            );
+            await expect(
+              progress.getByTestId("harness-plain").locator("pre")
+            ).toContainText("diagnostic-tail-visible-on-touch");
+            await expect(
+              progress.getByTestId("harness-plain").locator("pre")
+            ).toContainText(
+              "Long dependency diagnostic with package registry and workspace context."
+            );
+            expect(
+              await page.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth
+              )
+            ).toBe(true);
+            await diagnosticStep.click();
+            await expect(diagnosticStep).toHaveAttribute(
+              "aria-expanded",
+              "false"
+            );
+            await expect(progress.getByTestId("harness-plain")).toHaveCount(0);
           }
         } else {
           expect(

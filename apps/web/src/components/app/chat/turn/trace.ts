@@ -104,7 +104,15 @@ export function startupTrace(startup: BlockStartup | undefined): Trace {
           ? { endedAt, durMs: Math.max(0, endedAt - startedAt) }
           : {}),
         ...(aside
-          ? { detail: { text: aside, ...(path ? { clipStart: true } : {}) } }
+          ? {
+              detail: {
+                text: aside,
+                ...(path ? { clipStart: true } : {}),
+                ...(step.status === "failed" && step.detail
+                  ? { terminalOutput: step.detail }
+                  : {}),
+              },
+            }
           : {}),
       };
     }),

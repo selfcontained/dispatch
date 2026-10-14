@@ -318,3 +318,21 @@ describe("session steps", () => {
     ).toBe("pin");
   });
 });
+
+it("keeps setup asides static unless settled diagnostic output is supplied", () => {
+  expect(
+    hasDetail(step({ kind: "setup", detail: { text: "/tmp/worktree" } }))
+  ).toBe(false);
+  expect(
+    hasDetail(
+      step({
+        kind: "setup",
+        status: "error",
+        detail: {
+          text: "install failed",
+          terminalOutput: "Full subprocess diagnostic",
+        },
+      })
+    )
+  ).toBe(true);
+});
