@@ -1253,7 +1253,7 @@ export function ChatComposer({
             onSelect={setCaret}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            placeholder={disabled ? "" : placeholder}
+            placeholder={disabledReason ?? placeholder}
             slashOpen={slashOpen}
             slashListId={slashListId}
             activeSlash={activeSlash}
@@ -1361,48 +1361,46 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-      <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
-        {disabledReason ? (
-          <span data-testid="chat-composer-disabled-reason">
-            {disabledReason}
-          </span>
-        ) : slashBlockedReason ? (
-          <span role="alert" data-testid="chat-composer-slash-hint">
-            {slashBlockedReason}
-          </span>
-        ) : deliveryBlockedReason ? (
-          <span role="alert" data-testid="chat-composer-delivery-blocked">
-            {deliveryBlockedReason}
-          </span>
-        ) : visibleError ? (
-          <span
-            role="alert"
-            className="text-destructive"
-            data-testid="chat-composer-error"
-            data-retryable={visibleError.retryable ? "true" : undefined}
-          >
-            {visibleError.retryable
-              ? `${visibleError.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
-              : visibleError.text}
-          </span>
-        ) : placeholders.length > 0 ? (
-          <span data-testid="chat-composer-reattach-hint">
-            {placeholders.length === 1
-              ? `Re-attach or remove ${placeholders[0]!.entry.name} to send.`
-              : `Re-attach or remove ${placeholders.length} files to send.`}
-          </span>
-        ) : uploadingName ? (
-          <span data-testid="chat-composer-uploading">
-            Uploading {uploadingName}…
-          </span>
-        ) : draggingFiles ? (
-          <span>Drop files to attach them</span>
-        ) : (
-          <span className="hidden md:inline">
-            Enter to send · Shift+Enter for new line
-          </span>
-        )}
-      </div>
+      {!disabled && (
+        <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
+          {slashBlockedReason ? (
+            <span role="alert" data-testid="chat-composer-slash-hint">
+              {slashBlockedReason}
+            </span>
+          ) : deliveryBlockedReason ? (
+            <span role="alert" data-testid="chat-composer-delivery-blocked">
+              {deliveryBlockedReason}
+            </span>
+          ) : visibleError ? (
+            <span
+              role="alert"
+              className="text-destructive"
+              data-testid="chat-composer-error"
+              data-retryable={visibleError.retryable ? "true" : undefined}
+            >
+              {visibleError.retryable
+                ? `${visibleError.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
+                : visibleError.text}
+            </span>
+          ) : placeholders.length > 0 ? (
+            <span data-testid="chat-composer-reattach-hint">
+              {placeholders.length === 1
+                ? `Re-attach or remove ${placeholders[0]!.entry.name} to send.`
+                : `Re-attach or remove ${placeholders.length} files to send.`}
+            </span>
+          ) : uploadingName ? (
+            <span data-testid="chat-composer-uploading">
+              Uploading {uploadingName}…
+            </span>
+          ) : draggingFiles ? (
+            <span>Drop files to attach them</span>
+          ) : (
+            <span className="hidden md:inline">
+              Enter to send · Shift+Enter for new line
+            </span>
+          )}
+        </div>
+      )}
       {defaultRecipients || footer ? (
         <div className="chat-composer-details chat-composer-footer">
           <div className="chat-composer-footer-layout min-h-0 min-w-0 px-1">

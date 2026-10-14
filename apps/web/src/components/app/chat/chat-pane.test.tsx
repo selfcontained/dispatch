@@ -932,7 +932,8 @@ describe("ChatPane", () => {
         .disabled
     ).toBe(true);
     expect(
-      screen.getByTestId("chat-composer-disabled-reason").textContent
+      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
+        .placeholder
     ).toContain("retry above");
     expect(screen.queryByTestId("chat-empty")).toBeNull();
   });

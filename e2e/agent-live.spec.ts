@@ -708,9 +708,10 @@ test.describe("Live agent", () => {
     // not open it; its route still shows the feed.
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await expect(turns).toHaveCount(3);
-    await expect(
-      page.getByTestId("chat-composer-disabled-reason")
-    ).toContainText("not running");
+    await expect(page.getByTestId("chat-composer-input")).toHaveAttribute(
+      "aria-placeholder",
+      /not running/
+    );
 
     await resume.click();
     await expect(
