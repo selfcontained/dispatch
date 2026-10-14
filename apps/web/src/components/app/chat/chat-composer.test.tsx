@@ -268,7 +268,7 @@ describe("ChatComposer", () => {
     await waitFor(() => expect(input.value).toBe(""));
   });
 
-  it.each(["The agent is not running.", "The agent is still starting up."])(
+  it.each(["The agent is not running.", "The agent is starting up."])(
     "uses the disabled reason as the placeholder: %s",
     (disabledReason) => {
       const { onSend, input } = renderComposer({
@@ -295,14 +295,14 @@ describe("ChatComposer", () => {
       <ChatComposer
         agentId={null}
         onSend={onSend}
-        disabledReason="The agent is still starting up."
+        disabledReason="The agent is starting up."
       />
     );
     expect(input.disabled).toBe(true);
     expect(input.value).toBe("Keep this draft");
     expect(
       screen.getByTestId("chat-composer-disabled-reason").textContent
-    ).toBe("The agent is still starting up.");
+    ).toBe("The agent is starting up.");
     view.rerender(
       <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
     );
