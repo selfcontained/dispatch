@@ -34,18 +34,16 @@ export function AgentsContent() {
             <strong>Create managed git worktree</strong> — checked by default
             (and disabled when the working directory isn't a git repo). Creates
             an isolated worktree so the agent works without touching your
-            primary checkout. Two nested controls sit under it, dimmed and
-            disabled until it's checked: a <strong>Starting branch</strong>{" "}
-            picker (defaults to <Code>main</Code>) that sets which branch the
-            worktree checks out, and a{" "}
-            <strong>Create a new branch in this worktree</strong> checkbox that
-            controls whether Dispatch forks a new working branch from the
-            starting branch (on, default — the authoring flow) or just checks
-            out the starting branch directly (off — review/investigation flows).
-            The <strong>New branch name</strong> input below it follows the same
-            pattern, active only while that checkbox is on — leave it empty and
-            Dispatch auto-generates a name, or type one to use a specific
-            branch. See the Worktrees section for details.
+            primary checkout. While it's checked, two controls appear under it:
+            a <strong>Starting branch</strong> picker (defaults to{" "}
+            <Code>main</Code>) that sets which branch the worktree checks out,
+            and a <strong>Create a new branch</strong> checkbox that controls
+            whether Dispatch forks a new working branch from the starting branch
+            (on, default — the authoring flow) or just checks out the starting
+            branch directly (off — review/investigation flows). While that
+            checkbox is on, a branch name input appears below it — leave it
+            empty and Dispatch auto-generates a name, or type one to use a
+            specific branch. See the Worktrees section for details.
           </li>
           <li>
             <strong>Full access mode</strong> (CLI types only) — starts the CLI

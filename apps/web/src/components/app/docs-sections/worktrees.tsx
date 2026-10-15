@@ -51,9 +51,9 @@ export function WorktreesContent() {
         <H3>Branch options</H3>
         <P>
           Pick a <strong>Starting branch</strong> from the dropdown — that's the
-          branch Dispatch will check out in the worktree. The nested{" "}
-          <strong>Create a new branch in this worktree</strong> checkbox
-          controls what happens next:
+          branch Dispatch will check out in the worktree. The{" "}
+          <strong>Create a new branch</strong> checkbox below it controls what
+          happens next:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
