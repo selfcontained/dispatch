@@ -166,12 +166,18 @@ public final class NativeRecoveryStore {
     public static func verifySignedApp(_ app: URL) throws {
         try RecoveryCommand.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", app.path])
     }
+    /// Agent media in state: updates never change it, so snapshots omit it and restore carries it over by rename.
+    public static let media = "files"
     /// App symlinks must remain within its signed tree; state symlinks are unsupported.
     /// Hash contents, relative names, permissions, and link targets. Reject special files.
     public static func digest(_ tree: URL, app: Bool = false) throws -> String {
         let fm = FileManager.default
         guard let files = fm.enumerator(atPath: tree.path) else { throw ConfigurationError("Cannot inspect recovery data.") }
-        var paths = [String](); for case let relative as String in files { paths.append(relative) }
+        var paths = [String]()
+        for case let relative as String in files {
+            if !app, relative == media { files.skipDescendants(); continue }
+            paths.append(relative)
+        }
         var hash = SHA256()
         for name in paths.sorted() {
             let url = tree.appendingPathComponent(name)
@@ -196,6 +202,16 @@ public final class NativeRecoveryStore {
         guard !fm.fileExists(atPath: destination.path) else { throw ConfigurationError("Recovery destination already exists; retained for inspection.") }
         try RecoveryCommand.run(URL(fileURLWithPath: "/usr/bin/ditto"), ["--noqtn", source.path, destination.path], timeout: 1800)
     }
+    /// Copies state without media, entry by entry, so media is never read or duplicated.
+    func copyState(_ source: URL, _ destination: URL) throws {
+        guard !fm.fileExists(atPath: destination.path) else { throw ConfigurationError("Recovery destination already exists; retained for inspection.") }
+        let mode = try fm.attributesOfItem(atPath: source.path)[.posixPermissions] as? Int ?? 0o700
+        try fm.createDirectory(at: destination, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        for name in try fm.contentsOfDirectory(atPath: source.path) where name != Self.media {
+            try copy(source.appendingPathComponent(name), destination.appendingPathComponent(name))
+        }
+        try fm.setAttributes([.posixPermissions: mode], ofItemAtPath: destination.path)
+    }
     public func backup(_ j: inout NativeRecoveryJournal, verifyCluster: (URL, URL) throws -> Void = NativeRecoveryStore.verifyCluster) throws {
         guard j.phase == .preparing else { throw ConfigurationError("Recovery is not in preparation.") }
         let leases = try requireStopped(); defer { withExtendedLifetime(leases) {} }
@@ -207,7 +223,7 @@ public final class NativeRecoveryStore {
         let appHash = try Self.digest(app, app: true)
         let stateHash = try Self.digest(root)
         // Three state copies (snapshot, restore test, failed state) plus two app copies.
-        let size = try allocatedSize(root) * 3 + allocatedSize(app) * 2 + 256 * 1024 * 1024
+        let size = try allocatedSize(root, state: true) * 3 + allocatedSize(app) * 2 + 256 * 1024 * 1024
         let available = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage ?? 0
         guard available > size else { throw ConfigurationError("Insufficient free disk space for a verified update recovery point. Free space and retry.") }
         let tx = transaction(j)
@@ -219,7 +235,7 @@ public final class NativeRecoveryStore {
             try fm.createDirectory(at: tx, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
             try copy(app, previous)
         }
-        try copy(root, tx.appendingPathComponent("state"))
+        try copyState(root, tx.appendingPathComponent("state"))
         guard try Self.digest(previous, app: true) == appHash else { throw ConfigurationError("App recovery backup did not verify.") }
         guard try Self.digest(tx.appendingPathComponent("state")) == stateHash else { throw ConfigurationError("State recovery backup did not verify.") }
         try verifyCluster(tx.appendingPathComponent("state"), tx.appendingPathComponent("previous.app"))
@@ -231,6 +247,8 @@ public final class NativeRecoveryStore {
         guard let files = FileManager.default.enumerator(at: tree, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey]) else { throw ConfigurationError("Cannot flush recovery snapshot.") }
         var directories = [tree]
         for case let url as URL in files {
+            // A resumed stage may already hold carried media, which was never part of the snapshot.
+            if files.level == 1, url.lastPathComponent == media { files.skipDescendants(); continue }
             let info = try url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
             if info.isSymbolicLink == true { continue }
             if info.isDirectory == true { directories.append(url) }
@@ -240,10 +258,13 @@ public final class NativeRecoveryStore {
         }
         for url in directories.reversed() { try syncDirectory(url) }
     }
-    private func allocatedSize(_ path: URL) throws -> Int64 {
+    private func allocatedSize(_ path: URL, state: Bool = false) throws -> Int64 {
         guard let files = fm.enumerator(at: path, includingPropertiesForKeys: [.fileSizeKey]) else { throw ConfigurationError("Cannot measure recovery size.") }
         var total: Int64 = 0
-        for case let url as URL in files { total += Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) }
+        for case let url as URL in files {
+            if state, files.level == 1, url.lastPathComponent == Self.media { files.skipDescendants(); continue }
+            total += Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        }
         return total
     }
     public func verifyBackup(_ j: NativeRecoveryJournal) throws {
@@ -255,6 +276,7 @@ public final class NativeRecoveryStore {
     }
     /// Journaled two-rename switches: failed copies are created once, never overwritten.
     /// A crash after either rename is recovered from existence plus the staged digest.
+    /// State media moves into the verified stage before the first rename (`carryMedia`).
     public func restore(_ j: inout NativeRecoveryJournal, verifyCluster: (URL, URL) throws -> Void = NativeRecoveryStore.verifyCluster) throws {
         guard !j.terminal, [.activating, .probation, .restoring].contains(j.phase) else { throw ConfigurationError("Automatic restoration is only allowed before commit.") }
         let leases = try requireStopped(); defer { withExtendedLifetime(leases) {} }
@@ -282,9 +304,21 @@ public final class NativeRecoveryStore {
         }
         if !fm.fileExists(atPath: stage.path) { try copy(source, stage) }
         guard try Self.digest(stage, app: app) == expected else { throw ConfigurationError("Restore staging verification failed.") }
-        if !fm.fileExists(atPath: failed.path) { try fm.moveItem(at: live, to: failed); try Self.syncDirectory(live.deletingLastPathComponent()); try Self.syncDirectory(failed.deletingLastPathComponent()) }
         try Self.flushTree(stage)
+        if !app { try carryMedia(into: stage, from: [live, failed]) }
+        if !fm.fileExists(atPath: failed.path) { try fm.moveItem(at: live, to: failed); try Self.syncDirectory(live.deletingLastPathComponent()); try Self.syncDirectory(failed.deletingLastPathComponent()) }
         try fm.moveItem(at: stage, to: live); try Self.syncDirectory(live.deletingLastPathComponent())
+    }
+    /// Same-volume exclusive rename, never a copy or overwrite. Re-entry finds media already
+    /// staged (no holder) or still in live, or in failed after an older interrupted switch.
+    func carryMedia(into stage: URL, from holders: [URL]) throws {
+        var info = stat()
+        let target = stage.appendingPathComponent(Self.media)
+        let found = holders.map { $0.appendingPathComponent(Self.media) }.filter { lstat($0.path, &info) == 0 }
+        guard let source = found.first else { return }
+        guard found.count == 1, lstat(target.path, &info) != 0 else { throw ConfigurationError("Restore found more than one media directory; all copies were retained for operator recovery.") }
+        guard renamex_np(source.path, target.path, UInt32(RENAME_EXCL)) == 0 else { throw ConfigurationError("Cannot move media into the restored state; all copies were retained.") }
+        try Self.syncDirectory(source.deletingLastPathComponent()); try Self.syncDirectory(stage)
     }
     public static func verifyCluster(state: URL, app: URL) throws {
         let fm = FileManager.default

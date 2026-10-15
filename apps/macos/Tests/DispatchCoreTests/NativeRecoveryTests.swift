@@ -76,6 +76,88 @@ final class NativeRecoveryTests: XCTestCase {
         XCTAssertThrowsError(try store.backup(&journal, verifyCluster: { _, _ in }))
         XCTAssertEqual(journal.phase, .preparing)
     }
+    private func addMedia(_ store: NativeRecoveryStore, outside: URL) throws -> URL {
+        let fm = FileManager.default
+        let media = store.root.appendingPathComponent("files")
+        let modules = media.appendingPathComponent("agt_x/proj/node_modules")
+        try fm.createDirectory(at: modules.appendingPathComponent(".pnpm/pkg"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: modules.appendingPathComponent("pkg").path, withDestinationPath: ".pnpm/pkg")
+        try fm.createSymbolicLink(at: media.appendingPathComponent("agt_x/outside"), withDestinationURL: outside)
+        XCTAssertEqual(mkfifo(media.appendingPathComponent("agt_x/pipe").path, 0o600), 0)
+        try Data("media".utf8).write(to: media.appendingPathComponent("agt_x/shot.png"))
+        try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: media.appendingPathComponent("agt_x/shot.png").path)
+        return media
+    }
+    func testMediaLinksAndSpecialFilesAreOutsideTheStateSnapshot() throws {
+        let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
+        var journal = initial; let media = try addMedia(store, outside: base)
+        try store.backup(&journal, verifyCluster: { _, _ in })
+        XCTAssertEqual(journal.phase, .backedUp)
+        let state = store.transaction(journal).appendingPathComponent("state")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: state.appendingPathComponent("files").path))
+        XCTAssertEqual(try String(contentsOf: state.appendingPathComponent("session")), "previous-session")
+        try Data("later".utf8).write(to: media.appendingPathComponent("new.txt"))
+        XCTAssertEqual(try NativeRecoveryStore.digest(store.root), journal.stateDigest, "Media never affects the state digest")
+    }
+    func testRestoreCarriesLiveMediaIntoRestoredState() throws {
+        let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
+        var journal = initial; let media = try addMedia(store, outside: base)
+        try store.backup(&journal, verifyCluster: { _, _ in })
+        try Data("failed-session".utf8).write(to: store.root.appendingPathComponent("session"))
+        try Data("after-backup".utf8).write(to: media.appendingPathComponent("new.txt"))
+        journal.phase = .probation; try store.save(journal)
+        try store.restore(&journal, verifyCluster: { _, _ in })
+        XCTAssertTrue(journal.restoredState)
+        XCTAssertEqual(try String(contentsOf: store.root.appendingPathComponent("session")), "previous-session")
+        XCTAssertEqual(try String(contentsOf: media.appendingPathComponent("new.txt")), "after-backup")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: media.appendingPathComponent("agt_x/proj/node_modules/pkg").path), ".pnpm/pkg")
+        let failed = store.directory.appendingPathComponent("failed-state-" + journal.id)
+        XCTAssertEqual(try String(contentsOf: failed.appendingPathComponent("session")), "failed-session")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failed.appendingPathComponent("files").path))
+    }
+    func testRestoreResumeKeepsMediaLiveAtEveryCrashPoint() throws {
+        let fm = FileManager.default
+        // Each step reproduces the disk after a crash inside the state switch.
+        let points: [(String, (NativeRecoveryStore, URL, URL, URL) throws -> Void)] = [
+            ("stage copied", { s, stage, failed, snapshot in try s.copy(snapshot, stage) }),
+            ("media staged", { s, stage, failed, snapshot in try s.copy(snapshot, stage); try fm.moveItem(at: s.root.appendingPathComponent("files"), to: stage.appendingPathComponent("files")) }),
+            ("live failed", { s, stage, failed, snapshot in try s.copy(snapshot, stage); try fm.moveItem(at: s.root.appendingPathComponent("files"), to: stage.appendingPathComponent("files")); try fm.moveItem(at: s.root, to: failed) }),
+            ("stage live", { s, stage, failed, snapshot in try s.copy(snapshot, stage); try fm.moveItem(at: s.root.appendingPathComponent("files"), to: stage.appendingPathComponent("files")); try fm.moveItem(at: s.root, to: failed); try fm.moveItem(at: stage, to: s.root) }),
+            ("media left in failed", { s, stage, failed, snapshot in try fm.moveItem(at: s.root, to: failed) }),
+        ]
+        for (point, crash) in points {
+            let (base, store, initial) = try fixture(); defer { try? fm.removeItem(at: base) }
+            var journal = initial; let media = try addMedia(store, outside: base)
+            try store.backup(&journal, verifyCluster: { _, _ in })
+            try Data("failed-session".utf8).write(to: store.root.appendingPathComponent("session"))
+            journal.phase = .restoring; journal.restoreStarted = true; journal.restoredApp = true; try store.save(journal)
+            let stage = store.root.deletingLastPathComponent().appendingPathComponent(".state-restore")
+            let failed = store.directory.appendingPathComponent("failed-state-" + journal.id)
+            try crash(store, stage, failed, store.transaction(journal).appendingPathComponent("state"))
+            try store.restore(&journal, verifyCluster: { _, _ in XCTFail("Already verified") })
+            XCTAssertTrue(journal.restoredState, point)
+            XCTAssertEqual(try String(contentsOf: store.root.appendingPathComponent("session")), "previous-session", point)
+            XCTAssertEqual(try String(contentsOf: media.appendingPathComponent("agt_x/shot.png")), "media", point)
+            XCTAssertFalse(fm.fileExists(atPath: failed.appendingPathComponent("files").path), point)
+            XCTAssertFalse(fm.fileExists(atPath: stage.path), point)
+        }
+    }
+    func testRestoreFailsClosedWhenMediaExistsOnBothSides() throws {
+        let fm = FileManager.default
+        let (base, store, initial) = try fixture(); defer { try? fm.removeItem(at: base) }
+        var journal = initial; _ = try addMedia(store, outside: base)
+        try store.backup(&journal, verifyCluster: { _, _ in })
+        journal.phase = .restoring; journal.restoreStarted = true; journal.restoredApp = true; try store.save(journal)
+        let stage = store.root.deletingLastPathComponent().appendingPathComponent(".state-restore")
+        try store.copy(store.transaction(journal).appendingPathComponent("state"), stage)
+        try fm.createDirectory(at: stage.appendingPathComponent("files"), withIntermediateDirectories: false)
+        try Data("staged".utf8).write(to: stage.appendingPathComponent("files/other"))
+        XCTAssertThrowsError(try store.restore(&journal, verifyCluster: { _, _ in }))
+        XCTAssertFalse(journal.restoredState)
+        XCTAssertEqual(try String(contentsOf: store.root.appendingPathComponent("files/agt_x/shot.png")), "media")
+        XCTAssertEqual(try String(contentsOf: stage.appendingPathComponent("files/other")), "staged")
+        XCTAssertFalse(fm.fileExists(atPath: store.directory.appendingPathComponent("failed-state-" + journal.id).path))
+    }
     func testFailedRestoreTestNeverMakesBackupUsable() throws {
         let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
         var journal = initial; try store.save(journal)
