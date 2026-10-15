@@ -381,7 +381,7 @@ function UsageDetailsSkeleton({
 /**
  * Every row is always there, "—" or an empty bar before the engine reports,
  * so nothing moves when it does. Only the per-model list depends on the
- * answer, and the last answer is kept per agent, so a reopen opens on it.
+ * answer, which is read while the agent is open, before the chip is.
  */
 function UsageDetails({
   usage,
@@ -496,8 +496,8 @@ const SKELETON_WINDOWS: Record<ProviderPlan["engine"], number> = {
 
 const CARD_CLASS = "space-y-1.5 rounded-md border bg-muted/30 p-2";
 
-/** One line, there whether or not it has anything to say. */
-const NOTE_CLASS = "min-h-4 text-[11px] leading-4";
+/** One line, there whether or not it has anything to say; never wraps. */
+const NOTE_CLASS = "h-4 truncate text-[11px] leading-4";
 
 /** The agent's own engine first. */
 function engineFirst<T extends { engine: string }>(
@@ -687,12 +687,16 @@ function ProviderLimits({
             "rounded-sm bg-destructive/10 px-1 text-destructive"
           )}
           role="status"
+          title="Limit reached — requests are refused until a window resets"
           data-testid={`usage-plan-limit-${plan.engine}`}
         >
-          Limit reached — requests are refused until a window resets
+          Limit reached · refused until reset
         </p>
       ) : (
-        <p className={cn(NOTE_CLASS, "text-muted-foreground/80")}>
+        <p
+          className={cn(NOTE_CLASS, "text-muted-foreground/80")}
+          title={plan.unavailableReason}
+        >
           {plan.unavailableReason ?? ""}
         </p>
       )}

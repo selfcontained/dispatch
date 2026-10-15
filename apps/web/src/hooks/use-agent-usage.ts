@@ -6,7 +6,6 @@ import type {
 } from "@dispatch/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
-import { atomFamily } from "jotai/utils";
 import { useEffect } from "react";
 
 import { api } from "@/lib/api";
@@ -20,8 +19,8 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 /**
- * The last answers, kept across reloads so the usage popover opens on them
- * (each with its age) instead of on placeholders that grow into the real rows.
+ * The last plans answer, kept across reloads so the usage popover opens on
+ * it (with its age) instead of on placeholders that grow into the real rows.
  */
 const lastPlansAtom = atomWithLocalStorage<ProviderPlansResponse | null>(
   "dispatch:usage-plans",
@@ -33,21 +32,6 @@ const lastPlansAtom = atomWithLocalStorage<ProviderPlansResponse | null>(
         typeof value.checkedAt === "string" &&
         Array.isArray(value.providers)),
   }
-);
-
-const lastUsageAtom = atomFamily((agentId: string) =>
-  atomWithLocalStorage<AgentUsageResponse | null>(
-    `dispatch:agent-usage:${agentId}`,
-    null,
-    {
-      validate: (value): value is AgentUsageResponse | null =>
-        value === null ||
-        (isObject(value) &&
-          isObject(value.session) &&
-          isObject(value.month) &&
-          Array.isArray(value.byModel)),
-    }
-  )
 );
 
 /**
@@ -90,7 +74,6 @@ export function useAgentUsage(
   turnRunning: boolean
 ) {
   const queryClient = useQueryClient();
-  const [last, setLast] = useAtom(lastUsageAtom(agentId ?? ""));
   const query = useQuery<AgentUsageResponse>({
     queryKey: usageKey(agentId),
     queryFn: () =>
@@ -98,14 +81,7 @@ export function useAgentUsage(
     enabled: !!agentId && active,
     refetchInterval: active && turnRunning ? 10_000 : false,
     staleTime: 5_000,
-    // The last answer, as initial data rather than a placeholder: it stays on
-    // screen if the refetch fails. Dated 0, so it is always read again.
-    initialData: (agentId && last) || undefined,
-    initialDataUpdatedAt: 0,
   });
-  useEffect(() => {
-    if (agentId && query.data) setLast(query.data);
-  }, [agentId, query.data, setLast]);
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: usageKey(agentId) });
   return { ...query, refresh };

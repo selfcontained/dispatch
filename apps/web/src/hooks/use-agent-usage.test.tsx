@@ -1,8 +1,5 @@
 // @vitest-environment jsdom
-import type {
-  AgentUsageResponse,
-  ProviderPlansResponse,
-} from "@dispatch/shared";
+import type { ProviderPlansResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -25,22 +22,11 @@ const stored: ProviderPlansResponse = {
     },
   ],
 };
-const usage = (total: number): AgentUsageResponse => ({
-  context: null,
-  sessionCost: null,
-  session: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, total },
-  month: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, total },
-  byModel: [],
-});
 
-// The persisted atoms read storage when first used, so seed it before the
-// hooks' module loads.
+// The persisted atom reads storage when the hooks' module loads, so seed it
+// first.
 window.localStorage.setItem("dispatch:usage-plans", JSON.stringify(stored));
-window.localStorage.setItem(
-  "dispatch:agent-usage:agt_1",
-  JSON.stringify(usage(7))
-);
-const { useAgentUsage, useProviderPlans } = await import("./use-agent-usage");
+const { useProviderPlans } = await import("./use-agent-usage");
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
@@ -78,27 +64,5 @@ describe("useProviderPlans", () => {
     const { result } = renderHook(() => useProviderPlans(true), { wrapper });
     await waitFor(() => expect(result.current.error?.message).toBe("offline"));
     expect(result.current.data?.providers[0]?.engine).toBe("codex");
-  });
-});
-
-describe("useAgentUsage", () => {
-  it("opens on the agent's last answer and reads it again", async () => {
-    apiMock.mockResolvedValue(usage(9));
-    const { result } = renderHook(() => useAgentUsage("agt_1", true, false), {
-      wrapper,
-    });
-    expect(result.current.data?.session.total).toBe(7);
-    await waitFor(() => expect(result.current.data?.session.total).toBe(9));
-    expect(
-      JSON.parse(window.localStorage.getItem("dispatch:agent-usage:agt_1")!)
-        .session.total
-    ).toBe(9);
-  });
-
-  it("has nothing for an agent never read here", () => {
-    const { result } = renderHook(() => useAgentUsage("agt_2", false, false), {
-      wrapper,
-    });
-    expect(result.current.data).toBeUndefined();
   });
 });
