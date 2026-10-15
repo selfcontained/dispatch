@@ -120,10 +120,13 @@ export function summarizeUsage(
       summary: `Every reported type has headroom; any is fine. ${detail}.${caveat}`,
     };
   }
-  const best = reported.reduce((a, b) =>
-    (b.headroomPercent ?? -1) > (a.headroomPercent ?? -1) ? b : a
-  );
-  if (best.status === "ok") {
+  // Availability first, then room: a provider whose limit is reached (a
+  // spend cap, say) can still show more headroom than one that is open.
+  const open = reported.filter((p) => p.status === "ok");
+  if (open.length > 0) {
+    const best = open.reduce((a, b) =>
+      (b.headroomPercent ?? -1) > (a.headroomPercent ?? -1) ? b : a
+    );
     return {
       suggestedType: best.type,
       summary: `Prefer ${best.type}: ${strained.map((p) => `${p.type} is ${p.status}`).join(", ")}. ${detail}.${caveat}`,

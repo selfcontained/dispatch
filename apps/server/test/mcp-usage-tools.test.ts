@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ProviderPlansResponse } from "@dispatch/shared";
 import { createDispatchMcpServer } from "../src/shared/mcp/server.js";
+import { summarizeUsage } from "../src/shared/mcp/usage-tools.js";
 import {
   forgetLearnedAgentModels,
   setLearnedAgentModels,
@@ -353,5 +354,27 @@ describe("get_usage", () => {
         ).rejects.toThrow("Method not found");
       }
     );
+  });
+});
+
+describe("summarizeUsage", () => {
+  it("prefers an open type over one whose limit is reached with more headroom", () => {
+    // A spend cap exhausts Codex while its windows still show 90% left.
+    expect(
+      summarizeUsage([
+        { type: "claude", enabled: true, headroomPercent: 30, status: "ok" },
+        {
+          type: "codex",
+          enabled: true,
+          headroomPercent: 90,
+          status: "exhausted",
+        },
+      ])
+    ).toEqual({
+      suggestedType: "claude",
+      summary:
+        "Prefer claude: codex is exhausted. " +
+        "claude: 30% headroom (ok); codex: 90% headroom (exhausted).",
+    });
   });
 });

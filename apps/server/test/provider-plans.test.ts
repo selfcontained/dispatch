@@ -229,48 +229,65 @@ describe("loadProviderPlans", () => {
     );
   });
 
+  const expiredToken = `x.${Buffer.from(
+    JSON.stringify({ exp: Math.floor(NOW.valueOf() / 1000) - 1 })
+  ).toString("base64url")}.x`;
+
   it.each([
-    ["expired JWT", "expired"],
-    ["401", "unauthorized"],
-    ["network failure", "network"],
-  ])("falls back with a reason for %s", async (_name, failure) => {
-    const payload = Buffer.from(
-      JSON.stringify({ exp: Math.floor(NOW.valueOf() / 1000) - 1 })
-    ).toString("base64url");
-    const auth =
-      failure === "expired"
-        ? JSON.stringify({
-            tokens: {
-              access_token: `x.${payload}.x`,
-              account_id: "account-123",
-            },
-          })
-        : codexAuth;
-    const fetchUsage = vi.fn(async (url: string) => {
-      if (!url.includes("chatgpt.com"))
-        return new Response(JSON.stringify(claudeUtilization));
-      if (failure === "network") throw new Error("offline");
-      return new Response("", { status: 401 });
-    });
-    const warn = vi.fn();
-    const report = await loadProviderPlans({
-      ...codexOptions(auth),
-      fetchUsage: fetchUsage as unknown as typeof fetch,
-      log: { warn },
-    });
-    expect(report.providers[1]?.source).toBe("local");
-    expect(report.providers[1]?.windows[0]?.usedPercent).toBe(30);
-    expect(report.providers[1]?.unavailableReason).toMatch(
-      failure === "network"
-        ? /Could not refresh Codex/
-        : /login on this machine has expired/
-    );
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: expect.any(String) }),
-      "could not refresh Codex plan usage"
-    );
-    expect(JSON.stringify(warn.mock.calls)).not.toContain("codex-token");
-  });
+    // An expired token is never sent: the endpoint is not asked at all.
+    [
+      "expired JWT",
+      "expired",
+      "login_expired",
+      0,
+      /login on this machine has expired/,
+    ],
+    [
+      "401",
+      "unauthorized",
+      "login_rejected",
+      1,
+      /login on this machine has expired/,
+    ],
+    [
+      "network failure",
+      "network",
+      "request_failed",
+      1,
+      /Could not refresh Codex/,
+    ],
+  ])(
+    "falls back with a reason for %s",
+    async (_name, failure, reason, codexCalls, message) => {
+      const token = failure === "expired" ? expiredToken : "codex-token";
+      const auth = JSON.stringify({
+        tokens: { access_token: token, account_id: "account-123" },
+      });
+      const fetchUsage = vi.fn(async (url: string) => {
+        if (!url.includes("chatgpt.com"))
+          return new Response(JSON.stringify(claudeUtilization));
+        if (failure === "network") throw new Error("offline");
+        return new Response("", { status: 401 });
+      });
+      const warn = vi.fn();
+      const report = await loadProviderPlans({
+        ...codexOptions(auth),
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+        log: { warn },
+      });
+      expect(
+        fetchUsage.mock.calls.filter(([url]) => url.includes("chatgpt.com"))
+      ).toHaveLength(codexCalls);
+      expect(report.providers[1]?.source).toBe("local");
+      expect(report.providers[1]?.windows[0]?.usedPercent).toBe(30);
+      expect(report.providers[1]?.unavailableReason).toMatch(message);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ reason }),
+        "could not refresh Codex plan usage"
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(token);
+    }
+  );
 
   it("chooses the newest timestamp from every candidate tail", async () => {
     const report = await loadProviderPlans({
