@@ -595,6 +595,99 @@ export function ChatPane({
   const rememberedAtRef = useRef(0);
   const lastScrollTopRef = useRef(0);
 
+  // Layout changes can clamp scrollTop without any reader input. Only a
+  // recent scroll gesture may release the bottom; keep held drags/touches
+  // live too, since they can pause longer than the event window.
+  const scrollIntentRef = useRef({ until: 0, pointer: false, touch: false });
+  const hasScrollIntent = useCallback(() => {
+    const intent = scrollIntentRef.current;
+    return intent.pointer || intent.touch || Date.now() < intent.until;
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const intent = scrollIntentRef.current;
+    const mark = () => {
+      intent.until = Date.now() + 400;
+    };
+    const pointerDown = (event: PointerEvent) => {
+      // Content clicks do not imply scrolling; scrollbar presses target
+      // the scroller itself. Release is heard even outside the pane.
+      if (event.target !== el) return;
+      intent.pointer = true;
+      mark();
+    };
+    const pointerUp = () => {
+      if (intent.pointer) mark();
+      intent.pointer = false;
+    };
+    const touchStart = () => {
+      intent.touch = true;
+      mark();
+    };
+    const touchEnd = (event: TouchEvent) => {
+      if (!intent.touch) return;
+      intent.touch = event.touches.length > 0;
+      mark();
+    };
+    const keyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.closest("input, textarea, select, button, [role='textbox']"))
+      )
+        return;
+      if (
+        target !== document.body &&
+        target !== document.documentElement &&
+        !(target instanceof Node && el.contains(target))
+      )
+        return;
+      if (
+        [
+          "PageUp",
+          "PageDown",
+          "ArrowUp",
+          "ArrowDown",
+          "Home",
+          "End",
+          " ",
+        ].includes(event.key)
+      )
+        mark();
+    };
+    el.addEventListener("wheel", mark, { passive: true });
+    el.addEventListener("touchstart", touchStart, { passive: true });
+    el.addEventListener("touchmove", mark, { passive: true });
+    el.addEventListener("pointerdown", pointerDown);
+    window.addEventListener("pointerup", pointerUp);
+    window.addEventListener("pointercancel", pointerUp);
+    window.addEventListener("touchend", touchEnd);
+    window.addEventListener("touchcancel", touchEnd);
+    window.addEventListener("keydown", keyDown);
+    return () => {
+      el.removeEventListener("wheel", mark);
+      el.removeEventListener("touchstart", touchStart);
+      el.removeEventListener("touchmove", mark);
+      el.removeEventListener("pointerdown", pointerDown);
+      window.removeEventListener("pointerup", pointerUp);
+      window.removeEventListener("pointercancel", pointerUp);
+      window.removeEventListener("touchend", touchEnd);
+      window.removeEventListener("touchcancel", touchEnd);
+      window.removeEventListener("keydown", keyDown);
+      intent.until = 0;
+      intent.pointer = intent.touch = false;
+    };
+  }, [agentId]);
+
   // A queued event for our own jump can arrive after the content grew.
   // Keep its destination separate from the last observed reader position.
   const ownScrollTopRef = useRef<number | null>(null);
@@ -618,8 +711,8 @@ export function ChatPane({
   // While following, the bottom stays in view through every change in the
   // content's height, not only the ones the layout effect below can name: a
   // turn's body easing open over a few frames, a streamed line landing, an
-  // image sizing itself. The content is what is watched, not the scroller,
-  // whose size only changes with the window.
+  // image sizing itself. Watch the scroller too: the composer can grow
+  // after sending, reducing the space available for the stream.
   const contentRef = useRef<HTMLDivElement>(null);
   const isFollowing = useCallback(() => {
     const el = scrollRef.current;
@@ -628,6 +721,7 @@ export function ChatPane({
     // move now, before the queued onScroll can update our following state.
     if (
       followingRef.current &&
+      hasScrollIntent() &&
       el &&
       el.scrollTop < lastScrollTopRef.current - 0.5 &&
       el.scrollHeight - el.clientHeight - el.scrollTop > FOLLOW_THRESHOLD_PX
@@ -635,7 +729,7 @@ export function ChatPane({
       updateFollowing(false);
     }
     return followingRef.current && anchoredRef.current === 0;
-  }, [updateFollowing]);
+  }, [hasScrollIntent, updateFollowing]);
   useEffect(() => {
     const el = contentRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -656,6 +750,7 @@ export function ChatPane({
       if (isFollowing()) scrollToBottom();
     });
     observer.observe(el);
+    if (scrollRef.current) observer.observe(scrollRef.current);
     return () => observer.disconnect();
   }, [isFollowing, scrollToBottom]);
 
@@ -722,10 +817,10 @@ export function ChatPane({
     // The ref too, at once: a windowed feed changes height as the rows
     // around the new position mount, and the content observer must not
     // take that for growth to follow before this state has rendered.
-    updateFollowing(atBottom);
+    if (atBottom || hasScrollIntent()) updateFollowing(atBottom);
     if (atBottom) setPendingBelow(false);
     rememberSoon();
-  }, [rememberSoon, updateFollowing]);
+  }, [hasScrollIntent, rememberSoon, updateFollowing]);
 
   const { loadOlder: fetchOlder } = feed;
   /** The windowed feed's own hold on the reader's place (see ChatFeed). */

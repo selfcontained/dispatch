@@ -270,6 +270,9 @@ test.describe("Stream windowing", () => {
         (el) =>
           new Promise<number>((resolve) => {
             requestAnimationFrame(() => {
+              el.dispatchEvent(
+                new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+              );
               el.scrollTop = el.scrollHeight - el.clientHeight - 100;
               const top = el.scrollTop;
               const row = el.querySelectorAll<HTMLElement>(
@@ -308,6 +311,9 @@ test.describe("Stream windowing", () => {
       const stream = scroller(page);
       for (const distance of [0, 65, 250]) {
         await stream.evaluate((el, gap) => {
+          el.dispatchEvent(
+            new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+          );
           el.scrollTop = el.scrollHeight - el.clientHeight - gap;
         }, distance);
         await expect
@@ -370,6 +376,9 @@ test.describe("Stream windowing", () => {
     // Scrolling to the top of the page mounts the rows there: the oldest
     // of the first page (it also holds the agent's own launch post).
     await scroller(page).evaluate((el) => {
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+      );
       el.scrollTop = 0;
     });
     await expect
@@ -440,6 +449,9 @@ test.describe("Stream windowing", () => {
     await expect(page.getByTestId("window-gap").first()).toBeAttached();
     // Park mid-page, away from both ends.
     await scroller(page).evaluate((el) => {
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+      );
       el.scrollTop = el.scrollHeight / 2;
     });
     await page.waitForTimeout(500);
@@ -457,6 +469,9 @@ test.describe("Stream windowing", () => {
         )!
         .closest<HTMLElement>("[data-chat-entry-id]")!;
       const before = center.getBoundingClientRect().top;
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+      );
       el.scrollTop -= 300;
       const above = [
         ...el.querySelectorAll<HTMLElement>("[data-chat-entry-id]"),
@@ -516,6 +531,9 @@ test.describe("Stream windowing", () => {
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("window-gap").first()).toBeAttached();
     await scroller(page).evaluate((el) => {
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+      );
       el.scrollTop = el.scrollHeight / 2;
     });
     await page.waitForTimeout(800);
@@ -550,6 +568,9 @@ test.describe("Stream windowing", () => {
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("window-gap").first()).toBeAttached();
     await scroller(page).evaluate((el) => {
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+      );
       el.scrollTop = 0;
     });
     const heightBefore = await scroller(page).evaluate((el) => el.scrollHeight);
@@ -577,6 +598,9 @@ test.describe("Stream windowing", () => {
     // Two pages of older posts, then park on one from the oldest of them.
     for (let i = 0; i < 2; i += 1) {
       await scroller(page).evaluate((el) => {
+        el.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+        );
         el.scrollTop = 0;
       });
       const height = await scroller(page).evaluate((el) => el.scrollHeight);
@@ -586,6 +610,9 @@ test.describe("Stream windowing", () => {
         .toBeGreaterThan(height + 3000);
     }
     await scroller(page).evaluate((el) => {
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+      );
       el.scrollTop = 600;
     });
     await page.waitForTimeout(800);

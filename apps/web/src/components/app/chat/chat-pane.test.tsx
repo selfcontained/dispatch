@@ -684,6 +684,7 @@ describe("ChatPane", () => {
       clientHeight: { configurable: true, value: 200 },
       scrollTop: { configurable: true, value: 100, writable: true },
     });
+    fireEvent.wheel(scroll, { deltaY: -100 });
     fireEvent.scroll(scroll);
 
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
@@ -729,6 +730,7 @@ describe("ChatPane", () => {
       clientHeight: { configurable: true, value: 200 },
       scrollTop: { configurable: true, value: 100, writable: true },
     });
+    fireEvent.wheel(scroll, { deltaY: -100 });
     fireEvent.scroll(scroll);
     // Scrolled up, the way back is offered; nothing new is marked on it.
     expect(
@@ -1194,6 +1196,71 @@ describe("ChatPane running turn", () => {
 });
 
 describe("ChatPane following", () => {
+  it.each([false, true])(
+    "only releases following for a clamp with reader intent: %s",
+    async (gesture) => {
+      H.entries = [blockEntry(block({ id: "first", text: "first" }))];
+      const { unmount } = renderPane();
+      const scroll = screen.getByTestId("chat-scroll");
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 1000 },
+        clientHeight: { configurable: true, value: 200 },
+        scrollTop: { configurable: true, value: 800, writable: true },
+      });
+      fireEvent.scroll(scroll);
+      if (gesture) fireEvent.wheel(scroll, { deltaY: -100 });
+      scroll.scrollTop = 700;
+      fireEvent.scroll(scroll);
+      await waitFor(() =>
+        expect(readChatScrollPosition("agt_1")?.following).toBe(!gesture)
+      );
+      unmount();
+    }
+  );
+
+  it.each([
+    ["expired wheel", false],
+    ["held touch", true],
+    ["held scrollbar pointer", true],
+    ["scroll key", true],
+    ["composer key", false],
+    ["content pointer", false],
+    ["unrelated touch end", false],
+  ] as const)("recognizes %s as reader intent: %s", (gesture, releases) => {
+    vi.useFakeTimers();
+    const { unmount } = renderPane();
+    try {
+      const scroll = screen.getByTestId("chat-scroll");
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 1000 },
+        clientHeight: { configurable: true, value: 200 },
+        scrollTop: { configurable: true, value: 800, writable: true },
+      });
+      fireEvent.scroll(scroll);
+      if (gesture === "expired wheel") fireEvent.wheel(scroll);
+      if (gesture === "held touch") fireEvent.touchStart(scroll);
+      if (gesture === "held scrollbar pointer") fireEvent.pointerDown(scroll);
+      act(() => vi.advanceTimersByTime(500));
+      if (gesture === "scroll key")
+        fireEvent.keyDown(document.body, { key: "PageUp" });
+      if (gesture === "composer key")
+        fireEvent.keyDown(screen.getByTestId("chat-composer-input"), {
+          key: "ArrowUp",
+        });
+      if (gesture === "content pointer")
+        fireEvent.pointerDown(scroll.firstElementChild!);
+      if (gesture === "unrelated touch end")
+        fireEvent.touchEnd(window, { touches: [] });
+      scroll.scrollTop = 700;
+      fireEvent.scroll(scroll);
+      act(() => vi.advanceTimersByTime(150));
+      expect(readChatScrollPosition("agt_1")?.following).toBe(!releases);
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps following the next agent post after a delayed bottom-scroll event", async () => {
     H.entries = [blockEntry(block({ id: "first", text: "first" }))];
     const props = {
@@ -1218,9 +1285,11 @@ describe("ChatPane following", () => {
     ) {
       this.scrollTop = this.scrollHeight - this.clientHeight;
     });
+    fireEvent.wheel(scroll, { deltaY: -100 });
     fireEvent.scroll(scroll);
     // Sending from history restores following and scrolls the user's arrival.
     scroll.scrollTop = 100;
+    fireEvent.wheel(scroll, { deltaY: -100 });
     fireEvent.scroll(scroll);
     typeAndSend("next");
     await waitFor(() => expect(H.send).toHaveBeenCalled());
@@ -1243,6 +1312,7 @@ describe("ChatPane following", () => {
     expect(Element.prototype.scrollTo).toHaveBeenCalled();
     // A real upward scroll still stops following successive arrivals.
     scroll.scrollTop = 500;
+    fireEvent.wheel(scroll, { deltaY: -100 });
     fireEvent.scroll(scroll);
     H.entries = [
       ...H.entries,
@@ -1286,6 +1356,7 @@ describe("ChatPane scroll memory", () => {
     ];
     const { unmount } = renderPane();
     const scroll = stubLayout(250);
+    fireEvent.wheel(scroll, { deltaY: -100 });
     fireEvent.scroll(scroll);
     unmount();
 
@@ -1309,10 +1380,13 @@ describe("ChatPane scroll memory", () => {
       // One unbroken fling: every event resets the trailing timer, so it
       // never fires, and the reader switches away mid-gesture. What is
       // recorded must not be the position from the start of the gesture.
+      fireEvent.wheel(screen.getByTestId("chat-scroll"), { deltaY: -100 });
       fireEvent.scroll(stubLayout(50));
       vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.wheel(screen.getByTestId("chat-scroll"), { deltaY: -100 });
       fireEvent.scroll(stubLayout(150));
       vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.wheel(screen.getByTestId("chat-scroll"), { deltaY: -100 });
       fireEvent.scroll(stubLayout(250));
       unmount();
 
@@ -1329,6 +1403,7 @@ describe("ChatPane scroll memory", () => {
     H.entries = [blockEntry(block({ id: "m1", text: "one" }))];
     const { unmount } = renderPane();
     const scroll = stubLayout(800);
+    fireEvent.wheel(scroll, { deltaY: -100 });
     fireEvent.scroll(scroll);
     unmount();
 
