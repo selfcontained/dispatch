@@ -388,7 +388,6 @@ export type ChatFeedProps = {
   /** True while the pane keeps its bottom in view. */
   isFollowing?: () => boolean;
   /** Report feed-owned scrolls so the pane does not treat them as reader input. */
-  onScrollAdjustment?: () => void;
   /** Filled with the feed's hold on the reader's place, for the pane's own scrolls. */
   placeRef?: MutableRefObject<FeedPlace | null>;
 };
@@ -413,7 +412,6 @@ export function ChatFeed({
   scrollRef,
   pinnedIds,
   isFollowing,
-  onScrollAdjustment,
   placeRef,
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
@@ -428,7 +426,6 @@ export function ChatFeed({
     align: "end",
     pinned: pinnedIds,
     isFollowing,
-    onScrollAdjustment,
     cacheKey: ctx.agentId ? `feed:${ctx.agentId}` : null,
     enabled: scrollRef !== undefined,
     anchorable: isEntryRowKey,

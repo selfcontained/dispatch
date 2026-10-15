@@ -252,8 +252,13 @@ export function isMainColumnEntry(entry: StreamEntry): boolean {
 /** How many older pages a reload looks through for the row it left on. */
 const RESTORE_SEEK_PAGES = 20;
 
-/** How close to the bottom (px) still counts as "following" the feed. */
-const FOLLOW_THRESHOLD_PX = 48;
+/**
+ * The live narrow-screen repro caught a 4px clamp after a row shrank and
+ * regrew in one frame. 100px leaves room for that transient while a reader
+ * beyond the buffer stays put, before the 160px jump button appears.
+ * Larger observed shrinks (240–480px) adopt their shorter bottom first.
+ */
+const TAIL_BUFFER_PX = 100;
 /** Scrolled up past this much of the view, the jump-to-bottom button shows. */
 const JUMP_BUTTON_PX = 160;
 
@@ -562,9 +567,7 @@ export function ChatPane({
   const [following, setFollowing] = useState(
     () => savedPositionRef.current?.following ?? true
   );
-  const followingRef = useRef(following);
   const updateFollowing = useCallback((value: boolean) => {
-    followingRef.current = value;
     setFollowing(value);
   }, []);
   const [pendingBelow, setPendingBelow] = useState(false);
@@ -593,127 +596,22 @@ export function ChatPane({
   const restoredRef = useRef(false);
   const rememberTimerRef = useRef<number | null>(null);
   const rememberedAtRef = useRef(0);
-  const lastScrollTopRef = useRef(0);
-
-  // Layout changes can clamp scrollTop without any reader input. Only a
-  // recent scroll gesture may release the bottom; keep held drags/touches
-  // live too, since they can pause longer than the event window.
-  const scrollIntentRef = useRef({ until: 0, pointer: false, touch: false });
-  const hasScrollIntent = useCallback(() => {
-    const intent = scrollIntentRef.current;
-    return intent.pointer || intent.touch || Date.now() < intent.until;
-  }, []);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const intent = scrollIntentRef.current;
-    const mark = () => {
-      intent.until = Date.now() + 400;
-    };
-    const pointerDown = (event: PointerEvent) => {
-      // Content clicks do not imply scrolling; scrollbar presses target
-      // the scroller itself. Release is heard even outside the pane.
-      if (event.target !== el) return;
-      intent.pointer = true;
-      mark();
-    };
-    const pointerUp = () => {
-      if (intent.pointer) mark();
-      intent.pointer = false;
-    };
-    const touchStart = () => {
-      intent.touch = true;
-      mark();
-    };
-    const touchEnd = (event: TouchEvent) => {
-      if (!intent.touch) return;
-      intent.touch = event.touches.length > 0;
-      mark();
-    };
-    const keyDown = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (
-        event.defaultPrevented ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      )
-        return;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          target.closest("input, textarea, select, [role='textbox']"))
-      )
-        return;
-      // Space activates a focused button; the other scroll keys still
-      // move its enclosing stream and must release following.
-      if (
-        event.key === " " &&
-        target instanceof HTMLElement &&
-        target.closest("button, [role='button']")
-      )
-        return;
-      if (
-        target !== document.body &&
-        target !== document.documentElement &&
-        !(target instanceof Node && el.contains(target))
-      )
-        return;
-      if (
-        [
-          "PageUp",
-          "PageDown",
-          "ArrowUp",
-          "ArrowDown",
-          "Home",
-          "End",
-          " ",
-        ].includes(event.key)
-      )
-        mark();
-    };
-    el.addEventListener("wheel", mark, { passive: true });
-    el.addEventListener("touchstart", touchStart, { passive: true });
-    el.addEventListener("touchmove", mark, { passive: true });
-    el.addEventListener("pointerdown", pointerDown);
-    window.addEventListener("pointerup", pointerUp);
-    window.addEventListener("pointercancel", pointerUp);
-    window.addEventListener("touchend", touchEnd);
-    window.addEventListener("touchcancel", touchEnd);
-    window.addEventListener("keydown", keyDown);
-    return () => {
-      el.removeEventListener("wheel", mark);
-      el.removeEventListener("touchstart", touchStart);
-      el.removeEventListener("touchmove", mark);
-      el.removeEventListener("pointerdown", pointerDown);
-      window.removeEventListener("pointerup", pointerUp);
-      window.removeEventListener("pointercancel", pointerUp);
-      window.removeEventListener("touchend", touchEnd);
-      window.removeEventListener("touchcancel", touchEnd);
-      window.removeEventListener("keydown", keyDown);
-      intent.until = 0;
-      intent.pointer = intent.touch = false;
-    };
-  }, [agentId]);
-
-  // A queued event for our own jump can arrive after the content grew.
-  // Keep its destination separate from the last observed reader position.
-  const ownScrollTopRef = useRef<number | null>(null);
-  const recordOwnScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    ownScrollTopRef.current = el.scrollTop;
-    lastScrollTopRef.current = el.scrollTop;
-  }, []);
+  // Measure against the bottom before content changes. A browser clamp
+  // during shrink/regrowth must not turn new content into a reader scroll.
+  const knownHeightRef = useRef(0);
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
       const el = scrollRef.current;
       if (!el) return;
       el.scrollTo({ top: el.scrollHeight, behavior });
-      if (behavior === "auto") recordOwnScroll();
+      if (behavior === "auto") {
+        knownHeightRef.current = el.scrollHeight;
+        updateFollowing(true);
+        setPendingBelow(false);
+      }
     },
-    [recordOwnScroll]
+    [updateFollowing]
   );
 
   // While following, the bottom stays in view through every change in the
@@ -724,20 +622,20 @@ export function ChatPane({
   const contentRef = useRef<HTMLDivElement>(null);
   const isFollowing = useCallback(() => {
     const el = scrollRef.current;
-    // A scroll made after this frame's scroll-event phase is already in
-    // the DOM when resize observers/layout effects run. Respect an upward
-    // move now, before the queued onScroll can update our following state.
-    if (
-      followingRef.current &&
-      hasScrollIntent() &&
+    // A child layout effect can observe a shrink before our scroll event
+    // or observer. Adopt that shorter bottom before windowing holds a row
+    // in place; a browser clamp is already at that bottom.
+    if (el)
+      knownHeightRef.current = Math.min(
+        knownHeightRef.current,
+        el.scrollHeight
+      );
+    return Boolean(
       el &&
-      el.scrollTop < lastScrollTopRef.current - 0.5 &&
-      el.scrollHeight - el.clientHeight - el.scrollTop > FOLLOW_THRESHOLD_PX
-    ) {
-      updateFollowing(false);
-    }
-    return followingRef.current && anchoredRef.current === 0;
-  }, [hasScrollIntent, updateFollowing]);
+      anchoredRef.current === 0 &&
+      knownHeightRef.current - el.clientHeight - el.scrollTop <= TAIL_BUFFER_PX
+    );
+  }, []);
   useEffect(() => {
     const el = contentRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -753,14 +651,20 @@ export function ChatPane({
           const scroller = scrollRef.current;
           if (scroller) alignReplyStart(scroller, anchorTurnRef.current);
         }
+        if (scrollRef.current)
+          knownHeightRef.current = scrollRef.current.scrollHeight;
         return;
       }
-      if (isFollowing()) scrollToBottom();
+      const tailing = isFollowing();
+      updateFollowing(tailing);
+      if (tailing) scrollToBottom();
+      if (scrollRef.current)
+        knownHeightRef.current = scrollRef.current.scrollHeight;
     });
     observer.observe(el);
     if (scrollRef.current) observer.observe(scrollRef.current);
     return () => observer.disconnect();
-  }, [isFollowing, scrollToBottom]);
+  }, [isFollowing, scrollToBottom, updateFollowing]);
 
   // Reading every row's rect is too much to do on each scroll event, so
   // this is throttled rather than called from the handler directly.
@@ -769,10 +673,10 @@ export function ChatPane({
     if (!el || !agentId) return;
     rememberedAtRef.current = Date.now();
     rememberChatScrollPosition(agentId, {
-      following: followingRef.current && anchoredRef.current === 0,
+      following: isFollowing(),
       anchors: visibleAnchors(el),
     });
-  }, [agentId]);
+  }, [agentId, isFollowing]);
 
   // Throttled, and again once the feed settles. It has to keep recording
   // through a long scroll, not only at its ends: the pane can be unmounted
@@ -805,30 +709,24 @@ export function ChatPane({
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const own = ownScrollTopRef.current;
-    ownScrollTopRef.current = null;
-    lastScrollTopRef.current = el.scrollTop;
-    if (own !== null && Math.abs(el.scrollTop - own) < 1) {
-      // Geometry may already describe newer content, not where this jump
-      // landed. It cannot change the reader's follow intent.
-      rememberSoon();
-      return;
-    }
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const atBottom = distance <= FOLLOW_THRESHOLD_PX;
+    // A shrink may clamp the browser before the observer runs. Adopt the
+    // shorter bottom now; growth must keep the previous bottom until pinned.
+    knownHeightRef.current = Math.min(
+      knownHeightRef.current || el.scrollHeight,
+      el.scrollHeight
+    );
+    const distance = knownHeightRef.current - el.scrollTop - el.clientHeight;
+    const atBottom = distance <= TAIL_BUFFER_PX;
     setFarFromBottom(distance > JUMP_BUTTON_PX);
     if (atBottom && Date.now() - anchoredRef.current < ANCHOR_HOLD_MS) {
       rememberSoon();
       return;
     }
     if (atBottom) anchoredRef.current = 0;
-    // The ref too, at once: a windowed feed changes height as the rows
-    // around the new position mount, and the content observer must not
-    // take that for growth to follow before this state has rendered.
-    if (atBottom || hasScrollIntent()) updateFollowing(atBottom);
+    updateFollowing(atBottom);
     if (atBottom) setPendingBelow(false);
     rememberSoon();
-  }, [hasScrollIntent, rememberSoon, updateFollowing]);
+  }, [rememberSoon, updateFollowing]);
 
   const { loadOlder: fetchOlder } = feed;
   /** The windowed feed's own hold on the reader's place (see ChatFeed). */
@@ -923,6 +821,10 @@ export function ChatPane({
     const grew = !appended && lastKey !== lastEntryKeyRef.current;
     lastEntryIdRef.current = lastId;
     lastEntryKeyRef.current = lastKey;
+    // Take the decision before adopting the new bottom. Other renders
+    // must leave the previous height intact until a content change arrives.
+    const tailing = isFollowing();
+    if (appended || grew) knownHeightRef.current = el.scrollHeight;
     // Seeking the row a reader left on, older than what was loaded: each
     // page that lands is looked through, and the next asked for, until the
     // row turns up or the history runs out.
@@ -951,7 +853,7 @@ export function ChatPane({
     const landed = agentId
       ? landedTurn(visibleEntries, agentId, settledTurnIdsRef.current)
       : null;
-    if (isFollowing() && landed) {
+    if (tailing && landed) {
       if (replyStartIfTall(el, landed.id) !== null) {
         anchoredRef.current = Date.now();
         anchorTurnRef.current = landed.id;
@@ -962,14 +864,14 @@ export function ChatPane({
         return;
       }
     }
-    if (isFollowing()) {
+    if (tailing) {
       scrollToBottom();
-    } else if (appended) {
-      setPendingBelow(true);
+    } else {
+      updateFollowing(false);
+      if (appended) setPendingBelow(true);
     }
   }, [
     agentId,
-    following,
     isFollowing,
     updateFollowing,
     scrollToBottom,
@@ -999,11 +901,12 @@ export function ChatPane({
     olderLoadRef.current = null;
   }, [agentId, updateFollowing]);
 
+  const wasActiveRef = useRef(active);
   useEffect(() => {
-    // The ref, not the state: a jump in this same commit has already let
-    // go of the bottom (see useBlockJump below).
-    if (active && isFollowing()) scrollToBottom();
-  }, [active, following, isFollowing, scrollToBottom]);
+    const becameActive = active && !wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (becameActive && isFollowing()) scrollToBottom();
+  }, [active, isFollowing, scrollToBottom]);
 
   // A jump to one block (a sidebar row's running turn, a `?block=` link):
   // the reader is put at that block and held there, as at the start of a
@@ -1456,7 +1359,6 @@ export function ChatPane({
                     scrollRef={scrollRef}
                     pinnedIds={pinnedIds}
                     isFollowing={isFollowing}
-                    onScrollAdjustment={recordOwnScroll}
                     placeRef={placeRef}
                   />
                 ) : null}

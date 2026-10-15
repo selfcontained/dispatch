@@ -50,6 +50,14 @@ async function state(page: Page, label: string) {
         ?.getAttribute("data-pending") ?? null,
   }));
   console.log(`[${label}]`, JSON.stringify(s));
+  const trace = await page.evaluate(() => {
+    const trace = (window as unknown as { followTrace: unknown[] }).followTrace;
+    return trace.splice(0);
+  });
+  await test.info().attach(`scroll geometry ${label}`, {
+    body: JSON.stringify(trace),
+    contentType: "application/json",
+  });
   if (label === "B settled" && page.viewportSize()?.width === 390) {
     // With a post below it, this reply would put its header above the
     // fold. Preserve the deliberate reply-start anchor at narrow width.
@@ -77,6 +85,50 @@ for (const width of [390, 1280]) {
     request,
   }) => {
     test.setTimeout(180_000);
+    await page.addInitScript(() => {
+      const trace: {
+        source: string;
+        top: number;
+        height: number;
+        client: number;
+      }[] = [];
+      (window as unknown as { followTrace: typeof trace }).followTrace = trace;
+      const sample = (source: string) => {
+        const el = document.querySelector('[data-testid="chat-scroll"]');
+        if (!el) return;
+        trace.push({
+          source,
+          top: el.scrollTop,
+          height: el.scrollHeight,
+          client: el.clientHeight,
+        });
+      };
+      const descriptor = Object.getOwnPropertyDescriptor(
+        Element.prototype,
+        "scrollTop"
+      )!;
+      Object.defineProperty(Element.prototype, "scrollTop", {
+        configurable: true,
+        get: descriptor.get,
+        set(value) {
+          if ((this as Element).getAttribute("data-testid") === "chat-scroll") {
+            sample(`set top ${value}`);
+          }
+          descriptor.set!.call(this, value);
+        },
+      });
+      const NativeObserver = window.ResizeObserver;
+      window.ResizeObserver = class extends NativeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          super((entries, observer) => {
+            sample("resize before");
+            callback(entries, observer);
+            sample("resize after");
+          });
+        }
+      };
+      document.addEventListener("scroll", () => sample("scroll"), true);
+    });
     await page.setViewportSize({ width, height: 800 });
     const agent = await createAgentViaAPI(request, {
       name: `repro-${Date.now()}`,
@@ -96,6 +148,13 @@ for (const width of [390, 1280]) {
     });
     await page.waitForTimeout(1500);
     await state(page, "A short reply settled");
+
+    await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Post after short reply",
+    });
+    await page.getByText("Post after short reply", { exact: true }).waitFor();
+    await page.waitForTimeout(700);
+    await state(page, "A post after reply");
 
     await send(page, "run:2000 tool turn");
     await page.waitForTimeout(700);

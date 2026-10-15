@@ -108,8 +108,6 @@ export type WindowedRowsOptions = {
   pinned?: ReadonlySet<string>;
   /** While true, the bottom stays in view through size changes. */
   isFollowing?: () => boolean;
-  /** Notify the pane after changing scrollTop to preserve its follow intent. */
-  onScrollAdjustment?: () => void;
   /** Names the list so measured heights survive a remount. */
   cacheKey?: string | null;
   /** False renders every row, as a short list or a test would. */
@@ -170,7 +168,6 @@ export function useWindowedRows({
   align,
   pinned,
   isFollowing,
-  onScrollAdjustment,
   cacheKey,
   enabled = true,
   anchorable,
@@ -190,8 +187,6 @@ export function useWindowedRows({
   keysRef.current = keys;
   const isFollowingRef = useRef(isFollowing);
   isFollowingRef.current = isFollowing;
-  const onScrollAdjustmentRef = useRef(onScrollAdjustment);
-  onScrollAdjustmentRef.current = onScrollAdjustment;
   const anchorableRef = useRef(anchorable);
   anchorableRef.current = anchorable;
 
@@ -419,7 +414,6 @@ export function useWindowedRows({
       if (Math.abs(drift) >= 0.5) {
         scroller.scrollTop += drift;
         ownScrollRef.current = scroller.scrollTop;
-        onScrollAdjustmentRef.current?.();
       }
       return true;
     }
@@ -434,7 +428,6 @@ export function useWindowedRows({
       if (bottom - scroller.scrollTop > AT_END_PX) {
         scroller.scrollTop = bottom;
         ownScrollRef.current = scroller.scrollTop;
-        onScrollAdjustmentRef.current?.();
       }
       captureAnchor();
       return;
