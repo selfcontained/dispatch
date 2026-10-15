@@ -48,6 +48,10 @@ boundary. The original running/stopped intent is retained. After clean shutdown,
 backup takes the full signed app and instance state, including the managed PG17
 cluster and credentials. Native UserDefaults are retained as a private preferences
 snapshot and reapplied once on rollback, before disabling automatic installation. Special state files and state symlinks are rejected.
+Agent media (`<state>/files`) is outside the snapshot: updates never change it, so
+it is not digested or copied, and restore moves the live directory into the restored
+state with one exclusive same-volume rename before the switch. More than one media
+directory fails closed and retains every copy.
 
 Restore verification copies the stopped PG17 cluster, uses the retained app's
 PostgreSQL tools, checks clean shutdown with `pg_controldata`, and starts the copy
