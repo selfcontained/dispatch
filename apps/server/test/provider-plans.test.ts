@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, mkdir, utimes, writeFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   createProviderPlansReporter,
@@ -48,6 +51,7 @@ describe("parseCodexRollout", () => {
       engine: "codex",
       plan: "Pro",
       observedAt: "2026-09-24T11:00:00Z",
+      source: "local",
       windows: [
         {
           id: "primary",
@@ -69,6 +73,22 @@ describe("parseCodexRollout", () => {
     const plan = parseCodexRollout("");
     expect(plan.windows).toEqual([]);
     expect(plan.unavailableReason).toMatch(/Codex/);
+    expect(plan.source).toBe("local");
+  });
+
+  it("reads credits and limit status from rollout rate limits", () => {
+    const line = JSON.parse(codexLine(NOW.toISOString(), 100, 0));
+    line.payload.rate_limits.credits = {
+      has_credits: true,
+      unlimited: false,
+      balance: "62500.0000000000",
+    };
+    line.payload.rate_limits.spend_control_reached = true;
+    expect(parseCodexRollout(JSON.stringify(line))).toMatchObject({
+      credits: { balance: 62500, unlimited: false },
+      limitReached: true,
+      source: "local",
+    });
   });
 });
 
@@ -101,6 +121,201 @@ describe("loadProviderPlans", () => {
     if (hit === undefined) throw new Error("ENOENT");
     return hit;
   };
+  const fallback = codexLine("2026-09-24T09:00:00Z", 30, 3);
+  const codexAuth = JSON.stringify({
+    auth_mode: "chatgpt",
+    tokens: { access_token: "codex-token", account_id: "account-123" },
+  });
+  const codexUsage = {
+    plan_type: "pro",
+    rate_limit: {
+      allowed: true,
+      limit_reached: false,
+      primary_window: {
+        used_percent: 0,
+        limit_window_seconds: 604800,
+        reset_after_seconds: 593939,
+        reset_at: 1792687999,
+      },
+      secondary_window: null,
+    },
+    credits: {
+      has_credits: true,
+      unlimited: false,
+      overage_limit_reached: false,
+      balance: "62500.0000000000",
+    },
+    spend_control: { reached: false, individual_limit: null },
+    rate_limit_reached_type: null,
+  };
+  const codexOptions = (auth?: string) => ({
+    now: NOW,
+    homeDir: "/home",
+    env: {},
+    platform: "linux" as const,
+    read: async (file: string) =>
+      file === "/home/.codex/auth.json" && auth !== undefined
+        ? auth
+        : read(file),
+    codexFiles: async () => ["/rollout"],
+    readTail: async () => fallback,
+  });
+
+  it("fetches live Codex usage with its existing login and maps weekly-only quota and credits", async () => {
+    const fetchUsage = vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes("chatgpt.com") ? codexUsage : claudeUtilization
+          )
+        )
+    );
+    const report = await loadProviderPlans({
+      ...codexOptions(codexAuth),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+    });
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+    const [, init] = fetchUsage.mock.calls.find(([url]) =>
+      url.includes("chatgpt.com")
+    )! as [string, RequestInit];
+    expect(init).toMatchObject({
+      redirect: "error",
+      headers: {
+        Authorization: "Bearer codex-token",
+        "ChatGPT-Account-Id": "account-123",
+      },
+    });
+    expect(init.signal).toBeDefined();
+    expect(report.providers[1]).toMatchObject({
+      plan: "Pro",
+      source: "live",
+      observedAt: NOW.toISOString(),
+      credits: { balance: 62500, unlimited: false },
+      limitReached: false,
+      windows: [
+        {
+          id: "primary",
+          label: "Weekly",
+          usedPercent: 0,
+          resetsAt: new Date(1792687999 * 1000).toISOString(),
+        },
+      ],
+    });
+    expect(report.providers[1]?.windows).toHaveLength(1);
+  });
+
+  it.each([
+    ["missing auth", undefined],
+    ["API key mode", JSON.stringify({ auth_mode: "apikey" })],
+  ])("uses rollout silently for %s", async (_name, auth) => {
+    const warn = vi.fn();
+    const fetchUsage = vi.fn(
+      async () => new Response(JSON.stringify(claudeUtilization))
+    );
+    const report = await loadProviderPlans({
+      ...codexOptions(auth),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+      log: { warn },
+    });
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+    expect(report.providers[1]).toMatchObject({
+      source: "local",
+      observedAt: "2026-09-24T09:00:00Z",
+    });
+    expect(report.providers[1]?.unavailableReason).toBeUndefined();
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "could not refresh Codex plan usage"
+    );
+  });
+
+  it.each([
+    ["expired JWT", "expired"],
+    ["401", "unauthorized"],
+    ["network failure", "network"],
+  ])("falls back with a reason for %s", async (_name, failure) => {
+    const payload = Buffer.from(
+      JSON.stringify({ exp: Math.floor(NOW.valueOf() / 1000) - 1 })
+    ).toString("base64url");
+    const auth =
+      failure === "expired"
+        ? JSON.stringify({
+            tokens: {
+              access_token: `x.${payload}.x`,
+              account_id: "account-123",
+            },
+          })
+        : codexAuth;
+    const fetchUsage = vi.fn(async (url: string) => {
+      if (!url.includes("chatgpt.com"))
+        return new Response(JSON.stringify(claudeUtilization));
+      if (failure === "network") throw new Error("offline");
+      return new Response("", { status: 401 });
+    });
+    const warn = vi.fn();
+    const report = await loadProviderPlans({
+      ...codexOptions(auth),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+      log: { warn },
+    });
+    expect(report.providers[1]?.source).toBe("local");
+    expect(report.providers[1]?.windows[0]?.usedPercent).toBe(30);
+    expect(report.providers[1]?.unavailableReason).toMatch(
+      failure === "network"
+        ? /Could not refresh Codex/
+        : /login on this machine has expired/
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: expect.any(String) }),
+      "could not refresh Codex plan usage"
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("codex-token");
+  });
+
+  it("chooses the newest timestamp from every candidate tail", async () => {
+    const report = await loadProviderPlans({
+      ...codexOptions(),
+      codexFiles: async () => ["/mtime-new", "/mtime-old"],
+      readTail: async (file) =>
+        file === "/mtime-new"
+          ? codexLine("2026-09-24T08:00:00Z", 80, 2)
+          : codexLine("2026-09-24T10:00:00Z", 10, 1),
+    });
+    expect(report.providers[1]?.observedAt).toBe("2026-09-24T10:00:00Z");
+  });
+
+  it("considers all files in the newest day before limiting to twelve", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "codex-rollouts-"));
+    try {
+      const day = path.join(root, "sessions", "2026", "09", "24");
+      await mkdir(day, { recursive: true });
+      for (let i = 0; i < 13; i++) {
+        const file = path.join(day, `${String(i).padStart(2, "0")}.jsonl`);
+        await writeFile(
+          file,
+          i === 0 ? codexLine("2026-09-24T00:00:00Z", 0, 0) : ""
+        );
+        await utimes(
+          file,
+          new Date(NOW.valueOf() + (i === 0 ? 100_000 : i * 1000)),
+          new Date(NOW.valueOf() + (i === 0 ? 100_000 : i * 1000))
+        );
+      }
+      const report = await loadProviderPlans({
+        now: NOW,
+        homeDir: "/home",
+        env: { CODEX_HOME: root },
+        platform: "linux",
+        read,
+        fetchUsage: vi.fn(
+          async () => new Response(JSON.stringify(claudeUtilization))
+        ) as unknown as typeof fetch,
+      });
+      expect(report.providers[1]?.observedAt).toBe("2026-09-24T00:00:00Z");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("asks Anthropic with the signed-in token and reads Codex's newest rollout", async () => {
     const fetchUsage = vi.fn(
@@ -163,5 +378,36 @@ describe("loadProviderPlans", () => {
     await reporter();
     await reporter({ force: true });
     expect(calls).toBe(1);
+  });
+
+  it("keeps the last good Codex windows when a later refresh fails", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(NOW);
+      let codexCalls = 0;
+      const fetchUsage = vi.fn(async (url: string) => {
+        if (!url.includes("chatgpt.com"))
+          return new Response(JSON.stringify(claudeUtilization));
+        codexCalls += 1;
+        if (codexCalls === 2) throw new Error("offline");
+        return new Response(JSON.stringify(codexUsage));
+      });
+      const reporter = createProviderPlansReporter({
+        ...codexOptions(codexAuth),
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+      });
+      const first = await reporter();
+      vi.setSystemTime(new Date(NOW.valueOf() + 60_000));
+      const second = await reporter({ force: true });
+      expect(first.providers[1]?.source).toBe("live");
+      expect(second.providers[1]).toMatchObject({
+        source: "live",
+        observedAt: NOW.toISOString(),
+        unavailableReason: expect.stringMatching(/Could not refresh Codex/),
+      });
+      expect(second.providers[1]?.windows).toEqual(first.providers[1]?.windows);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

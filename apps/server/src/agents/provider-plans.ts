@@ -20,8 +20,8 @@ import type {
  * rotate, so spending one would sign Claude Code out. Falls back to the
  * report Claude Code's own /usage cached in `.claude.json`.
  *
- * Codex: the newest `rate_limits` Codex wrote into a session rollout under
- * `$CODEX_HOME/sessions`, which it does on every model response.
+ * Codex: ChatGPT's usage endpoint with Codex's existing login, falling back
+ * to the newest `rate_limits` in `$CODEX_HOME/sessions`.
  */
 
 type JsonObject = Record<string, unknown>;
@@ -51,6 +51,11 @@ function object(value: unknown): JsonObject | null {
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numericBalance(value: unknown): number | null {
+  const number = typeof value === "string" ? Number(value) : value;
+  return finiteNumber(number);
 }
 
 function text(value: unknown): string | null {
@@ -222,6 +227,7 @@ export function parseCodexRollout(raw: string): ProviderPlan {
       engine: "codex",
       plan: null,
       observedAt: null,
+      source: "local",
       windows: [],
       unavailableReason: NO_CODEX_REPORT,
     };
@@ -244,9 +250,27 @@ export function parseCodexRollout(raw: string): ProviderPlan {
     engine: "codex",
     plan: planName(latest.value.plan_type),
     observedAt: latest.timestamp,
+    source: "local",
     windows,
+    ...codexCredits(latest.value.credits),
+    ...("rate_limit_reached_type" in latest.value ||
+    "spend_control_reached" in latest.value
+      ? {
+          limitReached:
+            Boolean(latest.value.rate_limit_reached_type) ||
+            latest.value.spend_control_reached === true,
+        }
+      : {}),
     ...(windows.length === 0 ? { unavailableReason: NO_CODEX_REPORT } : {}),
   };
+}
+
+function codexCredits(value: unknown): Pick<ProviderPlan, "credits"> {
+  const credits = object(value);
+  const balance = numericBalance(credits?.balance);
+  return credits && (credits.has_credits === true || balance !== null)
+    ? { credits: { balance, unlimited: credits.unlimited === true } }
+    : {};
 }
 
 /** How many of the newest rollouts are read looking for a report. */
@@ -277,10 +301,11 @@ async function newestCodexRollouts(root: string, limit: number) {
     }
     names.sort().reverse();
     for (const name of names) {
-      if (found.length >= limit) return;
       const full = path.join(dir, name);
-      if (depth < 3) await walk(full, depth + 1);
-      else if (name.endsWith(".jsonl")) found.push(full);
+      if (depth < 3) {
+        if (found.length >= limit) return;
+        await walk(full, depth + 1);
+      } else if (name.endsWith(".jsonl")) found.push(full);
     }
   }
   await walk(root, 0);
@@ -293,7 +318,10 @@ async function newestCodexRollouts(root: string, limit: number) {
       }
     })
   );
-  return withTimes.sort((a, b) => b.at - a.at).map((f) => f.file);
+  return withTimes
+    .sort((a, b) => b.at - a.at)
+    .slice(0, limit)
+    .map((f) => f.file);
 }
 
 async function readTail(file: string): Promise<string> {
@@ -317,17 +345,24 @@ async function loadCodexPlan(
   const files = await (options.codexFiles
     ? options.codexFiles()
     : newestCodexRollouts(codexSessionsDir(env, homeDir), CODEX_ROLLOUTS_READ));
+  let newest: ProviderPlan | null = null;
   for (const file of files) {
     try {
       const plan = parseCodexRollout(
         await (options.readTail ?? readTail)(file)
       );
-      if (plan.windows.length > 0) return plan;
+      if (
+        plan.windows.length > 0 &&
+        (!newest ||
+          observationTime(plan.observedAt) > observationTime(newest.observedAt))
+      ) {
+        newest = plan;
+      }
     } catch {
       // Unreadable: try the next one.
     }
   }
-  return parseCodexRollout("");
+  return newest ?? parseCodexRollout("");
 }
 
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
@@ -365,6 +400,143 @@ class RefreshFailure extends Error {
     readonly detail?: string
   ) {
     super(reason);
+  }
+}
+
+const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const CODEX_RENEW_LOGIN =
+  "Codex's login on this machine has expired, so plan usage cannot be refreshed. It renews the next time Codex runs.";
+const CODEX_COULD_NOT_REFRESH =
+  "Could not refresh Codex plan usage; showing the last report Codex left on this machine.";
+
+function codexTokenExpired(token: string, now: Date): boolean {
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    const payload = object(
+      JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"))
+    );
+    const exp = finiteNumber(payload?.exp);
+    return exp !== null && exp * 1_000 <= now.valueOf();
+  } catch {
+    return false;
+  }
+}
+
+function parseCodexLive(value: unknown, now: Date): ProviderPlan {
+  const root = object(value);
+  const rateLimit = object(root?.rate_limit);
+  const windows: PlanWindow[] = [];
+  for (const [id, fallback] of [
+    ["primary", "Primary limit"],
+    ["secondary", "Secondary limit"],
+  ] as const) {
+    const entry = object(rateLimit?.[`${id}_window`]);
+    const seconds = finiteNumber(entry?.limit_window_seconds);
+    const item = window(
+      id,
+      durationLabel(seconds === null ? null : seconds / 60, fallback),
+      entry?.used_percent,
+      entry?.reset_at
+    );
+    if (item) windows.push(item);
+  }
+  return {
+    engine: "codex",
+    plan: planName(root?.plan_type),
+    observedAt: now.toISOString(),
+    source: "live",
+    windows,
+    ...codexCredits(root?.credits),
+    ...(typeof rateLimit?.limit_reached === "boolean" ||
+    typeof object(root?.spend_control)?.reached === "boolean"
+      ? {
+          limitReached:
+            rateLimit?.limit_reached === true ||
+            object(root?.spend_control)?.reached === true,
+        }
+      : {}),
+  };
+}
+
+async function loadCodexLivePlan(
+  options: ProviderPlanOptions,
+  env: NodeJS.ProcessEnv,
+  homeDir: string,
+  now: Date
+): Promise<ProviderPlan> {
+  const fallback = () => loadCodexPlan(options, env, homeDir);
+  const read = options.read ?? ((file: string) => readFile(file, "utf8"));
+  let token: string | null = null;
+  let accountId: string | null = null;
+  try {
+    const auth = object(
+      JSON.parse(
+        await read(
+          path.join(
+            env.CODEX_HOME?.trim() || path.join(homeDir, ".codex"),
+            "auth.json"
+          )
+        )
+      )
+    );
+    const tokens = object(auth?.tokens);
+    token = text(tokens?.access_token);
+    accountId = text(tokens?.account_id);
+  } catch {
+    // Codex may be using an API key or may not be signed in here.
+  }
+  if (!token) return fallback();
+  try {
+    if (codexTokenExpired(token, now))
+      throw new RefreshFailure("login_expired");
+    let response: Response;
+    try {
+      response = await (options.fetchUsage ?? fetch)(CODEX_USAGE_URL, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+        },
+        signal: AbortSignal.timeout(5_000),
+        redirect: "error",
+      });
+    } catch (error) {
+      throw new RefreshFailure(
+        "request_failed",
+        error instanceof Error ? error.name : undefined
+      );
+    }
+    if (!response.ok) {
+      throw new RefreshFailure(
+        response.status === 401 || response.status === 403
+          ? "login_rejected"
+          : "http_error",
+        String(response.status)
+      );
+    }
+    const live = parseCodexLive(await response.json(), now);
+    if (!live.windows.length) throw new RefreshFailure("no_usage_reported");
+    return live;
+  } catch (error) {
+    const failure =
+      error instanceof RefreshFailure
+        ? error
+        : new RefreshFailure("unexpected");
+    options.log?.warn(
+      {
+        reason: failure.reason,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      },
+      "could not refresh Codex plan usage"
+    );
+    return {
+      ...(await fallback()),
+      unavailableReason:
+        failure.reason === "login_expired" ||
+        failure.reason === "login_rejected"
+          ? CODEX_RENEW_LOGIN
+          : CODEX_COULD_NOT_REFRESH,
+    };
   }
 }
 
@@ -507,7 +679,7 @@ export async function loadProviderPlans(
   const homeDir = options.homeDir ?? os.homedir();
   const [claude, codex] = await Promise.all([
     loadClaudePlan(options, env, homeDir, now),
-    loadCodexPlan(options, env, homeDir),
+    loadCodexLivePlan(options, env, homeDir, now),
   ]);
   return { checkedAt: now.toISOString(), providers: [claude, codex] };
 }
@@ -517,8 +689,8 @@ const FORCE_REFRESH_FLOOR_MS = 5_000;
 
 /**
  * Cached for a minute; `force` (the dialog's Refresh) asks again unless the
- * last answer is only seconds old. A failed Claude refresh keeps the last
- * good windows and adds the reason.
+ * last answer is only seconds old. A failed refresh keeps the last good
+ * windows for that engine and adds the reason.
  */
 export function createProviderPlansReporter(
   options: Omit<ProviderPlanOptions, "now"> = {},
@@ -537,19 +709,17 @@ export function createProviderPlansReporter(
     if (pending) return pending;
     pending = loadProviderPlans(options)
       .then((report) => {
-        const previous = cached?.report.providers[0];
-        const claude = report.providers[0]!;
-        if (
-          previous &&
-          claude.unavailableReason &&
-          observationTime(previous.observedAt) >
-            observationTime(claude.observedAt)
-        ) {
-          report.providers[0] = {
-            ...previous,
-            unavailableReason: claude.unavailableReason,
-          };
-        }
+        report.providers = report.providers.map((plan) => {
+          const previous = cached?.report.providers.find(
+            (candidate) => candidate.engine === plan.engine
+          );
+          return previous &&
+            plan.unavailableReason &&
+            observationTime(previous.observedAt) >
+              observationTime(plan.observedAt)
+            ? { ...previous, unavailableReason: plan.unavailableReason }
+            : plan;
+        });
         cached = { loadedAt: Date.now(), report };
         return report;
       })

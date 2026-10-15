@@ -14,7 +14,7 @@ const report: ProviderPlansResponse = {
     {
       engine: "claude",
       plan: "Max",
-      observedAt: "2026-09-24T11:00:00Z",
+      observedAt: "2026-09-24T11:55:00Z",
       windows: [
         {
           id: "session",
@@ -236,6 +236,112 @@ describe("get_usage", () => {
         ],
       });
     });
+  });
+
+  it("keeps zero headroom low when credits remain and the provider says the limit is not reached", async () => {
+    const plans: ProviderPlansResponse = {
+      checkedAt: report.checkedAt,
+      providers: [
+        {
+          engine: "codex",
+          plan: "Pro",
+          observedAt: "2026-09-24T11:55:00Z",
+          source: "live",
+          windows: [
+            {
+              id: "primary",
+              label: "Weekly",
+              usedPercent: 100,
+              resetsAt: null,
+            },
+          ],
+          credits: { balance: 62500, unlimited: false },
+          limitReached: false,
+        },
+      ],
+    };
+    await withClient(
+      { ...base, providerPlans: async () => plans },
+      async (client) => {
+        const result = await client.callTool({
+          name: "get_usage",
+          arguments: { type: "codex" },
+        });
+        expect(result.structuredContent).toMatchObject({
+          providers: [
+            {
+              status: "low",
+              headroomPercent: 0,
+              source: "live",
+              limitReached: false,
+              credits: { balance: 62500, unlimited: false },
+            },
+          ],
+        });
+      }
+    );
+  });
+
+  it("marks a provider-reported limit reached as exhausted even below 100%", async () => {
+    const plans: ProviderPlansResponse = {
+      checkedAt: report.checkedAt,
+      providers: [
+        {
+          engine: "codex",
+          plan: "Pro",
+          observedAt: "2026-09-24T11:55:00Z",
+          source: "live",
+          windows: [
+            { id: "primary", label: "Weekly", usedPercent: 40, resetsAt: null },
+          ],
+          credits: { balance: 62500, unlimited: false },
+          limitReached: true,
+        },
+      ],
+    };
+    await withClient(
+      { ...base, providerPlans: async () => plans },
+      async (client) => {
+        const result = await client.callTool({
+          name: "get_usage",
+          arguments: { type: "codex" },
+        });
+        expect(result.structuredContent).toMatchObject({
+          providers: [
+            { status: "exhausted", headroomPercent: 60, limitReached: true },
+          ],
+        });
+      }
+    );
+  });
+
+  it("adds a source-aware caveat for reports older than fifteen minutes", async () => {
+    const plans: ProviderPlansResponse = {
+      checkedAt: report.checkedAt,
+      providers: [
+        {
+          engine: "codex",
+          plan: "Pro",
+          observedAt: "2026-09-24T09:00:00Z",
+          source: "local",
+          windows: [
+            { id: "primary", label: "Weekly", usedPercent: 40, resetsAt: null },
+          ],
+        },
+      ],
+    };
+    await withClient(
+      { ...base, providerPlans: async () => plans },
+      async (client) => {
+        const result = await client.callTool({
+          name: "get_usage",
+          arguments: { type: "codex" },
+        });
+        expect(result.structuredContent?.summary as string).toContain(
+          "codex's report is 3h old (local report)"
+        );
+      }
+    );
   });
 
   it("does not expose usage on the unscoped endpoint", async () => {

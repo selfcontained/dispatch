@@ -1,4 +1,4 @@
-import type { ProviderPlansResponse } from "@dispatch/shared";
+import type { ProviderPlan, ProviderPlansResponse } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -30,19 +30,44 @@ type UsageVerdict = {
   status: UsageStatus;
 };
 
-function verdict(windows: Array<{ remainingPercent: number }>): UsageVerdict {
-  if (windows.length === 0) return { headroomPercent: null, status: "unknown" };
+function verdict(
+  plan: ProviderPlan | undefined,
+  windows: Array<{ remainingPercent: number }>
+): UsageVerdict {
+  if (windows.length === 0)
+    return {
+      headroomPercent: null,
+      status: plan?.limitReached === true ? "exhausted" : "unknown",
+    };
   const headroomPercent = Math.min(...windows.map((w) => w.remainingPercent));
   const status: UsageStatus =
-    headroomPercent <= 0
+    plan?.limitReached === true
       ? "exhausted"
-      : headroomPercent < LOW_HEADROOM_PERCENT
+      : plan?.limitReached === false &&
+          headroomPercent <= 0 &&
+          (plan.credits?.unlimited || (plan.credits?.balance ?? 0) > 0)
         ? "low"
-        : "ok";
+        : headroomPercent <= 0
+          ? "exhausted"
+          : headroomPercent < LOW_HEADROOM_PERCENT
+            ? "low"
+            : "ok";
   return { headroomPercent, status };
 }
 
-type RatedProvider = UsageVerdict & { type: string; enabled: boolean };
+type RatedProvider = UsageVerdict & {
+  type: string;
+  enabled: boolean;
+  observedAt?: string | null;
+  source?: "live" | "local";
+};
+
+function ageLabel(milliseconds: number): string {
+  const minutes = Math.floor(milliseconds / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
 
 /**
  * Which type to prefer, and why, in one sentence an agent can act on. A
@@ -51,7 +76,10 @@ type RatedProvider = UsageVerdict & { type: string; enabled: boolean };
  * unknown) there is no reason to steer away from the default. Disabled types
  * are described but never suggested — launch_agent would refuse them.
  */
-export function summarizeUsage(providers: RatedProvider[]): {
+export function summarizeUsage(
+  providers: RatedProvider[],
+  checkedAt?: string
+): {
   suggestedType: string | null;
   summary: string;
 } {
@@ -67,16 +95,29 @@ export function summarizeUsage(providers: RatedProvider[]): {
     return `${p.type}: ${headroom}${p.enabled ? "" : ", disabled in settings"}`;
   };
   const detail = providers.map(describe).join("; ");
+  const checkedAtMs = checkedAt ? Date.parse(checkedAt) : Date.now();
+  const stale = providers.flatMap((provider) => {
+    const observedAtMs = provider.observedAt
+      ? Date.parse(provider.observedAt)
+      : NaN;
+    const age = checkedAtMs - observedAtMs;
+    return Number.isFinite(age) && age > 15 * 60_000
+      ? [
+          `${provider.type}'s report is ${ageLabel(age)} old (${provider.source === "local" ? "local report" : "last report"})`,
+        ]
+      : [];
+  });
+  const caveat = stale.length ? ` ${stale.join("; ")}.` : "";
   if (reported.length === 0) {
     return {
       suggestedType: null,
-      summary: `No type reports usage; capacity is unknown. ${detail}.`,
+      summary: `No type reports usage; capacity is unknown. ${detail}.${caveat}`,
     };
   }
   if (strained.length === 0) {
     return {
       suggestedType: null,
-      summary: `Every reported type has headroom; any is fine. ${detail}.`,
+      summary: `Every reported type has headroom; any is fine. ${detail}.${caveat}`,
     };
   }
   const best = reported.reduce((a, b) =>
@@ -85,7 +126,7 @@ export function summarizeUsage(providers: RatedProvider[]): {
   if (best.status === "ok") {
     return {
       suggestedType: best.type,
-      summary: `Prefer ${best.type}: ${strained.map((p) => `${p.type} is ${p.status}`).join(", ")}. ${detail}.`,
+      summary: `Prefer ${best.type}: ${strained.map((p) => `${p.type} is ${p.status}`).join(", ")}. ${detail}.${caveat}`,
     };
   }
   const unknown = providers.filter(
@@ -98,7 +139,7 @@ export function summarizeUsage(providers: RatedProvider[]): {
       (unknown.length > 0
         ? `; ${unknown.map((p) => p.type).join(", ")} ${unknown.length === 1 ? "does" : "do"} not report usage`
         : "") +
-      `. Tell the user before launching. ${detail}.`,
+      `. Tell the user before launching. ${detail}.${caveat}`,
   };
 }
 
@@ -117,7 +158,7 @@ export function registerUsageTools(
         "Read summary first: it names the type to prefer (also in suggestedType) when another is low or exhausted, " +
         "and says so when every type is fine or nothing reports; a type disabled in Settings (enabled: false) is never suggested. " +
         "Each type carries status (ok, low, exhausted, unknown), " +
-        "headroomPercent (its tightest window), supported model ids, the provider's quota windows with remaining percentages and reset times, and observation timestamps. " +
+        "headroomPercent (its tightest window), supported model ids, the provider's quota windows with remaining percentages and reset times, observation timestamps, and source (live or local). " +
         "Quotas are shared across agents using the same provider login; model-specific windows are identified by the provider's window id/label. " +
         "Do not assume each model has a separate budget or that remaining percentages represent a token count. " +
         "Missing reports mean unknown capacity, not unlimited usage. Reports may be stale; inspect observedAt and unavailableReason.",
@@ -135,7 +176,7 @@ export function registerUsageTools(
           .boolean()
           .optional()
           .describe(
-            "Request a refresh (normally cached for one minute; refreshes are throttled). Codex reads its latest local usage report."
+            "Request a refresh (normally cached for one minute; refreshes are throttled)."
           ),
       },
     },
@@ -170,7 +211,7 @@ export function registerUsageTools(
             }),
             type: engine,
             enabled: enabled.includes(engine),
-            ...verdict(windows),
+            ...verdict(plan, windows),
             models: getAgentModelOptions(engine),
             windows,
             ...(plan?.spend
@@ -185,7 +226,7 @@ export function registerUsageTools(
         });
         const result = {
           checkedAt: report.checkedAt,
-          ...summarizeUsage(providers),
+          ...summarizeUsage(providers, report.checkedAt),
           providers,
         };
         return {
