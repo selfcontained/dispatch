@@ -51,3 +51,36 @@ export function resetsIn(iso: string | null, now = Date.now()): string | null {
   if (!Number.isFinite(at)) return null;
   return at <= now ? "now" : `in ${formatDuration(at - now)}`;
 }
+
+/**
+ * How old a plan report is, for its card's corner: "live" for an answer the
+ * provider gave in the last minute, "updated 3m ago" for an older one, and
+ * "as of 3h ago" for a report the engine left on this machine, which is only
+ * as fresh as its last model response here. Null without a timestamp.
+ */
+export function reportAge(
+  observedAt: string | null,
+  source: "live" | "local" | undefined,
+  now = Date.now()
+): string | null {
+  if (!observedAt) return null;
+  const at = Date.parse(observedAt);
+  if (!Number.isFinite(at)) return null;
+  const age = Math.max(0, now - at);
+  if (source === "local")
+    return age < 60_000 ? "as of just now" : `as of ${formatDuration(age)} ago`;
+  return age < 60_000 ? "live" : `updated ${formatDuration(age)} ago`;
+}
+
+const CREDITS_FORMAT = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+});
+
+/** "12,500", "Unlimited", or "—" when the provider does not say. */
+export function formatCredits(
+  credits: { balance: number | null; unlimited: boolean } | undefined
+): string {
+  if (credits?.unlimited) return "Unlimited";
+  if (credits?.balance == null) return "—";
+  return CREDITS_FORMAT.format(credits.balance);
+}

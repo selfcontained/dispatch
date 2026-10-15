@@ -5,7 +5,9 @@ import {
   choiceName,
   contextPercent,
   formatCost,
+  formatCredits,
   pickableOptions,
+  reportAge,
   resetsIn,
 } from "./composer-meta-format";
 
@@ -72,5 +74,41 @@ describe("resetsIn", () => {
     expect(resetsIn("2026-09-24T14:10:00Z", now)).toBe("in 2h 10m");
     expect(resetsIn("2026-09-24T11:00:00Z", now)).toBe("now");
     expect(resetsIn(null, now)).toBeNull();
+  });
+});
+
+describe("reportAge", () => {
+  const now = Date.parse("2026-09-24T12:00:00Z");
+  it("calls a report under a minute old live, unless it was read locally", () => {
+    expect(reportAge("2026-09-24T11:59:30Z", "live", now)).toBe("live");
+    expect(reportAge("2026-09-24T11:59:30Z", undefined, now)).toBe("live");
+    expect(reportAge("2026-09-24T11:59:30Z", "local", now)).toBe(
+      "as of just now"
+    );
+  });
+
+  it("says how old an older report is, and where it came from", () => {
+    expect(reportAge("2026-09-24T11:57:00Z", "live", now)).toBe(
+      "updated 3m ago"
+    );
+    expect(reportAge("2026-09-24T09:00:00Z", "local", now)).toBe(
+      "as of 3h ago"
+    );
+  });
+
+  it("treats a timestamp ahead of the clock as now, and none as unknown", () => {
+    expect(reportAge("2026-09-24T12:05:00Z", undefined, now)).toBe("live");
+    expect(reportAge(null, "live", now)).toBeNull();
+    expect(reportAge("not a date", "live", now)).toBeNull();
+  });
+});
+
+describe("formatCredits", () => {
+  it("separates thousands, and names unlimited and unknown balances", () => {
+    expect(formatCredits({ balance: 12500, unlimited: false })).toBe("12,500");
+    expect(formatCredits({ balance: 3.456, unlimited: false })).toBe("3.46");
+    expect(formatCredits({ balance: null, unlimited: true })).toBe("Unlimited");
+    expect(formatCredits({ balance: null, unlimited: false })).toBe("—");
+    expect(formatCredits(undefined)).toBe("—");
   });
 });

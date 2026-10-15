@@ -1,0 +1,104 @@
+// @vitest-environment jsdom
+import type {
+  AgentUsageResponse,
+  ProviderPlansResponse,
+} from "@dispatch/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+
+const { api } = await import("@/lib/api");
+const apiMock = vi.mocked(api);
+
+const stored: ProviderPlansResponse = {
+  checkedAt: "2026-09-24T09:00:00Z",
+  providers: [
+    {
+      engine: "codex",
+      plan: "Pro",
+      observedAt: "2026-09-24T09:00:00Z",
+      source: "local",
+      windows: [{ id: "5h", label: "5-hour", usedPercent: 40, resetsAt: null }],
+    },
+  ],
+};
+const usage = (total: number): AgentUsageResponse => ({
+  context: null,
+  sessionCost: null,
+  session: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, total },
+  month: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, total },
+  byModel: [],
+});
+
+// The persisted atoms read storage when first used, so seed it before the
+// hooks' module loads.
+window.localStorage.setItem("dispatch:usage-plans", JSON.stringify(stored));
+window.localStorage.setItem(
+  "dispatch:agent-usage:agt_1",
+  JSON.stringify(usage(7))
+);
+const { useAgentUsage, useProviderPlans } = await import("./use-agent-usage");
+
+function wrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+afterEach(() => {
+  cleanup();
+  apiMock.mockReset();
+});
+
+describe("useProviderPlans", () => {
+  it("opens on the last stored answer, then stores the fresh one", async () => {
+    const fresh = { ...stored, checkedAt: "2026-09-24T12:00:00Z" };
+    apiMock.mockResolvedValue(fresh);
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useProviderPlans(enabled),
+      { wrapper, initialProps: { enabled: false } }
+    );
+    expect(result.current.data).toEqual(stored);
+    expect(apiMock).not.toHaveBeenCalled();
+
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.data).toEqual(fresh));
+    expect(apiMock).toHaveBeenCalledWith("/api/v1/usage/plans");
+    expect(
+      JSON.parse(window.localStorage.getItem("dispatch:usage-plans")!)
+    ).toEqual(fresh);
+  });
+
+  it("keeps the last answer on screen when the refetch fails", async () => {
+    apiMock.mockRejectedValue(new Error("offline"));
+    const { result } = renderHook(() => useProviderPlans(true), { wrapper });
+    await waitFor(() => expect(result.current.error?.message).toBe("offline"));
+    expect(result.current.data?.providers[0]?.engine).toBe("codex");
+  });
+});
+
+describe("useAgentUsage", () => {
+  it("opens on the agent's last answer and reads it again", async () => {
+    apiMock.mockResolvedValue(usage(9));
+    const { result } = renderHook(() => useAgentUsage("agt_1", true, false), {
+      wrapper,
+    });
+    expect(result.current.data?.session.total).toBe(7);
+    await waitFor(() => expect(result.current.data?.session.total).toBe(9));
+    expect(
+      JSON.parse(window.localStorage.getItem("dispatch:agent-usage:agt_1")!)
+        .session.total
+    ).toBe(9);
+  });
+
+  it("has nothing for an agent never read here", () => {
+    const { result } = renderHook(() => useAgentUsage("agt_2", false, false), {
+      wrapper,
+    });
+    expect(result.current.data).toBeUndefined();
+  });
+});

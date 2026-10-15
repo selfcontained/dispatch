@@ -4,9 +4,8 @@ import type {
   PlanWindow,
   ProviderPlan,
 } from "@dispatch/shared";
-import { useAtom } from "jotai";
 import { ChevronDown, Gauge, RefreshCw, Sparkles } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -36,14 +35,15 @@ import {
   useSetAgentConfig,
 } from "@/hooks/use-agent-usage";
 import { formatTokenCount } from "@/lib/format";
-import { atomWithLocalStorage } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 import {
   choiceName,
   contextPercent,
   formatCost,
+  formatCredits,
   pickableOptions,
+  reportAge,
   resetsIn,
 } from "./composer-meta-format";
 
@@ -378,6 +378,11 @@ function UsageDetailsSkeleton({
   );
 }
 
+/**
+ * Every row is always there, "—" or an empty bar before the engine reports,
+ * so nothing moves when it does. Only the per-model list depends on the
+ * answer, and the last answer is kept per agent, so a reopen opens on it.
+ */
 function UsageDetails({
   usage,
   agentType,
@@ -391,28 +396,37 @@ function UsageDetails({
   return (
     <section className="space-y-2" aria-label="This agent">
       <h3 className="text-[11px] font-medium text-foreground">This agent</h3>
-      {usage.context && percent !== null ? (
-        <div className="space-y-1">
-          <div className="flex justify-between text-muted-foreground">
-            <span>Context</span>
-            <span className="tabular-nums">
-              {formatTokenCount(usage.context.used)} /{" "}
-              {formatTokenCount(usage.context.size)} ({percent}%)
-            </span>
-          </div>
-          <Bar percent={percent} />
+      <div className="space-y-1">
+        <div className="flex justify-between text-muted-foreground">
+          <span>Context</span>
+          <span className="tabular-nums" data-testid="usage-context">
+            {usage.context && percent !== null ? (
+              <>
+                {formatTokenCount(usage.context.used)} /{" "}
+                {formatTokenCount(usage.context.size)} ({percent}%)
+              </>
+            ) : (
+              "not reported yet"
+            )}
+          </span>
         </div>
-      ) : (
-        <p className="text-muted-foreground">
-          The engine has not reported context usage yet.
-        </p>
-      )}
+        {percent !== null ? (
+          <Bar percent={percent} />
+        ) : (
+          <div className={BAR_TRACK_CLASS} />
+        )}
+      </div>
       <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 tabular-nums">
-        {usage.sessionCost ? (
+        {agentType === "claude" || usage.sessionCost ? (
           <>
             <dt className="text-muted-foreground">Cost this session</dt>
             <dd data-testid="usage-session-cost">
-              {formatCost(usage.sessionCost.amount, usage.sessionCost.currency)}
+              {usage.sessionCost
+                ? formatCost(
+                    usage.sessionCost.amount,
+                    usage.sessionCost.currency
+                  )
+                : "—"}
             </dd>
           </>
         ) : null}
@@ -461,6 +475,30 @@ const ENGINE_NAME: Record<ProviderPlan["engine"], string> = {
 
 const ENGINES = Object.keys(ENGINE_NAME) as ProviderPlan["engine"][];
 
+/**
+ * The money rows each provider's card always carries: Claude bills extra
+ * usage past its windows, Codex spends prepaid credits. Either shows "—"
+ * until the provider reports it.
+ */
+const ENGINE_ROWS: Record<
+  ProviderPlan["engine"],
+  { spend: boolean; credits: boolean }
+> = {
+  claude: { spend: true, credits: false },
+  codex: { spend: false, credits: true },
+};
+
+/** Windows a card shows before any report has ever been read here. */
+const SKELETON_WINDOWS: Record<ProviderPlan["engine"], number> = {
+  claude: 3,
+  codex: 2,
+};
+
+const CARD_CLASS = "space-y-1.5 rounded-md border bg-muted/30 p-2";
+
+/** One line, there whether or not it has anything to say. */
+const NOTE_CLASS = "min-h-4 text-[11px] leading-4";
+
 /** The agent's own engine first. */
 function engineFirst<T extends { engine: string }>(
   items: T[],
@@ -471,67 +509,34 @@ function engineFirst<T extends { engine: string }>(
   );
 }
 
-/**
- * What each provider's block looked like last time, so the placeholder
- * matches: its windows, its spend row, the note shown when there is no
- * report, and the block's measured height (a note can wrap).
- */
-type PlanShape = Record<
-  string,
-  { windows: number; spend: boolean; note?: boolean; height?: number }
->;
+/** Now, again every 30s while `enabled`, for ages that keep counting. */
+function useNow(enabled: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [enabled]);
+  return now;
+}
 
-const DEFAULT_PLAN_SHAPE: PlanShape = Object.fromEntries(
-  ENGINES.map((engine) => [engine, { windows: 2, spend: false }])
-);
-
-const planShapeAtom = atomWithLocalStorage<PlanShape>(
-  "dispatch:usage-plan-shape",
-  DEFAULT_PLAN_SHAPE,
-  {
-    validate: (value): value is PlanShape =>
-      typeof value === "object" &&
-      value !== null &&
-      Object.values(value).every(
-        (shape) =>
-          typeof shape === "object" &&
-          shape !== null &&
-          typeof (shape as { windows?: unknown }).windows === "number" &&
-          typeof (shape as { spend?: unknown }).spend === "boolean" &&
-          ["boolean", "undefined"].includes(
-            typeof (shape as { note?: unknown }).note
-          ) &&
-          ["number", "undefined"].includes(
-            typeof (shape as { height?: unknown }).height
-          )
-      ),
-  }
-);
-
-/** Every provider with the rows it had last time, values still loading. */
-function PlanLimitsSkeleton({
-  engine,
-  shape,
-}: {
-  engine: string;
-  shape: PlanShape;
-}): JSX.Element {
+/** Only before anything was ever read here: a card per provider, values loading. */
+function PlanLimitsSkeleton({ engine }: { engine: string }): JSX.Element {
   return (
     <>
       {engineFirst(
-        ENGINES.map((id) => ({ engine: id, ...shape[id] })),
+        ENGINES.map((id) => ({ engine: id })),
         engine
-      ).map((plan) => (
-        <div
-          key={plan.engine}
-          className="space-y-1.5"
-          style={{ minHeight: plan.height }}
-          aria-busy="true"
-        >
-          <div className="text-muted-foreground">
-            {ENGINE_NAME[plan.engine]}
+      ).map(({ engine: id }) => (
+        <div key={id} className={CARD_CLASS} aria-busy="true">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-medium text-foreground">
+              {ENGINE_NAME[id]}
+            </span>
+            <Line className="w-14" />
           </div>
-          {Array.from({ length: plan.windows ?? 2 }, (_, i) => (
+          {Array.from({ length: SKELETON_WINDOWS[id] }, (_, i) => (
             <div key={i} className="space-y-1">
               <div className="flex justify-between gap-2">
                 <Line className="w-12" />
@@ -540,17 +545,19 @@ function PlanLimitsSkeleton({
               <div className={BAR_TRACK_CLASS} />
             </div>
           ))}
-          {plan.spend ? (
+          {ENGINE_ROWS[id].spend ? (
             <div className="flex justify-between text-muted-foreground">
               <span>Extra usage</span>
               <Line className="w-24" />
             </div>
           ) : null}
-          {plan.note ? (
-            <div className="text-[11px]">
-              <Line className="w-56" />
+          {ENGINE_ROWS[id].credits ? (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Credits</span>
+              <Line className="w-12" />
             </div>
           ) : null}
+          <div className={NOTE_CLASS} />
         </div>
       ))}
     </>
@@ -566,101 +573,141 @@ function PlanLimits({
 }): JSX.Element {
   const plans = useProviderPlans(enabled);
   const providers = engineFirst(plans.data?.providers ?? [], engine);
-  const [shape, setShape] = useAtom(planShapeAtom);
-  const sectionRef = useRef<HTMLElement>(null);
-  // Remember the answer's rows and the height each block took on screen.
-  useLayoutEffect(() => {
-    const data = plans.data;
-    if (!data) return;
-    const next: PlanShape = Object.fromEntries(
-      data.providers.map((plan) => {
-        const block = sectionRef.current?.querySelector<HTMLElement>(
-          `[data-engine="${plan.engine}"]`
-        );
-        return [
-          plan.engine,
-          {
-            windows: plan.windows.length,
-            spend: !!plan.spend,
-            note: !!plan.unavailableReason,
-            ...(block ? { height: block.offsetHeight } : {}),
-          },
-        ];
-      })
-    );
-    setShape((prev) =>
-      JSON.stringify(prev) === JSON.stringify(next) ? prev : next
-    );
-  }, [plans.data, setShape]);
+  const now = useNow(enabled);
+  const busy = plans.isFetching || plans.refresh.isPending;
+  const failure = plans.refresh.error ?? plans.error;
   return (
-    <section ref={sectionRef} className="space-y-3" aria-label="Plan limits">
-      <div className="flex items-center justify-between">
+    <section className="space-y-2" aria-label="Plan limits">
+      <div className="flex h-6 items-center justify-between gap-2">
         <h3 className="text-[11px] font-medium text-foreground">Plan limits</h3>
+        {/* A failed refresh keeps the last values; say so in the header row
+            rather than in a line that pushes the cards down. */}
+        {failure && plans.data ? (
+          <span
+            className="ml-auto truncate text-[11px] text-destructive"
+            title={failure.message}
+            data-testid="usage-plans-error"
+          >
+            Couldn&apos;t refresh
+          </span>
+        ) : null}
         <Button
           type="button"
           size="sm"
           variant="ghost"
-          className="h-6 px-1.5 text-[11px] pointer-coarse:min-h-11"
+          className="h-6 shrink-0 px-1.5 text-[11px] pointer-coarse:min-h-11"
           onClick={() => plans.refresh.mutate()}
           disabled={plans.refresh.isPending}
+          aria-busy={busy}
           data-testid="usage-plans-refresh"
         >
-          <RefreshCw
-            className={cn(
-              "mr-1 h-3 w-3",
-              plans.refresh.isPending && "animate-spin"
-            )}
-          />
+          <RefreshCw className={cn("mr-1 h-3 w-3", busy && "animate-spin")} />
           Refresh
         </Button>
       </div>
-      {plans.isLoading ? (
-        <PlanLimitsSkeleton engine={engine} shape={shape} />
+      {plans.data ? (
+        providers.map((plan) => (
+          <ProviderLimits key={plan.engine} plan={plan} now={now} />
+        ))
       ) : plans.error ? (
         <p className="text-destructive">{plans.error.message}</p>
       ) : (
-        providers.map((plan) => (
-          <ProviderLimits key={plan.engine} plan={plan} />
-        ))
+        <PlanLimitsSkeleton engine={engine} />
       )}
     </section>
   );
 }
 
-function ProviderLimits({ plan }: { plan: ProviderPlan }): JSX.Element {
+function ProviderLimits({
+  plan,
+  now,
+}: {
+  plan: ProviderPlan;
+  now: number;
+}): JSX.Element {
+  const age = reportAge(plan.observedAt, plan.source, now);
+  const rows = ENGINE_ROWS[plan.engine] ?? { spend: false, credits: false };
   return (
     <div
-      className="space-y-1.5"
+      className={CARD_CLASS}
       data-engine={plan.engine}
       data-testid={`usage-plan-${plan.engine}`}
     >
-      <div className="text-muted-foreground">
-        {ENGINE_NAME[plan.engine]}
-        {plan.plan ? ` · ${plan.plan}` : ""}
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="min-w-0 truncate">
+          <span className="font-medium text-foreground">
+            {ENGINE_NAME[plan.engine] ?? plan.engine}
+          </span>
+          {plan.plan ? (
+            <span className="text-muted-foreground"> · {plan.plan}</span>
+          ) : null}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 text-[11px] tabular-nums",
+            age === "live" ? "text-status-working" : "text-muted-foreground"
+          )}
+          title={
+            plan.observedAt
+              ? `Reported ${new Date(plan.observedAt).toLocaleString()}${
+                  plan.source === "local"
+                    ? " — read from the engine's files on this machine"
+                    : ""
+                }`
+              : undefined
+          }
+          data-testid={`usage-plan-age-${plan.engine}`}
+        >
+          {age ?? ""}
+        </span>
       </div>
       {plan.windows.map((w) => (
-        <PlanWindowRow key={w.id} window={w} />
+        <PlanWindowRow key={w.id} window={w} now={now} />
       ))}
-      {plan.spend ? (
+      {rows.spend || plan.spend ? (
         <div className="flex justify-between text-muted-foreground">
           <span>Extra usage</span>
           <span className="tabular-nums">
-            {formatCost(plan.spend.used, plan.spend.currency)} of{" "}
-            {formatCost(plan.spend.limit, plan.spend.currency)}
+            {plan.spend
+              ? `${formatCost(plan.spend.used, plan.spend.currency)} of ${formatCost(plan.spend.limit, plan.spend.currency)}`
+              : "—"}
           </span>
         </div>
       ) : null}
-      {plan.unavailableReason ? (
-        <p className="text-[11px] text-muted-foreground/80">
-          {plan.unavailableReason}
-        </p>
+      {rows.credits || plan.credits ? (
+        <div className="flex justify-between text-muted-foreground">
+          <span>Credits</span>
+          <span className="tabular-nums">{formatCredits(plan.credits)}</span>
+        </div>
       ) : null}
+      {plan.limitReached ? (
+        <p
+          className={cn(
+            NOTE_CLASS,
+            "rounded-sm bg-destructive/10 px-1 text-destructive"
+          )}
+          role="status"
+          data-testid={`usage-plan-limit-${plan.engine}`}
+        >
+          Limit reached — requests are refused until a window resets
+        </p>
+      ) : (
+        <p className={cn(NOTE_CLASS, "text-muted-foreground/80")}>
+          {plan.unavailableReason ?? ""}
+        </p>
+      )}
     </div>
   );
 }
 
-function PlanWindowRow({ window }: { window: PlanWindow }): JSX.Element {
-  const resets = resetsIn(window.resetsAt);
+function PlanWindowRow({
+  window,
+  now,
+}: {
+  window: PlanWindow;
+  now: number;
+}): JSX.Element {
+  const resets = resetsIn(window.resetsAt, now);
   return (
     <div className="space-y-1">
       <div className="flex justify-between gap-2">
