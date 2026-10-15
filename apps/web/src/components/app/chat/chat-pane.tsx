@@ -636,6 +636,16 @@ export function ChatPane({
       knownHeightRef.current - el.clientHeight - el.scrollTop <= TAIL_BUFFER_PX
     );
   }, []);
+  // Windowing also checks after commits that only changed the composer.
+  // An idle reader inside the buffer stays put until the content changes;
+  // an exact bottom remains pinned through windowing's own measurements.
+  const isFollowingContentChange = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return false;
+    const changed = el.scrollHeight !== knownHeightRef.current;
+    const atBottom = el.scrollHeight - el.clientHeight - el.scrollTop <= 2;
+    return isFollowing() && (changed || atBottom);
+  }, [isFollowing]);
   useEffect(() => {
     const el = contentRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -1358,7 +1368,7 @@ export function ChatPane({
                     onAnswer={onAnswer}
                     scrollRef={scrollRef}
                     pinnedIds={pinnedIds}
-                    isFollowing={isFollowing}
+                    isFollowing={isFollowingContentChange}
                     placeRef={placeRef}
                   />
                 ) : null}
