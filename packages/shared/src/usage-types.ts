@@ -62,13 +62,33 @@ export type PlanWindow = {
 
 export type PlanSpend = { used: number; limit: number; currency: string };
 
+/** Prepaid credits the plan can keep running on once a window is spent (Codex). */
+export type PlanCredits = {
+  /** Null when the provider does not say how many. */
+  balance: number | null;
+  unlimited: boolean;
+};
+
 export type ProviderPlan = {
   engine: "claude" | "codex";
   /** The plan's name when the provider says it ("Pro", "Max"). */
   plan: string | null;
   observedAt: string | null;
+  /**
+   * Where the newest report came from: the provider's API asked just now
+   * (`live`), or a report the engine left on this machine (`local`), which
+   * is only as fresh as the engine's last model response here.
+   */
+  source?: "live" | "local";
   windows: PlanWindow[];
   spend?: PlanSpend;
+  credits?: PlanCredits;
+  /**
+   * The provider says requests are refused right now: a window spent with
+   * no credits to fall back on, or a spend cap reached. Absent when the
+   * provider does not report it; the windows' percentages decide then.
+   */
+  limitReached?: boolean;
   /** Why there is nothing to show, when there is not. */
   unavailableReason?: string;
 };
