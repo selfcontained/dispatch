@@ -642,7 +642,15 @@ export function ChatPane({
       if (
         target instanceof HTMLElement &&
         (target.isContentEditable ||
-          target.closest("input, textarea, select, button, [role='textbox']"))
+          target.closest("input, textarea, select, [role='textbox']"))
+      )
+        return;
+      // Space activates a focused button; the other scroll keys still
+      // move its enclosing stream and must release following.
+      if (
+        event.key === " " &&
+        target instanceof HTMLElement &&
+        target.closest("button, [role='button']")
       )
         return;
       if (

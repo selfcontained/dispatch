@@ -1224,6 +1224,8 @@ describe("ChatPane following", () => {
     ["held scrollbar pointer", true],
     ["scroll key", true],
     ["composer key", false],
+    ["button PageUp", true],
+    ["button Space", false],
     ["content pointer", false],
     ["unrelated touch end", false],
   ] as const)("recognizes %s as reader intent: %s", (gesture, releases) => {
@@ -1247,6 +1249,14 @@ describe("ChatPane following", () => {
         fireEvent.keyDown(screen.getByTestId("chat-composer-input"), {
           key: "ArrowUp",
         });
+      if (gesture === "button PageUp" || gesture === "button Space") {
+        const button = document.createElement("button");
+        scroll.append(button);
+        button.focus();
+        fireEvent.keyDown(button, {
+          key: gesture === "button PageUp" ? "PageUp" : " ",
+        });
+      }
       if (gesture === "content pointer")
         fireEvent.pointerDown(scroll.firstElementChild!);
       if (gesture === "unrelated touch end")
