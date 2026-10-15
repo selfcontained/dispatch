@@ -1249,6 +1249,70 @@ describe("ChatPane following", () => {
     }
   );
 
+  it.each([0, 65])(
+    "handles a viewport-only shrink %ipx above bottom",
+    (gap) => {
+      const observers: Array<{
+        callback: ResizeObserverCallback;
+        targets: Set<Element>;
+      }> = [];
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          targets = new Set<Element>();
+          constructor(public callback: ResizeObserverCallback) {
+            observers.push(this);
+          }
+          observe(target: Element) {
+            this.targets.add(target);
+          }
+          unobserve(target: Element) {
+            this.targets.delete(target);
+          }
+          disconnect() {
+            this.targets.clear();
+          }
+        }
+      );
+      let clientHeight = 200;
+      const heightMock = vi
+        .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+        .mockReturnValue(1000);
+      const clientMock = vi
+        .spyOn(HTMLElement.prototype, "clientHeight", "get")
+        .mockImplementation(() => clientHeight);
+      vi.mocked(Element.prototype.scrollTo).mockImplementation(function (
+        this: HTMLElement
+      ) {
+        this.scrollTop = this.scrollHeight - this.clientHeight;
+      });
+      H.entries = [blockEntry(block({ id: "first", text: "first" }))];
+      const { unmount } = renderPane();
+      try {
+        const scroll = screen.getByTestId("chat-scroll");
+        const observer = observers.find(
+          (observer) =>
+            observer.targets.has(scroll) &&
+            observer.targets.has(scroll.firstElementChild!)
+        )!;
+        expect(observer).toBeTruthy();
+        scroll.scrollTop = 800 - gap;
+        clientHeight = 184;
+        act(() => observer.callback([], observer as unknown as ResizeObserver));
+        expect(scroll.scrollTop).toBe(gap === 0 ? 816 : 735);
+        // Another viewport shrink uses the most recently observed viewport.
+        clientHeight = 168;
+        act(() => observer.callback([], observer as unknown as ResizeObserver));
+        expect(scroll.scrollTop).toBe(gap === 0 ? 832 : 735);
+      } finally {
+        unmount();
+        heightMock.mockRestore();
+        clientMock.mockRestore();
+        vi.unstubAllGlobals();
+      }
+    }
+  );
+
   it.each([740, 200])("uses geometry after reopening at %ipx", (top) => {
     rememberChatScrollPosition("agt_1", {
       following: false,

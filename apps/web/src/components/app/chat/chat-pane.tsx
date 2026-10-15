@@ -649,7 +649,17 @@ export function ChatPane({
   useEffect(() => {
     const el = contentRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
+    let previousClientHeight = scrollRef.current?.clientHeight ?? 0;
     const observer = new ResizeObserver(() => {
+      const scroller = scrollRef.current;
+      if (!scroller) return;
+      const contentChanged = scroller.scrollHeight !== knownHeightRef.current;
+      // A growing draft changes the viewport, not the stream. Only a reader
+      // at the previous viewport's bottom follows that resize; the buffer
+      // belongs to content arrivals, not composer-only changes.
+      const wasAtBottom =
+        knownHeightRef.current - previousClientHeight - scroller.scrollTop <= 2;
+      previousClientHeight = scroller.clientHeight;
       if (anchoredRef.current !== 0) {
         // The reader was put at the start of a tall reply whose body is
         // still easing open: the scroller could not reach that start while
@@ -665,7 +675,7 @@ export function ChatPane({
           knownHeightRef.current = scrollRef.current.scrollHeight;
         return;
       }
-      const tailing = isFollowing();
+      const tailing = contentChanged ? isFollowing() : wasAtBottom;
       updateFollowing(tailing);
       if (tailing) scrollToBottom();
       if (scrollRef.current)
