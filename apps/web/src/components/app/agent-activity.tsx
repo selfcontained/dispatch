@@ -5,11 +5,13 @@ import { type Agent } from "@/components/app/types";
 import { TurnGlyph } from "@/components/app/chat/turn/activity-block";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { useAgentTurnLabel } from "@/hooks/use-agent-turn-label";
+import { useLocalDay } from "@/hooks/use-local-day";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { cn } from "@/lib/utils";
 
 import {
   scheduleTime,
+  sidebarScheduleTime,
   scheduleTimezone,
   useUpcomingSchedule,
 } from "./scheduled-messages";
@@ -22,6 +24,7 @@ function ScheduledActivity({
   className?: string;
 }) {
   const schedule = useUpcomingSchedule(agentId);
+  const today = useLocalDay();
   if (!schedule) return null;
   return (
     <div
@@ -36,7 +39,7 @@ function ScheduledActivity({
       <span className="min-w-0 truncate font-medium">
         Next{" "}
         <time dateTime={schedule.nextDueAt}>
-          {scheduleTime(schedule.nextDueAt)}
+          {sidebarScheduleTime(schedule.nextDueAt, today)}
         </time>
       </span>
     </div>

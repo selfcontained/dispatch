@@ -79,6 +79,11 @@ for (const width of [1280, 390]) {
     );
     const earlier = await create(parent.id, 20);
     const childSchedule = await create(child.id, 25);
+    const otherDay = await create(parent.id, 3 * 24 * 60);
+    // Make the browser's local day deterministic even if this test runs close
+    // to midnight; the API still uses its real isolated server clock.
+    await page.clock.setFixedTime(new Date(earlier.nextDueAt));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(parentLine.locator("time")).toHaveAttribute(
       "datetime",
       earlier.nextDueAt
@@ -86,6 +91,20 @@ for (const width of [1280, 390]) {
     await expect(childLine.locator("time")).toHaveAttribute(
       "datetime",
       childSchedule.nextDueAt
+    );
+    const clockLabel = await page.evaluate(
+      (value) =>
+        new Date(value).toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+        }),
+      earlier.nextDueAt
+    );
+    await expect(parentLine).toHaveText(`Next ${clockLabel}`);
+    await expect(parentLine).not.toContainText(" at ");
+    await expect(parentLine).toHaveAttribute(
+      "title",
+      /Next scheduled message: .+ at .+ \(.+\)/
     );
     await expect(parentLine).toHaveClass(/text-heading-accent-1/);
     await expect(childLine).toHaveClass(/text-heading-accent-1/);
@@ -119,6 +138,17 @@ for (const width of [1280, 390]) {
     });
     await change(earlier.id, "cancel");
     await change(later.id, "cancel");
+    await expect(parentLine.locator("time")).toHaveAttribute(
+      "datetime",
+      otherDay.nextDueAt
+    );
+    await expect(parentLine).toContainText(" at ");
+    await expect(parentLine).not.toContainText("today");
+    await page.screenshot({
+      animations: "disabled",
+      path: `/tmp/sidebar-schedules-other-day-${width}.png`,
+    });
+    await change(otherDay.id, "cancel");
     await expect(parentLine).toHaveCount(0);
     await expect(childLine).toBeVisible();
   });

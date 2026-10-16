@@ -22,9 +22,16 @@ export const scheduleStatusLabels: Record<ScheduledMessage["status"], string> =
     limit_reached: "Limit reached",
     uncertain: "Needs attention",
   };
-export function scheduleTime(value: string) {
+export function scheduleTime(value: string, now = new Date()) {
   const date = new Date(value);
-  return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" as const } : {}) })} at ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" as const } : {}) })} at ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+/** Compact sidebar wording; schedule dialogs keep their full date and time. */
+export function sidebarScheduleTime(value: string, today = new Date()) {
+  const date = new Date(value);
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : scheduleTime(value, today);
 }
 export const scheduleTimezone = () =>
   new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
