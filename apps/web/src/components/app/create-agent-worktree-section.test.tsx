@@ -1,8 +1,22 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorktreeSection } from "./create-agent-worktree-section";
+
+vi.mock("@/lib/api", () => ({
+  api: vi.fn(() => Promise.resolve({ branches: ["main", "feature/x"] })),
+}));
+
+// cmdk uses ResizeObserver and scrollIntoView, which jsdom lacks.
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver =
+  ResizeObserverStub;
+Element.prototype.scrollIntoView = () => {};
 
 const defaultProps = {
   cwd: "/repo/app",
@@ -81,5 +95,28 @@ describe("WorktreeSection", () => {
     expect(checkbox("create-agent-new-branch").disabled).toBe(true);
     expect(baseBranch().disabled).toBe(true);
     expect(branchInput().disabled).toBe(true);
+  });
+
+  it("closes an open branch dropdown and makes controls inert when worktrees collapse", () => {
+    const { rerender } = render(<WorktreeSection {...defaultProps} />);
+
+    fireEvent.click(baseBranch());
+    expect(baseBranch().getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByPlaceholderText("Search branches...")).toBeTruthy();
+
+    rerender(<WorktreeSection {...defaultProps} useWorktree={false} />);
+
+    expect(baseBranch().getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByPlaceholderText("Search branches...")).toBeNull();
+    expect(baseBranch().closest("[aria-hidden]")?.hasAttribute("inert")).toBe(
+      true
+    );
+
+    rerender(<WorktreeSection {...defaultProps} />);
+
+    expect(baseBranch().getAttribute("aria-expanded")).toBe("false");
+    expect(baseBranch().closest("[aria-hidden]")?.hasAttribute("inert")).toBe(
+      false
+    );
   });
 });

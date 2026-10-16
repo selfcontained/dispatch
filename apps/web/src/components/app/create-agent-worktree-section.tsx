@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GitBranch, Info } from "lucide-react";
 
 import { BranchSelect } from "@/components/app/branch-select";
@@ -42,6 +42,14 @@ export function WorktreeSection({
   // dropdown overflow the section.
   const [openSettled, setOpenSettled] = useState(worktreeChecked);
   if (!worktreeChecked && openSettled) setOpenSettled(false);
+  // React 18 has no `inert` prop; keep collapsed controls out of the tab order.
+  const collapsibleRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = collapsibleRef.current;
+    if (!el) return;
+    if (worktreeChecked) el.removeAttribute("inert");
+    else el.setAttribute("inert", "");
+  }, [worktreeChecked]);
 
   return (
     <div
@@ -94,6 +102,7 @@ export function WorktreeSection({
         </TooltipProvider>
       </div>
       <div
+        ref={collapsibleRef}
         aria-hidden={!worktreeChecked}
         onTransitionEnd={(event) => {
           if (event.target === event.currentTarget && worktreeChecked) {

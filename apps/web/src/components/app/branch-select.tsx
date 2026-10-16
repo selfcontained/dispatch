@@ -62,6 +62,7 @@ export function BranchSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const closeDropdown = useCallback(() => setDropdownOpen(false), []);
+  if (disabled && dropdownOpen) setDropdownOpen(false);
   useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
   const fetchBranches = useCallback(async () => {
@@ -226,6 +227,7 @@ export function BranchSelect({
           <button
             type="button"
             onClick={() => void fetchBranches()}
+            disabled={disabled}
             className="underline underline-offset-2 hover:no-underline"
           >
             Retry
