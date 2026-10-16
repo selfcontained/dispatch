@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  CodexResetError,
+  consumeCodexLimitReset,
   createProviderPlansReporter,
   loadProviderPlans,
   parseClaudeCache,
@@ -219,7 +221,11 @@ describe("loadProviderPlans", () => {
       ...codexOptions(codexAuth),
       fetchUsage: fetchUsage as unknown as typeof fetch,
     });
-    expect(fetchUsage).toHaveBeenCalledTimes(2);
+    // Anthropic once, ChatGPT twice: the usage report and the resets list.
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+    expect(
+      fetchUsage.mock.calls.filter(([url]) => url.endsWith("/wham/usage"))
+    ).toHaveLength(1);
     const [, init] = fetchUsage.mock.calls.find(([url]) =>
       url.includes("chatgpt.com")
     )! as [string, RequestInit];
@@ -280,7 +286,8 @@ describe("loadProviderPlans", () => {
   ).toString("base64url")}.x`;
 
   it.each([
-    // An expired token is never sent: the endpoint is not asked at all.
+    // An expired token is never sent; otherwise the usage report and the resets
+    // list are both asked (the count is of ChatGPT requests).
     [
       "expired JWT",
       "expired",
@@ -292,14 +299,14 @@ describe("loadProviderPlans", () => {
       "401",
       "unauthorized",
       "login_rejected",
-      1,
+      2,
       /login on this machine has expired/,
     ],
     [
       "network failure",
       "network",
       "request_failed",
-      1,
+      2,
       /Could not refresh Codex/,
     ],
   ])(
@@ -447,12 +454,14 @@ describe("loadProviderPlans", () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(NOW);
-      let codexCalls = 0;
+      let usageCalls = 0;
       const fetchUsage = vi.fn(async (url: string) => {
         if (!url.includes("chatgpt.com"))
           return new Response(JSON.stringify(claudeUtilization));
-        codexCalls += 1;
-        if (codexCalls === 2) throw new Error("offline");
+        if (url.endsWith("/wham/usage")) {
+          usageCalls += 1;
+          if (usageCalls === 2) throw new Error("offline");
+        }
         return new Response(JSON.stringify(codexUsage));
       });
       const reporter = createProviderPlansReporter({
@@ -472,5 +481,189 @@ describe("loadProviderPlans", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  const codexResets = {
+    credits: [
+      {
+        id: "RateLimitResetCredit_b",
+        status: "available",
+        granted_at: "2026-09-29T19:12:54Z",
+        expires_at: "2026-10-29T19:12:54Z",
+        title: "Full reset",
+      },
+      {
+        id: "RateLimitResetCredit_a",
+        status: "available",
+        granted_at: "2026-09-22T21:00:57Z",
+        expires_at: "2026-10-22T21:00:57Z",
+        title: "Full reset",
+      },
+      {
+        id: "RateLimitResetCredit_spent",
+        status: "redeemed",
+        expires_at: "2026-10-01T00:00:00Z",
+        title: "Full reset",
+      },
+    ],
+    available_count: 2,
+    applicable_available_count: 0,
+  };
+
+  /** ChatGPT's two endpoints and Anthropic's, by URL. */
+  const codexFetch = (consume?: (init: RequestInit) => Response) =>
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/rate-limit-reset-credits/consume")) {
+        return consume
+          ? consume(init ?? {})
+          : new Response("", { status: 500 });
+      }
+      if (url.endsWith("/rate-limit-reset-credits")) {
+        return new Response(JSON.stringify(codexResets));
+      }
+      if (url.includes("chatgpt.com")) {
+        return new Response(JSON.stringify(codexUsage));
+      }
+      return new Response(JSON.stringify(claudeUtilization));
+    });
+
+  it("lists the account's resets, oldest first, beside the live report", async () => {
+    const fetchUsage = codexFetch();
+    const report = await loadProviderPlans({
+      ...codexOptions(codexAuth),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+    });
+    expect(report.providers[1]?.limitResets).toEqual({
+      available: 2,
+      applicable: 0,
+      oldestExpiresAt: "2026-10-22T21:00:57Z",
+      items: [
+        {
+          id: "RateLimitResetCredit_a",
+          title: "Full reset",
+          grantedAt: "2026-09-22T21:00:57Z",
+          expiresAt: "2026-10-22T21:00:57Z",
+        },
+        {
+          id: "RateLimitResetCredit_b",
+          title: "Full reset",
+          grantedAt: "2026-09-29T19:12:54Z",
+          expiresAt: "2026-10-29T19:12:54Z",
+        },
+      ],
+    });
+    // Reading the report never touches the consume endpoint.
+    expect(
+      fetchUsage.mock.calls.some(([url]) => url.endsWith("/consume"))
+    ).toBe(false);
+  });
+
+  it("keeps the usage report's own reset count when the list cannot be read", async () => {
+    const fetchUsage = vi.fn(async (url: string) =>
+      url.endsWith("/rate-limit-reset-credits")
+        ? new Response("", { status: 500 })
+        : new Response(
+            JSON.stringify(
+              url.includes("chatgpt.com") ? codexUsage : claudeUtilization
+            )
+          )
+    );
+    const report = await loadProviderPlans({
+      ...codexOptions(codexAuth),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+    });
+    expect(report.providers[1]?.limitResets).toEqual({
+      available: 3,
+      applicable: 0,
+    });
+    expect(report.providers[1]?.unavailableReason).toBeUndefined();
+  });
+
+  describe("consumeCodexLimitReset", () => {
+    it("posts one redeem with a fresh request id and maps the answer", async () => {
+      const fetchUsage = codexFetch(
+        () =>
+          new Response(
+            JSON.stringify({
+              code: "ok",
+              windows_reset: 1,
+              credit: {
+                id: "RateLimitResetCredit_a",
+                title: "Full reset",
+                expires_at: "2026-10-22T21:00:57Z",
+              },
+            })
+          )
+      );
+      const outcome = await consumeCodexLimitReset({
+        ...codexOptions(codexAuth),
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+      });
+      expect(outcome).toEqual({
+        code: "ok",
+        windowsReset: 1,
+        credit: {
+          id: "RateLimitResetCredit_a",
+          title: "Full reset",
+          expiresAt: "2026-10-22T21:00:57Z",
+        },
+      });
+      const consumeCalls = fetchUsage.mock.calls.filter(([url]) =>
+        url.endsWith("/consume")
+      );
+      expect(consumeCalls).toHaveLength(1);
+      const [, init] = consumeCalls[0] as unknown as [string, RequestInit];
+      expect(init.method).toBe("POST");
+      expect(init.redirect).toBe("error");
+      expect(init.headers).toMatchObject({
+        Authorization: "Bearer codex-token",
+        "ChatGPT-Account-Id": "account-123",
+        "Content-Type": "application/json",
+      });
+      expect(JSON.parse(String(init.body))).toEqual({
+        redeem_request_id: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+        ),
+      });
+      // Only the consume endpoint is asked: nothing else is read as a side effect.
+      expect(fetchUsage).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["no login", undefined, "not_signed_in"],
+      [
+        "API key mode",
+        JSON.stringify({ auth_mode: "apikey" }),
+        "not_signed_in",
+      ],
+    ])(
+      "refuses without a ChatGPT login (%s), asking nothing",
+      async (_name, auth, reason) => {
+        const fetchUsage = codexFetch();
+        await expect(
+          consumeCodexLimitReset({
+            ...codexOptions(auth),
+            fetchUsage: fetchUsage as unknown as typeof fetch,
+          })
+        ).rejects.toMatchObject({ reason });
+        expect(fetchUsage).not.toHaveBeenCalled();
+      }
+    );
+
+    it("names a refused request without the token, and spends nothing more", async () => {
+      const warn = vi.fn();
+      const fetchUsage = codexFetch(() => new Response("", { status: 500 }));
+      const error = await consumeCodexLimitReset({
+        ...codexOptions(codexAuth),
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+        log: { warn },
+      }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(CodexResetError);
+      expect((error as CodexResetError).reason).toBe("http_error");
+      expect((error as CodexResetError).message).toMatch(/Nothing was spent/);
+      expect(fetchUsage).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("codex-token");
+      expect((error as Error).message).not.toContain("codex-token");
+    });
   });
 });

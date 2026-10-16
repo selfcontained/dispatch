@@ -4,7 +4,11 @@ import type {
 } from "@dispatch/shared";
 import type { FastifyInstance } from "fastify";
 
-import { createProviderPlansReporter } from "../../agents/provider-plans.js";
+import {
+  CodexResetError,
+  consumeCodexLimitReset,
+  createProviderPlansReporter,
+} from "../../agents/provider-plans.js";
 import {
   loadAgentUsage,
   toAgentConfigOptions,
@@ -75,5 +79,26 @@ export async function registerAgentUsageRoutes(
   app.get("/api/v1/usage/plans", async (request) => {
     const force = (request.query as { force?: string }).force === "1";
     return providerPlans({ force });
+  });
+
+  // Spends one of the Codex account's limit resets. Reached only from the
+  // popover's confirmed dialog; the cached plans are dropped so the next
+  // read shows the windows as ChatGPT now has them.
+  app.post("/api/v1/usage/codex/resets/consume", async (request, reply) => {
+    const consume =
+      deps.consumeCodexReset ??
+      (() => consumeCodexLimitReset({ log: deps.appLog }));
+    try {
+      const outcome = await consume();
+      providerPlans.invalidate?.();
+      return outcome;
+    } catch (error) {
+      if (error instanceof CodexResetError) {
+        return reply
+          .code(error.reason === "not_signed_in" ? 409 : 502)
+          .send({ error: error.message, reason: error.reason });
+      }
+      throw error;
+    }
   });
 }

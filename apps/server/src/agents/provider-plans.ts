@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import type {
+  PlanLimitResets,
   PlanSpend,
   PlanWindow,
   ProviderPlan,
@@ -485,16 +487,18 @@ function parseCodexLive(value: unknown, now: Date): ProviderPlan {
   };
 }
 
-async function loadCodexLivePlan(
+const CODEX_RESETS_URL =
+  "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
+
+type CodexLogin = { token: string; accountId: string | null };
+
+/** Codex's ChatGPT login as `auth.json` holds it; null on an API key or none. */
+async function readCodexLogin(
   options: ProviderPlanOptions,
   env: NodeJS.ProcessEnv,
-  homeDir: string,
-  now: Date
-): Promise<ProviderPlan> {
-  const fallback = () => loadCodexPlan(options, env, homeDir);
+  homeDir: string
+): Promise<CodexLogin | null> {
   const read = options.read ?? ((file: string) => readFile(file, "utf8"));
-  let token: string | null = null;
-  let accountId: string | null = null;
   try {
     const auth = object(
       JSON.parse(
@@ -507,42 +511,112 @@ async function loadCodexLivePlan(
       )
     );
     const tokens = object(auth?.tokens);
-    token = text(tokens?.access_token);
-    accountId = text(tokens?.account_id);
+    const token = text(tokens?.access_token);
+    return token ? { token, accountId: text(tokens?.account_id) } : null;
   } catch {
     // Codex may be using an API key or may not be signed in here.
+    return null;
   }
-  if (!token) return fallback();
+}
+
+function codexHeaders(login: CodexLogin): Record<string, string> {
+  return {
+    Authorization: `Bearer ${login.token}`,
+    ...(login.accountId ? { "ChatGPT-Account-Id": login.accountId } : {}),
+  };
+}
+
+/** A fetch against ChatGPT's backend, its failures named for the user. */
+async function fetchCodex(
+  options: ProviderPlanOptions,
+  login: CodexLogin,
+  url: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  let response: Response;
   try {
-    if (codexTokenExpired(token, now))
+    response = await (options.fetchUsage ?? fetch)(url, {
+      ...init,
+      headers: { ...codexHeaders(login), ...(init.headers ?? {}) },
+      signal: AbortSignal.timeout(5_000),
+      redirect: "error",
+    });
+  } catch (error) {
+    throw new RefreshFailure(
+      "request_failed",
+      error instanceof Error ? error.name : undefined
+    );
+  }
+  if (!response.ok) {
+    throw new RefreshFailure(
+      response.status === 401 || response.status === 403
+        ? "login_rejected"
+        : "http_error",
+      String(response.status)
+    );
+  }
+  return response;
+}
+
+/**
+ * The account's limit resets as the list endpoint gives them: each one
+ * still available, oldest first, with when it lapses.
+ */
+export function parseCodexResets(value: unknown): PlanLimitResets | null {
+  const root = object(value);
+  const available = finiteNumber(root?.available_count);
+  if (available === null) return null;
+  const items = (Array.isArray(root?.credits) ? root.credits : [])
+    .map((entry) => object(entry))
+    .filter(
+      (credit): credit is JsonObject =>
+        !!credit &&
+        (credit.status === undefined || credit.status === "available")
+    )
+    .map((credit) => ({
+      id: text(credit.id) ?? "",
+      title: text(credit.title) ?? "Reset",
+      grantedAt: text(credit.granted_at),
+      expiresAt: text(credit.expires_at),
+    }))
+    .filter((item) => item.id)
+    .sort(
+      (a, b) =>
+        (a.expiresAt ? Date.parse(a.expiresAt) : Infinity) -
+        (b.expiresAt ? Date.parse(b.expiresAt) : Infinity)
+    );
+  return {
+    available,
+    applicable: finiteNumber(root?.applicable_available_count) ?? 0,
+    oldestExpiresAt: items[0]?.expiresAt ?? null,
+    ...(items.length ? { items } : {}),
+  };
+}
+
+async function loadCodexLivePlan(
+  options: ProviderPlanOptions,
+  env: NodeJS.ProcessEnv,
+  homeDir: string,
+  now: Date
+): Promise<ProviderPlan> {
+  const fallback = () => loadCodexPlan(options, env, homeDir);
+  const login = await readCodexLogin(options, env, homeDir);
+  if (!login) return fallback();
+  try {
+    if (codexTokenExpired(login.token, now))
       throw new RefreshFailure("login_expired");
-    let response: Response;
-    try {
-      response = await (options.fetchUsage ?? fetch)(CODEX_USAGE_URL, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
-        },
-        signal: AbortSignal.timeout(5_000),
-        redirect: "error",
-      });
-    } catch (error) {
-      throw new RefreshFailure(
-        "request_failed",
-        error instanceof Error ? error.name : undefined
-      );
-    }
-    if (!response.ok) {
-      throw new RefreshFailure(
-        response.status === 401 || response.status === 403
-          ? "login_rejected"
-          : "http_error",
-        String(response.status)
-      );
-    }
-    const live = parseCodexLive(await response.json(), now);
+    // The resets list is extra detail: a failure there leaves the usage
+    // report's own count in place.
+    const [usage, resets] = await Promise.all([
+      fetchCodex(options, login, CODEX_USAGE_URL).then((r) => r.json()),
+      fetchCodex(options, login, CODEX_RESETS_URL)
+        .then((r) => r.json())
+        .then(parseCodexResets)
+        .catch(() => null),
+    ]);
+    const live = parseCodexLive(usage, now);
     if (!live.windows.length) throw new RefreshFailure("no_usage_reported");
-    return live;
+    return resets ? { ...live, limitResets: resets } : live;
   } catch (error) {
     const failure =
       error instanceof RefreshFailure
@@ -563,6 +637,101 @@ async function loadCodexLivePlan(
           ? CODEX_RENEW_LOGIN
           : CODEX_COULD_NOT_REFRESH,
     };
+  }
+}
+
+/** What ChatGPT answered to a redeem: `ok`, `nothing_to_reset`, `no_credit`, or its own word. */
+export type CodexResetOutcome = {
+  code: string;
+  windowsReset: number;
+  /** The reset spent, when one was. */
+  credit: { id: string; title: string; expiresAt: string | null } | null;
+};
+
+export class CodexResetError extends Error {
+  constructor(
+    readonly reason: RefreshFailureReason,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+const CODEX_RESET_FAILURE_TEXT: Record<RefreshFailureReason, string> = {
+  not_signed_in:
+    "Codex is not signed in with a ChatGPT plan on this machine, so no reset can be used.",
+  login_expired: CODEX_RENEW_LOGIN,
+  login_rejected: CODEX_RENEW_LOGIN,
+  request_failed: "Could not reach ChatGPT to use a reset. Nothing was spent.",
+  http_error: "ChatGPT refused the reset request. Nothing was spent.",
+  no_usage_reported: "ChatGPT gave no answer to the reset request.",
+  unexpected: "The reset request failed unexpectedly.",
+};
+
+/**
+ * Spend one of the account's Codex limit resets. ChatGPT picks the oldest
+ * available credit itself and keeps it when there is nothing to reset. The
+ * redeem id makes a repeated call for the same click a no-op, never a
+ * second spend. Only ever called from an explicit, confirmed user action.
+ */
+export async function consumeCodexLimitReset(
+  options: ProviderPlanOptions = {}
+): Promise<CodexResetOutcome> {
+  const now = options.now ?? new Date();
+  const env = options.env ?? process.env;
+  const homeDir = options.homeDir ?? os.homedir();
+  const login = await readCodexLogin(options, env, homeDir);
+  if (!login) {
+    throw new CodexResetError(
+      "not_signed_in",
+      CODEX_RESET_FAILURE_TEXT.not_signed_in
+    );
+  }
+  try {
+    if (codexTokenExpired(login.token, now))
+      throw new RefreshFailure("login_expired");
+    const response = await fetchCodex(
+      options,
+      login,
+      `${CODEX_RESETS_URL}/consume`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ redeem_request_id: randomUUID() }),
+      }
+    );
+    const root = object(await response.json());
+    const code = text(root?.code);
+    if (!code) throw new RefreshFailure("no_usage_reported");
+    const credit = object(root?.credit);
+    return {
+      code,
+      windowsReset: finiteNumber(root?.windows_reset) ?? 0,
+      credit:
+        credit && text(credit.id)
+          ? {
+              id: text(credit.id)!,
+              title: text(credit.title) ?? "Reset",
+              expiresAt: text(credit.expires_at),
+            }
+          : null,
+    };
+  } catch (error) {
+    const failure =
+      error instanceof RefreshFailure
+        ? error
+        : new RefreshFailure("unexpected");
+    options.log?.warn(
+      {
+        reason: failure.reason,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      },
+      "could not use a Codex limit reset"
+    );
+    throw new CodexResetError(
+      failure.reason,
+      CODEX_RESET_FAILURE_TEXT[failure.reason]
+    );
   }
 }
 
@@ -718,13 +887,20 @@ const FORCE_REFRESH_FLOOR_MS = 5_000;
  * last answer is only seconds old. A failed refresh keeps the last good
  * windows for that engine and adds the reason.
  */
+export type ProviderPlansReporter = ((request?: {
+  force?: boolean;
+}) => Promise<ProviderPlansResponse>) & {
+  /** Forget the cached report, so the next ask reads the providers again. */
+  invalidate: () => void;
+};
+
 export function createProviderPlansReporter(
   options: Omit<ProviderPlanOptions, "now"> = {},
   cacheMs = 60_000
-): (request?: { force?: boolean }) => Promise<ProviderPlansResponse> {
+): ProviderPlansReporter {
   let cached: { loadedAt: number; report: ProviderPlansResponse } | null = null;
   let pending: Promise<ProviderPlansResponse> | null = null;
-  return async (request = {}) => {
+  const report = async (request: { force?: boolean } = {}) => {
     const now = Date.now();
     if (
       cached &&
@@ -754,4 +930,9 @@ export function createProviderPlansReporter(
       });
     return pending;
   };
+  return Object.assign(report, {
+    invalidate: () => {
+      cached = null;
+    },
+  });
 }

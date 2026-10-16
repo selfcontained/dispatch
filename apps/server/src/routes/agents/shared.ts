@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
+import type { CodexResetOutcome } from "../../agents/provider-plans.js";
 import type { DiffStatsRefresher } from "../../agents/diff-stats-refresher.js";
 import type { StreamService } from "../../chat/service.js";
 import type { PublishUiEvent } from "../../server/ui-events.js";
@@ -48,9 +49,11 @@ export type AgentRouteDeps = {
    */
   chat: StreamService;
   /** Subscription plan usage; tests inject one so nothing reads a real login. */
-  providerPlans?: (request?: {
+  providerPlans?: ((request?: {
     force?: boolean;
-  }) => Promise<ProviderPlansResponse>;
+  }) => Promise<ProviderPlansResponse>) & { invalidate?: () => void };
+  /** Spends a Codex limit reset; tests inject one so nothing reaches ChatGPT. */
+  consumeCodexReset?: () => Promise<CodexResetOutcome>;
   /** Read per click: the flag is a cold path and must not be cached stale. */
 };
 
