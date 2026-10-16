@@ -50,6 +50,7 @@ import {
   useRootAgentId,
   useDeliveryAgents,
 } from "@/hooks/use-agent-tree";
+import { AgentMcpDialog } from "./agent-mcp-dialog";
 import { useAgentCommands } from "@/hooks/use-agent-commands";
 import {
   useAnswerQuestion,
@@ -1497,6 +1498,17 @@ export function ChatPane({
                         : null
                     }
                     turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
+                    accessory={
+                      agentId ? (
+                        <AgentMcpDialog
+                          key={agentId}
+                          agentId={agentId}
+                          active={active}
+                          disabledReason={disabledReason}
+                          onSend={onSend}
+                        />
+                      ) : null
+                    }
                   />
                 ) : null
               }

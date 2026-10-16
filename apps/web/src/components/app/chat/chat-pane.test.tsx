@@ -581,6 +581,46 @@ describe("ChatPane", () => {
     });
   });
 
+  it("sends MCP inspection only to the selected child and preserves the composer draft", async () => {
+    H.rootId = "agt_root";
+    H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
+    const previous = vi.mocked(api).getMockImplementation();
+    vi.mocked(api).mockImplementation(async (url) =>
+      url.endsWith("/commands")
+        ? ({
+            commands: [{ name: "mcp" }],
+            connected: true,
+            mcp: { provider: "claude", available: true },
+          } as never)
+        : ({ agents: H.agents } as never)
+    );
+    try {
+      renderPane({
+        agentId: "agt_child",
+        agent: { ...agent, id: "agt_child" },
+      });
+      const input = screen.getByTestId("chat-composer-input");
+      fireEvent.change(input, { target: { value: "keep this draft" } });
+      fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
+      const request = screen.getByRole("button", {
+        name: "Request status",
+      }) as HTMLButtonElement;
+      await waitFor(() => expect(request.disabled).toBe(false));
+      fireEvent.click(request);
+      await waitFor(() =>
+        expect(H.send).toHaveBeenCalledWith({
+          text: "/mcp",
+          attachments: [],
+          to: "agt_child",
+          delivery: "queue",
+        })
+      );
+      expect((input as HTMLTextAreaElement).value).toBe("keep this draft");
+    } finally {
+      if (previous) vi.mocked(api).mockImplementation(previous);
+    }
+  });
+
   it("posts to the root with no recipient from the root's own page", async () => {
     H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
     renderPane();
