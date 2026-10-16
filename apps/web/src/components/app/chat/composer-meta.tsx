@@ -331,18 +331,36 @@ function UsageChip({
   );
 }
 
-function Bar({ percent }: { percent: number }): JSX.Element {
+/**
+ * The bar's colour: the provider's own warning level when it gives one
+ * ("normal", "warning", anything worse), else by how full it is.
+ */
+function barTone(percent: number, severity?: string): string {
+  if (severity) {
+    return severity === "normal"
+      ? "bg-status-working"
+      : severity === "warning"
+        ? "bg-status-waiting"
+        : "bg-destructive";
+  }
+  return percent >= 90
+    ? "bg-destructive"
+    : percent >= 70
+      ? "bg-status-waiting"
+      : "bg-status-working";
+}
+
+function Bar({
+  percent,
+  severity,
+}: {
+  percent: number;
+  severity?: string;
+}): JSX.Element {
   return (
     <div className={BAR_TRACK_CLASS}>
       <div
-        className={cn(
-          "h-full rounded-full",
-          percent >= 90
-            ? "bg-destructive"
-            : percent >= 70
-              ? "bg-status-waiting"
-              : "bg-status-working"
-        )}
+        className={cn("h-full rounded-full", barTone(percent, severity))}
         style={{ width: `${Math.max(2, percent)}%` }}
       />
     </div>
@@ -582,7 +600,7 @@ const SKELETON_WINDOWS: Record<ProviderPlan["engine"], number> = {
 
 const CARD_CLASS = "rounded-md border bg-muted/30 p-2";
 /** A card's rows, under its header and set in a little from it. */
-const CARD_BODY_CLASS = "mt-2 space-y-1.5 px-1";
+const CARD_BODY_CLASS = "mt-3 space-y-1.5 px-1";
 
 /** In the cards' fixed order; an engine the list does not know goes last. */
 function inEngineOrder<T extends { engine: string }>(items: T[]): T[] {
@@ -669,7 +687,7 @@ function PlanLimits({ enabled }: { enabled: boolean }): JSX.Element {
       setFloor(cardsRef.current.offsetHeight);
   }, [enabled, plans.data]);
   return (
-    <section className="space-y-2" aria-label="Plan limits">
+    <section className="space-y-3" aria-label="Plan limits">
       <div className="flex h-6 items-center justify-between gap-2">
         <h3 className="text-[11px] font-medium text-foreground">Plan limits</h3>
         {/* A failed refresh keeps the last values; say so in the header row
@@ -699,7 +717,7 @@ function PlanLimits({ enabled }: { enabled: boolean }): JSX.Element {
       </div>
       <div
         ref={cardsRef}
-        className="space-y-2"
+        className="space-y-3"
         style={{ minHeight: floor }}
         data-testid="usage-plan-cards"
       >
@@ -843,20 +861,23 @@ function PlanWindowRow({
   now: number;
 }): JSX.Element {
   const resets = resetsIn(window.resetsAt, now);
-  const detail = `${Math.round(window.usedPercent)}% used${resets ? ` · resets ${resets}` : ""}`;
   return (
-    <div className="space-y-1">
-      {/* One line: a long label ("Fable weekly") trims the detail, not the row. */}
-      <div className="flex justify-between gap-2">
-        <span className="shrink-0 whitespace-nowrap">{window.label}</span>
-        <span
-          className="truncate tabular-nums text-muted-foreground"
-          title={detail}
-        >
-          {detail}
+    <div className="space-y-1.5 py-0.5">
+      {/* The percentage stands alone at the right; the reset sits, muted, by the label. */}
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0 whitespace-nowrap">{window.label}</span>
+          {resets ? (
+            <span className="truncate text-[11px] text-muted-foreground/80">
+              resets {resets}
+            </span>
+          ) : null}
+        </span>
+        <span className="shrink-0 tabular-nums text-foreground">
+          {Math.round(window.usedPercent)}%
         </span>
       </div>
-      <Bar percent={window.usedPercent} />
+      <Bar percent={window.usedPercent} severity={window.severity} />
     </div>
   );
 }

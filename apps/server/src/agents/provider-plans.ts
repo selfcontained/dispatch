@@ -86,10 +86,12 @@ function window(
   id: string,
   label: string,
   usedPercent: unknown,
-  resetsAt: unknown
+  resetsAt: unknown,
+  severity?: unknown
 ): PlanWindow | null {
   const used = finiteNumber(usedPercent);
   if (used === null) return null;
+  const level = text(severity);
   return {
     id,
     label,
@@ -98,6 +100,7 @@ function window(
       typeof resetsAt === "number"
         ? new Date(resetsAt * 1_000).toISOString()
         : text(resetsAt),
+    ...(level ? { severity: level } : {}),
   };
 }
 
@@ -143,7 +146,8 @@ export function parseClaudeUtilization(
             kind + (modelName ? `:${modelName}` : ""),
             label,
             limit?.percent,
-            limit?.resets_at
+            limit?.resets_at,
+            limit?.severity
           )
         : null;
     if (item) windows.push(item);

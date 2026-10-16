@@ -56,6 +56,8 @@ export type PlanWindow = {
   label: string;
   usedPercent: number;
   resetsAt: string | null;
+  /** The provider's own warning level for the window ("normal", "warning", …), when it gives one. */
+  severity?: string;
 };
 
 export type PlanSpend = {

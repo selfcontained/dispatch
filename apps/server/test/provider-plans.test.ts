@@ -110,6 +110,24 @@ describe("parseClaudeCache", () => {
     expect(plan.observedAt).toBe(NOW.toISOString());
   });
 
+  it("keeps the provider's severity on each window", () => {
+    const plan = parseClaudeUtilization(
+      {
+        limits: [
+          {
+            kind: "session",
+            percent: 91,
+            severity: "warning",
+            resets_at: "2026-09-24T15:00:00Z",
+          },
+          { kind: "weekly_all", percent: 7, resets_at: null },
+        ],
+      },
+      null
+    );
+    expect(plan.windows.map((w) => w.severity)).toEqual(["warning", undefined]);
+  });
+
   it("says when extra usage is switched off, and why", () => {
     const plan = parseClaudeUtilization(
       {
