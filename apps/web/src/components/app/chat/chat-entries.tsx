@@ -1439,6 +1439,10 @@ function LaunchCard({
           </Button>
         ) : null}
       </div>
+      {block.state?.startup?.failed ||
+      block.state?.startup?.steps.some((step) => step.status === "failed") ? (
+        <LaunchStartup block={block} />
+      ) : null}
       {inThread ? <LaunchBriefing block={block} ctx={ctx} /> : null}
       <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
     </div>

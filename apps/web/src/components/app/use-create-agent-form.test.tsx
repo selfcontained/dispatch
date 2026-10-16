@@ -15,6 +15,7 @@ import type { Agent } from "@/components/app/types";
 import type { AgentType } from "@/lib/agent-types";
 import {
   createAgentModelPrefAtom,
+  createAgentLocationPrefAtom,
   createPersonaPrefAtom,
   createBaseBranchPrefAtom,
   createFullAccessPrefAtom,
@@ -70,6 +71,7 @@ function wrapper({ children }: { children: ReactNode }) {
 type SetupOverrides = Partial<{
   enabledAgentTypes: AgentType[];
   initialAgentType: AgentType | null;
+  initialProjectId: string | null;
   resolveDefaultCwd: () => string;
   onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
 }>;
@@ -83,6 +85,7 @@ async function setup(overrides: SetupOverrides = {}) {
       initialProps: {
         enabledAgentTypes: ["claude", "codex"] as AgentType[],
         initialAgentType: null,
+        initialProjectId: null,
         resolveDefaultCwd: () => "/repo/app",
         onCreated,
         ...overrides,
@@ -154,6 +157,8 @@ beforeEach(() => {
     if (path.startsWith("/api/v1/personas?")) return { personas: [] };
     if (path.startsWith("/api/v1/history/projects")) return { projects: [] };
     if (path === "/api/v1/system/defaults") return { homeDir: "/home/srv" };
+    if (path === "/api/v1/projects") return [];
+    if (path.includes("/path-info?")) return REPO_INFO;
     if (path === "/api/v1/agents") return { agent: createdAgent };
     throw new Error(`unexpected api call: ${path}`);
   });
@@ -190,6 +195,69 @@ afterEach(() => {
   }
 });
 
+describe("launch location preference", () => {
+  const projects = [
+    { id: "project-a", repoRoot: "/repo/a" },
+    { id: "project-b", repoRoot: "/repo/b" },
+  ];
+  beforeEach(() => {
+    queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
+    queryClient.setQueryData(["projects"], projects);
+  });
+
+  it("uses initial scope until an explicit folder choice, and retains the project when toggled back", async () => {
+    const first = await setup({ initialProjectId: "project-a" });
+    expect(first.result.current.createProjectId).toBe("project-a");
+    expect(first.result.current.createCwd).toBe("/repo/a");
+    act(() => first.result.current.setCreateProjectId(null));
+    first.unmount();
+    const reopened = await setup({ initialProjectId: "project-b" });
+    expect(reopened.result.current.createProjectId).toBeNull();
+    expect(reopened.result.current.lastProjectId).toBe("project-a");
+    expect(
+      JSON.parse(localStorage.getItem("dispatch:createAgentLocation")!)
+    ).toEqual({ mode: "folder", projectId: "project-a" });
+  });
+
+  it("recalls an explicitly selected project instead of overwriting it with scope", async () => {
+    const first = await setup({ initialProjectId: "project-a" });
+    act(() => first.result.current.setCreateProjectId("project-b"));
+    first.unmount();
+    const reopened = await setup({ initialProjectId: "project-a" });
+    expect(reopened.result.current.createProjectId).toBe("project-b");
+    expect(reopened.result.current.createCwd).toBe("/repo/b");
+    await act(async () => reopened.result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({ projectId: "project-b" });
+    expect(agentsPostJson()).not.toHaveProperty("cwd");
+  });
+
+  it("falls back to a folder for deleted projects without submitting stale membership", async () => {
+    jotaiStore.set(createAgentLocationPrefAtom, {
+      mode: "project",
+      projectId: "deleted",
+    });
+    const { result } = await setup();
+    expect(result.current.createProjectId).toBeNull();
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({ cwd: "/repo/app" });
+    expect(agentsPostJson()).not.toHaveProperty("projectId");
+  });
+
+  it("blocks submission while the selected project is loading", async () => {
+    queryClient.removeQueries({ queryKey: ["projects"] });
+    const fallback = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((path, options) =>
+      path === "/api/v1/projects"
+        ? new Promise(() => {})
+        : fallback(path, options)
+    );
+    const { result } = await setup({ initialProjectId: "project-a" });
+    expect(result.current.locationReady).toBe(false);
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPost()).toBeUndefined();
+  });
+});
+
 describe("agent type seeding", () => {
   it("uses initialAgentType when it is enabled", async () => {
     const { result } = await setup({ initialAgentType: "codex" });
@@ -219,6 +287,7 @@ describe("agent type seeding", () => {
     rerender({
       enabledAgentTypes: ["claude"] as AgentType[],
       initialAgentType: "codex",
+      initialProjectId: null,
       resolveDefaultCwd: () => "/repo/app",
       onCreated,
     });
@@ -511,6 +580,7 @@ describe("handleSubmit", () => {
   it("records last-used values and hands the created agent to onCreated", async () => {
     const { result, onCreated } = await setup({
       initialAgentType: "codex",
+      initialProjectId: null,
       resolveDefaultCwd: () => "/repo/created",
     });
 

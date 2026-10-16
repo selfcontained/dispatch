@@ -220,6 +220,17 @@ for (const scope of ["root", "child"] as const) {
             await expect(progress).toContainText("npm install completed");
         }
         if (scope === "child") {
+          if (fail) {
+            await expect(progress).toContainText("Started with warnings");
+            await progress.getByTestId("harness-activity-summary").click();
+            await expect(progress).toContainText(
+              "launch-install-fixture-failed"
+            );
+            await page.reload({ waitUntil: "domcontentloaded" });
+            await expect(progress).toContainText("Started with warnings");
+          } else {
+            await expect(progress).toHaveCount(0);
+          }
           await card.getByTestId("launch-open-thread").click();
           await expect(page.getByTestId("chat-thread-panel")).toContainText(
             "Validate managed worktree preparation."
@@ -228,7 +239,7 @@ for (const scope of ["root", "child"] as const) {
             page
               .getByTestId("chat-thread-panel")
               .getByTestId("chat-launch-startup")
-          ).toHaveCount(0);
+          ).toHaveCount(fail ? 1 : 0);
           await expect(page.getByTestId("chat-thread-panel")).not.toContainText(
             "Launching"
           );
@@ -260,74 +271,86 @@ for (const scope of ["root", "child"] as const) {
   }
 }
 
-test("root launch records and persists a failed worktree phase", async ({
-  page,
-  request,
-}) => {
-  const repo = mkdtempSync(
-    path.join(os.tmpdir(), "dispatch-launch-worktree-error-")
-  );
-  try {
-    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
-    writeFileSync(path.join(repo, "README.md"), "fixture");
-    execFileSync("git", ["add", "."], { cwd: repo });
-    execFileSync(
-      "git",
-      [
-        "-c",
-        "user.name=Test",
-        "-c",
-        "user.email=test@example.com",
-        "commit",
-        "-m",
-        "fixture",
-      ],
-      { cwd: repo, stdio: "ignore" }
+for (const scope of ["root", "child"] as const) {
+  test(`${scope} launch records and persists a failed worktree phase`, async ({
+    page,
+    request,
+  }) => {
+    const repo = mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-launch-worktree-error-")
     );
-    const response = await request.post("/api/v1/agents", {
-      headers: authHeaders(),
-      data: {
-        name: `e2e-agent-worktree-error-${Date.now()}`,
-        type: "codex",
+    try {
+      execFileSync("git", ["init", "-b", "main"], {
         cwd: repo,
-        useWorktree: true,
-        worktreeBranch: "main",
-      },
-    });
-    expect(response.status()).toBe(201);
-    const { agent } = await response.json();
-    trackAgent(agent.id);
-    await expect
-      .poll(
-        async () =>
-          (
-            await (
-              await request.get(`/api/v1/agents/${agent.id}`, {
-                headers: authHeaders(),
-              })
-            ).json()
-          ).agent.status
-      )
-      .toBe("stopped");
-    await loadApp(page);
-    await clickAgentRow(page, agent.id);
-    const progress = page
-      .getByTestId("chat-launch-card")
-      .getByTestId("chat-launch-startup");
-    await expect(progress).toContainText("failed");
-    await progress.getByTestId("harness-activity-summary").click();
-    await expect(progress).toContainText("Worktree creation failed");
-    await expect(
-      progress.getByLabel("creating git worktree, failed", { exact: true })
-    ).toBeVisible();
-    await expect(progress.locator('[aria-label$=", running"]')).toHaveCount(0);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(progress).toContainText("failed");
-    await progress.getByTestId("harness-activity-summary").click();
-    await expect(
-      progress.getByLabel("creating git worktree, failed", { exact: true })
-    ).toBeVisible();
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
+        stdio: "ignore",
+      });
+      writeFileSync(path.join(repo, "README.md"), "fixture");
+      execFileSync("git", ["add", "."], { cwd: repo });
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "-m",
+          "fixture",
+        ],
+        { cwd: repo, stdio: "ignore" }
+      );
+      const parent =
+        scope === "child" ? await createAgentViaAPI(request) : null;
+      const response = await request.post("/api/v1/agents", {
+        headers: authHeaders(),
+        data: {
+          ...(parent ? { parentAgentId: parent.id } : {}),
+          name: `e2e-agent-worktree-error-${Date.now()}`,
+          type: "codex",
+          cwd: repo,
+          useWorktree: true,
+          worktreeBranch: "main",
+        },
+      });
+      expect(response.status()).toBe(201);
+      const { agent } = await response.json();
+      trackAgent(agent.id);
+      await expect
+        .poll(
+          async () =>
+            (
+              await (
+                await request.get(`/api/v1/agents/${agent.id}`, {
+                  headers: authHeaders(),
+                })
+              ).json()
+            ).agent.status
+        )
+        .toBe("stopped");
+      await loadApp(page);
+      await clickAgentRow(page, parent?.id ?? agent.id);
+      const progress = page
+        .getByTestId(
+          scope === "root" ? "chat-launch-card" : "chat-compact-launch"
+        )
+        .getByTestId("chat-launch-startup");
+      await expect(progress).toContainText("failed");
+      await progress.getByTestId("harness-activity-summary").click();
+      await expect(progress).toContainText("Worktree creation failed");
+      await expect(
+        progress.getByLabel("creating git worktree, failed", { exact: true })
+      ).toBeVisible();
+      await expect(progress.locator('[aria-label$=", running"]')).toHaveCount(
+        0
+      );
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(progress).toContainText("failed");
+      await progress.getByTestId("harness-activity-summary").click();
+      await expect(
+        progress.getByLabel("creating git worktree, failed", { exact: true })
+      ).toBeVisible();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+}

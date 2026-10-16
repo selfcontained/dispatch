@@ -1,3 +1,6 @@
+import { useAtom } from "jotai";
+import { useProjects } from "@/hooks/use-projects";
+import { createAgentLocationPrefAtom } from "@/lib/store";
 import {
   type ClipboardEvent,
   type FormEvent,
@@ -51,9 +54,24 @@ export function useCreateAgentForm({
   initialProjectId,
   onCreated,
 }: UseCreateAgentFormOptions) {
-  const [createProjectId, setCreateProjectId] = useState(
-    initialProjectId ?? null
-  );
+  const [locationPref, setLocationPref] = useAtom(createAgentLocationPrefAtom);
+  const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
+  const selectedProjectId = locationPref
+    ? locationPref.mode === "project"
+      ? locationPref.projectId
+      : null
+    : (initialProjectId ?? null);
+  const project = projects.find((p) => p.id === selectedProjectId);
+  // Keep a pending choice while loading, but never submit an unavailable ID.
+  const createProjectId = projectsLoaded
+    ? (project?.id ?? null)
+    : selectedProjectId;
+  const locationReady = !selectedProjectId || projectsLoaded;
+  const setCreateProjectId = (id: string | null) =>
+    setLocationPref({
+      mode: id ? "project" : "folder",
+      projectId: id ?? selectedProjectId ?? locationPref?.projectId ?? null,
+    });
   const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [createName, setCreateName] = useState("");
@@ -65,10 +83,11 @@ export function useCreateAgentForm({
         ? "claude"
         : enabledAgentTypes[0]!;
   });
-  const [createCwd, setCreateCwd] = useState(() => {
+  const [folderCwd, setCreateCwd] = useState(() => {
     const resolved = resolveDefaultCwd().trim();
     return resolved || readLastUsedCwd();
   });
+  const createCwd = project?.repoRoot ?? folderCwd;
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
     () => createCwd.trim().length > 0
   );
@@ -232,7 +251,7 @@ export function useCreateAgentForm({
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
-      if (!cwd) return;
+      if (!cwd || !locationReady) return;
 
       setCreating(true);
       try {
@@ -311,6 +330,7 @@ export function useCreateAgentForm({
     },
     [
       createBaseBranch,
+      locationReady,
       createCwd,
       createProjectId,
       createFullAccess,
@@ -333,6 +353,8 @@ export function useCreateAgentForm({
 
   return {
     createProjectId,
+    locationReady,
+    lastProjectId: locationPref?.projectId,
     setCreateProjectId,
     step,
     setStep,

@@ -40,15 +40,17 @@ export function ProjectIcon({
 /** Full-width location toggle; keep the folder picker mounted to retain validation. */
 export function ProjectLocation({
   projectId,
+  rememberedProjectId,
   onChange,
   children,
 }: {
   projectId: string | null | undefined;
+  rememberedProjectId?: string | null;
   onChange: (project: Project | null) => void;
   children: ReactNode;
 }) {
   const { data: projects = [], isLoading, isError, refetch } = useProjects();
-  const lastProjectId = useRef(projectId);
+  const lastProjectId = useRef(rememberedProjectId ?? projectId);
   const project = projects.find((p) => p.id === projectId);
   const select = (p: Project | null) => {
     if (p) lastProjectId.current = p.id;

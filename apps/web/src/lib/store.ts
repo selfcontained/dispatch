@@ -137,6 +137,22 @@ export const selectedProjectIdAtom = atomWithLocalStorage<string | null>(
       value === null || (typeof value === "string" && value.length > 0),
   }
 );
+// null means no explicit launch choice yet; dashboard scope supplies the default.
+export const createAgentLocationPrefAtom = atomWithLocalStorage<{
+  mode: "project" | "folder";
+  projectId: string | null;
+} | null>("dispatch:createAgentLocation", null, {
+  validate: (
+    value
+  ): value is { mode: "project" | "folder"; projectId: string | null } | null =>
+    value === null ||
+    (typeof value === "object" &&
+      "mode" in value &&
+      (value.mode === "project" || value.mode === "folder") &&
+      "projectId" in value &&
+      (value.projectId === null ||
+        (typeof value.projectId === "string" && value.projectId.length > 0))),
+});
 // The right-hand drawer's width, dragged by its left edge. One width for the
 // client: the sidebar and every agent's thread drawer share it. null until
 // someone resizes it, so the default in drawer-constants stays the default.

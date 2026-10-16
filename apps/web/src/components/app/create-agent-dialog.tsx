@@ -68,7 +68,7 @@ function CreateAgentDialogContent({
   resolveDefaultCwd,
   onCreated,
 }: Omit<CreateAgentDialogProps, "open">): JSX.Element {
-  const { project } = useProjectScope();
+  const { project, projectId } = useProjectScope();
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   // Engines whose CLI this machine does not have: pickable, but the picker
   // says what to install rather than letting the launch fail.
@@ -89,7 +89,7 @@ function CreateAgentDialogContent({
     enabledAgentTypes,
     initialAgentType,
     resolveDefaultCwd: () => project?.repoRoot ?? resolveDefaultCwd(),
-    initialProjectId: project?.id,
+    initialProjectId: projectId,
     onCreated,
   });
 
@@ -178,9 +178,9 @@ function CreateAgentDialogContent({
                 <div className="space-y-1">
                   <ProjectLocation
                     projectId={form.createProjectId}
+                    rememberedProjectId={form.lastProjectId}
                     onChange={(p) => {
                       form.setCreateProjectId(p?.id ?? null);
-                      if (p) form.setCreateCwd(p.repoRoot);
                     }}
                   >
                     <PathInput
@@ -249,7 +249,9 @@ function CreateAgentDialogContent({
                 type="button"
                 variant="default"
                 tabIndex={0}
-                disabled={form.creating || !form.createCwd.trim()}
+                disabled={
+                  form.creating || !form.locationReady || !form.createCwd.trim()
+                }
                 data-testid="create-agent-with-context"
                 onClick={form.enterContextStep}
               >
@@ -259,7 +261,7 @@ function CreateAgentDialogContent({
                 type="submit"
                 variant="primary"
                 tabIndex={0}
-                disabled={form.creating}
+                disabled={form.creating || !form.locationReady}
                 data-testid="create-agent-submit"
               >
                 {form.creating ? (
@@ -374,7 +376,11 @@ function CreateAgentDialogContent({
                   variant="primary"
                   tabIndex={0}
                   className="min-h-11 px-3"
-                  disabled={form.creating || form.contextDraftInvalid}
+                  disabled={
+                    form.creating ||
+                    !form.locationReady ||
+                    form.contextDraftInvalid
+                  }
                   data-testid="create-agent-context-submit"
                 >
                   {form.creating ? (

@@ -600,7 +600,7 @@ describe("ChatFeed", () => {
     }),
   };
 
-  it.each(["running", "done", "failed"] as const)(
+  it.each(["running", "done"] as const)(
     "keeps child %s startup out of the launch strip",
     (status) => {
       renderFeed([
@@ -610,7 +610,6 @@ describe("ChatFeed", () => {
             launchState: {
               startup: {
                 steps: [{ ...steps.worktree(), status }],
-                ...(status === "failed" ? { failed: "Failed setup" } : {}),
               },
             },
           })
@@ -620,6 +619,44 @@ describe("ChatFeed", () => {
       expect(event.textContent).toContain("Launched");
       expect(event.textContent).not.toContain("Launching");
       expect(screen.queryByTestId("chat-launch-startup")).toBeNull();
+    }
+  );
+
+  it.each(["failed", "warning", "empty failure"])(
+    "exposes child %s startup diagnostics without opening its thread",
+    (state) => {
+      renderFeed([
+        blockEntry(
+          launchBlock({
+            toAgentId: "agt_child",
+            launchState: {
+              startup: {
+                steps:
+                  state === "empty failure"
+                    ? []
+                    : [
+                        {
+                          ...steps.worktree("failed"),
+                          detail: "Git worktree diagnostic",
+                        },
+                      ],
+                ...(state === "warning"
+                  ? { readyAt: "2026-09-02T10:00:10.000Z" }
+                  : { failed: "Failed setup" }),
+              },
+            },
+          })
+        ),
+      ]);
+      const progress = within(
+        screen.getByTestId("chat-compact-launch")
+      ).getByTestId("chat-launch-startup");
+      expect(progress.textContent).toContain(
+        state === "warning" ? "Started with warnings" : "Failed setup"
+      );
+      fireEvent.click(within(progress).getByTestId("harness-activity-summary"));
+      if (state !== "empty failure")
+        expect(progress.textContent).toContain("Git worktree diagnostic");
     }
   );
 
