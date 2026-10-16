@@ -1484,7 +1484,7 @@ export function ChatPane({
                     agentId={agentId}
                     agent={agent}
                     active={active}
-                    turnRunning={turnRunning}
+                    liveUsage={newestTurn?.block.turn?.usage ?? null}
                     turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
                   />
                 ) : null

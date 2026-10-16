@@ -65,21 +65,17 @@ export function useSetAgentConfig(agentId: string | null) {
 }
 
 /**
- * What the agent has used. Context fills while a turn runs, so a running
- * turn polls; a settled one is refetched by the caller (see `refresh`).
+ * What the agent has used. Read once an agent is open and again when the
+ * caller asks (`refresh`, on a turn starting or settling); never polled —
+ * while a turn runs, its stream entry carries the context as it fills.
  */
-export function useAgentUsage(
-  agentId: string | null,
-  active: boolean,
-  turnRunning: boolean
-) {
+export function useAgentUsage(agentId: string | null, active: boolean) {
   const queryClient = useQueryClient();
   const query = useQuery<AgentUsageResponse>({
     queryKey: usageKey(agentId),
     queryFn: () =>
       api(`/api/v1/agents/${encodeURIComponent(agentId ?? "")}/usage`),
     enabled: !!agentId && active,
-    refetchInterval: active && turnRunning ? 10_000 : false,
     staleTime: 5_000,
   });
   const refresh = () =>

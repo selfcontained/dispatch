@@ -56,26 +56,51 @@ const CHIP_CLASS =
  * and what it has used (context, cost, tokens, and the plan's limits). With no
  * agent selected, the usage chip still opens the plans' limits.
  */
+/** The newest turn's usage as the stream delivers it: context so far, and cost where the engine reports one. */
+type LiveUsage = { used: number; size: number; costUsd: number | null };
+
+/**
+ * The usage report with the newest turn's figures laid over it. The report
+ * is read when a turn starts or settles; between those the stream's own
+ * turn entry carries the context as it fills, so nothing needs polling.
+ */
+function withLiveUsage(
+  usage: AgentUsageResponse | undefined,
+  live: LiveUsage | null
+): AgentUsageResponse | undefined {
+  if (!usage || !live) return usage;
+  return {
+    ...usage,
+    context: { used: live.used, size: live.size },
+    sessionCost:
+      live.costUsd === null
+        ? usage.sessionCost
+        : { amount: live.costUsd, currency: "USD" },
+  };
+}
+
 export function ComposerMeta({
   agentId,
   agent,
   active,
-  turnRunning,
+  liveUsage,
   turnKey,
 }: {
   agentId: string | null;
   agent: Agent | null;
   active: boolean;
-  turnRunning: boolean;
+  /** The newest turn's usage from the stream, when it has reported any. */
+  liveUsage: LiveUsage | null;
   /** Changes when a turn starts or settles; the usage is read again then. */
   turnKey: string;
 }): JSX.Element | null {
-  const usage = useAgentUsage(agentId, active, turnRunning);
-  const { refresh } = usage;
+  const query = useAgentUsage(agentId, active);
+  const { refresh } = query;
   useEffect(() => {
     if (agentId) void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new turn state only
   }, [turnKey]);
+  const usage = withLiveUsage(query.data, liveUsage);
   if (agentId && !agent) return null;
   return (
     <div
@@ -85,7 +110,7 @@ export function ComposerMeta({
       {agentId && agent ? (
         <>
           <ModelChip agentId={agentId} agent={agent} active={active} />
-          <UsageChip agent={agent} usage={usage.data} />
+          <UsageChip agent={agent} usage={usage} />
         </>
       ) : (
         <UsageChip agent={null} usage={undefined} />
@@ -521,7 +546,7 @@ function CardHeader({
           type={engine}
           className={cn("h-4 w-4", engine ? ENGINE_ICON[engine] : undefined)}
         />
-        <span className="font-medium text-foreground">{title}</span>
+        <h3 className="inline font-medium text-foreground">{title}</h3>
         {detail ? (
           <span className="truncate text-muted-foreground">· {detail}</span>
         ) : null}
