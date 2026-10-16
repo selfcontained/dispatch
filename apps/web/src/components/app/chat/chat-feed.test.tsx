@@ -623,40 +623,49 @@ describe("ChatFeed", () => {
   );
 
   it.each(["failed", "warning", "empty failure"])(
-    "exposes child %s startup diagnostics without opening its thread",
+    "links child %s startup note to its existing thread",
     (state) => {
-      renderFeed([
-        blockEntry(
-          launchBlock({
-            toAgentId: "agt_child",
-            launchState: {
-              startup: {
-                steps:
-                  state === "empty failure"
-                    ? []
-                    : [
-                        {
-                          ...steps.worktree("failed"),
-                          detail: "Git worktree diagnostic",
-                        },
-                      ],
-                ...(state === "warning"
-                  ? { readyAt: "2026-09-02T10:00:10.000Z" }
-                  : { failed: "Failed setup" }),
+      const onOpenThread = vi.fn();
+      renderFeed(
+        [
+          blockEntry(
+            launchBlock({
+              id: "child-launch",
+              toAgentId: "agt_child",
+              launchState: {
+                startup: {
+                  steps:
+                    state === "empty failure"
+                      ? []
+                      : [
+                          {
+                            ...steps.worktree("failed"),
+                            detail: "Git worktree diagnostic",
+                          },
+                        ],
+                  ...(state === "warning"
+                    ? { readyAt: "2026-09-02T10:00:10.000Z" }
+                    : { failed: "Failed setup" }),
+                },
               },
-            },
-          })
-        ),
-      ]);
-      const progress = within(
-        screen.getByTestId("chat-compact-launch")
-      ).getByTestId("chat-launch-startup");
-      expect(progress.textContent).toContain(
-        state === "warning" ? "Started with warnings" : "Failed setup"
+            })
+          ),
+        ],
+        {},
+        { onOpenThread }
       );
-      fireEvent.click(within(progress).getByTestId("harness-activity-summary"));
-      if (state !== "empty failure")
-        expect(progress.textContent).toContain("Git worktree diagnostic");
+      const card = screen.getByTestId("chat-compact-launch");
+      expect(within(card).queryByTestId("chat-launch-startup")).toBeNull();
+      expect(card.textContent).not.toContain("Git worktree diagnostic");
+      expect(card.textContent).not.toContain("Failed setup");
+      const note = within(card).getByTestId("launch-startup-note");
+      expect(note.textContent).toContain(
+        state === "warning" ? "Started with warnings" : "Launch error"
+      );
+      fireEvent.click(note);
+      expect(onOpenThread).toHaveBeenLastCalledWith("child-launch");
+      fireEvent.click(within(card).getByTestId("launch-open-thread-mobile"));
+      expect(onOpenThread).toHaveBeenLastCalledWith("child-launch");
     }
   );
 

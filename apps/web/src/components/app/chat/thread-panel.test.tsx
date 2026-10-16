@@ -521,6 +521,47 @@ describe("ThreadPanel", () => {
     expect(screen.getByText("Check recovery before approval")).toBeTruthy();
   });
 
+  it.each(["failed", "warning"])(
+    "shows full child %s startup diagnostics in the launch thread",
+    (state) => {
+      const root = launchBlock({
+        id: "child-startup",
+        toAgentId: "agt_2",
+        launchState: {
+          startup: {
+            steps: [
+              {
+                phase: "worktree",
+                label: "Creating git worktree",
+                status: "failed",
+                startedAt: "2026-10-16T10:00:00Z",
+                endedAt: "2026-10-16T10:00:01Z",
+                detail: "Full preparation diagnostic",
+              },
+            ],
+            ...(state === "failed"
+              ? { failed: "Worktree creation failed" }
+              : { readyAt: "2026-10-16T10:00:02Z" }),
+          },
+        },
+      });
+      client.setQueryData(threadQueryKey("agt_1", "child-startup"), {
+        root,
+        replies: [],
+      });
+      apiMock.mockResolvedValue({ root, replies: [] });
+      renderPanel({ blockId: "child-startup" });
+      const progress = screen.getByTestId("chat-launch-startup");
+      expect(progress.textContent).toContain(
+        state === "failed"
+          ? "Worktree creation failed"
+          : "Started with warnings"
+      );
+      fireEvent.click(screen.getByTestId("harness-activity-summary"));
+      expect(progress.textContent).toContain("Full preparation diagnostic");
+    }
+  );
+
   it("opens attached review findings directly on a launch's thread page", () => {
     const root = launchBlock({
       id: "launch",

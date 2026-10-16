@@ -1291,6 +1291,11 @@ function LaunchCard({
     (block.toAgentId === ctx.agentId
       ? (ctx.agentSeat ?? null)
       : (ctx.peers?.[block.toAgentId ?? ""]?.seat ?? null));
+  const startupIssue = block.state?.startup?.failed
+    ? "Launch error"
+    : block.state?.startup?.steps.some((step) => step.status === "failed")
+      ? "Started with warnings"
+      : null;
   const mobileSummary = (
     <>
       <AgentSeatBadge
@@ -1304,7 +1309,14 @@ function LaunchCard({
           {name}
         </span>
         <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="shrink-0 text-emerald-300/70">Launched</span>
+          <span
+            className={cn(
+              "shrink-0",
+              startupIssue ? "text-destructive" : "text-emerald-300/70"
+            )}
+          >
+            {startupIssue ?? "Launched"}
+          </span>
           {engine ? <span className="shrink-0">{engine}</span> : null}
           {model ? (
             <span className="truncate">
@@ -1366,7 +1378,7 @@ function LaunchCard({
           variant="ghost"
           className="flex h-auto min-h-11 w-full items-center gap-2 rounded-md px-1 py-2 text-left sm:hidden"
           data-testid="launch-open-thread-mobile"
-          aria-label={`Open launch thread for ${name}`}
+          aria-label={`${startupIssue ? `${startupIssue}: ` : ""}Open launch thread for ${name}`}
           onClick={() => ctx.onOpenThread?.(block.id)}
         >
           {mobileSummary}
@@ -1389,9 +1401,26 @@ function LaunchCard({
         />
         <div className="min-w-0 max-w-[min(60%,24rem)]">
           <div className="flex min-w-0 items-center gap-2 whitespace-nowrap leading-[21px]">
-            <span className="text-[10px] font-normal uppercase tracking-[0.065em] text-emerald-300/70">
-              Launched
-            </span>
+            {startupIssue && !inThread && ctx.onOpenThread ? (
+              <Button
+                variant="ghost"
+                className="h-auto shrink-0 px-0 py-0 text-[10px] font-normal text-destructive hover:bg-transparent hover:text-destructive hover:underline"
+                data-testid="launch-startup-note"
+                aria-label={`${startupIssue}: Open launch thread for ${name}`}
+                onClick={() => ctx.onOpenThread?.(block.id)}
+              >
+                {startupIssue}
+              </Button>
+            ) : (
+              <span
+                className={cn(
+                  "text-[10px] font-normal uppercase tracking-[0.065em]",
+                  startupIssue ? "text-destructive" : "text-emerald-300/70"
+                )}
+              >
+                {startupIssue ?? "Launched"}
+              </span>
+            )}
             <span
               className="max-w-64 truncate text-xs font-medium"
               title={name}
@@ -1439,10 +1468,7 @@ function LaunchCard({
           </Button>
         ) : null}
       </div>
-      {block.state?.startup?.failed ||
-      block.state?.startup?.steps.some((step) => step.status === "failed") ? (
-        <LaunchStartup block={block} />
-      ) : null}
+      {inThread && startupIssue ? <LaunchStartup block={block} /> : null}
       {inThread ? <LaunchBriefing block={block} ctx={ctx} /> : null}
       <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
     </div>

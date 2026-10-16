@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   authHeaders,
   trackAgent,
@@ -18,6 +18,34 @@ import {
   createAgentViaAPI,
   loadApp,
 } from "./helpers";
+
+async function checkChildStartupThread(
+  page: Page,
+  label: string,
+  detail: string
+) {
+  const card = page.getByTestId("chat-compact-launch").first();
+  const panel = page.locator('[data-testid="chat-thread-panel"]:visible');
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(card.getByTestId("chat-launch-startup")).toHaveCount(0);
+    await expect(card).not.toContainText(detail);
+    const note = card.getByTestId(
+      width === 390 ? "launch-open-thread-mobile" : "launch-startup-note"
+    );
+    await expect(note).toContainText(label);
+    await note.click();
+    const progress = panel.getByTestId("chat-launch-startup");
+    await expect(progress).toBeVisible();
+    await progress.getByTestId("harness-activity-summary").click();
+    await progress.getByRole("button", { name: /, failed$/ }).click();
+    await expect(progress.getByTestId("harness-plain")).toContainText(detail);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(panel).not.toBeVisible();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(note).toContainText(label);
+  }
+}
 
 test.afterEach(async ({ request }) => {
   await cleanupE2EAgents(request);
@@ -221,16 +249,14 @@ for (const scope of ["root", "child"] as const) {
         }
         if (scope === "child") {
           if (fail) {
-            await expect(progress).toContainText("Started with warnings");
-            await progress.getByTestId("harness-activity-summary").click();
-            await expect(progress).toContainText(
+            await checkChildStartupThread(
+              page,
+              "Started with warnings",
               "launch-install-fixture-failed"
             );
-            await page.reload({ waitUntil: "domcontentloaded" });
-            await expect(progress).toContainText("Started with warnings");
-          } else {
-            await expect(progress).toHaveCount(0);
+            await page.setViewportSize({ width: 1280, height: 900 });
           }
+          await expect(progress).toHaveCount(0);
           await card.getByTestId("launch-open-thread").click();
           await expect(page.getByTestId("chat-thread-panel")).toContainText(
             "Validate managed worktree preparation."
@@ -329,26 +355,34 @@ for (const scope of ["root", "child"] as const) {
         .toBe("stopped");
       await loadApp(page);
       await clickAgentRow(page, parent?.id ?? agent.id);
-      const progress = page
-        .getByTestId(
-          scope === "root" ? "chat-launch-card" : "chat-compact-launch"
-        )
-        .getByTestId("chat-launch-startup");
-      await expect(progress).toContainText("failed");
-      await progress.getByTestId("harness-activity-summary").click();
-      await expect(progress).toContainText("Worktree creation failed");
-      await expect(
-        progress.getByLabel("creating git worktree, failed", { exact: true })
-      ).toBeVisible();
-      await expect(progress.locator('[aria-label$=", running"]')).toHaveCount(
-        0
-      );
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(progress).toContainText("failed");
-      await progress.getByTestId("harness-activity-summary").click();
-      await expect(
-        progress.getByLabel("creating git worktree, failed", { exact: true })
-      ).toBeVisible();
+      if (scope === "child") {
+        await checkChildStartupThread(
+          page,
+          "Launch error",
+          "Worktree creation failed"
+        );
+      } else {
+        const progress = page
+          .getByTestId(
+            scope === "root" ? "chat-launch-card" : "chat-compact-launch"
+          )
+          .getByTestId("chat-launch-startup");
+        await expect(progress).toContainText("failed");
+        await progress.getByTestId("harness-activity-summary").click();
+        await expect(progress).toContainText("Worktree creation failed");
+        await expect(
+          progress.getByLabel("creating git worktree, failed", { exact: true })
+        ).toBeVisible();
+        await expect(progress.locator('[aria-label$=", running"]')).toHaveCount(
+          0
+        );
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(progress).toContainText("failed");
+        await progress.getByTestId("harness-activity-summary").click();
+        await expect(
+          progress.getByLabel("creating git worktree, failed", { exact: true })
+        ).toBeVisible();
+      }
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
