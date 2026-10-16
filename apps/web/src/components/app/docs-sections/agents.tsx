@@ -34,14 +34,14 @@ export function AgentsContent() {
             <strong>Create managed git worktree</strong> — checked by default
             (and disabled when the working directory isn't a git repo). Creates
             an isolated worktree so the agent works without touching your
-            primary checkout. While it's checked, two controls appear under it:
+            primary checkout. While it's checked, two controls expand under it:
             a <strong>Starting branch</strong> picker (defaults to{" "}
             <Code>main</Code>) that sets which branch the worktree checks out,
-            and a <strong>Create a new branch</strong> checkbox that controls
+            and a <strong>New branch</strong> row whose checkbox controls
             whether Dispatch forks a new working branch from the starting branch
             (on, default — the authoring flow) or just checks out the starting
-            branch directly (off — review/investigation flows). While that
-            checkbox is on, a branch name input appears below it — leave it
+            branch directly (off — review/investigation flows). The branch name
+            input beside it is active only while that checkbox is on — leave it
             empty and Dispatch auto-generates a name, or type one to use a
             specific branch. See the Worktrees section for details.
           </li>

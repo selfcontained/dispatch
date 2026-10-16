@@ -467,7 +467,7 @@ export function PathInput({
       </div>
 
       {showValidation ? (
-        <div className="flex h-5 items-center justify-end gap-1.5 text-xs">
+        <div className="mt-1.5 flex h-5 items-center justify-end gap-1.5 text-xs">
           {validating ? (
             <ActivityBars size={12} />
           ) : pathValidation ? (
