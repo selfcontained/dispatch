@@ -94,6 +94,9 @@ export async function registerAgentUsageRoutes(
       return outcome;
     } catch (error) {
       if (error instanceof CodexResetError) {
+        // A request that reached ChatGPT may have been honoured even though
+        // its answer was lost: drop the cached plans so the next read tells.
+        if (error.reason !== "not_signed_in") providerPlans.invalidate?.();
         return reply
           .code(error.reason === "not_signed_in" ? 409 : 502)
           .send({ error: error.message, reason: error.reason });

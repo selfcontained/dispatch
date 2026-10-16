@@ -1484,7 +1484,14 @@ export function ChatPane({
                     agentId={agentId}
                     agent={agent}
                     active={active}
-                    liveUsage={newestTurn?.block.turn?.usage ?? null}
+                    liveUsage={
+                      // Only a turn still running is live; a settled one, or
+                      // one older than a turn running in a thread, defers to
+                      // the usage report read at each turn boundary.
+                      newestTurn?.block.turn && !newestTurn.block.turn.settled
+                        ? (newestTurn.block.turn.usage ?? null)
+                        : null
+                    }
                     turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
                   />
                 ) : null

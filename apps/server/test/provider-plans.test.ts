@@ -450,6 +450,50 @@ describe("loadProviderPlans", () => {
     expect(calls).toBe(1);
   });
 
+  it("drops a load that was in flight when invalidated, and reads afresh", async () => {
+    // The first load is held until after the invalidation; a read made in
+    // between must not join it, and its late answer must not fill the cache.
+    let release: (() => void) | null = null;
+    let loads = 0;
+    const fetchUsage = vi.fn(async (url: string) => {
+      if (!url.includes("chatgpt.com"))
+        return new Response(JSON.stringify(claudeUtilization));
+      if (url.endsWith("/wham/usage")) {
+        loads += 1;
+        const nth = loads;
+        if (nth === 1) await new Promise<void>((r) => (release = r));
+        return new Response(
+          JSON.stringify({
+            ...codexUsage,
+            rate_limit: {
+              ...codexUsage.rate_limit,
+              primary_window: {
+                ...codexUsage.rate_limit.primary_window,
+                used_percent: nth === 1 ? 99 : 0,
+              },
+            },
+          })
+        );
+      }
+      return new Response(JSON.stringify(codexUsage));
+    });
+    const reporter = createProviderPlansReporter({
+      ...codexOptions(codexAuth),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+    });
+    const stale = reporter();
+    await vi.waitFor(() => expect(release).not.toBeNull());
+    reporter.invalidate();
+    const fresh = reporter();
+    release!();
+    const [staleReport, freshReport] = await Promise.all([stale, fresh]);
+    expect(staleReport.providers[1]?.windows[0]?.usedPercent).toBe(99);
+    expect(freshReport.providers[1]?.windows[0]?.usedPercent).toBe(0);
+    // The cache holds the fresh answer, not the stale one that landed later.
+    expect((await reporter()).providers[1]?.windows[0]?.usedPercent).toBe(0);
+    expect(loads).toBe(2);
+  });
+
   it("keeps the last good Codex windows when a later refresh fails", async () => {
     vi.useFakeTimers();
     try {
@@ -650,7 +694,24 @@ describe("loadProviderPlans", () => {
       }
     );
 
-    it("names a refused request without the token, and spends nothing more", async () => {
+    it("does not claim the credit survived when the request was sent but the answer was lost", async () => {
+      // ChatGPT honours the redeem, then the response times out.
+      let redeemed = 0;
+      const fetchUsage = codexFetch(() => {
+        redeemed += 1;
+        throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      });
+      const error = await consumeCodexLimitReset({
+        ...codexOptions(codexAuth),
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+      }).catch((e: unknown) => e);
+      expect(redeemed).toBe(1);
+      expect((error as CodexResetError).reason).toBe("request_failed");
+      expect((error as Error).message).toMatch(/unknown/i);
+      expect((error as Error).message).not.toMatch(/nothing was spent/i);
+    });
+
+    it("names a refused request without the token, and asks nothing more", async () => {
       const warn = vi.fn();
       const fetchUsage = codexFetch(() => new Response("", { status: 500 }));
       const error = await consumeCodexLimitReset({
@@ -660,7 +721,10 @@ describe("loadProviderPlans", () => {
       }).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(CodexResetError);
       expect((error as CodexResetError).reason).toBe("http_error");
-      expect((error as CodexResetError).message).toMatch(/Nothing was spent/);
+      expect((error as CodexResetError).message).toMatch(/unknown/i);
+      expect((error as CodexResetError).message).not.toMatch(
+        /nothing was spent/i
+      );
       expect(fetchUsage).toHaveBeenCalledTimes(1);
       expect(JSON.stringify(warn.mock.calls)).not.toContain("codex-token");
       expect((error as Error).message).not.toContain("codex-token");

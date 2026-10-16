@@ -662,10 +662,16 @@ const CODEX_RESET_FAILURE_TEXT: Record<RefreshFailureReason, string> = {
     "Codex is not signed in with a ChatGPT plan on this machine, so no reset can be used.",
   login_expired: CODEX_RENEW_LOGIN,
   login_rejected: CODEX_RENEW_LOGIN,
-  request_failed: "Could not reach ChatGPT to use a reset. Nothing was spent.",
-  http_error: "ChatGPT refused the reset request. Nothing was spent.",
-  no_usage_reported: "ChatGPT gave no answer to the reset request.",
-  unexpected: "The reset request failed unexpectedly.",
+  // A request that was sent may have been honoured before its answer was
+  // lost, so none of these may claim the credit is intact.
+  request_failed:
+    "ChatGPT did not answer the reset request, so whether a reset was spent is unknown. Check the plan limits before trying again.",
+  http_error:
+    "ChatGPT refused the reset request, so whether a reset was spent is unknown. Check the plan limits before trying again.",
+  no_usage_reported:
+    "ChatGPT's answer to the reset request could not be read. Check the plan limits before trying again.",
+  unexpected:
+    "The reset request failed before an answer came. Check the plan limits before trying again.",
 };
 
 /**
@@ -900,6 +906,10 @@ export function createProviderPlansReporter(
 ): ProviderPlansReporter {
   let cached: { loadedAt: number; report: ProviderPlansResponse } | null = null;
   let pending: Promise<ProviderPlansResponse> | null = null;
+  // Bumped by invalidate(): a load begun before it may still finish, but it
+  // may neither be joined nor fill the cache, so a read after a reset never
+  // sees the windows as they were before it.
+  let generation = 0;
   const report = async (request: { force?: boolean } = {}) => {
     const now = Date.now();
     if (
@@ -909,8 +919,10 @@ export function createProviderPlansReporter(
       return cached.report;
     }
     if (pending) return pending;
-    pending = loadProviderPlans(options)
+    const started = generation;
+    const load = loadProviderPlans(options)
       .then((report) => {
+        if (started !== generation) return report;
         report.providers = report.providers.map((plan) => {
           const previous = cached?.report.providers.find(
             (candidate) => candidate.engine === plan.engine
@@ -926,13 +938,16 @@ export function createProviderPlansReporter(
         return report;
       })
       .finally(() => {
-        pending = null;
+        if (pending === load) pending = null;
       });
-    return pending;
+    pending = load;
+    return load;
   };
   return Object.assign(report, {
     invalidate: () => {
+      generation += 1;
       cached = null;
+      pending = null;
     },
   });
 }

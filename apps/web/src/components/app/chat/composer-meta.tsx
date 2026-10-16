@@ -79,11 +79,12 @@ const CHIP_CLASS =
 type LiveUsage = { used: number; size: number; costUsd: number | null };
 
 /**
- * The usage report with the newest turn's figures laid over it. The report
- * is read when a turn starts or settles; between those the stream's own
- * turn entry carries the context as it fills, so nothing needs polling.
+ * The usage report with a running turn's figures laid over it. The report
+ * is read when a turn starts or settles; while one runs, the stream's own
+ * turn entry carries the context as it fills, so nothing needs polling. A
+ * settled turn is never laid over the report: the report is the newer word.
  */
-function withLiveUsage(
+export function withLiveUsage(
   usage: AgentUsageResponse | undefined,
   live: LiveUsage | null
 ): AgentUsageResponse | undefined {
@@ -326,7 +327,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "max-h-[70vh] w-[22rem] space-y-4 overflow-y-auto p-3 text-xs",
+          "max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"
@@ -816,7 +817,7 @@ function ProviderLimits({
  * reset can be used before a window is spent; nothing is sent until the
  * dialog is confirmed, and the answer shows in its place until closed.
  */
-function UseResetButton({
+export function UseResetButton({
   plan,
   now,
 }: {
@@ -828,6 +829,12 @@ function UseResetButton({
   const resets: PlanLimitResets | undefined = plan.limitResets;
   const available = resets?.available ?? 0;
   const expiry = formatResetExpiry(resets, now);
+  // Every way out (button, Escape, overlay) forgets the last answer, so the
+  // next open asks for confirmation again rather than showing an old result.
+  const close = () => {
+    setOpen(false);
+    consume.reset();
+  };
   const outcome = consume.data
     ? consume.data.code === "ok"
       ? `Reset applied: ${consume.data.windowsReset} window${consume.data.windowsReset === 1 ? "" : "s"} reset.`
@@ -838,10 +845,7 @@ function UseResetButton({
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) consume.reset();
-      }}
+      onOpenChange={(next) => (next ? setOpen(true) : close())}
     >
       {/* When the resets lapse at the left, the action at the right. */}
       <div className="flex items-center justify-between gap-2">
@@ -925,11 +929,7 @@ function UseResetButton({
           </p>
         ) : null}
         <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="default"
-            onClick={() => setOpen(false)}
-          >
+          <Button type="button" variant="default" onClick={close}>
             {outcome ? "Close" : "Cancel"}
           </Button>
           {outcome ? null : (
