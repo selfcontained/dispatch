@@ -83,6 +83,26 @@ export function useAgentUsage(agentId: string | null, active: boolean) {
   return { ...query, refresh };
 }
 
+/** What Codex answered to spending one of the account's limit resets. */
+export type CodexResetResult = {
+  /** `ok` when windows were reset; `nothing_to_reset` or `no_credit` otherwise. */
+  code: string;
+  windowsReset: number;
+};
+
+/**
+ * Spend one of the Codex account's limit resets. Only ever sent from the
+ * confirmed dialog; the plans are read again once it answers.
+ */
+export function useConsumeCodexReset() {
+  const queryClient = useQueryClient();
+  return useMutation<CodexResetResult, Error, void>({
+    mutationFn: () =>
+      api("/api/v1/usage/codex/resets/consume", { method: "POST" }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: PLANS_KEY }),
+  });
+}
+
 /** How much of the subscription plans the engines' logins have used. */
 export function useProviderPlans(enabled: boolean) {
   const queryClient = useQueryClient();

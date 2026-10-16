@@ -75,6 +75,15 @@ export type PlanLimitResets = {
   available: number;
   /** How many of them apply to the limit state right now. */
   applicable: number;
+  /** When the first of them lapses; absent when the provider gave no detail. */
+  oldestExpiresAt?: string | null;
+  /** Each reset held, oldest first — the one a redeem spends is the first. */
+  items?: Array<{
+    id: string;
+    title: string;
+    grantedAt: string | null;
+    expiresAt: string | null;
+  }>;
 };
 
 /** Prepaid credits the plan can keep running on once a window is spent (Codex). */

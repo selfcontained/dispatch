@@ -1,6 +1,7 @@
 import type {
   AgentConfigOption,
   AgentUsageResponse,
+  PlanLimitResets,
   PlanWindow,
   ProviderPlan,
 } from "@dispatch/shared";
@@ -16,6 +17,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -38,6 +47,7 @@ import {
 import {
   useAgentConfig,
   useAgentUsage,
+  useConsumeCodexReset,
   useProviderPlans,
   useSetAgentConfig,
 } from "@/hooks/use-agent-usage";
@@ -51,6 +61,7 @@ import {
   formatCredits,
   formatExtraUsage,
   formatLimitResets,
+  formatResetExpiry,
   pickableOptions,
   reportAge,
   resetsIn,
@@ -782,18 +793,159 @@ function ProviderLimits({
           </div>
         ) : null}
         {rows.resets || plan.limitResets ? (
-          <div
-            className="flex justify-between text-muted-foreground"
-            title="Credits that reset a reached limit early; no expiry is reported"
-          >
-            <span>Limit resets</span>
-            <span className="tabular-nums">
-              {formatLimitResets(plan.limitResets)}
-            </span>
+          <div className="space-y-1">
+            <div
+              className="flex justify-between text-muted-foreground"
+              title="Credits that reset the account's rate-limit windows at once"
+            >
+              <span>Limit resets</span>
+              <span className="tabular-nums">
+                {formatLimitResets(plan.limitResets)}
+              </span>
+            </div>
+            <UseResetButton plan={plan} now={now} />
           </div>
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Spend one of the account's Codex limit resets. Always offered, since a
+ * reset can be used before a window is spent; nothing is sent until the
+ * dialog is confirmed, and the answer shows in its place until closed.
+ */
+function UseResetButton({
+  plan,
+  now,
+}: {
+  plan: ProviderPlan;
+  now: number;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const consume = useConsumeCodexReset();
+  const resets: PlanLimitResets | undefined = plan.limitResets;
+  const available = resets?.available ?? 0;
+  const expiry = formatResetExpiry(resets, now);
+  const outcome = consume.data
+    ? consume.data.code === "ok"
+      ? `Reset applied: ${consume.data.windowsReset} window${consume.data.windowsReset === 1 ? "" : "s"} reset.`
+      : consume.data.code === "nothing_to_reset"
+        ? "Nothing to reset right now; the credit was kept."
+        : "No reset credit was available."
+    : null;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) consume.reset();
+      }}
+    >
+      {/* When the resets lapse at the left, the action at the right. */}
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className="truncate text-[11px] text-muted-foreground/80"
+          title={expiry ? `Resets expire: ${expiry}` : undefined}
+        >
+          {expiry ?? ""}
+        </span>
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            size="sm"
+            variant="default"
+            className="h-6 shrink-0 px-2 text-[11px] pointer-coarse:min-h-11"
+            disabled={available === 0}
+            data-testid="usage-codex-reset"
+          >
+            Use a reset…
+          </Button>
+        </DialogTrigger>
+      </div>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Use a Codex limit reset?</DialogTitle>
+          <DialogDescription>
+            Spends one of your {available} reset{available === 1 ? "" : "s"} and
+            clears your Codex rate-limit windows right now. It cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        {/* What the reset would clear: the windows as the card shows them. */}
+        <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs">
+          <div className="text-[11px] font-medium text-foreground">
+            Current usage
+          </div>
+          {plan.windows.map((w) => (
+            <PlanWindowRow key={w.id} window={w} now={now} />
+          ))}
+          <div className="flex justify-between text-muted-foreground">
+            <span>Credits</span>
+            <span className="tabular-nums">{formatCredits(plan.credits)}</span>
+          </div>
+        </div>
+        {resets?.items?.length ? (
+          <div className="space-y-1 text-xs">
+            <div className="text-[11px] font-medium text-foreground">
+              Your resets · the oldest is used first
+            </div>
+            <ul className="space-y-0.5" data-testid="usage-codex-reset-list">
+              {resets.items.map((item, index) => (
+                <li
+                  key={item.id}
+                  className="flex justify-between gap-2 text-muted-foreground"
+                >
+                  <span className="truncate">
+                    {item.title}
+                    {index === 0 ? " · next" : ""}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {item.expiresAt
+                      ? `expires ${new Date(item.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                      : "no expiry"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {outcome ? (
+          <p
+            className="text-sm"
+            role="status"
+            data-testid="usage-codex-reset-outcome"
+          >
+            {outcome}
+          </p>
+        ) : null}
+        {consume.error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {consume.error.message}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="default"
+            onClick={() => setOpen(false)}
+          >
+            {outcome ? "Close" : "Cancel"}
+          </Button>
+          {outcome ? null : (
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => consume.mutate()}
+              disabled={consume.isPending}
+              data-testid="usage-codex-reset-confirm"
+            >
+              {consume.isPending ? "Resetting…" : "Use a reset"}
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

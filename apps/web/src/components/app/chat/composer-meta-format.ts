@@ -106,6 +106,38 @@ export function formatLimitResets(
   return resets ? `${resets.available} available` : "—";
 }
 
+const EXPIRY_DATE = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+});
+
+/**
+ * When the held resets lapse: "Oct 22 · Oct 29 · Nov 6" when each is
+ * known (the row's title says what the dates are), "oldest expires in 6d
+ * 21h" when only the first is; null when none is held or dated.
+ */
+export function formatResetExpiry(
+  resets:
+    | {
+        available: number;
+        oldestExpiresAt?: string | null;
+        items?: Array<{ expiresAt: string | null }>;
+      }
+    | undefined,
+  now = Date.now()
+): string | null {
+  if (!resets || resets.available === 0) return null;
+  const dates = (resets.items ?? [])
+    .map((item) => (item.expiresAt ? Date.parse(item.expiresAt) : NaN))
+    .filter((at) => Number.isFinite(at))
+    .sort((a, b) => a - b);
+  if (dates.length > 0) {
+    return dates.map((at) => EXPIRY_DATE.format(at)).join(" · ");
+  }
+  const expires = resetsIn(resets.oldestExpiresAt ?? null, now);
+  return expires ? `oldest expires ${expires}` : null;
+}
+
 /** "12,500", "Unlimited", or "—" when the provider does not say. */
 export function formatCredits(
   credits: { balance: number | null; unlimited: boolean } | undefined

@@ -8,6 +8,7 @@ import {
   formatCredits,
   formatExtraUsage,
   formatLimitResets,
+  formatResetExpiry,
   pickableOptions,
   reportAge,
   resetsIn,
@@ -130,6 +131,37 @@ describe("formatLimitResets", () => {
   it("counts resets, or says none were reported", () => {
     expect(formatLimitResets({ available: 3 })).toBe("3 available");
     expect(formatLimitResets(undefined)).toBe("—");
+  });
+
+  it("lists each reset's expiry when known", () => {
+    expect(
+      formatResetExpiry({
+        available: 3,
+        items: [
+          { expiresAt: "2026-10-29T19:12:54Z" },
+          { expiresAt: "2026-10-22T21:00:57Z" },
+          { expiresAt: null },
+        ],
+      })
+    ).toBe("Oct 22 · Oct 29");
+  });
+
+  it("says when the oldest reset lapses, only while one is held", () => {
+    const now = Date.parse("2026-10-16T00:00:00Z");
+    expect(
+      formatResetExpiry(
+        { available: 3, oldestExpiresAt: "2026-10-22T21:00:00Z" },
+        now
+      )
+    ).toBe("oldest expires in 6d 21h");
+    expect(
+      formatResetExpiry(
+        { available: 0, oldestExpiresAt: "2026-10-22T21:00:00Z" },
+        now
+      )
+    ).toBeNull();
+    expect(formatResetExpiry({ available: 3 }, now)).toBeNull();
+    expect(formatResetExpiry(undefined, now)).toBeNull();
   });
 });
 

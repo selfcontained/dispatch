@@ -165,6 +165,8 @@ export type {
   AgentConfigResponse,
   AgentConfigUpdateRequest,
   AgentUsageResponse,
+  PlanCredits,
+  PlanLimitResets,
   PlanSpend,
   PlanWindow,
   ProviderPlan,
