@@ -22,6 +22,7 @@ describe("bundled Claude steering receipt patch", () => {
       };
       const receiptId = "a1234567-0000-4000-8000-000000000000";
       const turn = {
+        events: { inserted: vi.fn(), running: vi.fn() },
         settled: false,
         promptUuid: kind.startsWith("prompt") ? receiptId : undefined,
         receiptId: kind.startsWith("prompt") ? receiptId : undefined,

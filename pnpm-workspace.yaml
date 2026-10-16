@@ -11,5 +11,5 @@ allowBuilds:
   sharp: true
   workerd: true
 patchedDependencies:
-  "@agentclientprotocol/claude-agent-acp@0.84.0": patches/@agentclientprotocol__claude-agent-acp@0.84.0.patch
-  "@agentclientprotocol/codex-acp@2.0.1": patches/@agentclientprotocol__codex-acp@2.0.1.patch
+  "@agentclientprotocol/claude-agent-acp@0.91.0": patches/@agentclientprotocol__claude-agent-acp@0.91.0.patch
+  "@agentclientprotocol/codex-acp@2.2.2": patches/@agentclientprotocol__codex-acp@2.2.2.patch

@@ -1,8 +1,7 @@
 diff --git a/dist/index.js b/dist/index.js
-index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad01122b4870a 100755
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -30384,13 +30384,26 @@ var CodexEventHandler = class {
+@@ -31343,13 +31343,26 @@
        case "turn/started":
          this.sessionState.currentTurnId = notification.params.turn.id;
          await this.flushPendingErrors();
@@ -31,7 +30,7 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
        case "thread/tokenUsage/updated":
          return this.createUsageUpdate(notification.params);
        case "thread/name/updated":
-@@ -30651,9 +30664,13 @@ ${event.details}` : event.summary;
+@@ -31614,9 +31627,13 @@
          ) : this.renderer.render(CompactionReporter.started(event.item));
        case "subAgentActivity":
          return this.renderer.render(this.subagents.legacyActivityStarted(event.item));
@@ -46,7 +45,7 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
        case "hookPrompt":
        case "reasoning":
        case "enteredReviewMode":
-@@ -34236,6 +34253,7 @@ var CodexAcpClient = class {
+@@ -35604,6 +35621,7 @@
      }
      return await this.codexClient.runTurn({
        threadId: request.sessionId,
@@ -54,7 +53,7 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
        input: input2,
        approvalPolicy: agentMode.approvalPolicy,
        approvalsReviewer: agentMode.approvalsReviewer,
-@@ -34364,6 +34382,7 @@ var CodexAcpClient = class {
+@@ -35737,6 +35755,7 @@
      return await this.codexClient.turnSteer({
        threadId: params.threadId,
        expectedTurnId: params.turnId,
@@ -62,7 +61,7 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
        input: buildPromptItems(params.prompt)
      });
    }
-@@ -37356,6 +37375,7 @@ var CodexAcpServer = class {
+@@ -42472,6 +42491,7 @@
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities),
        _meta: {
@@ -70,17 +69,17 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
          steering: {
            supported: true
          },
-@@ -38427,6 +38447,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -43855,6 +43875,9 @@
+         logger.log("Steering session injected", { sessionId: params.sessionId, turnId });
          return { outcome: "injected" };
        }
-     }
++    }
 +    if (params._meta?.steering?.idleBehavior === "promptRequired") {
 +      return { outcome: "promptRequired", reason: "noRunningTurn" };
-+    }
+     }
      return await this.startNewTurnFromSteering(params);
    }
-   /**
-@@ -38455,7 +38478,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -43884,7 +43907,8 @@
        await this.runWithProcessCheck(() => this.codexAcpClient.steerTurn({
          threadId: params.sessionId,
          turnId,
@@ -90,7 +89,7 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
        }));
        return true;
      } catch (err) {
-@@ -38565,7 +38589,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -43994,7 +44018,8 @@
      }
      return {
        sessionId,
@@ -100,7 +99,7 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
      };
    }
    createSessionConfigOptions(sessionState) {
-@@ -39411,6 +39436,17 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -44790,6 +44815,17 @@
      return turnId;
    }
    async prompt(params, signal, onTurnStarted) {
@@ -116,9 +115,9 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
 +  }
 +  async promptTurn(params, signal, onTurnStarted) {
      if (this.providerUpdate !== null) {
-       await this.providerUpdate;
+       await this.waitForProviderUpdate();
      }
-@@ -39521,7 +39557,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -44935,7 +44971,7 @@
            }
            sessionState.currentTurnId = turnId;
            pendingTurnStart?.resolve(turnId);
@@ -127,7 +126,7 @@ index 746f33e326e6867bdcdf8ffa893725b77f7f2e99..9f781ed1dc35adb30d2ae64c5efad011
          },
          setConfigOption: async (configId, value) => {
            await this.applySessionConfigOption(sessionState, {
-@@ -39626,7 +39662,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -45042,7 +45078,7 @@
              }
              sessionState.currentTurnId = turnId;
              pendingTurnStart?.resolve(turnId);

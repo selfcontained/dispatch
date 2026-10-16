@@ -18,7 +18,7 @@ function fixture(active = true) {
       cancelAsyncMessage: vi.fn(async (_uuid: string) => true),
       interrupt: vi.fn(async () => undefined),
     },
-    pendingUserInputCount: 0,
+    openUserInputs: new Set(),
     msgLifecycleV1: true,
     orphanCommands: new Map<string, string>(),
     pendingOrphanResults: 0,
@@ -30,6 +30,15 @@ function fixture(active = true) {
     exitPlan: { cancel: vi.fn() },
     trackOrphanCommand: vi.fn(
       Reflect.get(ClaudeAcpAgent.prototype, "trackOrphanCommand")
+    ),
+    cancelTurns: Reflect.get(ClaudeAcpAgent.prototype, "cancelTurns"),
+    dropQueuedMessages: Reflect.get(
+      ClaudeAcpAgent.prototype,
+      "dropQueuedMessages"
+    ),
+    stopBackgroundWorkflows: Reflect.get(
+      ClaudeAcpAgent.prototype,
+      "stopBackgroundWorkflows"
     ),
     forceCancelGraceMs: 30_000,
     logger: { error: vi.fn() },
@@ -52,7 +61,9 @@ describe("patched Claude adapter steering", () => {
     "uses next between tools, later with %i pending user-input callbacks",
     async (pending) => {
       const { session, steer } = fixture();
-      session.pendingUserInputCount = pending;
+      session.openUserInputs = new Set(
+        Array.from({ length: pending }, () => ({}))
+      );
       await expect(steer()).resolves.toEqual({ outcome: "injected" });
       expect(session.input.push).toHaveBeenCalledWith(
         expect.objectContaining({ priority: pending > 0 ? "later" : "next" })
@@ -72,7 +83,7 @@ describe("patched Claude adapter steering", () => {
       );
       await cancel();
       expect(session.query.cancelAsyncMessage.mock.calls).toEqual(
-        uuids.map((uuid) => [uuid])
+        [...uuids, ...(active ? [] : ["original-prompt"])].map((uuid) => [uuid])
       );
       expect(
         session.query.cancelAsyncMessage.mock.invocationCallOrder.at(-1)
@@ -90,7 +101,7 @@ describe("patched Claude adapter steering", () => {
 
   it("waits for withdrawal to finish before interrupting", async () => {
     const { session, steer, cancel } = fixture();
-    session.pendingUserInputCount = 1;
+    session.openUserInputs.add({});
     await steer();
     let release!: (withdrawn: boolean) => void;
     session.query.cancelAsyncMessage.mockImplementation(
@@ -106,6 +117,65 @@ describe("patched Claude adapter steering", () => {
     expect(session.query.interrupt).not.toHaveBeenCalled();
     release(true);
     await cancellation;
+    expect(session.query.interrupt).toHaveBeenCalledOnce();
+  });
+
+  it("drops a queued prompt once alongside withdrawn steers", async () => {
+    const { session, steer, cancel } = fixture();
+    await steer();
+    const uuid = session.input.push.mock.calls[0]![0].uuid;
+    const queued = {
+      promptUuid: "queued-prompt",
+      settled: false,
+      resolve: vi.fn(),
+    };
+    session.turnQueue.push(queued);
+    await cancel();
+    expect(queued.resolve).toHaveBeenCalledWith({ stopReason: "cancelled" });
+    expect(session.query.cancelAsyncMessage.mock.calls).toEqual([
+      [uuid],
+      ["queued-prompt"],
+    ]);
+    expect(
+      session.query.cancelAsyncMessage.mock.invocationCallOrder.at(-1)
+    ).toBeLessThan(session.query.interrupt.mock.invocationCallOrder[0]!);
+  });
+
+  it("drops remaining steers without duplicating a timed-out withdrawal", async () => {
+    const { agent, session, steer, cancel } = fixture();
+    agent.forceCancelGraceMs = 40;
+    await steer();
+    await steer();
+    const uuids = session.input.push.mock.calls.map(
+      ([message]) => message.uuid
+    );
+    session.query.cancelAsyncMessage.mockImplementation(
+      () => new Promise<boolean>(() => {})
+    );
+    await cancel();
+    expect(session.query.cancelAsyncMessage.mock.calls).toEqual(
+      uuids.map((uuid) => [uuid])
+    );
+    expect(session.query.interrupt).toHaveBeenCalledOnce();
+  });
+
+  it("keeps teardown nonblocking and drops each abandoned message once", async () => {
+    const { agent, session, steer } = fixture(false);
+    await steer();
+    const uuid = session.input.push.mock.calls[0]![0].uuid;
+    session.query.cancelAsyncMessage.mockImplementation(
+      () => new Promise<boolean>(() => {})
+    );
+    session.query.interrupt.mockImplementation(() => new Promise(() => {}));
+    await agent.cancelTurns.call(
+      agent,
+      { sessionId },
+      { awaitInterrupt: false }
+    );
+    expect(session.query.cancelAsyncMessage.mock.calls).toEqual([
+      [uuid],
+      ["original-prompt"],
+    ]);
     expect(session.query.interrupt).toHaveBeenCalledOnce();
   });
 
@@ -223,6 +293,7 @@ function consumerFixture() {
 function makeTurn(uuid: string) {
   return {
     promptUuid: uuid,
+    events: { inserted: vi.fn(), running: vi.fn() },
     settled: false,
     isLocalOnlyCommand: true,
     resolve: vi.fn(),
