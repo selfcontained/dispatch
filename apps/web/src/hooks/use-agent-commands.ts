@@ -1,3 +1,4 @@
+import type { AgentCommandsResponse } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
 
 import type { SlashCommand } from "@/components/app/chat/slash-commands";
@@ -7,7 +8,15 @@ export function useAgentCommands(
   agentId: string | null,
   active: boolean
 ): SlashCommand[] {
-  const query = useQuery<{ commands: Omit<SlashCommand, "source">[] }>({
+  const query = useAgentCommandData(agentId, active);
+  return (query.data?.commands ?? []).map((command) => ({
+    ...command,
+    source: "agent" as const,
+  }));
+}
+
+export function useAgentCommandData(agentId: string | null, active: boolean) {
+  return useQuery<AgentCommandsResponse>({
     queryKey: ["agent-commands", agentId],
     queryFn: () =>
       api(`/api/v1/agents/${encodeURIComponent(agentId ?? "")}/commands`),
@@ -15,8 +24,4 @@ export function useAgentCommands(
     refetchInterval: active ? 5_000 : false,
     staleTime: 5_000,
   });
-  return (query.data?.commands ?? []).map((command) => ({
-    ...command,
-    source: "agent" as const,
-  }));
 }

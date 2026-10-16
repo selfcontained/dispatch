@@ -1627,6 +1627,22 @@ describe("StreamService.sendUserPost", () => {
     expect(injected[1]?.text).toContain("--- DISPATCH POST");
   });
 
+  it.each(["/mcp", "/mcp reconnect"])(
+    "queues %s as a raw, standalone provider command",
+    async (text) => {
+      const { svc, injected, injectedOpts } = build({ commands: ["mcp"] });
+      const result = await svc.sendUserPost(A, { text, delivery: "queue" });
+      await settled(svc, result.block.id);
+      expect(result.block.data).toMatchObject({ acpCommand: true });
+      expect(injected).toEqual([{ agentId: A, text }]);
+      expect(injectedOpts[0]).toMatchObject({
+        blockId: result.block.id,
+        alone: true,
+        delivery: "queue",
+      });
+    }
+  );
+
   it("persists pending, returns held, then settles delivered", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {
