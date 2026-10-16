@@ -353,6 +353,9 @@ export class ScheduledMessageService {
               ? nextBoundary(s.deliverAt, s.intervalSeconds, now)
               : s.expiresAt;
             await this.save(s);
+            // The next due time changes even while an accepted occurrence is
+            // still outstanding. Notify summary observers after persisting it.
+            await this.card(s);
           }
           if (
             s.outstanding?.phase !== "pending" ||
@@ -539,6 +542,9 @@ export class ScheduledMessageService {
           );
       }
       await this.save(s);
+      // Pickup/settlement can move the next boundary after acceptance. Publish
+      // the refreshed presentation so sidebar and schedule caches follow it.
+      await this.card(s);
     });
   }
   async receipt(event: Extract<DriverEvent, { type: "steering_picked_up" }>) {

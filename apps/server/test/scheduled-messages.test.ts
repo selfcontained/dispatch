@@ -35,6 +35,7 @@ let live = true;
 let notice: ReturnType<typeof vi.fn>;
 let warn: ReturnType<typeof vi.fn>;
 let outcome: ReturnType<typeof vi.fn>;
+let refreshNotice: ReturnType<typeof vi.fn>;
 const input = () => ({
   title: "Check deployment",
   message: "Check it",
@@ -72,6 +73,7 @@ beforeEach(async () => {
   notice = vi.fn(async () => ({ id: crypto.randomUUID() }));
   warn = vi.fn();
   outcome = vi.fn(async () => {});
+  refreshNotice = vi.fn(async () => {});
   service = new ScheduledMessageService(
     pool,
     {
@@ -83,7 +85,7 @@ beforeEach(async () => {
       scheduledNoticeOutcome: outcome,
       scheduledNoticePending: async () => {},
       scheduledNotice: notice,
-      refreshScheduledNotice: async () => {},
+      refreshScheduledNotice: refreshNotice,
       resolvePromptSource: async (_id: string, s: PromptSource) => s,
     } as unknown as StreamService,
     { warn }
@@ -232,6 +234,82 @@ describe("scheduled messages", () => {
     settle();
     await flush();
   });
+  it.each(["pickedUp", "settled"] as const)(
+    "publishes recurring boundaries during accepted delivery ticks and release by %s",
+    async (reason) => {
+      let observedNextDueAt: string | undefined;
+      refreshNotice.mockImplementation(async () => {
+        // Represents an already-mounted summary observer refetching when the
+        // card notice arrives: it must see the committed timing immediately.
+        observedNextDueAt = (await service.upcoming())[id]?.nextDueAt;
+      });
+      const schedule = await service.create(id, input());
+      const due = Date.parse(schedule.deliverAt);
+      await service.tick(due);
+      expect(await options.beforeSubmit!()).toBe(true);
+      accept();
+      await vi.waitFor(async () => {
+        expect((await service.list(id))[0]!.outstanding?.phase).toBe(
+          "accepted"
+        );
+      });
+      const beforeRelease = (await service.upcoming())[id]!;
+      expect(beforeRelease.nextDueAt).toBe(
+        new Date(due + 300000).toISOString()
+      );
+      await vi.waitFor(() =>
+        expect(observedNextDueAt).toBe(beforeRelease.nextDueAt)
+      );
+      refreshNotice.mockClear();
+      observedNextDueAt = undefined;
+
+      const clock = vi.spyOn(Date, "now").mockReturnValue(due + 300001);
+      try {
+        // Cadence advances while the accepted delivery still waits for pickup.
+        await service.tick(Date.now());
+        expect((await service.list(id))[0]!.outstanding?.phase).toBe(
+          "accepted"
+        );
+        expect(observedNextDueAt).toBe(new Date(due + 600000).toISOString());
+        expect(refreshNotice).toHaveBeenCalledOnce();
+        refreshNotice.mockClear();
+        observedNextDueAt = undefined;
+
+        // Pickup/settlement crosses another boundary without a scheduler tick.
+        const now = due + 600001;
+        clock.mockReturnValue(now);
+        if (reason === "pickedUp") {
+          await service.receipt({
+            type: "steering_picked_up",
+            agentId: id,
+            receiptId: "late-pickup",
+            source,
+            at: new Date(now).toISOString(),
+          });
+        } else {
+          settle();
+        }
+        const nextDueAt = new Date(due + 900000).toISOString();
+        await vi.waitFor(() => {
+          expect(refreshNotice).toHaveBeenCalledWith(
+            id,
+            schedule.cardId,
+            schedule.id,
+            expect.any(String),
+            expect.objectContaining({ status: "active", nextDueAt })
+          );
+        });
+        await vi.waitFor(() => expect(observedNextDueAt).toBe(nextDueAt));
+        expect((await service.list(id))[0]!.outstanding).toBeNull();
+        expect((await service.upcoming())[id]).toEqual({
+          id: schedule.id,
+          nextDueAt,
+        });
+      } finally {
+        clock.mockRestore();
+      }
+    }
+  );
   it("cancels unaccepted queued delivery but leaves accepted delivery in place", async () => {
     const s = await service.create(id, input());
     await service.tick(Date.parse(s.deliverAt));
