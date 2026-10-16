@@ -174,12 +174,13 @@ diff --git a/dist/acp-agent.js b/dist/acp-agent.js
          // query and interrupt() doesn't make the SDK yield (e.g. a wedged TaskOutput
          // block — issue #680), force the consumer to settle the active turn
          // "cancelled" after the floor elapses so the pending session/prompt still
-@@ -6255,7 +6293,55 @@
+@@ -6255,7 +6293,57 @@
          // too, after the record above was taken.
          for (const uuid of abandoned)
              (session.cancelledPrompts ??= new Set()).add(uuid);
 -        this.dropQueuedMessages(params.sessionId, session.query, abandoned);
 +        const attemptedWithdrawals = new Set();
++        const withdrawnSteers = new Set();
 +        if (options.awaitInterrupt) {
 +            // Withdraw next/later steers before interrupting, with one shared budget
 +            // so an unresponsive control channel cannot strand Stop behind N requests.
@@ -211,6 +212,7 @@ diff --git a/dist/acp-agent.js b/dist/acp-agent.js
 +                if (!ownsCancellation())
 +                    return;
 +                if (withdrawn) {
++                    withdrawnSteers.add(uuid);
 +                    turn.steeredEchoes.delete(uuid);
 +                    if (lifecycleLane)
 +                        session.orphanCommands?.delete(uuid);
@@ -231,3 +233,34 @@ diff --git a/dist/acp-agent.js b/dist/acp-agent.js
          const interrupt = session.query.interrupt();
          if (!options.awaitInterrupt) {
              // The caller closes the query next, which rejects the pending reply.
+@@ -6280,9 +6368,19 @@
+         // receipt, so a bare `{}` success from a gateway can't read as "everything
+         // was dropped") — keep the count-everything behavior and its
+         // activation-time self-heal.
+-        if (Array.isArray(receipt?.still_queued) && orphanedTurns.length > 0) {
++        // The receipt also covers steers left queued after a failed/timed-out
++        // withdrawal, including the nonblocking fallback drops. Exclude steers
++        // already reconciled above so a successful withdrawal is counted once.
++        // Reconcile here rather than in late drop callbacks, which could otherwise
++        // subtract from a successor's legacy orphan count.
++        const receiptOrphans = [
++            ...orphanedTurns,
++            ...queuedSteers.filter(({ uuid }) => !withdrawnSteers.has(uuid))
++                .map(({ uuid }) => ({ promptUuid: uuid })),
++        ];
++        if (Array.isArray(receipt?.still_queued) && receiptOrphans.length > 0) {
+             const stillQueued = new Set(receipt.still_queued);
+-            const droppedTurns = orphanedTurns.filter((turn) => !stillQueued.has(turn.promptUuid));
++            const droppedTurns = receiptOrphans.filter((turn) => !stillQueued.has(turn.promptUuid));
+             const droppedCount = droppedTurns.length;
+             for (const turn of droppedTurns) {
+                 session.pendingEmptyInterruptionDiagnosticCommands?.delete(turn.promptUuid);
+@@ -6297,7 +6395,7 @@
+                 // the count lane has always had for a dropped-then-run command.)
+                 // Mostly redundant with the "cancelled"-frame removal, but a receipt
+                 // survives paths where that frame was never emitted.
+-                for (const turn of orphanedTurns) {
++                for (const turn of receiptOrphans) {
+                     if (!stillQueued.has(turn.promptUuid) &&
+                         session.orphanCommands?.get(turn.promptUuid) === "pending") {
+                         session.orphanCommands.delete(turn.promptUuid);
