@@ -38,8 +38,9 @@ type AgentsViewDialogsProps = {
   onStop: (agent: Agent) => Promise<void>;
   lightboxFileId: number | null;
   lightboxCaption?: string;
+  lightboxIndex?: number;
   lightboxFileIds: number[];
-  setLightboxFileId: (fileId: number | null) => void;
+  setLightboxFileId: (fileId: number | null, occurrenceIndex?: number) => void;
 };
 
 /**
@@ -73,6 +74,7 @@ export function AgentsViewDialogs({
   onStop,
   lightboxFileId,
   lightboxCaption,
+  lightboxIndex,
   lightboxFileIds,
   setLightboxFileId,
 }: AgentsViewDialogsProps): JSX.Element {
@@ -125,6 +127,7 @@ export function AgentsViewDialogs({
       <FileLightbox
         fileId={lightboxFileId}
         attachmentCaption={lightboxCaption}
+        fileIndex={lightboxIndex}
         fileIds={lightboxFileIds}
         setFileId={setLightboxFileId}
       />

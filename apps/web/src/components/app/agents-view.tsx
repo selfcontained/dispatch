@@ -208,6 +208,7 @@ export function AgentsView({
     unseenFileCount,
     lightboxFileId,
     lightboxCaption,
+    lightboxIndex,
     lightboxFileIds,
     setLightboxFileId,
     openLightbox,
@@ -783,6 +784,7 @@ export function AgentsView({
         onStop={stopAgent}
         lightboxFileId={lightboxFileId}
         lightboxCaption={lightboxCaption}
+        lightboxIndex={lightboxIndex}
         lightboxFileIds={lightboxFileIds}
         setLightboxFileId={setLightboxFileId}
       />

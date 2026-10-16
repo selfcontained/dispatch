@@ -158,7 +158,7 @@ export type FeedContext = {
   onOpenFile: (
     fileId: number,
     order?: number[],
-    captions?: Record<number, string>
+    selection?: { captions: string[]; index: number }
   ) => void;
   /** Opens the Changes tab on a file, at a line when one is given. */
   onOpenPath?: (path: string, line: number | null) => void;

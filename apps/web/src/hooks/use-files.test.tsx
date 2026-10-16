@@ -141,8 +141,8 @@ describe("useFiles lightbox identity", () => {
     // One post's images, in the post's order.
     act(() =>
       result.current.openLightbox(3, [3, 1], {
-        3: "Third view",
-        1: "First view",
+        captions: ["Third view", "First view"],
+        index: 0,
       })
     );
     expect(result.current.lightboxCaption).toBe("Third view");
@@ -158,6 +158,35 @@ describe("useFiles lightbox identity", () => {
     act(() => result.current.openLightbox(2));
     expect(result.current.lightboxCaption).toBeUndefined();
     expect(result.current.lightboxFileIds).toHaveLength(4);
+  });
+
+  it("tracks duplicate file occurrences and captions through next/previous and reopen", async () => {
+    apiMock.mockImplementation(async () => ({
+      files: [file({ id: 1, name: "same.png" })],
+    }));
+    const { result } = renderHook(() => useFiles(AGENT_ID, true), { wrapper });
+    await waitFor(() => expect(result.current.files).toHaveLength(1));
+    act(() =>
+      result.current.openLightbox(1, [1, 1], {
+        captions: ["Overview", "Detail"],
+        index: 1,
+      })
+    );
+    expect(result.current.lightboxIndex).toBe(1);
+    expect(result.current.lightboxCaption).toBe("Detail");
+    act(() => result.current.setLightboxFileId(1, 0));
+    expect(result.current.lightboxCaption).toBe("Overview");
+    act(() => result.current.setLightboxFileId(1, 1));
+    expect(result.current.lightboxCaption).toBe("Detail");
+    act(() => result.current.setLightboxFileId(null));
+    act(() =>
+      result.current.openLightbox(1, [1, 1], {
+        captions: ["Overview", "Detail"],
+        index: 0,
+      })
+    );
+    expect(result.current.lightboxIndex).toBe(0);
+    expect(result.current.lightboxCaption).toBe("Overview");
   });
 
   it("appends a newly-arrived file at the end instead of reordering an open session", async () => {

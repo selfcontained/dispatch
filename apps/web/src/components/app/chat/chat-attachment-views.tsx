@@ -158,7 +158,8 @@ function FileAttachment({
   const open = () => {
     if (attachment.media === "image") {
       ctx.onOpenFile(attachment.fileId, undefined, {
-        [attachment.fileId]: attachment.caption ?? "",
+        captions: [attachment.caption ?? ""],
+        index: 0,
       });
     } else {
       ctx.onOpenFile(attachment.fileId);
@@ -317,9 +318,7 @@ function ImageGallery({
   // Prev/next in the lightbox walk this post's images, so "+N" leads on to
   // the ones it stands for.
   const order = images.map((image) => image.fileId);
-  const captions = Object.fromEntries(
-    images.map((image) => [image.fileId, image.caption ?? ""])
-  );
+  const captions = images.map((image) => image.caption ?? "");
   return (
     <div
       className="grid w-full max-w-md grid-cols-2 gap-1.5 sm:flex sm:max-w-none sm:flex-wrap"
@@ -337,7 +336,9 @@ function ImageGallery({
           >
             <button
               type="button"
-              onClick={() => ctx.onOpenFile(attachment.fileId, order, captions)}
+              onClick={() =>
+                ctx.onOpenFile(attachment.fileId, order, { captions, index })
+              }
               className="relative block w-full aspect-square overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-40"
               title={label}
               aria-label={more ? `${label}, and ${more - 1} more` : label}

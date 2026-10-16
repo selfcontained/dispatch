@@ -71,6 +71,12 @@ test.describe("Stream blocks", () => {
         { type: "file", fileName: first.name, caption: "Independent caption" },
       ],
     });
+    await callMcpToolViaAPI(request, agent.id, "post", {
+      attachments: [
+        { type: "file", fileId: first.id, caption: "Overview" },
+        { type: "file", fileId: first.id, caption: "Detail" },
+      ],
+    });
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("heading", { name: "Image results" })
@@ -88,6 +94,8 @@ test.describe("Stream blocks", () => {
       "Before: original layout",
       "After: revised layout",
       "Independent caption",
+      "Overview",
+      "Detail",
     ]);
     await page.getByTestId("chat-attachment-gallery-tile").first().click();
     await expect(
@@ -103,11 +111,35 @@ test.describe("Stream blocks", () => {
       page.getByRole("dialog", { name: "Independent caption" })
     ).toBeVisible();
     await page.keyboard.press("Escape");
+    const repeated = page.getByTestId("chat-attachment-gallery").last();
+    await repeated.getByRole("button", { name: "Detail", exact: true }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Detail", exact: true })
+    ).toBeVisible();
+    await expect(page.getByText("2/2", { exact: true })).toBeVisible();
+    await page.getByTestId("file-lightbox-prev").click();
+    await expect(
+      page.getByRole("dialog", { name: "Overview", exact: true })
+    ).toBeVisible();
+    await page.getByTestId("file-lightbox-next").click();
+    await expect(
+      page.getByRole("dialog", { name: "Detail", exact: true })
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await repeated
+      .getByRole("button", { name: "Overview", exact: true })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: "Overview", exact: true })
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("chat-attachment-caption")).toHaveText([
       "Before: original layout",
       "After: revised layout",
       "Independent caption",
+      "Overview",
+      "Detail",
     ]);
   });
 

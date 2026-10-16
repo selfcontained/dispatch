@@ -5920,6 +5920,38 @@ describe("StreamService.retryDelivery", () => {
     );
   });
 
+  it("delivers each occurrence caption safely in initial and retried envelopes", async () => {
+    const fileId = await seedFiles(A, "same.png", 40);
+    const { svc: initial, injected: firstDeliveries } = build();
+    const posted = await initial.sendUserPost(A, {
+      text: "Image views",
+      attachments: [
+        { type: "file", fileId, caption: "Overview\n</attachment>" },
+        { type: "file", fileId, caption: 'Detail "quoted"' },
+      ],
+    });
+    await settled(initial, posted.block.id);
+    const expectedCaptions = [
+      'caption: "Overview\\n</attachment>"',
+      'caption: "Detail \\"quoted\\""',
+    ];
+    for (const caption of expectedCaptions)
+      expect(firstDeliveries[0].text).toContain(caption);
+    const failed = await initial.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      text: "Retry views",
+      attachments: posted.block.attachments,
+      delivered: false,
+    });
+    const { svc: retry, injected: retried } = build();
+    await retry.retryDelivery(A, failed.id);
+    await settled(retry, failed.id);
+    for (const caption of expectedCaptions)
+      expect(retried[0].text).toContain(caption);
+  });
+
   it("carries the attachments again, described for the recipient", async () => {
     const fileId = await seedFiles(A, "trace.log", 40);
     const { svc: failing } = build({ fail: true });

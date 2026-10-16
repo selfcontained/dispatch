@@ -4113,7 +4113,7 @@ export class StreamService {
           );
           const mime = attachment.mimeType ?? "application/octet-stream";
           lines.push(
-            `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`
+            `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})${attachment.caption ? ` caption: ${JSON.stringify(attachment.caption)}` : ""}`
           );
           break;
         }

@@ -23,7 +23,7 @@ export type ChatFeedContextInput = {
   openLightbox: (
     fileId: number,
     order?: number[],
-    captions?: Record<number, string>
+    selection?: { captions: string[]; index: number }
   ) => void;
   /** Must be stable: every row is memoised on the context it lands in. */
   onOpenPath?: FeedContext["onOpenPath"];

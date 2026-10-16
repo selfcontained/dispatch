@@ -95,7 +95,7 @@ export type ChatPaneProps = {
   openLightbox: (
     fileId: number,
     order?: number[],
-    captions?: Record<number, string>
+    selection?: { captions: string[]; index: number }
   ) => void;
   /** Opens the Changes tab on a file (a review finding's path). */
   onOpenPath?: (path: string, line: number | null) => void;

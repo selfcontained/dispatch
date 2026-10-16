@@ -84,9 +84,11 @@ export function useFiles(
   // A caller-given order for this lightbox session (one post's images), used
   // as-is in place of the owner's files.
   const [lightboxScope, setLightboxScope] = useState<number[] | null>(null);
-  const [lightboxCaptions, setLightboxCaptions] = useState<
-    Record<number, string>
-  >({});
+  const [lightboxSelection, setLightboxSelection] = useState<{
+    fileIds: number[];
+    captions: string[];
+    index: number;
+  } | null>(null);
   const drawerViewportRef = useRef<HTMLDivElement>(null);
   const previousFileKeysRef = useRef<Set<string>>(new Set());
   const clearFileAnimTimerRef = useRef<number | null>(null);
@@ -307,12 +309,18 @@ export function useFiles(
     [allFiles]
   );
 
-  // The lightbox boundary is the stable file row ID. Chat already has it, and
-  // FileLightbox resolves metadata by ID, so opening does not depend on the
-  // current owner's files query having loaded.
+  // Content resolves by stable file ID without waiting for the owner list.
+  // Gallery selection also retains occurrence position: one file can appear
+  // more than once in the same post, with a different caption each time.
   const openLightbox = useCallback(
-    (fileId: number, order?: number[], captions?: Record<number, string>) => {
-      setLightboxCaptions(captions ?? {});
+    (
+      fileId: number,
+      order?: number[],
+      selection?: { captions: string[]; index: number }
+    ) => {
+      setLightboxSelection(
+        selection ? { ...selection, fileIds: order ?? [fileId] } : null
+      );
       setLightboxScope(order?.includes(fileId) ? order : null);
       // Snapshot the navigation order only on the closed->open transition,
       // not when navigating. The list is sorted by updated_at DESC, so leaving
@@ -359,15 +367,28 @@ export function useFiles(
   }, [lightboxFileId, lightboxOrderSnapshot, lightboxScope, ownerFileIds]);
 
   const setLightboxFileId = useCallback(
-    (nextFileId: number | null) => {
+    (nextFileId: number | null, occurrenceIndex?: number) => {
       if (nextFileId === null) {
         setLightboxOrderSnapshot(null);
         setLightboxScope(null);
-        setLightboxCaptions({});
+        setLightboxSelection(null);
         setLightboxFileIdState(null);
         return;
       }
       if (!lightboxOrder.includes(nextFileId)) return;
+      if (
+        occurrenceIndex !== undefined &&
+        lightboxOrder[occurrenceIndex] !== nextFileId
+      )
+        return;
+      setLightboxSelection((current) =>
+        current
+          ? {
+              ...current,
+              index: occurrenceIndex ?? current.fileIds.indexOf(nextFileId),
+            }
+          : null
+      );
       setLightboxFileIdState(nextFileId);
     },
     [lightboxOrder]
@@ -396,8 +417,14 @@ export function useFiles(
       unseenFileCount,
       lightboxFileId,
       lightboxFileIds: lightboxOrder,
+      lightboxIndex:
+        lightboxScope && lightboxSelection
+          ? lightboxSelection.index
+          : undefined,
       lightboxCaption:
-        lightboxFileId === null ? undefined : lightboxCaptions[lightboxFileId],
+        lightboxSelection?.fileIds[lightboxSelection.index] === lightboxFileId
+          ? lightboxSelection?.captions[lightboxSelection.index]
+          : undefined,
       setLightboxFileId,
       openLightbox,
       drawerViewportRef: drawerViewportRef as RefObject<HTMLDivElement>,
@@ -412,7 +439,8 @@ export function useFiles(
       unseenFileCount,
       lightboxFileId,
       lightboxOrder,
-      lightboxCaptions,
+      lightboxScope,
+      lightboxSelection,
       setLightboxFileId,
       openLightbox,
       refreshFiles,
