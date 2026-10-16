@@ -21,6 +21,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import {
+  upcomingSchedulesKey,
   cadence,
   isCurrentSchedule,
   scheduledMessagesKey,
@@ -74,7 +75,10 @@ export function ScheduledMessagesButton({
       client.setQueryData<ScheduledMessage[]>(queryKey, (old) =>
         old?.map((item) => (item.id === s.id ? s : item))
       );
-      await client.invalidateQueries({ queryKey });
+      await Promise.all([
+        client.invalidateQueries({ queryKey }),
+        client.invalidateQueries({ queryKey: upcomingSchedulesKey }),
+      ]);
     },
   });
   if (!agentId) return null;

@@ -35,6 +35,10 @@ import {
   recordTurnLabel,
   refreshTurnLabels,
 } from "@/hooks/use-agent-turn-label";
+import {
+  upcomingSchedulesKey,
+  scheduledMessagesKey,
+} from "@/components/app/scheduled-messages";
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
 import { isOpenInput } from "@/hooks/use-inbox";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
@@ -377,6 +381,9 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
           // The sidebar's running-step labels missed the same steps.
           refreshTurnLabels(queryClient);
+          void queryClient.invalidateQueries({
+            queryKey: upcomingSchedulesKey,
+          });
           return;
         }
 
@@ -403,6 +410,18 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "stream.entry") {
           applyStreamEntry(queryClient, payload.agentId, payload.entry);
           recordTurnLabel(queryClient, payload.entry);
+          if (
+            payload.entry.type === "block" &&
+            payload.entry.block.kind === "text" &&
+            payload.entry.block.data?.scheduledMessageId
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: upcomingSchedulesKey,
+            });
+            void queryClient.invalidateQueries({
+              queryKey: scheduledMessagesKey(payload.agentId),
+            });
+          }
           if (jotaiStore.get(soundCuesEnabledAtom)) {
             const entry = payload.entry;
             const cue =

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   scheduledMessageCadence,
   type ScheduledMessage,
+  type ScheduledMessageSummary,
 } from "@dispatch/shared";
 import { api } from "@/lib/api";
 
@@ -45,4 +46,17 @@ export function useScheduledMessages(
     refetchInterval: poll,
     staleTime: 1000,
   });
+}
+
+export const upcomingSchedulesKey = ["scheduled-messages-upcoming"] as const;
+
+/** All rows share a single request. Schedule stream entries invalidate it. */
+export function useUpcomingSchedule(agentId: string) {
+  return useQuery({
+    queryKey: upcomingSchedulesKey,
+    queryFn: () =>
+      api<ScheduledMessageSummary>("/api/v1/scheduled-messages/upcoming"),
+    staleTime: Infinity,
+    select: (summary) => summary[agentId],
+  }).data;
 }

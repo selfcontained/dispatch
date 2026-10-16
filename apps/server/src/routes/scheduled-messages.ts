@@ -8,6 +8,7 @@ export async function registerScheduledMessageRoutes(
   app: FastifyInstance,
   service: ScheduledMessageService
 ) {
+  app.get("/api/v1/scheduled-messages/upcoming", () => service.upcoming());
   const params = z.object({
     agentId: z.string().min(1),
     id: z.uuid().optional(),

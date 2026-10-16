@@ -32,6 +32,7 @@ import {
   refreshTurnLabels,
 } from "@/hooks/use-agent-turn-label";
 
+import { upcomingSchedulesKey } from "./scheduled-messages";
 import { AgentCard, type AgentCardProps } from "./agent-card";
 
 // The card renders its real header/status/details/actions children — the point
@@ -378,7 +379,11 @@ describe("AgentCardHeader wiring", () => {
       vi.advanceTimersByTime(1500);
     });
     expect(button).toHaveProperty("disabled", false);
-    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(
+      apiMock.mock.calls.filter(([url]) =>
+        String(url).endsWith("/prompt-rename")
+      )
+    ).toHaveLength(1);
   });
 
   it("keeps session controls and rename for a task persona", () => {
@@ -539,6 +544,96 @@ describe("AgentCardStatus wiring", () => {
 
     rerender({ agent: makeAgent({ activity: "idle" }) });
     expect(activity()).toBeNull();
+  });
+
+  it("uses schedules only after lifecycle, reconnect, own and child activity, and follows updates", async () => {
+    const client = new QueryClient();
+    const nextDueAt = "2026-12-15T19:30:00.000Z";
+    client.setQueryData(upcomingSchedulesKey, {
+      [AGENT_ID]: { id: "schedule", nextDueAt },
+    });
+    const child = makeChild({
+      currentTurn: { blockId: "blk_child", threadId: null },
+    });
+    const props = {
+      ...baseProps(makeAgent()),
+      childAgents: [child],
+      agents: [makeAgent(), child],
+    };
+    const { rerender } = render(wrap(client, <AgentCard {...props} />));
+    const fallback = () =>
+      screen.queryByTestId(`agent-scheduled-activity-${AGENT_ID}`);
+    expect(fallback()?.querySelector("time")?.dateTime).toBe(nextDueAt);
+    expect(fallback()?.className).toContain("text-heading-accent-1");
+    rerender(
+      wrap(
+        client,
+        <AgentCard {...props} agent={makeAgent({ status: "creating" })} />
+      )
+    );
+    expect(fallback()).toBeNull();
+    rerender(
+      wrap(
+        client,
+        <AgentCard {...props} agent={makeAgent({ status: "archiving" })} />
+      )
+    );
+    expect(fallback()).toBeNull();
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...props}
+          agent={makeAgent({
+            reconnect: {
+              phase: "trying",
+              nextRetryAt: null,
+            } as Agent["reconnect"],
+          })}
+        />
+      )
+    );
+    expect(fallback()).toBeNull();
+    act(() =>
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }))
+    );
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...props}
+          agent={makeAgent({
+            currentTurn: { blockId: "blk_turn", threadId: null },
+          })}
+        />
+      )
+    );
+    expect(fallback()).toBeNull();
+    act(() =>
+      recordTurnLabel(
+        client,
+        turnEntry({
+          settled: false,
+          running: true,
+          blockId: "blk_child",
+          agentId: child.id,
+        })
+      )
+    );
+    rerender(wrap(client, <AgentCard {...props} />));
+    await waitFor(() =>
+      expect(screen.getByTestId(`agent-activity-${child.id}`)).toBeTruthy()
+    );
+    expect(fallback()).toBeNull();
+    act(() =>
+      recordTurnLabel(
+        client,
+        turnEntry({ settled: true, blockId: "blk_child", agentId: child.id })
+      )
+    );
+    await waitFor(() => expect(fallback()).not.toBeNull());
+    act(() => client.setQueryData(upcomingSchedulesKey, {}));
+    await waitFor(() => expect(fallback()).toBeNull());
   });
 
   it("keeps the status line's slot when there is nothing to show", () => {

@@ -701,6 +701,7 @@ describe("useSSE message handling", () => {
 
     expectInvalidatedSet(invalidateQueries, [
       ["agent-turn-label"],
+      ["scheduled-messages-upcoming"],
       ["jobs"],
       ["templates"],
       ["projects"],
@@ -713,6 +714,21 @@ describe("useSSE message handling", () => {
       ["agent-reviews"],
       ["stream"],
     ]);
+  });
+
+  it("refreshes the shared upcoming summary and the agent schedule list on schedule entries", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    const entry = personRow("schedule-card", "2026-07-16T12:00:00.000Z");
+    if (entry.type !== "block" || entry.block.kind !== "text")
+      throw new Error("Expected text block");
+    entry.block.data = { scheduledMessageId: "schedule-id" };
+    emit({ type: "stream.entry", agentId: "agent-1", entry });
+    expect(invalidatedKeys(invalidateQueries)).toEqual(
+      expect.arrayContaining([
+        ["scheduled-messages-upcoming"],
+        ["scheduled-messages", "agent-1"],
+      ])
+    );
   });
 
   it("inserts an upserted agent in sorted position", () => {

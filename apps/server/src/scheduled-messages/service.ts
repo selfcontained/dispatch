@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import {
   scheduledMessageCadence,
   type ScheduledMessage,
+  type ScheduledMessageSummary,
 } from "@dispatch/shared";
 import type { AgentManager } from "../agents/manager.js";
 import type { StreamService } from "../chat/service.js";
@@ -42,6 +43,29 @@ export class ScheduledMessageService {
         [agentId]
       )
     ).rows.map((r) => r.payload);
+  }
+  /** One read for the whole sidebar; excludes history and undeliverable ticks. */
+  async upcoming(): Promise<ScheduledMessageSummary> {
+    const { rows } = await this.pool.query<{
+      agent_id: string;
+      id: string;
+      due_at: string;
+    }>(`
+      SELECT DISTINCT ON (agent_id) agent_id, id,
+        CASE WHEN payload->'outstanding'->>'phase' = 'pending'
+          THEN payload->'outstanding'->>'dueAt'
+          ELSE payload->>'nextDueAt' END AS due_at
+      FROM scheduled_messages
+      WHERE payload->>'status' = 'active'
+        AND (payload->>'expiresAt')::timestamptz > now()
+        AND (payload->>'deliveredCount')::int < (payload->>'maxDeliveries')::int
+        AND (payload->'outstanding'->>'phase' = 'pending'
+          OR (payload->>'nextDueAt')::timestamptz < (payload->>'expiresAt')::timestamptz)
+      ORDER BY agent_id, due_at, id
+    `);
+    return Object.fromEntries(
+      rows.map((row) => [row.agent_id, { id: row.id, nextDueAt: row.due_at }])
+    );
   }
   private async get(agentId: string, id: string) {
     const row = (

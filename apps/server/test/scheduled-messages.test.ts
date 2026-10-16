@@ -90,6 +90,64 @@ beforeEach(async () => {
   );
 });
 describe("scheduled messages", () => {
+  it("summarizes the earliest eligible delivery per agent and follows schedule changes", async () => {
+    expect(await service.upcoming()).toEqual({});
+    const later = await service.create(id, {
+      ...input(),
+      deliver_at: new Date(Date.now() + 120000).toISOString(),
+    });
+    const early = await service.create(id, {
+      ...input(),
+      deliver_at: new Date(Date.now() + 60000).toISOString(),
+    });
+    expect(await service.upcoming()).toEqual({
+      [id]: { id: early.id, nextDueAt: early.nextDueAt },
+    });
+    for (const status of [
+      "paused",
+      "uncertain",
+      "cancelled",
+      "completed",
+      "expired",
+      "limit_reached",
+    ]) {
+      await pool.query(
+        "UPDATE scheduled_messages SET payload = jsonb_set(payload, '{status}', to_jsonb($2::text)) WHERE id=$1",
+        [early.id, status]
+      );
+      expect(await service.upcoming()).toEqual({
+        [id]: { id: later.id, nextDueAt: later.nextDueAt },
+      });
+    }
+    await service.change(id, later.id, "pause");
+    expect(await service.upcoming()).toEqual({});
+    await service.change(id, later.id, "resume");
+    expect((await service.upcoming())[id]?.id).toBe(later.id);
+    for (const patch of [
+      { expiresAt: new Date(Date.now() - 1000).toISOString() },
+      { deliveredCount: later.maxDeliveries },
+      { nextDueAt: later.expiresAt },
+    ]) {
+      await pool.query("UPDATE scheduled_messages SET payload=$2 WHERE id=$1", [
+        later.id,
+        JSON.stringify({ ...later, ...patch }),
+      ]);
+      expect(await service.upcoming()).toEqual({});
+    }
+    const dueAt = new Date(Date.now() - 1000).toISOString();
+    await pool.query("UPDATE scheduled_messages SET payload=$2 WHERE id=$1", [
+      later.id,
+      JSON.stringify({
+        ...later,
+        nextDueAt: later.expiresAt,
+        outstanding: { phase: "pending", dueAt },
+      }),
+    ]);
+    expect((await service.upcoming())[id]).toEqual({
+      id: later.id,
+      nextDueAt: dueAt,
+    });
+  });
   it.each([
     [90, "Every 1 minute 30 seconds"],
     [100, "Every 1 minute 40 seconds"],

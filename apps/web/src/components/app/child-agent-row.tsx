@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import { AgentCardPhaseStatus, hasPhaseStatus } from "./agent-card-status";
 import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
@@ -171,12 +172,17 @@ export function ChildAgentRow({
             {displayName}
           </span>
         </div>
-        <AgentActivityLabel
-          agent={agent}
-          linkToTurn
-          onNavigate={closeOnSessionAction ? onRequestClose : undefined}
-          className="mt-0.5 text-[10px]"
-        />
+        {hasPhaseStatus(agent) ? (
+          <AgentCardPhaseStatus agent={agent} className="mt-0.5 text-[10px]" />
+        ) : (
+          <AgentActivityLabel
+            scheduledFallback
+            agent={agent}
+            linkToTurn
+            onNavigate={closeOnSessionAction ? onRequestClose : undefined}
+            className="mt-0.5 text-[10px]"
+          />
+        )}
       </div>
       {/*
         Right-side action cluster: reviewer badge, resume button (stopped

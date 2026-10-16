@@ -67,3 +67,9 @@ export function scheduledMessageCadence(
   }
   return `Every ${parts.join(" ")}`;
 }
+
+/** Earliest eligible delivery per agent, for sidebar activity fallbacks. */
+export type ScheduledMessageSummary = Record<
+  string,
+  Pick<ScheduledMessage, "id" | "nextDueAt">
+>;

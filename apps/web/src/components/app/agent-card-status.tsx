@@ -88,7 +88,7 @@ export function AgentCardPhaseStatus({
 }
 
 /** Whether AgentCardPhaseStatus has a lifecycle line to show. */
-function hasPhaseStatus(agent: Agent): boolean {
+export function hasPhaseStatus(agent: Agent): boolean {
   return (
     agent.status === "creating" ||
     Boolean(agent.setupPhase) ||
@@ -142,6 +142,7 @@ export function AgentCardActivity({
           <AgentActivityLabel
             agent={activeChild ?? agent}
             className="w-full"
+            scheduledFallback={!activeChild}
             linkToTurn
             onNavigate={onNavigate}
           />
