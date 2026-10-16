@@ -76,6 +76,36 @@ const CREDITS_FORMAT = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+/**
+ * "$0.42 of $100.00"; "Off · out of credits" when the provider has extra
+ * usage switched off; "—" before it reports any.
+ */
+export function formatExtraUsage(
+  spend:
+    | {
+        used: number;
+        limit: number;
+        currency: string;
+        enabled?: boolean;
+        disabledReason?: string;
+      }
+    | undefined
+): string {
+  if (!spend) return "—";
+  if (spend.enabled === false) {
+    const reason = spend.disabledReason?.replace(/_/g, " ");
+    return reason ? `Off · ${reason}` : "Off";
+  }
+  return `${formatCost(spend.used, spend.currency)} of ${formatCost(spend.limit, spend.currency)}`;
+}
+
+/** "3 available", or "—" when the provider does not say. */
+export function formatLimitResets(
+  resets: { available: number } | undefined
+): string {
+  return resets ? `${resets.available} available` : "—";
+}
+
 /** "12,500", "Unlimited", or "—" when the provider does not say. */
 export function formatCredits(
   credits: { balance: number | null; unlimited: boolean } | undefined

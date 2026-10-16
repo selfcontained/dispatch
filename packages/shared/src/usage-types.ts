@@ -58,7 +58,22 @@ export type PlanWindow = {
   resetsAt: string | null;
 };
 
-export type PlanSpend = { used: number; limit: number; currency: string };
+export type PlanSpend = {
+  used: number;
+  limit: number;
+  currency: string;
+  /** False when the provider has extra usage switched off; absent when it does not say. */
+  enabled?: boolean;
+  /** The provider's reason it is off ("out_of_credits"), when it gives one. */
+  disabledReason?: string;
+};
+
+/** Credits that reset a reached rate limit early (Codex); no expiry is reported. */
+export type PlanLimitResets = {
+  available: number;
+  /** How many of them apply to the limit state right now. */
+  applicable: number;
+};
 
 /** Prepaid credits the plan can keep running on once a window is spent (Codex). */
 export type PlanCredits = {
@@ -81,6 +96,7 @@ export type ProviderPlan = {
   windows: PlanWindow[];
   spend?: PlanSpend;
   credits?: PlanCredits;
+  limitResets?: PlanLimitResets;
   /**
    * The provider says requests are refused right now: a window spent with
    * no credits to fall back on, or a spend cap reached. Absent when the

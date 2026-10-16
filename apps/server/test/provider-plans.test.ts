@@ -7,6 +7,7 @@ import {
   createProviderPlansReporter,
   loadProviderPlans,
   parseClaudeCache,
+  parseClaudeUtilization,
   parseCodexRollout,
 } from "../src/agents/provider-plans.js";
 
@@ -108,6 +109,28 @@ describe("parseClaudeCache", () => {
     ]);
     expect(plan.observedAt).toBe(NOW.toISOString());
   });
+
+  it("says when extra usage is switched off, and why", () => {
+    const plan = parseClaudeUtilization(
+      {
+        ...claudeUtilization,
+        spend: {
+          used: { amount_minor: 0, currency: "USD", exponent: 2 },
+          limit: { amount_minor: 10000, currency: "USD", exponent: 2 },
+          enabled: false,
+          disabled_reason: "out_of_credits",
+        },
+      },
+      null
+    );
+    expect(plan.spend).toEqual({
+      used: 0,
+      limit: 100,
+      currency: "USD",
+      enabled: false,
+      disabledReason: "out_of_credits",
+    });
+  });
 });
 
 describe("loadProviderPlans", () => {
@@ -147,6 +170,10 @@ describe("loadProviderPlans", () => {
     },
     spend_control: { reached: false, individual_limit: null },
     rate_limit_reached_type: null,
+    rate_limit_reset_credits: {
+      available_count: 3,
+      applicable_available_count: 0,
+    },
   };
   const codexOptions = (auth?: string) => ({
     now: NOW,
@@ -191,6 +218,7 @@ describe("loadProviderPlans", () => {
       source: "live",
       observedAt: NOW.toISOString(),
       credits: { balance: 62500, unlimited: false },
+      limitResets: { available: 3, applicable: 0 },
       limitReached: false,
       windows: [
         {

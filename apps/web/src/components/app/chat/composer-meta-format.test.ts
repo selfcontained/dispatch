@@ -6,6 +6,8 @@ import {
   contextPercent,
   formatCost,
   formatCredits,
+  formatExtraUsage,
+  formatLimitResets,
   pickableOptions,
   reportAge,
   resetsIn,
@@ -100,6 +102,34 @@ describe("reportAge", () => {
     expect(reportAge("2026-09-24T12:05:00Z", undefined, now)).toBe("live");
     expect(reportAge(null, "live", now)).toBeNull();
     expect(reportAge("not a date", "live", now)).toBeNull();
+  });
+});
+
+describe("formatExtraUsage", () => {
+  it("shows the spend, or that it is off and why", () => {
+    expect(formatExtraUsage({ used: 0.42, limit: 100, currency: "USD" })).toBe(
+      "$0.420 of $100.00"
+    );
+    expect(
+      formatExtraUsage({
+        used: 0,
+        limit: 100,
+        currency: "USD",
+        enabled: false,
+        disabledReason: "out_of_credits",
+      })
+    ).toBe("Off · out of credits");
+    expect(
+      formatExtraUsage({ used: 0, limit: 100, currency: "USD", enabled: false })
+    ).toBe("Off");
+    expect(formatExtraUsage(undefined)).toBe("—");
+  });
+});
+
+describe("formatLimitResets", () => {
+  it("counts resets, or says none were reported", () => {
+    expect(formatLimitResets({ available: 3 })).toBe("3 available");
+    expect(formatLimitResets(undefined)).toBe("—");
   });
 });
 

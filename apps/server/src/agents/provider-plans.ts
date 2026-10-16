@@ -170,9 +170,17 @@ export function parseClaudeUtilization(
   const used = parseMoney(spendValue?.used);
   const limit = parseMoney(spendValue?.limit);
   const currency = text(object(spendValue?.used)?.currency);
+  const enabled = spendValue?.enabled;
+  const disabledReason = text(spendValue?.disabled_reason);
   const spend: PlanSpend | undefined =
     used !== null && limit !== null && currency
-      ? { used, limit, currency }
+      ? {
+          used,
+          limit,
+          currency,
+          ...(typeof enabled === "boolean" ? { enabled } : {}),
+          ...(enabled === false && disabledReason ? { disabledReason } : {}),
+        }
       : undefined;
   return {
     engine: "claude",
@@ -262,6 +270,19 @@ export function parseCodexRollout(raw: string): ProviderPlan {
         }
       : {}),
     ...(windows.length === 0 ? { unavailableReason: NO_CODEX_REPORT } : {}),
+  };
+}
+
+/** Credits that reset a reached limit early; the endpoint gives counts, no expiry. */
+function codexLimitResets(value: unknown): Pick<ProviderPlan, "limitResets"> {
+  const resets = object(value);
+  const available = finiteNumber(resets?.available_count);
+  if (available === null) return {};
+  return {
+    limitResets: {
+      available,
+      applicable: finiteNumber(resets?.applicable_available_count) ?? 0,
+    },
   };
 }
 
@@ -448,6 +469,7 @@ function parseCodexLive(value: unknown, now: Date): ProviderPlan {
     source: "live",
     windows,
     ...codexCredits(root?.credits),
+    ...codexLimitResets(root?.rate_limit_reset_credits),
     ...(typeof rateLimit?.limit_reached === "boolean" ||
     typeof object(root?.spend_control)?.reached === "boolean"
       ? {

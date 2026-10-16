@@ -43,6 +43,8 @@ import {
   contextPercent,
   formatCost,
   formatCredits,
+  formatExtraUsage,
+  formatLimitResets,
   pickableOptions,
   reportAge,
   resetsIn,
@@ -563,10 +565,10 @@ function CardHeader({
  */
 const ENGINE_ROWS: Record<
   ProviderPlan["engine"],
-  { spend: boolean; credits: boolean }
+  { spend: boolean; credits: boolean; resets: boolean }
 > = {
-  claude: { spend: true, credits: false },
-  codex: { spend: false, credits: true },
+  claude: { spend: true, credits: false, resets: false },
+  codex: { spend: false, credits: true, resets: true },
 };
 
 /** Windows a card shows before any report has ever been read here. */
@@ -631,6 +633,12 @@ function PlanLimitsSkeleton(): JSX.Element {
             <div className="flex justify-between text-muted-foreground">
               <span>Credits</span>
               <Line className="w-12" />
+            </div>
+          ) : null}
+          {ENGINE_ROWS[id].resets ? (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Limit resets</span>
+              <Line className="w-16" />
             </div>
           ) : null}
           <div className={NOTE_CLASS} />
@@ -714,7 +722,11 @@ function ProviderLimits({
   now: number;
 }): JSX.Element {
   const age = reportAge(plan.observedAt, plan.source, now);
-  const rows = ENGINE_ROWS[plan.engine] ?? { spend: false, credits: false };
+  const rows = ENGINE_ROWS[plan.engine] ?? {
+    spend: false,
+    credits: false,
+    resets: false,
+  };
   return (
     <div
       className={CARD_CLASS}
@@ -752,10 +764,11 @@ function ProviderLimits({
       {rows.spend || plan.spend ? (
         <div className="flex justify-between text-muted-foreground">
           <span>Extra usage</span>
-          <span className="tabular-nums">
-            {plan.spend
-              ? `${formatCost(plan.spend.used, plan.spend.currency)} of ${formatCost(plan.spend.limit, plan.spend.currency)}`
-              : "—"}
+          <span
+            className="tabular-nums"
+            data-testid={`usage-plan-spend-${plan.engine}`}
+          >
+            {formatExtraUsage(plan.spend)}
           </span>
         </div>
       ) : null}
@@ -763,6 +776,17 @@ function ProviderLimits({
         <div className="flex justify-between text-muted-foreground">
           <span>Credits</span>
           <span className="tabular-nums">{formatCredits(plan.credits)}</span>
+        </div>
+      ) : null}
+      {rows.resets || plan.limitResets ? (
+        <div
+          className="flex justify-between text-muted-foreground"
+          title="Credits that reset a reached limit early; no expiry is reported"
+        >
+          <span>Limit resets</span>
+          <span className="tabular-nums">
+            {formatLimitResets(plan.limitResets)}
+          </span>
         </div>
       ) : null}
       {plan.limitReached ? (
