@@ -4,7 +4,13 @@ import type {
   PlanWindow,
   ProviderPlan,
 } from "@dispatch/shared";
-import { ChevronDown, Gauge, RefreshCw, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  Gauge,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -280,7 +286,6 @@ function UsageChip({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const percent = contextPercent(usage);
-  const cost = usage?.sessionCost;
   const usageLabel = percent === null ? "Usage" : `${percent}% context`;
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -293,11 +298,7 @@ function UsageChip({
             !agent && "col-start-2"
           )}
           title="Usage"
-          aria-label={
-            cost
-              ? `${usageLabel} · ${formatCost(cost.amount, cost.currency)}`
-              : usageLabel
-          }
+          aria-label={usageLabel}
           data-testid="composer-usage-chip"
         >
           <Gauge className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -305,11 +306,6 @@ function UsageChip({
           <span className="composer-usage-short hidden">
             {percent === null ? "Usage" : `${percent}% ctx`}
           </span>
-          {cost ? (
-            <span className="composer-usage-cost">
-              · {formatCost(cost.amount, cost.currency)}
-            </span>
-          ) : null}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -373,16 +369,18 @@ function UsageDetailsSkeleton({
       aria-busy="true"
     >
       <CardHeader engine={agentType} title="This agent" />
-      <div className="space-y-1">
-        <Row label="Context" value={<Line className="w-28" />} />
-        <div className={BAR_TRACK_CLASS} />
+      <div className={CARD_BODY_CLASS}>
+        <div className="space-y-1">
+          <Row label="Context" value={<Line className="w-28" />} />
+          <div className={BAR_TRACK_CLASS} />
+        </div>
+        <Row label="Session" value={<Line className="w-16" />} />
+        <SplitRow label="input · output" value="" />
+        <SplitRow label="cache read · write" value="" />
+        {agentType === "claude" ? (
+          <Row label="Session cost" value={<Line className="w-12" />} />
+        ) : null}
       </div>
-      <Row label="Session" value={<Line className="w-16" />} />
-      <SplitRow label="input · output" value="" />
-      <SplitRow label="cache read · write" value="" />
-      {agentType === "claude" ? (
-        <Row label="Session cost" value={<Line className="w-12" />} />
-      ) : null}
     </section>
   );
 }
@@ -433,57 +431,62 @@ function UsageDetails({
       data-testid="usage-agent-card"
     >
       <CardHeader engine={agentType} title="This agent" />
-      <div className="space-y-1">
+      <div className={CARD_BODY_CLASS}>
+        <div className="space-y-1">
+          <Row
+            label="Context"
+            testId="usage-context"
+            value={
+              usage.context && percent !== null
+                ? `${formatTokenCount(usage.context.used)} / ${formatTokenCount(usage.context.size)} (${percent}%)`
+                : "not reported yet"
+            }
+          />
+          {percent !== null ? (
+            <Bar percent={percent} />
+          ) : (
+            <div className={BAR_TRACK_CLASS} />
+          )}
+        </div>
         <Row
-          label="Context"
-          testId="usage-context"
-          value={
-            usage.context && percent !== null
-              ? `${formatTokenCount(usage.context.used)} / ${formatTokenCount(usage.context.size)} (${percent}%)`
-              : "not reported yet"
-          }
+          label="Session"
+          testId="usage-session-tokens"
+          value={`${formatTokenCount(session.total)} tokens`}
         />
-        {percent !== null ? (
-          <Bar percent={percent} />
-        ) : (
-          <div className={BAR_TRACK_CLASS} />
-        )}
+        {/* How the session's tokens split, muted under the total. */}
+        <SplitRow
+          label="input · output"
+          value={`${formatTokenCount(session.input)} · ${formatTokenCount(session.output)}`}
+        />
+        <SplitRow
+          label="cache read · write"
+          value={`${formatTokenCount(session.cacheRead)} · ${formatTokenCount(session.cacheWrite)}`}
+        />
+        {usage.byModel.length > 1
+          ? usage.byModel.map((m) => (
+              <SplitRow
+                key={m.model}
+                label={agentModelLabel(catalog, agentType, m.model)}
+                title={m.model}
+                value={formatTokenCount(m.tokens.total)}
+              />
+            ))
+          : null}
+        {agentType === "claude" || usage.sessionCost ? (
+          <Row
+            label="Session cost"
+            testId="usage-session-cost"
+            value={
+              usage.sessionCost
+                ? formatCost(
+                    usage.sessionCost.amount,
+                    usage.sessionCost.currency
+                  )
+                : "—"
+            }
+          />
+        ) : null}
       </div>
-      <Row
-        label="Session"
-        testId="usage-session-tokens"
-        value={`${formatTokenCount(session.total)} tokens`}
-      />
-      {/* How the session's tokens split, muted under the total. */}
-      <SplitRow
-        label="input · output"
-        value={`${formatTokenCount(session.input)} · ${formatTokenCount(session.output)}`}
-      />
-      <SplitRow
-        label="cache read · write"
-        value={`${formatTokenCount(session.cacheRead)} · ${formatTokenCount(session.cacheWrite)}`}
-      />
-      {usage.byModel.length > 1
-        ? usage.byModel.map((m) => (
-            <SplitRow
-              key={m.model}
-              label={agentModelLabel(catalog, agentType, m.model)}
-              title={m.model}
-              value={formatTokenCount(m.tokens.total)}
-            />
-          ))
-        : null}
-      {agentType === "claude" || usage.sessionCost ? (
-        <Row
-          label="Session cost"
-          testId="usage-session-cost"
-          value={
-            usage.sessionCost
-              ? formatCost(usage.sessionCost.amount, usage.sessionCost.currency)
-              : "—"
-          }
-        />
-      ) : null}
     </section>
   );
 }
@@ -577,10 +580,9 @@ const SKELETON_WINDOWS: Record<ProviderPlan["engine"], number> = {
   codex: 2,
 };
 
-const CARD_CLASS = "space-y-1.5 rounded-md border bg-muted/30 p-2";
-
-/** One line, there whether or not it has anything to say; never wraps. */
-const NOTE_CLASS = "h-4 truncate text-[11px] leading-4";
+const CARD_CLASS = "rounded-md border bg-muted/30 p-2";
+/** A card's rows, under its header and set in a little from it. */
+const CARD_BODY_CLASS = "mt-2 space-y-1.5 px-1";
 
 /** In the cards' fixed order; an engine the list does not know goes last. */
 function inEngineOrder<T extends { engine: string }>(items: T[]): T[] {
@@ -614,34 +616,35 @@ function PlanLimitsSkeleton(): JSX.Element {
             title={ENGINE_NAME[id]}
             right={<Line className="w-14" />}
           />
-          {Array.from({ length: SKELETON_WINDOWS[id] }, (_, i) => (
-            <div key={i} className="space-y-1">
-              <div className="flex justify-between gap-2">
-                <Line className="w-12" />
-                <Line className="w-32" />
+          <div className={CARD_BODY_CLASS}>
+            {Array.from({ length: SKELETON_WINDOWS[id] }, (_, i) => (
+              <div key={i} className="space-y-1">
+                <div className="flex justify-between gap-2">
+                  <Line className="w-12" />
+                  <Line className="w-32" />
+                </div>
+                <div className={BAR_TRACK_CLASS} />
               </div>
-              <div className={BAR_TRACK_CLASS} />
-            </div>
-          ))}
-          {ENGINE_ROWS[id].spend ? (
-            <div className="flex justify-between text-muted-foreground">
-              <span>Extra usage</span>
-              <Line className="w-24" />
-            </div>
-          ) : null}
-          {ENGINE_ROWS[id].credits ? (
-            <div className="flex justify-between text-muted-foreground">
-              <span>Credits</span>
-              <Line className="w-12" />
-            </div>
-          ) : null}
-          {ENGINE_ROWS[id].resets ? (
-            <div className="flex justify-between text-muted-foreground">
-              <span>Limit resets</span>
-              <Line className="w-16" />
-            </div>
-          ) : null}
-          <div className={NOTE_CLASS} />
+            ))}
+            {ENGINE_ROWS[id].spend ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Extra usage</span>
+                <Line className="w-24" />
+              </div>
+            ) : null}
+            {ENGINE_ROWS[id].credits ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Credits</span>
+                <Line className="w-12" />
+              </div>
+            ) : null}
+            {ENGINE_ROWS[id].resets ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Limit resets</span>
+                <Line className="w-16" />
+              </div>
+            ) : null}
+          </div>
         </div>
       ))}
     </>
@@ -737,79 +740,98 @@ function ProviderLimits({
         engine={plan.engine}
         title={ENGINE_NAME[plan.engine] ?? plan.engine}
         detail={plan.plan}
-        right={
-          <span
-            className={cn(
-              "shrink-0 text-[11px] tabular-nums",
-              age === "live" ? "text-status-working" : "text-muted-foreground"
-            )}
-            title={
-              plan.observedAt
-                ? `Reported ${new Date(plan.observedAt).toLocaleString()}${
-                    plan.source === "local"
-                      ? " — read from the engine's files on this machine"
-                      : ""
-                  }`
-                : undefined
-            }
-            data-testid={`usage-plan-age-${plan.engine}`}
-          >
-            {age ?? ""}
-          </span>
-        }
+        right={<PlanState plan={plan} age={age} />}
       />
-      {plan.windows.map((w) => (
-        <PlanWindowRow key={w.id} window={w} now={now} />
-      ))}
-      {rows.spend || plan.spend ? (
-        <div className="flex justify-between text-muted-foreground">
-          <span>Extra usage</span>
-          <span
-            className="tabular-nums"
-            data-testid={`usage-plan-spend-${plan.engine}`}
+      <div className={CARD_BODY_CLASS}>
+        {plan.windows.map((w) => (
+          <PlanWindowRow key={w.id} window={w} now={now} />
+        ))}
+        {rows.spend || plan.spend ? (
+          <div className="flex justify-between text-muted-foreground">
+            <span>Extra usage</span>
+            <span
+              className="tabular-nums"
+              data-testid={`usage-plan-spend-${plan.engine}`}
+            >
+              {formatExtraUsage(plan.spend)}
+            </span>
+          </div>
+        ) : null}
+        {rows.credits || plan.credits ? (
+          <div className="flex justify-between text-muted-foreground">
+            <span>Credits</span>
+            <span className="tabular-nums">{formatCredits(plan.credits)}</span>
+          </div>
+        ) : null}
+        {rows.resets || plan.limitResets ? (
+          <div
+            className="flex justify-between text-muted-foreground"
+            title="Credits that reset a reached limit early; no expiry is reported"
           >
-            {formatExtraUsage(plan.spend)}
-          </span>
-        </div>
-      ) : null}
-      {rows.credits || plan.credits ? (
-        <div className="flex justify-between text-muted-foreground">
-          <span>Credits</span>
-          <span className="tabular-nums">{formatCredits(plan.credits)}</span>
-        </div>
-      ) : null}
-      {rows.resets || plan.limitResets ? (
-        <div
-          className="flex justify-between text-muted-foreground"
-          title="Credits that reset a reached limit early; no expiry is reported"
-        >
-          <span>Limit resets</span>
-          <span className="tabular-nums">
-            {formatLimitResets(plan.limitResets)}
-          </span>
-        </div>
-      ) : null}
-      {plan.limitReached ? (
-        <p
-          className={cn(
-            NOTE_CLASS,
-            "rounded-sm bg-destructive/10 px-1 text-destructive"
-          )}
-          role="status"
-          title="Limit reached — requests are refused until a window resets"
-          data-testid={`usage-plan-limit-${plan.engine}`}
-        >
-          Limit reached · refused until reset
-        </p>
-      ) : (
-        <p
-          className={cn(NOTE_CLASS, "text-muted-foreground/80")}
-          title={plan.unavailableReason}
-        >
-          {plan.unavailableReason ?? ""}
-        </p>
-      )}
+            <span>Limit resets</span>
+            <span className="tabular-nums">
+              {formatLimitResets(plan.limitResets)}
+            </span>
+          </div>
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+/**
+ * The card's state in its header corner, so no card keeps a line for it:
+ * the limit reached, or the report's age — with a warning sign when the
+ * last refresh failed, and the reason and timestamp on hover.
+ */
+function PlanState({
+  plan,
+  age,
+}: {
+  plan: ProviderPlan;
+  age: string | null;
+}): JSX.Element {
+  const reported = plan.observedAt
+    ? `Reported ${new Date(plan.observedAt).toLocaleString()}${
+        plan.source === "local"
+          ? " — read from the engine's files on this machine"
+          : ""
+      }`
+    : undefined;
+  if (plan.limitReached) {
+    return (
+      <span
+        className="shrink-0 text-[11px] text-destructive"
+        role="status"
+        title={[
+          "Limit reached — requests are refused until a window resets",
+          reported,
+        ]
+          .filter(Boolean)
+          .join("\n")}
+        data-testid={`usage-plan-limit-${plan.engine}`}
+      >
+        Limit reached
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center gap-1 text-[11px] tabular-nums",
+        age === "live" ? "text-status-working" : "text-muted-foreground"
+      )}
+      title={[plan.unavailableReason, reported].filter(Boolean).join("\n")}
+      data-testid={`usage-plan-age-${plan.engine}`}
+    >
+      {plan.unavailableReason ? (
+        <AlertTriangle
+          className="h-3 w-3 text-status-waiting"
+          aria-label="Could not refresh"
+        />
+      ) : null}
+      {age ?? ""}
+    </span>
   );
 }
 
