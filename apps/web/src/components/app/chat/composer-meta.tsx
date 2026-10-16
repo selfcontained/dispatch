@@ -5,7 +5,7 @@ import type {
   ProviderPlan,
 } from "@dispatch/shared";
 import { ChevronDown, Gauge, RefreshCw, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -576,6 +576,17 @@ function PlanLimits({
   const now = useNow(enabled);
   const busy = plans.isFetching || plans.refresh.isPending;
   const failure = plans.refresh.error ?? plans.error;
+  // The first open ever shows a guessed skeleton, and the answer can have
+  // fewer rows (a plan with one window). Hold the skeleton's height for the
+  // rest of that open so the panel never shrinks under the pointer; the next
+  // open starts from the stored answer and needs no floor.
+  const cardsRef = useRef<HTMLDivElement>(null);
+  const [floor, setFloor] = useState<number>();
+  useLayoutEffect(() => {
+    if (!enabled) setFloor(undefined);
+    else if (!plans.data && cardsRef.current)
+      setFloor(cardsRef.current.offsetHeight);
+  }, [enabled, plans.data]);
   return (
     <section className="space-y-2" aria-label="Plan limits">
       <div className="flex h-6 items-center justify-between gap-2">
@@ -605,15 +616,22 @@ function PlanLimits({
           Refresh
         </Button>
       </div>
-      {plans.data ? (
-        providers.map((plan) => (
-          <ProviderLimits key={plan.engine} plan={plan} now={now} />
-        ))
-      ) : plans.error ? (
-        <p className="text-destructive">{plans.error.message}</p>
-      ) : (
-        <PlanLimitsSkeleton engine={engine} />
-      )}
+      <div
+        ref={cardsRef}
+        className="space-y-2"
+        style={{ minHeight: floor }}
+        data-testid="usage-plan-cards"
+      >
+        {plans.data ? (
+          providers.map((plan) => (
+            <ProviderLimits key={plan.engine} plan={plan} now={now} />
+          ))
+        ) : plans.error ? (
+          <p className="text-destructive">{plans.error.message}</p>
+        ) : (
+          <PlanLimitsSkeleton engine={engine} />
+        )}
+      </div>
     </section>
   );
 }
