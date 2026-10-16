@@ -8,7 +8,7 @@ import {
   Settings,
   Pencil,
 } from "lucide-react";
-import { useProjectScope, type Project } from "@/hooks/use-projects";
+import { useProjectSelection, type Project } from "@/hooks/use-projects";
 import { ProjectIcon } from "./project-location";
 import { ProjectEditor } from "./project-editor";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export function ProjectSwitcher() {
-  const { project, projects } = useProjectScope();
+  const { project, projects } = useProjectSelection();
   const navigate = useNavigate();
   const location = useLocation();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -36,8 +36,7 @@ export function ProjectSwitcher() {
   const [edit, setEdit] = useState<Project | "new" | null>(null);
   const select = (id?: string) => {
     const query = new URLSearchParams(location.search);
-    if (id) query.set("project", id);
-    else query.delete("project");
+    query.set("project", id ?? "");
     navigate({
       pathname: location.pathname,
       search: query.toString(),

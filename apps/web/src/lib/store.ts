@@ -126,6 +126,17 @@ export const leftSidebarOpenAtom = atomWithLocalStorage(
   "dispatch:leftSidebarOpen",
   true
 );
+
+// URL project scope wins; this preference restores it after unscoped detours
+// or a fresh visit. null is the user's explicit All projects choice.
+export const selectedProjectIdAtom = atomWithLocalStorage<string | null>(
+  "dispatch:selectedProjectId",
+  null,
+  {
+    validate: (value): value is string | null =>
+      value === null || (typeof value === "string" && value.length > 0),
+  }
+);
 // The right-hand drawer's width, dragged by its left edge. One width for the
 // client: the sidebar and every agent's thread drawer share it. null until
 // someone resizes it, so the default in drawer-constants stays the default.
