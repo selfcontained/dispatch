@@ -2,6 +2,7 @@
 import type { ProviderPlan } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,7 +15,7 @@ vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 
 const { api } = await import("@/lib/api");
 const apiMock = vi.mocked(api);
-const { UseResetButton } = await import("./composer-meta");
+const { ComposerMeta, UseResetButton } = await import("./composer-meta");
 
 // Radix's dialog reaches for pointer APIs jsdom lacks.
 Element.prototype.hasPointerCapture ??= () => false;
@@ -106,5 +107,78 @@ describe("UseResetButton", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     fireEvent.click(screen.getByTestId("usage-codex-reset"));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("Codex expiry reminder", () => {
+  it("loads while closed and survives opening the panel and cancelling the dialog", async () => {
+    const soon = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    apiMock.mockResolvedValue({
+      checkedAt: new Date().toISOString(),
+      providers: [
+        {
+          ...plan,
+          limitResets: {
+            ...plan.limitResets!,
+            oldestExpiresAt: soon,
+            items: [
+              { id: "a", title: "Soon", grantedAt: null, expiresAt: soon },
+              {
+                id: "b",
+                title: "Later",
+                grantedAt: null,
+                expiresAt: new Date(
+                  Date.now() + 14 * 24 * 60 * 60 * 1000
+                ).toISOString(),
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ComposerMeta
+          agentId={null}
+          agent={null}
+          active
+          liveUsage={null}
+          turnKey="idle"
+        />
+      </QueryClientProvider>
+    );
+    await screen.findByTestId("composer-usage-expiry-dot");
+    expect(screen.queryByTestId("composer-usage-panel")).toBeNull();
+    const closedCalls = apiMock.mock.calls.length;
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: ["usage-plans"],
+        refetchType: "none",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(apiMock.mock.calls.length).toBe(closedCalls);
+    fireEvent.click(screen.getByTestId("composer-usage-chip"));
+    await waitFor(() =>
+      expect(apiMock.mock.calls.length).toBe(closedCalls + 1)
+    );
+    expect(screen.getByTestId("usage-codex-reset-expiry").className).toContain(
+      "text-primary"
+    );
+    fireEvent.click(screen.getByTestId("usage-codex-reset"));
+    const entries = screen
+      .getByTestId("usage-codex-reset-list")
+      .querySelectorAll("li");
+    expect(entries[0]!.className).toContain("text-primary");
+    expect(entries[1]!.className).toContain("text-muted-foreground");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByTestId("composer-usage-chip"));
+    expect(screen.getByTestId("composer-usage-expiry-dot")).toBeTruthy();
+    expect(
+      apiMock.mock.calls.every(([url]) => url === "/api/v1/usage/plans")
+    ).toBe(true);
   });
 });

@@ -9,6 +9,8 @@ import {
   formatExtraUsage,
   formatLimitResets,
   formatResetExpiry,
+  hasExpiringResets,
+  resetExpiresSoon,
   pickableOptions,
   reportAge,
   resetsIn,
@@ -172,5 +174,48 @@ describe("formatCredits", () => {
     expect(formatCredits({ balance: null, unlimited: true })).toBe("Unlimited");
     expect(formatCredits({ balance: null, unlimited: false })).toBe("—");
     expect(formatCredits(undefined)).toBe("—");
+  });
+});
+
+describe("reset expiry reminder", () => {
+  const now = Date.parse("2026-10-16T00:00:00Z");
+  const week = 7 * 24 * 60 * 60 * 1000;
+  const iso = (offset: number) => new Date(now + offset).toISOString();
+
+  it("includes seven days exactly, but excludes elapsed, missing and invalid dates", () => {
+    expect(resetExpiresSoon(iso(1), now)).toBe(true);
+    expect(resetExpiresSoon(iso(week), now)).toBe(true);
+    for (const date of [
+      iso(week + 1),
+      iso(0),
+      iso(-1),
+      null,
+      undefined,
+      "invalid",
+    ]) {
+      expect(resetExpiresSoon(date, now)).toBe(false);
+    }
+  });
+
+  it("requires available credits and accepts either reported expiry source", () => {
+    const resets = { available: 1, applicable: 0, oldestExpiresAt: iso(week) };
+    expect(hasExpiringResets(resets, now)).toBe(true);
+    expect(hasExpiringResets({ ...resets, available: 0 }, now)).toBe(false);
+    expect(hasExpiringResets({ ...resets, available: -1 }, now)).toBe(false);
+    expect(hasExpiringResets(undefined, now)).toBe(false);
+    expect(hasExpiringResets({ available: 1, applicable: 0 }, now)).toBe(false);
+    expect(
+      hasExpiringResets(
+        {
+          available: 1,
+          applicable: 0,
+          items: [
+            { id: "a", title: "Reset", grantedAt: null, expiresAt: iso(-1) },
+            { id: "b", title: "Reset", grantedAt: null, expiresAt: iso(week) },
+          ],
+        },
+        now
+      )
+    ).toBe(true);
   });
 });

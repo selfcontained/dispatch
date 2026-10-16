@@ -112,7 +112,8 @@ export function useProviderPlans(enabled: boolean) {
     queryFn: () => api("/api/v1/usage/plans"),
     enabled,
     staleTime: 60_000,
-    // Only read while the usage popover is open; keep the last answer, from
+    // Read when enabled; the usage chip enables this while mounted, without
+    // polling, so its closed-state reminder can use fresh data. Keep the last answer, from
     // this page or a previous one, so an open shows it at once and refreshes
     // behind it. Initial data (not a placeholder) keeps it on screen when the
     // refresh fails, and its own date decides whether it is stale.

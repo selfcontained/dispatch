@@ -1,4 +1,8 @@
-import type { AgentConfigOption, AgentUsageResponse } from "@dispatch/shared";
+import type {
+  AgentConfigOption,
+  AgentUsageResponse,
+  PlanLimitResets,
+} from "@dispatch/shared";
 
 import { formatDuration } from "@/lib/format";
 
@@ -104,6 +108,30 @@ export function formatLimitResets(
   resets: { available: number } | undefined
 ): string {
   return resets ? `${resets.available} available` : "—";
+}
+
+/** Only future expiries within seven days deserve the expiry reminder. */
+export function resetExpiresSoon(
+  expiresAt: string | null | undefined,
+  now = Date.now()
+): boolean {
+  const at = expiresAt ? Date.parse(expiresAt) : NaN;
+  return Number.isFinite(at) && at > now && at - now <= 7 * 24 * 60 * 60 * 1000;
+}
+
+/** Available reset credits only; quota-window reset dates are unrelated. */
+export function hasExpiringResets(
+  resets: PlanLimitResets | undefined,
+  now = Date.now()
+): boolean {
+  return (
+    !!resets &&
+    resets.available > 0 &&
+    (resetExpiresSoon(resets.oldestExpiresAt, now) ||
+      (resets.items ?? []).some((item) =>
+        resetExpiresSoon(item.expiresAt, now)
+      ))
+  );
 }
 
 const EXPIRY_DATE = new Intl.DateTimeFormat(undefined, {
