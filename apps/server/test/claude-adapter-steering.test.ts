@@ -31,6 +31,10 @@ function fixture(active = true) {
     trackOrphanCommand: vi.fn(
       Reflect.get(ClaudeAcpAgent.prototype, "trackOrphanCommand")
     ),
+    forgetLegacyOrphan: Reflect.get(
+      ClaudeAcpAgent.prototype,
+      "forgetLegacyOrphan"
+    ),
     cancelTurns: Reflect.get(ClaudeAcpAgent.prototype, "cancelTurns"),
     dropQueuedMessages: Reflect.get(
       ClaudeAcpAgent.prototype,
@@ -462,6 +466,152 @@ describe("Claude cancellation with concurrent consumer events", () => {
       await stop();
     }
   });
+
+  it.each(
+    ["queued-prompt", "second-steer"].flatMap((remaining) => [
+      [remaining, "withdrawal", "false"],
+      [remaining, "withdrawal", "true"],
+      [remaining, "withdrawal", "rejection"],
+      [remaining, "interrupt", "false"],
+    ])
+  )(
+    "keeps the %s orphan when a steer result drains during %s (%s reply)",
+    async (remaining, phase, outcome) => {
+      const { adapter, session, messages, stop } = consumerFixture();
+      Object.assign(session, {
+        msgLifecycleV1: false,
+        pendingOrphanResults: 0,
+      });
+      const active = makeTurn("legacy-owner");
+      active.steeredEchoes = new Set([
+        "consumed-steer",
+        ...(remaining === "second-steer" ? [remaining] : []),
+      ]);
+      session.activeTurn = active;
+      session.turnQueue.push(active);
+      if (remaining === "queued-prompt")
+        session.turnQueue.push(makeTurn(remaining));
+      let release!: () => void;
+      if (phase === "withdrawal") {
+        session.query.cancelAsyncMessage.mockImplementationOnce(
+          () =>
+            new Promise<boolean>((resolve, reject) => {
+              release = () =>
+                outcome === "rejection"
+                  ? reject(new Error("late withdrawal failure"))
+                  : resolve(outcome === "true");
+            })
+        );
+        session.query.interrupt.mockResolvedValue({
+          still_queued: [remaining],
+        } as never);
+      } else {
+        session.query.interrupt.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              release = () => resolve({ still_queued: [remaining] } as never);
+            })
+        );
+      }
+      try {
+        const cancellation = adapter.cancel({ sessionId });
+        await vi.waitFor(() =>
+          phase === "withdrawal"
+            ? expect(session.query.cancelAsyncMessage).toHaveBeenCalledOnce()
+            : expect(session.query.interrupt).toHaveBeenCalledOnce()
+        );
+        expect(Reflect.get(session, "pendingOrphanResults")).toBe(2);
+        messages.push(idle);
+        await vi.waitFor(() => expect(active.resolve).toHaveBeenCalled());
+        messages.push(result());
+        await vi.waitFor(() =>
+          expect(Reflect.get(session, "pendingOrphanResults")).toBe(1)
+        );
+        release();
+        await cancellation;
+        expect(Reflect.get(session, "pendingOrphanResults")).toBe(1);
+        const next = makeTurn("next-echo-less-command");
+        session.turnQueue.push(next);
+        const readsBefore = session.query.next.mock.calls.length;
+        messages.push(result());
+        await vi.waitFor(() =>
+          expect(session.query.next.mock.calls.length).toBeGreaterThan(
+            readsBefore
+          )
+        );
+        expect(Reflect.get(session, "pendingOrphanResults")).toBe(0);
+        expect(next.resolve).not.toHaveBeenCalled();
+        messages.push(result());
+        await vi.waitFor(() =>
+          expect(next.resolve).toHaveBeenCalledWith(
+            expect.objectContaining({ stopReason: "end_turn" })
+          )
+        );
+        expect(next.reject).not.toHaveBeenCalled();
+      } finally {
+        await stop();
+      }
+    }
+  );
+
+  it.each(["single", "multiple"])(
+    "uses a %s stamped legacy result when an earlier seed was dropped",
+    async (stamp) => {
+      const { adapter, session, messages, stop } = consumerFixture();
+      Object.assign(session, {
+        msgLifecycleV1: false,
+        pendingOrphanResults: 0,
+      });
+      const active = makeTurn("legacy-owner");
+      const consumed = [
+        "consumed-second",
+        ...(stamp === "multiple" ? ["consumed-third"] : []),
+      ];
+      active.steeredEchoes = new Set(["dropped-first", ...consumed]);
+      session.activeTurn = active;
+      session.turnQueue.push(active);
+      let release!: () => void;
+      session.query.interrupt.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ still_queued: consumed } as never);
+          })
+      );
+      try {
+        const cancellation = adapter.cancel({ sessionId });
+        await vi.waitFor(() =>
+          expect(session.query.interrupt).toHaveBeenCalledOnce()
+        );
+        messages.push(idle);
+        await vi.waitFor(() => expect(active.resolve).toHaveBeenCalled());
+        messages.push(
+          stamp === "single"
+            ? result("consumed-second")
+            : {
+                ...result(),
+                user_message_uuids: consumed,
+              }
+        );
+        await vi.waitFor(() =>
+          expect(Reflect.get(session, "pendingOrphanResults")).toBe(1)
+        );
+        release();
+        await cancellation;
+        expect(Reflect.get(session, "pendingOrphanResults")).toBe(0);
+        const next = makeTurn("next-echo-less-command");
+        session.turnQueue.push(next);
+        messages.push(result());
+        await vi.waitFor(() =>
+          expect(next.resolve).toHaveBeenCalledWith(
+            expect.objectContaining({ stopReason: "end_turn" })
+          )
+        );
+        expect(next.reject).not.toHaveBeenCalled();
+      } finally {
+        await stop();
+      }
+    }
+  );
 
   it.each(["immediate", "late"])(
     "reconciles a legacy fallback drop with a %s response before the next echo-less result",
