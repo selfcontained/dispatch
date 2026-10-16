@@ -121,6 +121,8 @@ test.describe("Create agent dialog", () => {
     });
     await expect(fullAccess).toHaveAttribute("aria-checked", "true");
     await page.getByTestId("create-agent-cwd").fill("/tmp");
+    // Close the directory suggestions so they can't cover the checkbox.
+    await page.getByTestId("create-agent-name").click();
     await expect(fullAccess).toHaveAttribute("aria-checked", "true");
     await fullAccess.click();
     await expect(fullAccess).toHaveAttribute("aria-checked", "false");
