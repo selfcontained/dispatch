@@ -9,6 +9,7 @@ import {
   useFirstAgentWithTurnLabel,
 } from "@/hooks/use-agent-turn-label";
 import { cn } from "@/lib/utils";
+import { useProjectScope } from "@/hooks/use-projects";
 
 function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
   const [iconError, setIconError] = React.useState(false);
@@ -115,6 +116,7 @@ export function AgentCardActivity({
   /** Called as the running-turn link navigates. */
   onNavigate?: () => void;
 }): JSX.Element {
+  const { projectId } = useProjectScope();
   const repoName = agentProjectRoot(agent)?.split("/").pop() ?? null;
   const ownStep = useAgentTurnLabel(
     agent.id,
@@ -145,7 +147,7 @@ export function AgentCardActivity({
           />
         )}
       </div>
-      {repoName && !agent.reconnect ? (
+      {!projectId && repoName && !agent.reconnect ? (
         <RepoLabel agentId={agent.id} name={repoName} />
       ) : null}
     </div>
