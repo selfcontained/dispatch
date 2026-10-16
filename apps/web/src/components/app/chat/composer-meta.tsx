@@ -335,14 +335,16 @@ function UsageChip({
           }
           data-testid="composer-usage-chip"
         >
-          <Gauge className="h-3 w-3 shrink-0" aria-hidden="true" />
-          {expiring ? (
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
-              aria-hidden="true"
-              data-testid="composer-usage-expiry-dot"
-            />
-          ) : null}
+          <span className="relative inline-flex shrink-0">
+            <Gauge className="h-3 w-3" aria-hidden="true" />
+            {expiring ? (
+              <span
+                className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background"
+                aria-hidden="true"
+                data-testid="composer-usage-expiry-dot"
+              />
+            ) : null}
+          </span>
           <span className="composer-usage-full">{usageLabel}</span>
           <span className="composer-usage-short hidden">
             {percent === null ? "Usage" : `${percent}% ctx`}
