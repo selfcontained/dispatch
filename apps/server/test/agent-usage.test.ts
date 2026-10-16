@@ -143,10 +143,8 @@ describe("syncTurnUsage", () => {
 });
 
 describe("loadAgentUsage", () => {
-  const now = new Date("2026-09-24T12:00:00Z");
-
-  it("reports the session's newest context and cost, and session and month tokens", async () => {
-    // Late August, same session: counts for the session, not for September.
+  it("reports the session's newest context and cost, and session tokens", async () => {
+    // An earlier turn of the same session counts toward the session.
     await turn({
       sessionId: "sess_1",
       model: "m1",
@@ -173,21 +171,13 @@ describe("loadAgentUsage", () => {
     });
     await syncTurnUsage(pool, A);
 
-    const report = await loadAgentUsage(
-      pool,
-      { id: A, cliSessionId: "sess_1" },
-      now
-    );
+    const report = await loadAgentUsage(pool, {
+      id: A,
+      cliSessionId: "sess_1",
+    });
     expect(report.context).toEqual({ used: 5000, size: 200000 });
     expect(report.sessionCost).toEqual({ amount: 0.42, currency: "USD" });
     expect(report.session.total).toBe(1440);
-    expect(report.month).toEqual({
-      input: 400,
-      output: 40,
-      cacheRead: 0,
-      cacheWrite: 0,
-      total: 440,
-    });
     expect(report.byModel.map((m) => m.model)).toEqual(["m1", "m2"]);
   });
 
@@ -199,15 +189,13 @@ describe("loadAgentUsage", () => {
       usage: { used: 9000, size: 200000, cost: { amount: 1, currency: "USD" } },
     });
     await syncTurnUsage(pool, A);
-    const report = await loadAgentUsage(
-      pool,
-      { id: A, cliSessionId: "sess_new" },
-      now
-    );
+    const report = await loadAgentUsage(pool, {
+      id: A,
+      cliSessionId: "sess_new",
+    });
     expect(report.context).toBeNull();
     expect(report.sessionCost).toBeNull();
     expect(report.session.total).toBe(0);
-    expect(report.month.total).toBe(10);
   });
 });
 

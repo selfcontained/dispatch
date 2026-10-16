@@ -39,6 +39,10 @@ export default {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
         },
+        engine: {
+          codex: "hsl(var(--engine-codex) / <alpha-value>)",
+          claude: "hsl(var(--engine-claude) / <alpha-value>)",
+        },
         status: {
           working: "hsl(var(--status-working) / <alpha-value>)",
           blocked: "hsl(var(--status-blocked) / <alpha-value>)",

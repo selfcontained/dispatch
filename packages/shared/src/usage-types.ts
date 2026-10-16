@@ -46,8 +46,6 @@ export type AgentUsageResponse = {
   sessionCost: { amount: number; currency: string } | null;
   /** Tokens this agent's current session has used, across models. */
   session: TokenCounts;
-  /** Tokens this agent has used since the start of the month (UTC). */
-  month: TokenCounts;
   /** Tokens per model this session, largest first. */
   byModel: Array<{ model: string; tokens: TokenCounts }>;
 };

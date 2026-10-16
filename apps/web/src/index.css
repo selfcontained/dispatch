@@ -46,6 +46,11 @@
   --status-idle: 240 4% 46%;
   --status-reviewing: 210 80% 62%;
 
+  /* Engine tints, the same in every theme: brand-adjacent hues that tell
+     a Codex card from a Claude card at a glance without saying "status". */
+  --engine-codex: 212 88% 64%; /* blue */
+  --engine-claude: 19 72% 62%; /* terracotta */
+
   /* Chart colors */
   --chart-1: 158 64% 52%; /* teal — input tokens */
   --chart-2: 45 96% 64%; /* amber — output tokens */

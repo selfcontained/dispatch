@@ -40,10 +40,6 @@ export function toAgentConfigOptions(
   return out;
 }
 
-export function monthStartUtc(now: Date = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
-
 type TokenRow = {
   model: string;
   input: string | number;
@@ -73,15 +69,13 @@ const SUMS = `COALESCE(SUM(input_tokens), 0) AS input,
 
 /**
  * What one agent has used: the current session's newest context report and
- * cost, its per-model totals for the session from `agent_token_usage`, and
- * the month's tokens summed turn by turn.
+ * cost, and its per-model totals for the session from `agent_token_usage`.
  */
 export async function loadAgentUsage(
   pool: Pick<Pool, "query">,
-  agent: { id: string; cliSessionId: string | null },
-  now: Date = new Date()
+  agent: { id: string; cliSessionId: string | null }
 ): Promise<AgentUsageResponse> {
-  const [latest, session, month] = await Promise.all([
+  const [latest, session] = await Promise.all([
     pool.query<{
       used: string | null;
       size: string | null;
@@ -105,18 +99,6 @@ export async function loadAgentUsage(
         WHERE agent_id = $1 AND session_id = $2
         GROUP BY model`,
       [agent.id, agent.cliSessionId ?? ""]
-    ),
-    // A session can span months, so the month is summed per turn, by
-    // when each turn started, not from the per-session rows.
-    pool.query<Omit<TokenRow, "model">>(
-      `SELECT COALESCE(SUM((payload->'tokens'->>'input')::bigint), 0) AS input,
-              COALESCE(SUM((payload->'tokens'->>'output')::bigint), 0) AS output,
-              COALESCE(SUM((payload->'tokens'->>'cacheRead')::bigint), 0) AS cache_read,
-              COALESCE(SUM((payload->'tokens'->>'cacheWrite')::bigint), 0) AS cache_write
-         FROM agent_stream_events
-        WHERE agent_id = $1 AND kind = 'turn' AND payload ? 'tokens'
-          AND created_at >= $2`,
-      [agent.id, monthStartUtc(now)]
     ),
   ]);
 
@@ -147,7 +129,6 @@ export async function loadAgentUsage(
         ? { amount, currency: row.cost_currency }
         : null,
     session: sessionTotals,
-    month: counts(month.rows[0]),
     byModel,
   };
 }

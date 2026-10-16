@@ -7,6 +7,7 @@ import type {
 import { ChevronDown, Gauge, RefreshCw, Sparkles } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -291,7 +292,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "max-h-[70vh] w-80 space-y-4 overflow-y-auto p-3 text-xs",
+          "max-h-[70vh] w-[22rem] space-y-4 overflow-y-auto p-3 text-xs",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"
@@ -301,7 +302,7 @@ function UsageChip({
         {agent ? (
           <UsageDetails usage={usage} agentType={agent.type ?? null} />
         ) : null}
-        <PlanLimits engine={agent?.type ?? ""} enabled={open} />
+        <PlanLimits enabled={open} />
       </PopoverContent>
     </Popover>
   );
@@ -339,42 +340,46 @@ function UsageDetailsSkeleton({
   agentType: string | null;
 }): JSX.Element {
   return (
-    <section className="space-y-2" aria-label="This agent" aria-busy="true">
-      <h3 className="text-[11px] font-medium text-foreground">This agent</h3>
+    <section
+      className={cn(CARD_CLASS, agentType ? ENGINE_CARD[agentType] : undefined)}
+      aria-label="This agent"
+      aria-busy="true"
+    >
+      <CardHeader engine={agentType} title="This agent" />
       <div className="space-y-1">
-        <div className="flex justify-between text-muted-foreground">
-          <span>Context</span>
-          <Line className="w-28" />
-        </div>
+        <Row label="Context" value={<Line className="w-28" />} />
         <div className={BAR_TRACK_CLASS} />
       </div>
-      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5">
-        {agentType === "claude" ? (
-          <>
-            <dt className="text-muted-foreground">Cost this session</dt>
-            <dd className="flex justify-end">
-              <Line className="w-12" />
-            </dd>
-          </>
-        ) : null}
-        <dt className="text-muted-foreground">Tokens this session</dt>
-        <dd className="flex justify-end">
-          <Line className="w-10" />
-        </dd>
-        <dt className="pl-2 text-muted-foreground/80">input · output</dt>
-        <dd className="flex justify-end">
-          <Line className="w-16" />
-        </dd>
-        <dt className="pl-2 text-muted-foreground/80">cache read · write</dt>
-        <dd className="flex justify-end">
-          <Line className="w-16" />
-        </dd>
-        <dt className="text-muted-foreground">Tokens this month</dt>
-        <dd className="flex justify-end">
-          <Line className="w-10" />
-        </dd>
-      </dl>
+      <Row label="Session" value={<Line className="w-16" />} />
+      <SplitRow label="input · output" value="" />
+      <SplitRow label="cache read · write" value="" />
+      {agentType === "claude" ? (
+        <Row label="Session cost" value={<Line className="w-12" />} />
+      ) : null}
     </section>
+  );
+}
+
+/** A label at the left and its value at the right, one line. */
+function Row({
+  label,
+  value,
+  testId,
+}: {
+  label: string;
+  value: React.ReactNode;
+  testId?: string;
+}): JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className="truncate tabular-nums text-foreground"
+        data-testid={testId}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -393,78 +398,86 @@ function UsageDetails({
   const catalog = useAgentModelCatalogData();
   if (!usage) return <UsageDetailsSkeleton agentType={agentType} />;
   const percent = contextPercent(usage);
+  const { session } = usage;
   return (
-    <section className="space-y-2" aria-label="This agent">
-      <h3 className="text-[11px] font-medium text-foreground">This agent</h3>
+    <section
+      className={cn(CARD_CLASS, agentType ? ENGINE_CARD[agentType] : undefined)}
+      aria-label="This agent"
+      data-testid="usage-agent-card"
+    >
+      <CardHeader engine={agentType} title="This agent" />
       <div className="space-y-1">
-        <div className="flex justify-between text-muted-foreground">
-          <span>Context</span>
-          <span className="tabular-nums" data-testid="usage-context">
-            {usage.context && percent !== null ? (
-              <>
-                {formatTokenCount(usage.context.used)} /{" "}
-                {formatTokenCount(usage.context.size)} ({percent}%)
-              </>
-            ) : (
-              "not reported yet"
-            )}
-          </span>
-        </div>
+        <Row
+          label="Context"
+          testId="usage-context"
+          value={
+            usage.context && percent !== null
+              ? `${formatTokenCount(usage.context.used)} / ${formatTokenCount(usage.context.size)} (${percent}%)`
+              : "not reported yet"
+          }
+        />
         {percent !== null ? (
           <Bar percent={percent} />
         ) : (
           <div className={BAR_TRACK_CLASS} />
         )}
       </div>
-      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 tabular-nums">
-        {agentType === "claude" || usage.sessionCost ? (
-          <>
-            <dt className="text-muted-foreground">Cost this session</dt>
-            <dd data-testid="usage-session-cost">
-              {usage.sessionCost
-                ? formatCost(
-                    usage.sessionCost.amount,
-                    usage.sessionCost.currency
-                  )
-                : "—"}
-            </dd>
-          </>
-        ) : null}
-        <dt className="text-muted-foreground">Tokens this session</dt>
-        <dd data-testid="usage-session-tokens">
-          {formatTokenCount(usage.session.total)}
-        </dd>
-        <dt className="pl-2 text-muted-foreground/80">input · output</dt>
-        <dd className="text-muted-foreground">
-          {formatTokenCount(usage.session.input)} ·{" "}
-          {formatTokenCount(usage.session.output)}
-        </dd>
-        <dt className="pl-2 text-muted-foreground/80">cache read · write</dt>
-        <dd className="text-muted-foreground">
-          {formatTokenCount(usage.session.cacheRead)} ·{" "}
-          {formatTokenCount(usage.session.cacheWrite)}
-        </dd>
-        <dt className="text-muted-foreground">Tokens this month</dt>
-        <dd>{formatTokenCount(usage.month.total)}</dd>
-      </dl>
-      {usage.byModel.length > 1 ? (
-        <ul className="space-y-0.5">
-          {usage.byModel.map((m) => (
-            <li
+      <Row
+        label="Session"
+        testId="usage-session-tokens"
+        value={`${formatTokenCount(session.total)} tokens`}
+      />
+      {/* How the session's tokens split, muted under the total. */}
+      <SplitRow
+        label="input · output"
+        value={`${formatTokenCount(session.input)} · ${formatTokenCount(session.output)}`}
+      />
+      <SplitRow
+        label="cache read · write"
+        value={`${formatTokenCount(session.cacheRead)} · ${formatTokenCount(session.cacheWrite)}`}
+      />
+      {usage.byModel.length > 1
+        ? usage.byModel.map((m) => (
+            <SplitRow
               key={m.model}
-              className="flex justify-between gap-2 text-muted-foreground"
-            >
-              <span className="truncate" title={m.model}>
-                {agentModelLabel(catalog, agentType, m.model)}
-              </span>
-              <span className="tabular-nums">
-                {formatTokenCount(m.tokens.total)}
-              </span>
-            </li>
-          ))}
-        </ul>
+              label={agentModelLabel(catalog, agentType, m.model)}
+              title={m.model}
+              value={formatTokenCount(m.tokens.total)}
+            />
+          ))
+        : null}
+      {agentType === "claude" || usage.sessionCost ? (
+        <Row
+          label="Session cost"
+          testId="usage-session-cost"
+          value={
+            usage.sessionCost
+              ? formatCost(usage.sessionCost.amount, usage.sessionCost.currency)
+              : "—"
+          }
+        />
       ) : null}
     </section>
+  );
+}
+
+/** A muted, indented detail under a row: a split of its value, or a model's share. */
+function SplitRow({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}): JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-3 pl-2 text-[11px] text-muted-foreground/80">
+      <span className="truncate" title={title}>
+        {label}
+      </span>
+      <span className="shrink-0 tabular-nums">{value}</span>
+    </div>
   );
 }
 
@@ -473,7 +486,50 @@ const ENGINE_NAME: Record<ProviderPlan["engine"], string> = {
   codex: "Codex",
 };
 
-const ENGINES = Object.keys(ENGINE_NAME) as ProviderPlan["engine"][];
+/** The cards' order, the same every time: Codex above Claude. */
+const ENGINES: ProviderPlan["engine"][] = ["codex", "claude"];
+
+/**
+ * Each engine's tint. Every card's icon badge wears it; only the agent's
+ * own card also tints its edge, to call out which engine it runs on.
+ */
+const ENGINE_CARD: Record<string, string> = {
+  codex: "border-l-engine-codex/60",
+  claude: "border-l-engine-claude/60",
+};
+const ENGINE_ICON: Record<string, string> = {
+  codex: "border-engine-codex/40 bg-engine-codex/15 text-engine-codex",
+  claude: "border-engine-claude/40 bg-engine-claude/15 text-engine-claude",
+};
+
+/** A card's first row: the engine's icon and name, and a value at the right. */
+function CardHeader({
+  engine,
+  title,
+  detail,
+  right,
+}: {
+  engine: string | null;
+  title: string;
+  detail?: string | null;
+  right?: React.ReactNode;
+}): JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="flex min-w-0 items-center gap-1.5 truncate">
+        <AgentTypeIcon
+          type={engine}
+          className={cn("h-4 w-4", engine ? ENGINE_ICON[engine] : undefined)}
+        />
+        <span className="font-medium text-foreground">{title}</span>
+        {detail ? (
+          <span className="truncate text-muted-foreground">· {detail}</span>
+        ) : null}
+      </span>
+      {right}
+    </div>
+  );
+}
 
 /**
  * The money rows each provider's card always carries: Claude bills extra
@@ -499,14 +555,13 @@ const CARD_CLASS = "space-y-1.5 rounded-md border bg-muted/30 p-2";
 /** One line, there whether or not it has anything to say; never wraps. */
 const NOTE_CLASS = "h-4 truncate text-[11px] leading-4";
 
-/** The agent's own engine first. */
-function engineFirst<T extends { engine: string }>(
-  items: T[],
-  engine: string
-): T[] {
-  return [...items].sort(
-    (a, b) => Number(b.engine === engine) - Number(a.engine === engine)
-  );
+/** In the cards' fixed order; an engine the list does not know goes last. */
+function inEngineOrder<T extends { engine: string }>(items: T[]): T[] {
+  const rank = (engine: string) => {
+    const index = ENGINES.indexOf(engine as ProviderPlan["engine"]);
+    return index === -1 ? ENGINES.length : index;
+  };
+  return [...items].sort((a, b) => rank(a.engine) - rank(b.engine));
 }
 
 /** Now, again every 30s while `enabled`, for ages that keep counting. */
@@ -522,20 +577,16 @@ function useNow(enabled: boolean): number {
 }
 
 /** Only before anything was ever read here: a card per provider, values loading. */
-function PlanLimitsSkeleton({ engine }: { engine: string }): JSX.Element {
+function PlanLimitsSkeleton(): JSX.Element {
   return (
     <>
-      {engineFirst(
-        ENGINES.map((id) => ({ engine: id })),
-        engine
-      ).map(({ engine: id }) => (
+      {ENGINES.map((id) => (
         <div key={id} className={CARD_CLASS} aria-busy="true">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="font-medium text-foreground">
-              {ENGINE_NAME[id]}
-            </span>
-            <Line className="w-14" />
-          </div>
+          <CardHeader
+            engine={id}
+            title={ENGINE_NAME[id]}
+            right={<Line className="w-14" />}
+          />
           {Array.from({ length: SKELETON_WINDOWS[id] }, (_, i) => (
             <div key={i} className="space-y-1">
               <div className="flex justify-between gap-2">
@@ -564,15 +615,9 @@ function PlanLimitsSkeleton({ engine }: { engine: string }): JSX.Element {
   );
 }
 
-function PlanLimits({
-  engine,
-  enabled,
-}: {
-  engine: string;
-  enabled: boolean;
-}): JSX.Element {
+function PlanLimits({ enabled }: { enabled: boolean }): JSX.Element {
   const plans = useProviderPlans(enabled);
-  const providers = engineFirst(plans.data?.providers ?? [], engine);
+  const providers = inEngineOrder(plans.data?.providers ?? []);
   const now = useNow(enabled);
   const busy = plans.isFetching || plans.refresh.isPending;
   const failure = plans.refresh.error ?? plans.error;
@@ -629,7 +674,7 @@ function PlanLimits({
         ) : plans.error ? (
           <p className="text-destructive">{plans.error.message}</p>
         ) : (
-          <PlanLimitsSkeleton engine={engine} />
+          <PlanLimitsSkeleton />
         )}
       </div>
     </section>
@@ -651,34 +696,31 @@ function ProviderLimits({
       data-engine={plan.engine}
       data-testid={`usage-plan-${plan.engine}`}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate">
-          <span className="font-medium text-foreground">
-            {ENGINE_NAME[plan.engine] ?? plan.engine}
+      <CardHeader
+        engine={plan.engine}
+        title={ENGINE_NAME[plan.engine] ?? plan.engine}
+        detail={plan.plan}
+        right={
+          <span
+            className={cn(
+              "shrink-0 text-[11px] tabular-nums",
+              age === "live" ? "text-status-working" : "text-muted-foreground"
+            )}
+            title={
+              plan.observedAt
+                ? `Reported ${new Date(plan.observedAt).toLocaleString()}${
+                    plan.source === "local"
+                      ? " — read from the engine's files on this machine"
+                      : ""
+                  }`
+                : undefined
+            }
+            data-testid={`usage-plan-age-${plan.engine}`}
+          >
+            {age ?? ""}
           </span>
-          {plan.plan ? (
-            <span className="text-muted-foreground"> · {plan.plan}</span>
-          ) : null}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 text-[11px] tabular-nums",
-            age === "live" ? "text-status-working" : "text-muted-foreground"
-          )}
-          title={
-            plan.observedAt
-              ? `Reported ${new Date(plan.observedAt).toLocaleString()}${
-                  plan.source === "local"
-                    ? " — read from the engine's files on this machine"
-                    : ""
-                }`
-              : undefined
-          }
-          data-testid={`usage-plan-age-${plan.engine}`}
-        >
-          {age ?? ""}
-        </span>
-      </div>
+        }
+      />
       {plan.windows.map((w) => (
         <PlanWindowRow key={w.id} window={w} now={now} />
       ))}
@@ -730,13 +772,17 @@ function PlanWindowRow({
   now: number;
 }): JSX.Element {
   const resets = resetsIn(window.resetsAt, now);
+  const detail = `${Math.round(window.usedPercent)}% used${resets ? ` · resets ${resets}` : ""}`;
   return (
     <div className="space-y-1">
+      {/* One line: a long label ("Fable weekly") trims the detail, not the row. */}
       <div className="flex justify-between gap-2">
-        <span>{window.label}</span>
-        <span className="tabular-nums text-muted-foreground">
-          {Math.round(window.usedPercent)}% used
-          {resets ? ` · resets ${resets}` : ""}
+        <span className="shrink-0 whitespace-nowrap">{window.label}</span>
+        <span
+          className="truncate tabular-nums text-muted-foreground"
+          title={detail}
+        >
+          {detail}
         </span>
       </div>
       <Bar percent={window.usedPercent} />
