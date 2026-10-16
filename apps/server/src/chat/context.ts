@@ -27,6 +27,7 @@ export function messageContent(block: Block): string {
               ? {
                   type: a.type,
                   fileName: a.fileName,
+                  caption: a.caption,
                   mimeType: a.mimeType,
                   sizeBytes: a.sizeBytes,
                 }

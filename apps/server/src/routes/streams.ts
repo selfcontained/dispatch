@@ -21,7 +21,7 @@ import {
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
 import { attachTurns } from "../chat/turns.js";
-import { chatUrlSchema } from "../chat/validation.js";
+import { attachmentCaptionSchema, chatUrlSchema } from "../chat/validation.js";
 
 type StreamRouteDeps = {
   pool: Pool;
@@ -39,7 +39,11 @@ type StreamRouteDeps = {
  * `POST /agents/:id/files` moments ago.
  */
 const userAttachmentSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("file"), fileId: z.int().positive() }),
+  z.strictObject({
+    type: z.literal("file"),
+    fileId: z.int().positive(),
+    caption: attachmentCaptionSchema.optional(),
+  }),
   z.strictObject({
     type: z.literal("link"),
     url: chatUrlSchema,

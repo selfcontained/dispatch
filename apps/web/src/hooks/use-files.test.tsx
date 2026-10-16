@@ -139,16 +139,24 @@ describe("useFiles lightbox identity", () => {
     await waitFor(() => expect(result.current.files).toHaveLength(4));
 
     // One post's images, in the post's order.
-    act(() => result.current.openLightbox(3, [3, 1]));
+    act(() =>
+      result.current.openLightbox(3, [3, 1], {
+        3: "Third view",
+        1: "First view",
+      })
+    );
+    expect(result.current.lightboxCaption).toBe("Third view");
     expect(result.current.lightboxFileIds).toEqual([3, 1]);
     act(() => result.current.setLightboxFileId(1));
     expect(result.current.lightboxFileId).toBe(1);
+    expect(result.current.lightboxCaption).toBe("First view");
     // A file outside the post is not a step.
     act(() => result.current.setLightboxFileId(2));
     expect(result.current.lightboxFileId).toBe(1);
 
     act(() => result.current.setLightboxFileId(null));
     act(() => result.current.openLightbox(2));
+    expect(result.current.lightboxCaption).toBeUndefined();
     expect(result.current.lightboxFileIds).toHaveLength(4);
   });
 

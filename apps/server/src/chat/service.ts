@@ -93,7 +93,11 @@ import {
   shownIdsOf,
   type UpdateBlockInput,
 } from "./store.js";
-import { chatUrlSchema, normalizeReactionEmoji } from "./validation.js";
+import {
+  attachmentCaptionSchema,
+  chatUrlSchema,
+  normalizeReactionEmoji,
+} from "./validation.js";
 
 /**
  * An attachment as an agent supplies it to `post`: `file` names a file it
@@ -107,6 +111,7 @@ export type BlockAttachmentInput =
       fileId?: number;
       path?: string;
       description?: string;
+      caption?: string;
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
@@ -4017,7 +4022,10 @@ export class StreamService {
           description: input.description ?? path.basename(input.path),
         });
         out.push(
-          await this.resolveFile(agent.id, { fileName: uploaded.fileName })
+          await this.resolveFile(agent.id, {
+            fileName: uploaded.fileName,
+            caption: input.caption,
+          })
         );
         continue;
       }
@@ -4127,8 +4135,17 @@ export class StreamService {
 
   private async resolveFile(
     agentId: string,
-    input: { fileName?: string; fileId?: number }
+    input: { fileName?: string; fileId?: number; caption?: string }
   ): Promise<ChatAttachment> {
+    const parsedCaption = attachmentCaptionSchema
+      .optional()
+      .safeParse(input.caption);
+    if (!parsedCaption.success) {
+      throw new StreamValidationError(
+        "Attachment caption must be text of at most 2000 characters."
+      );
+    }
+    const caption = parsedCaption.data || undefined;
     const fileName = input.fileName?.trim();
     const fileId =
       typeof input.fileId === "number" && Number.isInteger(input.fileId)
@@ -4163,6 +4180,7 @@ export class StreamService {
     }
     return {
       type: "file",
+      ...(caption ? { caption } : {}),
       fileId: match.id,
       fileName: match.file_name,
       sizeBytes: match.size_bytes,

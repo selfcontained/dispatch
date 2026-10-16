@@ -92,7 +92,11 @@ export type ChatPaneProps = {
   /** Show the turns and posts of the agents under this one (default on). */
   showChildAgents: boolean;
   onShowChildAgentsChange: (show: boolean) => void;
-  openLightbox: (fileId: number, order?: number[]) => void;
+  openLightbox: (
+    fileId: number,
+    order?: number[],
+    captions?: Record<number, string>
+  ) => void;
   /** Opens the Changes tab on a file (a review finding's path). */
   onOpenPath?: (path: string, line: number | null) => void;
   isMobile: boolean;

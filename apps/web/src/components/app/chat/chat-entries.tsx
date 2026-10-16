@@ -155,7 +155,11 @@ export type FeedContext = {
    */
   names?: Readonly<Record<string, string>>;
   /** `order` scopes the lightbox's prev/next to those files, e.g. one post's images. */
-  onOpenFile: (fileId: number, order?: number[]) => void;
+  onOpenFile: (
+    fileId: number,
+    order?: number[],
+    captions?: Record<number, string>
+  ) => void;
   /** Opens the Changes tab on a file, at a line when one is given. */
   onOpenPath?: (path: string, line: number | null) => void;
   /**

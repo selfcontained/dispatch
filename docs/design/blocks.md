@@ -221,3 +221,18 @@ SSE events: `stream.entry` (upsert one entry), `stream.changed` (refetch),
 4. `tasks`, `board`, `preview` kinds; the Inbox derived from live blocks
    (open input, running preview, active board); pins, surfaces, whiteboards
    and the git tools deleted.
+
+### Image captions
+
+Post `text` is always a normal Markdown message body, including when attachments
+fold into a turn. This rendering also applies to existing chats; body text is never
+inferred or migrated into an image caption.
+
+File attachments accept an optional plain text `caption` (up to 2,000 characters).
+Captions display with their images in single-image cards, galleries, and the image
+viewer. Omit `caption` for no visible caption; filenames still provide accessible
+fallback labels. A caption belongs to one attachment occurrence: two posts can
+attach the same `fileId` or `fileName` with different captions. `update` replaces
+the attachment list, so supply captions again for the replacement attachments.
+`description` remains file registry metadata set on upload and is independent of
+these captions.

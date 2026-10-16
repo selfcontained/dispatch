@@ -5,6 +5,7 @@ import {
   callMcpToolViaAPI,
   cleanupE2EAgents,
   createAgentViaAPI,
+  uploadFileViaAPI,
 } from "./helpers";
 
 /** The stored state of one block, read back as the root of its own thread. */
@@ -26,6 +27,88 @@ async function blockState(
 test.describe("Stream blocks", () => {
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request);
+  });
+
+  test("image captions belong to each attachment while post text remains Markdown", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-image-captions-${Date.now()}`,
+    });
+    await uploadFileViaAPI(
+      request,
+      agent.id,
+      "Registry metadata",
+      "caption-first.png"
+    );
+    await uploadFileViaAPI(
+      request,
+      agent.id,
+      "Other registry metadata",
+      "caption-second.png"
+    );
+    const response = await request.get(`/api/v1/agents/${agent.id}/files`, {
+      headers: authHeaders(),
+    });
+    const { files } = (await response.json()) as {
+      files: Array<{ id: number; name: string }>;
+    };
+    const first = files.find((file) => file.name.startsWith("caption-first"))!;
+    const second = files.find((file) =>
+      file.name.startsWith("caption-second")
+    )!;
+    await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "## Image results\n\n**Ready** with [details](https://example.com).\n\n- First item\n- Second item",
+      attachments: [
+        { type: "file", fileId: first.id, caption: "Before: original layout" },
+        { type: "file", fileId: second.id, caption: "After: revised layout" },
+      ],
+    });
+    await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Same file, another post.",
+      attachments: [
+        { type: "file", fileName: first.name, caption: "Independent caption" },
+      ],
+    });
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { name: "Image results" })
+    ).toBeVisible();
+    await expect(
+      page
+        .getByTestId("chat-pane")
+        .locator("strong")
+        .filter({ hasText: "Ready" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "details", exact: true })
+    ).toBeVisible();
+    await expect(page.getByTestId("chat-attachment-caption")).toHaveText([
+      "Before: original layout",
+      "After: revised layout",
+      "Independent caption",
+    ]);
+    await page.getByTestId("chat-attachment-gallery-tile").first().click();
+    await expect(
+      page.getByRole("dialog", { name: "Before: original layout" })
+    ).toBeVisible();
+    await page.getByTestId("file-lightbox-next").click();
+    await expect(
+      page.getByRole("dialog", { name: "After: revised layout" })
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByTestId("chat-attachment-image").getByRole("button").click();
+    await expect(
+      page.getByRole("dialog", { name: "Independent caption" })
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("chat-attachment-caption")).toHaveText([
+      "Before: original layout",
+      "After: revised layout",
+      "Independent caption",
+    ]);
   });
 
   test("a review block lists its findings, resolves through the state route and opens a finding's thread", async ({

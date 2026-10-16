@@ -858,6 +858,77 @@ describe("StreamService.post", () => {
     expect(tasks.state).toEqual({ items: { t1: "todo", t2: "todo" } });
   });
 
+  it("persists independent occurrence captions through upload, reattach, update and feed readback", async () => {
+    const uploadFile = vi.fn(async () => {
+      await pool.query(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, description, mime_type)
+        VALUES ($1, 'caption.png', 'screenshot', 77, 'Registry description', 'image/png')`,
+        [A]
+      );
+      return { fileName: "caption.png" };
+    });
+    const { svc } = build({ withDelivery: false, deps: { uploadFile } });
+    const first = await svc.post(A, {
+      text: "## Normal **Markdown**",
+      attachments: [
+        { type: "file", path: "/tmp/caption.png", caption: "  First view  " },
+      ],
+    });
+    const firstFile = first.attachments[0];
+    if (firstFile.type !== "file") throw new Error("expected file");
+    const second = await svc.post(A, {
+      attachments: [
+        { type: "file", fileId: firstFile.fileId, caption: "Second view" },
+      ],
+    });
+    const third = await svc.post(A, {
+      attachments: [
+        { type: "file", fileName: firstFile.fileName, caption: "Third view" },
+      ],
+    });
+    expect(firstFile.caption).toBe("First view");
+    expect(second.attachments[0]).toMatchObject({
+      fileId: firstFile.fileId,
+      caption: "Second view",
+    });
+    expect(third.attachments[0]).toMatchObject({
+      fileId: firstFile.fileId,
+      caption: "Third view",
+    });
+    await svc.update(A, second.id, {
+      attachments: [
+        { type: "file", fileName: firstFile.fileName, caption: "Updated view" },
+      ],
+    });
+    expect((await svc.store.getById(first.id))?.attachments[0]).toMatchObject({
+      caption: "First view",
+    });
+    expect((await svc.store.getById(second.id))?.attachments[0]).toMatchObject({
+      caption: "Updated view",
+    });
+    const feed = await composeStreamFeed(svc.store, A);
+    expect(JSON.stringify(feed)).toContain('"caption":"First view"');
+    expect(JSON.stringify(feed)).toContain('"caption":"Updated view"');
+    expect(
+      (
+        await pool.query(`SELECT description FROM files WHERE id = $1`, [
+          firstFile.fileId,
+        ])
+      ).rows[0].description
+    ).toBe("Registry description");
+    await expect(
+      svc.post(A, {
+        attachments: [
+          { type: "file", fileId: firstFile.fileId, caption: "x".repeat(2001) },
+        ],
+      })
+    ).rejects.toThrow(/caption/);
+    const blank = await svc.update(A, third.id, {
+      attachments: [{ type: "file", fileId: firstFile.fileId, caption: "  " }],
+    });
+    expect(blank.attachments[0]).not.toHaveProperty("caption");
+  });
+
   it("resolves file attachments by stored fileName or fileId", async () => {
     await pool.query(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)

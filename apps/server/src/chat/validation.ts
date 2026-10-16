@@ -63,3 +63,6 @@ export function normalizeReactionEmoji(value: unknown): string | null {
   }
   return emoji;
 }
+
+/** Plain text label for one image attachment, independent of file metadata. */
+export const attachmentCaptionSchema = z.string().trim().max(2000);

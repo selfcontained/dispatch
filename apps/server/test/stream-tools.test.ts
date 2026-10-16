@@ -304,7 +304,12 @@ describe("registerStreamTools", () => {
       expect.objectContaining({ link })
     );
     const attachments = [
-      { type: "file", path: "/tmp/shot.png", description: "the shot" },
+      {
+        type: "file",
+        path: "/tmp/shot.png",
+        description: "the shot",
+        caption: "Image label",
+      },
       { type: "code", code: "let x = 1", language: "ts", path: "a.ts" },
     ];
     await tool("post").handler({ text: "see", attachments });
@@ -334,6 +339,32 @@ describe("registerStreamTools", () => {
     });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("Unknown file");
+  });
+
+  it("accepts bounded image captions for post and update, and forwards updates", async () => {
+    for (const name of ["post", "update"]) {
+      const schema = shape(name).attachments;
+      expect(
+        schema.safeParse([{ type: "file", fileId: 3, caption: "A view" }])
+          .success
+      ).toBe(true);
+      expect(
+        schema.safeParse([{ type: "file", fileName: "a.png", caption: 1 }])
+          .success
+      ).toBe(false);
+      expect(
+        schema.safeParse([
+          { type: "file", path: "/tmp/a.png", caption: "x".repeat(2001) },
+        ]).success
+      ).toBe(false);
+    }
+    const attachments = [{ type: "file", fileId: 3, caption: "Revised view" }];
+    await tool("update").handler({ id: BLOCK, attachments });
+    expect(update).toHaveBeenLastCalledWith(
+      AGENT_ID,
+      BLOCK,
+      expect.objectContaining({ attachments })
+    );
   });
 
   it("declares file attachments by path, fileName or fileId", () => {

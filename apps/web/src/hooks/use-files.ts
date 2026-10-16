@@ -84,6 +84,9 @@ export function useFiles(
   // A caller-given order for this lightbox session (one post's images), used
   // as-is in place of the owner's files.
   const [lightboxScope, setLightboxScope] = useState<number[] | null>(null);
+  const [lightboxCaptions, setLightboxCaptions] = useState<
+    Record<number, string>
+  >({});
   const drawerViewportRef = useRef<HTMLDivElement>(null);
   const previousFileKeysRef = useRef<Set<string>>(new Set());
   const clearFileAnimTimerRef = useRef<number | null>(null);
@@ -308,7 +311,8 @@ export function useFiles(
   // FileLightbox resolves metadata by ID, so opening does not depend on the
   // current owner's files query having loaded.
   const openLightbox = useCallback(
-    (fileId: number, order?: number[]) => {
+    (fileId: number, order?: number[], captions?: Record<number, string>) => {
+      setLightboxCaptions(captions ?? {});
       setLightboxScope(order?.includes(fileId) ? order : null);
       // Snapshot the navigation order only on the closed->open transition,
       // not when navigating. The list is sorted by updated_at DESC, so leaving
@@ -359,6 +363,7 @@ export function useFiles(
       if (nextFileId === null) {
         setLightboxOrderSnapshot(null);
         setLightboxScope(null);
+        setLightboxCaptions({});
         setLightboxFileIdState(null);
         return;
       }
@@ -391,6 +396,8 @@ export function useFiles(
       unseenFileCount,
       lightboxFileId,
       lightboxFileIds: lightboxOrder,
+      lightboxCaption:
+        lightboxFileId === null ? undefined : lightboxCaptions[lightboxFileId],
       setLightboxFileId,
       openLightbox,
       drawerViewportRef: drawerViewportRef as RefObject<HTMLDivElement>,
@@ -405,6 +412,7 @@ export function useFiles(
       unseenFileCount,
       lightboxFileId,
       lightboxOrder,
+      lightboxCaptions,
       setLightboxFileId,
       openLightbox,
       refreshFiles,

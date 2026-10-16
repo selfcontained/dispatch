@@ -275,6 +275,25 @@ describe("TurnAttachments", () => {
     expect(order).toEqual(["chat-turn-block", "chat-turn-sent-to"]);
   });
 
+  it("renders existing folded post bodies as normal Markdown without inferring captions", () => {
+    const entry = sharedFile("markdown", at("10:01"));
+    entry.block.text =
+      "## Results\n\n**Ready** with [details](https://example.com).\n\n- first\n- second\n\n```ts\nconst ready = true;\n```";
+    render(
+      <MemoryRouter>
+        <TurnAttachments items={[entry]} ctx={ctx} />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole("heading", { name: "Results" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "details" })).toBeTruthy();
+    expect(screen.getByText("Ready").tagName).toBe("STRONG");
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(
+      screen.getByTestId("chat-turn-block").querySelector("pre code")
+    ).toBeTruthy();
+    expect(screen.queryByTestId("chat-attachment-caption")).toBeNull();
+  });
+
   it("says a post held behind the recipient's turn is queued, not sending", () => {
     const held = blockEntry(
       block({

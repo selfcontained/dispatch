@@ -155,7 +155,15 @@ function FileAttachment({
   ctx: AttachmentCtx;
 }): JSX.Element {
   const url = fileUrl(ownerAgentId, attachment.fileName);
-  const open = () => ctx.onOpenFile(attachment.fileId);
+  const open = () => {
+    if (attachment.media === "image") {
+      ctx.onOpenFile(attachment.fileId, undefined, {
+        [attachment.fileId]: attachment.caption ?? "",
+      });
+    } else {
+      ctx.onOpenFile(attachment.fileId);
+    }
+  };
   if (attachment.media === "image") {
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
@@ -168,7 +176,7 @@ function FileAttachment({
           <span className="block border-b border-border/70 bg-background/60">
             <FeedImage
               src={url}
-              alt={attachment.fileName}
+              alt={attachment.caption || attachment.fileName}
               width={attachment.width}
               height={attachment.height}
               maxHeightPx={224}
@@ -181,6 +189,14 @@ function FileAttachment({
             </span>
           </span>
         </button>
+        {attachment.caption ? (
+          <p
+            data-testid="chat-attachment-caption"
+            className="max-w-xs whitespace-pre-wrap break-words border-t border-border/70 px-2.5 py-1.5 text-xs text-muted-foreground"
+          >
+            {attachment.caption}
+          </p>
+        ) : null}
       </AttachmentBlock>
     );
   }
@@ -301,6 +317,9 @@ function ImageGallery({
   // Prev/next in the lightbox walk this post's images, so "+N" leads on to
   // the ones it stands for.
   const order = images.map((image) => image.fileId);
+  const captions = Object.fromEntries(
+    images.map((image) => [image.fileId, image.caption ?? ""])
+  );
   return (
     <div
       className="grid w-full max-w-md grid-cols-2 gap-1.5 sm:flex sm:max-w-none sm:flex-wrap"
@@ -308,35 +327,49 @@ function ImageGallery({
     >
       {shown.map((attachment, index) => {
         const more = overflow > 0 && index === shown.length - 1 ? overflow : 0;
-        const label = `${stripTimestamp(attachment.fileName)} (${formatBytes(attachment.sizeBytes)})`;
+        const label =
+          attachment.caption ||
+          `${stripTimestamp(attachment.fileName)} (${formatBytes(attachment.sizeBytes)})`;
         return (
-          <button
+          <figure
             key={`${attachment.fileId}-${index}`}
-            type="button"
-            onClick={() => ctx.onOpenFile(attachment.fileId, order)}
-            className="relative aspect-square overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-40"
-            title={label}
-            aria-label={more ? `${label}, and ${more - 1} more` : label}
-            data-testid="chat-attachment-gallery-tile"
+            className="min-w-0 sm:w-40"
           >
-            <img
-              src={fileUrl(
-                fileOwnerOf(attachment, block, ctx.agentId),
-                attachment.fileName
-              )}
-              // The button's label names the tile; the image adds nothing.
-              alt=""
-              // From the top: a tall screenshot keeps the header that
-              // identifies the screen.
-              className="h-full w-full object-cover object-top"
-              loading="lazy"
-            />
-            {more ? (
-              <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xl font-semibold text-white">
-                +{more}
-              </span>
+            <button
+              type="button"
+              onClick={() => ctx.onOpenFile(attachment.fileId, order, captions)}
+              className="relative block w-full aspect-square overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-40"
+              title={label}
+              aria-label={more ? `${label}, and ${more - 1} more` : label}
+              data-testid="chat-attachment-gallery-tile"
+            >
+              <img
+                src={fileUrl(
+                  fileOwnerOf(attachment, block, ctx.agentId),
+                  attachment.fileName
+                )}
+                // The button's label names the tile; the image adds nothing.
+                alt=""
+                // From the top: a tall screenshot keeps the header that
+                // identifies the screen.
+                className="h-full w-full object-cover object-top"
+                loading="lazy"
+              />
+              {more ? (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xl font-semibold text-white">
+                  +{more}
+                </span>
+              ) : null}
+            </button>
+            {attachment.caption ? (
+              <figcaption
+                data-testid="chat-attachment-caption"
+                className="whitespace-pre-wrap break-words px-1 py-1.5 text-xs text-muted-foreground"
+              >
+                {attachment.caption}
+              </figcaption>
             ) : null}
-          </button>
+          </figure>
         );
       })}
     </div>

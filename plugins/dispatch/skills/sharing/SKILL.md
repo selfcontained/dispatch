@@ -22,7 +22,7 @@ not a deliverable.
 ```
 post  text: "Login flow after the redirect fix",
       attachments: [{ type: "file", path: "/tmp/login-flow.png",
-                      description: "Login flow after the redirect fix" }]
+                      caption: "Login flow after the redirect fix" }]
 ```
 
 `path` is absolute and on the machine you are running on. One post can carry
@@ -74,9 +74,12 @@ not need to re-post them for the user. Links go the other way the same way: a
 dev-stack URL or PR you posted is in the stream the child shares, so it can read
 it there rather than being told.
 
-## Write a description that earns the click
+## Write an image caption that earns the click
 
-The description is the label the user sees before deciding to open it. Say what
+Use `caption` on each image attachment for its visible label. Post `text` remains
+normal Markdown message content, even when it carries attachments. Captions belong
+to each occurrence: reattaching the same file can supply a different caption.
+`description` is file registry metadata set on upload, not an image caption. Say what
 the artifact _shows_, not what it is:
 
 - Weak: "screenshot.png"

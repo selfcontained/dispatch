@@ -42,6 +42,8 @@ export type ChatAttachment =
        */
       fileId: number;
       fileName: string;
+      /** Optional caption for this attachment occurrence, displayed with images. */
+      caption?: string;
       sizeBytes: number;
       /** The file row's `mime_type`, read from its bytes when it was stored. */
       mimeType?: string;
@@ -142,7 +144,7 @@ export function layoutAttachments(
  * it into the stored `ChatAttachment` shape and stores `link` as given.
  */
 export type ChatUserAttachmentInput =
-  | { type: "file"; fileId: number }
+  | { type: "file"; fileId: number; caption?: string }
   | { type: "link"; url: string; title?: string };
 
 /** Body of `POST /agents/:id/chat/messages`. */

@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 type FileLightboxProps = {
   fileId: number | null;
+  /** Post-specific image caption; empty means use its filename, not registry metadata. */
+  attachmentCaption?: string;
   fileIds: number[];
   setFileId: (fileId: number | null) => void;
 };
@@ -38,6 +40,7 @@ export { FileActions } from "@/components/app/file-lightbox-actions";
 
 export function FileLightbox({
   fileId,
+  attachmentCaption,
   fileIds,
   setFileId,
 }: FileLightboxProps): JSX.Element | null {
@@ -113,7 +116,11 @@ export function FileLightbox({
 
   const src = file ? `${file.url}?t=${encodeURIComponent(file.updatedAt)}` : "";
   const displayName = file ? stripTimestamp(file.name) : "";
-  const caption = file ? file.description || displayName : "";
+  const caption = file
+    ? attachmentCaption !== undefined
+      ? attachmentCaption || displayName
+      : file.description || displayName
+    : "";
   const isText = file?.media === "text";
   const isMarkdown = file?.mimeType === "text/markdown";
   const isHtml = file?.mimeType === "text/html";

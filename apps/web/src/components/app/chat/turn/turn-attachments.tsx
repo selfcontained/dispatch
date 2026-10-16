@@ -18,6 +18,7 @@ import {
 } from "@/components/app/chat/chat-delivery-meta";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { Collapse } from "@/components/app/chat/collapse";
+import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
 /**
@@ -58,7 +59,7 @@ export function isFoldable(
   if (entry.block.threadId !== null) return false;
   if (entry.block.kind === "file" || entry.block.kind === "link") return true;
   // A plain post that carries attachments is the agent handing something
-  // over mid-turn (a screenshot, a PR, a snippet): its text is the caption.
+  // over mid-turn (a screenshot, a PR, a snippet), with its message body.
   return entry.block.kind === "text" && entry.block.attachments.length > 0;
 }
 
@@ -131,8 +132,7 @@ export function foldAttachments(
 }
 
 /**
- * A file or link the agent posted mid-turn: its text (the description) in
- * the step list's quiet tone, then the file's own card or the link's.
+ * A file or link posted mid-turn: its normal message body, then attachments.
  */
 function FoldedBlock({
   entry,
@@ -148,9 +148,7 @@ function FoldedBlock({
       data-testid="chat-turn-block"
       data-kind={block.kind}
     >
-      {block.text ? (
-        <div className="text-xs text-muted-foreground">{block.text}</div>
-      ) : null}
+      {block.text ? <Markdown>{block.text}</Markdown> : null}
       {block.kind === "link" ? <LinkBlockBody block={block} /> : null}
       <AttachmentList block={block} ctx={ctx} />
     </div>
@@ -250,11 +248,7 @@ function SentTo({
       />
       <Collapse open={open} data-testid="chat-turn-sent-to-body">
         <div className="flex min-w-0 flex-col gap-1 pt-1.5">
-          {block.text ? (
-            <div className="whitespace-pre-wrap break-words border-l-[3px] border-border pl-3 text-foreground/80">
-              {block.text}
-            </div>
-          ) : null}
+          {block.text ? <Markdown>{block.text}</Markdown> : null}
           <AttachmentList block={block} ctx={ctx} />
         </div>
       </Collapse>

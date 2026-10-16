@@ -11,7 +11,10 @@ import {
 } from "@dispatch/shared";
 
 import type { StreamService } from "../../chat/service.js";
-import { chatUrlSchema } from "../../chat/validation.js";
+import {
+  attachmentCaptionSchema,
+  chatUrlSchema,
+} from "../../chat/validation.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
@@ -146,7 +149,18 @@ const attachmentSchema = z.discriminatedUnion("type", [
       .optional()
       .describe("A file you attached before, by the fileName in its block."),
     fileId: z.int().positive().optional(),
-    description: z.string().max(500).optional(),
+    description: z
+      .string()
+      .max(500)
+      .optional()
+      .describe(
+        "File registry metadata set on upload; independent of the attachment caption."
+      ),
+    caption: attachmentCaptionSchema
+      .optional()
+      .describe(
+        "Plain text caption for this image in this post. Omit for no caption; post text remains normal Markdown."
+      ),
   }).describe(
     "One of path (upload now), fileName or fileId (already uploaded)."
   ),
@@ -176,7 +190,7 @@ const attachmentsSchema = z
   .array(attachmentSchema)
   .max(BLOCK_ATTACHMENTS_MAX)
   .describe(
-    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/fileId of one already shared), link, pr, or code. Several images go in one post; the stream lays them out together. Posted on your own stream during a turn, they show inside that turn's message, with any text as a short caption.`
+    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/fileId of one already shared), link, pr, or code. Several images go in one post; the stream lays them out together. Posted on your own stream during a turn, they show inside that turn's message, with text rendered as normal Markdown. Use each image attachment's caption for an optional label beneath that image.`
   );
 
 const textSchema = z
