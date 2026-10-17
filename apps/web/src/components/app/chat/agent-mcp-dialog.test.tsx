@@ -139,6 +139,38 @@ describe("read-only per-agent MCP inventory", () => {
     expect(screen.queryByText("MCP servers · 4")).toBeNull();
     expect(screen.queryByText("alpha")).toBeNull();
   });
+  it("keeps the attention filter removable after every server recovers", async () => {
+    vi.mocked(api)
+      .mockResolvedValueOnce(data)
+      .mockResolvedValue({
+        ...data,
+        inventory: {
+          version: 1,
+          servers: data.inventory!.servers.map((server) => ({
+            ...server,
+            state: "connected",
+          })),
+        },
+      });
+    mount();
+    open();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Needs attention · 2" })
+    );
+    expect(screen.queryByText("alpha")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh MCP inventory" })
+    );
+    const filter = await screen.findByRole("button", {
+      name: "Needs attention · 0",
+    });
+    expect(filter.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(filter);
+    expect(await screen.findByText("alpha")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Needs attention · 0" })
+    ).toBeNull();
+  });
   it("does not publish late inventory after switching target child", async () => {
     let resolve!: (value: AgentMcpInventoryResponse) => void;
     vi.mocked(api).mockImplementation((path) =>

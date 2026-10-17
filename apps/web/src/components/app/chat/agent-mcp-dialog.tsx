@@ -239,7 +239,7 @@ function McpInventoryPopover({
                 className="h-8 pl-7 text-xs pointer-coarse:min-h-11"
               />
             </div>
-            {servers.some((item) => item.state !== "connected") ? (
+            {attention || servers.some((item) => item.state !== "connected") ? (
               <Button
                 type="button"
                 variant="ghost"
