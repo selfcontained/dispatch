@@ -11,7 +11,13 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  type Ref,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,11 +76,14 @@ function stateColor(server: McpServer) {
   return "text-muted-foreground";
 }
 
+export type McpInventoryControl = { open: () => void };
+
 /** The keyed subtree keeps navigation and pending responses tied to the target child. */
 export function AgentMcpDialog(props: {
   agentId: string;
   active: boolean;
   online: boolean;
+  controlRef?: Ref<McpInventoryControl>;
 }): JSX.Element {
   return <McpInventoryPopover key={props.agentId} {...props} />;
 }
@@ -82,12 +91,23 @@ function McpInventoryPopover({
   agentId,
   active,
   online,
+  controlRef,
 }: {
   agentId: string;
   active: boolean;
   online: boolean;
+  controlRef?: Ref<McpInventoryControl>;
 }) {
   const [open, setOpen] = useState(false);
+  useImperativeHandle(
+    controlRef,
+    () => ({
+      open: () => {
+        if (online) setOpen(true);
+      },
+    }),
+    [online]
+  );
   useEffect(() => {
     if (!online) setOpen(false);
   }, [online]);
