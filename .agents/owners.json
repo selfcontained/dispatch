@@ -46,7 +46,12 @@
         "apps/web/src/hooks/use-engine*",
         "e2e/fixtures/fake-acp-agent.mjs",
         "packages/shared/src/permission-types.ts",
-        "packages/shared/src/usage-types.ts"
+        "packages/shared/src/usage-types.ts",
+        "patches/@agentclientprotocol__claude-agent-acp@*.patch",
+        "patches/@agentclientprotocol__codex-acp@*.patch",
+        "apps/server/test/claude-adapter-*.test.ts",
+        "apps/server/test/codex-adapter-*.test.ts",
+        "apps/server/test/helpers/fake-acp-agent.ts"
       ],
       "personas": ["agent-runtime-owner"]
     },
@@ -116,7 +121,9 @@
         "apps/server/src/server/mcp-*.ts",
         "apps/server/src/server.ts",
         "plugins/dispatch/**",
-        "apps/server/test/*mcp*"
+        "apps/server/test/*mcp*",
+        "packages/shared/src/mcp-inventory-types.ts",
+        "apps/server/src/agents/acp/mcp-inventory.ts"
       ],
       "personas": ["mcp-contract-owner"]
     },

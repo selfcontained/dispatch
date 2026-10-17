@@ -11,6 +11,23 @@ const root = path.resolve(import.meta.dirname, "../../..");
 // Real files anchor cross-layer routing. Exact sets also catch accidental fan-out.
 const cases: [string, string[]][] = [
   [
+    "patches/@agentclientprotocol__claude-agent-acp@0.91.0.patch",
+    ["agent-runtime-owner"],
+  ],
+  [
+    "patches/@agentclientprotocol__codex-acp@2.2.2.patch",
+    ["agent-runtime-owner"],
+  ],
+  ["apps/server/test/claude-adapter-steering.test.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/codex-adapter-patch.test.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/helpers/fake-acp-agent.ts", ["agent-runtime-owner"]],
+  ["packages/shared/src/mcp-inventory-types.ts", ["mcp-contract-owner"]],
+  [
+    "apps/server/src/agents/acp/mcp-inventory.ts",
+    ["agent-runtime-owner", "mcp-contract-owner"],
+  ],
+
+  [
     "apps/macos/Sources/DispatchCore/UpdateRecovery.swift",
     ["release-update-owner"],
   ],
