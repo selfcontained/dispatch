@@ -1504,6 +1504,7 @@ export function ChatPane({
                           key={agentId}
                           agentId={agentId}
                           active={active}
+                          online={agent?.status === "running"}
                         />
                       ) : null
                     }

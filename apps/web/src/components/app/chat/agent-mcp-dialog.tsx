@@ -74,17 +74,23 @@ function stateColor(server: McpServer) {
 export function AgentMcpDialog(props: {
   agentId: string;
   active: boolean;
+  online: boolean;
 }): JSX.Element {
   return <McpInventoryPopover key={props.agentId} {...props} />;
 }
 function McpInventoryPopover({
   agentId,
   active,
+  online,
 }: {
   agentId: string;
   active: boolean;
+  online: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!online) setOpen(false);
+  }, [online]);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [attention, setAttention] = useState(false);
@@ -102,7 +108,7 @@ function McpInventoryPopover({
       api(`/api/v1/agents/${encodeURIComponent(agentId)}/mcp-inventory`, {
         signal,
       }),
-    enabled: active && open,
+    enabled: active && online && open,
     staleTime: 0,
     retry: false,
   });
@@ -140,13 +146,15 @@ function McpInventoryPopover({
             ? "Inventory is temporarily unavailable."
             : null;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={online && open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:ring-1 data-[state=open]:ring-ring/50 pointer-coarse:min-h-11"
+          disabled={!online}
+          title={online ? "MCP servers" : "Agent is offline"}
           aria-label="MCP servers"
         >
           <Plug className="h-3 w-3" /> MCP

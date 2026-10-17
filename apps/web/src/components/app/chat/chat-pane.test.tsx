@@ -288,6 +288,10 @@ function typeAndSend(text: string) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: false }))
+  );
   markdownRenders.count = 0;
   H.entries = [];
   H.unreadCount = 0;
@@ -307,6 +311,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   cleanup();
 });
 
@@ -579,6 +584,17 @@ describe("ChatPane", () => {
       text: "do this",
       to: "agt_child",
     });
+  });
+
+  it("disables MCP inventory for an offline selected agent", () => {
+    renderPane({ agent: { ...agent, status: "stopped" } });
+    const trigger = screen.getByRole("button", { name: "MCP servers" });
+    expect(trigger.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("dialog", { name: "MCP servers" })).toBeNull();
+    expect(
+      vi.mocked(api).mock.calls.some(([url]) => url.endsWith("/mcp-inventory"))
+    ).toBe(false);
   });
 
   it("reads MCP inventory only from the selected child and preserves the composer draft", async () => {

@@ -49,7 +49,7 @@ function mount(agentId = "child") {
   });
   const view = render(
     <QueryClientProvider client={client}>
-      <AgentMcpDialog agentId={agentId} active />
+      <AgentMcpDialog agentId={agentId} active online />
     </QueryClientProvider>
   );
   return {
@@ -58,7 +58,7 @@ function mount(agentId = "child") {
     switchTo: (id: string) =>
       view.rerender(
         <QueryClientProvider client={client}>
-          <AgentMcpDialog agentId={id} active />
+          <AgentMcpDialog agentId={id} active online />
         </QueryClientProvider>
       ),
   };
