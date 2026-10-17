@@ -2,6 +2,7 @@
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -11,7 +12,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api";
-import { AgentMcpDialog } from "./agent-mcp-dialog";
+import { createRef } from "react";
+import { AgentMcpDialog, type McpInventoryControl } from "./agent-mcp-dialog";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 beforeEach(() => {
@@ -43,13 +45,14 @@ const data: AgentMcpInventoryResponse = {
     ],
   },
 };
+const controlRef = createRef<McpInventoryControl>();
 function mount(agentId = "child") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const view = render(
     <QueryClientProvider client={client}>
-      <AgentMcpDialog agentId={agentId} active online />
+      <AgentMcpDialog controlRef={controlRef} agentId={agentId} active online />
     </QueryClientProvider>
   );
   return {
@@ -58,13 +61,12 @@ function mount(agentId = "child") {
     switchTo: (id: string) =>
       view.rerender(
         <QueryClientProvider client={client}>
-          <AgentMcpDialog agentId={id} active online />
+          <AgentMcpDialog controlRef={controlRef} agentId={id} active online />
         </QueryClientProvider>
       ),
   };
 }
-const open = () =>
-  fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
+const open = () => act(() => controlRef.current?.open());
 describe("read-only per-agent MCP inventory", () => {
   it("keeps cached reopen focus off search on touch devices", async () => {
     vi.stubGlobal(

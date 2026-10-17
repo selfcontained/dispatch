@@ -1445,7 +1445,7 @@ export function ChatPane({
 
           <div
             className={cn(
-              "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-3 pt-2 md:px-4 md:pt-3",
+              "relative min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-3 pt-2 md:px-4 md:pt-3",
               isMobile ? "pb-2" : "pb-3"
             )}
           >
@@ -1517,21 +1517,19 @@ export function ChatPane({
                         : null
                     }
                     turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
-                    accessory={
-                      agentId ? (
-                        <AgentMcpDialog
-                          key={agentId}
-                          controlRef={mcpInventory}
-                          agentId={agentId}
-                          active={active}
-                          online={agent?.status === "running"}
-                        />
-                      ) : null
-                    }
                   />
                 ) : null
               }
             />
+            {agentId ? (
+              <AgentMcpDialog
+                key={agentId}
+                controlRef={mcpInventory}
+                agentId={agentId}
+                active={active}
+                online={agent?.status === "running"}
+              />
+            ) : null}
           </div>
         </div>
       </div>

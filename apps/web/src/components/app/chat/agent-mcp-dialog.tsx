@@ -7,7 +7,6 @@ import {
   KeyRound,
   LoaderCircle,
   ChevronRight,
-  Plug,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -25,7 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
   PopoverContent,
-  PopoverTrigger,
+  PopoverAnchor,
 } from "@/components/ui/popover";
 import { api } from "@/lib/api";
 
@@ -99,11 +98,18 @@ function McpInventoryPopover({
   controlRef?: Ref<McpInventoryControl>;
 }) {
   const [open, setOpen] = useState(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
   useImperativeHandle(
     controlRef,
     () => ({
       open: () => {
-        if (online) setOpen(true);
+        if (online) {
+          returnFocus.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
+          setOpen(true);
+        }
       },
     }),
     [online]
@@ -167,22 +173,19 @@ function McpInventoryPopover({
             : null;
   return (
     <Popover open={online && open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:ring-1 data-[state=open]:ring-ring/50 pointer-coarse:min-h-11"
-          disabled={!online}
-          title={online ? "MCP servers" : "Agent is offline"}
-          aria-label="MCP servers"
-        >
-          <Plug className="h-3 w-3" /> MCP
-        </Button>
-      </PopoverTrigger>
+      <PopoverAnchor asChild>
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-2 right-3 h-0 w-0 md:right-4"
+        />
+      </PopoverAnchor>
       <PopoverContent
         ref={content}
         tabIndex={-1}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocus.current?.focus({ preventScroll: true });
+        }}
         onOpenAutoFocus={(event) => {
           if (window.matchMedia("(pointer: coarse)").matches) {
             event.preventDefault();
