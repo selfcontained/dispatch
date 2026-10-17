@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
   PopoverContent,
@@ -139,7 +140,7 @@ function McpInventoryPopover({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground pointer-coarse:min-h-11"
+          className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:ring-1 data-[state=open]:ring-ring/50 pointer-coarse:min-h-11"
           aria-label="MCP servers"
         >
           <Plug className="h-3 w-3" /> MCP
@@ -169,11 +170,38 @@ function McpInventoryPopover({
             onClick={() => void query.refetch()}
           >
             <RefreshCw
-              className={`h-3 w-3 ${query.isFetching ? "animate-spin" : ""}`}
+              className={`h-3 w-3 ${query.isFetching && !query.isPending ? "animate-spin text-primary motion-reduce:animate-none" : ""}`}
             />
           </Button>
         </div>
-        {message ? (
+        {query.isPending ? (
+          <div className="min-h-0 overflow-hidden px-2 pb-5 pt-2">
+            <p
+              role="status"
+              className="mb-4 flex items-center gap-2 text-xs text-primary"
+            >
+              <LoaderCircle
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin motion-reduce:animate-none"
+              />
+              Reading servers…
+            </p>
+            <div aria-hidden="true" className="space-y-1">
+              {["w-32", "w-24", "w-36", "w-28"].map((width) => (
+                <div
+                  key={width}
+                  className="flex h-11 items-center gap-2 border-b border-border/50"
+                >
+                  <Skeleton className="h-3.5 w-3.5 rounded-full motion-reduce:animate-none" />
+                  <Skeleton
+                    className={`h-3 ${width} motion-reduce:animate-none`}
+                  />
+                  <Skeleton className="ml-auto h-3 w-12 motion-reduce:animate-none" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : message ? (
           <p role="status" className="px-1 py-3 text-xs text-muted-foreground">
             {message}
           </p>

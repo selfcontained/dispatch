@@ -59,6 +59,43 @@ function mount(agentId = "child") {
 const open = () =>
   fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
 describe("read-only per-agent MCP inventory", () => {
+  it("shows initial loading but keeps inventory visible during refresh", async () => {
+    let resolve!: (value: AgentMcpInventoryResponse) => void;
+    vi.mocked(api).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done as typeof resolve;
+        })
+    );
+    mount();
+    open();
+    expect(await screen.findByRole("status")).toHaveProperty(
+      "textContent",
+      "Reading servers…"
+    );
+    resolve(data);
+    await screen.findByText("alpha");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh MCP inventory" })
+    );
+    expect(screen.getByText("alpha")).toBeTruthy();
+    expect(screen.queryByText("Reading servers…")).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Refresh MCP inventory" })
+          .hasAttribute("disabled")
+      ).toBe(true)
+    );
+    resolve(data);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Refresh MCP inventory" })
+          .hasAttribute("disabled")
+      ).toBe(false)
+    );
+  });
   it("sorts servers and tools alphabetically and avoids redundant sign-in details", async () => {
     vi.mocked(api).mockResolvedValue({
       ...data,
@@ -237,7 +274,7 @@ describe("read-only per-agent MCP inventory", () => {
     );
     const view = mount();
     open();
-    await screen.findByText("Loading MCP servers…");
+    await screen.findByText("Reading servers…");
     view.switchTo("other");
     open();
     await screen.findByText("No MCP servers reported.");
