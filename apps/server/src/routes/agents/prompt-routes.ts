@@ -1,4 +1,3 @@
-import type { AgentCommandsResponse } from "@dispatch/shared";
 import type { FastifyInstance } from "fastify";
 
 import { StreamServiceError } from "../../chat/service.js";
@@ -31,22 +30,13 @@ export async function registerAgentPromptRoutes(
     const id = (request.params as { id?: string }).id ?? "";
     const agent = await deps.agentManager.getAgent(id);
     if (!agent) return reply.code(404).send({ error: "Agent not found." });
-    const commands = deps.agentManager.getCommands(id);
-    const provider =
-      agent.type === "claude" || agent.type === "codex" ? agent.type : null;
     return {
-      connected: commands !== null,
-      mcp: {
-        provider,
-        available:
-          provider !== null && !!commands?.some((c) => c.name === "mcp"),
-      },
-      commands: (commands ?? []).map((command) => ({
+      commands: (deps.agentManager.getCommands(id) ?? []).map((command) => ({
         name: command.name,
         description: command.description,
         ...(command.input?.hint ? { inputHint: command.input.hint } : {}),
       })),
-    } satisfies AgentCommandsResponse;
+    };
   });
 
   // A quick phrase, rendered with its args. `submit: false` only renders:

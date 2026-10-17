@@ -648,11 +648,12 @@ export class AgentManager {
     return this.runtime.hasOpenTurn(id);
   }
 
-  /** The live session's ACP slash commands, including advertised skills. */
+  /** Read structured inventory from the existing agent session. */
   getMcpInventory(id: string) {
     return this.runtime.getMcpInventory(id);
   }
 
+  /** The live session's ACP slash commands, including advertised skills. */
   getCommands(id: string): AvailableCommand[] | null {
     return this.runtime.getCommands(id);
   }

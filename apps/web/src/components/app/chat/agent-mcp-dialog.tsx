@@ -65,11 +65,7 @@ function stateColor(server: McpServer) {
   if (server.state === "failed" || server.toolsState === "error")
     return "text-status-blocked";
   if (server.state === "connected") return "text-status-working";
-  if (
-    ["needs-auth", "authenticationRequired", "pending", "starting"].includes(
-      server.state
-    )
-  )
+  if (["pending", "starting"].includes(server.state))
     return "text-status-waiting";
   return "text-muted-foreground";
 }
@@ -120,19 +116,28 @@ function McpInventoryPopover({
       item.name.toLowerCase().includes(search.toLowerCase()) &&
       (!attention || item.state !== "connected")
   );
-  const message = query.isPending
-    ? "Loading MCP servers…"
-    : query.isError
-      ? "Could not read MCP inventory."
-      : data?.status === "offline"
-        ? "This agent is offline."
-        : data?.status === "unsupported"
-          ? "Inventory is unavailable in this agent’s current session."
-          : data?.status === "timeout"
-            ? "Inventory request timed out."
-            : data?.status !== "ok"
-              ? "Inventory is temporarily unavailable."
-              : null;
+  const tools = server?.tools ?? [];
+  const visibleTools = tools
+    .filter((tool) =>
+      `${tool.name} ${tool.description ?? ""}`
+        .toLowerCase()
+        .includes(toolSearch.toLowerCase())
+    )
+    .sort(alphabetical);
+  const attentionCount = servers.filter(
+    (item) => item.state !== "connected"
+  ).length;
+  const message = query.isError
+    ? "Could not read MCP inventory."
+    : data?.status === "offline"
+      ? "This agent is offline."
+      : data?.status === "unsupported"
+        ? "Inventory is unavailable in this agent’s current session."
+        : data?.status === "timeout"
+          ? "Inventory request timed out."
+          : data?.status !== "ok"
+            ? "Inventory is temporarily unavailable."
+            : null;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -253,57 +258,42 @@ function McpInventoryPopover({
                 </p>
               ) : (
                 <>
-                  {server
-                    .tools!.filter((tool) =>
-                      `${tool.name} ${tool.description ?? ""}`
-                        .toLowerCase()
-                        .includes(toolSearch.toLowerCase())
-                    )
-                    .sort(alphabetical)
-                    .map((tool) => (
-                      <div key={tool.name}>
-                        {tool.description ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto min-h-8 w-full justify-start whitespace-normal break-all px-1 text-left text-xs font-normal pointer-coarse:min-h-11"
-                            aria-expanded={expanded === tool.name}
-                            onClick={() =>
-                              setExpanded(
-                                expanded === tool.name ? null : tool.name
-                              )
-                            }
-                          >
-                            <ChevronRight
-                              aria-hidden="true"
-                              className={`mr-1 h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded === tool.name ? "rotate-90" : ""}`}
-                            />
-                            {tool.name}
-                          </Button>
-                        ) : (
-                          <p className="break-all px-1 py-2 text-xs">
-                            {tool.name}
-                          </p>
-                        )}
-                        {expanded === tool.name && tool.description ? (
-                          <p className="whitespace-pre-wrap break-words px-1 pb-2 text-[11px] text-muted-foreground">
-                            {tool.description}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  {!server.tools!.length ? (
+                  {visibleTools.map((tool) => (
+                    <div key={tool.name}>
+                      {tool.description ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto min-h-8 w-full justify-start whitespace-normal break-all px-1 text-left text-xs font-normal pointer-coarse:min-h-11"
+                          aria-expanded={expanded === tool.name}
+                          onClick={() =>
+                            setExpanded(
+                              expanded === tool.name ? null : tool.name
+                            )
+                          }
+                        >
+                          <ChevronRight
+                            aria-hidden="true"
+                            className={`mr-1 h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded === tool.name ? "rotate-90" : ""}`}
+                          />
+                          {tool.name}
+                        </Button>
+                      ) : (
+                        <p className="break-all px-1 py-2 text-xs">
+                          {tool.name}
+                        </p>
+                      )}
+                      {expanded === tool.name && tool.description ? (
+                        <p className="whitespace-pre-wrap break-words px-1 pb-2 text-[11px] text-muted-foreground">
+                          {tool.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                  {!visibleTools.length ? (
                     <p className="px-1 py-2 text-xs text-muted-foreground">
-                      No tools reported.
-                    </p>
-                  ) : !server.tools!.some((tool) =>
-                      `${tool.name} ${tool.description ?? ""}`
-                        .toLowerCase()
-                        .includes(toolSearch.toLowerCase())
-                    ) ? (
-                    <p className="px-1 py-2 text-xs text-muted-foreground">
-                      No tools match.
+                      {tools.length ? "No tools match." : "No tools reported."}
                     </p>
                   ) : null}
                 </>
@@ -322,7 +312,7 @@ function McpInventoryPopover({
                 className="h-8 rounded-sm pl-7 text-xs pointer-coarse:min-h-11 pointer-coarse:text-base"
               />
             </div>
-            {attention || servers.some((item) => item.state !== "connected") ? (
+            {attention || attentionCount > 0 ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -331,8 +321,7 @@ function McpInventoryPopover({
                 className="my-1 h-7 shrink-0 self-start px-1 text-[11px] text-status-waiting pointer-coarse:min-h-11"
                 onClick={() => setAttention(!attention)}
               >
-                Needs attention ·{" "}
-                {servers.filter((item) => item.state !== "connected").length}
+                Needs attention · {attentionCount}
               </Button>
             ) : null}
             <div

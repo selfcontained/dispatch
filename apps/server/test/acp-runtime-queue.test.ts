@@ -1021,51 +1021,6 @@ describe("AcpRuntime interrupt without replacing delivery", () => {
 });
 
 describe("AcpRuntime delivery during a turn", () => {
-  it.each(["/mcp", "/mcp reconnect"])(
-    "delivers %s raw and alone after the busy turn, without steering or cancelling",
-    async (text) => {
-      const host = await heldTurnHost("injected");
-      const runtime = await attached(host.stateRoot);
-      const work = runtime.prompt(agentId, "work", post(0));
-      await work.accepted;
-      const before = runtime.prompt(agentId, "before", post(1), {
-        delivery: "queue",
-      });
-      const command = runtime.prompt(agentId, text, post(2), {
-        delivery: "queue",
-        alone: true,
-      });
-      const after = runtime.prompt(agentId, "after", post(3), {
-        delivery: "queue",
-      });
-      expect(host.steers).toEqual([]);
-      expect(host.prompts.map((p) => p.text)).toEqual(["work"]);
-      host.settle();
-      await withinSeconds(before.accepted, "post before command");
-      expect(host.prompts[1]?.text).toBe("before");
-      host.settle();
-      await withinSeconds(command.accepted, "MCP command");
-      expect(host.prompts[2]?.text).toBe(text);
-      host.settle();
-      await withinSeconds(after.accepted, "post after command");
-      expect(host.prompts.map((p) => p.text)).toEqual([
-        "work",
-        "before",
-        text,
-        "after",
-      ]);
-      expect(host.steers).toEqual([]);
-      expect(host.cancels()).toBe(0);
-      host.settle();
-      await Promise.all([
-        work.settled,
-        before.settled,
-        command.settled,
-        after.settled,
-      ]);
-    }
-  );
-
   it("keeps image prompts queued until a turn can carry their images", async () => {
     const host = await heldTurnHost("injected");
     const runtime = await attached(host.stateRoot);
