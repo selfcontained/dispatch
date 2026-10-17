@@ -609,6 +609,55 @@ describe("ChatComposer slash commands", () => {
     expect(input.getAttribute("aria-activedescendant")).toBe(options[1]!.id);
   });
 
+  it.each(["file", "link"])(
+    "blocks bare local /mcp with a %s before upload or send",
+    (kind) => {
+      const uploadFile = vi.fn();
+      const { input, onSend } = renderComposer({
+        slashCommands: [{ name: "mcp", source: "dispatch" }],
+        uploadFile,
+      });
+      if (kind === "file") {
+        fireEvent.change(screen.getByTestId("chat-composer-file-input"), {
+          target: {
+            files: [new File(["hello"], "notes.txt", { type: "text/plain" })],
+          },
+        });
+      } else {
+        fireEvent.paste(input, {
+          clipboardData: {
+            files: [],
+            items: [],
+            getData: (type: string) =>
+              type === "text/plain" ? "https://example.com/spec" : "",
+          },
+        });
+      }
+      fireEvent.change(input, { target: { value: "/mcp", selectionStart: 4 } });
+      const send = screen.getByTestId(
+        "chat-composer-send"
+      ) as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      expect(
+        screen.getByTestId("chat-composer-slash-hint").textContent
+      ).toContain("Remove attachments");
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.click(send);
+      expect(uploadFile).not.toHaveBeenCalled();
+      expect(onSend).not.toHaveBeenCalled();
+      expect(input.value).toBe("/mcp");
+      expect(
+        screen.getByRole("button", {
+          name: kind === "file" ? "Remove notes.txt" : /Remove.*example.com/,
+        })
+      ).toBeTruthy();
+      fireEvent.change(input, {
+        target: { value: "/mcp status", selectionStart: 11 },
+      });
+      expect(send.disabled).toBe(false);
+    }
+  );
+
   it("does not offer or send an agent command with an attachment or mention", () => {
     const { input, onSend } = renderComposer({
       slashCommands,

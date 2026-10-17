@@ -355,13 +355,20 @@ export function ChatComposer({
   const advertisedCommand = slashCommands?.some(
     (command) => command.source === "agent" && command.name === advertisedName
   );
-  const slashBlockedReason = advertisedCommand
-    ? hasSlashAttachments
-      ? "Remove attachments to run this agent command."
-      : hasSlashMention
-        ? "Remove agent mentions to run this agent command."
-        : null
-    : null;
+  const bareDispatchCommand = slashCommands?.some(
+    (command) =>
+      command.source === "dispatch" && text.trim() === `/${command.name}`
+  );
+  const slashBlockedReason =
+    bareDispatchCommand && hasSlashAttachments
+      ? "Remove attachments to run this local command."
+      : advertisedCommand
+        ? hasSlashAttachments
+          ? "Remove attachments to run this agent command."
+          : hasSlashMention
+            ? "Remove agent mentions to run this agent command."
+            : null
+        : null;
   const slashUnavailableReason =
     disabledReason ??
     (hasSlashAttachments
