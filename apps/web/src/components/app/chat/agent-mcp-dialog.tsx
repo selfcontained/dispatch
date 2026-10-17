@@ -150,9 +150,9 @@ function McpInventoryPopover({
         align="end"
         collisionPadding={8}
         aria-label="MCP servers"
-        className="w-[360px] max-w-[calc(100vw-16px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain touch-pan-y rounded-sm border border-border bg-background p-2 font-mono"
+        className="w-[360px] max-w-[calc(100vw-16px)] max-h-[var(--radix-popover-content-available-height)] flex flex-col overflow-hidden rounded-sm border border-border bg-background p-2 font-mono"
       >
-        <div className="mb-2 flex items-center justify-between border-b border-border px-1 pb-1 text-xs">
+        <div className="mb-2 flex shrink-0 items-center justify-between border-b border-border px-1 pb-1 text-xs">
           <span className="font-medium">
             <span aria-hidden="true" className="mr-2 text-status-working">
               &gt;_
@@ -178,8 +178,8 @@ function McpInventoryPopover({
             {message}
           </p>
         ) : server ? (
-          <div>
-            <div className="mb-2 flex items-center gap-2">
+          <div className="flex min-h-0 flex-col overflow-hidden">
+            <div className="mb-2 flex shrink-0 items-center gap-2">
               <Button
                 ref={backButton}
                 type="button"
@@ -209,10 +209,10 @@ function McpInventoryPopover({
               placeholder="Search tools…"
               value={toolSearch}
               onChange={(event) => setToolSearch(event.target.value)}
-              className="mb-1 h-8 rounded-sm text-xs pointer-coarse:min-h-11 pointer-coarse:text-base"
+              className="mb-1 h-8 shrink-0 rounded-sm text-xs pointer-coarse:min-h-11 pointer-coarse:text-base"
             />
             <div
-              className="max-h-[min(256px,45dvh)] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
+              className="min-h-0 max-h-[min(256px,45dvh)] overflow-y-auto overscroll-contain touch-pan-y"
               aria-label={`${server.name} tools`}
             >
               {needsSignIn(server) &&
@@ -284,7 +284,7 @@ function McpInventoryPopover({
           </div>
         ) : (
           <>
-            <div className="relative">
+            <div className="relative shrink-0">
               <Search className="pointer-events-none absolute left-2 top-2.5 h-3 w-3 text-muted-foreground" />
               <Input
                 aria-label="Search MCP servers"
@@ -300,7 +300,7 @@ function McpInventoryPopover({
                 variant="ghost"
                 size="sm"
                 aria-pressed={attention}
-                className="my-1 h-7 px-1 text-[11px] text-status-waiting pointer-coarse:min-h-11"
+                className="my-1 h-7 shrink-0 self-start px-1 text-[11px] text-status-waiting pointer-coarse:min-h-11"
                 onClick={() => setAttention(!attention)}
               >
                 Needs attention ·{" "}
@@ -308,7 +308,7 @@ function McpInventoryPopover({
               </Button>
             ) : null}
             <div
-              className="mt-1 max-h-[min(320px,50dvh)] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
+              className="mt-1 min-h-0 max-h-[min(320px,50dvh)] overflow-y-auto overscroll-contain touch-pan-y"
               aria-label="MCP server list"
             >
               {visible.map((item) => {
