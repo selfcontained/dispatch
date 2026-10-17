@@ -9,14 +9,21 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api";
 import { AgentMcpDialog } from "./agent-mcp-dialog";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: false }))
+  );
+});
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  vi.unstubAllGlobals();
 });
 const data: AgentMcpInventoryResponse = {
   agentId: "child",
@@ -59,6 +66,31 @@ function mount(agentId = "child") {
 const open = () =>
   fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
 describe("read-only per-agent MCP inventory", () => {
+  it("keeps cached reopen focus off search on touch devices", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: true }))
+    );
+    vi.mocked(api)
+      .mockResolvedValueOnce(data)
+      .mockImplementation(() => new Promise(() => {}));
+    mount();
+    open();
+    await screen.findByText("alpha");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    open();
+    await screen.findByText("alpha");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("dialog"))
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "Refresh MCP inventory" })
+        .hasAttribute("disabled")
+    ).toBe(true);
+  });
+
   it("shows initial loading but keeps inventory visible during refresh", async () => {
     let resolve!: (value: AgentMcpInventoryResponse) => void;
     vi.mocked(api).mockImplementation(

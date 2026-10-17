@@ -90,6 +90,7 @@ function McpInventoryPopover({
   const [attention, setAttention] = useState(false);
   const [toolSearch, setToolSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const content = useRef<HTMLDivElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (selected) backButton.current?.focus({ preventScroll: true });
@@ -152,6 +153,14 @@ function McpInventoryPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        ref={content}
+        tabIndex={-1}
+        onOpenAutoFocus={(event) => {
+          if (window.matchMedia("(pointer: coarse)").matches) {
+            event.preventDefault();
+            content.current?.focus({ preventScroll: true });
+          }
+        }}
         side="top"
         align="end"
         collisionPadding={8}
