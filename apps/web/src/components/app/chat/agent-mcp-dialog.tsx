@@ -1,6 +1,16 @@
 import type { AgentMcpInventoryResponse, McpServer } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Plug, RefreshCw, Search } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  CircleAlert,
+  KeyRound,
+  LoaderCircle,
+  ChevronRight,
+  Plug,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -23,8 +33,23 @@ const states: Record<string, string> = {
   disabled: "Disabled",
   cancelled: "Cancelled",
 };
+function needsSignIn(server: McpServer) {
+  return ["needs-auth", "authenticationRequired"].includes(server.state);
+}
+function alphabetical(a: { name: string }, b: { name: string }) {
+  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+}
+function statusIcon(server: McpServer) {
+  if (needsSignIn(server)) return KeyRound;
+  if (server.state === "failed" || server.toolsState === "error")
+    return CircleAlert;
+  if (server.state === "connected") return CheckCircle2;
+  if (["pending", "starting"].includes(server.state)) return LoaderCircle;
+  return Circle;
+}
 function status(server: McpServer) {
   const state = states[server.state] ?? "Unknown status";
+  if (needsSignIn(server)) return state;
   const tools =
     server.toolsState === "known"
       ? `${server.tools!.length} tools`
@@ -35,6 +60,7 @@ function status(server: McpServer) {
 }
 
 function stateColor(server: McpServer) {
+  if (needsSignIn(server)) return "text-status-waiting";
   if (server.state === "failed" || server.toolsState === "error")
     return "text-status-blocked";
   if (server.state === "connected") return "text-status-working";
@@ -84,7 +110,9 @@ function McpInventoryPopover({
   });
   const data =
     !query.isError && query.data?.agentId === agentId ? query.data : undefined;
-  const servers = data?.status === "ok" ? (data.inventory?.servers ?? []) : [];
+  const servers = [
+    ...(data?.status === "ok" ? (data.inventory?.servers ?? []) : []),
+  ].sort(alphabetical);
   const server = servers.find((item) => item.name === selected);
   const visible = servers.filter(
     (item) =>
@@ -187,7 +215,9 @@ function McpInventoryPopover({
               className="max-h-[min(256px,45dvh)] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
               aria-label={`${server.name} tools`}
             >
-              {server.toolsState !== "known" ? (
+              {needsSignIn(server) &&
+              server.toolsState !== "known" ? null : server.toolsState !==
+                "known" ? (
                 <p className="px-1 py-2 text-xs text-muted-foreground">
                   {server.toolsState === "error"
                     ? "Tool discovery failed."
@@ -201,6 +231,7 @@ function McpInventoryPopover({
                         .toLowerCase()
                         .includes(toolSearch.toLowerCase())
                     )
+                    .sort(alphabetical)
                     .map((tool) => (
                       <div key={tool.name}>
                         {tool.description ? (
@@ -280,34 +311,44 @@ function McpInventoryPopover({
               className="mt-1 max-h-[min(320px,50dvh)] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
               aria-label="MCP server list"
             >
-              {visible.map((item) => (
-                <Button
-                  key={item.name}
-                  aria-label={`${item.name} ${status(item)}`}
-                  ref={(element) => {
-                    if (element) rows.current.set(item.name, element);
-                    else rows.current.delete(item.name);
-                  }}
-                  type="button"
-                  variant="ghost"
-                  className="h-auto min-h-11 w-full flex-col items-start gap-0.5 whitespace-normal rounded-none border-b border-border/50 px-2 py-2 text-left font-normal"
-                  onClick={() => {
-                    setSelected(item.name);
-                    setToolSearch("");
-                    setExpanded(null);
-                  }}
-                >
-                  <span className="flex items-center gap-2 text-xs">
-                    <span aria-hidden="true" className={stateColor(item)}>
-                      ●
+              {visible.map((item) => {
+                const StatusIcon = statusIcon(item);
+                return (
+                  <Button
+                    key={item.name}
+                    aria-label={`${item.name} ${status(item)}`}
+                    title={status(item)}
+                    ref={(element) => {
+                      if (element) rows.current.set(item.name, element);
+                      else rows.current.delete(item.name);
+                    }}
+                    type="button"
+                    variant="ghost"
+                    className="h-9 w-full justify-start gap-2 rounded-none border-b border-border/50 px-2 text-left font-normal pointer-coarse:min-h-11"
+                    onClick={() => {
+                      setSelected(item.name);
+                      setToolSearch("");
+                      setExpanded(null);
+                    }}
+                  >
+                    <StatusIcon
+                      aria-hidden="true"
+                      className={`h-3.5 w-3.5 shrink-0 ${stateColor(item)}`}
+                    />
+                    <span
+                      className="min-w-0 flex-1 truncate text-xs"
+                      title={item.name}
+                    >
+                      {item.name}
                     </span>
-                    <span className="break-all">{item.name}</span>
-                  </span>
-                  <span className={`pl-4 text-[11px] ${stateColor(item)}`}>
-                    {status(item)}
-                  </span>
-                </Button>
-              ))}
+                    {!needsSignIn(item) && item.toolsState === "known" ? (
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {item.tools!.length} tools
+                      </span>
+                    ) : null}
+                  </Button>
+                );
+              })}
               {!visible.length ? (
                 <p className="px-1 py-3 text-xs text-muted-foreground">
                   {servers.length

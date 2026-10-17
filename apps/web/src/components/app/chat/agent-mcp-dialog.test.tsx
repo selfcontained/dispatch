@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api";
@@ -58,6 +59,50 @@ function mount(agentId = "child") {
 const open = () =>
   fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
 describe("read-only per-agent MCP inventory", () => {
+  it("sorts servers and tools alphabetically and avoids redundant sign-in details", async () => {
+    vi.mocked(api).mockResolvedValue({
+      ...data,
+      inventory: {
+        version: 1,
+        servers: [
+          {
+            name: "Zulu",
+            state: "needs-auth",
+            toolsState: "error",
+            tools: null,
+          },
+          {
+            name: "alpha",
+            state: "connected",
+            toolsState: "known",
+            tools: [{ name: "zebra" }, { name: "Apple" }, { name: "beta" }],
+          },
+        ],
+      },
+    });
+    mount();
+    open();
+    await screen.findByText("alpha");
+    const rows = within(screen.getByLabelText("MCP server list")).getAllByRole(
+      "button"
+    );
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "alpha Connected · 3 tools",
+      "Zulu Sign-in needed",
+    ]);
+    expect(rows[0]!.textContent).toBe("alpha3 tools");
+    expect(rows[1]!.textContent).toBe("Zulu");
+    fireEvent.click(rows[0]!);
+    expect(screen.getByLabelText("alpha tools").textContent).toBe(
+      "Applebetazebra"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Zulu Sign-in needed" })
+    );
+    expect(screen.queryByText("Tool discovery failed.")).toBeNull();
+    expect(screen.queryByText("Tools are not available yet.")).toBeNull();
+  });
   it("fetches only on open and searches native tools and descriptions; Back retains filter and focus", async () => {
     vi.mocked(api).mockResolvedValue(data);
     mount();
