@@ -68,6 +68,12 @@ describe("read-only per-agent MCP inventory", () => {
       target: { value: "alp" },
     });
     fireEvent.click(screen.getByRole("button", { name: /alpha Connected/ }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Back" })
+    );
+    expect(document.activeElement).not.toBe(
+      screen.getByLabelText("Search alpha tools")
+    );
     fireEvent.change(screen.getByLabelText("Search alpha tools"), {
       target: { value: "selected" },
     });

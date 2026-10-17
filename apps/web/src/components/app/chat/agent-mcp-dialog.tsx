@@ -1,7 +1,7 @@
 import type { AgentMcpInventoryResponse, McpServer } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Plug, RefreshCw, Search } from "lucide-react";
-import { useRef, useState } from "react";
+import { ChevronRight, Plug, RefreshCw, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,19 @@ function status(server: McpServer) {
   return `${state} · ${tools}`;
 }
 
+function stateColor(server: McpServer) {
+  if (server.state === "failed" || server.toolsState === "error")
+    return "text-status-blocked";
+  if (server.state === "connected") return "text-status-working";
+  if (
+    ["needs-auth", "authenticationRequired", "pending", "starting"].includes(
+      server.state
+    )
+  )
+    return "text-status-waiting";
+  return "text-muted-foreground";
+}
+
 /** The keyed subtree keeps navigation and pending responses tied to the target child. */
 export function AgentMcpDialog(props: {
   agentId: string;
@@ -54,6 +67,10 @@ function McpInventoryPopover({
   const [attention, setAttention] = useState(false);
   const [toolSearch, setToolSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const backButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (selected) backButton.current?.focus({ preventScroll: true });
+  }, [selected]);
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const query = useQuery<AgentMcpInventoryResponse>({
     queryKey: ["agent-mcp-inventory", agentId],
@@ -105,10 +122,13 @@ function McpInventoryPopover({
         align="end"
         collisionPadding={8}
         aria-label="MCP servers"
-        className="w-[360px] max-w-[calc(100vw-16px)] p-2"
+        className="w-[360px] max-w-[calc(100vw-16px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain touch-pan-y rounded-sm border border-border bg-background p-2 font-mono"
       >
-        <div className="flex items-center justify-between px-1 pb-1 text-xs">
+        <div className="mb-2 flex items-center justify-between border-b border-border px-1 pb-1 text-xs">
           <span className="font-medium">
+            <span aria-hidden="true" className="mr-2 text-status-working">
+              &gt;_
+            </span>
             MCP servers{data?.status === "ok" ? ` · ${servers.length}` : ""}
           </span>
           <Button
@@ -133,6 +153,7 @@ function McpInventoryPopover({
           <div>
             <div className="mb-2 flex items-center gap-2">
               <Button
+                ref={backButton}
                 type="button"
                 variant="ghost"
                 size="sm"
@@ -150,21 +171,20 @@ function McpInventoryPopover({
               </Button>
               <div className="min-w-0">
                 <p className="break-words text-xs font-medium">{server.name}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className={`text-[11px] ${stateColor(server)}`}>
                   {status(server)}
                 </p>
               </div>
             </div>
             <Input
-              autoFocus
               aria-label={`Search ${server.name} tools`}
               placeholder="Search tools…"
               value={toolSearch}
               onChange={(event) => setToolSearch(event.target.value)}
-              className="mb-1 h-8 text-xs pointer-coarse:min-h-11"
+              className="mb-1 h-8 rounded-sm text-xs pointer-coarse:min-h-11 pointer-coarse:text-base"
             />
             <div
-              className="max-h-[min(256px,45dvh)] overflow-y-auto"
+              className="max-h-[min(256px,45dvh)] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
               aria-label={`${server.name} tools`}
             >
               {server.toolsState !== "known" ? (
@@ -196,6 +216,10 @@ function McpInventoryPopover({
                               )
                             }
                           >
+                            <ChevronRight
+                              aria-hidden="true"
+                              className={`mr-1 h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded === tool.name ? "rotate-90" : ""}`}
+                            />
                             {tool.name}
                           </Button>
                         ) : (
@@ -236,7 +260,7 @@ function McpInventoryPopover({
                 placeholder="Search servers…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="h-8 pl-7 text-xs pointer-coarse:min-h-11"
+                className="h-8 rounded-sm pl-7 text-xs pointer-coarse:min-h-11 pointer-coarse:text-base"
               />
             </div>
             {attention || servers.some((item) => item.state !== "connected") ? (
@@ -245,7 +269,7 @@ function McpInventoryPopover({
                 variant="ghost"
                 size="sm"
                 aria-pressed={attention}
-                className="my-1 h-7 px-1 text-[11px] pointer-coarse:min-h-11"
+                className="my-1 h-7 px-1 text-[11px] text-status-waiting pointer-coarse:min-h-11"
                 onClick={() => setAttention(!attention)}
               >
                 Needs attention ·{" "}
@@ -253,7 +277,7 @@ function McpInventoryPopover({
               </Button>
             ) : null}
             <div
-              className="mt-1 max-h-[min(320px,50dvh)] overflow-y-auto"
+              className="mt-1 max-h-[min(320px,50dvh)] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
               aria-label="MCP server list"
             >
               {visible.map((item) => (
@@ -266,15 +290,20 @@ function McpInventoryPopover({
                   }}
                   type="button"
                   variant="ghost"
-                  className="h-auto min-h-11 w-full flex-col items-start gap-0.5 whitespace-normal px-2 py-2 text-left font-normal"
+                  className="h-auto min-h-11 w-full flex-col items-start gap-0.5 whitespace-normal rounded-none border-b border-border/50 px-2 py-2 text-left font-normal"
                   onClick={() => {
                     setSelected(item.name);
                     setToolSearch("");
                     setExpanded(null);
                   }}
                 >
-                  <span className="break-all text-xs">{item.name}</span>
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-2 text-xs">
+                    <span aria-hidden="true" className={stateColor(item)}>
+                      ●
+                    </span>
+                    <span className="break-all">{item.name}</span>
+                  </span>
+                  <span className={`pl-4 text-[11px] ${stateColor(item)}`}>
                     {status(item)}
                   </span>
                 </Button>
