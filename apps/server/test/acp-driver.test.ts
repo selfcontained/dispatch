@@ -1300,3 +1300,110 @@ describe("self-started turns", () => {
     await driver.stop("agt_1");
   });
 });
+
+describe("read-only MCP driver extension", () => {
+  it("returns offline or unsupported without starting an agent or submitting a prompt", async () => {
+    const fake = createFakeAcpAgent();
+    const { driver, spawn } = driverWith(fake);
+    expect((await driver.getMcpInventory("agt_1")).status).toBe("offline");
+    expect(spawn).not.toHaveBeenCalled();
+    await driver.start(launch());
+    try {
+      expect((await driver.getMcpInventory("agt_1")).status).toBe(
+        "unsupported"
+      );
+      expect(fake.seen.prompts).toEqual([]);
+    } finally {
+      await driver.stop("agt_1");
+    }
+  });
+  it("uses the live session extension during an active turn without prompting, steering, or cancelling", async () => {
+    let end!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      end = resolve;
+    });
+    const inventory = vi.fn(async () => ({ version: 1, servers: [] }));
+    const fake = createFakeAcpAgent({
+      inventory,
+      turn: async () => {
+        await gate;
+        return "end_turn";
+      },
+    });
+    const { driver } = driverWith(fake);
+    await driver.start(launch());
+    try {
+      const turn = driver.prompt("agt_1", "work");
+      await vi.waitFor(() => expect(fake.seen.prompts).toHaveLength(1));
+      expect(await driver.getMcpInventory("agt_1")).toEqual({
+        agentId: "agt_1",
+        status: "ok",
+        inventory: { version: 1, servers: [] },
+      });
+      expect(inventory).toHaveBeenCalledWith({ sessionId: "sess_1" });
+      expect(fake.seen.prompts).toEqual(["work"]);
+      expect(fake.seen.steers).toEqual([]);
+      expect(fake.seen.cancels).toBe(0);
+      end();
+      await turn;
+    } finally {
+      end();
+      await driver.stop("agt_1");
+    }
+  });
+  it("coalesces retries after timeout and recovers when the native read eventually settles", async () => {
+    let finish!: (value: Record<string, unknown>) => void;
+    const inventory = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      )
+      .mockResolvedValue({ version: 1, servers: [] });
+    const fake = createFakeAcpAgent({ inventory });
+    const { driver } = driverWith(fake);
+    await driver.start(launch());
+    try {
+      vi.useFakeTimers();
+      const first = driver.getMcpInventory("agt_1");
+      await vi.advanceTimersByTimeAsync(8001);
+      expect((await first).status).toBe("timeout");
+      expect(inventory).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 3; i++) {
+        const retry = driver.getMcpInventory("agt_1");
+        await vi.advanceTimersByTimeAsync(8001);
+        expect((await retry).status).toBe("timeout");
+      }
+      expect(inventory).toHaveBeenCalledTimes(1);
+      finish({ version: 1, servers: [] });
+      await vi.advanceTimersByTimeAsync(0);
+      const recovered = driver.getMcpInventory("agt_1");
+      await vi.advanceTimersByTimeAsync(0);
+      expect((await recovered).status).toBe("ok");
+      expect(inventory).toHaveBeenCalledTimes(2);
+      expect(fake.seen.prompts).toEqual([]);
+      expect(fake.seen.cancels).toBe(0);
+    } finally {
+      vi.useRealTimers();
+      await driver.stop("agt_1");
+    }
+  });
+  it("does not publish data from a stopped process", async () => {
+    let finish!: (value: Record<string, unknown>) => void;
+    const fake = createFakeAcpAgent({
+      inventory: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    const { driver } = driverWith(fake);
+    await driver.start(launch());
+    const request = driver.getMcpInventory("agt_1");
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await driver.stop("agt_1");
+    finish({ version: 1, servers: [] });
+    expect((await request).status).not.toBe("ok");
+  });
+});

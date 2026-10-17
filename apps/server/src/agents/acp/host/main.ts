@@ -282,6 +282,7 @@ async function main(): Promise<void> {
           sessionId,
           resumed,
           running,
+          mcpInventorySupported: driver.supportsMcpInventory(agentId),
           steeringSupported: driver.supportsSteering(agentId),
           interruptSupported: true,
           turn: openTurn,
@@ -301,6 +302,14 @@ async function main(): Promise<void> {
         }
         if (startupError)
           send(socket, { type: "error", message: startupError });
+        return;
+      }
+      case "mcp_inventory": {
+        const result =
+          running && message.sessionId === sessionId
+            ? await driver.getMcpInventory(agentId)
+            : { agentId, status: "offline" as const, inventory: null };
+        send(socket, { type: "mcp_inventory_result", id: message.id, result });
         return;
       }
       case "ping":
@@ -522,6 +531,7 @@ async function main(): Promise<void> {
       sessionId,
       resumed,
       running,
+      mcpInventorySupported: driver.supportsMcpInventory(agentId),
       steeringSupported: driver.supportsSteering(agentId),
       interruptSupported: true,
       turn: null,

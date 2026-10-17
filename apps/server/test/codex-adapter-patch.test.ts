@@ -215,3 +215,105 @@ describe("installed Codex adapter Dispatch contracts", () => {
     });
   });
 });
+
+describe("installed Codex inventory extension", () => {
+  function fixture(pages: unknown[]) {
+    const listMcpServers = vi.fn();
+    for (const page of pages) listMcpServers.mockResolvedValueOnce(page);
+    return {
+      sessions: new Map([["s", {}]]),
+      providerUpdate: null,
+      recovery: null,
+      getSessionGeneration: () => 1,
+      runWithProcessCheck: (fn: () => unknown) => fn(),
+      codexAcpClient: { listMcpServers },
+    };
+  }
+  it("paginates native tool maps and strips secrets/errors/schema", async () => {
+    const host = fixture([
+      {
+        data: [
+          {
+            name: "a",
+            runtimeStatus: "connected",
+            tools: {
+              read: {
+                name: "read",
+                description: "Reads",
+                inputSchema: "secret",
+              },
+            },
+            env: "secret",
+          },
+        ],
+        nextCursor: "next",
+      },
+      {
+        data: [
+          { name: "b", runtimeStatus: "connected", tools: {} },
+          {
+            name: "c",
+            runtimeStatus: "connected",
+            tools: {},
+            toolsError: "secret",
+          },
+          { name: "d", runtimeStatus: null },
+        ],
+        nextCursor: null,
+      },
+    ]);
+    const result =
+      await adapter.CodexAcpServer.prototype.dispatchMcpInventory.call(host, {
+        sessionId: "s",
+      });
+    expect(result).toEqual({
+      version: 1,
+      servers: [
+        {
+          name: "a",
+          state: "connected",
+          toolsState: "known",
+          tools: [{ name: "read", description: "Reads" }],
+        },
+        { name: "b", state: "connected", toolsState: "known", tools: [] },
+        { name: "c", state: "connected", toolsState: "error", tools: null },
+        { name: "d", state: "unknown", toolsState: "unknown", tools: null },
+      ],
+    });
+    expect(host.codexAcpClient.listMcpServers.mock.calls).toEqual([
+      [{ threadId: "s", cursor: null, detail: "toolsAndAuthOnly" }],
+      [{ threadId: "s", cursor: "next", detail: "toolsAndAuthOnly" }],
+    ]);
+  });
+  it.each([{}, { sessionId: "wrong" }])(
+    "rejects missing/wrong session before native requests",
+    async (params) => {
+      const host = fixture([]);
+      await expect(
+        adapter.CodexAcpServer.prototype.dispatchMcpInventory.call(host, params)
+      ).rejects.toThrow();
+      expect(host.codexAcpClient.listMcpServers).not.toHaveBeenCalled();
+    }
+  );
+  it("rejects repeated cursors and changed process generations", async () => {
+    const host = fixture([
+      { data: [], nextCursor: "next" },
+      { data: [], nextCursor: "next" },
+    ]);
+    await expect(
+      adapter.CodexAcpServer.prototype.dispatchMcpInventory.call(host, {
+        sessionId: "s",
+      })
+    ).rejects.toThrow();
+    const changed = fixture([{ data: [], nextCursor: null }]);
+    changed.getSessionGeneration = vi
+      .fn()
+      .mockReturnValueOnce(1)
+      .mockReturnValueOnce(2);
+    await expect(
+      adapter.CodexAcpServer.prototype.dispatchMcpInventory.call(changed, {
+        sessionId: "s",
+      })
+    ).rejects.toThrow();
+  });
+});

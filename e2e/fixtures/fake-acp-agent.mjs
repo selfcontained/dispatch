@@ -104,6 +104,7 @@ const agent = {
       },
       authMethods: [],
       _meta: {
+        "dispatch/mcpInventory": { version: 1 },
         steering: { supported: true },
         "dispatch/steering": { pickupReceipts: true, promptReceipts: true },
       },
@@ -150,6 +151,21 @@ const agent = {
     return { configOptions: configOptions(params.sessionId) };
   },
   async extMethod(method, params) {
+    if (method === "_dispatch/mcpInventory") {
+      if (!cwdBySession.has(params.sessionId))
+        throw new Error("unknown session");
+      return {
+        version: 1,
+        servers: [
+          {
+            name: "owned-test-server",
+            state: "connected",
+            toolsState: "known",
+            tools: [{ name: "read", description: "Owned test tool" }],
+          },
+        ],
+      };
+    }
     if (method !== "_session/steering")
       throw new Error("unsupported extension");
     const messages = steeringMessages.get(params.sessionId);

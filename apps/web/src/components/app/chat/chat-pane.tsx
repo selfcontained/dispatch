@@ -1504,8 +1504,6 @@ export function ChatPane({
                           key={agentId}
                           agentId={agentId}
                           active={active}
-                          disabledReason={disabledReason}
-                          onSend={onSend}
                         />
                       ) : null
                     }

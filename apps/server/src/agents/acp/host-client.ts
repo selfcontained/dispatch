@@ -1,3 +1,4 @@
+import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type {
   AgentPermissionRequest,
   AgentPermissionsResponse,
@@ -44,6 +45,13 @@ export type HostClientDeps = {
  * makes the reconnect idempotent. `close()` stops reconnecting.
  */
 export class HostClient {
+  private readonly pendingInventory = new Map<
+    string,
+    {
+      resolve: (result: AgentMcpInventoryResponse) => void;
+      reject: (err: Error) => void;
+    }
+  >();
   private readonly pendingSteers = new Map<
     string,
     {
@@ -243,6 +251,12 @@ export class HostClient {
           event: message.event,
         });
         return;
+      case "mcp_inventory_result": {
+        const pending = this.pendingInventory.get(message.id);
+        this.pendingInventory.delete(message.id);
+        pending?.resolve(message.result);
+        return;
+      }
       case "steer_result": {
         const pending = this.pendingSteers.get(message.id);
         this.pendingSteers.delete(message.id);
@@ -287,12 +301,14 @@ export class HostClient {
       case "error": {
         if (message.id) {
           const pending =
+            this.pendingInventory.get(message.id) ??
             this.pendingInterrupts.get(message.id) ??
             this.pendingSteers.get(message.id) ??
             this.pendingPrompts.get(message.id) ??
             this.pendingConfig.get(message.id) ??
             this.pendingPermissions.get(message.id);
           if (pending) {
+            this.pendingInventory.delete(message.id);
             this.pendingInterrupts.delete(message.id);
             this.pendingSteers.delete(message.id);
             this.pendingPrompts.delete(message.id);
@@ -337,6 +353,8 @@ export class HostClient {
   }
 
   private failPending(err: Error): void {
+    for (const pending of this.pendingInventory.values()) pending.reject(err);
+    this.pendingInventory.clear();
     for (const pending of this.pendingInterrupts.values()) pending.reject(err);
     this.pendingInterrupts.clear();
     for (const pending of this.pendingSteers.values()) pending.reject(err);
@@ -354,6 +372,42 @@ export class HostClient {
       throw new Error("the agent host is not connected");
     }
     this.socket.write(encodeMessage(message));
+  }
+
+  async getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse> {
+    const welcome = this.lastWelcome;
+    const empty = (
+      status: AgentMcpInventoryResponse["status"]
+    ): AgentMcpInventoryResponse => ({ agentId, status, inventory: null });
+    if (!this.isConnected() || !welcome?.running) return empty("offline");
+    if (!welcome.mcpInventorySupported) return empty("unsupported");
+    const id = crypto.randomUUID();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingInventory.delete(id);
+        resolve(empty("timeout"));
+      }, 10000);
+      this.pendingInventory.set(id, {
+        resolve: (result) => {
+          clearTimeout(timer);
+          resolve(
+            this.lastWelcome !== welcome || result.agentId !== agentId
+              ? empty("unavailable")
+              : result
+          );
+        },
+        reject: () => {
+          clearTimeout(timer);
+          resolve(empty("offline"));
+        },
+      });
+      try {
+        this.send({ type: "mcp_inventory", id, sessionId: welcome.sessionId });
+      } catch {
+        this.pendingInventory.get(id)?.reject(new Error("Disconnected"));
+        this.pendingInventory.delete(id);
+      }
+    });
   }
 
   /** Resolves once the adapter has accepted the steering request. */

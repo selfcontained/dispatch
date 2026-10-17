@@ -649,6 +649,10 @@ export class AgentManager {
   }
 
   /** The live session's ACP slash commands, including advertised skills. */
+  getMcpInventory(id: string) {
+    return this.runtime.getMcpInventory(id);
+  }
+
   getCommands(id: string): AvailableCommand[] | null {
     return this.runtime.getCommands(id);
   }

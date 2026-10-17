@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { AgentCommandsResponse } from "@dispatch/shared";
+import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -9,7 +9,6 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import { api } from "@/lib/api";
 import { AgentMcpDialog } from "./agent-mcp-dialog";
 
@@ -18,183 +17,149 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
 });
-
-const available = (
-  provider: "claude" | "codex" = "claude"
-): AgentCommandsResponse => ({
-  commands: [{ name: "mcp" }],
-  connected: true,
-  mcp: { provider, available: true },
-});
-
-async function mount(
-  data: AgentCommandsResponse | Promise<AgentCommandsResponse>,
-  options: { onSend?: ReturnType<typeof vi.fn>; disabledReason?: string } = {}
-) {
-  vi.mocked(api).mockImplementation(async () => data);
-  const onSend = options.onSend ?? vi.fn(async () => {});
+const data: AgentMcpInventoryResponse = {
+  agentId: "child",
+  status: "ok",
+  inventory: {
+    version: 1,
+    servers: [
+      {
+        name: "alpha",
+        state: "connected",
+        toolsState: "known",
+        tools: [{ name: "read_item", description: "Read the selected item." }],
+      },
+      { name: "beta", state: "connected", toolsState: "known", tools: [] },
+      { name: "gamma", state: "failed", toolsState: "error", tools: null },
+      { name: "delta", state: "pending", toolsState: "unknown", tools: null },
+    ],
+  },
+};
+function mount(agentId = "child") {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: { queries: { retry: false } },
   });
-  render(
+  const view = render(
     <QueryClientProvider client={client}>
-      <AgentMcpDialog
-        agentId="agt_child"
-        active
-        disabledReason={options.disabledReason ?? null}
-        onSend={onSend}
-      />
+      <AgentMcpDialog agentId={agentId} active />
     </QueryClientProvider>
   );
-  fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
-  await screen.findByRole("dialog");
-  return { onSend, client };
+  return {
+    ...view,
+    client,
+    switchTo: (id: string) =>
+      view.rerender(
+        <QueryClientProvider client={client}>
+          <AgentMcpDialog agentId={id} active />
+        </QueryClientProvider>
+      ),
+  };
 }
-
-const requestStatus = () =>
-  screen.getByRole("button", { name: "Request status" }) as HTMLButtonElement;
-
-describe("per-agent MCP diagnostics", () => {
-  it.each(["/mcp", "/mcp reconnect"] as const)(
-    "submits %s as a queued chat command and closes after acceptance",
-    async (command) => {
-      const { onSend } = await mount(available());
-      await waitFor(() => expect(requestStatus().disabled).toBe(false));
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: command === "/mcp" ? "Request status" : "Reconnect servers",
-        })
-      );
-      await waitFor(() =>
-        expect(onSend).toHaveBeenCalledWith(command, [], { delivery: "queue" })
-      );
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-      fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
-      expect(screen.getByRole("dialog")).toBeTruthy();
-    }
-  );
-
-  it("keeps Codex reconnect scope visible and discloses conditional troubleshooting on request", async () => {
-    await mount(available("codex"));
-    await screen.findByText(
-      /Reconnect reloads MCP configuration for all sessions/
-    );
-    const toggle = screen.getByRole("button", {
-      name: "Troubleshooting",
+const open = () =>
+  fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
+describe("read-only per-agent MCP inventory", () => {
+  it("fetches only on open and searches native tools and descriptions; Back retains filter and focus", async () => {
+    vi.mocked(api).mockResolvedValue(data);
+    mount();
+    expect(api).not.toHaveBeenCalled();
+    open();
+    await screen.findByText("alpha");
+    fireEvent.change(screen.getByLabelText("Search MCP servers"), {
+      target: { value: "alp" },
     });
-    const panel = document.getElementById(
-      toggle.getAttribute("aria-controls")!
-    )!;
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(panel.hidden).toBe(true);
-    expect(screen.getByText(/It may require sign-in/)).toBeTruthy();
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(panel.hidden).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /alpha Connected/ }));
+    fireEvent.change(screen.getByLabelText("Search alpha tools"), {
+      target: { value: "selected" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "read_item" }));
+    expect(screen.getByText("Read the selected item.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(
-      screen.getByText(/If Codex configuration already defines/)
-    ).toBeTruthy();
+      (screen.getByLabelText("Search MCP servers") as HTMLInputElement).value
+    ).toBe("alp");
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toContain("alpha")
+    );
+    expect(api).toHaveBeenCalledWith(
+      "/api/v1/agents/child/mcp-inventory",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     expect(
-      screen.getByText(/Effective settings are not available here/)
-    ).toBeTruthy();
-    fireEvent.click(toggle);
-    expect(panel.hidden).toBe(true);
+      vi
+        .mocked(api)
+        .mock.calls.every(([, init]) => !init?.method || init.method === "GET")
+    ).toBe(true);
     expect(
-      (
-        screen.getByRole("button", {
-          name: "Reconnect servers",
-        }) as HTMLButtonElement
-      ).disabled
-    ).toBe(false);
+      screen.queryByText(/Reconnect servers|Request status|Sign in/)
+    ).toBeNull();
   });
-
+  it("distinguishes known empty, unknown, and failed tool discovery", async () => {
+    vi.mocked(api).mockResolvedValue(data);
+    mount();
+    open();
+    await screen.findByText("beta");
+    fireEvent.click(screen.getByRole("button", { name: /beta Connected/ }));
+    expect(screen.getByText("No tools reported.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: /delta Connecting/ }));
+    expect(screen.getByText("Tools are not available yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: /gamma Connection/ }));
+    expect(screen.getByText("Tool discovery failed.")).toBeTruthy();
+  });
   it.each([
-    {
-      data: {
-        ...available(),
-        connected: false,
-        commands: [],
-        mcp: { provider: "claude" as const, available: false },
-      },
-      message: /no connected session/,
-    },
-    {
-      data: {
-        ...available(),
-        commands: [],
-        mcp: { provider: "claude" as const, available: false },
-      },
-      message: /not supported/,
-    },
-    {
-      data: { ...available(), mcp: { provider: null, available: false } },
-      message: /not supported/,
-    },
-  ])(
-    "disables commands for unavailable sessions ($message)",
-    async ({ data, message }) => {
-      const { onSend } = await mount(data);
-      await screen.findByText(message);
-      expect(requestStatus().disabled).toBe(true);
-      fireEvent.click(requestStatus());
-      expect(onSend).not.toHaveBeenCalled();
-    }
-  );
-
-  it("keeps actions disabled until discovery finishes", async () => {
-    let resolve!: (data: AgentCommandsResponse) => void;
-    await mount(
-      new Promise((done) => {
-        resolve = done;
-      })
-    );
-    expect(screen.getByText(/Checking available commands/)).toBeTruthy();
-    expect(requestStatus().disabled).toBe(true);
-    resolve(available());
-    await waitFor(() => expect(requestStatus().disabled).toBe(false));
-  });
-
-  it("shows a discovery failure and permits refresh without exposing the error payload", async () => {
-    vi.mocked(api).mockRejectedValue(new Error("token=private"));
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+    ["offline", "This agent is offline."],
+    [
+      "unsupported",
+      "Inventory is unavailable in this agent’s current session.",
+    ],
+    ["timeout", "Inventory request timed out."],
+    ["unavailable", "Inventory is temporarily unavailable."],
+  ] as const)("shows %s honestly", async (status, message) => {
+    vi.mocked(api).mockResolvedValue({
+      agentId: "child",
+      status,
+      inventory: null,
     });
-    render(
-      <QueryClientProvider client={client}>
-        <AgentMcpDialog
-          agentId="agt_1"
-          active
-          disabledReason={null}
-          onSend={vi.fn()}
-        />
-      </QueryClientProvider>
-    );
-    fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
-    await screen.findByText(/Could not check this agent/);
-    expect(requestStatus().disabled).toBe(true);
-    expect(screen.queryByText(/private/)).toBeNull();
-    vi.mocked(api).mockResolvedValue(available());
+    mount();
+    open();
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
+  it("removes cached counts and tools when a live refresh fails", async () => {
+    vi.mocked(api)
+      .mockResolvedValueOnce(data)
+      .mockRejectedValueOnce(new Error("network"));
+    mount();
+    open();
+    await screen.findByText("alpha");
     fireEvent.click(
-      screen.getByRole("button", { name: "Refresh availability" })
+      screen.getByRole("button", { name: "Refresh MCP inventory" })
     );
-    await waitFor(() => expect(requestStatus().disabled).toBe(false));
+    await screen.findByText("Could not read MCP inventory.");
+    expect(screen.queryByText("MCP servers · 4")).toBeNull();
+    expect(screen.queryByText("alpha")).toBeNull();
   });
-
-  it("honors the composer delivery restriction", async () => {
-    await mount(available(), { disabledReason: "Agent is archived." });
-    await screen.findByText("Agent is archived.");
-    expect(requestStatus().disabled).toBe(true);
-  });
-
-  it("keeps the dialog open after submission fails and does not copy error details", async () => {
-    const onSend = vi
-      .fn()
-      .mockRejectedValue(new Error("Authorization: secret"));
-    await mount(available(), { onSend });
-    await waitFor(() => expect(requestStatus().disabled).toBe(false));
-    fireEvent.click(requestStatus());
-    await screen.findByRole("alert");
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.queryByText(/secret/)).toBeNull();
+  it("does not publish late inventory after switching target child", async () => {
+    let resolve!: (value: AgentMcpInventoryResponse) => void;
+    vi.mocked(api).mockImplementation((path) =>
+      path.includes("/child/")
+        ? new Promise((r) => {
+            resolve = r as typeof resolve;
+          })
+        : Promise.resolve({
+            agentId: "other",
+            status: "ok",
+            inventory: { version: 1, servers: [] },
+          })
+    );
+    const view = mount();
+    open();
+    await screen.findByText("Loading MCP servers…");
+    view.switchTo("other");
+    open();
+    await screen.findByText("No MCP servers reported.");
+    resolve(data);
+    await waitFor(() => expect(screen.queryByText("alpha")).toBeNull());
+    expect(screen.getByText("No MCP servers reported.")).toBeTruthy();
   });
 });
