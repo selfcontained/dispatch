@@ -80,3 +80,21 @@ during it and is still running; while idle, a `started` opens one, and the
 matching `completed` settles it. Claude needs no patch:
 claude-agent-acp tags an autonomous cycle's final `usage_update` with
 `_meta["_claude/origin"]`.
+
+## Read-only MCP inventory (v1)
+
+Both pinned adapters advertise `_meta["dispatch/mcpInventory"] = { version: 1 }`
+from initialize and accept `_dispatch/mcpInventory` with the live `sessionId`.
+Claude reads the existing query's `mcpServerStatus()`; Codex reads every page of
+`mcpServerStatus/list` with `threadId` and `detail: "toolsAndAuthOnly"`. Neither
+extension opens a turn, reconnects a server, reloads configuration, or signs in.
+They return only `{ version: 1, servers: [{ name, state, toolsState, tools }] }`;
+tools contain names and optional descriptions. Unknown/unavailable discovery is
+`tools: null`, distinct from a known empty array. Native errors, configuration,
+URLs, headers, tool schemas and authentication metadata are excluded.
+
+Missing sessions are rejected. Closed/replaced Claude queries and changed Codex
+session generations invalidate in-flight reads. Dispatch additionally gates old
+hosts/adapters, bounds request time, validates/projects the response and discards
+results when the owning process changes. Installed-adapter tests exercise this
+contract alongside the existing cancellation and steering regressions.

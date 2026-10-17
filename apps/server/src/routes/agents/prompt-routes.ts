@@ -18,6 +18,14 @@ export async function registerAgentPromptRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
+  app.get("/api/v1/agents/:id/mcp-inventory", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    if (!(await deps.agentManager.getAgent(id)))
+      return reply.code(404).send({ error: "Agent not found." });
+    reply.header("Cache-Control", "no-store");
+    return deps.agentManager.getMcpInventory(id);
+  });
+
   app.get("/api/v1/agents/:id/commands", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     const agent = await deps.agentManager.getAgent(id);

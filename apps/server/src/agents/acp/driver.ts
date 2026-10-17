@@ -1,3 +1,5 @@
+import { parseMcpInventory } from "./mcp-inventory.js";
+import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import { PermissionRequests } from "./permissions.js";
 import {
   AUTHENTICATION_REQUIRED,
@@ -141,6 +143,9 @@ type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 
 type Live = {
   supportsImages: boolean;
+  mcpInventorySupported: boolean;
+  /** Retained past an HTTP timeout so retries never accumulate native RPCs. */
+  inventoryRead?: Promise<unknown>;
   steeringSupported: boolean;
   pickupReceiptsSupported: boolean;
   promptReceiptsSupported: boolean;
@@ -619,6 +624,7 @@ export class AcpDriver {
         : {}),
     };
     const sessionMeta = Object.keys(meta).length ? { _meta: meta } : {};
+    let mcpInventorySupported = false;
     let supportsImages = false;
     let steeringSupported = false;
     let pickupReceiptsSupported = false;
@@ -637,6 +643,11 @@ export class AcpDriver {
       });
       supportsImages =
         initialized.agentCapabilities?.promptCapabilities?.image === true;
+      const inventory = initialized._meta?.["dispatch/mcpInventory"];
+      mcpInventorySupported =
+        !!inventory &&
+        typeof inventory === "object" &&
+        (inventory as { version?: unknown }).version === 1;
       const steering = initialized._meta?.steering;
       const receipts = initialized._meta?.["dispatch/steering"];
       pickupReceiptsSupported =
@@ -746,6 +757,7 @@ export class AcpDriver {
 
     const entry: Live = {
       supportsImages,
+      mcpInventorySupported,
       steeringSupported,
       pickupReceiptsSupported,
       promptReceiptsSupported,
@@ -817,6 +829,47 @@ export class AcpDriver {
 
   getPermissions(agentId: string): AgentPermissionRequest[] {
     return this.permissions.list(agentId);
+  }
+
+  supportsMcpInventory(agentId: string): boolean {
+    return this.live.get(agentId)?.mcpInventorySupported ?? false;
+  }
+
+  async getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse> {
+    const entry = this.live.get(agentId);
+    const result = (
+      status: AgentMcpInventoryResponse["status"],
+      inventory: AgentMcpInventoryResponse["inventory"] = null
+    ): AgentMcpInventoryResponse => ({ agentId, status, inventory });
+    if (!entry || entry.stopping) return result("offline");
+    if (!entry.mcpInventorySupported) return result("unsupported");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      if (!entry.inventoryRead) {
+        const read = entry.conn.extMethod("_dispatch/mcpInventory", {
+          sessionId: entry.sessionId,
+        });
+        entry.inventoryRead = read;
+        const clear = () => {
+          if (entry.inventoryRead === read) entry.inventoryRead = undefined;
+        };
+        void read.then(clear, clear);
+      }
+      const data = await Promise.race([
+        entry.inventoryRead,
+        new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), 8000);
+        }),
+      ]);
+      if (this.live.get(agentId) !== entry || entry.stopping)
+        return result("offline");
+      if (data === "timeout") return result("timeout");
+      return result("ok", parseMcpInventory(data));
+    } catch {
+      return result("unavailable");
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   supportsSteering(agentId: string): boolean {

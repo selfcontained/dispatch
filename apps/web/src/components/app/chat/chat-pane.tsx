@@ -50,6 +50,7 @@ import {
   useRootAgentId,
   useDeliveryAgents,
 } from "@/hooks/use-agent-tree";
+import { AgentMcpDialog, type McpInventoryControl } from "./agent-mcp-dialog";
 import { useAgentCommands } from "@/hooks/use-agent-commands";
 import {
   useAnswerQuestion,
@@ -505,7 +506,21 @@ export function ChatPane({
   const quiet = !showChildAgents && agentId === rootId;
   const showLastMessage = useAtomValue(chatShowLastMessageAtom);
   const deliveryAgents = useDeliveryAgents();
-  const slashCommands = useAgentCommands(agentId, active);
+  const agentCommands = useAgentCommands(agentId, active);
+  const mcpInventory = useRef<McpInventoryControl>(null);
+  const slashCommands = [
+    {
+      name: "mcp",
+      description: "Show MCP servers and tools",
+      source: "dispatch" as const,
+    },
+    ...agentCommands.filter((command) => command.name !== "mcp"),
+  ];
+  const onDispatchCommand = useCallback((name: string) => {
+    if (name !== "mcp") return false;
+    mcpInventory.current?.open();
+    return true;
+  }, []);
   const descendants = useDescendantAgentIds(agentId);
   const feed = useStreamFeed(
     rootId,
@@ -1066,6 +1081,10 @@ export function ChatPane({
       options?: { delivery?: "auto" | "queue" | "interrupt" }
     ): Promise<void> => {
       setSendError(null);
+      if (text.trim() === "/mcp" && attachments.length === 0) {
+        onDispatchCommand("mcp");
+        return;
+      }
       // Sending is a return to the bottom, even from the start of a tall
       // reply or a jumped-to row: drop that hold, or isFollowing() stays
       // false and the reader's own message lands out of sight.
@@ -1081,7 +1100,7 @@ export function ChatPane({
         ...(options?.delivery ? { delivery: options.delivery } : {}),
       });
     },
-    [postTo, scrollToBottom, sendAsync, updateFollowing]
+    [onDispatchCommand, postTo, scrollToBottom, sendAsync, updateFollowing]
   );
 
   const uploadFile = useCallback(
@@ -1472,6 +1491,7 @@ export function ChatPane({
                   : undefined
               }
               slashCommands={slashCommands}
+              onDispatchCommand={onDispatchCommand}
               canQueue={Boolean(agentId)}
               deliveryAgents={deliveryAgents}
               conversation={composerConversation}
@@ -1497,6 +1517,17 @@ export function ChatPane({
                         : null
                     }
                     turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
+                    accessory={
+                      agentId ? (
+                        <AgentMcpDialog
+                          key={agentId}
+                          controlRef={mcpInventory}
+                          agentId={agentId}
+                          active={active}
+                          online={agent?.status === "running"}
+                        />
+                      ) : null
+                    }
                   />
                 ) : null
               }

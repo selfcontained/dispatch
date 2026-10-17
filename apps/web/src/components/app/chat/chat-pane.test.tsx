@@ -288,6 +288,14 @@ function typeAndSend(text: string) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+  );
   markdownRenders.count = 0;
   H.entries = [];
   H.unreadCount = 0;
@@ -307,6 +315,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   cleanup();
 });
 
@@ -580,6 +589,60 @@ describe("ChatPane", () => {
       to: "agt_child",
     });
   });
+
+  it("disables MCP inventory for an offline selected agent", () => {
+    renderPane({ agent: { ...agent, status: "stopped" } });
+    const trigger = screen.getByRole("button", { name: "MCP servers" });
+    expect(trigger.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("dialog", { name: "MCP servers" })).toBeNull();
+    expect(
+      vi.mocked(api).mock.calls.some(([url]) => url.endsWith("/mcp-inventory"))
+    ).toBe(false);
+  });
+
+  it.each(["button", "slash command"])(
+    "opens MCP inventory locally via %s for the selected child",
+    async (method) => {
+      vi.mocked(api).mockClear();
+      H.rootId = "agt_root";
+      H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
+      const previous = vi.mocked(api).getMockImplementation();
+      vi.mocked(api).mockImplementation(async (url) =>
+        url.endsWith("/mcp-inventory")
+          ? ({
+              agentId: "agt_child",
+              status: "ok",
+              inventory: { version: 1, servers: [] },
+            } as never)
+          : ({ agents: H.agents } as never)
+      );
+      try {
+        renderPane({
+          agentId: "agt_child",
+          agent: { ...agent, id: "agt_child" },
+        });
+        const input = screen.getByTestId("chat-composer-input");
+        fireEvent.change(input, { target: { value: "keep this draft" } });
+        if (method === "button") {
+          fireEvent.click(screen.getByRole("button", { name: "MCP servers" }));
+        } else {
+          typeAndSend("/mcp");
+        }
+        await screen.findByText("No MCP servers reported.");
+        const requests = vi
+          .mocked(api)
+          .mock.calls.filter(([url]) => url.endsWith("/mcp-inventory"));
+        expect(requests).toHaveLength(1);
+        expect(requests[0]![0]).toBe("/api/v1/agents/agt_child/mcp-inventory");
+        expect(H.send).not.toHaveBeenCalled();
+        if (method === "button")
+          expect((input as HTMLTextAreaElement).value).toBe("keep this draft");
+      } finally {
+        if (previous) vi.mocked(api).mockImplementation(previous);
+      }
+    }
+  );
 
   it("posts to the root with no recipient from the root's own page", async () => {
     H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];

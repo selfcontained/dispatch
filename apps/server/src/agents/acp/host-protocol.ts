@@ -1,3 +1,4 @@
+import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentPermissionRequest } from "@dispatch/shared";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
 import path from "node:path";
@@ -85,6 +86,7 @@ export type ClientMessage =
   /** Set one of the session's config options (model, effort, mode). */
   | { type: "set_config"; id: string; configId: string; value: string }
   | { type: "shutdown"; force?: boolean }
+  | { type: "mcp_inventory"; id: string; sessionId: string }
   | { type: "ping" };
 
 export type HostMessage =
@@ -98,6 +100,7 @@ export type HostMessage =
       /** Whether the engine child is alive. */
       running: boolean;
       /** Absent on older hosts: keep queuing when they cannot steer. */
+      mcpInventorySupported?: boolean;
       steeringSupported?: boolean;
       /** Targeted cancellation with an explicit completion response. */
       interruptSupported?: boolean;
@@ -124,6 +127,11 @@ export type HostMessage =
   | { type: "error"; id?: string; message: string }
   | { type: "permissions"; requests: AgentPermissionRequest[] }
   | { type: "permission_answered"; id: string }
+  | {
+      type: "mcp_inventory_result";
+      id: string;
+      result: AgentMcpInventoryResponse;
+    }
   | { type: "pong" };
 
 /**

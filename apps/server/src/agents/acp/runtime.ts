@@ -766,6 +766,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   runtime = {
     tracksProcesses: () => true,
+    async getMcpInventory(agentId) {
+      const entry = live.get(agentId);
+      if (!entry) return { agentId, status: "offline", inventory: null };
+      const result = await entry.client.getMcpInventory(agentId);
+      return live.get(agentId) === entry
+        ? result
+        : { agentId, status: "offline", inventory: null };
+    },
     getCommands(agentId) {
       const entry = live.get(agentId);
       return entry?.client.welcome?.running ? entry.commands : null;

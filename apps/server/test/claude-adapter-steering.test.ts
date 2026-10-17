@@ -703,3 +703,67 @@ describe("Claude cancellation with concurrent consumer events", () => {
     }
   });
 });
+
+describe("installed Claude inventory extension", () => {
+  const inventory = Reflect.get(
+    ClaudeAcpAgent.prototype,
+    "dispatchMcpInventory"
+  );
+  it("projects only public fields and distinguishes absent and empty tools without opening a turn", async () => {
+    const session = {
+      query: {
+        mcpServerStatus: vi.fn(async () => [
+          {
+            name: "a",
+            status: "connected",
+            url: "secret",
+            tools: [
+              { name: "read", description: "Reads", inputSchema: "secret" },
+            ],
+          },
+          { name: "b", status: "connected", tools: [] },
+          { name: "c", status: "pending" },
+        ]),
+      },
+    };
+    const result = await inventory.call(
+      { sessions: { s: session } },
+      { sessionId: "s" }
+    );
+    expect(result).toEqual({
+      version: 1,
+      servers: [
+        {
+          name: "a",
+          state: "connected",
+          toolsState: "known",
+          tools: [{ name: "read", description: "Reads" }],
+        },
+        { name: "b", state: "connected", toolsState: "known", tools: [] },
+        { name: "c", state: "pending", toolsState: "unknown", tools: null },
+      ],
+    });
+  });
+  it.each([{}, { sessionId: "wrong" }])(
+    "rejects missing/wrong session",
+    async (params) => {
+      await expect(inventory.call({ sessions: {} }, params)).rejects.toThrow();
+    }
+  );
+  it("rejects closed sessions and query replacements rather than respawning", async () => {
+    const session: any = { queryClosed: true };
+    await expect(
+      inventory.call({ sessions: { s: session } }, { sessionId: "s" })
+    ).rejects.toThrow();
+    session.queryClosed = false;
+    session.query = {
+      mcpServerStatus: async () => {
+        session.query = {};
+        return [];
+      },
+    };
+    await expect(
+      inventory.call({ sessions: { s: session } }, { sessionId: "s" })
+    ).rejects.toThrow();
+  });
+});

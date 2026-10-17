@@ -6,10 +6,10 @@ settings:
 
 patchedDependencies:
   '@agentclientprotocol/claude-agent-acp@0.91.0':
-    hash: th2p4o57fus77afq5xicczegcu
+    hash: qvoyksgti2ob3q7es35adfmyfy
     path: patches/@agentclientprotocol__claude-agent-acp@0.91.0.patch
   '@agentclientprotocol/codex-acp@2.2.2':
-    hash: wf2fdm2xswsexnqjdrub3bbhla
+    hash: fw6qak2z6rn3mvflhmkyfi33g4
     path: patches/@agentclientprotocol__codex-acp@2.2.2.patch
 
 importers:
@@ -64,10 +64,10 @@ importers:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':
         specifier: 0.91.0
-        version: 0.91.0(patch_hash=th2p4o57fus77afq5xicczegcu)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.31.0(zod@4.3.6))
+        version: 0.91.0(patch_hash=qvoyksgti2ob3q7es35adfmyfy)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.31.0(zod@4.3.6))
       '@agentclientprotocol/codex-acp':
         specifier: 2.2.2
-        version: 2.2.2(patch_hash=wf2fdm2xswsexnqjdrub3bbhla)
+        version: 2.2.2(patch_hash=fw6qak2z6rn3mvflhmkyfi33g4)
       '@agentclientprotocol/sdk':
         specifier: 1.8.0
         version: 1.8.0(zod@4.3.6)
@@ -7717,7 +7717,7 @@ packages:
 
 snapshots:
 
-  '@agentclientprotocol/claude-agent-acp@0.91.0(patch_hash=th2p4o57fus77afq5xicczegcu)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.31.0(zod@4.3.6))':
+  '@agentclientprotocol/claude-agent-acp@0.91.0(patch_hash=qvoyksgti2ob3q7es35adfmyfy)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.31.0(zod@4.3.6))':
     dependencies:
       '@agentclientprotocol/sdk': 1.8.0(zod@4.6.7)
       '@anthropic-ai/claude-agent-sdk': 0.3.300(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.31.0(zod@4.3.6))(zod@4.6.7)
@@ -7727,7 +7727,7 @@ snapshots:
       - '@anthropic-ai/sdk'
       - '@modelcontextprotocol/sdk'
 
-  '@agentclientprotocol/codex-acp@2.2.2(patch_hash=wf2fdm2xswsexnqjdrub3bbhla)':
+  '@agentclientprotocol/codex-acp@2.2.2(patch_hash=fw6qak2z6rn3mvflhmkyfi33g4)':
     dependencies:
       '@agentclientprotocol/sdk': 1.8.0(zod@4.6.5)
       '@openai/codex': 0.160.1

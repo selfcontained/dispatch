@@ -12,7 +12,14 @@ import {
   RefreshCw,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
@@ -107,6 +114,7 @@ export function ComposerMeta({
   active,
   liveUsage,
   turnKey,
+  accessory,
 }: {
   agentId: string | null;
   agent: Agent | null;
@@ -115,6 +123,7 @@ export function ComposerMeta({
   liveUsage: LiveUsage | null;
   /** Changes when a turn starts or settles; the usage is read again then. */
   turnKey: string;
+  accessory?: ReactNode;
 }): JSX.Element | null {
   const query = useAgentUsage(agentId, active);
   const { refresh } = query;
@@ -132,7 +141,10 @@ export function ComposerMeta({
       {agentId && agent ? (
         <>
           <ModelChip agentId={agentId} agent={agent} active={active} />
-          <UsageChip agent={agent} usage={usage} />
+          <div className="flex items-center gap-2">
+            <UsageChip agent={agent} usage={usage} />
+            {accessory}
+          </div>
         </>
       ) : (
         <UsageChip agent={null} usage={undefined} />

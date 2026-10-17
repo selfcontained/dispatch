@@ -27,6 +27,9 @@ export type FakeTurn = (
 export function createFakeAcpAgent(
   opts: {
     turn?: FakeTurn;
+    inventory?: (
+      params: Record<string, unknown>
+    ) => Promise<Record<string, unknown>>;
     supportsImages?: boolean;
     pickupReceipts?: boolean;
     promptReceipts?: boolean;
@@ -120,6 +123,9 @@ export function createFakeAcpAgent(
         },
         authMethods: [],
         _meta: {
+          ...(opts.inventory
+            ? { "dispatch/mcpInventory": { version: 1 } }
+            : {}),
           ...(opts.steer ? { steering: { supported: true } } : {}),
           "dispatch/steering": {
             pickupReceipts: !!opts.pickupReceipts,
@@ -129,6 +135,8 @@ export function createFakeAcpAgent(
       };
     },
     async extMethod(method, params) {
+      if (method === "_dispatch/mcpInventory" && opts.inventory)
+        return opts.inventory(params);
       if (method !== "_session/steering" || !opts.steer)
         throw new Error("unsupported");
       seen.steers.push(params);

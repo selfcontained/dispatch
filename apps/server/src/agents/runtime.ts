@@ -1,3 +1,4 @@
+import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentInputState } from "@dispatch/shared";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
@@ -63,6 +64,8 @@ export type AgentRuntime = {
   /** Reconnect to a host that outlived the server; false when it is gone. */
   attach(agentId: string): Promise<boolean>;
   isAlive(agentId: string): Promise<boolean>;
+  /** Inspect an existing session without starting it or submitting chat. */
+  getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse>;
   /** Commands the live ACP session advertises; null without a live host. */
   getCommands(agentId: string): AvailableCommand[] | null;
   /** The live session's config options (model, effort, mode); null without a live host. */
@@ -160,6 +163,9 @@ export function createInertRuntime(): AgentRuntime {
     },
     async isAlive() {
       return true;
+    },
+    async getMcpInventory(agentId) {
+      return { agentId, status: "offline", inventory: null };
     },
     getCommands() {
       return null;

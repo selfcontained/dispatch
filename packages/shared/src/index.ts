@@ -208,3 +208,9 @@ export type {
   EngineLogin,
   EngineLoginEngine,
 } from "./engine-login-types.js";
+export type {
+  McpTool,
+  McpServer,
+  McpInventory,
+  AgentMcpInventoryResponse,
+} from "./mcp-inventory-types.js";

@@ -422,6 +422,43 @@ describe("agent host", () => {
     expect(await replacement.runtime.listHosted()).toEqual([]);
   }, 60_000);
 
+  it("reads structured inventory through the host and runtime without journalling a turn", async () => {
+    const id = "agt_host_inventory";
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    expect((await runtime.getMcpInventory(id)).status).toBe("offline");
+    await runtime.launch(launchFor(id, cwd));
+    try {
+      const turns = () =>
+        seen.filter(
+          (event) =>
+            event.event.type === "turn" && event.event.state === "started"
+        ).length;
+      const before = turns();
+      expect(await runtime.getMcpInventory(id)).toEqual({
+        agentId: id,
+        status: "ok",
+        inventory: {
+          version: 1,
+          servers: [
+            {
+              name: "owned-test-server",
+              state: "connected",
+              toolsState: "known",
+              tools: [{ name: "read", description: "Owned test tool" }],
+            },
+          ],
+        },
+      });
+      expect(turns()).toBe(before);
+      expect((await runtime.getMcpInventory("other-agent")).status).toBe(
+        "offline"
+      );
+    } finally {
+      await runtime.stop(id, false);
+    }
+    expect((await runtime.getMcpInventory(id)).status).toBe("offline");
+  }, 60_000);
+
   it("sets a config option on the live session and survives a reattach", async () => {
     const id = "agt_host_cfg";
     const first = runtimeWith(stateRoot, () => 0);
