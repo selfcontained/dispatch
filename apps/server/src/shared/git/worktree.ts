@@ -120,7 +120,7 @@ export async function createGitWorktree(
     commandRunner,
     GitWorktreeError
   );
-  const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
+  const baseBranch = normalizeBaseBranch(input.baseBranch?.trim() || "main");
   const createNewBranch = input.createNewBranch ?? false;
   const branchName = createNewBranch
     ? normalizeRefName(input.branchName, slugify(name), "branchName")
@@ -250,7 +250,7 @@ export async function cleanupGitWorktree(
     );
   }
 
-  const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
+  const baseBranch = normalizeBaseBranch(input.baseBranch?.trim() || "main");
   const branchName = await resolveCurrentBranch(worktreePath, commandRunner);
 
   let updatedBaseBranch = false;
@@ -540,6 +540,26 @@ function normalizeRefName(
 ): string {
   const candidate = (value?.trim() || fallback).trim();
   return assertSafeRefName(candidate, fieldName);
+}
+
+/**
+ * Canonical worktree bases are local branch names. Accept origin-qualified
+ * input as an alias so fetching, persistence, and cleanup use the same name.
+ * Keep this separate from branch-name validation: an explicitly requested new
+ * branch named origin/foo must retain that name.
+ */
+export function normalizeBaseBranch(value: string): string {
+  const candidate = assertSafeRefName(value, "baseBranch");
+  const branch = assertSafeRefName(
+    candidate.startsWith("origin/")
+      ? candidate.slice("origin/".length)
+      : candidate,
+    "baseBranch"
+  );
+  if (branch.startsWith("-")) {
+    throw new GitWorktreeError("baseBranch must not start with '-'.", 400);
+  }
+  return branch;
 }
 
 /**

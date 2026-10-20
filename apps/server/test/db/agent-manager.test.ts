@@ -1003,6 +1003,52 @@ describe("AgentManager", () => {
       expect(agent.baseBranch).toBe("feature/foo");
     });
 
+    it.each([false, true])(
+      "normalizes origin bases before persistence (createNewBranch=%s)",
+      async (createNewBranch) => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          name: "Origin base",
+          baseBranch: "  origin/feature/x  ",
+          useWorktree: true,
+          createNewBranch,
+          worktreeBranch: "origin/explicit-name",
+        });
+        expect(agent.baseBranch).toBe("feature/x");
+        expect(agent.worktreeBranch).toBe(
+          createNewBranch ? "origin/explicit-name" : "feature/x"
+        );
+        expect(createGitWorktree).toHaveBeenCalledWith(
+          expect.objectContaining({
+            baseBranch: "feature/x",
+            createNewBranch,
+            branchName: createNewBranch ? "origin/explicit-name" : undefined,
+          })
+        );
+      }
+    );
+
+    it("normalizes origin bases for agents sharing a worktree", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        baseBranch: " origin/main ",
+        useWorktree: false,
+      });
+      expect(agent.baseBranch).toBe("main");
+    });
+
+    it.each(["origin/", "origin/--all", "origin/ main", "origin/main;echo"])(
+      "rejects invalid base %s before creating an agent",
+      async (baseBranch) => {
+        await expect(
+          manager.createAgent({ cwd: "/tmp", baseBranch })
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createGitWorktree).not.toHaveBeenCalled();
+        const result = await pool.query("SELECT id FROM agents");
+        expect(result.rows).toHaveLength(0);
+      }
+    );
+
     it("should default baseBranch to null when not provided for non-worktree agents", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",

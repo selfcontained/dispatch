@@ -117,7 +117,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Branch to base the worktree on. Defaults to the template's base branch when templateId is given."
+            "Branch to base the worktree on (e.g. main, origin/main, or origin/feature/x). An origin/ prefix is normalized to the local branch name. Defaults to the template's base branch when templateId is given."
           ),
         worktreeBranch: z
           .string()
