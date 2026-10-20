@@ -56,6 +56,27 @@ jobs:
         with:
           bun-version: "1.3.13"
 
+      - name: Set up GitHub CLI
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            exit 0
+          fi
+          GH_VERSION="2.102.1"
+          case "$(uname -m)" in
+            x86_64) GH_ARCH="amd64"; GH_SHA="77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b" ;;
+            aarch64|arm64) GH_ARCH="arm64"; GH_SHA="5019b3cc6e8a03bb4d88600f8dbda2add8e6407705c159b0c63151036e77a1af" ;;
+            *) echo "error: unsupported architecture for gh CLI: $(uname -m)" >&2; exit 1 ;;
+          esac
+          GH_DIR="$RUNNER_TEMP/gh-cli"
+          mkdir -p "$GH_DIR"
+          curl --fail --location --silent --show-error \
+            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" \
+            -o "$GH_DIR/gh.tar.gz"
+          echo "${GH_SHA}  $GH_DIR/gh.tar.gz" | sha256sum -c -
+          tar -xzf "$GH_DIR/gh.tar.gz" -C "$GH_DIR"
+          echo "$GH_DIR/gh_${GH_VERSION}_linux_${GH_ARCH}/bin" >> "$GITHUB_PATH"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -657,6 +678,27 @@ jobs:
       # artifacts may be attached.
       - name: Clear workspace
         run: rm -rf -- * .[!.]* 2>/dev/null || true
+
+      - name: Set up GitHub CLI
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            exit 0
+          fi
+          GH_VERSION="2.102.1"
+          case "$(uname -m)" in
+            x86_64) GH_ARCH="amd64"; GH_SHA="77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b" ;;
+            aarch64|arm64) GH_ARCH="arm64"; GH_SHA="5019b3cc6e8a03bb4d88600f8dbda2add8e6407705c159b0c63151036e77a1af" ;;
+            *) echo "error: unsupported architecture for gh CLI: $(uname -m)" >&2; exit 1 ;;
+          esac
+          GH_DIR="$RUNNER_TEMP/gh-cli"
+          mkdir -p "$GH_DIR"
+          curl --fail --location --silent --show-error \
+            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" \
+            -o "$GH_DIR/gh.tar.gz"
+          echo "${GH_SHA}  $GH_DIR/gh.tar.gz" | sha256sum -c -
+          tar -xzf "$GH_DIR/gh.tar.gz" -C "$GH_DIR"
+          echo "$GH_DIR/gh_${GH_VERSION}_linux_${GH_ARCH}/bin" >> "$GITHUB_PATH"
 
       - name: Download release bundle
         uses: actions/download-artifact@v8
