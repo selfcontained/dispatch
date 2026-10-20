@@ -279,6 +279,10 @@ function steers(w: Waiting, entry: Pick<Live, "conversation">): boolean {
   return sameConversation(w.source.conversation, entry.conversation);
 }
 
+function isUserPost(w: Waiting): boolean {
+  return w.source?.source === "chat" && w.source.userMessage === true;
+}
+
 const COMBINED_SEPARATOR = "\n\n";
 
 function combinedPreamble(count: number): string {
@@ -959,6 +963,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         );
         entry.waiting.splice(
           firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+          0,
+          own
+        );
+      } else if (isUserPost(own)) {
+        // A person's post goes ahead of queued agent and system traffic,
+        // behind interrupts and the person's own earlier posts. A deferred
+        // batch put back at the front may sit ahead of those posts.
+        let after = entry.waiting.length;
+        while (after > 0 && !isUserPost(entry.waiting[after - 1]!)) after--;
+        const firstOther = entry.waiting.findIndex(
+          (w, i) => i >= after && w.delivery !== "interrupt" && !isUserPost(w)
+        );
+        entry.waiting.splice(
+          firstOther < 0 ? entry.waiting.length : firstOther,
           0,
           own
         );
