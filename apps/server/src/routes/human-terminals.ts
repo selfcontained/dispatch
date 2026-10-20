@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Pool } from "pg";
 import { realpath, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { isPasswordSet, validateSession } from "../auth.js";
 import { HumanTerminalManager, terminalOwner } from "../terminal/manager.js";
 
@@ -43,7 +44,7 @@ export async function registerHumanTerminalRoutes(
   const manager = deps.manager ?? new HumanTerminalManager();
   const owners = new WeakMap<
     FastifyRequest,
-    { owner: string; token: string }
+    { owner: string; token: string | null }
   >();
   await app.register(async (terminal) => {
     terminal.addHook("preHandler", async (request, reply) => {
@@ -61,10 +62,40 @@ export async function registerHumanTerminalRoutes(
             "Terminal requires a same-origin secure browser connection (HTTPS), or local loopback HTTP. Development previews may use HTTP.",
         });
       }
+      const passwordSet = await isPasswordSet(deps.pool);
+      // Dev previews normally have no login. Keep terminal ownership per browser
+      // without issuing a general Dispatch login credential.
+      if (process.env.DISPATCH_DEV_STACK === "1" && !passwordSet) {
+        const cookieName = "dispatch_terminal_dev";
+        const signedDev = request.cookies[cookieName];
+        const unsignedDev = signedDev ? request.unsignCookie(signedDev) : null;
+        let identity = unsignedDev?.valid ? unsignedDev.value : null;
+        if (!identity) {
+          if (
+            request.method !== "POST" ||
+            request.routeOptions.url !== "/api/v1/human-terminals"
+          ) {
+            return reply.code(401).send({ error: "Open a terminal first." });
+          }
+          identity = randomUUID();
+          reply.setCookie(cookieName, identity, {
+            path: "/api/v1/human-terminals",
+            signed: true,
+            httpOnly: true,
+            sameSite: "strict",
+            secure: request.protocol === "https",
+          });
+        }
+        owners.set(request, {
+          owner: terminalOwner(`dev:${identity}`),
+          token: null,
+        });
+        return;
+      }
       const signed = request.cookies[deps.sessionCookie];
       const unsigned = signed ? request.unsignCookie(signed) : null;
       if (
-        !(await isPasswordSet(deps.pool)) ||
+        !passwordSet ||
         !unsigned?.valid ||
         !unsigned.value ||
         !(await validateSession(deps.pool, unsigned.value))
@@ -165,7 +196,13 @@ export async function registerHumanTerminalRoutes(
           }
           alive = false;
           socket.ping();
-          void validateSession(deps.pool, token)
+          const validSession =
+            token === null
+              ? isPasswordSet(deps.pool).then(
+                  (set) => process.env.DISPATCH_DEV_STACK === "1" && !set
+                )
+              : validateSession(deps.pool, token);
+          void validSession
             .then((valid) => {
               if (!valid) manager.end(request.params.id, owner);
             })

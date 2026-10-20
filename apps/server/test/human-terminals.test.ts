@@ -3,7 +3,7 @@ import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WebSocket } from "ws";
+import { WebSocket } from "ws";
 import type { Pool } from "pg";
 import {
   HumanTerminalManager,
@@ -57,6 +57,7 @@ function socket() {
 }
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.mocked(isPasswordSet).mockResolvedValue(true);
 });
 
@@ -132,6 +133,84 @@ describe("human terminal lifecycle", () => {
 });
 
 describe("terminal browser security", () => {
+  it("opens passwordless dev terminals with a scoped browser cookie and isolates browsers", async () => {
+    vi.stubEnv("DISPATCH_DEV_STACK", "1");
+    vi.mocked(isPasswordSet).mockResolvedValue(false);
+    const app = Fastify();
+    await app.register(cookie, {
+      secret: "terminal-test-cookie-secret-32bytes",
+    });
+    await app.register(websocket);
+    const h = harness();
+    await registerHumanTerminalRoutes(app, {
+      pool: {} as Pool,
+      sessionCookie: "session",
+      getAgent: async () => ({ cwd: "/tmp", worktreePath: null }),
+      manager: h.manager,
+    });
+    await app.ready();
+    const headers = { origin: "http://localhost", host: "localhost" };
+    const create = (extra = {}, terminalId?: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/human-terminals",
+        headers: { ...headers, ...extra },
+        payload: {
+          agentId: "agent",
+          clientId: "tab123456789012345",
+          terminalId,
+        },
+      });
+    try {
+      expect((await create({ origin: "http://evil.test" })).statusCode).toBe(
+        403
+      );
+      const first = await create();
+      expect(first.statusCode).toBe(200);
+      const setCookie = String(first.headers["set-cookie"]);
+      expect(setCookie).toContain("dispatch_terminal_dev=");
+      expect(setCookie).toContain("HttpOnly");
+      expect(setCookie).toContain("SameSite=Strict");
+      expect(setCookie).toContain("Path=/api/v1/human-terminals");
+      const browserCookie = setCookie.split(";")[0];
+      const id = first.json().id;
+      expect((await create({ cookie: browserCookie }, id)).statusCode).toBe(
+        200
+      );
+      expect((await create({}, id)).statusCode).toBe(404);
+      expect(
+        (
+          await app.inject({
+            method: "DELETE",
+            url: `/api/v1/human-terminals/${id}`,
+            headers,
+          })
+        ).statusCode
+      ).toBe(401);
+      const address = await app.listen({ host: "127.0.0.1", port: 0 });
+      const ws = new WebSocket(
+        `${address.replace("http:", "ws:")}/api/v1/human-terminals/${id}/socket`,
+        { headers: { origin: address, cookie: browserCookie } }
+      );
+      await new Promise<void>((resolve, reject) => {
+        ws.once("open", resolve);
+        ws.once("error", reject);
+      });
+      ws.close();
+      vi.mocked(isPasswordSet).mockResolvedValue(true);
+      expect((await create({ cookie: browserCookie }, id)).statusCode).toBe(
+        401
+      );
+      vi.mocked(isPasswordSet).mockResolvedValue(false);
+      vi.stubEnv("DISPATCH_DEV_STACK", "");
+      expect((await create({ cookie: browserCookie }, id)).statusCode).toBe(
+        401
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   it("requires exact Origin and secure transport except loopback or explicitly marked dev stacks", () => {
     expect(terminalOriginAllowed(undefined, "localhost", "http")).toBe(false);
     expect(terminalOriginAllowed("null", "localhost", "http")).toBe(false);
