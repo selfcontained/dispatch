@@ -1,5 +1,5 @@
 ## What's Changed
-* Accept origin-qualified base branches for agent worktrees by @selfcontained in https://github.com/selfcontained/dispatch/pull/1258
+* Deliver user posts ahead of queued agent and system posts by @selfcontained in https://github.com/selfcontained/dispatch/pull/1260
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.3.9...v1.3.10
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.3.10...v1.3.11
