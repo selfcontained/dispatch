@@ -2,12 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { createClientId } from "@/lib/client-id";
 
@@ -43,11 +37,21 @@ async function request(path: string, method: string, body?: object) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Terminal request failed.");
+  if (!response.ok)
+    throw Object.assign(new Error(result.error || "Terminal request failed."), {
+      status: response.status,
+    });
   return result;
 }
 
-function TerminalCanvas({ stream }: { stream: Stream }) {
+function TerminalCanvas({
+  stream,
+  active,
+}: {
+  stream: Stream;
+  active: boolean;
+}) {
+  const instance = useRef<{ terminal: Terminal; fit: FitAddon } | null>(null);
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!element.current) return;
@@ -61,6 +65,7 @@ function TerminalCanvas({ stream }: { stream: Stream }) {
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(element.current);
+    instance.current = { terminal, fit };
     terminal.write(stream.replay);
     stream.write = (data) => terminal.write(data);
     const send = (message: object) => {
@@ -74,12 +79,14 @@ function TerminalCanvas({ stream }: { stream: Stream }) {
       send({ type: "resize", cols, rows });
     });
     const observer = new ResizeObserver(() => {
+      if (!element.current?.getClientRects().length) return;
       fit.fit();
       send({ type: "resize", cols: terminal.cols, rows: terminal.rows });
     });
     observer.observe(element.current);
-    terminal.focus();
+
     return () => {
+      instance.current = null;
       stream.write = undefined;
       observer.disconnect();
       input.dispose();
@@ -87,6 +94,14 @@ function TerminalCanvas({ stream }: { stream: Stream }) {
       terminal.dispose();
     };
   }, [stream]);
+  useEffect(() => {
+    if (!active) return;
+    const frame = requestAnimationFrame(() => {
+      instance.current?.fit.fit();
+      instance.current?.terminal.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
   return (
     <div
       ref={element}
@@ -98,15 +113,17 @@ function TerminalCanvas({ stream }: { stream: Stream }) {
 
 export default function TerminalDrawer({
   agentId,
-  open,
-  onOpenChange,
+  active,
 }: {
   agentId: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  active: boolean;
 }) {
   const [info, setInfo] = useState<Info | null>(null);
-  const [status, setStatus] = useState("Connecting");
+  const [status, setStatus] = useState(() =>
+    sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "ended"
+      ? "Ended"
+      : "Connecting"
+  );
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const stream = useRef<Stream>({
@@ -121,7 +138,13 @@ export default function TerminalDrawer({
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let socket: WebSocket | undefined;
+    if (
+      sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "ended"
+    )
+      return;
     ended.current = false;
+    setStatus("Connecting");
+    setError(null);
     stopConnection.current = () => {
       cancelled = true;
       clearTimeout(retry);
@@ -130,13 +153,22 @@ export default function TerminalDrawer({
     };
     async function connect() {
       try {
-        const result: Info = await request("", "POST", {
-          agentId,
-          clientId: clientId(),
-          terminalId:
-            sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) ||
-            undefined,
-        });
+        const key = `dispatch:human-terminal:${agentId}`;
+        const terminalId = sessionStorage.getItem(key) || undefined;
+        let result: Info;
+        try {
+          result = await request("", "POST", {
+            agentId,
+            clientId: clientId(),
+            terminalId,
+          });
+        } catch (cause) {
+          if (cancelled || ended.current) return;
+          if (!terminalId || (cause as { status?: number }).status !== 404)
+            throw cause;
+          sessionStorage.removeItem(key);
+          result = await request("", "POST", { agentId, clientId: clientId() });
+        }
         if (cancelled || ended.current) return;
         sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, result.id);
         infoRef.current = result;
@@ -173,6 +205,11 @@ export default function TerminalDrawer({
             const message = JSON.parse(event.data);
             if (message.type === "exit") {
               ended.current = true;
+              sessionStorage.setItem(
+                `dispatch:human-terminal:${agentId}`,
+                "ended"
+              );
+              stream.socket = null;
               setStatus(`Exited (${message.code})`);
             }
             return;
@@ -192,6 +229,11 @@ export default function TerminalDrawer({
             event.code === 4001
           ) {
             ended.current = true;
+            sessionStorage.setItem(
+              `dispatch:human-terminal:${agentId}`,
+              "ended"
+            );
+            stream.socket = null;
             setStatus("Ended");
             setError(event.reason || "Terminal connection ended.");
             return;
@@ -225,73 +267,102 @@ export default function TerminalDrawer({
   const end = useCallback(async () => {
     const current = infoRef.current;
     if (!current) return;
+    ended.current = true;
+    stopConnection.current();
+    setStatus("Ending");
+    setError(null);
     try {
       await request(`/${current.id}`, "DELETE");
-      ended.current = true;
-      stopConnection.current();
+      sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, "ended");
       setStatus("Ended");
       setError(null);
     } catch (cause) {
+      setStatus("End failed");
       setError(cause instanceof Error ? cause.message : "Cannot end terminal.");
     }
-  }, []);
+  }, [agentId]);
 
+  const ready = status === "Connected";
+  const finished = status === "Ended" || status.startsWith("Exited");
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => {
-          if (event.target instanceof Element && event.target.closest(".xterm"))
-            event.preventDefault();
-        }}
-      >
-        <SheetTitle className="pr-8 text-lg font-semibold">Terminal</SheetTitle>
-        <SheetDescription className="break-all text-xs text-muted-foreground">
-          {info
-            ? `${info.user}@${info.host} · ${info.cwd}`
-            : "Interactive shell on the Dispatch host"}
-        </SheetDescription>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span role="status">{status}</span>
+    <section
+      className="flex min-h-0 flex-1 flex-col gap-2 p-3"
+      aria-label="Terminal"
+      data-hotkey-disable="true"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") event.stopPropagation();
+      }}
+    >
+      <div className="min-w-0 text-xs text-muted-foreground">
+        <p
+          className="truncate"
+          title={info ? `${info.user}@${info.host}` : undefined}
+        >
+          {info ? `${info.user}@${info.host}` : "Dispatch host"}
+        </p>
+        {info && (
+          <p className="truncate" title={info.cwd}>
+            {info.cwd}
+          </p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span role="status" className="mr-auto">
+          {status}
+        </span>
+        {info && !finished && (
           <Button
-            className="ml-auto"
             variant="default"
             size="sm"
+            disabled={status === "Ending"}
             onClick={() => void end()}
-            disabled={
-              !info || status === "Ended" || status.startsWith("Exited")
-            }
           >
-            End terminal
+            {status === "End failed" ? "Retry End" : "End terminal"}
           </Button>
-          {(status === "Unavailable" ||
-            status === "Ended" ||
-            status.startsWith("Exited")) && (
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => {
-                sessionStorage.removeItem(`dispatch:human-terminal:${agentId}`);
-                setGeneration((value) => value + 1);
-              }}
-            >
-              Start terminal
-            </Button>
-          )}
+        )}
+        {finished && (
+          <Button
+            size="sm"
+            onClick={() => {
+              sessionStorage.removeItem(`dispatch:human-terminal:${agentId}`);
+              infoRef.current = null;
+              setInfo(null);
+              stream.replay = new Uint8Array();
+              setGeneration((value) => value + 1);
+            }}
+          >
+            New terminal
+          </Button>
+        )}
+        {status === "Unavailable" && (
+          <Button size="sm" onClick={() => setGeneration((value) => value + 1)}>
+            Retry connection
+          </Button>
+        )}
+      </div>
+      {info?.unencrypted && (
+        <p className="text-xs text-amber-500">
+          Unencrypted connection on this network.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+      {ready ? (
+        <TerminalCanvas stream={stream} active={active} />
+      ) : (
+        <div className="flex min-h-0 flex-1 items-center justify-center rounded bg-[#101014] p-4 text-center text-xs text-muted-foreground">
+          {finished
+            ? "Choose New terminal to open a shell."
+            : status === "Unavailable" || status === "End failed"
+              ? "Terminal unavailable."
+              : status === "Ending"
+                ? "Ending your shell…"
+                : "Connecting to your shell…"}
         </div>
-        {info?.unencrypted && (
-          <p className="text-xs text-amber-500">
-            Unencrypted HTTP connection. Terminal traffic is visible on this
-            network.
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <TerminalCanvas stream={stream} />
-      </SheetContent>
-    </Sheet>
+      )}
+    </section>
   );
 }

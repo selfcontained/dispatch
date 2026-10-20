@@ -18,6 +18,7 @@ import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 
 import { type FileItem, type SubAgentFiles } from "@/components/app/types";
 import { type DrawerTab, drawerWidthAtom } from "@/lib/store";
+import { TerminalLauncher } from "@/components/terminal/terminal-launcher";
 import { FilesContent } from "@/components/app/files-content";
 import { InboxPanel } from "@/components/app/inbox";
 import { type Inbox } from "@/hooks/use-inbox";
@@ -75,6 +76,7 @@ type DrawerProps = DrawerSharedProps & {
 };
 
 type DrawerContentProps = DrawerSharedProps & {
+  visible?: boolean;
   activeTab: DrawerTab;
   setActiveTab: (tab: DrawerTab) => void;
   onRequestClose?: () => void;
@@ -144,6 +146,7 @@ export function DrawerContent({
   hasStream,
   streamUrl,
   activeTab,
+  visible = true,
   setActiveTab,
   onRequestClose,
   closeButtonIcon = "x",
@@ -187,6 +190,12 @@ export function DrawerContent({
               badgeClassName="bg-destructive text-destructive-foreground"
               testId="sidebar-tab-files"
             />
+            <SidebarTab
+              label="Terminal"
+              active={activeTab === "terminal"}
+              onClick={() => setActiveTab("terminal")}
+              testId="sidebar-tab-terminal"
+            />
           </div>
         }
         <div className="flex items-center gap-1 px-2">
@@ -228,6 +237,20 @@ export function DrawerContent({
       </div>
 
       <div className="relative flex min-h-0 flex-1 flex-col">
+        {selectedAgentId && (
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col",
+              activeTab !== "terminal" && "hidden"
+            )}
+          >
+            <TerminalLauncher
+              key={selectedAgentId}
+              agentId={selectedAgentId}
+              active={visible && activeTab === "terminal"}
+            />
+          </div>
+        )}
         {/* Both tabs stay mounted so refs (e.g. IntersectionObserver) remain attached */}
         <div
           className={cn(
@@ -585,6 +608,7 @@ export function Drawer({
     >
       <DrawerContent
         {...props}
+        visible={drawerOpen}
         onRequestClose={() => setDrawerOpen(false)}
         closeButtonIcon="chevron"
         pinned={pinned}

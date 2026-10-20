@@ -30,19 +30,6 @@ vi.mock("@xterm/addon-fit", () => ({
     fit() {}
   },
 }));
-vi.mock("@/components/ui/sheet", () => ({
-  Sheet: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
-    open ? children : null,
-  SheetContent: ({ children }: { children: React.ReactNode }) => (
-    <div role="dialog">{children}</div>
-  ),
-  SheetTitle: ({ children }: { children: React.ReactNode }) => (
-    <h2>{children}</h2>
-  ),
-  SheetDescription: ({ children }: { children: React.ReactNode }) => (
-    <p>{children}</p>
-  ),
-}));
 
 class Socket {
   static OPEN = 1;
@@ -88,14 +75,14 @@ describe("terminal drawer", () => {
       .mockResolvedValueOnce({ ok: true, json: async () => info })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
     vi.stubGlobal("fetch", fetch);
-    const props = { agentId: "agent", onOpenChange: vi.fn() };
-    const { rerender } = render(<TerminalDrawer {...props} open />);
+    const props = { agentId: "agent" };
+    const { rerender } = render(<TerminalDrawer {...props} active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     act(() => Socket.instances[0].onopen?.());
     expect(screen.getByRole("status").textContent).toBe("Connected");
-    rerender(<TerminalDrawer {...props} open={false} />);
+    rerender(<TerminalDrawer {...props} active={false} />);
     expect(Socket.instances[0].close).not.toHaveBeenCalled();
-    rerender(<TerminalDrawer {...props} open />);
+    rerender(<TerminalDrawer {...props} active />);
     fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe("Ended")
@@ -110,7 +97,59 @@ describe("terminal drawer", () => {
     ]);
     expect(Socket.instances[0].close).toHaveBeenCalledOnce();
   });
-  it("shows the browser setup/auth error and opens no socket when rejected", async () => {
+  it("recovers an expired stored session automatically", async () => {
+    sessionStorage.setItem("dispatch:human-terminal:agent", "expired-id");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: "expired" }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => info });
+    vi.stubGlobal("fetch", fetch);
+    render(<TerminalDrawer agentId="agent" active />);
+    expect(screen.queryByLabelText("Host terminal")).toBeNull();
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    expect(JSON.parse(fetch.mock.calls[0][1].body).terminalId).toBe(
+      "expired-id"
+    );
+    expect(JSON.parse(fetch.mock.calls[1][1].body).terminalId).toBeUndefined();
+    act(() => Socket.instances[0].onopen?.());
+    expect(screen.getByLabelText("Host terminal")).toBeTruthy();
+  });
+  it("keeps an explicitly ended session ended across remounts until New terminal", async () => {
+    sessionStorage.setItem("dispatch:human-terminal:agent", "ended");
+    const fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => info });
+    vi.stubGlobal("fetch", fetch);
+    render(<TerminalDrawer agentId="agent" active />);
+    expect(screen.getByRole("status").textContent).toBe("Ended");
+    expect(screen.queryByLabelText("Host terminal")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+  });
+  it("shows exit without an active canvas and offers one New terminal action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => info })
+    );
+    render(<TerminalDrawer agentId="agent" active />);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    act(() => Socket.instances[0].onopen?.());
+    act(() =>
+      Socket.instances[0].onmessage?.({
+        data: JSON.stringify({ type: "exit", code: 0 }),
+      } as MessageEvent)
+    );
+    expect(screen.getByRole("status").textContent).toBe("Exited (0)");
+    expect(screen.queryByLabelText("Host terminal")).toBeNull();
+    expect(screen.queryByRole("button", { name: "End terminal" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New terminal" })).toBeTruthy();
+  });
+  it("shows the browser setup/auth error and actives no socket when rejected", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -118,25 +157,62 @@ describe("terminal drawer", () => {
         json: async () => ({ error: "Set up a password and sign in." }),
       })
     );
-    render(<TerminalDrawer agentId="agent" open onOpenChange={vi.fn()} />);
+    render(<TerminalDrawer agentId="agent" active />);
     await screen.findByRole("alert");
     expect(screen.getByRole("alert").textContent).toBe(
       "Set up a password and sign in."
     );
     expect(Socket.instances).toHaveLength(0);
   });
+  it("ignores a previous agent's delayed connection after switching agents", async () => {
+    let resolveFirst!: (value: unknown) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...info,
+          id: "second-terminal",
+          host: "second-host",
+        }),
+      });
+    vi.stubGlobal("fetch", fetch);
+    const { rerender } = render(
+      <TerminalDrawer key="first" agentId="first" active />
+    );
+    rerender(<TerminalDrawer key="second" agentId="second" active />);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    await act(async () => {
+      resolveFirst({ ok: true, json: async () => info });
+    });
+    expect(Socket.instances).toHaveLength(1);
+    expect(sessionStorage.getItem("dispatch:human-terminal:first")).toBeNull();
+    expect(screen.getByText("user@second-host")).toBeTruthy();
+  });
   it("ignores a held reconnect response and late socket events after End succeeds", async () => {
     let resolveResume!: (value: unknown) => void;
     const heldResume = new Promise((resolve) => {
       resolveResume = resolve;
     });
+    let resolveEnd!: (value: unknown) => void;
     const fetch = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => info })
       .mockImplementationOnce(() => heldResume)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveEnd = resolve;
+          })
+      );
     vi.stubGlobal("fetch", fetch);
-    render(<TerminalDrawer agentId="agent" open onOpenChange={vi.fn()} />);
+    render(<TerminalDrawer agentId="agent" active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     act(() => Socket.instances[0].onopen?.());
     vi.useFakeTimers();
@@ -149,16 +225,18 @@ describe("terminal drawer", () => {
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
       });
-      expect(screen.getByRole("status").textContent).toBe("Ended");
+      expect(screen.getByRole("status").textContent).toBe("Ending");
       await act(async () => {
         resolveResume({ ok: true, json: async () => info });
       });
       act(() => Socket.instances[0].onopen?.());
       expect(Socket.instances).toHaveLength(1);
+      expect(screen.getByRole("status").textContent).toBe("Ending");
+      await act(async () => {
+        resolveEnd({ ok: true, json: async () => ({ ok: true }) });
+      });
       expect(screen.getByRole("status").textContent).toBe("Ended");
-      expect(
-        screen.getByRole("button", { name: "Start terminal" })
-      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "New terminal" })).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
