@@ -125,4 +125,42 @@ describe("terminal drawer", () => {
     );
     expect(Socket.instances).toHaveLength(0);
   });
+  it("ignores a held reconnect response and late socket events after End succeeds", async () => {
+    let resolveResume!: (value: unknown) => void;
+    const heldResume = new Promise((resolve) => {
+      resolveResume = resolve;
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => info })
+      .mockImplementationOnce(() => heldResume)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetch);
+    render(<TerminalDrawer agentId="agent" open onOpenChange={vi.fn()} />);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    act(() => Socket.instances[0].onopen?.());
+    vi.useFakeTimers();
+    try {
+      act(() => Socket.instances[0].onclose?.({ code: 1006 } as CloseEvent));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
+      });
+      expect(screen.getByRole("status").textContent).toBe("Ended");
+      await act(async () => {
+        resolveResume({ ok: true, json: async () => info });
+      });
+      act(() => Socket.instances[0].onopen?.());
+      expect(Socket.instances).toHaveLength(1);
+      expect(screen.getByRole("status").textContent).toBe("Ended");
+      expect(
+        screen.getByRole("button", { name: "Start terminal" })
+      ).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

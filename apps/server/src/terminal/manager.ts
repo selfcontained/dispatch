@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { hostname, userInfo } from "node:os";
-import { execFileSync } from "node:child_process";
+import { captureTerminalSession } from "./process-session.js";
 import type { WebSocket } from "ws";
 
 export const REPLAY_BYTES = 256 * 1024;
@@ -71,48 +71,23 @@ export const spawnTerminal: SpawnTerminal = (cwd, output) => {
     env: terminalEnvironment(),
     terminal: { cols: 80, rows: 24, data: (_terminal, data) => output(data) },
   });
+  let cleanup: () => void;
+  try {
+    cleanup = captureTerminalSession(proc.pid);
+  } catch (error) {
+    proc.terminal?.close();
+    proc.kill("SIGKILL");
+    throw error;
+  }
   return {
     pid: proc.pid,
     terminal: proc.terminal!,
     exited: proc.exited,
     kill() {
-      // Interactive shells give foreground/background jobs distinct process
-      // groups. Capture descendants before hanging up the PTY or killing the
-      // shell, so ordinary running jobs are cleaned up too.
-      const descendants = new Set<number>([proc.pid]);
       try {
-        const rows = execFileSync("/bin/ps", ["-axo", "pid=,ppid="], {
-          encoding: "utf8",
-          timeout: 2000,
-          maxBuffer: 4 * 1024 * 1024,
-        })
-          .trim()
-          .split("\n")
-          .map((line) => line.trim().split(/\s+/).map(Number));
-        let changed = true;
-        while (changed) {
-          changed = false;
-          for (const [pid, parent] of rows) {
-            if (descendants.has(parent) && !descendants.has(pid)) {
-              descendants.add(pid);
-              changed = true;
-            }
-          }
-        }
-      } catch {
-        /* PTY hangup and process-group cleanup still apply. */
-      }
-      try {
+        cleanup();
+      } finally {
         proc.terminal?.close();
-      } catch {
-        /* already closed */
-      }
-      for (const pid of [...descendants].reverse()) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          /* already exited */
-        }
       }
     },
   };
@@ -271,8 +246,7 @@ export class HumanTerminalManager {
     this.sessions.delete(id);
     clearTimeout(s.expiry);
     s.socket?.close(1000, "Terminal ended.");
-    // Closing the PTY hangs up the foreground job. Signal the shell's process
-    // group too, so non-interactive descendants cannot outlive an explicit end.
+    // The adapter retains the kernel session identity even after shell exit.
     try {
       s.process.kill();
     } catch {
@@ -282,11 +256,6 @@ export class HumanTerminalManager {
       s.process.terminal.close();
     } catch {
       /* already closed */
-    }
-    try {
-      process.kill(-s.process.pid, "SIGKILL");
-    } catch {
-      /* exited or no group */
     }
     s.replay = Buffer.alloc(0);
     return true;

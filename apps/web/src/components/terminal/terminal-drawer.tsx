@@ -115,12 +115,19 @@ export default function TerminalDrawer({
   }).current;
   const ended = useRef(false);
   const infoRef = useRef<Info | null>(null);
+  const stopConnection = useRef<() => void>(() => {});
 
   useEffect(() => {
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let socket: WebSocket | undefined;
     ended.current = false;
+    stopConnection.current = () => {
+      cancelled = true;
+      clearTimeout(retry);
+      socket?.close();
+      stream.socket = null;
+    };
     async function connect() {
       try {
         const result: Info = await request("", "POST", {
@@ -130,7 +137,7 @@ export default function TerminalDrawer({
             sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) ||
             undefined,
         });
-        if (cancelled) return;
+        if (cancelled || ended.current) return;
         sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, result.id);
         infoRef.current = result;
         setInfo(result);
@@ -144,6 +151,10 @@ export default function TerminalDrawer({
         socket.binaryType = "arraybuffer";
         stream.socket = socket;
         socket.onopen = () => {
+          if (cancelled || ended.current) {
+            socket?.close();
+            return;
+          }
           stream.replay = new Uint8Array();
           stream.write?.(new TextEncoder().encode("\x1bc"));
           setStatus("Connected");
@@ -157,6 +168,7 @@ export default function TerminalDrawer({
             );
         };
         socket.onmessage = (event) => {
+          if (cancelled || ended.current) return;
           if (typeof event.data === "string") {
             const message = JSON.parse(event.data);
             if (message.type === "exit") {
@@ -186,14 +198,14 @@ export default function TerminalDrawer({
           }
           setStatus("Disconnected — reconnecting");
           retry = setTimeout(() => {
-            if (!cancelled) void connect();
+            if (!cancelled && !ended.current) void connect();
           }, 2000);
         };
         socket.onerror = () => {
-          setStatus("Connection failed");
+          if (!cancelled && !ended.current) setStatus("Connection failed");
         };
       } catch (cause) {
-        if (!cancelled) {
+        if (!cancelled && !ended.current) {
           setStatus("Unavailable");
           setError(
             cause instanceof Error ? cause.message : "Cannot open terminal."
@@ -216,17 +228,23 @@ export default function TerminalDrawer({
     try {
       await request(`/${current.id}`, "DELETE");
       ended.current = true;
-      stream.socket?.close();
+      stopConnection.current();
       setStatus("Ended");
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Cannot end terminal.");
     }
-  }, [stream]);
+  }, []);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent onOpenAutoFocus={(event) => event.preventDefault()}>
+      <SheetContent
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (event.target instanceof Element && event.target.closest(".xterm"))
+            event.preventDefault();
+        }}
+      >
         <SheetTitle className="pr-8 text-lg font-semibold">Terminal</SheetTitle>
         <SheetDescription className="break-all text-xs text-muted-foreground">
           {info
