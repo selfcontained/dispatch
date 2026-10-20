@@ -8,7 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import TerminalDrawer from "./terminal-drawer";
+import TerminalPanel from "./terminal-panel";
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -68,14 +68,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("terminal drawer", () => {
+describe("terminal panel", () => {
   it("opens a fresh shell instead of retaining the legacy lost-session marker", async () => {
     sessionStorage.setItem("dispatch:human-terminal:agent", "ended");
     const fetch = vi
       .fn()
       .mockResolvedValue({ ok: true, json: async () => info });
     vi.stubGlobal("fetch", fetch);
-    render(<TerminalDrawer agentId="agent" active />);
+    render(<TerminalPanel agentId="agent" active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     expect(JSON.parse(fetch.mock.calls[0][1].body).terminalId).toBeUndefined();
     act(() => Socket.instances[0].onopen?.());
@@ -89,7 +89,7 @@ describe("terminal drawer", () => {
       .fn()
       .mockResolvedValue({ ok: true, json: async () => info });
     vi.stubGlobal("fetch", fetch);
-    render(<TerminalDrawer agentId="agent" active />);
+    render(<TerminalPanel agentId="agent" active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     act(() => Socket.instances[0].onopen?.());
     vi.useFakeTimers();
@@ -116,6 +116,60 @@ describe("terminal drawer", () => {
       vi.useRealTimers();
     }
   });
+  it.each([false, true])(
+    "bounds missing-session retries and resets only on server confirmation (confirmed=%s)",
+    async (confirmed) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => info });
+      vi.stubGlobal("fetch", fetch);
+      render(<TerminalPanel agentId="agent" active />);
+      await waitFor(() => expect(Socket.instances).toHaveLength(1));
+      vi.useFakeTimers();
+      try {
+        const loseSession = async () => {
+          const socket = Socket.instances.at(-1)!;
+          act(() => socket.onopen?.());
+          act(() =>
+            socket.onclose?.({
+              code: 1008,
+              reason: "Terminal not found.",
+            } as CloseEvent)
+          );
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(250);
+          });
+        };
+        await loseSession();
+        await loseSession();
+        expect(Socket.instances).toHaveLength(3);
+        if (confirmed) {
+          act(() =>
+            Socket.instances[2].onmessage?.({
+              data: JSON.stringify({ type: "connected" }),
+            } as MessageEvent)
+          );
+          await loseSession();
+          await loseSession();
+          expect(Socket.instances).toHaveLength(5);
+        }
+        await loseSession();
+        expect(screen.getByRole("status").textContent).toBe("Unavailable");
+        expect(
+          screen.getByRole("button", { name: "Retry connection" })
+        ).toBeTruthy();
+        expect(
+          sessionStorage.getItem("dispatch:human-terminal:agent")
+        ).toBeNull();
+        expect(fetch).toHaveBeenCalledTimes(confirmed ? 5 : 3);
+        for (const [, options] of fetch.mock.calls.slice(1)) {
+          expect(JSON.parse(options.body).terminalId).toBeUndefined();
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
   it.each([404, 503])(
     "handles End response %s without losing recovery",
     async (status) => {
@@ -130,7 +184,7 @@ describe("terminal drawer", () => {
             json: async () => ({ error: "Terminal unavailable." }),
           })
       );
-      render(<TerminalDrawer agentId="agent" active />);
+      render(<TerminalPanel agentId="agent" active />);
       await waitFor(() => expect(Socket.instances).toHaveLength(1));
       act(() => Socket.instances[0].onopen?.());
       fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
@@ -157,13 +211,13 @@ describe("terminal drawer", () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
     vi.stubGlobal("fetch", fetch);
     const props = { agentId: "agent" };
-    const { rerender } = render(<TerminalDrawer {...props} active />);
+    const { rerender } = render(<TerminalPanel {...props} active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     act(() => Socket.instances[0].onopen?.());
     expect(screen.getByRole("status").textContent).toBe("Connected");
-    rerender(<TerminalDrawer {...props} active={false} />);
+    rerender(<TerminalPanel {...props} active={false} />);
     expect(Socket.instances[0].close).not.toHaveBeenCalled();
-    rerender(<TerminalDrawer {...props} active />);
+    rerender(<TerminalPanel {...props} active />);
     fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe("Ended")
@@ -189,7 +243,7 @@ describe("terminal drawer", () => {
       })
       .mockResolvedValueOnce({ ok: true, json: async () => info });
     vi.stubGlobal("fetch", fetch);
-    render(<TerminalDrawer agentId="agent" active />);
+    render(<TerminalPanel agentId="agent" active />);
     expect(screen.queryByLabelText("Host terminal")).toBeNull();
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     expect(JSON.parse(fetch.mock.calls[0][1].body).terminalId).toBe(
@@ -205,7 +259,7 @@ describe("terminal drawer", () => {
       .fn()
       .mockResolvedValue({ ok: true, json: async () => info });
     vi.stubGlobal("fetch", fetch);
-    render(<TerminalDrawer agentId="agent" active />);
+    render(<TerminalPanel agentId="agent" active />);
     expect(screen.getByRole("status").textContent).toBe("Ended");
     expect(screen.queryByLabelText("Host terminal")).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
@@ -217,7 +271,7 @@ describe("terminal drawer", () => {
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => info })
     );
-    render(<TerminalDrawer agentId="agent" active />);
+    render(<TerminalPanel agentId="agent" active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     act(() => Socket.instances[0].onopen?.());
     act(() =>
@@ -238,7 +292,7 @@ describe("terminal drawer", () => {
         json: async () => ({ error: "Set up a password and sign in." }),
       })
     );
-    render(<TerminalDrawer agentId="agent" active />);
+    render(<TerminalPanel agentId="agent" active />);
     await screen.findByRole("alert");
     expect(screen.getByRole("alert").textContent).toBe(
       "Set up a password and sign in."
@@ -265,9 +319,9 @@ describe("terminal drawer", () => {
       });
     vi.stubGlobal("fetch", fetch);
     const { rerender } = render(
-      <TerminalDrawer key="first" agentId="first" active />
+      <TerminalPanel key="first" agentId="first" active />
     );
-    rerender(<TerminalDrawer key="second" agentId="second" active />);
+    rerender(<TerminalPanel key="second" agentId="second" active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     await act(async () => {
       resolveFirst({ ok: true, json: async () => info });
@@ -293,7 +347,7 @@ describe("terminal drawer", () => {
           })
       );
     vi.stubGlobal("fetch", fetch);
-    render(<TerminalDrawer agentId="agent" active />);
+    render(<TerminalPanel agentId="agent" active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     act(() => Socket.instances[0].onopen?.());
     vi.useFakeTimers();

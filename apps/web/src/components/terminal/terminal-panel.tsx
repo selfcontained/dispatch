@@ -20,6 +20,35 @@ type Stream = {
   rows?: number;
 };
 const MAX_REPLAY = 256 * 1024;
+const STATUS_LABELS = {
+  connecting: "Connecting",
+  connected: "Connected",
+  reconnecting: "Disconnected — reconnecting",
+  connectionFailed: "Connection failed",
+  unavailable: "Unavailable",
+  ending: "Ending",
+  ended: "Ended",
+  endFailed: "End failed",
+} as const;
+type Status = keyof typeof STATUS_LABELS | { exitCode: number };
+
+function sessionKey(agentId: string) {
+  return `dispatch:human-terminal:${agentId}`;
+}
+function saveSession(agentId: string, value: string | null) {
+  const key = sessionKey(agentId);
+  if (value === null) sessionStorage.removeItem(key);
+  else sessionStorage.setItem(key, value);
+}
+function readSession(agentId: string) {
+  const value = sessionStorage.getItem(sessionKey(agentId));
+  // Older builds used this marker for lost sessions as well as user stops.
+  if (value === "ended") {
+    saveSession(agentId, null);
+    return null;
+  }
+  return value;
+}
 function clientId() {
   const key = "dispatch:human-terminal-client";
   let value = sessionStorage.getItem(key);
@@ -111,7 +140,7 @@ function TerminalCanvas({
   );
 }
 
-export default function TerminalDrawer({
+export default function TerminalPanel({
   agentId,
   active,
 }: {
@@ -119,10 +148,8 @@ export default function TerminalDrawer({
   active: boolean;
 }) {
   const [info, setInfo] = useState<Info | null>(null);
-  const [status, setStatus] = useState(() =>
-    sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "stopped"
-      ? "Ended"
-      : "Connecting"
+  const [status, setStatus] = useState<Status>(() =>
+    readSession(agentId) === "stopped" ? "ended" : "connecting"
   );
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -131,7 +158,6 @@ export default function TerminalDrawer({
     socket: null,
   }).current;
   const ended = useRef(false);
-  const infoRef = useRef<Info | null>(null);
   const stopConnection = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -139,27 +165,30 @@ export default function TerminalDrawer({
     let retry: ReturnType<typeof setTimeout> | undefined;
     let socket: WebSocket | undefined;
     let missingSessionRetries = 0;
-    if (
-      sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "stopped"
-    )
-      return;
+    if (readSession(agentId) === "stopped") return;
     ended.current = false;
-    setStatus("Connecting");
+    setStatus("connecting");
     setError(null);
-    stopConnection.current = () => {
+    const disconnect = () => {
       cancelled = true;
       clearTimeout(retry);
       socket?.close();
       stream.socket = null;
     };
+    stopConnection.current = disconnect;
+    const markStopped = () => {
+      ended.current = true;
+      saveSession(agentId, "stopped");
+      stream.socket = null;
+    };
+    function reconnectAfter(delay: number) {
+      retry = setTimeout(() => {
+        if (!cancelled && !ended.current) void connect();
+      }, delay);
+    }
     async function connect() {
       try {
-        const key = `dispatch:human-terminal:${agentId}`;
-        const storedId = sessionStorage.getItem(key);
-        // Older builds used this marker for lost sessions as well as user stops.
-        if (storedId === "ended") sessionStorage.removeItem(key);
-        const terminalId =
-          storedId && storedId !== "ended" ? storedId : undefined;
+        const terminalId = readSession(agentId) ?? undefined;
         let result: Info;
         try {
           result = await request("", "POST", {
@@ -171,12 +200,11 @@ export default function TerminalDrawer({
           if (cancelled || ended.current) return;
           if (!terminalId || (cause as { status?: number }).status !== 404)
             throw cause;
-          sessionStorage.removeItem(key);
+          saveSession(agentId, null);
           result = await request("", "POST", { agentId, clientId: clientId() });
         }
         if (cancelled || ended.current) return;
-        sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, result.id);
-        infoRef.current = result;
+        saveSession(agentId, result.id);
         setInfo(result);
         setError(null);
         const url = new URL(
@@ -194,7 +222,7 @@ export default function TerminalDrawer({
           }
           stream.replay = new Uint8Array();
           stream.write?.(new TextEncoder().encode("\x1bc"));
-          setStatus("Connected");
+          setStatus("connected");
           if (stream.cols && stream.rows)
             socket?.send(
               JSON.stringify({
@@ -210,13 +238,8 @@ export default function TerminalDrawer({
             const message = JSON.parse(event.data);
             if (message.type === "connected") missingSessionRetries = 0;
             if (message.type === "exit") {
-              ended.current = true;
-              sessionStorage.setItem(
-                `dispatch:human-terminal:${agentId}`,
-                "stopped"
-              );
-              stream.socket = null;
-              setStatus(`Exited (${message.code})`);
+              markStopped();
+              setStatus({ exitCode: message.code });
             }
             return;
           }
@@ -232,16 +255,14 @@ export default function TerminalDrawer({
           if (event.code === 1008 && event.reason === "Terminal not found.") {
             // The shell can expire between the resume request and WS attach.
             // Losing it is not the same as the user deliberately ending it.
-            sessionStorage.removeItem(`dispatch:human-terminal:${agentId}`);
+            saveSession(agentId, null);
             stream.socket = null;
             setError(null);
             if (missingSessionRetries++ < 2) {
-              setStatus("Connecting");
-              retry = setTimeout(() => {
-                if (!cancelled && !ended.current) void connect();
-              }, 250);
+              setStatus("connecting");
+              reconnectAfter(250);
             } else {
-              setStatus("Unavailable");
+              setStatus("unavailable");
               setError("Could not reconnect to the host. Try again.");
             }
             return;
@@ -251,27 +272,20 @@ export default function TerminalDrawer({
             event.code === 1008 ||
             event.code === 4001
           ) {
-            ended.current = true;
-            sessionStorage.setItem(
-              `dispatch:human-terminal:${agentId}`,
-              "stopped"
-            );
-            stream.socket = null;
-            setStatus("Ended");
+            markStopped();
+            setStatus("ended");
             setError(event.reason || "Terminal connection ended.");
             return;
           }
-          setStatus("Disconnected — reconnecting");
-          retry = setTimeout(() => {
-            if (!cancelled && !ended.current) void connect();
-          }, 2000);
+          setStatus("reconnecting");
+          reconnectAfter(2000);
         };
         socket.onerror = () => {
-          if (!cancelled && !ended.current) setStatus("Connection failed");
+          if (!cancelled && !ended.current) setStatus("connectionFailed");
         };
       } catch (cause) {
         if (!cancelled && !ended.current) {
-          setStatus("Unavailable");
+          setStatus("unavailable");
           setError(
             cause instanceof Error ? cause.message : "Cannot open terminal."
           );
@@ -279,20 +293,15 @@ export default function TerminalDrawer({
       }
     }
     void connect();
-    return () => {
-      cancelled = true;
-      clearTimeout(retry);
-      socket?.close();
-      stream.socket = null;
-    };
+    return disconnect;
   }, [agentId, generation, stream]);
 
   const end = useCallback(async () => {
-    const current = infoRef.current;
+    const current = info;
     if (!current) return;
     ended.current = true;
     stopConnection.current();
-    setStatus("Ending");
+    setStatus("ending");
     setError(null);
     try {
       try {
@@ -301,17 +310,21 @@ export default function TerminalDrawer({
         // An exited or expired shell has already reached the desired state.
         if ((cause as { status?: number }).status !== 404) throw cause;
       }
-      sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, "stopped");
-      setStatus("Ended");
+      saveSession(agentId, "stopped");
+      setStatus("ended");
       setError(null);
     } catch (cause) {
-      setStatus("End failed");
+      setStatus("endFailed");
       setError(cause instanceof Error ? cause.message : "Cannot end terminal.");
     }
-  }, [agentId]);
+  }, [agentId, info]);
 
-  const ready = status === "Connected";
-  const finished = status === "Ended" || status.startsWith("Exited");
+  const ready = status === "connected";
+  const finished = status === "ended" || typeof status === "object";
+  const statusLabel =
+    typeof status === "object"
+      ? `Exited (${status.exitCode})`
+      : STATUS_LABELS[status];
   return (
     <section
       className="flex min-h-0 flex-1 flex-col gap-2 p-3"
@@ -336,24 +349,23 @@ export default function TerminalDrawer({
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span role="status" className="mr-auto">
-          {status}
+          {statusLabel}
         </span>
         {info && !finished && (
           <Button
             variant="default"
             size="sm"
-            disabled={status === "Ending"}
+            disabled={status === "ending"}
             onClick={() => void end()}
           >
-            {status === "End failed" ? "Retry End" : "End terminal"}
+            {status === "endFailed" ? "Retry End" : "End terminal"}
           </Button>
         )}
         {finished && (
           <Button
             size="sm"
             onClick={() => {
-              sessionStorage.removeItem(`dispatch:human-terminal:${agentId}`);
-              infoRef.current = null;
+              saveSession(agentId, null);
               setInfo(null);
               stream.replay = new Uint8Array();
               setGeneration((value) => value + 1);
@@ -362,7 +374,7 @@ export default function TerminalDrawer({
             New terminal
           </Button>
         )}
-        {status === "Unavailable" && (
+        {status === "unavailable" && (
           <Button size="sm" onClick={() => setGeneration((value) => value + 1)}>
             Retry connection
           </Button>
@@ -384,9 +396,9 @@ export default function TerminalDrawer({
         <div className="flex min-h-0 flex-1 items-center justify-center rounded bg-[#101014] p-4 text-center text-xs text-muted-foreground">
           {finished
             ? "Choose New terminal to open a shell."
-            : status === "Unavailable" || status === "End failed"
+            : status === "unavailable" || status === "endFailed"
               ? "Terminal unavailable."
-              : status === "Ending"
+              : status === "ending"
                 ? "Ending your shell…"
                 : "Connecting to your shell…"}
         </div>

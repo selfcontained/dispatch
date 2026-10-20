@@ -18,7 +18,7 @@ import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 
 import { type FileItem, type SubAgentFiles } from "@/components/app/types";
 import { type DrawerTab, drawerWidthAtom } from "@/lib/store";
-import { TerminalLauncher } from "@/components/terminal/terminal-launcher";
+import { TerminalLazyBoundary } from "@/components/terminal/terminal-lazy-boundary";
 import { FilesContent } from "@/components/app/files-content";
 import { InboxPanel } from "@/components/app/inbox";
 import { type Inbox } from "@/hooks/use-inbox";
@@ -244,7 +244,7 @@ export function DrawerContent({
               activeTab !== "terminal" && "hidden"
             )}
           >
-            <TerminalLauncher
+            <TerminalLazyBoundary
               key={selectedAgentId}
               agentId={selectedAgentId}
               active={visible && activeTab === "terminal"}

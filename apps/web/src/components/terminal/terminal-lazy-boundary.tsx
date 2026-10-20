@@ -1,8 +1,8 @@
 import { lazy, Suspense, useState } from "react";
-const TerminalDrawer = lazy(() => import("./terminal-drawer"));
+const TerminalPanel = lazy(() => import("./terminal-panel"));
 
 /** Defer the entire terminal bundle and first request until actually visible. */
-export function TerminalLauncher({
+export function TerminalLazyBoundary({
   agentId,
   active,
 }: {
@@ -20,7 +20,7 @@ export function TerminalLauncher({
         </p>
       }
     >
-      <TerminalDrawer agentId={agentId} active={active} />
+      <TerminalPanel agentId={agentId} active={active} />
     </Suspense>
   );
 }
