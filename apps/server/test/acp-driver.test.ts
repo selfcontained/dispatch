@@ -360,6 +360,7 @@ describe("AcpDriver", () => {
         cwd: "/tmp/w",
         env: expect.objectContaining({
           CLAUDE_CODE_EXECUTABLE: "/home/u/.local/bin/claude",
+          CLAUDE_CODE_ARTIFACT: "1",
           HOME: "/home/u",
           PATH: "/usr/bin",
         }),
@@ -380,6 +381,44 @@ describe("AcpDriver", () => {
       },
     ]);
     expect(fake.seen.setMode).toEqual([]);
+    await driver.stop("agt_1");
+  });
+
+  it.each(["0", "false", ""])(
+    "claude: an explicit inherited CLAUDE_CODE_ARTIFACT=%j survives the default",
+    async (optOut) => {
+      const fake = createFakeAcpAgent();
+      const { spawn, driver } = driverWith(fake);
+      await driver.start(
+        launch({
+          env: {
+            PATH: "/usr/bin",
+            HOME: "/home/u",
+            CLAUDE_CODE_ARTIFACT: optOut,
+          },
+        })
+      );
+      expect(spawn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          env: expect.objectContaining({ CLAUDE_CODE_ARTIFACT: optOut }),
+        })
+      );
+      await driver.stop("agt_1");
+    }
+  );
+
+  it("codex: the Claude-only CLAUDE_CODE_ARTIFACT default doesn't leak to other engines", async () => {
+    const fake = createFakeAcpAgent();
+    const { spawn, driver } = driverWith(fake);
+    await driver.start(launch({}, "codex"));
+    const [, , opts] = spawn.mock.calls[0] as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ];
+    expect(opts.env.CLAUDE_CODE_ARTIFACT).toBeUndefined();
     await driver.stop("agt_1");
   });
 

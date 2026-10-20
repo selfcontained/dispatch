@@ -485,7 +485,11 @@ export class AcpDriver {
       throw new Error(`the agent is already running for ${launch.agentId}`);
     }
     const { engine } = launch;
-    const env: NodeJS.ProcessEnv = { ...launch.env, ...engine.env };
+    const env: NodeJS.ProcessEnv = {
+      ...engine.envDefaults,
+      ...launch.env,
+      ...engine.env,
+    };
     const bin = await this.resolveBinary(engine.bin, env);
     const child = this.spawnFn(bin, engine.args, { cwd: launch.cwd, env });
     // Both listeners go on before any await: a spawn failure (ENOENT, EACCES,
