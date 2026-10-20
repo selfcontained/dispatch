@@ -673,20 +673,21 @@ describe("AcpRuntime combining queued posts", () => {
     const two = runtime.prompt(agentId, envelope(2), post(2));
     const three = runtime.prompt(agentId, envelope(3), post(3));
 
-    for (let i = 0; i < 3; i++) (settle(), await untilPrompts(prompts, i + 2));
+    // The person's posts go ahead of the nudge, together; the nudge alone.
+    for (let i = 0; i < 2; i++) (settle(), await untilPrompts(prompts, i + 2));
     await withinSeconds(
       Promise.all([one.accepted, nudge.accepted, two.accepted, three.accepted]),
       "all accepted"
     );
     expect(prompts.map((p) => p.text)).toEqual([
       "do the work",
-      envelope(1),
+      expect.stringContaining(envelope(1)),
       "a job's nudge",
-      expect.stringContaining(envelope(2)),
     ]);
-    expect(prompts[3]!.text).toContain(envelope(3));
+    expect(prompts[1]!.text).toContain(envelope(2));
+    expect(prompts[1]!.text).toContain(envelope(3));
     settle();
-    await withinSeconds(three.settled, "the last settle");
+    await withinSeconds(nudge.settled, "the last settle");
   });
 
   it("carries a backlog past the cap into the next turn, dropping nothing", async () => {
@@ -1401,6 +1402,51 @@ describe("conversation-authoritative delivery", () => {
     ]);
     host.settle();
     await Promise.all([work.settled, later.settled, system.settled]);
+  });
+
+  it("delivers a person's post ahead of agent and system posts queued before it", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work", inThread(0, "thread-a"));
+    await work.accepted;
+    const findingA = runtime.prompt(
+      agentId,
+      "finding a",
+      inThread(1, "thread-b", false),
+      { delivery: "auto" }
+    );
+    const system = runtime.prompt(agentId, "nudge", {
+      source: "system",
+      text: "nudge",
+    });
+    const user1 = runtime.prompt(agentId, "user one", inThread(2, null), {
+      delivery: "auto",
+    });
+    const findingB = runtime.prompt(
+      agentId,
+      "finding b",
+      inThread(3, "thread-c", false),
+      { delivery: "auto" }
+    );
+    const user2 = runtime.prompt(agentId, "user two", inThread(4, "thread-d"), {
+      delivery: "auto",
+    });
+    const all = [work, findingA, system, user1, findingB, user2];
+    for (let i = 2; i <= all.length; i++) {
+      host.settle();
+      await untilPrompts(host.prompts, i);
+    }
+    expect(host.steers).toEqual([]);
+    expect(host.prompts.map((item) => item.text)).toEqual([
+      "work",
+      "user one",
+      "user two",
+      "finding a",
+      "nudge",
+      "finding b",
+    ]);
+    host.settle();
+    await Promise.all(all.map((item) => item.settled));
   });
 
   it("rechecks against the newly started turn when the previous turn settles", async () => {
