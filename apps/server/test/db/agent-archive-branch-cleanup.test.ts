@@ -162,28 +162,31 @@ describe("archive branch cleanup", () => {
     });
   });
 
-  it("normalizes whitespace-padded baseBranch so the ownership check is consistent (review #1159)", async () => {
-    // Regression: persisting `input.baseBranch` raw while the worktree branch
-    // gets trimmed makes the archive heuristic falsely classify the user's
-    // branch as Dispatch-owned. Normalizing both sides up front fixes it.
-    const agent = await manager.createAgent({
-      cwd: "/tmp",
-      useWorktree: true,
-      createNewBranch: false,
-      baseBranch: "  feature/x  ",
-    });
+  it.each(["  feature/x  ", "  origin/feature/x  "])(
+    "normalizes base %s so archive preserves the user-owned branch",
+    async (baseBranch) => {
+      // Regression: persisting `input.baseBranch` raw while the worktree branch
+      // gets trimmed makes the archive heuristic falsely classify the user's
+      // branch as Dispatch-owned. Normalizing both sides up front fixes it.
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: true,
+        createNewBranch: false,
+        baseBranch,
+      });
 
-    expect(agent.baseBranch).toBe("feature/x");
-    expect(agent.worktreeBranch).toBe("feature/x");
+      expect(agent.baseBranch).toBe("feature/x");
+      expect(agent.worktreeBranch).toBe("feature/x");
 
-    await archive(agent.id);
+      await archive(agent.id);
 
-    expect(cleanupGitWorktreeSpy).toHaveBeenCalledTimes(1);
-    expect(cleanupGitWorktreeSpy.mock.calls[0][0]).toMatchObject({
-      deleteBranch: false,
-      force: true,
-    });
-  });
+      expect(cleanupGitWorktreeSpy).toHaveBeenCalledTimes(1);
+      expect(cleanupGitWorktreeSpy.mock.calls[0][0]).toMatchObject({
+        deleteBranch: false,
+        force: true,
+      });
+    }
+  );
 
   it("rejects baseBranch values containing shell metacharacters (review #1158)", async () => {
     await expect(

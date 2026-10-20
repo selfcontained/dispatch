@@ -14,6 +14,7 @@ import {
   assertSafeRefName,
   createGitWorktree,
   GitWorktreeError,
+  normalizeBaseBranch,
   worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { readWorktreeStatus } from "../shared/git/worktree-status.js";
@@ -1608,10 +1609,7 @@ export class AgentManager {
     let normalizedWorktreeBranch: string | undefined;
     try {
       if (input.baseBranch !== undefined && input.baseBranch.trim() !== "") {
-        normalizedBaseBranch = assertSafeRefName(
-          input.baseBranch,
-          "baseBranch"
-        );
+        normalizedBaseBranch = normalizeBaseBranch(input.baseBranch);
       }
       if (
         input.worktreeBranch !== undefined &&
