@@ -968,9 +968,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         );
       } else if (isUserPost(own)) {
         // A person's post goes ahead of queued agent and system traffic,
-        // behind interrupts and the person's own earlier posts.
+        // behind interrupts and the person's own earlier posts. A deferred
+        // batch put back at the front may sit ahead of those posts.
+        let after = entry.waiting.length;
+        while (after > 0 && !isUserPost(entry.waiting[after - 1]!)) after--;
         const firstOther = entry.waiting.findIndex(
-          (w) => w.delivery !== "interrupt" && !isUserPost(w)
+          (w, i) => i >= after && w.delivery !== "interrupt" && !isUserPost(w)
         );
         entry.waiting.splice(
           firstOther < 0 ? entry.waiting.length : firstOther,
