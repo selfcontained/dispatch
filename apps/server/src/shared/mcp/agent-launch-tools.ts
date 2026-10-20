@@ -85,7 +85,7 @@ export function registerAgentLaunchTools(
           .min(1)
           .max(100000)
           .describe(
-            "Initial prompt describing what the agent should do. With templateId: if exactly one of the template's args is still unset and every templateArgs key was recognized, this text fills it; otherwise this text is appended after the rendered template prompt."
+            "Initial prompt describing what the agent should do. With templateId: if exactly one template argument lacks both an explicit templateArgs value and an inline default, and every templateArgs key was recognized, this text fills it; otherwise this text is appended after the rendered template prompt."
           ),
         type: z
           .enum(CLI_AGENT_TYPES)
@@ -141,7 +141,7 @@ export function registerAgentLaunchTools(
           .record(z.string(), z.string())
           .optional()
           .describe(
-            "Values for the template's args, keyed by arg name. Call get_template first — its `promptArgs` field lists them. Skip this when the template has one arg (your prompt fills it) or none. Args left unset render empty, and an unrecognized key suppresses the prompt-fills-one-arg shortcut."
+            "Values for the template's args, keyed by arg name. Call get_template first — its `promptArgs` field lists them. Explicit templateArgs override inline defaults, including empty values for optional arguments. Omitted args use inline defaults; optional args without defaults render empty. Required values must be nonblank, and nonempty values must match any declared options. Free text fills exactly one remaining arg without an explicit value or default; an unrecognized key suppresses that shortcut."
           ),
         cwd: z
           .string()
