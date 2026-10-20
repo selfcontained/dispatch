@@ -69,6 +69,53 @@ afterEach(() => {
 });
 
 describe("terminal drawer", () => {
+  it("opens a fresh shell instead of retaining the legacy lost-session marker", async () => {
+    sessionStorage.setItem("dispatch:human-terminal:agent", "ended");
+    const fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => info });
+    vi.stubGlobal("fetch", fetch);
+    render(<TerminalDrawer agentId="agent" active />);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    expect(JSON.parse(fetch.mock.calls[0][1].body).terminalId).toBeUndefined();
+    act(() => Socket.instances[0].onopen?.());
+    expect(screen.getByRole("status").textContent).toBe("Connected");
+    expect(sessionStorage.getItem("dispatch:human-terminal:agent")).toBe(
+      info.id
+    );
+  });
+  it("automatically replaces a session lost between resume and socket attachment", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => info });
+    vi.stubGlobal("fetch", fetch);
+    render(<TerminalDrawer agentId="agent" active />);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    act(() => Socket.instances[0].onopen?.());
+    vi.useFakeTimers();
+    try {
+      act(() =>
+        Socket.instances[0].onclose?.({
+          code: 1008,
+          reason: "Terminal not found.",
+        } as CloseEvent)
+      );
+      expect(screen.getByRole("status").textContent).toBe("Connecting");
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByRole("button", { name: "New terminal" })).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(Socket.instances).toHaveLength(2);
+      expect(
+        JSON.parse(fetch.mock.calls[1][1].body).terminalId
+      ).toBeUndefined();
+      act(() => Socket.instances[1].onopen?.());
+      expect(screen.getByRole("status").textContent).toBe("Connected");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it.each([404, 503])(
     "handles End response %s without losing recovery",
     async (status) => {
@@ -99,7 +146,7 @@ describe("terminal drawer", () => {
       ).toBeTruthy();
       expect(screen.queryByLabelText("Host terminal")).toBeNull();
       expect(sessionStorage.getItem("dispatch:human-terminal:agent")).toBe(
-        status === 404 ? "ended" : info.id
+        status === 404 ? "stopped" : info.id
       );
     }
   );
@@ -153,7 +200,7 @@ describe("terminal drawer", () => {
     expect(screen.getByLabelText("Host terminal")).toBeTruthy();
   });
   it("keeps an explicitly ended session ended across remounts until New terminal", async () => {
-    sessionStorage.setItem("dispatch:human-terminal:agent", "ended");
+    sessionStorage.setItem("dispatch:human-terminal:agent", "stopped");
     const fetch = vi
       .fn()
       .mockResolvedValue({ ok: true, json: async () => info });

@@ -120,7 +120,7 @@ export default function TerminalDrawer({
 }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [status, setStatus] = useState(() =>
-    sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "ended"
+    sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "stopped"
       ? "Ended"
       : "Connecting"
   );
@@ -138,8 +138,9 @@ export default function TerminalDrawer({
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let socket: WebSocket | undefined;
+    let missingSessionRetries = 0;
     if (
-      sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "ended"
+      sessionStorage.getItem(`dispatch:human-terminal:${agentId}`) === "stopped"
     )
       return;
     ended.current = false;
@@ -154,7 +155,11 @@ export default function TerminalDrawer({
     async function connect() {
       try {
         const key = `dispatch:human-terminal:${agentId}`;
-        const terminalId = sessionStorage.getItem(key) || undefined;
+        const storedId = sessionStorage.getItem(key);
+        // Older builds used this marker for lost sessions as well as user stops.
+        if (storedId === "ended") sessionStorage.removeItem(key);
+        const terminalId =
+          storedId && storedId !== "ended" ? storedId : undefined;
         let result: Info;
         try {
           result = await request("", "POST", {
@@ -203,11 +208,12 @@ export default function TerminalDrawer({
           if (cancelled || ended.current) return;
           if (typeof event.data === "string") {
             const message = JSON.parse(event.data);
+            if (message.type === "connected") missingSessionRetries = 0;
             if (message.type === "exit") {
               ended.current = true;
               sessionStorage.setItem(
                 `dispatch:human-terminal:${agentId}`,
-                "ended"
+                "stopped"
               );
               stream.socket = null;
               setStatus(`Exited (${message.code})`);
@@ -223,6 +229,23 @@ export default function TerminalDrawer({
         };
         socket.onclose = (event) => {
           if (cancelled || ended.current) return;
+          if (event.code === 1008 && event.reason === "Terminal not found.") {
+            // The shell can expire between the resume request and WS attach.
+            // Losing it is not the same as the user deliberately ending it.
+            sessionStorage.removeItem(`dispatch:human-terminal:${agentId}`);
+            stream.socket = null;
+            setError(null);
+            if (missingSessionRetries++ < 2) {
+              setStatus("Connecting");
+              retry = setTimeout(() => {
+                if (!cancelled && !ended.current) void connect();
+              }, 250);
+            } else {
+              setStatus("Unavailable");
+              setError("Could not reconnect to the host. Try again.");
+            }
+            return;
+          }
           if (
             event.code === 1000 ||
             event.code === 1008 ||
@@ -231,7 +254,7 @@ export default function TerminalDrawer({
             ended.current = true;
             sessionStorage.setItem(
               `dispatch:human-terminal:${agentId}`,
-              "ended"
+              "stopped"
             );
             stream.socket = null;
             setStatus("Ended");
@@ -278,7 +301,7 @@ export default function TerminalDrawer({
         // An exited or expired shell has already reached the desired state.
         if ((cause as { status?: number }).status !== 404) throw cause;
       }
-      sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, "ended");
+      sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, "stopped");
       setStatus("Ended");
       setError(null);
     } catch (cause) {
