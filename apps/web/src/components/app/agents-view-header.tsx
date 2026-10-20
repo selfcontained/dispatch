@@ -1,3 +1,4 @@
+import { TerminalLauncher } from "@/components/terminal/terminal-launcher";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import {
@@ -127,6 +128,9 @@ export function AgentsViewHeader({
         ) : null}
       </div>
       <div className="flex items-center justify-end gap-1">
+        {focusedAgentId && (
+          <TerminalLauncher key={focusedAgentId} agentId={focusedAgentId} />
+        )}
         {activeTab === "changes" && !isSplit ? (
           <ChangesSettingsPopover isMobile={isMobile} />
         ) : null}
