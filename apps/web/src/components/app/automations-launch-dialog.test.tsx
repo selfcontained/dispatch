@@ -244,6 +244,57 @@ describe("launch payload", () => {
     });
   });
 
+  it("prefills defaults and sends edited values and explicit clears", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(
+      makeTemplate({
+        prompt:
+          "{{D:Branch|default=main}} {{D:Notes|default=Release notes|multiline}} {{D:Environment|multiline|required|options=dev,staging|default=staging}} {{D:Region|default=East|options=East,West}}",
+      })
+    );
+    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe(
+      "main"
+    );
+    expect((screen.getByLabelText("Notes") as HTMLTextAreaElement).value).toBe(
+      "Release notes"
+    );
+    expect(
+      screen.getByRole("combobox", { name: /Environment/ }).textContent
+    ).toBe("staging");
+    fireEvent.change(screen.getByLabelText("Branch"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByLabelText("Notes"), {
+      target: { value: "Edited notes" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Clear Region" }));
+    expect(screen.getByRole("combobox", { name: "Region" }).textContent).toBe(
+      "Choose Region"
+    );
+    fireEvent.click(launchButton());
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    expect(lastJsonBody()).toEqual({
+      args: {
+        branch: "",
+        notes: "Edited notes",
+        environment: "staging",
+        region: "",
+      },
+      agentType: "claude",
+      model: null,
+    });
+  });
+
+  it("shows invalid configuration and blocks launch", async () => {
+    await renderDialog(
+      makeTemplate({ prompt: "{{D:Env|default=other|options=dev,prod}}" })
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "choose one of dev, prod"
+    );
+    expect(launchButton().disabled).toBe(true);
+  });
+
   it("selecting a different agent type overrides the template default", async () => {
     queueLaunchedAgent("agt_new");
     await renderDialog(makeTemplate());

@@ -48,7 +48,13 @@ Review the PR at {{D:PR URL|required}} and focus on {{D:Review Focus|multiline}}
 
 This creates a required single-line field ("PR URL") and an optional multiline field ("Review Focus").
 
-If the same argument appears more than once, modifiers are merged. An argument is treated as `required` or `multiline` if any occurrence uses that modifier.
+Use `{{D:Branch|default=main}}` for an editable prefilled input, or `{{D:Environment|options=dev,staging,production|default=staging}}` for a dropdown. Options take precedence over multiline. A dropdown without a default starts blank; optional dropdowns can be cleared. No first choice is selected implicitly.
+
+Modifier order never matters. Modifier names are case insensitive; values preserve case and internal spaces. Surrounding whitespace in names, defaults, and each option is trimmed. Escape delimiters inside values with backslashes: `\|`, `\,`, `\}`, and `\\`. Ordinary backslashes such as those in Windows paths are preserved. For example, `{{D:Label|options=one\,two,three|default=one\,two}}` offers `one,two` as a single choice.
+
+Inline defaults apply when arguments are omitted from web, API, MCP, and scheduled launches. Explicit arguments, including empty optional values, override defaults. Required arguments must be nonblank. Nonempty values and defaults must exactly match an offered option. Invalid declarations or values produce an actionable launch error. Scheduled `defaultArgs` override inline defaults even when they explicitly clear an optional value; inline defaults also resolve when `defaultArgs` is empty. MCP free text fills only one variable lacking both an explicit argument and default; otherwise it appends to the prompt as before. Defaults are not reported as unfilled.
+
+If the same argument appears more than once, `required` and `multiline` are enabled if any occurrence uses them. The first explicit default/options declaration is retained, and later explicit declarations must agree or the launch is rejected. A declaration may supply options in one occurrence and its default in another. Quick phrases support this same syntax and input behavior.
 
 ### Command Palette (Cmd+K)
 
@@ -91,7 +97,7 @@ Jobs are uniquely identified by (`directory`, `name`). Each job references a bac
 | `webhookEnabled`      | Generates `webhookSecret` on save, exposing `POST /api/v1/jobs/webhook/:secret`      |
 | `notify`              | Per-job Slack routing. Read-only today — no write path, so it is always null         |
 
-Agent configuration (prompt, agentType, model, useWorktree, fullAccess, selfImprove) is read from the backing template at run time; the job's own copies of those columns are legacy fallbacks. `defaultArgs` is settable only through `POST`/`PATCH /api/v1/jobs` — no UI or MCP tool exposes it, and substitution is skipped entirely when the map is empty.
+Agent configuration (prompt, agentType, model, useWorktree, fullAccess, selfImprove) is read from the backing template at run time; the job's own copies of those columns are legacy fallbacks. `defaultArgs` is settable only through `POST`/`PATCH /api/v1/jobs` — no UI or MCP tool exposes it. Template arguments are resolved even when the map is empty, so inline defaults still apply.
 
 ### Run Lifecycle
 

@@ -118,7 +118,9 @@ export function EditPhraseDialog({
                       <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
                         {"{{D:Name}}"}
                       </code>{" "}
-                      become prompts before the phrase is sent.
+                      become prompts before the phrase is sent. Add
+                      |default=main for a prefill or |options=dev,production for
+                      a dropdown; modifiers work in any order.
                     </p>
                     <Link
                       to="/settings/help/agents"
@@ -151,6 +153,7 @@ export function EditPhraseDialog({
                         {a.name}
                         {a.required ? " *" : ""}
                         {a.multiline ? " (multiline)" : ""}
+                        {a.error ? ` — ${a.error}` : ""}
                       </span>
                     ))}
                   </span>

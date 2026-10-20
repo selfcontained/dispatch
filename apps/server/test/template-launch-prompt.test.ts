@@ -92,7 +92,7 @@ describe("renderTemplatePromptFromFreeText", () => {
 
   it("renders unset args empty and reports them", () => {
     const result = renderTemplatePromptFromFreeText(
-      template("Review {{D:Target|required}} for {{D:Concern|required}}."),
+      template("Review {{D:Target}} for {{D:Concern}}."),
       "have a look"
     );
 
@@ -123,7 +123,7 @@ describe("renderTemplatePromptFromFreeText", () => {
 
   it("reports a key that matches no arg, and keeps free text out of its slot", () => {
     const result = renderTemplatePromptFromFreeText(
-      template("Review {{D:PR URL|required}}."),
+      template("Review {{D:PR URL}}."),
       "review it please",
       { prUrl: "https://example.com/pr/1" }
     );
@@ -162,5 +162,55 @@ describe("renderTemplatePromptFromFreeText", () => {
     );
 
     expect(result.prompt).toBe("Run the nightly checks.");
+  });
+});
+
+describe("default resolution across launch surfaces", () => {
+  it("uses defaults for normal launches, allowing explicit overrides and clears", () => {
+    const t = template(
+      "{{D:Branch|default=main}} {{D:Env|options=dev,prod|default=dev}}"
+    );
+    expect(renderTemplatePrompt(t, {})).toBe("main dev");
+    expect(renderTemplatePrompt(t, { branch: "topic", env: "prod" })).toBe(
+      "topic prod"
+    );
+    expect(renderTemplatePrompt(t, { branch: "", env: "" })).toBe(" ");
+    expect(() => renderTemplatePrompt(t, { env: "other" })).toThrow(
+      "choose one of"
+    );
+  });
+  it("counts defaults as filled while free text fills the single remaining slot", () => {
+    expect(
+      renderTemplatePromptFromFreeText(
+        template("{{D:Branch|default=main}}: {{D:Task|required}}"),
+        "fix it"
+      )
+    ).toMatchObject({ prompt: "main: fix it", unfilled: [] });
+  });
+  it("appends free text when every variable has a default", () => {
+    expect(
+      renderTemplatePromptFromFreeText(
+        template("{{D:Branch|default=main}}"),
+        "extra"
+      )
+    ).toMatchObject({ prompt: "main\n\nextra", unfilled: [] });
+  });
+  it("preserves explicit clears and enforces required/option constraints on MCP", () => {
+    expect(
+      renderTemplatePromptFromFreeText(
+        template("{{D:Branch|default=main}}"),
+        "extra",
+        { branch: "" }
+      )
+    ).toMatchObject({ prompt: "\n\nextra", unfilled: [] });
+    expect(() =>
+      renderTemplatePromptFromFreeText(
+        template("{{D:X|required}} {{D:Y|required}}"),
+        "extra"
+      )
+    ).toThrow("Missing required");
+    expect(() =>
+      renderTemplatePromptFromFreeText(template("{{D:X|options=a,b}}"), "c")
+    ).toThrow("choose one of");
   });
 });

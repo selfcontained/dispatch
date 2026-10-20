@@ -1273,10 +1273,42 @@ describe("createMcpHandlers", () => {
       expect(result.note).toBeUndefined();
     });
 
+    it("resolves defaults before filling the remaining variable with free text", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          prompt: "{{D:Branch|default=main}} {{D:Task|required}}",
+        })
+      );
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "fix it",
+        templateId: "tmpl_123",
+      });
+      expect(
+        deps.agentManager.createAgent.mock.calls[0][0].initialPrompt
+      ).toContain("main fix it");
+      expect(result.note).toBeUndefined();
+    });
+
+    it("rejects MCP launches with blank required values", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: "{{D:Branch|required|default=main}}" })
+      );
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "extra",
+          templateId: "tmpl_123",
+          templateArgs: { branch: "" },
+        })
+      ).rejects.toThrow("Missing required");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
     it("launches and reports back when args are left unset", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({
-          prompt: "Review {{D:Target|required}} for {{D:Concern|required}}.",
+          prompt: "Review {{D:Target}} for {{D:Concern}}.",
         })
       );
 
@@ -1292,7 +1324,7 @@ describe("createMcpHandlers", () => {
 
     it("reports templateArgs keys that matched no arg", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
-        templateRecord({ prompt: "Review {{D:PR URL|required}}." })
+        templateRecord({ prompt: "Review {{D:PR URL}}." })
       );
 
       const result = await handlers.launchAgent("agt_test1", {

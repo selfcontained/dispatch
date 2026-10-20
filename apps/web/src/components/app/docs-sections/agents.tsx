@@ -293,7 +293,18 @@ export function AgentsContent() {
             <Code>{"{{D:Variable Name}}"}</Code> placeholders in the phrase
             text. Add <Code>|required</Code> or <Code>|multiline</Code>{" "}
             modifiers after the name (same syntax as Templates). When injecting
-            a phrase with variables, a fill-in dialog appears first.
+            a phrase with variables, a fill-in dialog appears first. Use{" "}
+            <Code>|default=main</Code> to prefill an editable value, or{" "}
+            <Code>|options=dev,staging,production|default=staging</Code> for a
+            dropdown. Options take precedence over multiline; without a default,
+            dropdowns start blank and optional choices can be cleared. Modifiers
+            work in any order and their names ignore case. Values preserve case
+            and internal spaces; surrounding formatting whitespace is trimmed.
+            Escape pipes, commas, closing braces and backslashes with a
+            backslash. Ordinary backslashes are preserved. Repeated variables
+            merge required/multiline flags and must agree on explicit
+            defaults/options. Required values must be nonblank, and nonempty
+            option values (including defaults) must match a choice.
           </li>
           <li>
             <strong>Searching</strong> — the popover opens with a search box

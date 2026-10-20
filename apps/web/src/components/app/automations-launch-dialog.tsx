@@ -20,6 +20,7 @@ import {
 import {
   useTemplateActions,
   parseTemplateArgs,
+  templateArgDefaults,
   type Template,
 } from "@/hooks/use-templates";
 import { type AgentType } from "@/lib/agent-types";
@@ -70,7 +71,9 @@ function LaunchTemplateDialogContent({
     () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
     [template.prompt]
   );
-  const [argValues, setArgValues] = useState<Record<string, string>>({});
+  const [argValues, setArgValues] = useState<Record<string, string>>(() =>
+    templateArgDefaults(args)
+  );
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
   const [model, setModel] = useState<string | null>(template.model);
   // Each runtime keeps its own pick for the dialog's lifetime, so toggling the
@@ -100,11 +103,11 @@ function LaunchTemplateDialogContent({
   } = useStartupAttachments();
 
   useEffect(() => {
-    setArgValues({});
+    setArgValues(templateArgDefaults(args));
     setAgentType(template.agentType);
     setModel(template.model);
     modelByAgentType.current = { [template.agentType]: template.model };
-  }, [template.agentType, template.model]);
+  }, [template.agentType, template.model, args]);
 
   const handleAgentTypeChange = useCallback(
     (nextAgentType: AgentType) => {
@@ -132,7 +135,7 @@ function LaunchTemplateDialogContent({
 
   const allArgsFilled =
     args.length === 0 ||
-    args.every((a) => !a.required || argValues[a.key]?.trim());
+    args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
 
   const handleLaunch = useCallback(() => {
     const launchArgs = args.length > 0 ? argValues : undefined;
