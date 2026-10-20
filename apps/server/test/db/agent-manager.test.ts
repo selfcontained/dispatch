@@ -1037,7 +1037,14 @@ describe("AgentManager", () => {
       expect(agent.baseBranch).toBe("main");
     });
 
-    it.each(["origin/", "origin/--all", "origin/ main", "origin/main;echo"])(
+    it.each([
+      "origin/",
+      "origin/origin/main",
+      " origin/origin/feature/x ",
+      "origin/--all",
+      "origin/ main",
+      "origin/main;echo",
+    ])(
       "rejects invalid base %s before creating an agent",
       async (baseBranch) => {
         await expect(

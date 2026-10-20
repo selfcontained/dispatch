@@ -124,6 +124,8 @@ describe("origin-qualified worktree bases", () => {
 
   it.each([
     "origin/",
+    "origin/origin/main",
+    " origin/origin/feature/x ",
     "origin/--all",
     "--all",
     "origin/ main",
@@ -144,8 +146,17 @@ describe("origin-qualified worktree bases", () => {
 
 it.each([
   ["main", "main"],
+  ["origin/main", "main"],
   [" feature/x ", "feature/x"],
   [" origin/feature/x ", "feature/x"],
 ])("normalizes base %s to %s once", (input, expected) => {
   expect(normalizeBaseBranch(input)).toBe(expected);
+  expect(normalizeBaseBranch(normalizeBaseBranch(input))).toBe(expected);
 });
+
+it.each(["origin/origin/main", " origin/origin/feature/x "])(
+  "rejects nested base alias %s directly",
+  (input) => {
+    expect(() => normalizeBaseBranch(input)).toThrow("nested origin/ prefixes");
+  }
+);

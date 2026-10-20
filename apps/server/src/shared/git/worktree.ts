@@ -545,6 +545,7 @@ function normalizeRefName(
 /**
  * Canonical worktree bases are local branch names. Accept origin-qualified
  * input as an alias so fetching, persistence, and cleanup use the same name.
+ * Nested origin/ aliases are unsupported so normalization stays idempotent.
  * Keep this separate from branch-name validation: an explicitly requested new
  * branch named origin/foo must retain that name.
  */
@@ -556,6 +557,12 @@ export function normalizeBaseBranch(value: string): string {
       : candidate,
     "baseBranch"
   );
+  if (branch.startsWith("origin/")) {
+    throw new GitWorktreeError(
+      "baseBranch must not contain nested origin/ prefixes.",
+      400
+    );
+  }
   if (branch.startsWith("-")) {
     throw new GitWorktreeError("baseBranch must not start with '-'.", 400);
   }
