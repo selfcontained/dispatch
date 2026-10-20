@@ -272,7 +272,12 @@ export default function TerminalDrawer({
     setStatus("Ending");
     setError(null);
     try {
-      await request(`/${current.id}`, "DELETE");
+      try {
+        await request(`/${current.id}`, "DELETE");
+      } catch (cause) {
+        // An exited or expired shell has already reached the desired state.
+        if ((cause as { status?: number }).status !== 404) throw cause;
+      }
       sessionStorage.setItem(`dispatch:human-terminal:${agentId}`, "ended");
       setStatus("Ended");
       setError(null);

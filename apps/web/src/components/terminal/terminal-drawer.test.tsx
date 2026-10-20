@@ -69,6 +69,40 @@ afterEach(() => {
 });
 
 describe("terminal drawer", () => {
+  it.each([404, 503])(
+    "handles End response %s without losing recovery",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce({ ok: true, json: async () => info })
+          .mockResolvedValueOnce({
+            ok: false,
+            status,
+            json: async () => ({ error: "Terminal unavailable." }),
+          })
+      );
+      render(<TerminalDrawer agentId="agent" active />);
+      await waitFor(() => expect(Socket.instances).toHaveLength(1));
+      act(() => Socket.instances[0].onopen?.());
+      fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
+      await waitFor(() =>
+        expect(screen.getByRole("status").textContent).toBe(
+          status === 404 ? "Ended" : "End failed"
+        )
+      );
+      expect(
+        screen.getByRole("button", {
+          name: status === 404 ? "New terminal" : "Retry End",
+        })
+      ).toBeTruthy();
+      expect(screen.queryByLabelText("Host terminal")).toBeNull();
+      expect(sessionStorage.getItem("dispatch:human-terminal:agent")).toBe(
+        status === 404 ? "ended" : info.id
+      );
+    }
+  );
   it("keeps its shell connection while hidden and ends through a bodyless DELETE", async () => {
     const fetch = vi
       .fn()
