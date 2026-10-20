@@ -97,7 +97,7 @@ Jobs are uniquely identified by (`directory`, `name`). Each job references a bac
 | `webhookEnabled`      | Generates `webhookSecret` on save, exposing `POST /api/v1/jobs/webhook/:secret`      |
 | `notify`              | Per-job Slack routing. Read-only today — no write path, so it is always null         |
 
-Agent configuration (prompt, agentType, model, useWorktree, fullAccess, selfImprove) is read from the backing template at run time; the job's own copies of those columns are legacy fallbacks. `defaultArgs` is settable only through `POST`/`PATCH /api/v1/jobs` — no UI or MCP tool exposes it, and substitution is skipped entirely when the map is empty.
+Agent configuration (prompt, agentType, model, useWorktree, fullAccess, selfImprove) is read from the backing template at run time; the job's own copies of those columns are legacy fallbacks. `defaultArgs` is settable only through `POST`/`PATCH /api/v1/jobs` — no UI or MCP tool exposes it. Template arguments are resolved even when the map is empty, so inline defaults still apply.
 
 ### Run Lifecycle
 
