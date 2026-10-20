@@ -200,3 +200,93 @@ describe("substituteArgs", () => {
     expect(result).toBe("Before {{D:}} after");
   });
 });
+
+describe("defaults and options", () => {
+  function permutations(values: string[]): string[][] {
+    return values.length === 0
+      ? [[]]
+      : values.flatMap((value, i) =>
+          permutations(values.filter((_, j) => j !== i)).map((rest) => [
+            value,
+            ...rest,
+          ])
+        );
+  }
+  it.each(
+    permutations([
+      "DeFaUlT= Staging West ",
+      "OPTIONS= dev, Staging West ",
+      "REQUIRED",
+      "multiline",
+    ])
+  )("ignores modifier order: %j", (...modifiers) => {
+    const prompt = `{{D:Environment|${modifiers.join("|")}}}`;
+    expect(parseTemplateArgs(prompt)[0]).toMatchObject({
+      default: "Staging West",
+      options: ["dev", "Staging West"],
+      required: true,
+      multiline: true,
+    });
+    expect(substituteArgs(prompt, {})).toBe("Staging West");
+    expect(() => substituteArgs(prompt, { environment: "production" })).toThrow(
+      "choose one of dev, Staging West"
+    );
+    expect(() => substituteArgs(prompt, { environment: "" })).toThrow(
+      "Missing required"
+    );
+  });
+  it("uses defaults only for omitted values, including repeated case variants", () => {
+    const prompt = "{{D:Branch}}/{{D:branch|default=main}}";
+    expect(substituteArgs(prompt, {})).toBe("main/main");
+    expect(substituteArgs(prompt, { Branch: "topic" })).toBe("topic/topic");
+    expect(substituteArgs(prompt, { branch: "" })).toBe("/");
+  });
+  it("merges declarations before validating defaults", () => {
+    const prompt =
+      "{{D:Env|default=staging}} {{D:env|options=dev,staging|required|multiline}}";
+    expect(substituteArgs(prompt, {})).toBe("staging staging");
+    expect(parseTemplateArgs(prompt)[0]).toMatchObject({
+      required: true,
+      multiline: true,
+    });
+  });
+  it.each([
+    ["{{D:X|default=a}} {{D:x|default=b}}", "Conflicting default"],
+    ["{{D:X|options=a,b}} {{D:x|options=b,a}}", "Conflicting options"],
+    ["{{D:X|default=a|default=b}}", "Conflicting default"],
+    ["{{D:X|default=c|options=a,b}}", "Invalid default"],
+    ["{{D:X|options=a,,b}}", "choices must be nonempty"],
+    ["{{D:X|default= |required}}", "nonblank"],
+  ])("rejects invalid configuration %s", (prompt, message) => {
+    expect(parseTemplateArgs(prompt)[0].error).toContain(message);
+    expect(() => substituteArgs(prompt, {})).toThrow(message);
+  });
+  it("accepts identical explicit declarations and rejects whitespace required values", () => {
+    expect(
+      substituteArgs(
+        "{{D:X|options=a,b|default=a}} {{D:x|default=a|options=a,b}}",
+        {}
+      )
+    ).toBe("a a");
+    expect(() =>
+      substituteArgs("{{D:X|required|default=a}}", { x: "  " })
+    ).toThrow("Missing required");
+  });
+  it("escapes delimiters without consuming ordinary backslashes", () => {
+    const prompt = String.raw`{{D:Label|options=one\,two,a\|b,brace\},C:\temp\\|default=brace\}}}`;
+    expect(parseTemplateArgs(prompt)[0]).toMatchObject({
+      options: ["one,two", "a|b", "brace}", "C:\\temp\\"],
+      default: "brace}",
+    });
+    expect(substituteArgs(prompt, {})).toBe("brace}");
+    expect(
+      substituteArgs(String.raw`{{D:Path|default=C:\work\repo}}`, {})
+    ).toBe(String.raw`C:\work\repo`);
+  });
+  it("leaves incomplete escaped declarations editable", () => {
+    expect(parseTemplateArgs("{{D:X|default=" + "\\".repeat(500))).toEqual([]);
+  });
+  it("does not read inherited values", () => {
+    expect(substituteArgs("{{D:toString|default=ok}}", {})).toBe("ok");
+  });
+});

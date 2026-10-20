@@ -346,6 +346,82 @@ describe("JobService", () => {
       }
     );
 
+    it.each([
+      [{}, "main staging"],
+      [{ branch: "topic", env: "production" }, "topic production"],
+      [{ branch: "", env: "" }, " "],
+    ])(
+      "resolves inline job defaults with overrides %j",
+      async (defaultArgs, expected) => {
+        const service = new JobService(
+          pool,
+          mockAgentManager,
+          mockLog,
+          mockConfig
+        );
+        try {
+          const job = await service.addJob({
+            name: `inline-defaults-${crypto.randomUUID()}`,
+            directory: "/tmp/inline-defaults",
+            prompt:
+              "{{D:Branch|default=main}} {{D:Env|default=staging|options=staging,production}}",
+          });
+          await new JobStore(pool).updateJobConfig(job.id, { defaultArgs });
+          // Stop at the agent boundary: verify the prompt without starting a runtime.
+          vi.mocked(mockAgentManager.createAgent).mockRejectedValue(
+            new Error("test launch boundary")
+          );
+          await expect(
+            service.runJob({
+              name: job.name,
+              directory: job.directory,
+              wait: false,
+            })
+          ).rejects.toThrow("test launch boundary");
+          expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
+            expect.objectContaining({ launchContext: { prompt: expected } }),
+            expect.anything()
+          );
+        } finally {
+          await service.shutdown();
+        }
+      }
+    );
+
+    it.each([
+      ["{{D:Env|options=dev,prod}}", { env: "other" }, "choose one of"],
+      ["{{D:Env|required|default=dev}}", { env: " " }, "Missing required"],
+      ["{{D:Env|default=other|options=dev,prod}}", {}, "Invalid default"],
+    ])(
+      "rejects invalid job arguments before launching: %s",
+      async (prompt, defaultArgs, error) => {
+        const service = new JobService(
+          pool,
+          mockAgentManager,
+          mockLog,
+          mockConfig
+        );
+        try {
+          const job = await service.addJob({
+            name: `invalid-inline-${crypto.randomUUID()}`,
+            directory: "/tmp/invalid-inline",
+            prompt,
+          });
+          await new JobStore(pool).updateJobConfig(job.id, { defaultArgs });
+          await expect(
+            service.runJob({
+              name: job.name,
+              directory: job.directory,
+              wait: false,
+            })
+          ).rejects.toThrow(error);
+          expect(mockAgentManager.createAgent).not.toHaveBeenCalled();
+        } finally {
+          await service.shutdown();
+        }
+      }
+    );
+
     it("runJob throws when job has no prompt", async () => {
       const service = new JobService(
         pool,

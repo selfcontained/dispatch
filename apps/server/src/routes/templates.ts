@@ -83,6 +83,7 @@ function classifyErrorCode(message: string): number {
   if (
     message.includes("cannot be overridden") ||
     message.includes("Missing required") ||
+    message.includes("template argument") ||
     message.includes("no prompt") ||
     message.includes("is not supported for")
   )

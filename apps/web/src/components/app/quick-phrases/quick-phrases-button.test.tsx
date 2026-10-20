@@ -425,6 +425,56 @@ describe("fill variables flow", () => {
     ).toBe(true);
   });
 
+  it("prefills defaults and sends an explicit clear instead of restoring the default", async () => {
+    serveGet([
+      makePhrase({
+        label: "Defaults",
+        args: [makeArg({ required: false, default: "Ada" })],
+      }),
+    ]);
+    renderPicker();
+    await openPicker();
+    fireEvent.click(await screen.findByText("Defaults"));
+    const input = await screen.findByLabelText(/Name/);
+    expect((input as HTMLInputElement).value).toBe("Ada");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(injectCalls()).toHaveLength(1));
+    expect(injectCalls()[0]).toEqual({
+      phraseId: "qp_1",
+      args: { name: "" },
+      submit: true,
+    });
+  });
+
+  it("uses an option dropdown ahead of multiline and leaves it initially blank", async () => {
+    serveGet([
+      makePhrase({
+        label: "Options",
+        args: [
+          makeArg({
+            required: true,
+            multiline: true,
+            options: ["dev", "prod"],
+          }),
+        ],
+      }),
+    ]);
+    renderPicker();
+    await openPicker();
+    fireEvent.click(await screen.findByText("Options"));
+    const select = await screen.findByRole("combobox", { name: /Name/ });
+    expect(select.textContent).toBe("Choose Name");
+    expect(screen.queryByRole("textbox", { name: /Name/ })).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Send & Submit",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
+  });
+
   it("submits filled args with submit=true and closes everything on success", async () => {
     serveGet([ARGS_PHRASE]);
     const { onInjected } = renderPicker();

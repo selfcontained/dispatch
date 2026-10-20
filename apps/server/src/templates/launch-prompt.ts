@@ -47,9 +47,8 @@ export function renderTemplatePrompt(
  * free text, the unambiguous case — unless some `callerArgs` key matched no arg
  * at all, which is evidence the caller was aiming a different value at that
  * slot. Free text that fills nothing follows the rendered template instead.
- * Args nobody supplies render empty and come back in `unfilled`, so a
- * partly-specified launch degrades visibly rather than failing or leaking
- * `{{D:...}}` into the agent's prompt.
+ * Optional args nobody supplies render empty and come back in `unfilled`.
+ * Defaults count as supplied; required args still must be nonblank.
  */
 export function renderTemplatePromptFromFreeText(
   template: RenderableTemplate,
@@ -64,7 +63,9 @@ export function renderTemplatePromptFromFreeText(
     args[key] = value;
 
   const hasValue = (arg: (typeof parsed)[number]): boolean =>
-    args[arg.key] != null || args[arg.name] != null;
+    args[arg.key] != null ||
+    args[arg.name] != null ||
+    arg.default !== undefined;
 
   const known = new Set(parsed.flatMap((arg) => [arg.key, arg.name]));
   const unknownArgs = Object.keys(callerArgs ?? {}).filter(
@@ -83,10 +84,9 @@ export function renderTemplatePromptFromFreeText(
   const unfilled = parsed.filter((arg) => !hasValue(arg));
   // Collapse to key space: substituteArgs resolves each occurrence by its own
   // spelling, so a name-keyed value has to be reachable under the lowercased
-  // key too, or an arg written in two cases half-renders. The "" also keeps
-  // substituteArgs from throwing over an arg nobody supplied.
+  // key too, or an arg written in two cases half-renders.
   for (const arg of parsed)
-    args[arg.key] = args[arg.key] ?? args[arg.name] ?? "";
+    args[arg.key] = args[arg.key] ?? args[arg.name] ?? arg.default ?? "";
 
   return {
     prompt: renderTemplatePrompt(

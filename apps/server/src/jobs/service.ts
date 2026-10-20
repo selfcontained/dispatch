@@ -162,15 +162,9 @@ export class JobService {
     }
 
     // Substitute default args into prompt if the template has placeholders
-    let resolvedPrompt: string;
-    try {
-      resolvedPrompt =
-        template && Object.keys(job.defaultArgs).length > 0
-          ? substituteArgs(rawPrompt, job.defaultArgs)
-          : rawPrompt;
-    } catch {
-      resolvedPrompt = rawPrompt;
-    }
+    const resolvedPrompt = template
+      ? substituteArgs(rawPrompt, job.defaultArgs)
+      : rawPrompt;
 
     // createRun owns singleton/continuation admission under the job-row lock.
     let run = await this.store.createRun(
@@ -454,15 +448,9 @@ export class JobService {
     const agentConfig = template ?? job;
     if (!agentConfig.prompt)
       throw new Error(`Job "${job.name}" has no prompt configured.`);
-    let resolvedPrompt = agentConfig.prompt;
-    try {
-      resolvedPrompt =
-        template && Object.keys(job.defaultArgs).length > 0
-          ? substituteArgs(agentConfig.prompt, job.defaultArgs)
-          : agentConfig.prompt;
-    } catch {
-      // Keep a legacy/raw prompt launchable when arguments are incomplete.
-    }
+    const resolvedPrompt = template
+      ? substituteArgs(agentConfig.prompt, job.defaultArgs)
+      : agentConfig.prompt;
     const prompt = buildJobPrompt(
       {
         ...job,

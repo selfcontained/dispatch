@@ -15,7 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { parseTemplateArgs } from "@/hooks/use-templates";
+import { parseTemplateArgs, templateArgDefaults } from "@/hooks/use-templates";
 import {
   useQuickPhrases,
   useQuickPhraseActions,
@@ -81,7 +81,7 @@ export function QuickPhrasesButton({
     (phrase: QuickPhrase) => {
       if (!canInject) return;
       setOpen(false);
-      setFilling({ phrase, argValues: {} });
+      setFilling({ phrase, argValues: templateArgDefaults(phrase.args) });
     },
     [canInject]
   );
@@ -134,7 +134,8 @@ export function QuickPhrasesButton({
 
   const fillingRequiredMissing =
     filling?.phrase.args.some(
-      (a) => a.required && !filling.argValues[a.key]?.trim()
+      (a) =>
+        Boolean(a.error) || (a.required && !filling.argValues[a.key]?.trim())
     ) ?? false;
 
   return (

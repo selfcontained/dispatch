@@ -323,6 +323,7 @@ export function TemplateConfigFields({
                   {a.name}
                   {a.required ? " *" : ""}
                   {a.multiline ? " (multiline)" : ""}
+                  {a.error ? ` — ${a.error}` : ""}
                 </span>
               ))}
             </div>

@@ -15,6 +15,7 @@ import type {
 } from "../../../server/src/templates/store";
 
 export type { TemplateArg };
+export { templateArgDefaults } from "../../../server/src/templates/arg-parser";
 
 export type Template = TemplateRecord;
 

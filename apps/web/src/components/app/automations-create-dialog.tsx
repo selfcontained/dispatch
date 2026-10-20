@@ -100,7 +100,9 @@ function CreateTemplateDialogContent({
           <code className="rounded bg-white/[0.08] px-1 text-xs">
             {"{{D:Arg Name|required|multiline}}"}
           </code>
-          .
+          . Prefill with <code>{"|default=main"}</code> or offer a dropdown with{" "}
+          <code>{"|options=dev,staging,production|default=staging"}</code>.
+          Modifiers work in any order.
         </DialogDescription>
       </DialogHeader>
 

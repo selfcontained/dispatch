@@ -110,9 +110,36 @@ export function AutomationsContent() {
           multiline field ("Review Focus").
         </P>
         <P>
+          Use <Code>{"{{D:Branch|default=main}}"}</Code> to prefill an editable
+          value, or{" "}
+          <Code>
+            {"{{D:Environment|options=dev,staging,production|default=staging}}"}
+          </Code>{" "}
+          for a dropdown. Options take precedence over multiline. Without a
+          default, dropdowns start blank; optional selections can be cleared.
+          Required values must be nonblank. Nonempty values and defaults must
+          match an offered choice.
+        </P>
+        <P>
+          Modifiers work in any order and their names ignore case. Values keep
+          case and internal spaces; surrounding whitespace is trimmed. Escape
+          delimiters with <Code>{String.raw`\|`}</Code>,{" "}
+          <Code>{String.raw`\,`}</Code>,<Code>{String.raw`\}`}</Code>, and{" "}
+          <Code>{String.raw`\\`}</Code>. Ordinary backslashes are preserved.
+        </P>
+        <P>
+          Inline defaults apply to omitted arguments on web, API, MCP, and
+          scheduled launches. Explicit values, including optional empty values,
+          override defaults. Scheduled defaultArgs take precedence over inline
+          defaults. MCP free text fills only one remaining variable without an
+          explicit argument or default; otherwise it appends to the prompt.
+        </P>
+        <P>
           If the same argument appears more than once, modifiers are merged.
           That means the argument is treated as required or multiline if any
-          occurrence uses that modifier.
+          occurrence uses that modifier. The first explicit default and options
+          are retained; repeated explicit declarations must agree. Quick phrases
+          support the same syntax.
         </P>
       </Section>
 
@@ -223,8 +250,8 @@ export function AutomationsContent() {
             and run and reminds the agent to drive the run to a terminal state.
             Required before a run can start. Unlike templates, jobs never
             collect arguments at run time — <Code>{"{{D:Arg Name}}"}</Code>{" "}
-            placeholders are only substituted from default values saved via the
-            API.
+            placeholders resolve inline defaults, with saved API defaultArgs
+            taking precedence.
           </li>
           <li>
             <strong>Self improve after each run</strong> — appends run-only
