@@ -80,6 +80,14 @@ export type EngineSpec = {
   args: string[];
   env: NodeJS.ProcessEnv;
   /**
+   * Lower-precedence than `env` and than the launch's own env: the driver
+   * object-spreads this first, so any own key the launch env already
+   * carries overrides it — any string value including `"0"`/`"false"`/`""`,
+   * and even an explicit `undefined` (spread copies key presence, not just
+   * truthiness).
+   */
+  envDefaults?: NodeJS.ProcessEnv;
+  /**
    * `system_prompt`: `session/new` and `session/resume` carry
    * `_meta.systemPrompt.append`. `first_prompt`: the guidance is the leading
    * block of the first non-command prompt after launch or resume (without
@@ -144,6 +152,11 @@ export function engineSpecFor(
           ...(fullAccess ? ["--dangerously-skip-permissions"] : []),
         ],
         env: { CLAUDE_CODE_EXECUTABLE: bin },
+        // Undocumented opt-in: the installed CLI gates its headless Artifact
+        // tools on this var regardless of `--settings enableArtifact`, so we
+        // default it on for every Claude launch. See
+        // https://github.com/anthropics/claude-code/issues/80606.
+        envDefaults: { CLAUDE_CODE_ARTIFACT: "1" },
         personaDelivery: "system_prompt",
         fullAccess: { kind: fullAccess ? "args" : "approval" },
         subagentTranscripts: true,

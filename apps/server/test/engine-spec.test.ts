@@ -35,6 +35,23 @@ describe("engineSpecFor", () => {
       "agent-full-access"
     );
   });
+
+  it("defaults CLAUDE_CODE_ARTIFACT on for claude only, as a default rather than a forced env", () => {
+    const bins = {
+      claudeBin: "/x/claude",
+      codexBin: "/x/codex",
+      opencodeBin: "/x/opencode",
+    };
+    expect(engineSpecFor("claude", bins).envDefaults).toEqual({
+      CLAUDE_CODE_ARTIFACT: "1",
+    });
+    // Not part of `env`: a session's explicit value must win over it.
+    expect(
+      engineSpecFor("claude", bins).env.CLAUDE_CODE_ARTIFACT
+    ).toBeUndefined();
+    expect(engineSpecFor("codex", bins).envDefaults).toBeUndefined();
+    expect(engineSpecFor("opencode", bins).envDefaults).toBeUndefined();
+  });
   it("always hands the adapter the launched engine's CLI as an absolute path", () => {
     vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", "");
     const bins = {
