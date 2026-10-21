@@ -3,6 +3,7 @@ import {
   lstat,
   mkdir,
   open,
+  readdir,
   realpath,
   rename,
   rm,
@@ -337,6 +338,66 @@ export class RecoveryStore {
     if (record.id !== id)
       throw new Error("Recovery transaction identity mismatch");
     return record;
+  }
+
+  /** The caller holds the instance OS lease and has finished normal startup.
+   * Keep phase receipts for restart gates/status, not historical backup payloads.
+   * Scan all transactions so upgrades also clear pre-existing completed points. */
+  async pruneCompleted(
+    instanceId: string,
+    cleanup?: (transaction: RecoveryTransaction) => Promise<void>
+  ): Promise<void> {
+    await RecoveryStore.checkDirectory(this.root);
+    await RecoveryStore.checkDirectory(path.join(this.root, "transactions"));
+    await RecoveryStore.checkDirectory(path.join(this.root, "points"));
+    let deferred = false;
+    for (const id of await readdir(path.join(this.root, "transactions"))) {
+      if (!idSchema.safeParse(id).success) continue;
+      let record: RecoveryTransaction;
+      try {
+        record = await this.read(id);
+      } catch {
+        // Unknown or unsafe control data is never a deletion instruction.
+        continue;
+      }
+      if (
+        record.instanceId !== instanceId ||
+        !["committed", "rolled-back", "aborted"].includes(record.phase)
+      )
+        continue;
+      try {
+        await this.locked(id, async () => {
+          const current = await this.read(id);
+          if (
+            current.instanceId !== instanceId ||
+            current.phase !== record.phase
+          )
+            throw new Error("Recovery cleanup identity changed");
+          await cleanup?.(current);
+          for (const directory of [
+            this.location("points", id),
+            this.location("points", id) + ".incomplete",
+          ]) {
+            try {
+              await RecoveryStore.checkDirectory(directory);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+              throw error;
+            }
+            await rm(directory, { recursive: true });
+          }
+          await syncDirectory(path.join(this.root, "points"));
+        });
+      } catch (error) {
+        // An abandoned mutation lock remains evidence, not permission to steal
+        // it. It must not prevent cleanup of other completed transactions.
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") deferred = true;
+      }
+    }
+    // Preserve unsafe entries, but finish scanning the rest of the backlog.
+    // Surface a generic failure so callers log deferral and retry next boot.
+    if (deferred)
+      throw new Error("Some completed recovery artifacts could not be removed");
   }
 
   /** Only the independent helper may reconcile a dead mutation writer, after

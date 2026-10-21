@@ -42,6 +42,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     /// Sparkle keeps a dismissed downloaded update in memory and later resumes it
     /// without `shouldProceedWithUpdate`; its staged journal is kept for that resume.
     private var resumableDownload = false
+    private var maintainingArtifacts = false
     private var withdrawal: StagedInstallerWithdrawal { StagedInstallerWithdrawal(bundleIdentifier: Bundle.main.bundleIdentifier ?? "") }
     /// Set while a remote install has turned on automatic updates; holds the setting to
     /// restore. Persisted so a crash or relaunch mid-install cannot leave it switched on.
@@ -49,7 +50,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     var onChange: (() -> Void)?
     var onError: ((String) -> Void)?
     var wasRunning: () -> Bool = { ServiceRuntime.read()?.isActive == true && ServiceRuntime.read()?.phase != "stopping" }
-    var controlsLocked: Bool { busy || handoff.active }
+    var controlsLocked: Bool { busy || handoff.active || maintainingArtifacts }
     var canCheck: Bool { !controlsLocked && !needsRecovery && updater?.canCheckForUpdates == true }
     var automatic: Bool { updater.automaticallyChecksForUpdates && updater.automaticallyDownloadsUpdates }
     var requiresTerminationHandoff: Bool { (handoff.active && !handoff.prepared) || ownedStagedJournal() != nil }
@@ -74,6 +75,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             }
             self.handoff.abort()
             self.releaseStaged("Cancelled by the user before installation.")
+            self.resumableDownload = false
+            self.scheduleArtifactMaintenance()
             self.clearDeferral(); self.restoreAutomatic()
         }
         userDriver.checkActivity = { [weak self] in
@@ -93,6 +96,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             restoreAutomatic()
             if let native = try nativeStore.read(), native.terminal, recovery == nil { try nativeStore.markHandoffHandled(native) }
             try await requireProtectedResume()
+            await maintainArtifacts()
             try startUpdater()
             prepareSnapshot()
         } catch { busy = false; fail(error) }
@@ -297,7 +301,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         onChange?()
     }
     func retry() async {
-        guard !busy else { return }
+        guard !busy, !maintainingArtifacts else { return }
         do {
             if handoff.active {
                 if await prepareTermination() { handoff.resume() }
@@ -309,6 +313,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             else if let native = try nativeStore.read(), native.terminal { try nativeStore.markHandoffHandled(native) }
             needsRecovery = false; remoteError = nil
             try await requireProtectedResume()
+            await maintainArtifacts()
             try startUpdater()
             onChange?()
         } catch { fail(error) }
@@ -324,6 +329,39 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         try updater.start()
         started = true
         onChange?()
+    }
+    private func scheduleArtifactMaintenance() {
+        Task { [weak self] in
+            // Cycle callbacks can run before Sparkle clears sessionInProgress. Give
+            // that completion time to run; never clean a resumable download.
+            for _ in 0..<50 {
+                guard let self else { return }
+                if !self.updater.sessionInProgress && !self.busy { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            await self?.maintainArtifacts()
+        }
+    }
+    private func maintainArtifacts() async {
+        guard !maintainingArtifacts, !busy, !handoff.active, !preparingSnapshot,
+              !resumableDownload, !updater.sessionInProgress else { return }
+        maintainingArtifacts = true; onChange?()
+        defer { maintainingArtifacts = false; onChange?() }
+        let store = nativeStore, probe = withdrawal
+        let identifier = Bundle.main.bundleIdentifier ?? ""
+        let result = await Task.detached(priority: .utility) { () -> String in
+            var results: [String] = []
+            do { results.append("history=\(try store.pruneHistory())") }
+            catch { results.append("history deferred: \(error.localizedDescription)") }
+            do {
+                let caches = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+                let cache = try SparkleInstallationCache(caches: caches, bundleIdentifier: identifier)
+                let installers = try cache.prune(installerAbsent: { !probe.staged() })
+                results.append("installers=\(installers)")
+            } catch { results.append("installers deferred: \(error.localizedDescription)") }
+            return "update artifact cleanup " + results.joined(separator: "; ")
+        }.value
+        log(result)
     }
     private func log(_ message: String) {
         let path = root.appendingPathComponent("app-update.log")
@@ -412,6 +450,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         }
         handoff.abort(); needsRecovery = false
         releaseStaged(message)
+        resumableDownload = false
+        scheduleArtifactMaintenance()
         unprotectedExtraction = false
         log("staged installer withdrawn retry=\(retry): \(message)")
         if retry {
@@ -647,6 +687,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         if !handoff.active && !resumableDownload { releaseStaged("Update cycle ended without a staged installer.") }
         // A deferred retry whose cycle ended without reaching the fence tries again later.
         if deferredNote != nil, deferralTask == nil, !handoff.active { scheduleDeferredRetry() }
+        scheduleArtifactMaintenance()
         onChange?()
     }
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock handler: @escaping () -> Void) -> Bool {

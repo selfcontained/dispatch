@@ -1,6 +1,8 @@
 import { randomUUID, createHash } from "node:crypto";
 import {
   chmod,
+  lstat,
+  symlink,
   mkdir,
   mkdtemp,
   readFile,
@@ -10,10 +12,12 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   assertLinuxRecoveryBoundary,
   prepareLinuxUpdate,
+  pruneLinuxRecovery,
+  cleanupLinuxAfterStartup,
 } from "../src/update-recovery/linux.js";
 import { RecoveryStore } from "../src/update-recovery/store.js";
 const roots: string[] = [];
@@ -172,4 +176,224 @@ it("surfaces aborted admission and only reports restarting after backup", async 
   await expect(
     observeLinuxHandoff(async () => ({ phase: "recovery-required" }))
   ).rejects.toThrow("inspection");
+});
+
+async function prepared(f: Awaited<ReturnType<typeof fixture>>) {
+  return prepareLinuxUpdate(f.config, f.candidate, "v2", "1", {
+    protocol: 1,
+    sha256: createHash("sha256").update("new").digest("hex"),
+  });
+}
+it("clears a pre-existing Linux backlog and preserves the active startup plan", async () => {
+  const f = await fixture();
+  const old = await prepared(f);
+  await f.store.transition(old.id, "preparing", "aborted");
+  const current = await prepared(f);
+  await f.store.transition(current.id, "preparing", "aborted");
+  for (const tx of [old, current]) {
+    const work = path.join(`${f.store.root}.staging`, tx.id);
+    await writeFile(path.join(work, "database.dump"), "backup", {
+      mode: 0o600,
+    });
+    const point = path.join(f.store.root, "points", tx.id + ".incomplete");
+    await mkdir(point, { mode: 0o700 });
+    await writeFile(path.join(point, "dump"), "backup", { mode: 0o600 });
+  }
+  const failed = `${f.installation.stateRoot}.failed-${old.id}`;
+  await mkdir(failed, { mode: 0o700 });
+  await writeFile(path.join(failed, "old-state"), "failed state");
+  const partial = `${f.installation.stateRoot}.restore-${old.id}-${randomUUID()}`;
+  await mkdir(partial, { mode: 0o700 });
+  await writeFile(path.join(partial, "duplicate"), "partial restore");
+  const marker = `${f.installation.stateRoot}.restored-${old.id}`;
+  await writeFile(marker, JSON.stringify({ transactionId: old.id }), {
+    mode: 0o600,
+  });
+  await expect(
+    pruneLinuxRecovery(f.config, async () => {
+      throw new Error("no lease");
+    })
+  ).rejects.toThrow("no lease");
+  expect(
+    await readFile(
+      path.join(`${f.store.root}.staging`, old.id, "database.dump"),
+      "utf8"
+    )
+  ).toBe("backup");
+  await pruneLinuxRecovery(f.config, async () => {});
+  await expect(
+    lstat(path.join(`${f.store.root}.staging`, old.id))
+  ).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(lstat(failed)).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(lstat(partial)).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(lstat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  for (const tx of [old, current]) {
+    await expect(
+      lstat(path.join(f.store.root, "points", tx.id + ".incomplete"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  }
+  const plan = JSON.parse(
+    await readFile(
+      path.join(`${f.store.root}.staging`, current.id, "plan.json"),
+      "utf8"
+    )
+  );
+  expect(plan.id).toBe(current.id);
+  await expect(lstat(plan.candidate)).rejects.toMatchObject({ code: "ENOENT" });
+  expect((await f.store.read(current.id)).phase).toBe("aborted");
+  expect(await readFile(f.runtime, "utf8")).toBe("old");
+  await pruneLinuxRecovery(f.config, async () => {});
+});
+
+it("cleans older completed updates while preserving an unfinished active update", async () => {
+  const f = await fixture();
+  const old = await prepared(f);
+  await f.store.transition(old.id, "preparing", "aborted");
+  const pending = await prepared(f);
+  await pruneLinuxRecovery(f.config, async () => {});
+  await expect(
+    lstat(path.join(`${f.store.root}.staging`, old.id))
+  ).rejects.toMatchObject({ code: "ENOENT" });
+  expect(
+    await readFile(
+      path.join(`${f.store.root}.staging`, pending.id, "candidate"),
+      "utf8"
+    )
+  ).toBe("new");
+  expect((await f.store.read(pending.id)).phase).toBe("preparing");
+});
+
+it("rejects a substituted staging root without deleting the target", async () => {
+  const f = await fixture();
+  const tx = await prepared(f);
+  await f.store.transition(tx.id, "preparing", "aborted");
+  const staging = `${f.store.root}.staging`;
+  await rm(staging, { recursive: true });
+  const outside = path.join(f.root, "outside");
+  await mkdir(outside, { mode: 0o700 });
+  await writeFile(path.join(outside, "keep"), "keep");
+  await symlink(outside, staging);
+  await expect(pruneLinuxRecovery(f.config, async () => {})).rejects.toThrow(
+    "owned, unlinked"
+  );
+  expect(await readFile(path.join(outside, "keep"), "utf8")).toBe("keep");
+});
+
+it("uses the new runtime to clean older-helper backlogs after normal startup", async () => {
+  const f = await fixture();
+  await prepared(f);
+  let attempts = 0;
+  const run = vi.fn(async () => (++attempts === 1 ? 75 : 0));
+  const sleep = vi.fn(async () => {});
+  await cleanupLinuxAfterStartup({
+    platform: "linux",
+    executable: f.runtime,
+    env: { DISPATCH_STATE_DIR: f.installation.stateRoot },
+    run,
+    sleep,
+  });
+  expect(run).toHaveBeenCalledTimes(2);
+  expect(run).toHaveBeenCalledWith("flock", [
+    "--nonblock",
+    "--conflict-exit-code",
+    "75",
+    path.join(f.store.root, "instance.lock"),
+    f.runtime,
+    "recovery-prune",
+    f.config,
+  ]);
+  expect(sleep).toHaveBeenCalledOnce();
+});
+
+it("skips startup cleanup on trials and unenrolled or non-Linux servers", async () => {
+  const f = await fixture();
+  const run = vi.fn(async () => 0);
+  for (const options of [
+    {
+      platform: "darwin",
+      env: { DISPATCH_STATE_DIR: f.installation.stateRoot },
+    },
+    {
+      platform: "linux",
+      env: {
+        DISPATCH_STATE_DIR: f.installation.stateRoot,
+        DISPATCH_RECOVERY_PROBATION: "1",
+      },
+    },
+    { platform: "linux", env: {} },
+    {
+      platform: "linux",
+      executable: "/usr/bin/bun",
+      env: { DISPATCH_STATE_DIR: f.installation.stateRoot },
+    },
+    {
+      platform: "linux",
+      env: { DISPATCH_STATE_DIR: path.join(f.root, "unenrolled") },
+    },
+  ])
+    await cleanupLinuxAfterStartup({ ...options, run });
+  expect(run).not.toHaveBeenCalled();
+  // An enrolled instance before its first update has no active transaction.
+  await expect(
+    pruneLinuxRecovery(f.config, async () => {})
+  ).resolves.toBeUndefined();
+});
+
+it("cleans installer-mode 0755 displaced state and preserves unsafe entries without blocking the backlog", async () => {
+  const f = await fixture();
+  await chmod(f.installation.stateRoot, 0o755);
+  const unsafe = await prepared(f);
+  await f.store.transition(unsafe.id, "preparing", "aborted");
+  const outside = path.join(f.root, "outside-state");
+  await mkdir(outside, { mode: 0o755 });
+  await writeFile(path.join(outside, "keep"), "unrelated");
+  await symlink(outside, `${f.installation.stateRoot}.failed-${unsafe.id}`);
+  const old = await prepared(f);
+  await f.store.transition(old.id, "preparing", "aborted");
+  const current = await prepared(f);
+  await f.store.transition(current.id, "preparing", "aborted");
+  for (const tx of [unsafe, old, current]) {
+    const point = path.join(f.store.root, "points", tx.id + ".incomplete");
+    await mkdir(point, { mode: 0o700 });
+    await writeFile(path.join(point, "dump"), "backup");
+  }
+  const displaced: string[] = [];
+  for (const tx of [old, current]) {
+    const failed = `${f.installation.stateRoot}.failed-${tx.id}`;
+    const partial = `${f.installation.stateRoot}.restore-${tx.id}-${randomUUID()}`;
+    for (const directory of [failed, partial]) {
+      await mkdir(directory, { mode: 0o755 });
+      await chmod(directory, 0o755);
+      await writeFile(path.join(directory, "snapshot"), "state");
+      displaced.push(directory);
+    }
+  }
+  await expect(pruneLinuxRecovery(f.config, async () => {})).rejects.toThrow(
+    "Some completed recovery artifacts"
+  );
+  for (const directory of displaced)
+    await expect(lstat(directory)).rejects.toMatchObject({ code: "ENOENT" });
+  for (const tx of [old, current])
+    await expect(
+      lstat(path.join(f.store.root, "points", tx.id + ".incomplete"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(path.join(outside, "keep"), "utf8")).toBe("unrelated");
+  expect(
+    (
+      await lstat(`${f.installation.stateRoot}.failed-${unsafe.id}`)
+    ).isSymbolicLink()
+  ).toBe(true);
+  expect(
+    (
+      await lstat(path.join(f.store.root, "points", unsafe.id + ".incomplete"))
+    ).isDirectory()
+  ).toBe(true);
+  expect(
+    JSON.parse(
+      await readFile(
+        path.join(`${f.store.root}.staging`, current.id, "plan.json"),
+        "utf8"
+      )
+    ).id
+  ).toBe(current.id);
 });

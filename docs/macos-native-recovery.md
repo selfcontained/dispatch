@@ -21,8 +21,23 @@ The recovery directory contains the atomic fsynced `journal.json`, transaction
 snapshots (`previous.app`, `state`, `manifest.json`), process-identity receipts,
 and quarantine evidence. Failed app bundles remain next to the installed app,
 with a transaction-specific suffix; failed state remains in the recovery
-directory. Snapshots are not pruned automatically. Insufficient capacity blocks
-installation rather than deleting recovery evidence.
+directory while restoration is unfinished. Recovery copies are temporary: once a
+transaction is committed, rolled back, or safely aborted and its service handoff
+is handled, the menu removes its app/state backups and displaced failed copies.
+It also removes older terminal transactions for the same instance and app. The
+current journal, quarantine receipt, unfinished transactions, and unrecognized
+files remain. There is no historical rollback archive. Insufficient capacity still
+blocks installation rather than deleting an unfinished recovery point.
+
+The menu also cleans Sparkle's `Installation` cache at startup and after completed
+or cancelled update cycles. This covers leftovers from withdrawing an installer
+with `launchctl bootout`, which can bypass Sparkle's normal workspace cleanup.
+Cleanup runs off the main thread, only while the updater is idle with no resumable
+download, and only after both user and system launchd domains prove the installer
+and progress jobs absent. Unknown launchctl results preserve the files. The
+`PersistentDownloads` cache is untouched. One preparatory app snapshot can remain
+in `app-snapshot` for the next attempt; it is reused or replaced for the running
+build, rather than accumulated per update.
 
 The helper owns probation, commit, and restoration. Native service and worker
 entry points consult the external journal before opening PostgreSQL. Only the

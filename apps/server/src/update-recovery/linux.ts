@@ -9,6 +9,8 @@ import {
   mkdtemp,
   open,
   readFile,
+  readdir,
+  realpath,
   rename,
   rm,
 } from "node:fs/promises";
@@ -785,6 +787,100 @@ export async function runLinuxRecovery(
     await coordinator.resume(id);
   } else if (resume) await coordinator.resume(id);
   else await coordinator.apply(id);
+  // Outside coordinator rollback handling: cleanup failure must never undo a
+  // committed update or turn a successful restore back into recovery-required.
+  if (!boot)
+    await pruneLinuxRecovery(config).catch(() => {
+      console.error(
+        "Completed update artifact cleanup deferred until the next startup."
+      );
+    });
+}
+
+/** Runs under the helper's instance lease, including on ordinary boot. Terminal
+ * transactions never read their backup again. Keep the active plan because the
+ * next ExecStartPre still loads it before deciding that no trial is necessary. */
+export async function pruneLinuxRecovery(
+  config: string,
+  assertLease: (root: string) => Promise<void> = assertLinuxLease
+): Promise<void> {
+  const { installation, store } = await load(config);
+  await assertLease(store.root);
+  const activeFile = await readPrivate(
+    path.join(store.root, "active.json")
+  ).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!activeFile) return;
+  const active = z
+    .object({ id: z.string().uuid() })
+    .strict()
+    .parse(JSON.parse(activeFile)).id;
+  const staging = `${store.root}.staging`;
+  const ownedDirectory = async (
+    directory: string,
+    privateControl = true
+  ): Promise<boolean> => {
+    const info = await lstat(directory).catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (!info) return false;
+    if (
+      !info.isDirectory() ||
+      (privateControl && (info.mode & 0o077) !== 0) ||
+      (process.getuid && info.uid !== process.getuid())
+    )
+      throw new Error(
+        "Recovery cleanup requires owned, unlinked directories with appropriate permissions"
+      );
+    return true;
+  };
+  // Never follow a substituted staging root, even if the transaction is terminal.
+  const hasStaging = await ownedDirectory(staging);
+  const stateParent = path.dirname(installation.stateRoot);
+  if ((await realpath(stateParent)) !== stateParent)
+    throw new Error("Recovery state parent must not be linked");
+  await store.pruneCompleted(installation.instanceId, async (tx) => {
+    const failed = `${installation.stateRoot}.failed-${tx.id}`;
+    // State roots keep their inventoried modes (commonly 0755 from the
+    // installer). They are owned filesystem data, not private control roots.
+    if (await ownedDirectory(failed, false))
+      await rm(failed, { recursive: true });
+    const restorePrefix = `${path.basename(installation.stateRoot)}.restore-${tx.id}-`;
+    for (const name of await readdir(stateParent)) {
+      if (
+        !name.startsWith(restorePrefix) ||
+        !z.string().uuid().safeParse(name.slice(restorePrefix.length)).success
+      )
+        continue;
+      const partial = path.join(stateParent, name);
+      if (await ownedDirectory(partial, false))
+        await rm(partial, { recursive: true });
+    }
+    const marker = `${installation.stateRoot}.restored-${tx.id}`;
+    const receipt = await readPrivate(marker).catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (receipt) {
+      if (JSON.parse(receipt).transactionId !== tx.id)
+        throw new Error("Restore receipt identity mismatch");
+      await rm(marker);
+    }
+    if (hasStaging) {
+      const work = path.join(staging, tx.id);
+      if (await ownedDirectory(work)) {
+        if (tx.id !== active) await rm(work, { recursive: true });
+        else
+          for (const name of await readdir(work)) {
+            if (name !== "plan.json")
+              await rm(path.join(work, name), { recursive: true, force: true });
+          }
+      }
+    }
+  });
 }
 
 async function assertLinuxLease(root: string): Promise<void> {
@@ -817,6 +913,63 @@ async function assertLinuxLease(root: string): Promise<void> {
     throw new Error(
       "Independent recovery helper does not hold the instance OS lease"
     );
+}
+
+/** Existing installations retain an older recovery helper. Run maintenance using
+ * the newly installed runtime, after normal server readiness, without replacing
+ * that helper or changing its startup gate. Never run during a fenced trial. */
+export async function cleanupLinuxAfterStartup(
+  options: {
+    platform?: string;
+    executable?: string;
+    env?: NodeJS.ProcessEnv;
+    run?: typeof command;
+    sleep?: (ms: number) => Promise<void>;
+  } = {}
+): Promise<void> {
+  const env = options.env ?? process.env;
+  if (
+    (options.platform ?? process.platform) !== "linux" ||
+    env.DISPATCH_RECOVERY_PROBATION === "1" ||
+    !env.DISPATCH_STATE_DIR
+  )
+    return;
+  if (!path.isAbsolute(env.DISPATCH_STATE_DIR)) return;
+  const config = path.join(
+    `${env.DISPATCH_STATE_DIR}.recovery`,
+    "installation.json"
+  );
+  const loaded = await load(config).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!loaded) return; // Unenrolled servers have no owned recovery history.
+  // A dev server can inherit the installed instance's environment. Only the
+  // enrolled executable itself may request maintenance of that instance.
+  const executable = await realpath(
+    options.executable ?? process.execPath
+  ).catch(() => null);
+  if (executable !== (await realpath(loaded.installation.runtime))) return;
+  const run = options.run ?? command;
+  const sleep =
+    options.sleep ??
+    ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const status = await run("flock", [
+      "--nonblock",
+      "--conflict-exit-code",
+      "75",
+      path.join(loaded.store.root, "instance.lock"),
+      loaded.installation.runtime,
+      "recovery-prune",
+      config,
+    ]);
+    if (status === 0) return;
+    if (status !== 75) throw new Error("Recovery cleanup did not complete");
+    // The previous helper may still be waiting for systemctl restart to return.
+    await sleep(1000);
+  }
+  throw new Error("Recovery cleanup lease is still held");
 }
 
 /** Permanent service entrypoint. Before a normal start, acquire the same OS

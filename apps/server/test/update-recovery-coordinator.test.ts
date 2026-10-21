@@ -173,3 +173,17 @@ it("rolls back a reboot during probation before admitting normal work", async ()
   ]);
   expect(f.effects.proveReady).not.toHaveBeenCalled();
 });
+
+it("terminal restart never reads a removed checkpoint", async () => {
+  const f = await fixture();
+  await f.coordinator.apply(f.transaction.id);
+  await f.store.pruneCompleted(f.transaction.instanceId);
+  await expect(f.store.verify(f.transaction.id)).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+  await expect(f.coordinator.resume(f.transaction.id)).resolves.toMatchObject({
+    phase: "committed",
+  });
+  expect(f.effects.startNormal).toHaveBeenCalledTimes(2);
+  expect(f.effects.restore).not.toHaveBeenCalled();
+});
