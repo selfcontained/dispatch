@@ -256,10 +256,10 @@ test.describe("Changes viewport rendering", () => {
       { waitUntil: "domcontentloaded" }
     );
     const target = page.getByTestId(`changes-file-section:${path}`);
-    const add = async (text: string) => {
+    const add = async (text: string, line = 1050) => {
       await page.getByTestId("changes-start-review").click();
       await target
-        .locator('.diff-gutter[data-change-key="I1050"]')
+        .locator(`.diff-gutter[data-change-key="I${line}"]`)
         .first()
         .click();
       await target.locator(".changes-diff-view > button").click();
@@ -275,11 +275,14 @@ test.describe("Changes viewport rendering", () => {
     };
     await add("First review comment");
     await edit("Discarded unsaved edit");
+    await page.getByTitle("src/large/file-000.ts", { exact: true }).click();
+    await expect(target.locator("table.diff")).toHaveCount(0);
     await page
       .getByRole("button", { name: "Cancel review", exact: true })
       .click();
     await page.getByRole("button", { name: "Discard", exact: true }).click();
-    await add("Fresh review comment");
+    await page.getByTitle(path, { exact: true }).click();
+    await add("Fresh review comment", 1051);
     await expect(target.locator("textarea")).toHaveCount(0);
     await expect(
       target.getByText("Fresh review comment", { exact: true })
@@ -290,13 +293,16 @@ test.describe("Changes viewport rendering", () => {
       target.getByText("Fresh edited review comment", { exact: true })
     ).toBeVisible();
     await edit("Removed unsaved edit");
+    await page.getByTitle("src/large/file-000.ts", { exact: true }).click();
+    await expect(target.locator("table.diff")).toHaveCount(0);
     await page.getByTestId("review-mode-submit").click();
     await page
       .getByRole("button", { name: "Remove comment", exact: true })
       .click();
     await page.keyboard.press("Escape");
     await expect(target.locator("textarea")).toHaveCount(0);
-    await add("After removal");
+    await page.getByTitle(path, { exact: true }).click();
+    await add("After removal", 1052);
     await expect(
       target.getByText("After removal", { exact: true })
     ).toBeVisible();

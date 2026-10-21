@@ -316,8 +316,34 @@ afterEach(() => {
 });
 
 describe("ChangesTab", () => {
-  it("evicts removed and discarded draft buffers before draft IDs can be reused", async () => {
-    renderTab();
+  it("evicts offscreen removed/discarded draft buffers before IDs are reused on a different line", async () => {
+    const visibility = new Map<Element, (visible: boolean) => void>();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(private callback: IntersectionObserverCallback) {}
+        observe(el: Element) {
+          visibility.set(el, (visible) =>
+            this.callback(
+              [
+                {
+                  target: el,
+                  isIntersecting: visible,
+                } as IntersectionObserverEntry,
+              ],
+              {} as IntersectionObserver
+            )
+          );
+        }
+        disconnect() {}
+      }
+    );
+    const { store } = renderTab();
+    const section = await screen.findByTestId(
+      "changes-file-section:src/app.ts"
+    );
+    await waitFor(() => expect(visibility.has(section)).toBe(true));
+    act(() => visibility.get(section)!(true));
     await waitForFile("src/app.ts");
     callDiffViewProp("src/app.ts", "onStartReview");
     callDiffViewProp("src/app.ts", "onAddDraft", "src/app.ts", 2, 3, "first");
@@ -328,6 +354,8 @@ describe("ChangesTab", () => {
     buffers.set("new:2:3", "unsaved new comment");
     buffers.set("draft:draft-0:editing", true);
     buffers.set("draft:draft-0:text", "stale edit");
+    act(() => visibility.get(section)!(false));
+    expect(screen.queryByTestId("diff-view:src/app.ts")).toBeNull();
     callDiffViewProp("src/app.ts", "onRemoveDraft", "draft-0");
     expect(buffers.has("draft:draft-0:editing")).toBe(false);
     expect(buffers.has("draft:draft-0:text")).toBe(false);
@@ -344,10 +372,16 @@ describe("ChangesTab", () => {
       "src/app.ts",
       "onAddDraft",
       "src/app.ts",
-      2,
-      3,
+      4,
+      4,
       "new review"
     );
+    expect(store.get(reviewDraftAtomFamily(AGENT_ID)).drafts[0]).toMatchObject({
+      id: "draft-0",
+      startLine: 4,
+    });
+    act(() => visibility.get(section)!(true));
+    await waitForFile("src/app.ts");
     expect(
       screen.getByTestId("diff-view:src/app.ts").getAttribute("data-drafts")
     ).toBe("draft-0");
