@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import {
   MessageSquarePlus,
   MoreHorizontal,
@@ -6,6 +6,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { useDiffEditorState } from "@/components/app/diff-editor-state";
 import type { PersistedDraftComment } from "@/lib/store";
 import { stickyAnnotationStyle } from "@/components/app/diff-annotation-style";
 import {
@@ -24,15 +25,21 @@ export function InlineDraftAnnotation({
   onRemove?: (id: string) => void;
   onUpdate?: (id: string, comment: string) => void;
 }): JSX.Element {
-  const [editing, setEditing] = useState(false);
-  const [editValue, setEditValue] = useState(draft.comment);
+  const [editing, setEditing] = useDiffEditorState<boolean>(
+    `draft:${draft.id}:editing`,
+    false
+  );
+  const [editValue, setEditValue] = useDiffEditorState(
+    `draft:${draft.id}:text`,
+    draft.comment
+  );
 
   const handleSave = useCallback(() => {
     if (editValue.trim() && onUpdate) {
       onUpdate(draft.id, editValue.trim());
     }
     setEditing(false);
-  }, [draft.id, editValue, onUpdate]);
+  }, [draft.id, editValue, onUpdate, setEditing]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -46,7 +53,7 @@ export function InlineDraftAnnotation({
         setEditing(false);
       }
     },
-    [handleSave, draft.comment]
+    [handleSave, draft.comment, setEditValue, setEditing]
   );
 
   const lineLabel =

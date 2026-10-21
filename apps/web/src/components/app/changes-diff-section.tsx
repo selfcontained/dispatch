@@ -1,4 +1,12 @@
-import { useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -9,11 +17,11 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
 
 import { useAgentFileDiff, type DiffFile } from "@/hooks/use-agent-diff";
-import type { DiffViewType } from "@/lib/store";
+import type { DiffViewState, DiffViewType } from "@/lib/store";
 import type { DiffReviewAnnotationProps } from "@/components/app/diff-review-annotation-props";
+import { DiffEditorStateContext } from "@/components/app/diff-editor-state";
 import { DiffImageView } from "@/components/app/diff-image-view";
 import { UnifiedDiffView } from "@/components/app/unified-diff-view";
 import { type LineSelection } from "@/components/app/unified-diff-utils";
@@ -48,6 +56,7 @@ type DiffPaneProps = DiffReviewAnnotationProps & {
   ignoreWhitespace: boolean;
   scrollRef: React.RefObject<HTMLDivElement>;
   onScroll: () => void;
+  initialScrollPosition: DiffViewState;
 };
 
 export function DiffPane({
@@ -64,6 +73,7 @@ export function DiffPane({
   ignoreWhitespace,
   scrollRef,
   onScroll,
+  initialScrollPosition,
   reviewMode,
   draftComments,
   onAddDraft,
@@ -72,6 +82,43 @@ export function DiffPane({
   onStartReview,
   findings,
 }: DiffPaneProps): JSX.Element {
+  const [paneWidth, setPaneWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const pane = scrollRef.current;
+    if (!pane) return;
+    const measure = () => setPaneWidth(pane.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [scrollRef]);
+
+  const restored = useRef(false);
+  useLayoutEffect(() => {
+    const pane = scrollRef.current;
+    if (!pane || paneWidth === null || restored.current) return;
+    const anchor = initialScrollPosition.scrollAnchor;
+    const section = anchor && fileRefs.current?.get(anchor.path);
+    if (section) {
+      pane.scrollTop +=
+        section.getBoundingClientRect().top -
+        pane.getBoundingClientRect().top +
+        anchor.offset;
+    } else {
+      pane.scrollTop = initialScrollPosition.scrollTop;
+    }
+    restored.current = true;
+  }, [paneWidth, initialScrollPosition, scrollRef, fileRefs]);
+
+  const commentsByFile = useMemo(() => {
+    const grouped = new Map<string, NonNullable<typeof draftComments>>();
+    for (const comment of draftComments ?? []) {
+      const group = grouped.get(comment.filePath) ?? [];
+      group.push(comment);
+      grouped.set(comment.filePath, group);
+    }
+    return grouped;
+  }, [draftComments]);
   return (
     <div
       ref={scrollRef}
@@ -85,22 +132,20 @@ export function DiffPane({
           agentId={agentId}
           file={file}
           collapsed={collapsedFiles.has(file.path)}
-          onToggleCollapse={() => onToggleCollapse(file.path)}
-          setRef={(el) => {
-            if (el) {
-              fileRefs.current?.set(file.path, el);
-            } else {
-              fileRefs.current?.delete(file.path);
-            }
-          }}
-          lineSelection={lineSelection}
+          onToggleCollapse={onToggleCollapse}
+          fileRefs={fileRefs}
+          scrollRef={scrollRef}
+          paneWidth={paneWidth}
+          lineSelection={
+            lineSelection?.filePath === file.path ? lineSelection : null
+          }
           onLineSelection={onLineSelection}
-          commentOpen={commentOpen}
+          commentOpen={lineSelection?.filePath === file.path && commentOpen}
           onCommentOpen={onCommentOpen}
           viewType={viewType}
           ignoreWhitespace={ignoreWhitespace}
           reviewMode={reviewMode}
-          draftComments={draftComments?.filter((d) => d.filePath === file.path)}
+          draftComments={commentsByFile.get(file.path)}
           onAddDraft={onAddDraft}
           onRemoveDraft={onRemoveDraft}
           onUpdateDraft={onUpdateDraft}
@@ -116,8 +161,10 @@ type FileDiffSectionProps = DiffReviewAnnotationProps & {
   agentId: string | null;
   file: DiffFile;
   collapsed: boolean;
-  onToggleCollapse: () => void;
-  setRef: (el: HTMLDivElement | null) => void;
+  onToggleCollapse: (path: string) => void;
+  fileRefs: DiffPaneProps["fileRefs"];
+  scrollRef: DiffPaneProps["scrollRef"];
+  paneWidth: number | null;
   lineSelection: LineSelection | null;
   onLineSelection: (sel: LineSelection | null) => void;
   commentOpen: boolean;
@@ -126,12 +173,17 @@ type FileDiffSectionProps = DiffReviewAnnotationProps & {
   ignoreWhitespace: boolean;
 };
 
-function FileDiffSection({
+// Measurements follow the cached query's file objects without retaining old diffs.
+const contentHeights = new WeakMap<DiffFile, Map<string, number>>();
+
+const FileDiffSection = memo(function FileDiffSection({
   agentId,
   file,
   collapsed,
   onToggleCollapse,
-  setRef,
+  fileRefs,
+  scrollRef,
+  paneWidth,
   lineSelection,
   onLineSelection,
   commentOpen,
@@ -146,6 +198,74 @@ function FileDiffSection({
   onStartReview,
   findings,
 }: FileDiffSectionProps): JSX.Element {
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const editorBuffers = useRef(new Map<string, unknown>());
+  useLayoutEffect(() => {
+    const liveKeys = new Set(
+      (draftComments ?? []).flatMap((draft) => [
+        `draft:${draft.id}:text`,
+        `draft:${draft.id}:editing`,
+      ])
+    );
+    for (const key of editorBuffers.current.keys()) {
+      if (key.startsWith("draft:") && !liveKeys.has(key))
+        editorBuffers.current.delete(key);
+    }
+  }, [draftComments]);
+  const [nearViewport, setNearViewport] = useState(
+    typeof IntersectionObserver === "undefined"
+  );
+  const [forceLoad, setForceLoad] = useState(false);
+  const measurementKey = `${viewType}:${ignoreWhitespace}:${paneWidth}`;
+  const estimate = useMemo(
+    () =>
+      file.diff && !file.truncated && !file.image
+        ? Math.max(36, (file.diff.split("\n").length - 5) * 18)
+        : 160,
+    [file]
+  );
+  const heightRef = useRef(estimate);
+  heightRef.current = contentHeights.get(file)?.get(measurementKey) ?? estimate;
+  const setRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      sectionRef.current = el;
+      if (el) fileRefs.current?.set(file.path, el);
+      else fileRefs.current?.delete(file.path);
+    },
+    [file.path, fileRefs]
+  );
+
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry) setNearViewport(entry.isIntersecting);
+      },
+      { root: scrollRef.current, rootMargin: "600px 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [scrollRef]);
+
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const measure = () => {
+      const height = el.getBoundingClientRect().height;
+      if (!height) return; // A hidden tab has no layout; retain its last measurement.
+      heightRef.current = height;
+      let heights = contentHeights.get(file);
+      if (!heights) contentHeights.set(file, (heights = new Map()));
+      heights.set(measurementKey, height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [file, measurementKey, nearViewport, collapsed]);
+
   return (
     <div
       ref={setRef}
@@ -155,7 +275,7 @@ function FileDiffSection({
       <button
         type="button"
         className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-background/95 backdrop-blur-sm px-3 py-2 text-left text-xs hover:bg-muted/60"
-        onClick={onToggleCollapse}
+        onClick={() => onToggleCollapse(file.path)}
       >
         {collapsed ? (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -181,41 +301,41 @@ function FileDiffSection({
           ) : null}
         </span>
       </button>
-      <AnimatePresence initial={false}>
-        {!collapsed && (
-          <motion.div
-            key="content"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <FileDiffContent
-              agentId={agentId}
-              file={file}
-              lineSelection={lineSelection}
-              onLineSelection={onLineSelection}
-              commentOpen={commentOpen}
-              onCommentOpen={onCommentOpen}
-              viewType={viewType}
-              ignoreWhitespace={ignoreWhitespace}
-              reviewMode={reviewMode}
-              draftComments={draftComments}
-              onAddDraft={onAddDraft}
-              onRemoveDraft={onRemoveDraft}
-              onUpdateDraft={onUpdateDraft}
-              onStartReview={onStartReview}
-              findings={findings}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <DiffEditorStateContext.Provider value={editorBuffers.current}>
+        {!collapsed &&
+          (nearViewport ? (
+            <div ref={contentRef}>
+              <FileDiffContent
+                agentId={agentId}
+                file={file}
+                forceLoad={forceLoad}
+                onForceLoad={() => setForceLoad(true)}
+                lineSelection={lineSelection}
+                onLineSelection={onLineSelection}
+                commentOpen={commentOpen}
+                onCommentOpen={onCommentOpen}
+                viewType={viewType}
+                ignoreWhitespace={ignoreWhitespace}
+                reviewMode={reviewMode}
+                draftComments={draftComments}
+                onAddDraft={onAddDraft}
+                onRemoveDraft={onRemoveDraft}
+                onUpdateDraft={onUpdateDraft}
+                onStartReview={onStartReview}
+                findings={findings}
+              />
+            </div>
+          ) : (
+            <div aria-hidden="true" style={{ height: heightRef.current }} />
+          ))}
+      </DiffEditorStateContext.Provider>
     </div>
   );
-}
+});
 
 type FileDiffContentProps = DiffReviewAnnotationProps & {
+  forceLoad: boolean;
+  onForceLoad: () => void;
   agentId: string | null;
   file: DiffFile;
   lineSelection: LineSelection | null;
@@ -227,6 +347,8 @@ type FileDiffContentProps = DiffReviewAnnotationProps & {
 };
 
 function FileDiffContent({
+  forceLoad,
+  onForceLoad,
   agentId,
   file,
   lineSelection,
@@ -243,7 +365,6 @@ function FileDiffContent({
   onStartReview,
   findings,
 }: FileDiffContentProps): JSX.Element {
-  const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
     agentId,
     file.path,
@@ -267,7 +388,7 @@ function FileDiffContent({
         <button
           type="button"
           className="rounded border border-border px-2 py-0.5 text-xs text-foreground hover:bg-muted/40"
-          onClick={() => setForceLoad(true)}
+          onClick={onForceLoad}
         >
           Load diff
         </button>
