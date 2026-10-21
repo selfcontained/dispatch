@@ -668,33 +668,35 @@ export function AgentsView({
               )}
             />
           </DrawerFrame>
-          <Drawer
-            drawerOpen={drawerOpen && hasActiveAgent && !threadDrawerOpen}
-            files={visibleFiles}
-            selectedAgentId={focusedAgentId}
-            selectedAgentName={focusedAgent?.name ?? null}
-            subAgentFiles={subAgentFiles}
-            ownFiles={files}
-            filesOwnerId={filesOwnerId}
-            onFilesOwnerChange={setFilesOwnerId}
-            animatingFileKeys={animatingFileKeys}
-            unseenFileCount={unseenFileCount}
-            drawerViewportRef={drawerViewportRef}
-            setDrawerOpen={setDrawerOpen}
-            activeTab={drawerActiveTab}
-            setActiveTab={setDrawerActiveTab}
-            pinned={drawerPinned}
-            onTogglePin={toggleDrawerPinned}
-            pinnedReserve={pinnedReserve}
-            hasStream={focusedAgentHasStream}
-            streamUrl={focusedAgentStreamUrl}
-            openLightbox={openLightbox}
-            onUploadFile={uploadFile}
-            inbox={inbox}
-            inboxDisabledReason={inboxDisabledReason}
-            agentNameById={agentNameById}
-            onOpenBlock={handleOpenBlock}
-          />
+          {!isMobile ? (
+            <Drawer
+              drawerOpen={drawerOpen && hasActiveAgent && !threadDrawerOpen}
+              files={visibleFiles}
+              selectedAgentId={focusedAgentId}
+              selectedAgentName={focusedAgent?.name ?? null}
+              subAgentFiles={subAgentFiles}
+              ownFiles={files}
+              filesOwnerId={filesOwnerId}
+              onFilesOwnerChange={setFilesOwnerId}
+              animatingFileKeys={animatingFileKeys}
+              unseenFileCount={unseenFileCount}
+              drawerViewportRef={drawerViewportRef}
+              setDrawerOpen={setDrawerOpen}
+              activeTab={drawerActiveTab}
+              setActiveTab={setDrawerActiveTab}
+              pinned={drawerPinned}
+              onTogglePin={toggleDrawerPinned}
+              pinnedReserve={pinnedReserve}
+              hasStream={focusedAgentHasStream}
+              streamUrl={focusedAgentStreamUrl}
+              openLightbox={openLightbox}
+              onUploadFile={uploadFile}
+              inbox={inbox}
+              inboxDisabledReason={inboxDisabledReason}
+              agentNameById={agentNameById}
+              onOpenBlock={handleOpenBlock}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -733,6 +735,7 @@ export function AgentsView({
           label="Drawer"
         >
           <DrawerContent
+            visible={mobileDrawerOpen && !threadDrawerOpen}
             files={visibleFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}

@@ -124,6 +124,7 @@ export default defineConfig({
           ],
         },
         workbox: {
+          globIgnores: ["**/terminal-*.js", "**/terminal-*.css"],
           // Do not cache API traffic by default; this app is realtime-oriented.
           navigateFallbackDenylist: [/^\/api\//, /^\/trust(?:\/|$)/],
           // Bundle has grown past the 2 MiB workbox default; bump to 4 MiB
@@ -160,5 +161,16 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes("node_modules/@xterm/") ||
+            id.includes("node_modules/.pnpm/@xterm")
+          )
+            return "terminal-vendor";
+        },
+      },
+    },
   },
 });

@@ -1,3 +1,4 @@
+import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { ScheduledMessageService } from "./scheduled-messages/service.js";
 import { registerScheduledMessageRoutes } from "./routes/scheduled-messages.js";
@@ -532,7 +533,7 @@ async function registerRoutes() {
       parts: 32,
     },
   });
-  await app.register(fastifyWebsocket);
+  await app.register(fastifyWebsocket, { options: { maxPayload: 16 * 1024 } });
   await app.register(fastifyRateLimit, { global: false });
 
   // Initialize icon color from DB before serving any requests
@@ -671,6 +672,12 @@ async function registerRoutes() {
     isPasswordSetCached: () => authRuntime.isPasswordSetCached(),
     invalidatePasswordSetCache: () => authRuntime.invalidatePasswordSetCache(),
     loginLinkStore,
+  });
+
+  await registerHumanTerminalRoutes(app, {
+    pool,
+    sessionCookie: SESSION_COOKIE,
+    getAgent: (id) => agentManager.getAgent(id),
   });
 
   await registerBrowserExtensionRoutes(app, {
