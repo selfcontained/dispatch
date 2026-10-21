@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, Loader2, MessageSquare } from "lucide-react";
 
+import { useDiffEditorState } from "@/components/app/diff-editor-state";
 import { agentRoute } from "@/lib/agent-routes";
 import { api } from "@/lib/api";
 import { stickyAnnotationStyle } from "@/components/app/diff-annotation-style";
@@ -38,7 +39,18 @@ export function InlineCommentForm({
     comment: string
   ) => void;
 }): JSX.Element {
-  const [comment, setComment] = useState("");
+  const [comment, setComment] = useDiffEditorState<string>(
+    `new:${startLine}:${endLine}`,
+    ""
+  );
+  const cancel = useCallback(() => {
+    setComment("");
+    onCancel();
+  }, [setComment, onCancel]);
+  const submitted = useCallback(() => {
+    setComment("");
+    onSubmitted();
+  }, [setComment, onSubmitted]);
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -56,7 +68,7 @@ export function InlineCommentForm({
         method: "POST",
         body: JSON.stringify({ filePath, startLine, endLine, comment }),
       });
-      onSubmitted();
+      submitted();
       navigate(agentRoute(agentId), { replace: true });
     } catch {
       setSubmitting(false);
@@ -67,7 +79,7 @@ export function InlineCommentForm({
     endLine,
     filePath,
     navigate,
-    onSubmitted,
+    submitted,
     startLine,
     submitting,
   ]);
@@ -75,14 +87,14 @@ export function InlineCommentForm({
   const handleAddDraft = useCallback(() => {
     if (!comment.trim() || !onAddDraft) return;
     onAddDraft(filePath, startLine, endLine, comment.trim());
-    onSubmitted();
-  }, [comment, filePath, startLine, endLine, onAddDraft, onSubmitted]);
+    submitted();
+  }, [comment, filePath, startLine, endLine, onAddDraft, submitted]);
 
   const handleStartReview = useCallback(() => {
     if (!comment.trim() || !onStartReview || !onAddDraft) return;
     onStartReview();
     onAddDraft(filePath, startLine, endLine, comment.trim());
-    onSubmitted();
+    submitted();
   }, [
     comment,
     filePath,
@@ -90,7 +102,7 @@ export function InlineCommentForm({
     endLine,
     onStartReview,
     onAddDraft,
-    onSubmitted,
+    submitted,
   ]);
 
   const handlePrimaryAction = reviewMode ? handleAddDraft : handleStartReview;
@@ -104,10 +116,10 @@ export function InlineCommentForm({
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        onCancel();
+        cancel();
       }
     },
-    [handlePrimaryAction, onCancel]
+    [handlePrimaryAction, cancel]
   );
 
   return (
@@ -136,7 +148,7 @@ export function InlineCommentForm({
           <button
             type="button"
             className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40"
-            onClick={onCancel}
+            onClick={cancel}
             disabled={submitting}
           >
             Cancel

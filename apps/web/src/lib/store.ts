@@ -367,6 +367,8 @@ export type DiffViewState = {
   collapsedFiles: string[];
   collapsedDirs: string[];
   scrollTop: number;
+  /** File-relative anchor survives changes to estimated offscreen heights. */
+  scrollAnchor?: { path: string; offset: number };
 };
 
 const defaultDiffViewState: DiffViewState = {

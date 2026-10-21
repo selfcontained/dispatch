@@ -218,7 +218,7 @@ function renderTab(
   });
   const onReviewPosted = vi.fn();
 
-  const tree = (agentId: string) => (
+  const tree = (agentId: string, tabActive = active) => (
     <QueryClientProvider client={queryClient}>
       <Provider store={store}>
         <MemoryRouter initialEntries={[route]}>
@@ -227,7 +227,7 @@ function renderTab(
             agentId={agentId}
             agent={{ id: agentId, status: "running" } as Agent}
             enabledAgentTypes={["claude"]}
-            active={active}
+            active={tabActive}
             isMobile={isMobile}
             onReviewPosted={onReviewPosted}
           />
@@ -245,6 +245,7 @@ function renderTab(
     // The tab is reused across agents rather than remounted per agent, which
     // is what makes the pending-scroll handoff below worth pinning.
     switchAgent: (agentId: string) => view.rerender(tree(agentId)),
+    setActive: (value: boolean) => view.rerender(tree(AGENT_ID, value)),
   };
 }
 
@@ -269,6 +270,13 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
   window.localStorage.clear();
   diffViewProps.clear();
   scrollCalls = [];
@@ -295,6 +303,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   apiMock.mockReset();
   Reflect.deleteProperty(Element.prototype, "scrollIntoView");
@@ -302,6 +311,75 @@ afterEach(() => {
 });
 
 describe("ChangesTab", () => {
+  it("restores the latest scroll after returning to a cached tab", async () => {
+    const store = createStore();
+    const view = renderTab({ store });
+    await waitForFile("src/app.ts");
+    const pane = screen.getByTestId("changes-diff-pane");
+    pane.scrollTop = 432;
+    fireEvent.scroll(pane);
+    view.setActive(false);
+    expect(store.get(diffViewStateAtomFamily(AGENT_ID)).scrollTop).toBe(432);
+    view.setActive(true);
+    await waitForFile("src/app.ts");
+    expect(screen.getByTestId("changes-diff-pane").scrollTop).toBe(432);
+  });
+
+  it("unmounts offscreen contents and waits for the correct file's line to mount", async () => {
+    const observers = new Map<Element, IntersectionObserverCallback>();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(private callback: IntersectionObserverCallback) {}
+        observe(el: Element) {
+          observers.set(el, this.callback);
+        }
+        disconnect() {}
+      }
+    );
+    renderTab({
+      files: [diffFile("src/app.ts"), diffFile("src/util.ts")],
+      route: "/?file=src/util.ts&line=3",
+    });
+    const first = await screen.findByTestId("changes-file-section:src/app.ts");
+    const target = screen.getByTestId("changes-file-section:src/util.ts");
+    await waitFor(() => expect(observers.size).toBe(2));
+    const intersect = (el: Element, visible: boolean) =>
+      act(() =>
+        observers.get(el)!(
+          [
+            {
+              target: el,
+              isIntersecting: visible,
+            } as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver
+        )
+      );
+    expect(screen.queryByTestId("diff-view:src/util.ts")).toBeNull();
+    intersect(first, true);
+    await waitForFile("src/app.ts");
+    await waitFor(() =>
+      expect(scrollCalls.some((call) => call.element === target)).toBe(true)
+    );
+    expect(scrollCalls.some((call) => call.element.tagName === "TR")).toBe(
+      false
+    );
+    intersect(target, true);
+    await waitForFile("src/util.ts");
+    await waitFor(() =>
+      expect(
+        scrollCalls.some(
+          (call) =>
+            call.element.tagName === "TR" && target.contains(call.element)
+        )
+      ).toBe(true)
+    );
+    intersect(first, false);
+    expect(screen.queryByTestId("diff-view:src/app.ts")).toBeNull();
+    expect(first.isConnected).toBe(true);
+  });
+
   it("fetches nothing while the tab is inactive", async () => {
     renderTab({ active: false });
 
@@ -391,8 +469,7 @@ describe("ChangesTab", () => {
         scrollCalls.some(
           (call) =>
             call.element === section &&
-            JSON.stringify(call.options) ===
-              JSON.stringify({ behavior: "smooth", block: "start" })
+            JSON.stringify(call.options) === JSON.stringify({ block: "start" })
         )
       ).toBe(true)
     );
@@ -421,8 +498,7 @@ describe("ChangesTab", () => {
         scrollCalls.some(
           (call) =>
             call.element === targetRow &&
-            JSON.stringify(call.options) ===
-              JSON.stringify({ block: "center", behavior: "smooth" })
+            JSON.stringify(call.options) === JSON.stringify({ block: "center" })
         )
       ).toBe(true)
     );
@@ -471,7 +547,7 @@ describe("ChangesTab", () => {
       screen
         .getByTestId("diff-view:src/util.ts")
         .getAttribute("data-comment-open")
-    ).toBe("true");
+    ).toBe("false");
 
     callDiffViewProp("src/app.ts", "onLineSelection", {
       filePath: "src/app.ts",

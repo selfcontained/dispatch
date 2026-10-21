@@ -16,6 +16,7 @@ import type {
   DiffFindingsProps,
 } from "@/components/app/diff-review-annotation-props";
 import {
+  type DiffViewState,
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
   diffHideTestFilesAtom,
@@ -330,7 +331,7 @@ export const ChangesTab = memo(function ChangesTab({
       setSelectedFile(path);
       const el = fileRefs.current.get(path);
       if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        el.scrollIntoView({ block: "start" });
       }
       setViewState((prev) => {
         const s = new Set(prev.collapsedFiles);
@@ -342,8 +343,21 @@ export const ChangesTab = memo(function ChangesTab({
     [setViewState]
   );
 
+  const [pendingLine, setPendingLine] = useState<{
+    path: string;
+    line: number;
+  } | null>(null);
+  const startReview = useCallback(() => setReviewMode(true), [setReviewMode]);
+
   useEffect(() => {
-    if (!navFileTarget || files.length === 0) return;
+    setSelectedFile(null);
+    setLineSelection(null);
+    setCommentOpen(false);
+    setPendingLine(null);
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!active || !navFileTarget || files.length === 0) return;
     const targetFile = files.find((f) => f.path === navFileTarget);
     if (isMobile) setFileTreeOpen(false);
     setFocusedFindingKey(navFindingKey);
@@ -359,37 +373,15 @@ export const ChangesTab = memo(function ChangesTab({
     if (targetFile) {
       requestAnimationFrame(() => {
         scrollToFile(navFileTarget);
-        if (!navFindingKey && navLineTarget && targetFile.diff) {
-          const lineNum = Number(navLineTarget);
-          if (Number.isInteger(lineNum) && lineNum > 0) {
-            requestAnimationFrame(() => {
-              try {
-                const parsed = parseDiff(targetFile.diff!, {
-                  nearbySequences: "zip",
-                });
-                const hunks = parsed[0]?.hunks ?? [];
-                const changeKey = findLastChangeKeyInRange(
-                  hunks,
-                  lineNum,
-                  lineNum
-                );
-                if (changeKey) {
-                  const changeCell = scrollRef.current?.querySelector(
-                    `[data-change-key="${CSS.escape(changeKey)}"]`
-                  );
-                  changeCell
-                    ?.closest("tr")
-                    ?.scrollIntoView({ block: "center", behavior: "smooth" });
-                }
-              } catch {
-                // diff parse failed — fall back to file-level scroll
-              }
-            });
-          }
+        if (!navFindingKey && navLineTarget) {
+          const line = Number(navLineTarget);
+          if (Number.isInteger(line) && line > 0)
+            setPendingLine({ path: navFileTarget, line });
         }
       });
     }
   }, [
+    active,
     navFileTarget,
     navLineTarget,
     navFindingKey,
@@ -403,21 +395,80 @@ export const ChangesTab = memo(function ChangesTab({
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Viewport rendering is asynchronous. Observe the target section rather than
+  // assuming a second animation frame contains its table. Change keys repeat
+  // across files, so the lookup must stay inside this file's shell.
+  useEffect(() => {
+    if (!active || !pendingLine) return;
+    const section = fileRefs.current.get(pendingLine.path);
+    const file = files.find((item) => item.path === pendingLine.path);
+    if (!section || !file?.diff) return;
+    let key: string | null = null;
+    try {
+      key = findLastChangeKeyInRange(
+        parseDiff(file.diff, { nearbySequences: "zip" })[0]?.hunks ?? [],
+        pendingLine.line,
+        pendingLine.line
+      );
+    } catch {
+      /* File-level navigation remains available for malformed diffs. */
+    }
+    if (!key) {
+      setPendingLine(null);
+      return;
+    }
+    const scroll = () => {
+      const cell = section.querySelector(
+        `[data-change-key="${CSS.escape(key!)}"]`
+      );
+      if (!cell) return false;
+      cell.closest("tr")?.scrollIntoView({ block: "center" });
+      setPendingLine(null);
+      return true;
+    };
+    if (scroll()) return;
+    const observer = new MutationObserver(() => {
+      if (scroll()) observer.disconnect();
+    });
+    observer.observe(section, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [active, pendingLine, files]);
+
   // Position of the latest scroll event, kept so the unmount flush below has a
   // value to write: React detaches `scrollRef` before effect cleanups run, so
   // the pane can no longer be measured by then.
-  const pendingScrollTopRef = useRef<number | null>(null);
+  const pendingScrollTopRef = useRef<Pick<
+    DiffViewState,
+    "scrollTop" | "scrollAnchor"
+  > | null>(null);
 
   const handleScroll = useCallback(() => {
-    const top = scrollRef.current?.scrollTop ?? 0;
-    pendingScrollTopRef.current = top;
+    const pane = scrollRef.current;
+    if (!pane) return;
+    const top = pane.scrollTop;
+    const paneTop = pane.getBoundingClientRect().top;
+    let scrollAnchor: DiffViewState["scrollAnchor"];
+    for (const [path, section] of fileRefs.current) {
+      const rect = section.getBoundingClientRect();
+      if (rect.top <= paneTop && rect.bottom > paneTop) {
+        scrollAnchor = { path, offset: paneTop - rect.top };
+        break;
+      }
+    }
+    const position = { scrollTop: top, scrollAnchor };
+    pendingScrollTopRef.current = position;
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
       pendingScrollTopRef.current = null;
       setViewState((prev) => {
-        if (prev.scrollTop === top) return prev;
-        return { ...prev, scrollTop: top };
+        if (
+          prev.scrollTop === top &&
+          prev.scrollAnchor?.path === scrollAnchor?.path &&
+          prev.scrollAnchor?.offset === scrollAnchor?.offset
+        )
+          return prev;
+        return { ...prev, ...position };
       });
     }, 300);
   }, [setViewState]);
@@ -427,27 +478,16 @@ export const ChangesTab = memo(function ChangesTab({
       if (scrollTimerRef.current) {
         clearTimeout(scrollTimerRef.current);
         scrollTimerRef.current = null;
-        const top = pendingScrollTopRef.current;
+        const position = pendingScrollTopRef.current;
         pendingScrollTopRef.current = null;
-        if (top === null) return;
-        setViewState((prev) => {
-          if (prev.scrollTop === top) return prev;
-          return { ...prev, scrollTop: top };
-        });
+        if (position === null) return;
+        setViewState((prev) => ({ ...prev, ...position }));
       }
     };
     // `setViewState` changes identity when `agentId` does, so this also runs
     // on an agent switch — disarming both refs there is what keeps the
     // outgoing agent's offset from landing on the incoming one.
-  }, [setViewState]);
-
-  const restoredScrollForAgent = useRef<string | null>(null);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || restoredScrollForAgent.current === agentId) return;
-    el.scrollTop = viewState.scrollTop;
-    restoredScrollForAgent.current = agentId;
-  }, [agentId, data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setViewState, active]);
 
   if (!active) return <div />;
 
@@ -471,7 +511,7 @@ export const ChangesTab = memo(function ChangesTab({
         <ChangesToolbar
           agent={agent}
           enabledAgentTypes={enabledAgentTypes}
-          onStartReview={() => setReviewMode(true)}
+          onStartReview={startReview}
         />
       )
     ) : null;
@@ -518,6 +558,7 @@ export const ChangesTab = memo(function ChangesTab({
           onToggleDir={toggleCollapseDir}
         />
         <DiffPane
+          key={agentId}
           agentId={agentId}
           files={files}
           collapsedFiles={collapsedFiles}
@@ -531,12 +572,13 @@ export const ChangesTab = memo(function ChangesTab({
           ignoreWhitespace={ignoreWhitespace}
           scrollRef={scrollRef}
           onScroll={handleScroll}
+          initialScrollPosition={viewState}
           reviewMode={reviewMode}
           draftComments={draftComments}
           onAddDraft={addDraft}
           onRemoveDraft={removeDraft}
           onUpdateDraft={updateDraft}
-          onStartReview={() => setReviewMode(true)}
+          onStartReview={startReview}
           findings={findings}
         />
       </div>
