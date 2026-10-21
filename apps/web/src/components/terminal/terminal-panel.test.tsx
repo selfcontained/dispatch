@@ -199,9 +199,126 @@ describe("terminal panel", () => {
         })
       ).toBeTruthy();
       expect(screen.queryByLabelText("Host terminal")).toBeNull();
-      expect(sessionStorage.getItem("dispatch:human-terminal:agent")).toBe(
-        status === 404 ? "stopped" : info.id
+      const saved = sessionStorage.getItem("dispatch:human-terminal:agent")!;
+      if (status === 404) expect(saved).toBe("stopped");
+      else
+        expect(JSON.parse(saved)).toMatchObject({
+          stop: info.id,
+          error: "Terminal unavailable.",
+        });
+    }
+  );
+  it.each([false, true])(
+    "does not resume a pending End after remount (failure=%s)",
+    async (failure) => {
+      let resolveEnd!: (value: unknown) => void;
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => info })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveEnd = resolve;
+            })
+        )
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
+      vi.stubGlobal("fetch", fetch);
+      const first = render(<TerminalPanel agentId="agent" active />);
+      await waitFor(() => expect(Socket.instances).toHaveLength(1));
+      act(() => Socket.instances[0].onopen?.());
+      fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
+      expect(
+        JSON.parse(sessionStorage.getItem("dispatch:human-terminal:agent")!)
+      ).toMatchObject({ stop: info.id });
+      // DELETE has removed the shell, but its response has not arrived yet.
+      first.unmount();
+      render(<TerminalPanel agentId="agent" active />);
+      expect(screen.getByRole("status").textContent).toBe("End pending");
+      expect(screen.getByRole("button", { name: "Retry End" })).toBeTruthy();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(Socket.instances).toHaveLength(1);
+      await act(async () =>
+        resolveEnd(
+          failure
+            ? {
+                ok: false,
+                status: 503,
+                json: async () => ({ error: "Try again." }),
+              }
+            : { ok: true, json: async () => ({ ok: true }) }
+        )
       );
+      if (failure) {
+        expect(screen.getByRole("status").textContent).toBe("End failed");
+        expect(screen.getByRole("alert").textContent).toBe("Try again.");
+        fireEvent.click(screen.getByRole("button", { name: "Retry End" }));
+        await waitFor(() =>
+          expect(screen.getByRole("status").textContent).toBe("Ended")
+        );
+        expect(fetch.mock.calls[2][0]).toBe(
+          "/api/v1/human-terminals/terminal-id"
+        );
+        expect(fetch.mock.calls[2][1].method).toBe("DELETE");
+      }
+      expect(screen.getByRole("status").textContent).toBe("Ended");
+      expect(sessionStorage.getItem("dispatch:human-terminal:agent")).toBe(
+        "stopped"
+      );
+      expect(fetch).toHaveBeenCalledTimes(failure ? 3 : 2);
+    }
+  );
+  it.each([false, true])(
+    "ignores stale End settlement after remount, retry, and New terminal (failure=%s)",
+    async (failure) => {
+      let resolveEnd!: (value: unknown) => void;
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => info })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveEnd = resolve;
+            })
+        )
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: "Already deleted." }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ ...info, id: "new-terminal" }),
+        });
+      vi.stubGlobal("fetch", fetch);
+      const first = render(<TerminalPanel agentId="agent" active />);
+      await waitFor(() => expect(Socket.instances).toHaveLength(1));
+      act(() => Socket.instances[0].onopen?.());
+      fireEvent.click(screen.getByRole("button", { name: "End terminal" }));
+      first.unmount();
+      render(<TerminalPanel agentId="agent" active />);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      fireEvent.click(screen.getByRole("button", { name: "Retry End" }));
+      await screen.findByRole("button", { name: "New terminal" });
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await waitFor(() => expect(Socket.instances).toHaveLength(2));
+      act(() => Socket.instances[1].onopen?.());
+      await act(async () =>
+        resolveEnd(
+          failure
+            ? {
+                ok: false,
+                status: 503,
+                json: async () => ({ error: "Late failure." }),
+              }
+            : { ok: true, json: async () => ({ ok: true }) }
+        )
+      );
+      expect(screen.getByRole("status").textContent).toBe("Connected");
+      expect(sessionStorage.getItem("dispatch:human-terminal:agent")).toBe(
+        "new-terminal"
+      );
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(4);
     }
   );
   it("keeps its shell connection while hidden and ends through a bodyless DELETE", async () => {

@@ -29,16 +29,24 @@ const STATUS_LABELS = {
   ending: "Ending",
   ended: "Ended",
   endFailed: "End failed",
+  endPending: "End pending",
 } as const;
 type Status = keyof typeof STATUS_LABELS | { exitCode: number };
 
 function sessionKey(agentId: string) {
   return `dispatch:human-terminal:${agentId}`;
 }
-function saveSession(agentId: string, value: string | null) {
+type PendingStop = { stop: string; operation: string; error?: string };
+const SESSION_CHANGED = "dispatch:human-terminal-session";
+function saveSession(agentId: string, value: string | PendingStop | null) {
   const key = sessionKey(agentId);
   if (value === null) sessionStorage.removeItem(key);
-  else sessionStorage.setItem(key, value);
+  else
+    sessionStorage.setItem(
+      key,
+      typeof value === "string" ? value : JSON.stringify(value)
+    );
+  window.dispatchEvent(new Event(SESSION_CHANGED));
 }
 function readSession(agentId: string) {
   const value = sessionStorage.getItem(sessionKey(agentId));
@@ -46,6 +54,18 @@ function readSession(agentId: string) {
   if (value === "ended") {
     saveSession(agentId, null);
     return null;
+  }
+  if (value?.startsWith("{")) {
+    try {
+      const pending = JSON.parse(value) as PendingStop;
+      if (
+        typeof pending.stop === "string" &&
+        typeof pending.operation === "string"
+      )
+        return pending;
+    } catch {
+      /* A legacy terminal ID is not a stop record. */
+    }
   }
   return value;
 }
@@ -148,9 +168,14 @@ export default function TerminalPanel({
   active: boolean;
 }) {
   const [info, setInfo] = useState<Info | null>(null);
-  const [status, setStatus] = useState<Status>(() =>
-    readSession(agentId) === "stopped" ? "ended" : "connecting"
-  );
+  const [status, setStatus] = useState<Status>(() => {
+    const saved = readSession(agentId);
+    return saved === "stopped"
+      ? "ended"
+      : saved && typeof saved === "object"
+        ? "endPending"
+        : "connecting";
+  });
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const stream = useRef<Stream>({
@@ -165,7 +190,25 @@ export default function TerminalPanel({
     let retry: ReturnType<typeof setTimeout> | undefined;
     let socket: WebSocket | undefined;
     let missingSessionRetries = 0;
-    if (readSession(agentId) === "stopped") return;
+    const saved = readSession(agentId);
+    if (saved === "stopped") return;
+    if (saved && typeof saved === "object") {
+      // A remount must never resume a shell whose End response is still pending.
+      // Keep the target available for retry, including after a page reload.
+      const syncStop = () => {
+        const value = readSession(agentId);
+        if (value === "stopped") {
+          setStatus("ended");
+          setError(null);
+        } else if (value && typeof value === "object") {
+          setStatus(value.error ? "endFailed" : "endPending");
+          setError(value.error ?? null);
+        }
+      };
+      syncStop();
+      window.addEventListener(SESSION_CHANGED, syncStop);
+      return () => window.removeEventListener(SESSION_CHANGED, syncStop);
+    }
     ended.current = false;
     setStatus("connecting");
     setError(null);
@@ -188,7 +231,9 @@ export default function TerminalPanel({
     }
     async function connect() {
       try {
-        const terminalId = readSession(agentId) ?? undefined;
+        const saved = readSession(agentId);
+        if (saved === "stopped" || (saved && typeof saved === "object")) return;
+        const terminalId = saved ?? undefined;
         let result: Info;
         try {
           result = await request("", "POST", {
@@ -297,25 +342,42 @@ export default function TerminalPanel({
   }, [agentId, generation, stream]);
 
   const end = useCallback(async () => {
-    const current = info;
-    if (!current) return;
+    const saved = readSession(agentId);
+    const target = saved && typeof saved === "object" ? saved.stop : info?.id;
+    if (!target) return;
+    const pending: PendingStop = { stop: target, operation: createClientId() };
+    // Persist intent before DELETE: unmounting must not expose the old live ID.
+    saveSession(agentId, pending);
+    const ownsStop = () => {
+      const value = readSession(agentId);
+      return (
+        value &&
+        typeof value === "object" &&
+        value.operation === pending.operation
+      );
+    };
     ended.current = true;
     stopConnection.current();
     setStatus("ending");
     setError(null);
     try {
       try {
-        await request(`/${current.id}`, "DELETE");
+        await request(`/${target}`, "DELETE");
       } catch (cause) {
         // An exited or expired shell has already reached the desired state.
         if ((cause as { status?: number }).status !== 404) throw cause;
       }
+      if (!ownsStop()) return;
       saveSession(agentId, "stopped");
       setStatus("ended");
       setError(null);
     } catch (cause) {
+      if (!ownsStop()) return;
+      const message =
+        cause instanceof Error ? cause.message : "Cannot end terminal.";
+      saveSession(agentId, { ...pending, error: message });
       setStatus("endFailed");
-      setError(cause instanceof Error ? cause.message : "Cannot end terminal.");
+      setError(message);
     }
   }, [agentId, info]);
 
@@ -351,16 +413,19 @@ export default function TerminalPanel({
         <span role="status" className="mr-auto">
           {statusLabel}
         </span>
-        {info && !finished && (
-          <Button
-            variant="default"
-            size="sm"
-            disabled={status === "ending"}
-            onClick={() => void end()}
-          >
-            {status === "endFailed" ? "Retry End" : "End terminal"}
-          </Button>
-        )}
+        {(info || status === "endPending" || status === "endFailed") &&
+          !finished && (
+            <Button
+              variant="default"
+              size="sm"
+              disabled={status === "ending"}
+              onClick={() => void end()}
+            >
+              {status === "endFailed" || status === "endPending"
+                ? "Retry End"
+                : "End terminal"}
+            </Button>
+          )}
         {finished && (
           <Button
             size="sm"
@@ -396,7 +461,9 @@ export default function TerminalPanel({
         <div className="flex min-h-0 flex-1 items-center justify-center rounded bg-[#101014] p-4 text-center text-xs text-muted-foreground">
           {finished
             ? "Choose New terminal to open a shell."
-            : status === "unavailable" || status === "endFailed"
+            : status === "unavailable" ||
+                status === "endFailed" ||
+                status === "endPending"
               ? "Terminal unavailable."
               : status === "ending"
                 ? "Ending your shell…"
