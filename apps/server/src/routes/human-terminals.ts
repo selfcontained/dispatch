@@ -66,7 +66,8 @@ export async function registerHumanTerminalRoutes(
       // Dev previews normally have no login. Keep terminal ownership per browser
       // without issuing a general Dispatch login credential.
       if (process.env.DISPATCH_DEV_STACK === "1" && !passwordSet) {
-        const cookieName = "dispatch_terminal_dev";
+        // Cookies share a host across ports; reuse the installation namespace.
+        const cookieName = `${deps.sessionCookie}_terminal_dev`;
         const signedDev = request.cookies[cookieName];
         const unsignedDev = signedDev ? request.unsignCookie(signedDev) : null;
         let identity = unsignedDev?.valid ? unsignedDev.value : null;

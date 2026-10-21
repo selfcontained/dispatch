@@ -168,7 +168,7 @@ describe("terminal browser security", () => {
       const first = await create();
       expect(first.statusCode).toBe(200);
       const setCookie = String(first.headers["set-cookie"]);
-      expect(setCookie).toContain("dispatch_terminal_dev=");
+      expect(setCookie).toContain("session_terminal_dev=");
       expect(setCookie).toContain("HttpOnly");
       expect(setCookie).toContain("SameSite=Strict");
       expect(setCookie).toContain("Path=/api/v1/human-terminals");
@@ -208,6 +208,71 @@ describe("terminal browser security", () => {
       );
     } finally {
       await app.close();
+    }
+  });
+
+  it("keeps terminal ownership across installations sharing a browser cookie jar", async () => {
+    vi.stubEnv("DISPATCH_DEV_STACK", "1");
+    vi.mocked(isPasswordSet).mockResolvedValue(false);
+    const jar = new Map<string, string>();
+    const instances = [];
+    try {
+      for (const name of ["installation_a", "installation_b"]) {
+        const app = Fastify();
+        instances.push(app);
+        await app.register(cookie, {
+          secret: name + "-cookie-secret-at-least-32bytes",
+        });
+        await app.register(websocket);
+        await registerHumanTerminalRoutes(app, {
+          pool: {} as Pool,
+          sessionCookie: name,
+          getAgent: async () => ({ cwd: "/tmp", worktreePath: null }),
+          manager: harness().manager,
+        });
+        await app.ready();
+      }
+      const headers = () => ({
+        origin: "http://localhost",
+        host: "localhost",
+        cookie: [...jar].map(([name, value]) => name + "=" + value).join("; "),
+      });
+      const ids: string[] = [];
+      for (const app of instances) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/human-terminals",
+          headers: headers(),
+          payload: { agentId: "agent", clientId: "tab123456789012345" },
+        });
+        expect(response.statusCode).toBe(200);
+        for (const item of response.cookies) jar.set(item.name, item.value);
+        ids.push(response.json().id);
+      }
+      expect(jar.size).toBe(2);
+      for (const [index, app] of instances.entries()) {
+        const resumed = await app.inject({
+          method: "POST",
+          url: "/api/v1/human-terminals",
+          headers: headers(),
+          payload: {
+            agentId: "agent",
+            clientId: "tab123456789012345",
+            terminalId: ids[index],
+          },
+        });
+        expect(resumed.statusCode).toBe(200);
+        expect(resumed.json().id).toBe(ids[index]);
+        expect(resumed.headers["set-cookie"]).toBeUndefined();
+        const ended = await app.inject({
+          method: "DELETE",
+          url: `/api/v1/human-terminals/${ids[index]}`,
+          headers: headers(),
+        });
+        expect(ended.statusCode).toBe(200);
+      }
+    } finally {
+      await Promise.all(instances.map((app) => app.close()));
     }
   });
 
