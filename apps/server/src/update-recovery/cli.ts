@@ -1,6 +1,10 @@
 export async function runRecoveryCli(argv: string[]): Promise<void> {
-  const { enrollLinux, runLinuxRecovery, serveLinuxRecovery } =
-    await import("./linux.js");
+  const {
+    enrollLinux,
+    runLinuxRecovery,
+    serveLinuxRecovery,
+    pruneLinuxRecovery,
+  } = await import("./linux.js");
   const mode = argv[0];
   const config = argv[1];
   if (!config) throw new Error("Missing recovery configuration");
@@ -11,6 +15,7 @@ export async function runRecoveryCli(argv: string[]): Promise<void> {
     const store = await RecoveryStore.open(path.dirname(path.resolve(config)));
     console.log(JSON.stringify(await store.read(argv[2]), null, 2));
   } else if (mode === "recovery-enroll") await enrollLinux(config);
+  else if (mode === "recovery-prune") await pruneLinuxRecovery(config);
   else if (mode === "recovery-serve") await serveLinuxRecovery(config);
   else if (
     mode === "recovery-apply" ||

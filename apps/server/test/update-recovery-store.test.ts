@@ -441,3 +441,114 @@ describe("durable update recovery storage", () => {
     await expect(store.read(transaction.id)).rejects.toThrow("private");
   });
 });
+
+describe("completed recovery cleanup", () => {
+  it.each(["committed", "rolled-back", "aborted"] as const)(
+    "removes pre-existing %s backups but keeps phase receipts",
+    async (phase) => {
+      const f = await fixture();
+      await f.store.checkpoint(f.transaction.id, f.input);
+      if (phase === "aborted")
+        await f.store.transition(f.transaction.id, "backed-up", phase);
+      else {
+        await f.store.transition(f.transaction.id, "backed-up", "activating");
+        await f.store.transition(f.transaction.id, "activating", "probation");
+        if (phase === "committed")
+          await f.store.transition(f.transaction.id, "probation", phase);
+        else {
+          await f.store.transition(f.transaction.id, "probation", "restoring");
+          await f.store.transition(f.transaction.id, "restoring", phase);
+        }
+      }
+      const incomplete = path.join(
+        f.store.root,
+        "points",
+        f.transaction.id + ".incomplete"
+      );
+      await mkdir(incomplete, { mode: 0o700 });
+      await writeFile(path.join(incomplete, "partial.dump"), "partial");
+      const cleanup = vi.fn(async () => {});
+      // Reopen to simulate an upgrade finding a backlog from older helpers.
+      const store = await RecoveryStore.open(f.store.root);
+      await store.pruneCompleted(f.transaction.instanceId, cleanup);
+      await expect(
+        lstat(path.join(store.root, "points", f.transaction.id))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(lstat(incomplete)).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await store.read(f.transaction.id)).phase).toBe(phase);
+      await store.pruneCompleted(f.transaction.instanceId, cleanup);
+      expect(cleanup).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it("preserves unfinished, foreign, malformed, and locked transactions", async () => {
+    const f = await fixture();
+    await f.store.checkpoint(f.transaction.id, f.input);
+    const cleanup = vi.fn(async () => {});
+    await f.store.pruneCompleted(f.transaction.instanceId, cleanup);
+    expect(cleanup).not.toHaveBeenCalled();
+    await f.store.verify(f.transaction.id);
+    await f.store.transition(f.transaction.id, "backed-up", "aborted");
+    await f.store.pruneCompleted("another-instance", cleanup);
+    expect(cleanup).not.toHaveBeenCalled();
+    const lock = path.join(f.store.root, "locks", f.transaction.id);
+    await mkdir(lock, { mode: 0o700 });
+    await f.store.pruneCompleted(f.transaction.instanceId, cleanup);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect((await lstat(lock)).isDirectory()).toBe(true);
+    await rm(lock, { recursive: true });
+    await writeFile(
+      path.join(f.store.root, "transactions", f.transaction.id),
+      "invalid",
+      { mode: 0o600 }
+    );
+    await f.store.pruneCompleted(f.transaction.instanceId, cleanup);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(
+      (
+        await lstat(path.join(f.store.root, "points", f.transaction.id))
+      ).isDirectory()
+    ).toBe(true);
+  });
+
+  it("never follows substituted backup directories", async () => {
+    const f = await fixture();
+    await f.store.transition(f.transaction.id, "preparing", "aborted");
+    const outside = path.join(f.root, "outside");
+    await mkdir(outside, { mode: 0o700 });
+    await writeFile(path.join(outside, "keep"), "data");
+    await symlink(outside, path.join(f.store.root, "points", f.transaction.id));
+    await expect(
+      f.store.pruneCompleted(f.transaction.instanceId)
+    ).rejects.toThrow("Some completed recovery artifacts");
+    expect(await readFile(path.join(outside, "keep"), "utf8")).toBe("data");
+  });
+});
+
+it("continues completed cleanup after a transaction is preserved as unsafe", async () => {
+  const f = await fixture();
+  const other = await f.store.begin({
+    instanceId: f.transaction.instanceId,
+    previous: f.transaction.previous,
+    target: f.transaction.target,
+    wasRunning: true,
+  });
+  for (const tx of [f.transaction, other]) {
+    await f.store.transition(tx.id, "preparing", "aborted");
+    await mkdir(path.join(f.store.root, "points", tx.id), { mode: 0o700 });
+  }
+  const visited: string[] = [];
+  await expect(
+    f.store.pruneCompleted(f.transaction.instanceId, async (tx) => {
+      visited.push(tx.id);
+      if (visited.length === 1) throw new Error("unsafe transaction");
+    })
+  ).rejects.toThrow("Some completed recovery artifacts");
+  expect(visited).toHaveLength(2);
+  expect(
+    (await lstat(path.join(f.store.root, "points", visited[0]))).isDirectory()
+  ).toBe(true);
+  await expect(
+    lstat(path.join(f.store.root, "points", visited[1]))
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});

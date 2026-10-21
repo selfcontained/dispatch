@@ -69,10 +69,22 @@ async function serve(): Promise<void> {
     await shutdown(1);
   });
 
-  start().catch(async (error) => {
-    app.log.error(error);
-    await shutdown(1);
-  });
+  start()
+    .then(async () => {
+      try {
+        const { cleanupLinuxAfterStartup } =
+          await import("./update-recovery/linux.js");
+        await cleanupLinuxAfterStartup();
+      } catch {
+        app.log.warn(
+          "Completed update artifact cleanup deferred until the next startup."
+        );
+      }
+    })
+    .catch(async (error) => {
+      app.log.error(error);
+      await shutdown(1);
+    });
 
   process.on("SIGINT", async () => {
     await shutdown(0);
