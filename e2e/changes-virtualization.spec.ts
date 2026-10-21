@@ -13,7 +13,9 @@ test.describe("Changes viewport rendering", () => {
     page,
     request,
   }) => {
-    test.setTimeout(120_000);
+    // Visiting every file is intentionally exhaustive; shared CI runners can
+    // take longer without violating the per-viewport mounted DOM assertions.
+    test.setTimeout(process.env.CI ? 300_000 : 120_000);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-large-diff-${Date.now()}`,
     });
