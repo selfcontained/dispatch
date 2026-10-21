@@ -43,7 +43,9 @@ case "$1 $2" in
     echo "$TEST_RUNNING"
     ;;
   'compose version') exit 0 ;;
-  compose*) echo 'fixture: refusing to start real services' >&2; exit 42 ;;
+  compose*)
+    [ -z "\${TEST_KILL_HOST_PID:-}" ] || kill -TERM "$TEST_KILL_HOST_PID"
+    echo 'fixture: refusing to start real services' >&2; exit 42 ;;
   *) exit 93 ;;
 esac
 `,
@@ -62,7 +64,7 @@ esac
     "",
   ].join("\n");
   writeFileSync(state, saved);
-  const run = (command: "restart" | "status") =>
+  const run = (command: "restart" | "status", killHostPid?: number) =>
     spawnSync("/bin/bash", [bin, command, "--suffix", suffix], {
       encoding: "utf8",
       env: {
@@ -71,36 +73,58 @@ esac
         DOCKER_CALLS: calls,
         TEST_SUFFIX: suffix,
         TEST_RUNNING: running,
+        TEST_KILL_HOST_PID: killHostPid ? String(killHostPid) : "",
       },
     });
   return { run, calls, state, saved, logs };
 }
 
-function alive(child: ChildProcess): boolean {
-  try {
-    process.kill(child.pid!, 0);
-    return true;
-  } catch {
-    return false;
-  }
+function startHost(logs: string): ChildProcess {
+  const host = spawn(
+    process.execPath,
+    ["-e", "process.on('message', () => process.send('pong'))"],
+    { stdio: ["ignore", "ignore", "ignore", "ipc"] }
+  );
+  cleanups.push(() => host.kill());
+  const agentDir = path.join(logs, "agents", "fixture-host");
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(path.join(agentDir, "host.pid"), String(host.pid));
+  return host;
+}
+
+function assertHostResponsive(host: ChildProcess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // PID existence alone can report a zombie while spawnSync prevents Node
+    // from reaping it. A fresh reply proves the preserved host is still working.
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      host.off("message", onMessage);
+      host.off("exit", onExit);
+      host.off("error", onExit);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onMessage = (message: unknown) => {
+      if (message === "pong") finish();
+    };
+    const onExit = () => finish(new Error("host is not responsive"));
+    const timer = setTimeout(onExit, 5_000);
+    host.on("message", onMessage);
+    host.once("exit", onExit);
+    host.once("error", onExit);
+    host.send!("ping", (error) => {
+      if (error) onExit();
+    });
+  });
 }
 
 describe("dev database state after stop", () => {
   it.each(["false", "missing", "error"] as const)(
     "recovers a %s container despite a stale running list, preserving hosts",
-    (running) => {
+    async (running) => {
       const { run, calls, state, saved, logs } = fixture(running);
-      const host = spawn(
-        process.execPath,
-        ["-e", "setInterval(() => {}, 1000)"],
-        {
-          stdio: "ignore",
-        }
-      );
-      cleanups.push(() => host.kill());
-      const agentDir = path.join(logs, "agents", "fixture-host");
-      mkdirSync(agentDir, { recursive: true });
-      writeFileSync(path.join(agentDir, "host.pid"), String(host.pid));
+      const host = startHost(logs);
+      await assertHostResponsive(host);
 
       const result = run("restart");
       expect(result.stdout).toContain(
@@ -112,13 +136,28 @@ describe("dev database state after stop", () => {
       expect(result.stdout).toContain(
         "fixture: refusing to start real services"
       );
-      expect(alive(host)).toBe(true);
+      await assertHostResponsive(host);
       expect(readFileSync(state, "utf8")).toBe(saved);
       const dockerCalls = readFileSync(calls, "utf8");
       expect(dockerCalls).toContain("container inspect");
       expect(dockerCalls).not.toContain("down");
     }
   );
+
+  it("rejects a host killed during restart even before Node reaps it", async () => {
+    const { run, logs } = fixture("false");
+    const host = startHost(logs);
+    await assertHostResponsive(host);
+
+    const result = run("restart", host.pid);
+    expect(result.stdout).toContain(
+      "recreating it without stopping agent hosts"
+    );
+    expect(result.status).not.toBe(0);
+    await expect(assertHostResponsive(host)).rejects.toThrow(
+      "host is not responsive"
+    );
+  });
 
   it.each([
     ["true", "running"],
