@@ -558,13 +558,16 @@ cmd_down() {
 }
 
 # Returns 0 when the postgres container for the loaded state is
-# running and healthy. Caller is expected to have invoked load_state.
+# running. Caller is expected to have invoked load_state.
 db_container_running() {
   if [ "${DEV_NO_DB:-0}" = "1" ] || [ -z "${DEV_CONTAINER_SUFFIX:-}" ]; then
     return 1
   fi
   local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
-  docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .
+  # The list API behind `docker ps` can briefly retain the running snapshot
+  # after `docker stop` returns (moby/moby#50133). Inspect locks the container
+  # state, and addresses this stack exactly rather than matching name substrings.
+  [ "$(docker container inspect --format '{{.State.Running}}' "$container_name" 2>/dev/null)" = "true" ]
 }
 
 # Soft restart: cycle API + Vite while leaving the DB container running.
@@ -660,8 +663,7 @@ cmd_status() {
 
   # DB
   if [ "${DEV_NO_DB:-0}" != "1" ] && [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
-    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
-    if docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .; then
+    if db_container_running; then
       echo "db:   running (port ${DEV_DB_PORT:-?})"
     else
       echo "db:   stopped"
