@@ -201,6 +201,18 @@ const FileDiffSection = memo(function FileDiffSection({
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const editorBuffers = useRef(new Map<string, unknown>());
+  useLayoutEffect(() => {
+    const liveKeys = new Set(
+      (draftComments ?? []).flatMap((draft) => [
+        `draft:${draft.id}:text`,
+        `draft:${draft.id}:editing`,
+      ])
+    );
+    for (const key of editorBuffers.current.keys()) {
+      if (key.startsWith("draft:") && !liveKeys.has(key))
+        editorBuffers.current.delete(key);
+    }
+  }, [draftComments]);
   const [nearViewport, setNearViewport] = useState(
     typeof IntersectionObserver === "undefined"
   );

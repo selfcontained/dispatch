@@ -68,13 +68,18 @@ vi.mock("@/components/app/persona-launcher", () => ({
 
 vi.mock("@/components/app/unified-diff-view", async () => {
   const React = await import("react");
+  const { DiffEditorStateContext } =
+    await import("@/components/app/diff-editor-state");
   const { computeNewLineNumber, getChangeKey, parseDiff } =
     await import("react-diff-view");
 
   return {
     UnifiedDiffView: (props: Record<string, unknown>) => {
       const filePath = props.filePath as string;
-      diffViewProps.set(filePath, props);
+      diffViewProps.set(filePath, {
+        ...props,
+        editorBuffers: React.useContext(DiffEditorStateContext),
+      });
 
       const drafts = (props.draftComments ?? []) as { id: string }[];
       const selection = props.lineSelection as {
@@ -311,6 +316,44 @@ afterEach(() => {
 });
 
 describe("ChangesTab", () => {
+  it("evicts removed and discarded draft buffers before draft IDs can be reused", async () => {
+    renderTab();
+    await waitForFile("src/app.ts");
+    callDiffViewProp("src/app.ts", "onStartReview");
+    callDiffViewProp("src/app.ts", "onAddDraft", "src/app.ts", 2, 3, "first");
+    const buffers = propsFor("src/app.ts").editorBuffers as Map<
+      string,
+      unknown
+    >;
+    buffers.set("new:2:3", "unsaved new comment");
+    buffers.set("draft:draft-0:editing", true);
+    buffers.set("draft:draft-0:text", "stale edit");
+    callDiffViewProp("src/app.ts", "onRemoveDraft", "draft-0");
+    expect(buffers.has("draft:draft-0:editing")).toBe(false);
+    expect(buffers.has("draft:draft-0:text")).toBe(false);
+    expect(buffers.get("new:2:3")).toBe("unsaved new comment");
+    callDiffViewProp("src/app.ts", "onStartReview");
+    callDiffViewProp("src/app.ts", "onAddDraft", "src/app.ts", 2, 3, "second");
+    buffers.set("draft:draft-1:editing", true);
+    buffers.set("draft:draft-1:text", "another stale edit");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel review" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    expect([...buffers.keys()]).toEqual(["new:2:3"]);
+    callDiffViewProp("src/app.ts", "onStartReview");
+    callDiffViewProp(
+      "src/app.ts",
+      "onAddDraft",
+      "src/app.ts",
+      2,
+      3,
+      "new review"
+    );
+    expect(
+      screen.getByTestId("diff-view:src/app.ts").getAttribute("data-drafts")
+    ).toBe("draft-0");
+    expect(buffers.has("draft:draft-0:text")).toBe(false);
+  });
+
   it("restores the latest scroll after returning to a cached tab", async () => {
     const store = createStore();
     const view = renderTab({ store });

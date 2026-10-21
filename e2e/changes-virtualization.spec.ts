@@ -240,4 +240,69 @@ test.describe("Changes viewport rendering", () => {
       )
       .toBe(0);
   });
+  test("discarded and removed draft edits cannot leak into a restarted review", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-draft-lifecycle-${Date.now()}`,
+    });
+    const path = "src/large/file-100.ts";
+    await page.route("**/api/v1/agents/*/diff?*", (route) =>
+      route.fulfill({ json: largeDiffFixture() })
+    );
+    await page.goto(
+      `/agents/${agent.id}/changes?file=${encodeURIComponent(path)}&line=1050`,
+      { waitUntil: "domcontentloaded" }
+    );
+    const target = page.getByTestId(`changes-file-section:${path}`);
+    const add = async (text: string) => {
+      await page.getByTestId("changes-start-review").click();
+      await target
+        .locator('.diff-gutter[data-change-key="I1050"]')
+        .first()
+        .click();
+      await target.locator(".changes-diff-view > button").click();
+      await page.getByPlaceholder("Leave a comment…").fill(text);
+      await page
+        .getByRole("button", { name: "Add comment", exact: true })
+        .click();
+    };
+    const edit = async (text: string) => {
+      await target.locator("button").last().click();
+      await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+      await target.locator("textarea").fill(text);
+    };
+    await add("First review comment");
+    await edit("Discarded unsaved edit");
+    await page
+      .getByRole("button", { name: "Cancel review", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Discard", exact: true }).click();
+    await add("Fresh review comment");
+    await expect(target.locator("textarea")).toHaveCount(0);
+    await expect(
+      target.getByText("Fresh review comment", { exact: true })
+    ).toBeVisible();
+    await edit("Fresh edited review comment");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      target.getByText("Fresh edited review comment", { exact: true })
+    ).toBeVisible();
+    await edit("Removed unsaved edit");
+    await page.getByTestId("review-mode-submit").click();
+    await page
+      .getByRole("button", { name: "Remove comment", exact: true })
+      .click();
+    await page.keyboard.press("Escape");
+    await expect(target.locator("textarea")).toHaveCount(0);
+    await add("After removal");
+    await expect(
+      target.getByText("After removal", { exact: true })
+    ).toBeVisible();
+    await expect(target.locator("textarea")).toHaveCount(0);
+    await page.screenshot({
+      path: test.info().outputPath("draft-lifecycle.png"),
+    });
+  });
 });
