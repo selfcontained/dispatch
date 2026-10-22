@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -399,43 +402,57 @@ describe("POST /api/v1/jobs/run", () => {
 
 describe("stable job identity", () => {
   it("keeps running agents in their launched directory and uses edits for later starts", async () => {
-    const job = await createJob("running-relocation", { singleton: false });
-    const first = await authedInject("POST", "/api/v1/jobs/run", {
-      jobId: job.id,
-      wait: false,
-    });
-    expect(first.statusCode).toBe(200);
-    const moved = await authedInject("PATCH", "/api/v1/jobs", {
-      jobId: job.id,
-      directory: "/",
-      name: "running-relocated",
-    });
-    expect(moved.statusCode).toBe(200);
-    const second = await authedInject("POST", "/api/v1/jobs/run", {
-      jobId: job.id,
-      wait: false,
-    });
-    expect(second.statusCode).toBe(200);
-    const agents = await ctx.pool.query(
-      "SELECT id, cwd FROM agents WHERE id = ANY($1::text[])",
-      [[first.json().agentId, second.json().agentId]]
+    const source = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-job-source-")
     );
-    expect(
-      agents.rows.find((agent) => agent.id === first.json().agentId).cwd
-    ).toBe("/tmp");
-    expect(
-      agents.rows.find((agent) => agent.id === second.json().agentId).cwd
-    ).toBe("/");
-    const history = await authedInject(
-      "GET",
-      `/api/v1/jobs/history?jobId=${job.id}`
+    const destination = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-job-destination-")
     );
-    expect(history.json().runs).toHaveLength(2);
-    await ctx.pool.query(
-      "UPDATE job_runs SET status = 'completed' WHERE job_id = $1",
-      [job.id]
-    );
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    try {
+      const job = await createJob("running-relocation", {
+        singleton: false,
+        directory: source,
+      });
+      const first = await authedInject("POST", "/api/v1/jobs/run", {
+        jobId: job.id,
+        wait: false,
+      });
+      expect(first.statusCode).toBe(200);
+      const moved = await authedInject("PATCH", "/api/v1/jobs", {
+        jobId: job.id,
+        directory: destination,
+        name: "running-relocated",
+      });
+      expect(moved.statusCode).toBe(200);
+      const second = await authedInject("POST", "/api/v1/jobs/run", {
+        jobId: job.id,
+        wait: false,
+      });
+      expect(second.statusCode).toBe(200);
+      const agents = await ctx.pool.query(
+        "SELECT id, cwd FROM agents WHERE id = ANY($1::text[])",
+        [[first.json().agentId, second.json().agentId]]
+      );
+      expect(
+        agents.rows.find((agent) => agent.id === first.json().agentId).cwd
+      ).toBe(source);
+      expect(
+        agents.rows.find((agent) => agent.id === second.json().agentId).cwd
+      ).toBe(destination);
+      const history = await authedInject(
+        "GET",
+        `/api/v1/jobs/history?jobId=${job.id}`
+      );
+      expect(history.json().runs).toHaveLength(2);
+      await ctx.pool.query(
+        "UPDATE job_runs SET status = 'completed' WHERE job_id = $1",
+        [job.id]
+      );
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+    } finally {
+      await rm(source, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
   });
 
   it("preserves history, webhook and template identity through directory and name edits", async () => {
