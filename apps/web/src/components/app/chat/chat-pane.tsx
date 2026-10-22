@@ -12,7 +12,7 @@ import type {
   StreamBlockEntry,
   StreamEntry,
 } from "@dispatch/shared";
-import { MotionConfig } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { chatShowLastMessageAtom } from "@/lib/store";
 import { getDefaultStore, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
@@ -1407,40 +1407,49 @@ export function ChatPane({
                 ) : null}
               </div>
             </div>
-            {!following && (farFromBottom || pendingBelow) ? (
-              <div className="pointer-events-none absolute bottom-3 right-3">
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={
-                    pendingBelow
-                      ? "New messages, jump to bottom"
-                      : "Jump to bottom"
-                  }
-                  title={pendingBelow ? "New messages" : "Jump to bottom"}
-                  data-testid="chat-jump-to-bottom"
-                  data-pending={pendingBelow ? "true" : undefined}
-                  className="pointer-events-auto relative h-9 w-9 rounded-full border-border/60 bg-background/70 text-foreground shadow-md backdrop-blur hover:bg-background/90"
-                  onClick={() => {
-                    // Only the smooth scroll: following re-arms itself once
-                    // the scroll reaches the bottom. Arming it here would let
-                    // the content observer jump the rest of the way.
-                    anchoredRef.current = 0;
-                    setPendingBelow(false);
-                    scrollToBottom("smooth");
-                  }}
+            <AnimatePresence>
+              {!following && (farFromBottom || pendingBelow) ? (
+                <motion.div
+                  key="jump-to-bottom"
+                  className="pointer-events-none absolute bottom-3 right-3"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.16, ease: "easeOut" }}
                 >
-                  <ArrowDown className="h-4 w-4" />
-                  {pendingBelow ? (
-                    <span
-                      aria-hidden="true"
-                      className="absolute right-1 top-1 h-2 w-2 rounded-full bg-status-working ring-2 ring-background"
-                    />
-                  ) : null}
-                </Button>
-              </div>
-            ) : null}
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={
+                      pendingBelow
+                        ? "New messages, jump to bottom"
+                        : "Jump to bottom"
+                    }
+                    title={pendingBelow ? "New messages" : "Jump to bottom"}
+                    data-testid="chat-jump-to-bottom"
+                    data-pending={pendingBelow ? "true" : undefined}
+                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/[0.22] bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/40 hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
+                    onClick={() => {
+                      // Only the smooth scroll: following re-arms itself once
+                      // the scroll reaches the bottom. Arming it here would let
+                      // the content observer jump the rest of the way.
+                      anchoredRef.current = 0;
+                      setPendingBelow(false);
+                      scrollToBottom("smooth");
+                    }}
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                    {pendingBelow ? (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-1 top-1 h-2 w-2 rounded-full bg-status-working ring-2 ring-background"
+                      />
+                    ) : null}
+                  </Button>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </div>
 
           <div
