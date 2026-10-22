@@ -1429,7 +1429,7 @@ export function ChatPane({
                     title={pendingBelow ? "New messages" : "Jump to bottom"}
                     data-testid="chat-jump-to-bottom"
                     data-pending={pendingBelow ? "true" : undefined}
-                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/[0.22] bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-150 hover:border-foreground/40 hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
+                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/[0.22] bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/40 hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
                     onClick={() => {
                       // Only the smooth scroll: following re-arms itself once
                       // the scroll reaches the bottom. Arming it here would let
