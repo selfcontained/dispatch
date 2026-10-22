@@ -402,6 +402,7 @@ export function SettingsTab({
             onClick={() => {
               setSaveError(null);
               setSaved(false);
+              const submittedLocation = locationEdit;
               void onUpdateJob({
                 jobId: job.id,
                 name: displayName.trim(),
@@ -423,7 +424,9 @@ export function SettingsTab({
                 webhookEnabled,
               })
                 .then(() => {
-                  setLocationEdit(null);
+                  setLocationEdit((current) =>
+                    current === submittedLocation ? null : current
+                  );
                   addCwdHistory(directory.trim());
                   setSaved(true);
                 })

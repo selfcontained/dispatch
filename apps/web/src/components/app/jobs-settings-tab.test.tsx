@@ -585,6 +585,55 @@ it("does not restore externally moved membership when saving unrelated edits", a
 });
 
 describe("working directory", () => {
+  it("preserves a directory edited while an earlier save is pending", async () => {
+    const { onUpdateJob } = renderTab(makeJob());
+    let resolveSave!: () => void;
+    onUpdateJob.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/repo/submitted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/repo/new-draft" },
+    });
+    await act(async () => {
+      resolveSave();
+    });
+    expect(
+      (screen.getByLabelText("Working directory") as HTMLInputElement).value
+    ).toBe("/repo/new-draft");
+  });
+
+  it("preserves a different job's directory draft when the old save resolves", async () => {
+    const { onUpdateJob, rerenderJob } = renderTab(makeJob());
+    let resolveSave!: () => void;
+    onUpdateJob.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/repo/submitted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    rerenderJob(makeJob({ id: "job_2", directory: "/other" }));
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/other/new-draft" },
+    });
+    await act(async () => {
+      resolveSave();
+    });
+    expect(
+      (screen.getByLabelText("Working directory") as HTMLInputElement).value
+    ).toBe("/other/new-draft");
+  });
+
   it("saves an edited directory using stable job ID", async () => {
     const { onUpdateJob } = renderTab(makeJob());
     fireEvent.change(screen.getByLabelText("Working directory"), {

@@ -279,6 +279,63 @@ describe("saved launch personas", () => {
 });
 
 describe("job relocation persona resolution", () => {
+  it("validates a persona selected independently on the backing template", async () => {
+    const destination = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-backing-persona-")
+    );
+    const catalog = vi
+      .spyOn(personaCatalog, "get")
+      .mockImplementation(async (root) => ({
+        personas:
+          root === directory
+            ? [
+                {
+                  slug: "source-only",
+                  type: "task",
+                  name: "Source only",
+                  description: "",
+                  body: "Source instructions",
+                },
+              ]
+            : [],
+        warnings: [],
+        refreshing: false,
+        updatedAt: Date.now(),
+      }));
+    try {
+      const job = await jobs.addJob({
+        name: "backing-persona-relocation",
+        directory,
+        prompt: "Work",
+      });
+      await templates.updateTemplate(job.templateId!, {
+        persona: "source-only",
+      });
+      await expect(
+        jobs.updateJob({ jobId: job.id, directory: destination })
+      ).rejects.toThrow('Persona "source-only" not found');
+      expect((await jobs.getJobById(job.id))?.directory).toBe(directory);
+      expect((await templates.getTemplate(job.templateId!))?.directory).toBe(
+        directory
+      );
+
+      await templates.updateTemplate(job.templateId!, { persona: null });
+      await pool.query(
+        "UPDATE jobs SET persona = 'source-only' WHERE id = $1",
+        [job.id]
+      );
+      await expect(
+        jobs.updateJob({ jobId: job.id, directory: destination })
+      ).resolves.toMatchObject({ directory: destination });
+      expect(
+        (await templates.getTemplate(job.templateId!))?.persona
+      ).toBeNull();
+    } finally {
+      catalog.mockRestore();
+      await rm(destination, { recursive: true, force: true });
+    }
+  });
+
   it("validates the selected persona in the effective new directory", async () => {
     const destination = await mkdtemp(
       path.join(os.tmpdir(), "dispatch-relocated-persona-")

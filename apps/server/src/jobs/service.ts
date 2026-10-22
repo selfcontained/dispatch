@@ -760,10 +760,11 @@ export class JobService {
     const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
     const name = input.name === undefined ? existing.name : input.name.trim();
     if (!name) throw new Error("Job name is required.");
+    const previousDirectory = backingTemplate?.directory ?? existing.directory;
     const directory =
       projectDirectory ??
       (input.directory === undefined
-        ? existing.directory
+        ? previousDirectory
         : normalizeJobDirectory(input.directory));
     const branchName = normalizeNullableString(input.branchName);
     const baseBranch = normalizeNullableString(input.baseBranch);
@@ -796,11 +797,14 @@ export class JobService {
       existingAgentType: existing.agentType,
       existingModel: existing.model,
     });
+    const previousPersona = backingTemplate
+      ? backingTemplate.persona
+      : existing.persona;
     const persona =
-      input.persona === undefined ? existing.persona : input.persona;
+      input.persona === undefined ? previousPersona : input.persona;
     if (
       persona &&
-      (persona !== existing.persona || directory !== existing.directory)
+      (persona !== previousPersona || directory !== previousDirectory)
     )
       await resolveLaunchPersona(directory, persona, "task", "catalog");
     if (input.persona !== undefined) config.persona = input.persona;
