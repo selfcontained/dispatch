@@ -1421,7 +1421,7 @@ export function ChatPane({
                   title={pendingBelow ? "New messages" : "Jump to bottom"}
                   data-testid="chat-jump-to-bottom"
                   data-pending={pendingBelow ? "true" : undefined}
-                  className="pointer-events-auto relative h-9 w-9 rounded-full border-border/60 bg-background/70 text-foreground shadow-md backdrop-blur hover:bg-background/90"
+                  className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/[0.22] bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur hover:border-foreground/40 hover:bg-muted"
                   onClick={() => {
                     // Only the smooth scroll: following re-arms itself once
                     // the scroll reaches the bottom. Arming it here would let
