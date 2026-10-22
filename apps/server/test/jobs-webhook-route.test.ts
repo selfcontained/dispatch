@@ -69,8 +69,7 @@ describe("POST /api/v1/jobs/webhook/:secret", () => {
       url: "/api/v1/jobs",
       headers: { cookie, "content-type": "application/json" },
       payload: {
-        name: "wh-route-disabled",
-        directory: "/tmp",
+        jobId: job.id,
         webhookEnabled: false,
       },
     });

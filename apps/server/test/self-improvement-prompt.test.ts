@@ -14,15 +14,14 @@ import { buildSelfImprovementGuidance } from "../src/shared/self-improvement-pro
  * function, so nothing else in the repo asserts the update_job instruction.
  */
 describe("buildSelfImprovementGuidance", () => {
-  it("tells a job agent to call update_job with its own name and directory", () => {
+  it("tells a job agent to call update_job with its own stable ID", () => {
     const guidance = buildSelfImprovementGuidance({
       kind: "job",
-      name: "Test Enforcer",
-      directory: "/Users/someone/dev/apps/dispatch",
+      jobId: "job_test_enforcer",
     });
 
     expect(guidance).toContain(
-      'use update_job with name "Test Enforcer" and directory "/Users/someone/dev/apps/dispatch".'
+      'use update_job with jobId "job_test_enforcer".'
     );
     expect(guidance).toContain("done-when criteria, or recovery instructions");
     expect(guidance).not.toContain("update_template");
@@ -33,8 +32,7 @@ describe("buildSelfImprovementGuidance", () => {
     // no separator of its own, so the leading break has to come from here.
     const guidance = buildSelfImprovementGuidance({
       kind: "job",
-      name: "Test Enforcer",
-      directory: "/repo",
+      jobId: "job_test_enforcer",
     });
 
     expect(guidance.startsWith("\nSelf-improvement:\n")).toBe(true);

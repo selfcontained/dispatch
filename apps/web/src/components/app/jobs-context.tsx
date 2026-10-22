@@ -73,10 +73,8 @@ function useAttachedJobAgent(job: Job | null, agents: Agent[]) {
     const keepsAgent = !job.autoArchive;
     if (!isActive && !keepsAgent) return null;
     const match =
-      agents.find(
-        (agent) =>
-          agent.name.startsWith(`job-${job.name}-`) ||
-          agent.name.endsWith(job.lastRunId!.slice(0, 8))
+      agents.find((agent) =>
+        agent.name.endsWith(`-${job.lastRunId!.slice(0, 8)}`)
       ) ?? null;
     return match ? { agent: match, isActive } : null;
   }, [agents, job]);

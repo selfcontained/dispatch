@@ -424,17 +424,17 @@ Returns `202 Accepted` and runs the update asynchronously: download and verify t
 
 ## Jobs
 
-| Method | Path            | Description                                                      |
-| ------ | --------------- | ---------------------------------------------------------------- |
-| GET    | `/jobs`         | List all configured jobs                                         |
-| POST   | `/jobs`         | Create a job                                                     |
-| PATCH  | `/jobs`         | Update a job configuration                                       |
-| DELETE | `/jobs`         | Delete a job configuration                                       |
-| POST   | `/jobs/enable`  | Enable a job (registers cron schedule)                           |
-| POST   | `/jobs/disable` | Disable a job (removes cron schedule)                            |
-| POST   | `/jobs/run`     | Manually trigger a job run                                       |
-| GET    | `/jobs/stats`   | Get job run statistics                                           |
-| GET    | `/jobs/history` | Get job run history (filterable by `name`, `directory`, `limit`) |
+| Method | Path            | Description                                          |
+| ------ | --------------- | ---------------------------------------------------- |
+| GET    | `/jobs`         | List all configured jobs                             |
+| POST   | `/jobs`         | Create a job                                         |
+| PATCH  | `/jobs`         | Update a job configuration                           |
+| DELETE | `/jobs`         | Delete a job configuration                           |
+| POST   | `/jobs/enable`  | Enable a job (registers cron schedule)               |
+| POST   | `/jobs/disable` | Disable a job (removes cron schedule)                |
+| POST   | `/jobs/run`     | Manually trigger a job run                           |
+| GET    | `/jobs/stats`   | Get job run statistics                               |
+| GET    | `/jobs/history` | Get job run history (filterable by `jobId`, `limit`) |
 
 ### `POST /jobs`
 
@@ -460,7 +460,7 @@ Returns `202 Accepted` and runs the update asynchronously: download and verify t
 }
 ```
 
-`name` and `directory` are required (they form the composite key). `~` in `directory` is expanded to the user's home directory. All other fields are optional:
+`name` and `directory` are required on creation and must be unique together. The response contains the stable job `id`; pass it as `jobId` to subsequent operations. `~` in `directory` is expanded to the user's home directory. All other fields are optional:
 
 - `displayName` — human-readable label shown in the UI.
 - `prompt` — the job prompt (nullable; when null, falls back to a prompt file in `.dispatch/job-prompts/`).
@@ -480,31 +480,31 @@ Returns `202 Accepted` and runs the update asynchronously: download and verify t
 
 ### `PATCH /jobs`
 
-Same schema as `POST /jobs`. `name` and `directory` are required to identify the job; all other fields are optional and only provided fields are updated.
+`jobId` is required and identifies the saved job. All configuration fields are optional; `name` renames the job and `directory` changes its working directory without moving files. Blank names/directories and destination conflicts are rejected. The backing template is updated atomically; history, schedules and webhook identity stay attached to the same job ID.
 
 ### `DELETE /jobs`
 
 ```json
-{ "name": "docs-audit", "directory": "~/dev/apps/dispatch" }
+{ "jobId": "job_123" }
 ```
 
 ### `POST /jobs/enable` / `POST /jobs/disable`
 
 ```json
-{ "name": "docs-audit", "directory": "~/dev/apps/dispatch" }
+{ "jobId": "job_123" }
 ```
 
 ### `POST /jobs/run`
 
 ```json
-{ "name": "docs-audit", "directory": "/path/to/repo", "wait": false }
+{ "jobId": "job_123", "wait": false }
 ```
 
-`name` + `directory` together identify the job. `wait: true` blocks the response until the run reaches a terminal state; otherwise the response returns as soon as the run is queued. Manual runs are tagged with `triggerSource: "manual"` internally.
+`jobId` identifies the job. `wait: true` blocks the response until the run reaches a terminal state; otherwise the response returns as soon as the run is queued. Manual runs are tagged with `triggerSource: "manual"` internally.
 
 ### `GET /jobs/history`
 
-Query params: `name` (required), `directory` (required), `limit` (1–100, optional).
+Query params: `jobId` (required), `limit` (1–100, optional).
 
 ## Templates
 
@@ -689,3 +689,5 @@ full under its existing limits. Each recipient's excerpts are persisted before
 injection, and failed-delivery retries reuse that snapshot even if source posts
 change. On-demand reads return the current content. This does not change
 recipient selection, steering/queue policy, or ordinary output placement.
+
+For project-associated jobs, the project repository root supplies the working directory, including updates that omit `projectId`. Switch to Folder mode (API/MCP: `projectId: null`) to save a custom `directory`. Job directory and backing template changes commit together.

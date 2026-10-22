@@ -13,6 +13,7 @@ import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
 import type { AddJobInput, JobService } from "../jobs/service.js";
+import type { UpdateJobInput } from "../jobs/store.js";
 import type { TemplateService } from "../templates/service.js";
 import type { AddTemplateInput } from "../templates/store.js";
 import {
@@ -113,13 +114,11 @@ function buildCrudCallbacks(
     createJob: (input) =>
       deps.jobService.addJob(input as AddJobInput, callerFullAccess),
     updateJob: (input) =>
-      deps.jobService.updateJob(input as AddJobInput, callerFullAccess),
-    deleteJob: (name, directory) =>
-      deps.jobService.removeJob({ name, directory }),
-    runJob: (name, directory) =>
+      deps.jobService.updateJob(input as UpdateJobInput, callerFullAccess),
+    deleteJob: (jobId) => deps.jobService.removeJob({ jobId }),
+    runJob: (jobId) =>
       deps.jobService.runJob({
-        name,
-        directory,
+        jobId,
         wait: false,
         callerFullAccess,
       }),

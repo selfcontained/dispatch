@@ -408,3 +408,56 @@ describe("POST /api/v1/templates/:id/launch", () => {
     expect(res.json().error).toContain("no prompt");
   });
 });
+
+describe("template directory persistence", () => {
+  it("saves a new working directory by template ID and reads it back", async () => {
+    const template = await createTemplate("editable-directory");
+    const updated = await authedInject(
+      "PATCH",
+      `/api/v1/templates/${template.id}`,
+      { directory: "/tmp/template-destination" }
+    );
+    expect(updated.statusCode).toBe(200);
+    const reloaded = await authedInject(
+      "GET",
+      `/api/v1/templates/${template.id}`
+    );
+    expect(reloaded.json()).toMatchObject({
+      id: template.id,
+      directory: "/tmp/template-destination",
+    });
+  });
+});
+
+describe("project to folder template relocation", () => {
+  it("uses project cwd until association is explicitly cleared, then persists the folder", async () => {
+    await ctx.pool.query(
+      "INSERT INTO projects (id, name, repo_root) VALUES ('template-location-project', 'Location', '/tmp/project-template')"
+    );
+    const template = await createTemplate("project-location-template", {
+      projectId: "template-location-project",
+    });
+    const stillProject = await authedInject(
+      "PATCH",
+      `/api/v1/templates/${template.id}`,
+      { directory: "/tmp/ignored", description: "Keep association" }
+    );
+    expect(stillProject.statusCode).toBe(200);
+    expect(stillProject.json().directory).toBe("/tmp/project-template");
+    const folder = await authedInject(
+      "PATCH",
+      `/api/v1/templates/${template.id}`,
+      { projectId: null, directory: "/tmp/template-folder" }
+    );
+    expect(folder.statusCode).toBe(200);
+    const reloaded = await authedInject(
+      "GET",
+      `/api/v1/templates/${template.id}`
+    );
+    expect(reloaded.json()).toMatchObject({
+      id: template.id,
+      projectId: null,
+      directory: "/tmp/template-folder",
+    });
+  });
+});

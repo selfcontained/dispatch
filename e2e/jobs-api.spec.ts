@@ -32,6 +32,21 @@ async function ensureTestJob(
   return res;
 }
 
+async function fixtureJobId(
+  request: import("@playwright/test").APIRequestContext,
+  name: string,
+  directory: string
+): Promise<string> {
+  const response = await request.get("/api/v1/jobs", { headers: AUTH_HEADER });
+  const jobs = await response.json();
+  return (
+    jobs.find(
+      (job: { name: string; directory: string }) =>
+        job.name === name && job.directory === directory
+    )?.id ?? "missing-job"
+  );
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.describe("Jobs API", () => {
@@ -59,7 +74,10 @@ test.describe("Jobs API", () => {
 
     const res = await request.post("/api/v1/jobs/run", {
       headers: HEADERS,
-      data: { name: "E2E Test Job", directory: jobDir, wait: false },
+      data: {
+        jobId: await fixtureJobId(request, "E2E Test Job", jobDir),
+        wait: false,
+      },
     });
     const body = await res.json();
     expect(res.ok(), `Run failed: ${JSON.stringify(body)}`).toBeTruthy();
@@ -70,8 +88,7 @@ test.describe("Jobs API", () => {
     expect(body.status).toBe("running");
 
     const params = new URLSearchParams({
-      name: "E2E Test Job",
-      directory: jobDir,
+      jobId: await fixtureJobId(request, "E2E Test Job", jobDir),
     });
     const historyRes = await request.get(`/api/v1/jobs/history?${params}`, {
       headers: AUTH_HEADER,
@@ -153,9 +170,8 @@ test.describe("Jobs API", () => {
     const updateRes = await request.patch("/api/v1/jobs", {
       headers: HEADERS,
       data: {
-        name: "Editable Job",
-        directory: updateDir,
-        displayName: "Edited Job",
+        jobId: await fixtureJobId(request, "Editable Job", updateDir),
+        name: "Edited Job",
         schedule: "*/45 * * * *",
         timeoutMs: 900000,
         needsInputTimeoutMs: 1800000,
@@ -194,7 +210,9 @@ test.describe("Jobs API", () => {
 
     const res = await request.post("/api/v1/jobs/enable", {
       headers: HEADERS,
-      data: { name: "No Schedule", directory: noScheduleDir },
+      data: {
+        jobId: await fixtureJobId(request, "No Schedule", noScheduleDir),
+      },
     });
     expect(res.status()).toBe(500);
     const body = await res.json();
@@ -209,7 +227,7 @@ test.describe("Jobs API", () => {
     // Enable
     const enableRes = await request.post("/api/v1/jobs/enable", {
       headers: HEADERS,
-      data: { name: "E2E Test Job", directory: jobDir },
+      data: { jobId: await fixtureJobId(request, "E2E Test Job", jobDir) },
     });
     const enableBody = await enableRes.json();
     expect(
@@ -228,7 +246,7 @@ test.describe("Jobs API", () => {
     // Disable
     const disableRes = await request.post("/api/v1/jobs/disable", {
       headers: HEADERS,
-      data: { name: "E2E Test Job", directory: jobDir },
+      data: { jobId: await fixtureJobId(request, "E2E Test Job", jobDir) },
     });
     expect(disableRes.ok()).toBeTruthy();
     const disabled = await disableRes.json();
@@ -252,12 +270,14 @@ test.describe("Jobs API", () => {
     // Ensure job has at least one run
     await request.post("/api/v1/jobs/run", {
       headers: HEADERS,
-      data: { name: "E2E Test Job", directory: jobDir, wait: false },
+      data: {
+        jobId: await fixtureJobId(request, "E2E Test Job", jobDir),
+        wait: false,
+      },
     });
 
     const params = new URLSearchParams({
-      name: "E2E Test Job",
-      directory: jobDir,
+      jobId: await fixtureJobId(request, "E2E Test Job", jobDir),
     });
     const res = await request.get(`/api/v1/jobs/history?${params}`, {
       headers: AUTH_HEADER,
@@ -275,8 +295,7 @@ test.describe("Jobs API", () => {
     request,
   }) => {
     const params = new URLSearchParams({
-      name: "nonexistent",
-      directory: "/tmp/nope",
+      jobId: await fixtureJobId(request, "nonexistent", "/tmp/nope"),
     });
     const res = await request.get(`/api/v1/jobs/history?${params}`, {
       headers: AUTH_HEADER,
@@ -289,7 +308,13 @@ test.describe("Jobs API", () => {
   }) => {
     const res = await request.post("/api/v1/jobs/run", {
       headers: HEADERS,
-      data: { name: "does-not-exist", directory: "/tmp/no-such-dir" },
+      data: {
+        jobId: await fixtureJobId(
+          request,
+          "does-not-exist",
+          "/tmp/no-such-dir"
+        ),
+      },
     });
     expect(res.status()).toBe(500);
   });
@@ -330,8 +355,7 @@ test.describe("Jobs API", () => {
 
     // Verify triggerSource is "webhook"
     const params = new URLSearchParams({
-      name: "Webhook Job",
-      directory: webhookDir,
+      jobId: await fixtureJobId(request, "Webhook Job", webhookDir),
     });
     const historyRes = await request.get(`/api/v1/jobs/history?${params}`, {
       headers: AUTH_HEADER,
@@ -383,8 +407,7 @@ test.describe("Jobs API", () => {
     const updateRes = await request.patch("/api/v1/jobs", {
       headers: HEADERS,
       data: {
-        name: "Webhook Disable Job",
-        directory: webhookDir2,
+        jobId: await fixtureJobId(request, "Webhook Disable Job", webhookDir2),
         webhookEnabled: false,
       },
     });

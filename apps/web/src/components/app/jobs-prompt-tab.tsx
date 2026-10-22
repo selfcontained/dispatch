@@ -9,7 +9,7 @@ import {
   normalizeLoopItems,
   type ContinuationDraft,
 } from "@/components/app/jobs-continuation-fields";
-import { type AddJobConfig, type Job } from "@/hooks/use-jobs";
+import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { errorMessage } from "@/lib/errors";
 
 export function PromptTab({
@@ -18,7 +18,7 @@ export function PromptTab({
   isUpdating,
 }: {
   job: Job;
-  onUpdateJob: (job: AddJobConfig) => Promise<void>;
+  onUpdateJob: (job: UpdateJobConfig) => Promise<void>;
   isUpdating: boolean;
 }) {
   const [prompt, setPrompt] = useState(job.prompt ?? "");
@@ -116,8 +116,7 @@ export function PromptTab({
               setSaveError(null);
               setSaved(false);
               void onUpdateJob({
-                name: job.name,
-                directory: job.directory,
+                jobId: job.id,
                 prompt: prompt.trim() || null,
                 selfImprove,
                 continuationEnabled: continuation.enabled,

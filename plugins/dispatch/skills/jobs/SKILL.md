@@ -25,12 +25,12 @@ exist yet.
 list_jobs   — scoped to a directory; prompts omitted (length only)
 get_job     — one job by ID, or by name within a directory
 create_job  — only `name` is required; everything else has a default
-update_job  — identified by name (+ directory); pass only what changes
-delete_job  — fails if the job has an active run
-run_job     — trigger a run now; returns the run ID and agent ID immediately
+update_job  — identified by `jobId`; pass only what changes
+delete_job  — identified by `jobId`; fails if the job has an active run
+run_job     — trigger a run by `jobId`; returns the run ID and agent ID immediately
 ```
 
-Jobs are unique per (`directory`, `name`).
+Jobs have stable IDs; use `jobId` for every mutation and run. `name` and `directory` are editable configuration and must be unique together. `get_job` retains read-only name/directory lookup convenience. Changing a directory does not move files or change already running agents; subsequent starts use the saved directory.
 
 ## Configuration
 
@@ -129,3 +129,5 @@ user has configured, but the Slack send is skipped for any agent named `job-…`
 that has a job run. Nothing your status conveys will reach Slack. `post` with
 `notify: true` when a run needs to say something in Slack, or anything the
 status cannot carry.
+
+For project-associated jobs, the project repository root supplies the working directory, including updates that omit `projectId`. Switch to Folder mode (API/MCP: `projectId: null`) to save a custom `directory`. Job directory and backing template changes commit together.

@@ -18,12 +18,14 @@ import {
 } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { runCommand } from "../shared/lib/run-command.js";
+import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { sleep } from "../shared/lib/sleep.js";
 import { normalizePath, resolveRepoRoot } from "../shared/git/git-context.js";
 import { BrainStore } from "../brain/store.js";
 import {
   JobStore,
   type AddJobInput,
+  type UpdateJobInput,
   type JobAgentType,
   type JobRecord,
   type JobRunConfig,
@@ -49,8 +51,7 @@ export type JobRunCallback = (run: JobRunRecord) => void;
 type RunJobInput = {
   /** Agent callers must pass their access flag; omitted for trusted triggers. */
   callerFullAccess?: boolean;
-  name: string;
-  directory: string;
+  jobId: string;
   wait?: boolean;
   triggerSource?: "manual" | "scheduled" | "webhook" | "continuation";
   chainId?: string;
@@ -144,7 +145,7 @@ export class JobService {
   }
 
   async runJob(input: RunJobInput): Promise<RunJobResult> {
-    const job = await this.getJobOrThrow(input.directory, input.name);
+    const job = await this.getJobOrThrow(input.jobId);
 
     // Resolve agent config from backing template (fallback to job for legacy rows)
     const template = job.templateId
@@ -254,8 +255,7 @@ export class JobService {
     const job = await this.store.getJobByWebhookSecret(secret);
     if (!job) throw new WebhookNotFoundError();
     return this.runJob({
-      name: job.name,
-      directory: job.directory,
+      jobId: job.id,
       wait: false,
       triggerSource: "webhook",
     });
@@ -619,6 +619,7 @@ export class JobService {
     input: AddJobInput,
     callerFullAccess?: boolean
   ): Promise<JobRecord> {
+    input = { ...input, directory: normalizeJobDirectory(input.directory) };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const displayName = input.displayName?.trim() || input.name;
     const schedule = input.schedule === "" ? null : (input.schedule ?? null);
@@ -711,10 +712,10 @@ export class JobService {
   }
 
   async updateJob(
-    input: AddJobInput,
+    input: UpdateJobInput,
     callerFullAccess?: boolean
   ): Promise<JobRecord> {
-    const existing = await this.getJobOrThrow(input.directory, input.name);
+    const existing = await this.getJobOrThrow(input.jobId);
     // Editing a prompt or enabling a schedule can also cause privileged work.
     // Check both stored flags: a missing template falls back to the job row.
     if (callerFullAccess === false) {
@@ -729,42 +730,60 @@ export class JobService {
       );
     }
 
+    const backingTemplate = existing.templateId
+      ? await this.templateStore.getTemplate(existing.templateId)
+      : null;
+    const projectId =
+      input.projectId === undefined
+        ? backingTemplate?.projectId
+        : input.projectId;
     let projectDirectory: string | undefined;
-    if (input.projectId !== undefined) {
-      const project = input.projectId
-        ? await new ProjectStore(this.pool).get(input.projectId)
-        : null;
-      if (input.projectId && !project) throw new Error("Project not found.");
-      if (!existing.templateId) throw new Error("Job has no backing template.");
-      projectDirectory = project?.repoRoot;
+    if (projectId) {
+      const project = await new ProjectStore(this.pool).get(projectId);
+      if (!project) throw new Error("Project not found.");
+      projectDirectory = project.repoRoot;
     }
+    if (input.projectId !== undefined && !existing.templateId)
+      throw new Error("Job has no backing template.");
     const schedule = input.schedule === "" ? null : input.schedule;
     const nextSchedule =
       input.schedule === undefined ? existing.schedule : schedule;
     const nextContinuationEnabled =
       input.continuationEnabled ?? existing.continuationEnabled;
     assertScheduleValid({
-      label: input.displayName ?? existing.name,
+      label: input.name ?? existing.name,
       schedule: nextSchedule,
       enabled: input.enabled,
       continuationEnabled: nextContinuationEnabled,
     });
 
     const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
-    const displayName = normalizeOptionalString(input.displayName);
+    const name = input.name === undefined ? existing.name : input.name.trim();
+    if (!name) throw new Error("Job name is required.");
+    const directory =
+      projectDirectory ??
+      (input.directory === undefined
+        ? existing.directory
+        : normalizeJobDirectory(input.directory));
     const branchName = normalizeNullableString(input.branchName);
     const baseBranch = normalizeNullableString(input.baseBranch);
-    if (displayName !== undefined && displayName !== existing.name) {
+    if (name !== existing.name || directory !== existing.directory) {
       const conflict = await this.store.getJobByDirectoryAndName(
-        input.directory,
-        displayName
+        directory,
+        name
       );
-      if (conflict) {
+      if (conflict && conflict.id !== existing.id) {
         throw new Error(
-          `A job named "${displayName}" already exists in directory "${input.directory}".`
+          `A job named "${name}" already exists in directory "${directory}".`
         );
       }
-      config.name = displayName;
+      config.name = name;
+      config.directory = directory;
+    } else if (
+      input.directory !== undefined ||
+      projectDirectory !== undefined
+    ) {
+      config.directory = directory;
     }
     if (input.prompt !== undefined) config.prompt = input.prompt;
     if (input.schedule !== undefined) config.schedule = schedule;
@@ -777,13 +796,13 @@ export class JobService {
       existingAgentType: existing.agentType,
       existingModel: existing.model,
     });
-    if (input.persona && input.persona !== existing.persona)
-      await resolveLaunchPersona(
-        existing.directory,
-        input.persona,
-        "task",
-        "catalog"
-      );
+    const persona =
+      input.persona === undefined ? existing.persona : input.persona;
+    if (
+      persona &&
+      (persona !== existing.persona || directory !== existing.directory)
+    )
+      await resolveLaunchPersona(directory, persona, "task", "catalog");
     if (input.persona !== undefined) config.persona = input.persona;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)
@@ -851,9 +870,9 @@ export class JobService {
           templateUpdates.fullAccess = input.fullAccess;
         if (input.selfImprove !== undefined)
           templateUpdates.selfImprove = input.selfImprove;
-        if (displayName !== undefined && displayName !== existing.name) {
-          templateUpdates.name = displayName;
-        }
+        if (config.name !== undefined) templateUpdates.name = config.name;
+        if (config.directory !== undefined)
+          templateUpdates.directory = config.directory;
         if (Object.keys(templateUpdates).length > 0) {
           await new TemplateStore(client).updateTemplate(
             updated.templateId,
@@ -877,11 +896,8 @@ export class JobService {
     return updated;
   }
 
-  async enableJob(input: {
-    name: string;
-    directory: string;
-  }): Promise<JobRecord> {
-    const job = await this.getJobOrThrow(input.directory, input.name);
+  async enableJob(input: { jobId: string }): Promise<JobRecord> {
+    const job = await this.getJobOrThrow(input.jobId);
     const schedule = job.schedule;
     if (!schedule && !job.continuationEnabled) {
       throw new Error(
@@ -906,11 +922,8 @@ export class JobService {
     return updated;
   }
 
-  async disableJob(input: {
-    name: string;
-    directory: string;
-  }): Promise<JobRecord> {
-    const job = await this.getJobOrThrow(input.directory, input.name);
+  async disableJob(input: { jobId: string }): Promise<JobRecord> {
+    const job = await this.getJobOrThrow(input.jobId);
     const updated = await this.store.setEnabled(job.id, false);
     this.clearBrainRetriesForJob(updated.id);
     this.stopScheduler(updated.id);
@@ -921,11 +934,8 @@ export class JobService {
     return updated;
   }
 
-  async removeJob(input: {
-    name: string;
-    directory: string;
-  }): Promise<JobRecord> {
-    const job = await this.getJobOrThrow(input.directory, input.name);
+  async removeJob(input: { jobId: string }): Promise<JobRecord> {
+    const job = await this.getJobOrThrow(input.jobId);
     this.clearBrainRetriesForJob(job.id);
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
@@ -974,15 +984,11 @@ export class JobService {
     });
   }
 
-  async listRunsForJob(input: {
-    name: string;
-    directory: string;
-    limit?: number;
-  }): Promise<{
+  async listRunsForJob(input: { jobId: string; limit?: number }): Promise<{
     job: JobRecord;
     runs: JobRunRecord[];
   }> {
-    const job = await this.getJobOrThrow(input.directory, input.name);
+    const job = await this.getJobOrThrow(input.jobId);
     const runs = await this.store.listRunsForJob(job.id, input.limit ?? 20);
     return { job, runs };
   }
@@ -1011,15 +1017,9 @@ export class JobService {
     return { stats, recentRuns };
   }
 
-  /** Look up a job by name + directory, or throw if not found. */
-  private async getJobOrThrow(
-    directory: string,
-    name: string
-  ): Promise<JobRecord> {
-    const job = await this.store.getJobByDirectoryAndName(directory, name);
-    if (!job) {
-      throw new Error(`Job "${name}" not found in directory "${directory}".`);
-    }
+  private async getJobOrThrow(jobId: string): Promise<JobRecord> {
+    const job = await this.store.getJob(jobId);
+    if (!job) throw new Error(`Job "${jobId}" not found.`);
     return job;
   }
 
@@ -1104,8 +1104,7 @@ export class JobService {
         if (!current || !current.enabled) return;
 
         await this.runJob({
-          name: current.name,
-          directory: current.directory,
+          jobId: current.id,
           wait: false,
           triggerSource: "scheduled",
         });
@@ -1381,8 +1380,7 @@ function buildJobPrompt(job: JobRecord, run: JobRunRecord): string {
       ? [
           buildSelfImprovementGuidance({
             kind: "job",
-            name: job.name,
-            directory: job.directory,
+            jobId: job.id,
           }),
         ]
       : []),
@@ -1424,13 +1422,6 @@ function assertScheduleValid(params: {
   }
 }
 
-function normalizeOptionalString(
-  value: string | undefined
-): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
 export class WebhookNotFoundError extends Error {
   constructor() {
     super("Webhook not found or disabled.");
@@ -1448,4 +1439,9 @@ function normalizeNullableString(
   if (value === undefined) return undefined;
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizeJobDirectory(directory: string): string {
+  if (!directory.trim()) throw new Error("Job directory is required.");
+  return normalizePath(resolveTilde(directory.trim()));
 }

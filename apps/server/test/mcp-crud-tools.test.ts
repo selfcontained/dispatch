@@ -112,6 +112,14 @@ const CRUD_TOOL_NAMES = [
   "delete_template",
 ];
 
+async function fixtureJobId(name: string): Promise<string> {
+  const result = await ctx.pool.query(
+    "SELECT id FROM jobs WHERE name = $1 AND directory = '/tmp'",
+    [name]
+  );
+  return result.rows[0]?.id ?? "missing-job";
+}
+
 describe("MCP CRUD tools", () => {
   // ── Tool gating ─────────────────────────────────────────────────
   describe("tool gating", () => {
@@ -199,8 +207,7 @@ describe("MCP CRUD tools", () => {
       expect(got.name).toBe("job-route-test");
 
       const deleteRes = await mcpJobToolCall(runId, agentId, "delete_job", {
-        name: "job-route-test",
-        directory: "/tmp",
+        jobId: created.id,
       });
       expect(deleteRes.statusCode).toBe(200);
       const deleted = JSON.parse(parseToolText(deleteRes.body));
@@ -296,8 +303,7 @@ describe("MCP CRUD tools", () => {
           );
         }
         const response = await mcpToolCall(agentId, "run_job", {
-          name: "privileged",
-          directory: "/tmp",
+          jobId: await fixtureJobId("privileged"),
         });
         expect(parseToolText(response.body)).toContain("Permission denied");
         expect(
@@ -314,8 +320,7 @@ describe("MCP CRUD tools", () => {
         { fullAccess: false, prompt: "Replacement prompt" },
       ]) {
         const response = await mcpToolCall(agentId, "update_job", {
-          name: "privileged",
-          directory: "/tmp",
+          jobId: await fixtureJobId("privileged"),
           ...change,
         });
         expect(parseToolText(response.body)).toContain("Permission denied");
@@ -348,10 +353,7 @@ describe("MCP CRUD tools", () => {
       });
       const job = JSON.parse(parseToolText(response.body));
       for (const [tool, args] of [
-        [
-          "update_job",
-          { name: "restricted", directory: "/tmp", fullAccess: true },
-        ],
+        ["update_job", { jobId: job.id, fullAccess: true }],
         ["update_template", { templateId: job.templateId, fullAccess: true }],
       ] as const) {
         const result = await mcpToolCall(agentId, tool, args);
@@ -440,19 +442,40 @@ describe("MCP CRUD tools", () => {
 
       // update_job
       const updateRes = await mcpToolCall(agentId, "update_job", {
-        name: "test-job",
-        directory: "/tmp",
-        displayName: "renamed-job",
+        jobId: created.id,
+        name: "renamed-job",
+        directory: "/tmp/mcp-moved",
         prompt: "Do a different thing",
       });
       expect(updateRes.statusCode).toBe(200);
       const updated = JSON.parse(parseToolText(updateRes.body));
       expect(updated.name).toBe("renamed-job");
+      const promptOnly = await mcpToolCall(agentId, "update_job", {
+        jobId: created.id,
+        prompt: "Update after moving out of the caller directory",
+      });
+      expect(promptOnly.body).not.toContain('"isError":true');
+      const relocated = await mcpToolCall(agentId, "get_job", {
+        jobId: created.id,
+      });
+      expect(JSON.parse(parseToolText(relocated.body))).toMatchObject({
+        id: created.id,
+        name: "renamed-job",
+        directory: "/tmp/mcp-moved",
+        prompt: "Update after moving out of the caller directory",
+      });
+      const backingTemplate = await ctx.pool.query(
+        "SELECT directory, name FROM templates WHERE id = $1",
+        [created.templateId]
+      );
+      expect(backingTemplate.rows[0]).toEqual({
+        directory: "/tmp/mcp-moved",
+        name: "renamed-job",
+      });
 
       // delete_job
       const deleteRes = await mcpToolCall(agentId, "delete_job", {
-        name: "renamed-job",
-        directory: "/tmp",
+        jobId: created.id,
       });
       expect(deleteRes.statusCode).toBe(200);
       const deleted = JSON.parse(parseToolText(deleteRes.body));

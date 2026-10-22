@@ -68,8 +68,7 @@ describe("PromptTab loop setup", () => {
 
     await waitFor(() => expect(onUpdateJob).toHaveBeenCalledTimes(1));
     expect(onUpdateJob).toHaveBeenCalledWith({
-      name: "project-loop",
-      directory: "/repo",
+      jobId: "job_1",
       prompt: "Build the next planned slice.",
       selfImprove: false,
       continuationEnabled: true,

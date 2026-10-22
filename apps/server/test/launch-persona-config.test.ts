@@ -109,7 +109,7 @@ describe("saved launch personas", () => {
         enabled: false,
       });
       await expect(
-        jobs.updateJob({ name: job.name, directory, persona: "builder" })
+        jobs.updateJob({ jobId: job.id, persona: "builder" })
       ).rejects.toThrow('Persona "builder" not found');
       expect(
         (await jobs.listJobs()).find((j) => j.id === job.id)?.persona
@@ -155,11 +155,11 @@ describe("saved launch personas", () => {
     expect((await templates.getTemplate(job.templateId!))?.persona).toBe(
       "builder"
     );
-    await jobs.updateJob({ name: job.name, directory, prompt: "New task" });
+    await jobs.updateJob({ jobId: job.id, prompt: "New task" });
     expect((await templates.getTemplate(job.templateId!))?.persona).toBe(
       "builder"
     );
-    const run = await jobs.runJob({ name: job.name, directory, wait: false });
+    const run = await jobs.runJob({ jobId: job.id, wait: false });
     expect(manager.createAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({ persona: "builder" }),
       expect.any(Object)
@@ -169,17 +169,9 @@ describe("saved launch personas", () => {
       summary: "Done",
       tasks: [],
     });
-    const updated = await jobs.updateJob({
-      name: job.name,
-      directory,
-      persona: null,
-    });
+    const updated = await jobs.updateJob({ jobId: job.id, persona: null });
     expect(updated.persona).toBeNull();
-    const clearedRun = await jobs.runJob({
-      name: job.name,
-      directory,
-      wait: false,
-    });
+    const clearedRun = await jobs.runJob({ jobId: job.id, wait: false });
     expect(manager.createAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({ persona: undefined }),
       expect.any(Object)
@@ -191,7 +183,7 @@ describe("saved launch personas", () => {
     });
     expect((await templates.getTemplate(job.templateId!))?.persona).toBeNull();
     await expect(
-      jobs.updateJob({ name: job.name, directory, persona: "code-review" })
+      jobs.updateJob({ jobId: job.id, persona: "code-review" })
     ).rejects.toThrow("not available");
   });
   it.each([false, true])(
@@ -210,7 +202,7 @@ describe("saved launch personas", () => {
           job.id,
         ]);
       }
-      const run = await jobs.runJob({ name: job.name, directory, wait: false });
+      const run = await jobs.runJob({ jobId: job.id, wait: false });
       expect(manager.createAgent).toHaveBeenLastCalledWith(
         expect.objectContaining({ persona: "builder" }),
         expect.any(Object)
@@ -272,8 +264,7 @@ describe("saved launch personas", () => {
     });
     await expect(
       jobs.updateJob({
-        name: job.name,
-        directory,
+        jobId: job.id,
         persona: "deleted-persona",
         enabled: false,
       })
@@ -282,7 +273,62 @@ describe("saved launch personas", () => {
       templates.updateTemplate(template.id, { persona: "another-missing" })
     ).rejects.toThrow("not found");
     await expect(
-      jobs.updateJob({ name: job.name, directory, persona: "another-missing" })
+      jobs.updateJob({ jobId: job.id, persona: "another-missing" })
     ).rejects.toThrow("not found");
+  });
+});
+
+describe("job relocation persona resolution", () => {
+  it("validates the selected persona in the effective new directory", async () => {
+    const destination = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-relocated-persona-")
+    );
+    const catalog = vi
+      .spyOn(personaCatalog, "get")
+      .mockImplementation(async (root) => ({
+        personas:
+          root === destination
+            ? [
+                {
+                  slug: "destination-builder",
+                  type: "task",
+                  name: "Destination builder",
+                  description: "Destination only",
+                  body: "Build in destination.",
+                },
+              ]
+            : [],
+        warnings: [],
+        refreshing: false,
+        updatedAt: Date.now(),
+      }));
+    try {
+      await upsertPersona({
+        root: destination,
+        slug: "destination-builder",
+        type: "task",
+        name: "Destination builder",
+        description: "Destination only",
+        instructions: "Build in destination.",
+      });
+      const job = await jobs.addJob({
+        name: "persona-relocation-job",
+        directory,
+        prompt: "Work",
+      });
+      await expect(
+        jobs.updateJob({
+          jobId: job.id,
+          directory: destination,
+          persona: "destination-builder",
+        })
+      ).resolves.toMatchObject({
+        directory: destination,
+        persona: "destination-builder",
+      });
+    } finally {
+      catalog.mockRestore();
+      await rm(destination, { recursive: true, force: true });
+    }
   });
 });

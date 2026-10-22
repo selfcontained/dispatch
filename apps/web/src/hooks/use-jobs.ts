@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import type { JobReport } from "../../../server/src/jobs/report";
 import type {
   AddJobInput,
+  UpdateJobInput,
   JobAgentType,
   JobNotifyConfig,
   JobRunRecord,
@@ -20,7 +21,9 @@ export type JobRun = JobRunRecord;
 
 export type AddJobConfig = AddJobInput;
 
-type JobIdentity = Pick<Job, "name" | "directory">;
+export type UpdateJobConfig = UpdateJobInput;
+
+type JobIdentity = Pick<Job, "id">;
 
 export function useJobs(enabled = true) {
   return useQuery<Job[]>({
@@ -45,12 +48,11 @@ export function useJobHistory(job: Job | null) {
     >;
     runs: JobRun[];
   }>({
-    queryKey: ["jobs", job?.directory, job?.name, "history"],
+    queryKey: ["jobs", job?.id, "history"],
     queryFn: () => {
       if (!job) throw new Error("Job is required.");
       const params = new URLSearchParams({
-        name: job.name,
-        directory: job.directory,
+        jobId: job.id,
         limit: "50",
       });
       return api(`/api/v1/jobs/history?${params.toString()}`);
@@ -98,8 +100,7 @@ export function useJobActions() {
       api<RunJobResult>("/api/v1/jobs/run", {
         method: "POST",
         body: JSON.stringify({
-          name: job.name,
-          directory: job.directory,
+          jobId: job.id,
           wait: false,
         }),
       }),
@@ -116,7 +117,7 @@ export function useJobActions() {
   });
 
   const updateJob = useMutation({
-    mutationFn: (job: AddJobConfig) =>
+    mutationFn: (job: UpdateJobConfig) =>
       api<Job>("/api/v1/jobs", {
         method: "PATCH",
         body: JSON.stringify(job),
@@ -128,7 +129,7 @@ export function useJobActions() {
     mutationFn: (job: JobIdentity) =>
       api<Job>("/api/v1/jobs", {
         method: "DELETE",
-        body: JSON.stringify({ name: job.name, directory: job.directory }),
+        body: JSON.stringify({ jobId: job.id }),
       }),
     onSuccess: invalidateJobs,
   });
@@ -137,7 +138,7 @@ export function useJobActions() {
     mutationFn: ({ job, enabled }: { job: JobIdentity; enabled: boolean }) =>
       api(`/api/v1/jobs/${enabled ? "enable" : "disable"}`, {
         method: "POST",
-        body: JSON.stringify({ name: job.name, directory: job.directory }),
+        body: JSON.stringify({ jobId: job.id }),
       }),
     onSuccess: invalidateJobs,
   });

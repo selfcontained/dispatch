@@ -317,8 +317,9 @@ describe("JobService", () => {
         );
 
         const result = await service.runJob({
-          name: "Rename Test",
-          directory: "/tmp/test-rename",
+          jobId:
+            (await service.getJobByName("/tmp/test-rename", "Rename Test"))
+              ?.id ?? "missing-job",
           wait: false,
           callerFullAccess,
         });
@@ -372,11 +373,7 @@ describe("JobService", () => {
             new Error("test launch boundary")
           );
           await expect(
-            service.runJob({
-              name: job.name,
-              directory: job.directory,
-              wait: false,
-            })
+            service.runJob({ jobId: job.id, wait: false })
           ).rejects.toThrow("test launch boundary");
           expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
             expect.objectContaining({ launchContext: { prompt: expected } }),
@@ -409,11 +406,7 @@ describe("JobService", () => {
           });
           await new JobStore(pool).updateJobConfig(job.id, { defaultArgs });
           await expect(
-            service.runJob({
-              name: job.name,
-              directory: job.directory,
-              wait: false,
-            })
+            service.runJob({ jobId: job.id, wait: false })
           ).rejects.toThrow(error);
           expect(mockAgentManager.createAgent).not.toHaveBeenCalled();
         } finally {
@@ -438,7 +431,11 @@ describe("JobService", () => {
       });
 
       await expect(
-        service.runJob({ name: "no-prompt", directory: "/tmp/test-noprompt" })
+        service.runJob({
+          jobId:
+            (await service.getJobByName("/tmp/test-noprompt", "no-prompt"))
+              ?.id ?? "missing-job",
+        })
       ).rejects.toThrow("no prompt configured");
 
       await service.shutdown();
@@ -462,8 +459,13 @@ describe("JobService", () => {
 
       await expect(
         service.removeJob({
-          name: "active-run-test",
-          directory: "/tmp/test-activerun",
+          jobId:
+            (
+              await service.getJobByName(
+                "/tmp/test-activerun",
+                "active-run-test"
+              )
+            )?.id ?? "missing-job",
         })
       ).rejects.toThrow("has active run");
 
@@ -531,8 +533,9 @@ describe("JobService", () => {
       });
 
       const updated = await service.updateJob({
-        name: "wh-update-test",
-        directory: "/tmp/test-wh-update",
+        jobId:
+          (await service.getJobByName("/tmp/test-wh-update", "wh-update-test"))
+            ?.id ?? "missing-job",
         webhookEnabled: true,
       });
 
@@ -558,8 +561,13 @@ describe("JobService", () => {
       });
 
       const updated = await service.updateJob({
-        name: "wh-disable-test",
-        directory: "/tmp/test-wh-disable",
+        jobId:
+          (
+            await service.getJobByName(
+              "/tmp/test-wh-disable",
+              "wh-disable-test"
+            )
+          )?.id ?? "missing-job",
         webhookEnabled: false,
       });
 
@@ -586,8 +594,13 @@ describe("JobService", () => {
       const originalSecret = created.webhookSecret;
 
       const updated = await service.updateJob({
-        name: "wh-reenable-test",
-        directory: "/tmp/test-wh-reenable",
+        jobId:
+          (
+            await service.getJobByName(
+              "/tmp/test-wh-reenable",
+              "wh-reenable-test"
+            )
+          )?.id ?? "missing-job",
         webhookEnabled: true,
       });
 
@@ -695,8 +708,13 @@ describe("JobService", () => {
       const secret = job.webhookSecret!;
 
       await service.updateJob({
-        name: "wh-disabled-run",
-        directory: "/tmp/test-wh-disabled-run",
+        jobId:
+          (
+            await service.getJobByName(
+              "/tmp/test-wh-disabled-run",
+              "wh-disabled-run"
+            )
+          )?.id ?? "missing-job",
         webhookEnabled: false,
       });
 
@@ -856,8 +874,7 @@ describe("JobService", () => {
         expect(service.getRuntimeMetrics().scheduledJobs).toBe(1);
         await expect(
           service.updateJob({
-            name: original.name,
-            directory: original.directory,
+            jobId: original.id,
             projectId: "atomic-project",
             schedule: "*/15 * * * *",
             enabled: false,
@@ -898,8 +915,9 @@ describe("JobService", () => {
 
       await expect(
         service.updateJob({
-          name: "upd-bad-cron",
-          directory: "/tmp/test-upd-cron",
+          jobId:
+            (await service.getJobByName("/tmp/test-upd-cron", "upd-bad-cron"))
+              ?.id ?? "missing-job",
           schedule: "not a cron",
         })
       ).rejects.toThrow(
@@ -925,8 +943,13 @@ describe("JobService", () => {
 
       await expect(
         service.updateJob({
-          name: "upd-no-sched",
-          directory: "/tmp/test-upd-no-sched",
+          jobId:
+            (
+              await service.getJobByName(
+                "/tmp/test-upd-no-sched",
+                "upd-no-sched"
+              )
+            )?.id ?? "missing-job",
           enabled: true,
         })
       ).rejects.toThrow("needs a schedule");
@@ -955,9 +978,10 @@ describe("JobService", () => {
 
       await expect(
         service.updateJob({
-          name: "original-a",
-          directory: "/tmp/test-rename-dup",
-          displayName: "original-b",
+          jobId:
+            (await service.getJobByName("/tmp/test-rename-dup", "original-a"))
+              ?.id ?? "missing-job",
+          name: "original-b",
         })
       ).rejects.toThrow("already exists");
 
@@ -980,8 +1004,9 @@ describe("JobService", () => {
       });
 
       await service.updateJob({
-        name: "prop-test",
-        directory: "/tmp/test-prop",
+        jobId:
+          (await service.getJobByName("/tmp/test-prop", "prop-test"))?.id ??
+          "missing-job",
         prompt: "Updated prompt",
         agentType: "codex",
         fullAccess: true,
@@ -1015,8 +1040,9 @@ describe("JobService", () => {
       });
 
       const updated = await service.updateJob({
-        name: "sched-disable",
-        directory: "/tmp/test-sched-dis",
+        jobId:
+          (await service.getJobByName("/tmp/test-sched-dis", "sched-disable"))
+            ?.id ?? "missing-job",
         enabled: false,
       });
 
@@ -1042,8 +1068,13 @@ describe("JobService", () => {
 
       await expect(
         service.enableJob({
-          name: "enable-no-sched",
-          directory: "/tmp/test-enable-nosched",
+          jobId:
+            (
+              await service.getJobByName(
+                "/tmp/test-enable-nosched",
+                "enable-no-sched"
+              )
+            )?.id ?? "missing-job",
         })
       ).rejects.toThrow("no schedule configured");
 
@@ -1067,8 +1098,9 @@ describe("JobService", () => {
 
       await expect(
         service.enableJob({
-          name: "enable-freq",
-          directory: "/tmp/test-enable-freq",
+          jobId:
+            (await service.getJobByName("/tmp/test-enable-freq", "enable-freq"))
+              ?.id ?? "missing-job",
         })
       ).rejects.toThrow();
 
@@ -1091,8 +1123,9 @@ describe("JobService", () => {
       });
 
       const updated = await service.enableJob({
-        name: "enable-valid",
-        directory: "/tmp/test-enable-valid",
+        jobId:
+          (await service.getJobByName("/tmp/test-enable-valid", "enable-valid"))
+            ?.id ?? "missing-job",
       });
 
       expect(updated.enabled).toBe(true);
@@ -1116,8 +1149,9 @@ describe("JobService", () => {
       await store.updateJobConfig(job.id, { enabled: true });
 
       const updated = await service.disableJob({
-        name: "disable-test",
-        directory: "/tmp/test-disable",
+        jobId:
+          (await service.getJobByName("/tmp/test-disable", "disable-test"))
+            ?.id ?? "missing-job",
       });
 
       expect(updated.enabled).toBe(false);
@@ -1142,8 +1176,9 @@ describe("JobService", () => {
       const templateId = job.templateId!;
 
       const removed = await service.removeJob({
-        name: "remove-clean",
-        directory: "/tmp/test-remove-clean",
+        jobId:
+          (await service.getJobByName("/tmp/test-remove-clean", "remove-clean"))
+            ?.id ?? "missing-job",
       });
 
       expect(removed.id).toBe(job.id);
@@ -1167,8 +1202,9 @@ describe("JobService", () => {
 
       await expect(
         service.removeJob({
-          name: "ghost",
-          directory: "/tmp/test-ghost",
+          jobId:
+            (await service.getJobByName("/tmp/test-ghost", "ghost"))?.id ??
+            "missing-job",
         })
       ).rejects.toThrow("not found");
 
@@ -1199,8 +1235,13 @@ describe("JobService", () => {
 
       await expect(
         service.runJob({
-          name: "singleton-test",
-          directory: "/tmp/test-singleton",
+          jobId:
+            (
+              await service.getJobByName(
+                "/tmp/test-singleton",
+                "singleton-test"
+              )
+            )?.id ?? "missing-job",
         })
       ).rejects.toThrow("already has active run");
 
@@ -1229,8 +1270,9 @@ describe("JobService", () => {
 
       await expect(
         service.runJob({
-          name: "crash-spawn",
-          directory: "/tmp/test-crash",
+          jobId:
+            (await service.getJobByName("/tmp/test-crash", "crash-spawn"))
+              ?.id ?? "missing-job",
         })
       ).rejects.toThrow("failed to start: tmux exploded");
 
@@ -1267,8 +1309,9 @@ describe("JobService", () => {
       });
 
       const result = await service.listRunsForJob({
-        name: "list-runs",
-        directory: "/tmp/test-list-runs",
+        jobId:
+          (await service.getJobByName("/tmp/test-list-runs", "list-runs"))
+            ?.id ?? "missing-job",
       });
 
       expect(result.job.id).toBe(job.id);
@@ -1287,8 +1330,9 @@ describe("JobService", () => {
 
       await expect(
         service.listRunsForJob({
-          name: "nope",
-          directory: "/tmp/nope",
+          jobId:
+            (await service.getJobByName("/tmp/nope", "nope"))?.id ??
+            "missing-job",
         })
       ).rejects.toThrow("not found");
 
