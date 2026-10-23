@@ -266,6 +266,17 @@ const RESTORE_SEEK_PAGES = 20;
 const TAIL_BUFFER_PX = 100;
 /** Scrolled up past this much of the view, the jump-to-bottom button shows. */
 const JUMP_BUTTON_PX = 160;
+/** Quiet this long, the jump button's smooth scroll has settled. */
+const JUMP_SETTLE_MS = 150;
+/** A smooth scroll still under way after this long is finished by a jump. */
+const JUMP_MAX_MS = 1500;
+/** The reader's own input on the scroller ends a jump where it is. */
+const JUMP_INTERRUPTS = [
+  "wheel",
+  "touchstart",
+  "pointerdown",
+  "keydown",
+] as const;
 
 /**
  * Where a reader was in one agent's feed.
@@ -770,6 +781,59 @@ export function ChatPane({
   const { loadOlder: fetchOlder } = feed;
   /** The windowed feed's own hold on the reader's place (see ChatFeed). */
   const placeRef = useRef<FeedPlace | null>(null);
+
+  /**
+   * The jump button's smooth scroll. Rows it passes mount and measure on
+   * the way down, and the windowed feed holding the reader's place through
+   * that would write scrollTop, which cancels a smooth scroll midway; the
+   * bottom it was aimed at also moves as estimates become real heights. So
+   * the place is let go for the trip, and once the scroll settles the rest
+   * of the way is a jump, which re-arms following. The reader taking the
+   * wheel mid-trip keeps where they stop.
+   */
+  const jumpCleanupRef = useRef<(() => void) | null>(null);
+  const jumpToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    jumpCleanupRef.current?.();
+    anchoredRef.current = 0;
+    setPendingBelow(false);
+    const release = placeRef.current?.suspend();
+    let settleTimer = 0;
+    const startedAt = Date.now();
+    const cleanup = () => {
+      window.clearTimeout(settleTimer);
+      el.removeEventListener("scroll", onTripScroll);
+      for (const type of JUMP_INTERRUPTS) {
+        el.removeEventListener(type, cleanup);
+      }
+      if (jumpCleanupRef.current === cleanup) jumpCleanupRef.current = null;
+      release?.();
+    };
+    const settle = () => {
+      // Snap before letting go, so the feed takes its place at the bottom.
+      scrollToBottom();
+      cleanup();
+    };
+    const armSettle = () => {
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(
+        settle,
+        Date.now() - startedAt >= JUMP_MAX_MS ? 0 : JUMP_SETTLE_MS
+      );
+    };
+    function onTripScroll() {
+      armSettle();
+    }
+    el.addEventListener("scroll", onTripScroll, { passive: true });
+    for (const type of JUMP_INTERRUPTS) {
+      el.addEventListener(type, cleanup, { passive: true });
+    }
+    jumpCleanupRef.current = cleanup;
+    armSettle();
+    scrollToBottom("smooth");
+  }, [scrollToBottom]);
+  useEffect(() => () => jumpCleanupRef.current?.(), []);
   const loadOlder = useCallback(() => {
     const el = scrollRef.current;
     if (el)
@@ -1430,14 +1494,7 @@ export function ChatPane({
                     data-testid="chat-jump-to-bottom"
                     data-pending={pendingBelow ? "true" : undefined}
                     className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/[0.22] bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/40 hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
-                    onClick={() => {
-                      // Only the smooth scroll: following re-arms itself once
-                      // the scroll reaches the bottom. Arming it here would let
-                      // the content observer jump the rest of the way.
-                      anchoredRef.current = 0;
-                      setPendingBelow(false);
-                      scrollToBottom("smooth");
-                    }}
+                    onClick={jumpToBottom}
                   >
                     <ArrowDown className="h-4 w-4" />
                     {pendingBelow ? (

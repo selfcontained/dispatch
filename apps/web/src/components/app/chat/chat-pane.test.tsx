@@ -1477,6 +1477,46 @@ describe("ChatPane following", () => {
     expect(screen.getByTestId("chat-jump-to-bottom")).toBeTruthy();
     unmount();
   });
+
+  it.each([
+    ["finishes a jump that stopped short", false],
+    ["leaves a jump the reader took over", true],
+  ] as const)("%s", (_scenario, interrupted) => {
+    H.entries = [blockEntry(block({ id: "first", text: "first" }))];
+    const { unmount } = renderPane();
+    const scroll = screen.getByTestId("chat-scroll");
+    let height = 1000;
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, get: () => height },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0, writable: true },
+    });
+    vi.useFakeTimers();
+    try {
+      fireEvent.scroll(scroll);
+      // The smooth scroll is cut off partway, as a windowed row measuring
+      // on the way down does by writing scrollTop, and the bottom moves on.
+      vi.mocked(Element.prototype.scrollTo).mockImplementation(function (
+        this: HTMLElement,
+        options?: ScrollToOptions | number
+      ) {
+        if (typeof options === "object" && options.behavior === "smooth") {
+          this.scrollTop = 500;
+          height = 3000;
+        } else {
+          this.scrollTop = this.scrollHeight - this.clientHeight;
+        }
+      });
+      fireEvent.click(screen.getByTestId("chat-jump-to-bottom"));
+      fireEvent.scroll(scroll);
+      if (interrupted) fireEvent.wheel(scroll);
+      act(() => vi.advanceTimersByTime(200));
+      expect(scroll.scrollTop).toBe(interrupted ? 500 : 2800);
+    } finally {
+      vi.useRealTimers();
+      unmount();
+    }
+  });
 });
 
 describe("ChatPane scroll memory", () => {
