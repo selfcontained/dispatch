@@ -544,7 +544,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         deferral = UpdateDeferralSchedule(); deferredNote = nil
     }
     private func prepareNativeRecovery() async throws {
-        let assertion = try RecoverySleepAssertion()
+        let assertion = RecoverySleepAssertion()
         defer { withExtendedLifetime(assertion) {} }
         guard let intent = handoff.intent else { throw ConfigurationError("No pending installation.") }
         if unprotectedExtraction { throw RecoveryDeferral(code: "UNPROTECTED_STAGE", reasons: ["update protection was not staged before extraction"]) }

@@ -69,7 +69,7 @@ import DispatchCore
                         try finish(store: store, journal: j); return
                     case .restoreApp:
                         // A fenced target menu is stopped first; it never opened the database.
-                        assertion = try RecoverySleepAssertion()
+                        assertion = RecoverySleepAssertion()
                         try stopRecorded("menu-ready.json", role: "Dispatch", store: store, journal: j)
                         do { try store.restoreStagedApp(&j) } catch {
                             // The fenced target stays installed and fenced; retain everything.
@@ -84,7 +84,7 @@ import DispatchCore
                 try await Task.sleep(for: .seconds(1)); guard let next = try store.read() else { return }; j = next
             }
             guard !j.terminal, j.phase != .recoveryRequired else { return }
-            assertion = try RecoverySleepAssertion()
+            assertion = RecoverySleepAssertion()
             var tracker = RecoveryDeadline()
             let transactionLease = try heldLease ?? RecoveryLease(store.directory.appendingPathComponent("transaction.lock"))
             defer { withExtendedLifetime(transactionLease) {} }

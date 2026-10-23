@@ -18,12 +18,13 @@ public struct RecoveryDeadline {
     }
 }
 
+/// Best effort: awake-time bounds keep recovery correct across sleep, so a refused
+/// assertion never blocks or strands a transaction.
 public final class RecoverySleepAssertion {
     private var id = IOPMAssertionID(0)
-    public init() throws {
-        guard IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Dispatch protected update" as CFString, &id) == kIOReturnSuccess else {
-            throw ConfigurationError("Cannot prevent idle sleep during update recovery.")
-        }
+    private let held: Bool
+    public init() {
+        held = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Dispatch protected update" as CFString, &id) == kIOReturnSuccess
     }
-    deinit { IOPMAssertionRelease(id) }
+    deinit { if held { IOPMAssertionRelease(id) } }
 }
