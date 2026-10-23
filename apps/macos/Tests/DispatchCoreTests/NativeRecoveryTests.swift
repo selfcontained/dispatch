@@ -41,6 +41,48 @@ final class NativeRecoveryTests: XCTestCase {
         XCTAssertTrue(journal.restoreStarted && journal.restoredApp && journal.restoredState)
         XCTAssertEqual(try store.read(), journal)
     }
+    func testRepeatedTimeoutRollbacksQuarantineOnlyTheSameIdentity() throws {
+        let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
+        func attempt(_ identity: String) throws -> NativeRecoveryJournal {
+            var j = NativeRecoveryJournal(instanceID: initial.instanceID, appPath: initial.appPath, oldBuild: "1", targetBuild: "2", targetIdentity: identity, wasRunning: true)
+            try store.backup(&j, verifyCluster: { _, _ in })
+            j.phase = .probation; j.transientFailure = true
+            try store.restore(&j, verifyCluster: { _, _ in })
+            return j
+        }
+        var first = try attempt(initial.targetIdentity)
+        XCTAssertFalse(store.quarantined(identity: initial.targetIdentity), "The updater's quarantine preflight allows one retry")
+        let receipt = store.directory.appendingPathComponent("timeout-rollbacks.json")
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: receipt.path)[.posixPermissions] as? Int, 0o600)
+        // Replay the crash window after evidence was saved but before restoreStarted.
+        first.restoreStarted = false
+        try store.restore(&first, verifyCluster: { _, _ in })
+        XCTAssertFalse(store.quarantined(identity: initial.targetIdentity))
+        _ = try attempt("another-signature")
+        XCTAssertFalse(store.quarantined(identity: "another-signature"))
+        // Recreate the store: the allowance is on disk, not in a journal or instance.
+        let reopened = NativeRecoveryStore(root: store.root)
+        var second = NativeRecoveryJournal(instanceID: initial.instanceID, appPath: initial.appPath, oldBuild: "1", targetBuild: "2", targetIdentity: initial.targetIdentity, wasRunning: true)
+        try reopened.backup(&second, verifyCluster: { _, _ in })
+        second.phase = .probation; second.transientFailure = true
+        try reopened.restore(&second, verifyCluster: { _, _ in })
+        XCTAssertTrue(reopened.quarantined(identity: initial.targetIdentity))
+        XCTAssertFalse(reopened.quarantined(identity: "another-signature"))
+    }
+    func testGenuineFailureQuarantinesImmediatelyAndCorruptTimeoutEvidenceFailsClosed() throws {
+        let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
+        var j = initial; try store.backup(&j, verifyCluster: { _, _ in })
+        j.phase = .probation
+        try store.restore(&j, verifyCluster: { _, _ in })
+        XCTAssertTrue(store.quarantined(identity: initial.targetIdentity))
+        var next = NativeRecoveryJournal(instanceID: initial.instanceID, appPath: initial.appPath, oldBuild: "1", targetBuild: "3", targetIdentity: "another-signature", wasRunning: true)
+        try store.backup(&next, verifyCluster: { _, _ in })
+        next.phase = .probation; next.transientFailure = true
+        try Data("broken".utf8).write(to: store.directory.appendingPathComponent("timeout-rollbacks.json"))
+        XCTAssertThrowsError(try store.restore(&next, verifyCluster: { _, _ in }))
+        XCTAssertFalse(next.restoreStarted)
+        XCTAssertFalse(next.restoredApp || next.restoredState)
+    }
     func testRetryRejectsIncompleteRestoreWrongInstalledBuildAndDamagedBackup() throws {
         let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
         var journal = initial; try store.backup(&journal, verifyCluster: { _, _ in })

@@ -287,8 +287,8 @@ The previous app then passes the same fenced probation. Interrupted rename steps
 resume from the journal and filesystem; a contradictory state or failed old-version
 readiness leaves `recoveryRequired` and retains every copy. The failed artifact
 is quarantined by its Sparkle Ed25519 signature unless rollback was triggered by
-a tool timeout; automatic updates are disabled on rollback. No automatic restore
-is permitted after a committed journal.
+the first tool timeout for that signature; automatic updates are disabled on
+rollback. No automatic restore is permitted after a committed journal.
 
 Offline inspection is available even if the app cannot launch:
 
@@ -397,10 +397,15 @@ create duplicate checks. User checks and remote installations keep their existin
 behavior. This does not change the scheduled check interval.
 
 A recovery tool timeout is distinct from a nonzero exit. If a timeout triggers
-rollback, the journal records a transient failure and restore skips writing
-`quarantine.json`. A timeout alone therefore cannot quarantine that artifact.
-Signature failures and failed readiness probation retain normal quarantine rules;
-existing quarantine evidence is not removed automatically.
+rollback, the journal records a transient failure. The first timeout rollback for
+an artifact skips `quarantine.json`; the second for the same Sparkle signature
+quarantines it, bounding repeated attempts at a genuinely hung build. Private,
+durable `timeout-rollbacks.json` beside the quarantine receipt retains counts
+across transactions, keyed by signature, with the last transaction ID so crash
+replays cannot count twice. Evidence is saved before restoration starts; unreadable
+evidence fails closed. A different signature gets its own allowance. History pruning
+retains this receipt. Signature failures and failed readiness probation retain
+normal quarantine rules; existing quarantine evidence is not removed automatically.
 
 If old-build probation fails after both app and state restoration completed,
 choose **Retry Update Recovery**. The retry requires `restoreStarted`,

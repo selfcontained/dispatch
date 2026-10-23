@@ -64,7 +64,7 @@ public final class RecoveryLease {
 
 public struct RecoveryCommandTimeout: LocalizedError {
     public let tool: String
-    public var errorDescription: String? { "Recovery tool \(tool) timed out. Recovery copies were retained; timeout alone does not quarantine the artifact." }
+    public var errorDescription: String? { "Recovery tool \(tool) timed out. Recovery copies were retained; repeated timeouts quarantine the artifact." }
 }
 
 public enum RecoveryCommand {
@@ -292,10 +292,10 @@ public final class NativeRecoveryStore {
         let tx = transaction(j)
         if !j.restoreStarted {
             try verifyCluster(tx.appendingPathComponent("state"), tx.appendingPathComponent("previous.app"))
-            j.restoreStarted = true; j.phase = .restoring; j.deadline = Date(timeIntervalSinceNow: 1800); try save(j)
-            if j.transientFailure != true {
+            if try j.transientFailure != true || recordTimeoutRollback(j) >= 2 {
                 try Self.durableJSON(["identity": j.targetIdentity, "build": j.targetBuild, "reason": j.error ?? "Readiness failed"], to: directory.appendingPathComponent("quarantine.json"))
             }
+            j.restoreStarted = true; j.phase = .restoring; j.deadline = Date(timeIntervalSinceNow: 1800); try save(j)
         }
         if !j.restoredApp {
             try switchCopy(source: tx.appendingPathComponent("previous.app"), live: URL(fileURLWithPath: j.appPath), failed: URL(fileURLWithPath: j.appPath + ".failed-" + j.id), expected: j.appDigest!, app: true)
@@ -381,6 +381,21 @@ extension NativeRecoveryStore {
         do { try verifyBackup(j) } catch { throw ConfigurationError("\(j.error ?? "Native recovery needs attention.") \(retryHint) \(error.localizedDescription)") }
         j.phase = .restoring; j.rollbackProbationStarted = false; j.deadline = now.addingTimeInterval(180); j.error = nil
         try save(j)
+    }
+    private struct TimeoutRollback: Codable {
+        var count: Int
+        var transaction: String
+    }
+    /// The helper lease serializes transactions. Record before restoreStarted so a
+    /// crash cannot lose the charge; replaying the same transaction is idempotent.
+    private func recordTimeoutRollback(_ j: NativeRecoveryJournal) throws -> Int {
+        let path = directory.appendingPathComponent("timeout-rollbacks.json")
+        var records = fm.fileExists(atPath: path.path) ? try JSONDecoder().decode([String: TimeoutRollback].self, from: Data(contentsOf: path)) : [:]
+        if let previous = records[j.targetIdentity], previous.transaction == j.id { return previous.count }
+        let count = min(2, (records[j.targetIdentity]?.count ?? 0) + 1)
+        records[j.targetIdentity] = TimeoutRollback(count: count, transaction: j.id)
+        try Self.durableJSON(records, to: path)
+        return count
     }
     public func quarantined(identity: String) -> Bool {
         guard let data = try? Data(contentsOf: directory.appendingPathComponent("quarantine.json")),
