@@ -420,8 +420,12 @@ The enrolled launchd job runs `watch` on its next tick, or explicitly kickstart
 `gui/$(id -u)/dev.bradharris.dispatch.recovery.<lowercase-instance-id>` with
 `launchctl kickstart`. Do not edit the journal or remove the fence to retry.
 
-Both probation worker streams go to the private mode-0600
+The probation worker's launch output goes to the private mode-0600
 `probation-worker-<transaction-id>.log` in the recovery directory. Each run
 truncates the file and retains at most the first 1 MiB while continuing to drain
-output. A failed rollback's `recoveryRequired` error identifies this log. It may
-contain private server diagnostics; retain it with the other recovery evidence.
+output. It captures only what the worker writes before it redirects itself to
+`server.log` in the instance directory (admission refusals and crashes during
+launch); configuration, PostgreSQL, and API startup diagnostics land in
+`server.log`. A failed rollback's `recoveryRequired` error names both files.
+Either may contain private server diagnostics; retain them with the other
+recovery evidence.

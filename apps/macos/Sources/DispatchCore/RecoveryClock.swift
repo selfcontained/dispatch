@@ -4,15 +4,18 @@ import IOKit.pwr_mgt
 
 public enum RecoveryClock {
     public static func awake() -> TimeInterval { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000 }
+    /// Monotonic and counts sleep; wall-clock corrections never move it.
+    public static func continuous() -> TimeInterval { Double(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1_000_000_000 }
 }
 
+/// Sleep is continuous minus awake time, so only real suspension extends a deadline.
 public struct RecoveryDeadline {
-    private var wall: Date
+    private var monotonic: TimeInterval
     private var uptime: TimeInterval
-    public init(now: Date = Date(), awake: TimeInterval = RecoveryClock.awake()) { wall = now; uptime = awake }
-    @discardableResult public mutating func rearm(_ deadline: inout Date, now: Date = Date(), awake: TimeInterval = RecoveryClock.awake()) -> Bool {
-        let sleep = now.timeIntervalSince(wall) - max(0, awake - uptime)
-        wall = now; uptime = awake
+    public init(continuous: TimeInterval = RecoveryClock.continuous(), awake: TimeInterval = RecoveryClock.awake()) { monotonic = continuous; uptime = awake }
+    @discardableResult public mutating func rearm(_ deadline: inout Date, continuous: TimeInterval = RecoveryClock.continuous(), awake: TimeInterval = RecoveryClock.awake()) -> Bool {
+        let sleep = max(0, continuous - monotonic) - max(0, awake - uptime)
+        monotonic = continuous; uptime = awake
         guard sleep > 1 else { return false }
         deadline.addTimeInterval(sleep); return true
     }

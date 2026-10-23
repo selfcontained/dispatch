@@ -128,7 +128,7 @@ import DispatchCore
                 j.phase = .rolledBack; try store.save(j)
                 try finish(store: store, journal: j)
             } catch {
-                j.phase = .recoveryRequired; j.error = "\(error.localizedDescription) Probation worker log: \(store.workerLog(j).path)"; try store.save(j)
+                j.phase = .recoveryRequired; j.error = "\(error.localizedDescription) Server log: \(store.root.appendingPathComponent("server.log").path). Early worker launch output: \(store.workerLog(j).path)."; try store.save(j)
             }
         } catch {
             fputs("Dispatch recovery: \(error.localizedDescription)\n", stderr)

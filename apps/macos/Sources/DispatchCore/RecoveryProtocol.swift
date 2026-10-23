@@ -160,14 +160,15 @@ public enum RecoveryProtocol {
         menuReady: () -> Bool,
         serverReady: () async -> Bool,
         now: () -> Date = Date.init,
+        continuous: () -> TimeInterval = RecoveryClock.continuous,
         awake: () -> TimeInterval = RecoveryClock.awake,
         rearmed: (Date) throws -> Void = { _ in },
         wait: () async throws -> Void = { try await Task.sleep(for: .seconds(1)) }
     ) async throws {
         var deadline = deadline
-        var tracker = RecoveryDeadline(now: now(), awake: awake())
+        var tracker = RecoveryDeadline(continuous: continuous(), awake: awake())
         func refresh() throws {
-            if tracker.rearm(&deadline, now: now(), awake: awake()) { try rearmed(deadline) }
+            if tracker.rearm(&deadline, continuous: continuous(), awake: awake()) { try rearmed(deadline) }
         }
         while true {
             try refresh()

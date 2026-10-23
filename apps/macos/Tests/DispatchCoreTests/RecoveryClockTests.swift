@@ -32,28 +32,42 @@ final class RecoveryClockTests: XCTestCase {
     }
     func testDeadlineAddsOnlySleepAndCanPersistExtension() throws {
         let start = Date(timeIntervalSince1970: 1000)
-        var tracker = RecoveryDeadline(now: start, awake: 10)
+        var tracker = RecoveryDeadline(continuous: 10, awake: 10)
         var deadline = start.addingTimeInterval(180)
-        XCTAssertFalse(tracker.rearm(&deadline, now: start.addingTimeInterval(5), awake: 15))
-        XCTAssertTrue(tracker.rearm(&deadline, now: start.addingTimeInterval(3606), awake: 16))
+        XCTAssertFalse(tracker.rearm(&deadline, continuous: 15, awake: 15))
+        XCTAssertTrue(tracker.rearm(&deadline, continuous: 3616, awake: 16))
         XCTAssertEqual(deadline, start.addingTimeInterval(3780))
-        XCTAssertFalse(tracker.rearm(&deadline, now: start.addingTimeInterval(3607), awake: 17))
+        XCTAssertFalse(tracker.rearm(&deadline, continuous: 3617, awake: 17))
+    }
+    func testWallClockCorrectionsNeverExtendDeadline() {
+        // The deadline tracker never reads the wall clock: forward then backward corrections
+        // while awake leave the persisted bound unchanged.
+        let start = Date(timeIntervalSince1970: 1000)
+        var tracker = RecoveryDeadline(continuous: 0, awake: 0)
+        var deadline = start.addingTimeInterval(180)
+        XCTAssertFalse(tracker.rearm(&deadline, continuous: 1, awake: 1))
+        XCTAssertFalse(tracker.rearm(&deadline, continuous: 2, awake: 2))
+        XCTAssertEqual(deadline, start.addingTimeInterval(180))
+        var watch = HelperWatch()
+        let bound = start.addingTimeInterval(180)
+        XCTAssertEqual(watch.decide(now: start, deadline: bound, helperAlive: true, continuous: 0, awake: 0), .wait)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(3601), deadline: bound, helperAlive: true, continuous: 1, awake: 1), .fail, "A forward wall correction is not sleep")
     }
     func testHelperWatchToleratesSleepBeforeJournalExtensionWithoutCountingItTwice() {
         let start = Date(timeIntervalSince1970: 1000)
         var watch = HelperWatch()
         let deadline = start.addingTimeInterval(180)
-        XCTAssertEqual(watch.decide(now: start, deadline: deadline, helperAlive: true, awake: 0), .wait)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(3601), deadline: deadline, helperAlive: true, awake: 1), .wait)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(3602), deadline: deadline.addingTimeInterval(3600), helperAlive: true, awake: 2), .wait)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(3900), deadline: deadline.addingTimeInterval(3600), helperAlive: true, awake: 300), .fail)
+        XCTAssertEqual(watch.decide(now: start, deadline: deadline, helperAlive: true, continuous: 0, awake: 0), .wait)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(3601), deadline: deadline, helperAlive: true, continuous: 3601, awake: 1), .wait)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(3602), deadline: deadline.addingTimeInterval(3600), helperAlive: true, continuous: 3602, awake: 2), .wait)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(3900), deadline: deadline.addingTimeInterval(3600), helperAlive: true, continuous: 3900, awake: 300), .fail)
     }
     func testReadinessRearmsAndReportsPersistableDeadlineAcrossSleep() async throws {
         let start = Date(timeIntervalSince1970: 1000)
         var wall: TimeInterval = 0
         var awake: TimeInterval = 0
         var saved: Date?
-        try await RecoveryProtocol.awaitReadiness(deadline: start.addingTimeInterval(180), workerRunning: { true }, menuReady: { wall > 0 }, serverReady: { true }, now: { start.addingTimeInterval(wall) }, awake: { awake }, rearmed: { saved = $0 }, wait: { wall = 3601; awake = 1 })
+        try await RecoveryProtocol.awaitReadiness(deadline: start.addingTimeInterval(180), workerRunning: { true }, menuReady: { wall > 0 }, serverReady: { true }, now: { start.addingTimeInterval(wall) }, continuous: { wall }, awake: { awake }, rearmed: { saved = $0 }, wait: { wall = 3601; awake = 1 })
         XCTAssertEqual(saved, start.addingTimeInterval(3780))
     }
 }

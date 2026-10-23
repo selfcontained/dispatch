@@ -101,10 +101,10 @@ public struct HelperWatch {
     private var observedDeadline: Date?
     private var sleepAllowance: TimeInterval = 0
     public init() {}
-    public mutating func decide(now: Date, deadline: Date, helperAlive: Bool, awake: TimeInterval = RecoveryClock.awake()) -> Decision {
-        if tracker == nil { tracker = RecoveryDeadline(now: now, awake: awake) }
+    public mutating func decide(now: Date, deadline: Date, helperAlive: Bool, continuous: TimeInterval = RecoveryClock.continuous(), awake: TimeInterval = RecoveryClock.awake()) -> Decision {
+        if tracker == nil { tracker = RecoveryDeadline(continuous: continuous, awake: awake) }
         var bound = deadline
-        _ = tracker?.rearm(&bound, now: now, awake: awake)
+        _ = tracker?.rearm(&bound, continuous: continuous, awake: awake)
         let sleep = bound.timeIntervalSince(deadline)
         sleepAllowance += sleep
         if let previous = observedDeadline { sleepAllowance = max(0, sleepAllowance - max(0, deadline.timeIntervalSince(previous))) }
