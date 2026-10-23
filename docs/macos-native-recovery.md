@@ -276,7 +276,7 @@ probation/rollback path. Otherwise a staged transaction returns to `staged`
 (app-only protection, below), and an unstaged one aborts.
 
 If the menu starts while a journal is unfinished, it waits only until the
-journal deadline plus two minutes. It checks the helper's OS lease, kickstarts a
+sleep-adjusted journal deadline plus two minutes. It checks the helper's OS lease, kickstarts a
 missing helper at most three times ten seconds apart, and then shows an
 actionable error (Login Items approval, or the offline `watch` command) with
 Retry Update Recovery. Ordinary server starts stay fenced by the journal.
@@ -286,8 +286,9 @@ old app/state are restored through staged, verified, journaled rename operations
 The previous app then passes the same fenced probation. Interrupted rename steps
 resume from the journal and filesystem; a contradictory state or failed old-version
 readiness leaves `recoveryRequired` and retains every copy. The failed artifact
-is quarantined by its Sparkle Ed25519 signature, and automatic updates are disabled on rollback. No automatic
-restore is permitted after a committed journal.
+is quarantined by its Sparkle Ed25519 signature unless rollback was triggered by
+the first tool timeout for that signature; automatic updates are disabled on
+rollback. No automatic restore is permitted after a committed journal.
 
 Offline inspection is available even if the app cannot launch:
 
@@ -297,7 +298,9 @@ Offline inspection is available even if the app cannot launch:
 
 `watch` re-enters an unfinished journal; it does not override `recoveryRequired`,
 remove quarantine, or authorize post-commit data loss. Operator repair must retain
-all copies before modifying an unresolved journal. Exporting the recovery folder
+all copies before modifying an unresolved journal. For a completed app/state
+rollback only, the supported `retry` command described below re-runs old-build
+probation. Exporting the recovery folder
 exports credentials and database contents; it is not a public diagnostic bundle.
 
 ## Validation and remaining release evidence
@@ -371,3 +374,69 @@ field retain the final installation-fence check.
 The fence is still authoritative if work starts after this preview. An intentional
 installer withdrawal for active work keeps Dispatch's busy explanation instead
 of Sparkle's generic connection-closed error. No force-update override is added.
+
+## Sleep, tool timeouts, and retrying a completed rollback
+
+In-process recovery bounds use awake time (`CLOCK_UPTIME_RAW` / `SuspendingClock`).
+The durable journal deadline remains a wall-clock date across reboot. While waiting
+for activation or either build's probation, the helper measures sleep as
+continuous monotonic time (`CLOCK_MONOTONIC_RAW`) elapsed beyond awake time, adds
+it to the deadline, and saves the extension. Wall-clock corrections never extend
+the deadline. The menu's
+helper watch also tolerates sleep before it observes that extension. Reboot or
+helper downtime does not grant a new automatic probation budget.
+
+The menu prevents user-idle system sleep during recovery preparation; the helper
+holds the same IOKit assertion from activation through commit, rollback, or
+`recoveryRequired`. Assertions are released on exit and do not override forced
+sleep, lid closure, or shutdown. Background Sparkle checks are silently vetoed
+only during a maintenance DarkWake, when `IOPMrootDomain` reports CPU without
+graphics capability in `System Capabilities`. A fully awake Mac whose display is
+asleep (for example an always-on Mac in clamshell mode) keeps graphics capability
+and updates normally; unknown capabilities never hold an update. A veto queues
+one background check after the next full wake; paired wake notifications do not
+create duplicate checks. User checks and remote installations keep their existing
+behavior. This does not change the scheduled check interval.
+
+A recovery tool timeout is distinct from a nonzero exit. If a timeout triggers
+rollback, the journal records a transient failure. The first timeout rollback for
+an artifact skips `quarantine.json`; the second for the same Sparkle signature
+quarantines it, bounding repeated attempts at a genuinely hung build. Private,
+durable `timeout-rollbacks.json` beside the quarantine receipt retains counts
+across transactions, keyed by signature, with the last transaction ID so crash
+replays cannot count twice. Evidence is saved before restoration starts. Unreadable
+evidence counts as exhausted: the artifact is quarantined, the file is retained for
+inspection, and restoration still proceeds. A different signature gets its own
+allowance. History pruning retains this receipt. Signature failures and failed readiness probation retain
+normal quarantine rules; existing quarantine evidence is not removed automatically.
+
+If old-build probation fails after both app and state restoration completed,
+choose **Retry Update Recovery**. The retry requires `restoreStarted`,
+`restoredApp`, and `restoredState`, the installed build to match `oldBuild`, and a
+fresh verification of the retained backup (including its signature and digests).
+It returns the journal to `restoring`, resets `rollbackProbationStarted`, and
+starts a fresh old-build probation. It never repeats app/state switches or clears
+the startup fence. Success reaches `rolledBack`; failure returns to
+`recoveryRequired`. An incomplete switch remains operator-only.
+
+Without the menu, use the retained helper with the absolute instance directory:
+
+```sh
+/path/to/instance-recovery/DispatchRecovery inspect /absolute/instance
+/path/to/instance-recovery/DispatchRecovery retry /absolute/instance
+```
+
+`retry` takes `helper.lock`, performs the same verified transition, and exits.
+The enrolled launchd job runs `watch` on its next tick, or explicitly kickstart
+`gui/$(id -u)/dev.bradharris.dispatch.recovery.<lowercase-instance-id>` with
+`launchctl kickstart`. Do not edit the journal or remove the fence to retry.
+
+The probation worker's launch output goes to the private mode-0600
+`probation-worker-<transaction-id>.log` in the recovery directory. Each run
+truncates the file and retains at most the first 1 MiB while continuing to drain
+output. It captures only what the worker writes before it redirects itself to
+`server.log` in the instance directory (admission refusals and crashes during
+launch); configuration, PostgreSQL, and API startup diagnostics land in
+`server.log`. A failed rollback's `recoveryRequired` error names both files.
+Either may contain private server diagnostics; retain them with the other
+recovery evidence.

@@ -160,14 +160,25 @@ public enum RecoveryProtocol {
         menuReady: () -> Bool,
         serverReady: () async -> Bool,
         now: () -> Date = Date.init,
+        continuous: () -> TimeInterval = RecoveryClock.continuous,
+        awake: () -> TimeInterval = RecoveryClock.awake,
+        rearmed: (Date) throws -> Void = { _ in },
         wait: () async throws -> Void = { try await Task.sleep(for: .seconds(1)) }
     ) async throws {
-        while now() < deadline {
+        var deadline = deadline
+        var tracker = RecoveryDeadline(continuous: continuous(), awake: awake())
+        func refresh() throws {
+            if tracker.rearm(&deadline, continuous: continuous(), awake: awake()) { try rearmed(deadline) }
+        }
+        while true {
+            try refresh()
+            guard now() < deadline else { break }
             guard workerRunning() else { throw ConfigurationError("The probation server exited before readiness.") }
             if menuReady(), await serverReady() {
                 // The proof request suspends: neither an exited process nor an
                 // expired startup deadline may be accepted on its return.
                 guard workerRunning() else { throw ConfigurationError("The probation server exited before readiness.") }
+                try refresh()
                 guard now() < deadline else { break }
                 if menuReady() { return }
             }
@@ -232,9 +243,9 @@ public enum RecoveryEnrollment {
     }
     /// Bounded synchronous wait for the helper to acknowledge this transaction.
     public static func awaitAcknowledgment(store: NativeRecoveryStore, journal: NativeRecoveryJournal, timeout: TimeInterval = 10, sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }) -> Bool {
-        let deadline = Date(timeIntervalSinceNow: timeout)
+        let deadline = RecoveryClock.awake() + timeout
         while !acknowledged(store: store, journal: journal) {
-            guard Date() < deadline else { return false }
+            guard RecoveryClock.awake() < deadline else { return false }
             sleep(0.1)
         }
         return true

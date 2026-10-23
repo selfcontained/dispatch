@@ -17,6 +17,22 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     private let handoff = UpdateHandoff()
     private var nativeStore: NativeRecoveryStore { NativeRecoveryStore(root: root) }
     private var started = false
+    private var wakeObservers = [NSObjectProtocol]()
+    private var wakeCheckPending = false
+    static func isSleepVeto(_ error: Error?) -> Bool {
+        var next = error as NSError?
+        for _ in 0..<8 {
+            guard let value = next else { return false }
+            if value.domain == "DispatchUpdateSleep" { return true }
+            next = value.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
+    private func checkAfterWake() {
+        guard wakeCheckPending, !SystemPower.inDarkWake(), updater?.canCheckForUpdates == true, !controlsLocked, !needsRecovery else { return }
+        wakeCheckPending = false
+        if deferredNote != nil { retryDeferredInstall() } else { updater.checkForUpdatesInBackground() }
+    }
     private var targetIdentity = ""
     private(set) var busy = false
     private(set) var needsRecovery = false
@@ -54,6 +70,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     var canCheck: Bool { !controlsLocked && !needsRecovery && updater?.canCheckForUpdates == true }
     var automatic: Bool { updater.automaticallyChecksForUpdates && updater.automaticallyDownloadsUpdates }
     var requiresTerminationHandoff: Bool { (handoff.active && !handoff.prepared) || ownedStagedJournal() != nil }
+    deinit { for observer in wakeObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) } }
     private func ownedStagedJournal() -> NativeRecoveryJournal? {
         guard let j = try? nativeStore.read(), j.phase == .staged, j.oldBuild == build, !j.restoreStarted else { return nil }
         return j
@@ -62,6 +79,14 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     init(service: SMAppService, root: URL = AppPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
         self.service = service; self.root = root; self.build = build
         super.init()
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
+            wakeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.checkAfterWake()
+                }
+            })
+        }
         userDriver.cancelPendingInstall = { [weak self] in
             guard let self else { return }
             self.busy = true; self.onChange?()
@@ -157,8 +182,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         do { try NativeRecoveryStore.requireCompatibleApp(Bundle.main.bundleURL) } catch { throw RecoveryRefusal(error.localizedDescription) }
         // Prove rollback can rename the app and state before anything else happens.
         try nativeStore.preflightRollbackPermissions(app: Bundle.main.bundleURL)
-        if let data = try? Data(contentsOf: nativeStore.directory.appendingPathComponent("quarantine.json")),
-           let quarantine = try? JSONDecoder().decode([String: String].self, from: data), quarantine["identity"] == identity {
+        if nativeStore.quarantined(identity: identity) {
             throw RecoveryRefusal("This update artifact failed recovery probation and is quarantined. Choose a later release or inspect the recovery files before an explicit retry.")
         }
         return config
@@ -226,14 +250,23 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     /// Bounded by the journal deadline plus grace. A missing helper is kickstarted a few
     /// times; then the wait fails with an actionable error. Ordinary server starts stay
     /// fenced by the journal either way, and Retry Update Recovery re-enters this wait.
-    private func awaitNativeRecovery() async throws {
+    private func awaitNativeRecovery(retryRollback: Bool = false) async throws {
         guard let first = try nativeStore.read(), !first.permitsOrdinaryStart(build: build) else { return }
         needsRecovery = true; busy = true; onChange?()
         defer { busy = false; onChange?() }
         var watch = HelperWatch()
         let store = nativeStore
+        if retryRollback, first.phase == .recoveryRequired {
+            do {
+                let lease = try RecoveryLease(store.directory.appendingPathComponent("helper.lock"))
+                defer { withExtendedLifetime(lease) {} }
+                guard var current = try store.read() else { return }
+                try store.retryRollbackProbation(&current)
+            } catch { throw ConfigurationError("\(first.error ?? error.localizedDescription) \(store.retryHint) \(error.localizedDescription)") }
+            try await Task.detached { try RecoveryEnrollment.kickstart(instanceID: first.instanceID) }.value
+        }
         while let current = try store.read(), !current.permitsOrdinaryStart(build: build) {
-            guard current.phase != .recoveryRequired else { throw ConfigurationError(current.error ?? "Native recovery needs operator attention. Open the retained recovery directory.") }
+            guard current.phase != .recoveryRequired else { throw ConfigurationError("\(current.error ?? "Native recovery needs operator attention.") \(store.retryHint)") }
             switch watch.decide(now: Date(), deadline: current.deadline, helperAlive: store.helperRunning()) {
             case .wait: break
             case .kickstart:
@@ -307,7 +340,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
                 if await prepareTermination() { handoff.resume() }
                 return
             }
-            try await awaitNativeRecovery()
+            try await awaitNativeRecovery(retryRollback: true)
             recovery = try UpdateRecovery.read(root: root)
             if recovery != nil { try await restore() }
             else if let native = try nativeStore.read(), native.terminal { try nativeStore.markHandoffHandled(native) }
@@ -395,8 +428,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     }
     private func stopService() async throws {
         if !service.status.needsRegistration { try await service.unregister() }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(55))
-        while ContinuousClock.now < deadline {
+        let deadline = SuspendingClock.now.advanced(by: .seconds(55))
+        while SuspendingClock.now < deadline {
             if leaseReleased() && !FileManager.default.fileExists(atPath: root.appendingPathComponent("postgres/postmaster.pid").path) { return }
             try await Task.sleep(for: .milliseconds(100))
         }
@@ -504,6 +537,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         deferral = UpdateDeferralSchedule(); deferredNote = nil
     }
     private func prepareNativeRecovery() async throws {
+        let assertion = RecoverySleepAssertion()
+        defer { withExtendedLifetime(assertion) {} }
         guard let intent = handoff.intent else { throw ConfigurationError("No pending installation.") }
         if unprotectedExtraction { throw RecoveryDeferral(code: "UNPROTECTED_STAGE", reasons: ["update protection was not staged before extraction"]) }
         let config = try protectionPreflight(identity: targetIdentity)
@@ -520,8 +555,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         do {
             journal.phase = .preparing; journal.wasRunning = intent.wasRunning
             journal.deadline = Date(timeIntervalSinceNow: 1800); try store.save(journal)
-            let deadline = Date(timeIntervalSinceNow: 15)
-            while Date() < deadline && !RecoveryEnrollment.acknowledged(store: store, journal: journal) { try await Task.sleep(for: .milliseconds(100)) }
+            let deadline = RecoveryClock.awake() + 15
+            while RecoveryClock.awake() < deadline && !RecoveryEnrollment.acknowledged(store: store, journal: journal) { try await Task.sleep(for: .milliseconds(100)) }
             guard RecoveryEnrollment.acknowledged(store: store, journal: journal) else { throw RecoveryRefusal("The independent recovery launcher did not start, so Dispatch withdrew the update before stopping anything. Allow Dispatch in System Settings › General › Login Items & Extensions, then choose Check for Updates.", disablesAutomatic: false) }
             if !intent.wasRunning {
                 let worker = Process()
@@ -529,8 +564,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
                 worker.arguments = ["--worker"]
                 worker.environment = ["HOME": FileManager.default.homeDirectoryForCurrentUser.path, "PATH": "/usr/bin:/bin", "DISPATCH_UPDATE_RECOVERY_ID": journal.id, "DISPATCH_UPDATE_RECOVERY_NONCE": journal.nonce]
                 try worker.run(); preparationWorker = worker
-                let readyDeadline = Date(timeIntervalSinceNow: 120)
-                while Date() < readyDeadline {
+                let readyDeadline = RecoveryClock.awake() + 120
+                while RecoveryClock.awake() < readyDeadline {
                     if await LocalServerTrust.isHealthy(configuration: config, root: root) { break }
                     guard worker.isRunning else { throw ConfigurationError("The private readiness server failed to start.") }
                     try await Task.sleep(for: .milliseconds(250))
@@ -566,8 +601,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     }
     private func stopPreparationWorker(_ worker: Process) async throws {
         if worker.isRunning { worker.terminate() }
-        let deadline = Date(timeIntervalSinceNow: 55)
-        while worker.isRunning && Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
+        let deadline = RecoveryClock.awake() + 55
+        while worker.isRunning && RecoveryClock.awake() < deadline { try await Task.sleep(for: .milliseconds(100)) }
         guard !worker.isRunning else { throw ConfigurationError("The private readiness worker did not stop; installation is blocked.") }
     }
     private func install(_ item: SUAppcastItem, handler: @escaping () -> Void) {
@@ -596,8 +631,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             SMAppService.openSystemSettingsLoginItems()
             throw ConfigurationError("Allow Dispatch in Login Items, then choose Retry Update Recovery.")
         }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
-        while ContinuousClock.now < deadline {
+        let deadline = SuspendingClock.now.advanced(by: .seconds(60))
+        while SuspendingClock.now < deadline {
             let runtime = ServiceRuntime.read(root: root)
             if runtime?.acknowledges(command) == true {
                 var healthy = !recovery.wasRunning
@@ -632,6 +667,11 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     /// Read per check, so a channel picked in Settings applies to the next one.
     func allowedChannels(for updater: SPUUpdater) -> Set<String> { UpdateChannel.current().sparkleChannels }
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        if updateCheck == .updatesInBackground, !checking, !installing,
+           SystemPower.inDarkWake() {
+            wakeCheckPending = true
+            throw NSError(domain: "DispatchUpdateSleep", code: 1, userInfo: [NSLocalizedDescriptionKey: "Background updates wait for a full wake."])
+        }
         userDriver.beginUpdateCycle()
         if controlsLocked || needsRecovery { throw ConfigurationError("Finish update recovery before checking for another update.") }
     }
@@ -675,6 +715,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         availableVersion = nil; checkedAt = Date(); remoteError = nil; onChange?()
     }
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        if Self.isSleepVeto(error) { restoreAutomatic(); checkAfterWake(); return }
         let wasRemote = checking || installing
         checking = false; installing = false
         // Sparkle has handed off (or given up on) any install by now.
@@ -689,6 +730,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         if deferredNote != nil, deferralTask == nil, !handoff.active { scheduleDeferredRetry() }
         scheduleArtifactMaintenance()
         onChange?()
+        checkAfterWake()
     }
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock handler: @escaping () -> Void) -> Bool {
         install(item, handler: handler); return true
@@ -697,6 +739,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         install(item, handler: handler); return true
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        if Self.isSleepVeto(error) { return }
         guard handoff.abort() else { releaseStaged("Update cycle aborted without a staged installer."); onChange?(); return }
         Task {
             while busy { try? await Task.sleep(for: .milliseconds(100)) }

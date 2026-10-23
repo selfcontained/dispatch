@@ -26,6 +26,7 @@ public struct NativeRecoveryJournal: Codable, Equatable {
     public var restoredApp = false
     public var restoredState = false
     public var rollbackProbationStarted = false
+    public var transientFailure: Bool?
     public var menuBuild: String?
     /// When Sparkle was allowed to stage this target. Database-open evidence after this
     /// moment from the target build forbids an app-only rollback.
@@ -61,19 +62,24 @@ public final class RecoveryLease {
     deinit { close(fd) }
 }
 
+public struct RecoveryCommandTimeout: LocalizedError {
+    public let tool: String
+    public var errorDescription: String? { "Recovery tool \(tool) timed out. Recovery copies were retained; repeated timeouts quarantine the artifact." }
+}
+
 public enum RecoveryCommand {
     /// Output goes to a private file, avoiding pipe-buffer deadlocks. Never include
     /// credentials in arguments or exception text. All external tools are bounded.
-    @discardableResult public static func run(_ executable: URL, _ args: [String], environment: [String: String] = [:], timeout: TimeInterval = 120) throws -> String {
-        let (status, output) = try execute(executable, args, environment: environment, timeout: timeout)
-        guard status == 0 else { throw ConfigurationError("Recovery tool \(executable.lastPathComponent) failed or timed out. Recovery copies were retained.") }
+    @discardableResult public static func run(_ executable: URL, _ args: [String], environment: [String: String] = [:], timeout: TimeInterval = 120, awake: () -> TimeInterval = RecoveryClock.awake) throws -> String {
+        let (status, output) = try execute(executable, args, environment: environment, timeout: timeout, awake: awake)
+        guard status == 0 else { throw ConfigurationError("Recovery tool \(executable.lastPathComponent) failed. Recovery copies were retained.") }
         return output
     }
     /// For tools whose specific exit status is the answer. A launch failure reports -1.
     public static func status(_ executable: URL, _ args: [String], timeout: TimeInterval = 120) -> (Int32, String) {
         (try? execute(executable, args, environment: [:], timeout: timeout)) ?? (-1, "")
     }
-    private static func execute(_ executable: URL, _ args: [String], environment: [String: String], timeout: TimeInterval) throws -> (Int32, String) {
+    private static func execute(_ executable: URL, _ args: [String], environment: [String: String], timeout: TimeInterval, awake: () -> TimeInterval = RecoveryClock.awake) throws -> (Int32, String) {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-recovery-\(UUID().uuidString)")
         guard FileManager.default.createFile(atPath: output.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw ConfigurationError("Cannot create recovery tool output.") }
         defer { try? FileManager.default.removeItem(at: output) }
@@ -83,11 +89,13 @@ public enum RecoveryCommand {
         process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": FileManager.default.homeDirectoryForCurrentUser.path, "LC_ALL": "C"].merging(environment) { _, value in value }
         process.standardInput = FileHandle.nullDevice; process.standardOutput = handle; process.standardError = handle
         try process.run()
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
-        if process.isRunning { process.terminate(); Thread.sleep(forTimeInterval: 0.2); if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+        let deadline = awake() + timeout
+        while process.isRunning && awake() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        let timedOut = process.isRunning
+        if timedOut { process.terminate(); Thread.sleep(forTimeInterval: 0.2); if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
         process.waitUntilExit()
-        // A timed-out tool was signaled, so its status is never a meaningful exit code.
+        if timedOut { throw RecoveryCommandTimeout(tool: executable.lastPathComponent) }
+        // A signaled tool has no meaningful exit code.
         return (process.terminationReason == .uncaughtSignal ? -1 : process.terminationStatus, String(decoding: try Data(contentsOf: output), as: UTF8.self))
     }
 }
@@ -284,8 +292,10 @@ public final class NativeRecoveryStore {
         let tx = transaction(j)
         if !j.restoreStarted {
             try verifyCluster(tx.appendingPathComponent("state"), tx.appendingPathComponent("previous.app"))
+            if try j.transientFailure != true || recordTimeoutRollback(j) >= 2 {
+                try Self.durableJSON(["identity": j.targetIdentity, "build": j.targetBuild, "reason": j.error ?? "Readiness failed"], to: directory.appendingPathComponent("quarantine.json"))
+            }
             j.restoreStarted = true; j.phase = .restoring; j.deadline = Date(timeIntervalSinceNow: 1800); try save(j)
-            try Self.durableJSON(["identity": j.targetIdentity, "build": j.targetBuild, "reason": j.error ?? "Readiness failed"], to: directory.appendingPathComponent("quarantine.json"))
         }
         if !j.restoredApp {
             try switchCopy(source: tx.appendingPathComponent("previous.app"), live: URL(fileURLWithPath: j.appPath), failed: URL(fileURLWithPath: j.appPath + ".failed-" + j.id), expected: j.appDigest!, app: true)
@@ -359,4 +369,43 @@ public final class NativeRecoveryStore {
             throw error
         }
     }
+}
+
+extension NativeRecoveryStore {
+    public var retryHint: String { "Only a completed rollback with a verified backup can retry probation. For an interrupted switch, inspect the retained recovery files with an operator." }
+    public func retryRollbackProbation(_ j: inout NativeRecoveryJournal, now: Date = Date()) throws {
+        guard j.phase == .recoveryRequired, j.restoreStarted, j.restoredApp, j.restoredState,
+              (try? Self.build(of: URL(fileURLWithPath: j.appPath))) == j.oldBuild else {
+            throw ConfigurationError("\(j.error ?? "Native recovery needs attention.") \(retryHint)")
+        }
+        do { try verifyBackup(j) } catch { throw ConfigurationError("\(j.error ?? "Native recovery needs attention.") \(retryHint) \(error.localizedDescription)") }
+        j.phase = .restoring; j.rollbackProbationStarted = false; j.deadline = now.addingTimeInterval(180); j.error = nil
+        try save(j)
+    }
+    private struct TimeoutRollback: Codable {
+        var count: Int
+        var transaction: String
+    }
+    /// The helper lease serializes transactions. Record before restoreStarted so a
+    /// crash cannot lose the charge; replaying the same transaction is idempotent.
+    /// Unreadable evidence counts as exhausted: it quarantines, never blocks restore.
+    private func recordTimeoutRollback(_ j: NativeRecoveryJournal) throws -> Int {
+        let path = directory.appendingPathComponent("timeout-rollbacks.json")
+        var records = [String: TimeoutRollback]()
+        if fm.fileExists(atPath: path.path) {
+            guard let saved = try? JSONDecoder().decode([String: TimeoutRollback].self, from: Data(contentsOf: path)) else { return 2 }
+            records = saved
+        }
+        if let previous = records[j.targetIdentity], previous.transaction == j.id { return previous.count }
+        let count = min(2, (records[j.targetIdentity]?.count ?? 0) + 1)
+        records[j.targetIdentity] = TimeoutRollback(count: count, transaction: j.id)
+        try Self.durableJSON(records, to: path)
+        return count
+    }
+    public func quarantined(identity: String) -> Bool {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("quarantine.json")),
+              let value = try? JSONDecoder().decode([String: String].self, from: data) else { return false }
+        return value["identity"] == identity
+    }
+    public func workerLog(_ j: NativeRecoveryJournal) -> URL { directory.appendingPathComponent("probation-worker-\(j.id).log") }
 }

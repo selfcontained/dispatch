@@ -9,7 +9,7 @@ import DispatchCore
     static func main() async {
         do {
             let args = CommandLine.arguments
-            guard args.count == 3, ["watch", "inspect"].contains(args[1]), args[2].hasPrefix("/") else { throw ConfigurationError("Usage: DispatchRecovery watch|inspect /absolute/instance-directory") }
+            guard args.count == 3, ["watch", "inspect", "retry"].contains(args[1]), args[2].hasPrefix("/") else { throw ConfigurationError("Usage: DispatchRecovery watch|inspect|retry /absolute/instance-directory") }
             let root = URL(fileURLWithPath: args[2]).standardizedFileURL
             let store = NativeRecoveryStore(root: root); try store.initialize()
             if args[1] == "inspect" {
@@ -18,21 +18,25 @@ import DispatchCore
             }
             let lease = try RecoveryLease(store.directory.appendingPathComponent("helper.lock"))
             defer { withExtendedLifetime(lease) {} }
-            guard var j = try store.read(), j.phase != .recoveryRequired else { return }
+            guard var j = try store.read() else { return }
+            if args[1] == "retry" { try store.retryRollbackProbation(&j); return }
+            guard j.phase != .recoveryRequired else { return }
+            var assertion: RecoverySleepAssertion?
+            defer { withExtendedLifetime(assertion) {} }
             if j.terminal { try finish(store: store, journal: j); return }
             try NativeRecoveryStore.durableJSON(["transactionId": j.id], to: store.directory.appendingPathComponent("helper-ready.json"))
             // The menu holds the transaction lease for a staged journal and through
             // preparation until activation. A free lease after a short grace means it is
             // gone: act now rather than waiting out a deadline. A live menu still
             // flushing a large backup keeps its lease, and no timestamp overrides that.
-            let helperStarted = Date()
-            var lastProbe = Date.distantPast
+            let helperStarted = RecoveryClock.awake()
+            var lastProbe = -Double.infinity
             var heldLease: RecoveryLease?
             let owned: [NativeRecoveryJournal.Phase] = [.staged, .preparing, .backedUp]
             while owned.contains(j.phase) {
-                if Date().timeIntervalSince(helperStarted) >= enrollmentGrace, Date().timeIntervalSince(lastProbe) >= 5,
+                if (RecoveryClock.awake() - helperStarted) >= enrollmentGrace, (RecoveryClock.awake() - lastProbe) >= 5,
                    let lease = try? RecoveryLease(store.directory.appendingPathComponent("transaction.lock")) {
-                    lastProbe = Date()
+                    lastProbe = RecoveryClock.awake()
                     guard let current = try store.read() else { return }
                     j = current
                     guard owned.contains(j.phase) else { heldLease = lease; break }
@@ -52,7 +56,7 @@ import DispatchCore
                         // Staged-derived work falls back to app-only protection.
                         _ = try? await RecoveryProtocol.request("abort", journal: j, root: store.root)
                         try stopRecorded("worker.json", role: "Dispatch Worker", store: store, journal: j)
-                        try store.revertToStaged(&j, error: reason); lastProbe = .distantPast; continue
+                        try store.revertToStaged(&j, error: reason); lastProbe = -Double.infinity; continue
                     case .abort(let reason):
                         // Only reached with the installer proven absent.
                         if j.phase == .staged {
@@ -65,6 +69,7 @@ import DispatchCore
                         try finish(store: store, journal: j); return
                     case .restoreApp:
                         // A fenced target menu is stopped first; it never opened the database.
+                        assertion = RecoverySleepAssertion()
                         try stopRecorded("menu-ready.json", role: "Dispatch", store: store, journal: j)
                         do { try store.restoreStagedApp(&j) } catch {
                             // The fenced target stays installed and fenced; retain everything.
@@ -79,27 +84,31 @@ import DispatchCore
                 try await Task.sleep(for: .seconds(1)); guard let next = try store.read() else { return }; j = next
             }
             guard !j.terminal, j.phase != .recoveryRequired else { return }
+            assertion = RecoverySleepAssertion()
+            var tracker = RecoveryDeadline()
             let transactionLease = try heldLease ?? RecoveryLease(store.directory.appendingPathComponent("transaction.lock"))
             defer { withExtendedLifetime(transactionLease) {} }
             do {
                 if j.phase == .activating {
-                    while Date() < j.deadline && (try? NativeRecoveryStore.build(of: URL(fileURLWithPath: j.appPath))) != j.targetBuild {
+                    while true {
+                        if tracker.rearm(&j.deadline) { try store.save(j) }
+                        guard Date() < j.deadline, (try? NativeRecoveryStore.build(of: URL(fileURLWithPath: j.appPath))) != j.targetBuild else { break }
                         try await Task.sleep(for: .seconds(1))
                     }
                     guard Date() < j.deadline else { throw ConfigurationError("Sparkle activation did not complete before its deadline.") }
                     try NativeRecoveryStore.verifySignedApp(URL(fileURLWithPath: j.appPath))
                     try NativeRecoveryStore.requireCompatibleApp(URL(fileURLWithPath: j.appPath))
-                    j.phase = .probation; j.deadline = Date(timeIntervalSinceNow: 180); try store.save(j)
+                    j.phase = .probation; j.deadline = Date(timeIntervalSinceNow: 180); try store.save(j); tracker = RecoveryDeadline()
                 }
                 if j.phase == .probation {
                     try stopRecorded("worker.json", role: "Dispatch Worker", store: store, journal: j)
-                    try await probation(store: store, journal: j, build: j.targetBuild)
+                    try await probation(store: store, journal: &j, build: j.targetBuild, tracker: tracker)
                     j.phase = .committed; try store.save(j)
                     try finish(store: store, journal: j)
                     return
                 }
             } catch {
-                j.error = error.localizedDescription
+                j.error = error.localizedDescription; j.transientFailure = error is RecoveryCommandTimeout
                 try store.save(j)
             }
             // Restore re-entry is idempotent; probation of the old bundle is attempted
@@ -107,15 +116,19 @@ import DispatchCore
             do {
                 try stopRecorded("worker.json", role: "Dispatch Worker", store: store, journal: j)
                 try stopRecorded("menu-ready.json", role: "Dispatch", store: store, journal: j)
-                try store.restore(&j)
-                if !j.rollbackProbationStarted {
-                    j.rollbackProbationStarted = true; j.deadline = Date(timeIntervalSinceNow: 180); try store.save(j)
+                if !j.restoreStarted || !j.restoredApp || !j.restoredState { try store.restore(&j) }
+                else {
+                    try store.verifyBackup(j)
+                    guard try NativeRecoveryStore.build(of: URL(fileURLWithPath: j.appPath)) == j.oldBuild else { throw ConfigurationError("The restored app changed; operator recovery is required.") }
                 }
-                try await probation(store: store, journal: j, build: j.oldBuild)
+                if !j.rollbackProbationStarted {
+                    j.rollbackProbationStarted = true; j.deadline = Date(timeIntervalSinceNow: 180); try store.save(j); tracker = RecoveryDeadline()
+                }
+                try await probation(store: store, journal: &j, build: j.oldBuild, tracker: tracker)
                 j.phase = .rolledBack; try store.save(j)
                 try finish(store: store, journal: j)
             } catch {
-                j.phase = .recoveryRequired; j.error = error.localizedDescription; try store.save(j)
+                j.phase = .recoveryRequired; j.error = "\(error.localizedDescription) Server log: \(store.root.appendingPathComponent("server.log").path). Early worker launch output: \(store.workerLog(j).path)."; try store.save(j)
             }
         } catch {
             fputs("Dispatch recovery: \(error.localizedDescription)\n", stderr)
@@ -123,7 +136,9 @@ import DispatchCore
             exit(1)
         }
     }
-    static func probation(store: NativeRecoveryStore, journal: NativeRecoveryJournal, build: String) async throws {
+    static func probation(store: NativeRecoveryStore, journal: inout NativeRecoveryJournal, build: String, tracker: RecoveryDeadline) async throws {
+        var tracker = tracker
+        if tracker.rearm(&journal.deadline) { try store.save(journal) }
         let app = URL(fileURLWithPath: journal.appPath)
         do { let leases = try store.requireStopped(); withExtendedLifetime(leases) {} }
         // The worker holds its own lease for its entire lifetime. If this helper is
@@ -132,19 +147,29 @@ import DispatchCore
         worker.arguments = ["--worker"]
         worker.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
                               "DISPATCH_UPDATE_RECOVERY_ID": journal.id, "DISPATCH_UPDATE_RECOVERY_NONCE": journal.nonce]
-        worker.standardOutput = FileHandle.nullDevice; worker.standardError = FileHandle.nullDevice
+        let log = try RecoveryWorkerLog(url: store.workerLog(journal))
+        defer { log.close() }
+        worker.standardOutput = log.pipe; worker.standardError = log.pipe
         try worker.run()
         do {
             _ = try? RecoveryCommand.run(URL(fileURLWithPath: "/usr/bin/open"), [app.path])
+            if tracker.rearm(&journal.deadline) { try store.save(journal) }
+            let expected = journal
+            var extended = journal.deadline
+            defer { journal.deadline = extended }
             try await RecoveryProtocol.awaitReadiness(
                 deadline: journal.deadline,
                 workerRunning: { worker.isRunning },
                 menuReady: {
                     let menu = (try? Data(contentsOf: store.directory.appendingPathComponent("menu-ready.json")))
                         .flatMap { try? JSONDecoder().decode(RecoveryProcess.self, from: $0) }
-                    return menu?.transactionId == journal.id && menu?.build == build && menu?.matches == true
+                    return menu?.transactionId == expected.id && menu?.build == build && menu?.matches == true
                 },
-                serverReady: { await RecoveryProtocol.ready(journal, root: store.root, build: build) }
+                serverReady: { await RecoveryProtocol.ready(expected, root: store.root, build: build) },
+                rearmed: { deadline in
+                    extended = deadline
+                    var saved = expected; saved.deadline = deadline; try store.save(saved)
+                }
             )
             try stop(worker)
         } catch { try stop(worker); throw error }
@@ -152,8 +177,8 @@ import DispatchCore
     static func stop(_ worker: Process) throws {
         guard worker.isRunning else { return }
         worker.terminate()
-        let deadline = Date(timeIntervalSinceNow: 55)
-        while worker.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+        let deadline = RecoveryClock.awake() + 55
+        while worker.isRunning && RecoveryClock.awake() < deadline { Thread.sleep(forTimeInterval: 0.1) }
         guard !worker.isRunning else { throw ConfigurationError("The probation worker did not stop. Automatic restoration is blocked; inspect retained recovery files.") }
         worker.waitUntilExit()
     }

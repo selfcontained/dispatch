@@ -97,9 +97,21 @@ public struct HelperWatch {
     public static let kickstartSpacing: TimeInterval = 10
     public var kickstarts = 0
     public var lastKickstart = Date.distantPast
+    private var tracker: RecoveryDeadline?
+    private var observedDeadline: Date?
+    private var sleepAllowance: TimeInterval = 0
     public init() {}
-    public mutating func decide(now: Date, deadline: Date, helperAlive: Bool) -> Decision {
-        if now >= deadline.addingTimeInterval(Self.grace) { return .fail }
+    public mutating func decide(now: Date, deadline: Date, helperAlive: Bool, continuous: TimeInterval = RecoveryClock.continuous(), awake: TimeInterval = RecoveryClock.awake()) -> Decision {
+        if tracker == nil { tracker = RecoveryDeadline(continuous: continuous, awake: awake) }
+        var bound = deadline
+        _ = tracker?.rearm(&bound, continuous: continuous, awake: awake)
+        let sleep = bound.timeIntervalSince(deadline)
+        sleepAllowance += sleep
+        if let previous = observedDeadline { sleepAllowance = max(0, sleepAllowance - max(0, deadline.timeIntervalSince(previous))) }
+        observedDeadline = deadline
+        if sleep > 0 { lastKickstart.addTimeInterval(sleep) }
+        bound = deadline.addingTimeInterval(sleepAllowance)
+        if now >= bound.addingTimeInterval(Self.grace) { return .fail }
         guard !helperAlive else { return .wait }
         guard kickstarts < Self.maxKickstarts else { return now.timeIntervalSince(lastKickstart) >= Self.kickstartSpacing * 3 ? .fail : .wait }
         guard now.timeIntervalSince(lastKickstart) >= Self.kickstartSpacing else { return .wait }
