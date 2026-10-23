@@ -93,6 +93,11 @@ waiting for the corrected launch.
   follow AGENTS.md, including Playwright interactions and shared screenshots for
   UI changes. Child test results inform verification but do not prove that the
   integrated branch works. Do not claim live runtime testing from mocked tests.
+- For every UI change, capture at least one screenshot per validated flow after
+  interacting with the integrated app. Show the relevant final state and caption
+  what was exercised. Keep screenshots outside the repo root and close the
+  browser after validation. Screenshots are required delivery evidence, not an
+  optional substitute for a prose test summary.
 - Launch code owner reviews with `launch_owner_reviews` when an ownership map
   exists. Supply the final scope, review base, key decisions, validation, and
   specific risks. Otherwise choose appropriate review personas from the list.
@@ -125,3 +130,12 @@ waiting for the corrected launch.
   checks performed, material limitations, and any remaining decision. Include
   required preview links and cleanup commands. Do not report completion while
   children, findings, or required checks still need action.
+- For UI work, attach the screenshots to that final outcome post with
+  `post({ placement: "home", attachments: [{ type: "file", path, caption }] })`,
+  alongside the PR and preview links. Do this even if screenshots were already
+  posted during validation or by a child or reviewer; evidence buried in a
+  launch or review thread is not sufficient for delivery. Inspect the tool
+  response for success and correct placement. If attachment posting fails,
+  fix it or report the blocker before claiming delivery is complete. Local
+  screenshot paths, prose claims, and links to the app do not replace attached
+  screenshots.

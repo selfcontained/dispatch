@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -30,6 +33,14 @@ async function createJob(
   });
   expect(res.statusCode).toBe(200);
   return res.json();
+}
+
+async function jobId(name: string): Promise<string> {
+  const result = await ctx.pool.query(
+    "SELECT id FROM jobs WHERE directory = '/tmp' AND name = $1",
+    [name]
+  );
+  return result.rows[0]?.id ?? "missing-job";
 }
 
 beforeEach(async () => {
@@ -131,8 +142,7 @@ describe("PATCH /api/v1/jobs (update)", () => {
   it("updates job configuration", async () => {
     await createJob("patch-me");
     const res = await authedInject("PATCH", "/api/v1/jobs", {
-      name: "patch-me",
-      directory: "/tmp",
+      jobId: await jobId("patch-me"),
       prompt: "updated prompt",
       singleton: false,
     });
@@ -142,12 +152,11 @@ describe("PATCH /api/v1/jobs (update)", () => {
     expect(body.singleton).toBe(false);
   });
 
-  it("renames a job via displayName", async () => {
+  it("renames a job via name", async () => {
     await createJob("rename-src");
     const res = await authedInject("PATCH", "/api/v1/jobs", {
-      name: "rename-src",
-      directory: "/tmp",
-      displayName: "rename-dst",
+      jobId: await jobId("rename-src"),
+      name: "rename-dst",
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().name).toBe("rename-dst");
@@ -157,9 +166,8 @@ describe("PATCH /api/v1/jobs (update)", () => {
     await createJob("existing-name");
     await createJob("other-job");
     const res = await authedInject("PATCH", "/api/v1/jobs", {
-      name: "other-job",
-      directory: "/tmp",
-      displayName: "existing-name",
+      jobId: await jobId("other-job"),
+      name: "existing-name",
     });
     expect(res.statusCode).toBe(500);
     expect(res.json().error).toContain("already exists");
@@ -167,8 +175,7 @@ describe("PATCH /api/v1/jobs (update)", () => {
 
   it("returns 500 for non-existent job", async () => {
     const res = await authedInject("PATCH", "/api/v1/jobs", {
-      name: "ghost",
-      directory: "/tmp",
+      jobId: await jobId("ghost"),
       prompt: "nope",
     });
     expect(res.statusCode).toBe(500);
@@ -180,8 +187,7 @@ describe("DELETE /api/v1/jobs", () => {
   it("deletes an existing job", async () => {
     await createJob("delete-me");
     const res = await authedInject("DELETE", "/api/v1/jobs", {
-      name: "delete-me",
-      directory: "/tmp",
+      jobId: await jobId("delete-me"),
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().name).toBe("delete-me");
@@ -192,8 +198,7 @@ describe("DELETE /api/v1/jobs", () => {
 
   it("returns 500 for non-existent job", async () => {
     const res = await authedInject("DELETE", "/api/v1/jobs", {
-      name: "ghost",
-      directory: "/tmp",
+      jobId: await jobId("ghost"),
     });
     expect(res.statusCode).toBe(500);
     expect(res.json().error).toContain("not found");
@@ -204,8 +209,7 @@ describe("POST /api/v1/jobs/enable", () => {
   it("enables a job with a schedule", async () => {
     await createJob("enable-me", { schedule: "0 */6 * * *" });
     const res = await authedInject("POST", "/api/v1/jobs/enable", {
-      name: "enable-me",
-      directory: "/tmp",
+      jobId: await jobId("enable-me"),
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().enabled).toBe(true);
@@ -214,8 +218,7 @@ describe("POST /api/v1/jobs/enable", () => {
   it("rejects enabling a job without a schedule", async () => {
     await createJob("no-sched");
     const res = await authedInject("POST", "/api/v1/jobs/enable", {
-      name: "no-sched",
-      directory: "/tmp",
+      jobId: await jobId("no-sched"),
     });
     expect(res.statusCode).toBe(500);
     expect(res.json().error).toContain("no schedule");
@@ -226,13 +229,11 @@ describe("POST /api/v1/jobs/disable", () => {
   it("disables an enabled job", async () => {
     await createJob("disable-me", { schedule: "0 */6 * * *" });
     const enableRes = await authedInject("POST", "/api/v1/jobs/enable", {
-      name: "disable-me",
-      directory: "/tmp",
+      jobId: await jobId("disable-me"),
     });
     expect(enableRes.statusCode).toBe(200);
     const res = await authedInject("POST", "/api/v1/jobs/disable", {
-      name: "disable-me",
-      directory: "/tmp",
+      jobId: await jobId("disable-me"),
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().enabled).toBe(false);
@@ -259,7 +260,7 @@ describe("GET /api/v1/jobs/history", () => {
     await createJob("hist-job");
     const res = await authedInject(
       "GET",
-      "/api/v1/jobs/history?name=hist-job&directory=/tmp"
+      `/api/v1/jobs/history?jobId=${await jobId("hist-job")}`
     );
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -271,7 +272,7 @@ describe("GET /api/v1/jobs/history", () => {
   it("returns 404 for non-existent job", async () => {
     const res = await authedInject(
       "GET",
-      "/api/v1/jobs/history?name=ghost&directory=/tmp"
+      `/api/v1/jobs/history?jobId=${await jobId("ghost")}`
     );
     expect(res.statusCode).toBe(404);
   });
@@ -286,8 +287,7 @@ describe("POST /api/v1/jobs/run", () => {
   it("runs a job and returns result", async () => {
     const job = await createJob("run-me");
     const res = await authedInject("POST", "/api/v1/jobs/run", {
-      name: "run-me",
-      directory: "/tmp",
+      jobId: await jobId("run-me"),
       wait: false,
     });
     expect(res.statusCode).toBe(200);
@@ -307,8 +307,7 @@ describe("POST /api/v1/jobs/run", () => {
   it("records the job prompt as the agent's launch post", async () => {
     await createJob("run-launch-post", { prompt: "Sweep the stale branches" });
     const res = await authedInject("POST", "/api/v1/jobs/run", {
-      name: "run-launch-post",
-      directory: "/tmp",
+      jobId: await jobId("run-launch-post"),
       wait: false,
     });
     expect(res.statusCode).toBe(200);
@@ -340,8 +339,7 @@ describe("POST /api/v1/jobs/run", () => {
 
   it("returns 500 for non-existent job", async () => {
     const res = await authedInject("POST", "/api/v1/jobs/run", {
-      name: "ghost",
-      directory: "/tmp",
+      jobId: await jobId("ghost"),
     });
     expect(res.statusCode).toBe(500);
     expect(res.json().error).toContain("not found");
@@ -365,7 +363,7 @@ describe("POST /api/v1/jobs/run", () => {
       method: "POST",
       url: "/api/v1/jobs/run",
       headers: { cookie, "content-type": "application/json" },
-      payload: { name: "no-prompt", directory: "/tmp", wait: false },
+      payload: { jobId: "job_no_prompt", wait: false },
     });
     expect(res.statusCode).toBe(500);
     expect(res.json().error).toContain("no prompt");
@@ -374,15 +372,13 @@ describe("POST /api/v1/jobs/run", () => {
   it("rejects a second run when singleton is true", async () => {
     await createJob("singleton-job", { singleton: true });
     const first = await authedInject("POST", "/api/v1/jobs/run", {
-      name: "singleton-job",
-      directory: "/tmp",
+      jobId: await jobId("singleton-job"),
       wait: false,
     });
     expect(first.statusCode).toBe(200);
 
     const second = await authedInject("POST", "/api/v1/jobs/run", {
-      name: "singleton-job",
-      directory: "/tmp",
+      jobId: await jobId("singleton-job"),
       wait: false,
     });
     expect(second.statusCode).toBe(500);
@@ -396,10 +392,232 @@ describe("POST /api/v1/jobs/run", () => {
     await new Promise((resolve) => setTimeout(resolve, 2500));
   });
 
-  it("rejects missing name", async () => {
+  it("rejects missing jobId", async () => {
     const res = await authedInject("POST", "/api/v1/jobs/run", {
       directory: "/tmp",
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("stable job identity", () => {
+  it("keeps running agents in their launched directory and uses edits for later starts", async () => {
+    const source = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-job-source-")
+    );
+    const destination = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-job-destination-")
+    );
+    try {
+      const job = await createJob("running-relocation", {
+        singleton: false,
+        directory: source,
+      });
+      const first = await authedInject("POST", "/api/v1/jobs/run", {
+        jobId: job.id,
+        wait: false,
+      });
+      expect(first.statusCode).toBe(200);
+      const moved = await authedInject("PATCH", "/api/v1/jobs", {
+        jobId: job.id,
+        directory: destination,
+        name: "running-relocated",
+      });
+      expect(moved.statusCode).toBe(200);
+      const second = await authedInject("POST", "/api/v1/jobs/run", {
+        jobId: job.id,
+        wait: false,
+      });
+      expect(second.statusCode).toBe(200);
+      const agents = await ctx.pool.query(
+        "SELECT id, cwd FROM agents WHERE id = ANY($1::text[])",
+        [[first.json().agentId, second.json().agentId]]
+      );
+      expect(
+        agents.rows.find((agent) => agent.id === first.json().agentId).cwd
+      ).toBe(source);
+      expect(
+        agents.rows.find((agent) => agent.id === second.json().agentId).cwd
+      ).toBe(destination);
+      const history = await authedInject(
+        "GET",
+        `/api/v1/jobs/history?jobId=${job.id}`
+      );
+      expect(history.json().runs).toHaveLength(2);
+      await ctx.pool.query(
+        "UPDATE job_runs SET status = 'completed' WHERE job_id = $1",
+        [job.id]
+      );
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+    } finally {
+      await rm(source, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves history, webhook and template identity through directory and name edits", async () => {
+    const job = await createJob("before-move", {
+      webhookEnabled: true,
+      schedule: "0 */6 * * *",
+    });
+    const run = await ctx.pool.query(
+      `INSERT INTO job_runs (id, job_id, status, config) VALUES ('relocation-run', $1, 'completed', $2::jsonb) RETURNING id`,
+      [job.id, JSON.stringify({ directory: "/tmp", name: "before-move" })]
+    );
+    const updated = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: job.id,
+      name: "after-move",
+      directory: " /tmp/new-location/../moved/ ",
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      id: job.id,
+      name: "after-move",
+      directory: "/tmp/moved",
+      templateId: job.templateId,
+      webhookSecret: job.webhookSecret,
+      schedule: job.schedule,
+    });
+    const template = await ctx.pool.query(
+      "SELECT name, directory FROM templates WHERE id = $1",
+      [job.templateId]
+    );
+    expect(template.rows[0]).toEqual({
+      name: "after-move",
+      directory: "/tmp/moved",
+    });
+    const history = await authedInject(
+      "GET",
+      `/api/v1/jobs/history?jobId=${job.id}`
+    );
+    expect(history.json().runs[0]).toMatchObject({
+      id: run.rows[0].id,
+      jobId: job.id,
+      config: { directory: "/tmp", name: "before-move" },
+    });
+    expect(
+      (
+        await authedInject("PATCH", "/api/v1/jobs", {
+          jobId: job.id,
+          prompt: "edited again",
+        })
+      ).statusCode
+    ).toBe(200);
+    expect(
+      (
+        await authedInject("POST", "/api/v1/jobs/enable", { jobId: job.id })
+      ).json().enabled
+    ).toBe(true);
+    expect(
+      (
+        await authedInject("POST", "/api/v1/jobs/disable", { jobId: job.id })
+      ).json().enabled
+    ).toBe(false);
+    expect(
+      (await authedInject("DELETE", "/api/v1/jobs", { jobId: job.id }))
+        .statusCode
+    ).toBe(200);
+  });
+
+  it("rejects blank directories and old mutation identity", async () => {
+    const job = await createJob("blank-directory");
+    expect(
+      (
+        await authedInject("PATCH", "/api/v1/jobs", {
+          jobId: job.id,
+          directory: "   ",
+        })
+      ).statusCode
+    ).toBe(400);
+    expect(
+      (
+        await authedInject("PATCH", "/api/v1/jobs", {
+          name: job.name,
+          directory: job.directory,
+          prompt: "wrong identity",
+        })
+      ).statusCode
+    ).toBe(400);
+    expect(
+      (
+        await authedInject("DELETE", "/api/v1/jobs", {
+          name: job.name,
+          directory: job.directory,
+        })
+      ).statusCode
+    ).toBe(400);
+  });
+
+  it("rejects destination job conflicts and rolls back backing template conflicts", async () => {
+    const job = await createJob("source");
+    await createJob("destination", { directory: "/tmp/destination" });
+    const conflict = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: job.id,
+      name: "destination",
+      directory: "/tmp/destination",
+    });
+    expect(conflict.statusCode).toBe(500);
+    expect(conflict.json().error).toContain("already exists");
+    await authedInject("POST", "/api/v1/templates", {
+      name: "template-conflict",
+      directory: "/tmp/destination",
+      prompt: "template",
+    });
+    const templateConflict = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: job.id,
+      name: "template-conflict",
+      directory: "/tmp/destination",
+      prompt: "must roll back",
+    });
+    expect(templateConflict.statusCode).toBe(500);
+    const saved = await authedInject(
+      "GET",
+      `/api/v1/jobs/history?jobId=${job.id}`
+    );
+    expect(saved.json().job).toMatchObject({
+      name: "source",
+      directory: "/tmp",
+      prompt: "test prompt",
+    });
+  });
+});
+
+describe("project and folder job directories", () => {
+  it("retains project cwd for ID-only edits and detaches into an editable folder", async () => {
+    await ctx.pool.query(
+      "INSERT INTO projects (id, name, repo_root) VALUES ('job-location-project', 'Location', '/tmp/project-root')"
+    );
+    const job = await createJob("project-job", {
+      projectId: "job-location-project",
+      directory: "/tmp/ignored",
+    });
+    expect(job.directory).toBe("/tmp/project-root");
+    const projectEdit = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: job.id,
+      prompt: "Keep membership",
+      directory: "/tmp/must-not-override",
+    });
+    expect(projectEdit.statusCode).toBe(200);
+    expect(projectEdit.json().directory).toBe("/tmp/project-root");
+    const folderEdit = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: job.id,
+      projectId: null,
+      directory: "/tmp/folder-root",
+    });
+    expect(folderEdit.statusCode).toBe(200);
+    expect(folderEdit.json().directory).toBe("/tmp/folder-root");
+    const template = await ctx.pool.query(
+      "SELECT directory, project_id FROM templates WHERE id = $1",
+      [job.templateId]
+    );
+    expect(template.rows[0]).toEqual({
+      directory: "/tmp/folder-root",
+      project_id: null,
+    });
+    const reloaded = await authedInject(
+      "GET",
+      `/api/v1/jobs/history?jobId=${job.id}`
+    );
+    expect(reloaded.json().job.directory).toBe("/tmp/folder-root");
   });
 });

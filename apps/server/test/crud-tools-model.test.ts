@@ -104,9 +104,9 @@ describe("crud tools model parameter", () => {
         .object(server.tools.find((t) => t.name === name)!.config.inputSchema)
         .parse(args) as Record<string, unknown>;
 
-    expect("model" in parse("update_job", { name: "nightly" })).toBe(false);
+    expect("model" in parse("update_job", { jobId: "job_1" })).toBe(false);
     expect(
-      parse("update_job", { name: "nightly", model: null }).model
+      parse("update_job", { jobId: "job_1", model: null }).model
     ).toBeNull();
     expect("model" in parse("update_template", { templateId: "tpl_1" })).toBe(
       false
@@ -131,7 +131,7 @@ describe("crud tools model parameter", () => {
       expect.objectContaining({ directory: "/repo", model: "opus" })
     );
 
-    await call("update_job", { name: "nightly", model: null });
+    await call("update_job", { jobId: "job_1", model: null });
     expect(callbacks.updateJob).toHaveBeenCalledWith(
       expect.objectContaining({ model: null })
     );

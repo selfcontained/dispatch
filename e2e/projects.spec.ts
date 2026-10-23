@@ -149,7 +149,7 @@ test("explicit membership survives template moves and project deletion clears me
   );
   const runResponse = await request.post("/api/v1/jobs/run", {
     headers,
-    data: { name: job.name, directory: job.directory, wait: false },
+    data: { jobId: job.id, wait: false },
   });
   expect(runResponse.ok(), await runResponse.text()).toBeTruthy();
   const run = await runResponse.json();

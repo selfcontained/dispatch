@@ -191,7 +191,7 @@ See [docs/03-api-spec.md](03-api-spec.md#jobs) for the full endpoint reference. 
 
 - `GET /api/v1/jobs` / `POST|PATCH|DELETE /api/v1/jobs`
 - `POST /api/v1/jobs/enable` / `POST /api/v1/jobs/disable`
-- `POST /api/v1/jobs/run` — trigger manually (`{ name, directory, wait? }`)
+- `POST /api/v1/jobs/run` — trigger manually (`{ jobId, wait? }`)
 - `POST /api/v1/jobs/webhook/:secret` — unauthenticated trigger, rate-limited to 10/min, returns `{ jobId, runId }` and never waits
 - `GET /api/v1/jobs/stats` / `GET /api/v1/jobs/history`
 

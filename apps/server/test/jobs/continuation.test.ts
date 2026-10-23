@@ -157,17 +157,9 @@ describe("continuation jobs", () => {
           }
         );
         const move = () =>
-          service.updateJob({
-            name: created.name,
-            directory: source,
-            projectId: suffix,
-          });
+          service.updateJob({ jobId: created.id, projectId: suffix });
         if (!moveWhileActive) await move();
-        const first = await service.runJob({
-          name: created.name,
-          directory: source,
-          wait: false,
-        });
+        const first = await service.runJob({ jobId: created.id, wait: false });
         if (moveWhileActive) await move();
         const firstRun = (await store.getRun(first.runId))!;
         expect(firstRun.config.directory).toBe(
@@ -272,7 +264,11 @@ describe("continuation jobs", () => {
 
     const service = new JobService(pool, agents, logger, config);
     await expect(
-      service.runJob({ name: record.name, directory: record.directory })
+      service.runJob({
+        jobId:
+          (await service.getJobByName(record.directory, record.name))?.id ??
+          "missing-job",
+      })
     ).rejects.toThrow("pending continuation");
     await addAgent("agt_cont_second");
     vi.mocked(agents.createAgent).mockImplementation(
@@ -686,8 +682,13 @@ describe("continuation jobs", () => {
       enabled: true,
     });
     const looped = await service.updateJob({
-      name: "ordinary-worktree",
-      directory: "/tmp/ordinary-worktree",
+      jobId:
+        (
+          await service.getJobByName(
+            "/tmp/ordinary-worktree",
+            "ordinary-worktree"
+          )
+        )?.id ?? "missing-job",
       continuationEnabled: true,
     });
     expect(looped).toMatchObject({

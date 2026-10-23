@@ -257,17 +257,17 @@ describe("useAttachedJobAgent", () => {
     expect(screen.getByTestId("attached-agent").textContent).toBe("none");
   });
 
-  it("matches a live run's agent by job-name prefix and marks it active", () => {
+  it("matches a live run's agent by run ID and marks it active", () => {
     renderProvider({
       path: "/automations/jobs/job_1",
       jobs: [makeJob({ lastRunId: runId, lastRunStatus: "running" })],
       agents: [
         makeAgent("agt_other", "unrelated"),
-        makeAgent("agt_1", "job-nightly-audit-123"),
+        makeAgent("agt_1", `job-nightly-audit-${runId.slice(0, 8)}`),
       ],
     });
     expect(screen.getByTestId("attached-agent").textContent).toBe(
-      "job-nightly-audit-123:true"
+      `job-nightly-audit-${runId.slice(0, 8)}:true`
     );
   });
 
@@ -292,7 +292,7 @@ describe("useAttachedJobAgent", () => {
           autoArchive: true,
         }),
       ],
-      agents: [makeAgent("agt_1", "job-nightly-audit-123")],
+      agents: [makeAgent("agt_1", `job-nightly-audit-${runId.slice(0, 8)}`)],
     });
     expect(screen.getByTestId("attached-agent").textContent).toBe("none");
   });
@@ -307,19 +307,39 @@ describe("useAttachedJobAgent", () => {
           autoArchive: false,
         }),
       ],
-      agents: [makeAgent("agt_1", "job-nightly-audit-123")],
+      agents: [makeAgent("agt_1", `job-nightly-audit-${runId.slice(0, 8)}`)],
     });
     expect(screen.getByTestId("attached-agent").textContent).toBe(
-      "job-nightly-audit-123:false"
+      `job-nightly-audit-${runId.slice(0, 8)}:false`
     );
   });
 
-  it("returns null when no agent matches either heuristic", () => {
+  it("returns null when no agent matches the run ID", () => {
     renderProvider({
       path: "/automations/jobs/job_1",
       jobs: [makeJob({ lastRunId: runId, lastRunStatus: "running" })],
       agents: [makeAgent("agt_1", "job-other-job-999")],
     });
     expect(screen.getByTestId("attached-agent").textContent).toBe("none");
+  });
+  it("keeps the launched agent after rename and relocation instead of matching a reused job name", () => {
+    renderProvider({
+      path: "/automations/jobs/job_1",
+      jobs: [
+        makeJob({
+          name: "renamed",
+          directory: "/moved",
+          lastRunId: runId,
+          lastRunStatus: "running",
+        }),
+      ],
+      agents: [
+        makeAgent("agt_other", "job-renamed-unrelated"),
+        makeAgent("agt_original", `job-old-name-${runId.slice(0, 8)}`),
+      ],
+    });
+    expect(screen.getByTestId("attached-agent").textContent).toBe(
+      `job-old-name-${runId.slice(0, 8)}:true`
+    );
   });
 });

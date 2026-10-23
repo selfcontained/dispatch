@@ -89,8 +89,7 @@ describe("job CRUD loop schema", () => {
     const { tools, callbacks } = registerJobTools();
     const tool = tools.find((candidate) => candidate.name === "update_job")!;
     const args = z.object(tool.config.inputSchema).parse({
-      name: "project-loop",
-      directory: "/repo",
+      jobId: "job_1",
       doneWhen: ["Scope is complete"],
     });
 

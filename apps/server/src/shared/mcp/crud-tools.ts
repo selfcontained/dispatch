@@ -160,6 +160,8 @@ export type CrudToolCallbacks = {
   createJob: (input: {
     name: string;
     directory: string;
+    projectId?: string | null;
+    persona?: string | null;
     prompt?: string | null;
     schedule?: string | null;
     timeoutMs?: number;
@@ -181,9 +183,11 @@ export type CrudToolCallbacks = {
     recoveryInstructions?: string | null;
   }) => Promise<unknown>;
   updateJob: (input: {
-    name: string;
-    directory: string;
-    displayName?: string;
+    jobId: string;
+    name?: string;
+    directory?: string;
+    projectId?: string | null;
+    persona?: string | null;
     prompt?: string | null;
     schedule?: string | null;
     timeoutMs?: number;
@@ -204,8 +208,8 @@ export type CrudToolCallbacks = {
     completionCriteria?: string[] | null;
     recoveryInstructions?: string | null;
   }) => Promise<unknown>;
-  deleteJob: (name: string, directory: string) => Promise<unknown>;
-  runJob: (name: string, directory: string) => Promise<unknown>;
+  deleteJob: (jobId: string) => Promise<unknown>;
+  runJob: (jobId: string) => Promise<unknown>;
   listTemplates: (directory?: string) => Promise<TemplateRecord[]>;
   getTemplateById: (templateId: string) => Promise<TemplateRecord | null>;
   getTemplateByName: (
@@ -352,6 +356,14 @@ export function registerCrudTools(
         inputSchema: {
           name: z.string().min(1).describe("Job name."),
           directory: dirSchema(),
+          projectId: z
+            .string()
+            .min(1)
+            .nullable()
+            .optional()
+            .describe(
+              "Project ID; null switches to Folder mode with an editable directory."
+            ),
           prompt: z.string().nullable().optional().describe("Job prompt."),
           schedule: z
             .string()
@@ -467,17 +479,27 @@ export function registerCrudTools(
       "update_job",
       {
         description:
-          "Update an existing job. Identifies the job by name (+ directory). Only pass fields you want to change.",
+          "Update an existing job by jobId. Name and directory are editable configuration. Only pass fields you want to change.",
         inputSchema: {
-          name: z
+          jobId: z
             .string()
             .min(1)
-            .describe("Current job name (identifies the job)."),
-          directory: dirSchema(),
-          displayName: z
+            .describe("Stable job ID from list_jobs or create_job."),
+          name: z.string().trim().min(1).optional().describe("New job name."),
+          directory: z
             .string()
+            .trim()
+            .min(1)
             .optional()
-            .describe("New display name (to rename the job)."),
+            .describe("New working directory. Does not move files."),
+          projectId: z
+            .string()
+            .min(1)
+            .nullable()
+            .optional()
+            .describe(
+              "Project ID; null switches to Folder mode with an editable directory."
+            ),
           prompt: z
             .string()
             .nullable()
@@ -572,7 +594,10 @@ export function registerCrudTools(
             args;
           const result = await callbacks.updateJob({
             ...jobArgs,
-            directory: resolveDir(args.directory),
+            directory:
+              args.directory === undefined
+                ? undefined
+                : resolveDir(args.directory),
             continuationEnabled: loopEnabled,
             maxIterations: maxRuns,
             completionCriteria: normalizeLoopItems(doneWhen),
@@ -594,18 +619,14 @@ export function registerCrudTools(
       "delete_job",
       {
         description:
-          "Delete a job by name. Fails if the job has an active run.",
+          "Delete a job by jobId. Fails if the job has an active run.",
         inputSchema: {
-          name: z.string().min(1).describe("Job name."),
-          directory: dirSchema(),
+          jobId: z.string().min(1).describe("Stable job ID."),
         },
       },
       async (args) => {
         try {
-          const result = await callbacks.deleteJob(
-            args.name,
-            resolveDir(args.directory)
-          );
+          const result = await callbacks.deleteJob(args.jobId);
           return {
             content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
@@ -624,16 +645,12 @@ export function registerCrudTools(
         description:
           "Trigger a job run. Returns immediately with the run ID and agent ID.",
         inputSchema: {
-          name: z.string().min(1).describe("Job name."),
-          directory: dirSchema(),
+          jobId: z.string().min(1).describe("Stable job ID."),
         },
       },
       async (args) => {
         try {
-          const result = await callbacks.runJob(
-            args.name,
-            resolveDir(args.directory)
-          );
+          const result = await callbacks.runJob(args.jobId);
           return {
             content: [{ type: "text", text: jsonText(result) }],
           };

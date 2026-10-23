@@ -85,6 +85,21 @@ async function waitForEvents(
   );
 }
 
+async function fixtureJobId(
+  request: import("@playwright/test").APIRequestContext,
+  name: string,
+  directory: string
+): Promise<string> {
+  const response = await request.get("/api/v1/jobs", { headers: AUTH_HEADER });
+  const jobs = await response.json();
+  return (
+    jobs.find(
+      (job: { name: string; directory: string }) =>
+        job.name === name && job.directory === directory
+    )?.id ?? "missing-job"
+  );
+}
+
 test.describe("Jobs SSE events", () => {
   const jobDir = join(tmpdir(), `dispatch-e2e-sse-${Date.now()}`);
   mkdirSync(jobDir, { recursive: true });
@@ -123,8 +138,7 @@ test.describe("Jobs SSE events", () => {
       const updateRes = await request.patch("/api/v1/jobs", {
         headers: HEADERS,
         data: {
-          name: "SSE Test Job",
-          directory: jobDir,
+          jobId: await fixtureJobId(request, "SSE Test Job", jobDir),
           schedule: "*/30 * * * *",
           enabled: true,
         },
@@ -139,7 +153,7 @@ test.describe("Jobs SSE events", () => {
       // 3. Enable the job → expect another job.changed
       const enableRes = await request.post("/api/v1/jobs/enable", {
         headers: HEADERS,
-        data: { name: "SSE Test Job", directory: jobDir },
+        data: { jobId: await fixtureJobId(request, "SSE Test Job", jobDir) },
       });
       expect(enableRes.ok()).toBeTruthy();
       await waitForEvents(
@@ -151,7 +165,7 @@ test.describe("Jobs SSE events", () => {
       // 4. Disable the job → expect another job.changed
       const disableRes = await request.post("/api/v1/jobs/disable", {
         headers: HEADERS,
-        data: { name: "SSE Test Job", directory: jobDir },
+        data: { jobId: await fixtureJobId(request, "SSE Test Job", jobDir) },
       });
       expect(disableRes.ok()).toBeTruthy();
       await waitForEvents(
@@ -163,7 +177,7 @@ test.describe("Jobs SSE events", () => {
       // 5. Delete the job → expect another job.changed
       const deleteRes = await request.delete("/api/v1/jobs", {
         headers: HEADERS,
-        data: { name: "SSE Test Job", directory: jobDir },
+        data: { jobId: await fixtureJobId(request, "SSE Test Job", jobDir) },
       });
       expect(deleteRes.ok()).toBeTruthy();
       await waitForEvents(
@@ -207,7 +221,10 @@ test.describe("Jobs SSE events", () => {
       // Run the job (non-blocking)
       const runRes = await request.post("/api/v1/jobs/run", {
         headers: HEADERS,
-        data: { name: "SSE Run Job", directory: runDir, wait: false },
+        data: {
+          jobId: await fixtureJobId(request, "SSE Run Job", runDir),
+          wait: false,
+        },
       });
       expect(runRes.ok()).toBeTruthy();
 

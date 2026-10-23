@@ -168,7 +168,12 @@ export type AddJobInput = {
   recoveryInstructions?: string | null;
 };
 
+export type UpdateJobInput = Partial<Omit<AddJobInput, "displayName">> & {
+  jobId: string;
+};
+
 export type JobConfigUpdate = {
+  directory?: string;
   name?: string;
   prompt?: string | null;
   schedule?: string | null;
@@ -1011,6 +1016,7 @@ export class JobStore {
             completion_criteria = CASE WHEN $33 THEN $34 ELSE completion_criteria END,
             recovery_instructions = CASE WHEN $35 THEN $36 ELSE recovery_instructions END,
             persona = CASE WHEN $37 THEN $38 ELSE persona END,
+            directory = COALESCE($39, directory),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -1054,6 +1060,9 @@ export class JobStore {
           input.recoveryInstructions ?? null,
           input.persona !== undefined,
           input.persona ?? null,
+          input.directory === undefined
+            ? undefined
+            : path.resolve(input.directory),
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);

@@ -11,7 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/hooks/use-projects", () => ({
-  useProjects: () => ({ data: [] }),
+  useProjects: vi.fn(() => ({ data: [], isSuccess: true })),
   useProjectScope: () => ({
     projectId: null,
     project: undefined,
@@ -20,6 +20,7 @@ vi.mock("@/hooks/use-projects", () => ({
 }));
 
 import type { Job } from "@/hooks/use-jobs";
+import { useProjects } from "@/hooks/use-projects";
 
 import { SettingsTab } from "./jobs-settings-tab";
 
@@ -93,9 +94,9 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 // accidental change to a neighboring field also fails.
 function basePayload() {
   return {
+    jobId: "job_1",
     name: "nightly-audit",
     directory: "/repo",
-    displayName: "nightly-audit",
     schedule: "*/30 * * * *",
     timeoutMs: 1_800_000,
     needsInputTimeoutMs: 86_400_000,
@@ -174,6 +175,10 @@ async function clickSave() {
 }
 
 beforeEach(() => {
+  vi.mocked(useProjects).mockReturnValue({
+    data: [],
+    isSuccess: true,
+  } as never);
   // Radix Select calls scrollIntoView when opening; jsdom has no layout.
   Element.prototype.scrollIntoView = vi.fn();
   apiMock.mockImplementation((path: string) => {
@@ -204,7 +209,7 @@ describe("save payload", () => {
     expect(onUpdateJob).toHaveBeenCalledTimes(1);
     expect(onUpdateJob).toHaveBeenCalledWith({
       ...basePayload(),
-      displayName: "Renamed Job",
+      name: "Renamed Job",
       schedule: "0 12 * * 1",
       timeoutMs: 2_700_000,
       needsInputTimeoutMs: 600_000,
@@ -372,8 +377,7 @@ describe("enabled toggle", () => {
 
     await waitFor(() =>
       expect(onUpdateJob).toHaveBeenCalledWith({
-        name: "nightly-audit",
-        directory: "/repo",
+        jobId: "job_1",
         enabled: true,
       })
     );
@@ -397,8 +401,7 @@ describe("enabled toggle", () => {
 
     expect(enableSwitch().getAttribute("aria-checked")).toBe("true");
     expect(onUpdateJob).toHaveBeenCalledWith({
-      name: "nightly-audit",
-      directory: "/repo",
+      jobId: "job_1",
       enabled: true,
     });
     await waitFor(() => expect(enableSwitch().disabled).toBe(false));
@@ -578,5 +581,110 @@ it("does not restore externally moved membership when saving unrelated edits", a
   fireEvent.click(saveButton());
   await waitFor(() => expect(onUpdateJob).toHaveBeenCalled());
   expect(onUpdateJob.mock.calls[0]![0]).not.toHaveProperty("projectId");
-  expect(onUpdateJob.mock.calls[0]![0].displayName).toBe("Unsaved name");
+  expect(onUpdateJob.mock.calls[0]![0].name).toBe("Unsaved name");
+});
+
+describe("working directory", () => {
+  it("preserves a directory edited while an earlier save is pending", async () => {
+    const { onUpdateJob } = renderTab(makeJob());
+    let resolveSave!: () => void;
+    onUpdateJob.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/repo/submitted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/repo/new-draft" },
+    });
+    await act(async () => {
+      resolveSave();
+    });
+    expect(
+      (screen.getByLabelText("Working directory") as HTMLInputElement).value
+    ).toBe("/repo/new-draft");
+  });
+
+  it("preserves a different job's directory draft when the old save resolves", async () => {
+    const { onUpdateJob, rerenderJob } = renderTab(makeJob());
+    let resolveSave!: () => void;
+    onUpdateJob.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/repo/submitted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    rerenderJob(makeJob({ id: "job_2", directory: "/other" }));
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/other/new-draft" },
+    });
+    await act(async () => {
+      resolveSave();
+    });
+    expect(
+      (screen.getByLabelText("Working directory") as HTMLInputElement).value
+    ).toBe("/other/new-draft");
+  });
+
+  it("saves an edited directory using stable job ID", async () => {
+    const { onUpdateJob } = renderTab(makeJob());
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: " /repo/moved " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    await waitFor(() =>
+      expect(onUpdateJob).toHaveBeenCalledWith({
+        ...basePayload(),
+        directory: "/repo/moved",
+      })
+    );
+  });
+
+  it("disables Save for a blank directory", () => {
+    renderTab(makeJob());
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "   " },
+    });
+    expect(
+      (screen.getByRole("button", { name: /^Save$/ }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+});
+
+describe("project to folder working directory", () => {
+  it("clears project association and saves the edited folder by job ID", async () => {
+    vi.mocked(useProjects).mockReturnValue({
+      data: [
+        {
+          id: "project-a",
+          name: "Project A",
+          repoRoot: "/repo",
+          updatedAt: "2026-10-22",
+        },
+      ],
+      isSuccess: true,
+    } as never);
+    const { onUpdateJob } = renderTab(makeJob({ projectId: "project-a" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Folder$/ }));
+    fireEvent.change(screen.getByLabelText("Working directory"), {
+      target: { value: "/folder-moved" },
+    });
+    fireEvent.click(saveButton());
+    await waitFor(() =>
+      expect(onUpdateJob).toHaveBeenCalledWith({
+        ...basePayload(),
+        projectId: null,
+        directory: "/folder-moved",
+      })
+    );
+  });
 });

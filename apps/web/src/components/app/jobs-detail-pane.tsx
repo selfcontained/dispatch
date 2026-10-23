@@ -21,7 +21,7 @@ import { shortPath } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { type AddJobConfig, type Job, type JobRun } from "@/hooks/use-jobs";
+import { type UpdateJobConfig, type Job, type JobRun } from "@/hooks/use-jobs";
 import { type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
@@ -145,7 +145,7 @@ function JobDetail({
   onRunNow: (job: Job) => Promise<void>;
   onSetEnabled: (job: Job, enabled: boolean) => Promise<void>;
   enabledAgentTypes: AgentType[];
-  onUpdateJob: (job: AddJobConfig) => Promise<void>;
+  onUpdateJob: (job: UpdateJobConfig) => Promise<void>;
   onRemoveJob: (job: Job) => Promise<void>;
   isUpdating: boolean;
   isRemoving: boolean;

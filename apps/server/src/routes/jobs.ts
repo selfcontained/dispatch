@@ -10,18 +10,19 @@ import type { PublishUiEvent } from "../server/ui-events.js";
 
 const directoryField = z
   .string()
+  .trim()
   .min(1, "Job directory is required.")
   .transform(resolveTilde);
-const RunJobBodySchema = z.object({
-  name: z.string().min(1, "Job name is required."),
-  directory: directoryField,
+const JobIdentitySchema = z.object({
+  jobId: z.string().min(1, "Job ID is required."),
+});
+const RunJobBodySchema = JobIdentitySchema.extend({
   wait: z.boolean().optional(),
 });
-const JobEnableDisableBodySchema = z.object({
-  name: z.string().min(1, "Job name is required."),
+const JobEnableDisableBodySchema = JobIdentitySchema;
+const AddJobBodySchema = z.object({
+  name: z.string().trim().min(1, "Job name is required."),
   directory: directoryField,
-});
-const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   projectId: z.string().min(1).nullable().optional(),
   displayName: z.string().optional(),
   prompt: z.string().nullable().optional(),
@@ -47,9 +48,10 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   completionCriteria: z.array(z.string().trim().min(1)).nullable().optional(),
   recoveryInstructions: z.string().nullable().optional(),
 });
-const JobHistoryParamsSchema = z.object({
-  name: z.string().min(1, "Job name is required."),
-  directory: directoryField,
+const UpdateJobBodySchema = AddJobBodySchema.omit({ displayName: true })
+  .partial()
+  .extend(JobIdentitySchema.shape);
+const JobHistoryParamsSchema = JobIdentitySchema.extend({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
@@ -93,7 +95,7 @@ export async function registerJobRoutes(
   });
 
   app.patch("/api/v1/jobs", async (request, reply) => {
-    const parsed = parseInput(AddJobBodySchema, request.body, reply);
+    const parsed = parseInput(UpdateJobBodySchema, request.body, reply);
     if (!parsed) return;
     try {
       const result = await deps.jobService.updateJob(parsed);

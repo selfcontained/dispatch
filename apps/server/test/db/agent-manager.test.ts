@@ -412,8 +412,9 @@ describe("AgentManager", () => {
       });
       try {
         const result = await service.runJob({
-          name: "Launch ordering",
-          directory: "/tmp",
+          jobId:
+            (await service.getJobByName("/tmp", "Launch ordering"))?.id ??
+            "missing-job",
           wait: false,
         });
         expect(completion).toBeDefined();

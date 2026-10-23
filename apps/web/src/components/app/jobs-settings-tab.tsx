@@ -1,11 +1,5 @@
 import { useProjects } from "@/hooks/use-projects";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ProjectLocation } from "@/components/app/project-location";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -20,6 +14,8 @@ import {
   WebhookUrl,
 } from "@/components/app/jobs-form-fields";
 import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
+import { PathInput } from "@/components/app/path-input";
+import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import {
@@ -31,7 +27,7 @@ import { errorMessage } from "@/lib/errors";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { type AddJobConfig, type Job } from "@/hooks/use-jobs";
+import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { type AgentType, type CliAgentType } from "@/lib/agent-types";
 
 export function SettingsTab({
@@ -44,26 +40,37 @@ export function SettingsTab({
 }: {
   job: Job;
   enabledAgentTypes: AgentType[];
-  onUpdateJob: (job: AddJobConfig) => Promise<void>;
+  onUpdateJob: (job: UpdateJobConfig) => Promise<void>;
   onRemoveJob: (job: Job) => Promise<void>;
   isUpdating: boolean;
   isRemoving: boolean;
 }) {
   const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
-  const [membershipEdit, setMembershipEdit] = useState<{
+  const [locationEdit, setLocationEdit] = useState<{
     id: string;
-    value: string | null;
+    projectId: string | null;
+    directory: string;
   } | null>(null);
-  const hasMembershipEdit =
-    membershipEdit?.id === job.id &&
-    (membershipEdit.value === null ||
+  const hasLocationEdit =
+    locationEdit?.id === job.id &&
+    (locationEdit.projectId === null ||
       !projectsLoaded ||
-      projects.some((p) => p.id === membershipEdit.value));
-  const projectId = hasMembershipEdit
-    ? membershipEdit!.value
-    : (job.projectId ?? null);
+      projects.some((p) => p.id === locationEdit.projectId));
+  const location = hasLocationEdit
+    ? locationEdit!
+    : { projectId: job.projectId ?? null, directory: job.directory };
+  const projectId = location.projectId;
+  const directory =
+    projects.find((p) => p.id === projectId)?.repoRoot ?? location.directory;
   const membershipChanged =
-    hasMembershipEdit && projectId !== (job.projectId ?? null);
+    hasLocationEdit && projectId !== (job.projectId ?? null);
+  const {
+    history: cwdHistory,
+    removableHistory: removableCwdHistory,
+    historyMetadata: cwdHistoryMetadata,
+    remove: removeCwdHistory,
+    add: addCwdHistory,
+  } = useCwdHistory();
   const [displayName, setDisplayName] = useState(job.name);
   const [schedule, setSchedule] = useState(job.schedule ?? "");
   const [timeoutMinutes, setTimeoutMinutes] = useState(
@@ -105,6 +112,7 @@ export function SettingsTab({
   );
   const canSave =
     !!displayName.trim() &&
+    !!directory.trim() &&
     !scheduleError &&
     !!msFromMinutes(timeoutMinutes) &&
     !!msFromMinutes(needsInputTimeoutMinutes);
@@ -114,7 +122,7 @@ export function SettingsTab({
   // (updatedAt, lastRun*, nextRun) which would otherwise clobber unsaved edits.
   useEffect(() => {
     setDisplayName(job.name);
-    setMembershipEdit(null);
+    setLocationEdit(null);
     setSchedule(job.schedule ?? "");
     setTimeoutMinutes(minutesFromMs(job.timeoutMs));
     setNeedsInputTimeoutMinutes(minutesFromMs(job.needsInputTimeoutMs));
@@ -140,27 +148,6 @@ export function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
-      <label className="space-y-1 text-sm">
-        Project (via template)
-        <Select
-          value={projectId ?? "none"}
-          onValueChange={(v) =>
-            setMembershipEdit({ id: job.id, value: v === "none" ? null : v })
-          }
-        >
-          <SelectTrigger aria-label="Project membership">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">No project</SelectItem>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </label>
       <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
         <span>
           <span className="block font-medium text-foreground">Enabled</span>
@@ -184,8 +171,7 @@ export function SettingsTab({
             setEnabledError(null);
             setIsUpdatingEnabled(true);
             void onUpdateJob({
-              name: job.name,
-              directory: job.directory,
+              jobId: job.id,
               enabled: nextEnabled,
             })
               .catch((error) => {
@@ -226,6 +212,37 @@ export function SettingsTab({
               onChange={(event) => setDisplayName(event.target.value)}
             />
           </div>
+          <div className="space-y-1 md:col-span-2">
+            <label
+              className="text-sm text-muted-foreground"
+              htmlFor={`settings-directory-${job.id}`}
+            >
+              Working directory
+            </label>
+            <ProjectLocation
+              projectId={projectId}
+              onChange={(project) =>
+                setLocationEdit({
+                  id: job.id,
+                  projectId: project?.id ?? null,
+                  directory: project?.repoRoot ?? directory,
+                })
+              }
+            >
+              <PathInput
+                id={`settings-directory-${job.id}`}
+                value={directory}
+                onChange={(directory) =>
+                  setLocationEdit({ id: job.id, projectId: null, directory })
+                }
+                placeholder="/path/to/repo"
+                history={cwdHistory}
+                removableHistory={removableCwdHistory}
+                historyMetadata={cwdHistoryMetadata}
+                onRemoveHistory={removeCwdHistory}
+              />
+            </ProjectLocation>
+          </div>
           <JobScheduleField
             id={`settings-schedule-${job.id}`}
             schedule={schedule}
@@ -237,7 +254,7 @@ export function SettingsTab({
             onEnabledChange={setEnabled}
           />
           <AgentPersonaSelect
-            cwd={job.directory}
+            cwd={directory}
             value={persona}
             onChange={setPersona}
           />
@@ -291,7 +308,7 @@ export function SettingsTab({
         <div className="mt-4 flex flex-col gap-3">
           <JobWorktreeOption
             checked={useWorktree}
-            cwd={job.directory}
+            cwd={directory}
             baseBranch={baseBranch}
             branchName={branchName}
             onCheckedChange={setUseWorktree}
@@ -385,10 +402,11 @@ export function SettingsTab({
             onClick={() => {
               setSaveError(null);
               setSaved(false);
+              const submittedLocation = locationEdit;
               void onUpdateJob({
-                name: job.name,
-                directory: job.directory,
-                displayName,
+                jobId: job.id,
+                name: displayName.trim(),
+                directory: directory.trim(),
                 ...(membershipChanged ? { projectId } : {}),
                 schedule: schedule.trim() || null,
                 timeoutMs: msFromMinutes(timeoutMinutes),
@@ -406,7 +424,10 @@ export function SettingsTab({
                 webhookEnabled,
               })
                 .then(() => {
-                  setMembershipEdit(null);
+                  setLocationEdit((current) =>
+                    current === submittedLocation ? null : current
+                  );
+                  addCwdHistory(directory.trim());
                   setSaved(true);
                 })
                 .catch((error) => {

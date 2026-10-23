@@ -334,14 +334,17 @@ describe("job access ceiling wiring", () => {
     expect(callbacks).toBeDefined();
     const input = { name: "job", directory: "/tmp" };
     await callbacks!.createJob(input);
-    await callbacks!.updateJob(input);
-    await callbacks!.runJob(input.name, input.directory);
+    await callbacks!.updateJob({ jobId: "job_1", prompt: "updated" });
+    await callbacks!.runJob("job_1");
     await callbacks!.createTemplate(input);
     await callbacks!.updateTemplate("tpl_1", input);
     expect(deps.jobService.addJob).toHaveBeenCalledWith(input, fullAccess);
-    expect(deps.jobService.updateJob).toHaveBeenCalledWith(input, fullAccess);
+    expect(deps.jobService.updateJob).toHaveBeenCalledWith(
+      { jobId: "job_1", prompt: "updated" },
+      fullAccess
+    );
     expect(deps.jobService.runJob).toHaveBeenCalledWith({
-      ...input,
+      jobId: "job_1",
       wait: false,
       callerFullAccess: fullAccess,
     });

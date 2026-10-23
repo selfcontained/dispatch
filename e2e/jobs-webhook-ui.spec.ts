@@ -76,8 +76,7 @@ test.describe("Jobs webhook UI", () => {
     const updateRes = await request.patch("/api/v1/jobs", {
       headers: HEADERS,
       data: {
-        name: "Webhook UI Test",
-        directory: jobDir,
+        jobId,
         webhookEnabled: true,
       },
     });
@@ -128,8 +127,7 @@ test.describe("Jobs webhook UI", () => {
     const updateRes = await request.patch("/api/v1/jobs", {
       headers: HEADERS,
       data: {
-        name: "Webhook UI Test",
-        directory: jobDir,
+        jobId,
         webhookEnabled: false,
       },
     });

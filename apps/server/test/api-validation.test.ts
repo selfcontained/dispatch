@@ -203,7 +203,7 @@ describe("POST /api/v1/jobs/{run,enable,disable}", () => {
     ["/api/v1/jobs/run"],
     ["/api/v1/jobs/enable"],
     ["/api/v1/jobs/disable"],
-  ])("%s requires name and directory", async (url) => {
+  ])("%s requires jobId", async (url) => {
     const res = await ctx.app.inject({
       method: "POST",
       url,
