@@ -379,8 +379,10 @@ of Sparkle's generic connection-closed error. No force-update override is added.
 
 In-process recovery bounds use awake time (`CLOCK_UPTIME_RAW` / `SuspendingClock`).
 The durable journal deadline remains a wall-clock date across reboot. While waiting
-for activation or either build's probation, the helper detects wall time elapsed
-beyond awake time, adds it to the deadline, and saves the extension. The menu's
+for activation or either build's probation, the helper measures sleep as
+continuous monotonic time (`CLOCK_MONOTONIC_RAW`) elapsed beyond awake time, adds
+it to the deadline, and saves the extension. Wall-clock corrections never extend
+the deadline. The menu's
 helper watch also tolerates sleep before it observes that extension. Reboot or
 helper downtime does not grant a new automatic probation budget.
 
