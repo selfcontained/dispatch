@@ -402,9 +402,10 @@ an artifact skips `quarantine.json`; the second for the same Sparkle signature
 quarantines it, bounding repeated attempts at a genuinely hung build. Private,
 durable `timeout-rollbacks.json` beside the quarantine receipt retains counts
 across transactions, keyed by signature, with the last transaction ID so crash
-replays cannot count twice. Evidence is saved before restoration starts; unreadable
-evidence fails closed. A different signature gets its own allowance. History pruning
-retains this receipt. Signature failures and failed readiness probation retain
+replays cannot count twice. Evidence is saved before restoration starts. Unreadable
+evidence counts as exhausted: the artifact is quarantined, the file is retained for
+inspection, and restoration still proceeds. A different signature gets its own
+allowance. History pruning retains this receipt. Signature failures and failed readiness probation retain
 normal quarantine rules; existing quarantine evidence is not removed automatically.
 
 If old-build probation fails after both app and state restoration completed,

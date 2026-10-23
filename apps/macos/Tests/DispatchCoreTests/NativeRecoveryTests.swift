@@ -79,9 +79,10 @@ final class NativeRecoveryTests: XCTestCase {
         try store.backup(&next, verifyCluster: { _, _ in })
         next.phase = .probation; next.transientFailure = true
         try Data("broken".utf8).write(to: store.directory.appendingPathComponent("timeout-rollbacks.json"))
-        XCTAssertThrowsError(try store.restore(&next, verifyCluster: { _, _ in }))
-        XCTAssertFalse(next.restoreStarted)
-        XCTAssertFalse(next.restoredApp || next.restoredState)
+        try store.restore(&next, verifyCluster: { _, _ in })
+        XCTAssertTrue(next.restoredApp && next.restoredState, "Unreadable evidence never blocks the rollback")
+        XCTAssertTrue(store.quarantined(identity: "another-signature"), "Unreadable evidence quarantines")
+        XCTAssertEqual(try Data(contentsOf: store.directory.appendingPathComponent("timeout-rollbacks.json")), Data("broken".utf8), "Evidence is retained, not rewritten")
     }
     func testRetryRejectsIncompleteRestoreWrongInstalledBuildAndDamagedBackup() throws {
         let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }

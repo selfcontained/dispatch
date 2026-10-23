@@ -388,9 +388,14 @@ extension NativeRecoveryStore {
     }
     /// The helper lease serializes transactions. Record before restoreStarted so a
     /// crash cannot lose the charge; replaying the same transaction is idempotent.
+    /// Unreadable evidence counts as exhausted: it quarantines, never blocks restore.
     private func recordTimeoutRollback(_ j: NativeRecoveryJournal) throws -> Int {
         let path = directory.appendingPathComponent("timeout-rollbacks.json")
-        var records = fm.fileExists(atPath: path.path) ? try JSONDecoder().decode([String: TimeoutRollback].self, from: Data(contentsOf: path)) : [:]
+        var records = [String: TimeoutRollback]()
+        if fm.fileExists(atPath: path.path) {
+            guard let saved = try? JSONDecoder().decode([String: TimeoutRollback].self, from: Data(contentsOf: path)) else { return 2 }
+            records = saved
+        }
         if let previous = records[j.targetIdentity], previous.transaction == j.id { return previous.count }
         let count = min(2, (records[j.targetIdentity]?.count ?? 0) + 1)
         records[j.targetIdentity] = TimeoutRollback(count: count, transaction: j.id)
