@@ -388,8 +388,11 @@ The menu prevents user-idle system sleep during recovery preparation; the helper
 holds the same IOKit assertion from activation through commit, rollback, or
 `recoveryRequired`. Assertions are released on exit and do not override forced
 sleep, lid closure, or shutdown. Background Sparkle checks are silently vetoed
-while the display is asleep, including maintenance DarkWake. A veto queues one
-background check after a display/system wake; paired wake notifications do not
+only during a maintenance DarkWake, when `IOPMrootDomain` reports CPU without
+graphics capability in `System Capabilities`. A fully awake Mac whose display is
+asleep (for example an always-on Mac in clamshell mode) keeps graphics capability
+and updates normally; unknown capabilities never hold an update. A veto queues
+one background check after the next full wake; paired wake notifications do not
 create duplicate checks. User checks and remote installations keep their existing
 behavior. This does not change the scheduled check interval.
 

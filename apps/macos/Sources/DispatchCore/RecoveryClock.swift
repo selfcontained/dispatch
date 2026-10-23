@@ -31,3 +31,20 @@ public final class RecoverySleepAssertion {
     }
     deinit { if held { IOPMAssertionRelease(id) } }
 }
+
+/// A maintenance DarkWake runs the CPU without graphics. Display sleep on an otherwise
+/// awake Mac (clamshell, always-on) keeps graphics capability, so it is not a DarkWake.
+public enum SystemPower {
+    static let cpu = 0x01, graphics = 0x02
+    public static func capabilities() -> Int? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("IOPMrootDomain"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        return (IORegistryEntryCreateCFProperty(service, "System Capabilities" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? NSNumber)?.intValue
+    }
+    /// Unknown capabilities never hold an update.
+    public static func inDarkWake(_ capabilities: Int? = capabilities()) -> Bool {
+        guard let capabilities else { return false }
+        return capabilities & cpu != 0 && capabilities & graphics == 0
+    }
+}

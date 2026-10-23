@@ -1,6 +1,5 @@
 #if SPARKLE_UPDATES
 import AppKit
-import CoreGraphics
 import Darwin
 import DispatchCore
 import ServiceManagement
@@ -20,7 +19,6 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     private var started = false
     private var wakeObservers = [NSObjectProtocol]()
     private var wakeCheckPending = false
-    private var displayAsleep = CGDisplayIsAsleep(CGMainDisplayID()) != 0
     static func isSleepVeto(_ error: Error?) -> Bool {
         var next = error as NSError?
         for _ in 0..<8 {
@@ -31,7 +29,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         return false
     }
     private func checkAfterWake() {
-        guard wakeCheckPending, !displayAsleep, updater?.canCheckForUpdates == true, !controlsLocked, !needsRecovery else { return }
+        guard wakeCheckPending, !SystemPower.inDarkWake(), updater?.canCheckForUpdates == true, !controlsLocked, !needsRecovery else { return }
         wakeCheckPending = false
         if deferredNote != nil { retryDeferredInstall() } else { updater.checkForUpdatesInBackground() }
     }
@@ -82,15 +80,10 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         self.service = service; self.root = root; self.build = build
         super.init()
         let center = NSWorkspace.shared.notificationCenter
-        wakeObservers.append(center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.displayAsleep = true }
-        })
         for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
             wakeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    guard let self else { return }
-                    self.displayAsleep = CGDisplayIsAsleep(CGMainDisplayID()) != 0
-                    self.checkAfterWake()
+                    self?.checkAfterWake()
                 }
             })
         }
@@ -675,9 +668,9 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     func allowedChannels(for updater: SPUUpdater) -> Set<String> { UpdateChannel.current().sparkleChannels }
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
         if updateCheck == .updatesInBackground, !checking, !installing,
-           displayAsleep || CGDisplayIsAsleep(CGMainDisplayID()) != 0 {
+           SystemPower.inDarkWake() {
             wakeCheckPending = true
-            throw NSError(domain: "DispatchUpdateSleep", code: 1, userInfo: [NSLocalizedDescriptionKey: "Background updates wait for the display to wake."])
+            throw NSError(domain: "DispatchUpdateSleep", code: 1, userInfo: [NSLocalizedDescriptionKey: "Background updates wait for a full wake."])
         }
         userDriver.beginUpdateCycle()
         if controlsLocked || needsRecovery { throw ConfigurationError("Finish update recovery before checking for another update.") }

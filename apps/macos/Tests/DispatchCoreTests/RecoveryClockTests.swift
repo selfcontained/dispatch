@@ -70,4 +70,14 @@ final class RecoveryClockTests: XCTestCase {
         try await RecoveryProtocol.awaitReadiness(deadline: start.addingTimeInterval(180), workerRunning: { true }, menuReady: { wall > 0 }, serverReady: { true }, now: { start.addingTimeInterval(wall) }, continuous: { wall }, awake: { awake }, rearmed: { saved = $0 }, wait: { wall = 3601; awake = 1 })
         XCTAssertEqual(saved, start.addingTimeInterval(3780))
     }
+    func testOnlyDarkWakeHoldsBackgroundUpdates() {
+        XCTAssertFalse(SystemPower.inDarkWake(15), "Full wake, including a sleeping display in clamshell mode")
+        XCTAssertFalse(SystemPower.inDarkWake(0x03))
+        XCTAssertTrue(SystemPower.inDarkWake(0x09), "Maintenance DarkWake: CPU and network without graphics")
+        XCTAssertTrue(SystemPower.inDarkWake(0x01))
+        XCTAssertFalse(SystemPower.inDarkWake(nil), "Unknown capabilities never hold an update")
+        XCTAssertFalse(SystemPower.inDarkWake(0))
+        XCTAssertNotNil(SystemPower.capabilities())
+        XCTAssertFalse(SystemPower.inDarkWake(), "The test host is fully awake")
+    }
 }
