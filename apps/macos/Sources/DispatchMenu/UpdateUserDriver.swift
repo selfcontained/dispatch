@@ -199,7 +199,7 @@ final class UpdateUserDriver: SPUStandardUserDriver {
         }
     }
     override func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
-        if busyDeferral != nil { acknowledgement(); return }
+        if AppUpdater.isSleepVeto(error) || busyDeferral != nil { acknowledgement(); return }
         if handleHandoffError(error.localizedDescription) { acknowledgement() }
         else { super.showUpdaterError(error, acknowledgement: acknowledgement) }
     }

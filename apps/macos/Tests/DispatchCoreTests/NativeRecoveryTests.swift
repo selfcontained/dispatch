@@ -21,6 +21,41 @@ final class NativeRecoveryTests: XCTestCase {
         let journal = NativeRecoveryJournal(instanceID: config.instanceID, appPath: app.path, oldBuild: "1", targetBuild: "2", targetIdentity: "signed-artifact-2", wasRunning: true)
         return (base, store, journal)
     }
+    func testTimeoutRestoreDoesNotQuarantineAndCompletedRollbackCanRetry() throws {
+        let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
+        var journal = initial
+        try store.backup(&journal, verifyCluster: { _, _ in })
+        journal.phase = .probation; journal.transientFailure = true
+        journal.error = RecoveryCommandTimeout(tool: "codesign").localizedDescription
+        try store.restore(&journal, verifyCluster: { _, _ in })
+        XCTAssertFalse(store.quarantined(identity: journal.targetIdentity))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.directory.appendingPathComponent("quarantine.json").path))
+        journal.phase = .recoveryRequired; journal.rollbackProbationStarted = true
+        journal.error = "Old readiness failed"; try store.save(journal)
+        let before = journal
+        let now = Date(timeIntervalSince1970: 1000)
+        try store.retryRollbackProbation(&journal, now: now)
+        XCTAssertEqual(journal.phase, .restoring); XCTAssertFalse(journal.rollbackProbationStarted)
+        XCTAssertNil(journal.error); XCTAssertEqual(journal.deadline, now.addingTimeInterval(180))
+        XCTAssertEqual(journal.id, before.id); XCTAssertEqual(journal.nonce, before.nonce)
+        XCTAssertTrue(journal.restoreStarted && journal.restoredApp && journal.restoredState)
+        XCTAssertEqual(try store.read(), journal)
+    }
+    func testRetryRejectsIncompleteRestoreWrongInstalledBuildAndDamagedBackup() throws {
+        let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
+        var journal = initial; try store.backup(&journal, verifyCluster: { _, _ in })
+        journal.phase = .recoveryRequired; journal.restoreStarted = true; journal.restoredApp = true
+        try store.save(journal)
+        XCTAssertThrowsError(try store.retryRollbackProbation(&journal))
+        journal.restoredState = true; journal.oldBuild = "different"
+        try store.save(journal)
+        XCTAssertThrowsError(try store.retryRollbackProbation(&journal))
+        journal.oldBuild = "1"
+        try Data("damaged".utf8).write(to: store.transaction(journal).appendingPathComponent("state/session"))
+        try store.save(journal)
+        XCTAssertThrowsError(try store.retryRollbackProbation(&journal))
+        XCTAssertEqual(try store.read(), journal); XCTAssertEqual(journal.phase, .recoveryRequired)
+    }
     func testVerifiedSnapshotRestoresAppAndStatePreservingFailedCopiesExactlyOnce() throws {
         let (base, store, initial) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
         var journal = initial; try store.save(journal)
@@ -709,16 +744,16 @@ final class NativeRecoveryTests: XCTestCase {
         var watch = HelperWatch()
         let start = Date(timeIntervalSince1970: 1000)
         let deadline = start.addingTimeInterval(3600)
-        XCTAssertEqual(watch.decide(now: start, deadline: deadline, helperAlive: false), .kickstart)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(1), deadline: deadline, helperAlive: false), .wait)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(10), deadline: deadline, helperAlive: false), .kickstart)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(20), deadline: deadline, helperAlive: false), .kickstart)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(30), deadline: deadline, helperAlive: false), .wait)
+        XCTAssertEqual(watch.decide(now: start, deadline: deadline, helperAlive: false, awake: 0), .kickstart)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(1), deadline: deadline, helperAlive: false, awake: 1), .wait)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(10), deadline: deadline, helperAlive: false, awake: 10), .kickstart)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(20), deadline: deadline, helperAlive: false, awake: 20), .kickstart)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(30), deadline: deadline, helperAlive: false, awake: 30), .wait)
         XCTAssertEqual(watch.kickstarts, HelperWatch.maxKickstarts)
-        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(51), deadline: deadline, helperAlive: false), .fail)
+        XCTAssertEqual(watch.decide(now: start.addingTimeInterval(51), deadline: deadline, helperAlive: false, awake: 51), .fail)
         var alive = HelperWatch()
-        XCTAssertEqual(alive.decide(now: deadline, deadline: deadline, helperAlive: true), .wait)
-        XCTAssertEqual(alive.decide(now: deadline.addingTimeInterval(HelperWatch.grace), deadline: deadline, helperAlive: true), .fail, "A live but overdue helper is still bounded")
+        XCTAssertEqual(alive.decide(now: deadline, deadline: deadline, helperAlive: true, awake: 0), .wait)
+        XCTAssertEqual(alive.decide(now: deadline.addingTimeInterval(HelperWatch.grace), deadline: deadline, helperAlive: true, awake: HelperWatch.grace), .fail, "A live but overdue helper is still bounded")
         XCTAssertEqual(alive.kickstarts, 0)
     }
     func testHelperLeaseProbeDetectsLiveHelper() throws {

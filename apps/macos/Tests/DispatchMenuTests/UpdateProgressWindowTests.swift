@@ -49,6 +49,19 @@ final class UpdateProgressWindowTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(controller.window).isVisible)
     }
     #if SPARKLE_UPDATES
+    @MainActor func testDisplaySleepVetoAcknowledgesWithoutShowingAnError() {
+        _ = NSApplication.shared
+        let driver = UpdateUserDriver(hostBundle: .main, delegate: nil)
+        let veto = NSError(domain: "DispatchUpdateSleep", code: 1)
+        let wrapped = NSError(domain: SUSparkleErrorDomain, code: 1000, userInfo: [NSUnderlyingErrorKey: veto])
+        XCTAssertTrue(AppUpdater.isSleepVeto(veto)); XCTAssertTrue(AppUpdater.isSleepVeto(wrapped))
+        XCTAssertFalse(AppUpdater.isSleepVeto(NSError(domain: "test", code: 1)))
+        let visible = NSApp.windows.filter(\.isVisible).count
+        var acknowledged = false
+        driver.showUpdaterError(wrapped) { acknowledged = true }
+        XCTAssertTrue(acknowledged); XCTAssertNil(driver.progress)
+        XCTAssertEqual(NSApp.windows.filter(\.isVisible).count, visible)
+    }
     @MainActor func testSparkleInstallClickImmediatelyReplacesPromptAndRepliesOnce() throws {
         _ = NSApplication.shared
         let driver = UpdateUserDriver(hostBundle: .main, delegate: nil)

@@ -31,8 +31,8 @@ public struct RecoveryProcess: Codable {
         guard transactionId == transaction.id, executable == expectedExecutable.path else { throw ConfigurationError("Recovery process identity does not match this installation.") }
         guard matches else { return }
         guard kill(pid, SIGTERM) == 0 else { throw ConfigurationError("Cannot stop the recovery process.") }
-        let deadline = Date(timeIntervalSinceNow: 55)
-        while matches && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+        let deadline = RecoveryClock.awake() + 55
+        while matches && RecoveryClock.awake() < deadline { Thread.sleep(forTimeInterval: 0.1) }
         guard !matches else { throw ConfigurationError("The recovery process did not stop; automatic restoration is blocked.") }
     }
 }

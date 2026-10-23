@@ -9,7 +9,7 @@ final class RecoveryReadinessTests: XCTestCase {
         var sleeps = 0
         try await RecoveryProtocol.awaitReadiness(
             deadline: start.addingTimeInterval(180), workerRunning: { true }, menuReady: { true },
-            serverReady: { polls += 1; return true }, now: { start }, wait: { sleeps += 1 })
+            serverReady: { polls += 1; return true }, now: { start }, awake: { 0 }, wait: { sleeps += 1 })
         XCTAssertEqual(polls, 1)
         XCTAssertEqual(sleeps, 0)
     }
@@ -21,7 +21,7 @@ final class RecoveryReadinessTests: XCTestCase {
         try await RecoveryProtocol.awaitReadiness(
             deadline: start.addingTimeInterval(180), workerRunning: { true }, menuReady: { elapsed >= 2 },
             serverReady: { serverPolls += 1; return elapsed >= 3 },
-            now: { start.addingTimeInterval(elapsed) }, wait: { elapsed += 1 })
+            now: { start.addingTimeInterval(elapsed) }, awake: { elapsed }, wait: { elapsed += 1 })
         XCTAssertEqual(elapsed, 3)
         XCTAssertEqual(serverPolls, 2)
     }
@@ -42,7 +42,7 @@ final class RecoveryReadinessTests: XCTestCase {
         do {
             try await RecoveryProtocol.awaitReadiness(
                 deadline: start.addingTimeInterval(3), workerRunning: { true }, menuReady: { true },
-                serverReady: { now = start.addingTimeInterval(4); return true }, now: { now },
+                serverReady: { now = start.addingTimeInterval(4); return true }, now: { now }, awake: { now.timeIntervalSince(start) },
                 wait: { XCTFail("Deadline already expired") })
             XCTFail("Late readiness must not commit")
         } catch { XCTAssertTrue(error.localizedDescription.contains("failed write-fenced readiness")) }
@@ -59,7 +59,7 @@ final class RecoveryReadinessTests: XCTestCase {
                     serverReady: {
                         if menuExitsDuringProof { menuAlive = false; return true }
                         return false
-                    }, now: { start.addingTimeInterval(elapsed) }, wait: { elapsed += 1 })
+                    }, now: { start.addingTimeInterval(elapsed) }, awake: { elapsed }, wait: { elapsed += 1 })
                 XCTFail("Missing readiness must not commit")
             } catch { XCTAssertTrue(error.localizedDescription.contains("failed write-fenced readiness")) }
             XCTAssertEqual(elapsed, 3)
