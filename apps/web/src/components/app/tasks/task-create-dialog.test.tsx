@@ -146,3 +146,41 @@ it("keeps the form open with the error when creating fails", async () => {
   expect(onCreated).not.toHaveBeenCalled();
   expect(onOpenChange).not.toHaveBeenCalledWith(false);
 });
+
+it("retries only the assignment when it fails after creating", async () => {
+  update.mockRejectedValueOnce(new Error("Agent is archived"));
+  const { onCreated, onOpenChange } = renderDialog();
+  const title = screen.getByLabelText("Title");
+  fireEvent.change(title, { target: { value: "Assign me" } });
+  pick("Assignee", /builder/);
+  fireEvent.submit(title.closest("form")!);
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Task created; assigning failed — retry."
+  );
+  expect(onCreated).not.toHaveBeenCalled();
+  const retry = screen.getByRole("button", { name: "Retry assignment" });
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(onCreated).toHaveBeenCalledWith({ id: "tsk_new" })
+  );
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(update).toHaveBeenCalledTimes(2);
+  expect(update).toHaveBeenLastCalledWith({
+    id: "tsk_new",
+    assignedAgentId: "a1",
+  });
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+it("lands on the created task when closed after a failed assignment", async () => {
+  update.mockRejectedValueOnce(new Error("Agent is archived"));
+  const { onCreated } = renderDialog();
+  const title = screen.getByLabelText("Title");
+  fireEvent.change(title, { target: { value: "Assign me" } });
+  pick("Assignee", /builder/);
+  fireEvent.submit(title.closest("form")!);
+  await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(onCreated).toHaveBeenCalledWith({ id: "tsk_new" });
+  expect(create).toHaveBeenCalledTimes(1);
+});

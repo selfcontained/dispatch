@@ -59,6 +59,8 @@ export function TaskCreateDialog({
   const [assignee, setAssignee] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Created, but the assignment after it failed: retrying only assigns.
+  const [created, setCreated] = useState<Task | null>(null);
   useEffect(() => {
     if (!open) return;
     setTitle("");
@@ -66,6 +68,7 @@ export function TaskCreateDialog({
     setColumn(columnId ?? columns[0]?.id ?? "");
     setAssignee(null);
     setError(null);
+    setCreated(null);
     // Only on opening: a board refetch must not reset the form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, columnId]);
@@ -74,29 +77,45 @@ export function TaskCreateDialog({
     if (!canSave) return;
     setSaving(true);
     setError(null);
+    const message = (err: unknown) =>
+      err instanceof Error ? err.message : String(err);
+    let task = created;
     try {
-      const task = await actions.create.mutateAsync({
+      task ??= await actions.create.mutateAsync({
         projectId,
         title: title.trim(),
         ...(body.trim() ? { body } : {}),
         ...(column ? { columnId: column } : {}),
       });
+    } catch (err) {
+      setError(message(err));
+      setSaving(false);
+      return;
+    }
+    try {
       // Creating takes no assignee: set it on the new task.
       if (assignee)
         await actions.update.mutateAsync({
           id: task.id,
           assignedAgentId: assignee,
         });
-      onOpenChange(false);
-      onCreated(task);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
+      setCreated(task);
+      setError(`Task created; assigning failed — retry. ${message(err)}`);
       setSaving(false);
+      return;
     }
+    setSaving(false);
+    onOpenChange(false);
+    onCreated(task);
+  };
+  // Closing after a failed assignment still lands on the task it created.
+  const changeOpen = (next: boolean) => {
+    onOpenChange(next);
+    if (!next && created) onCreated(created);
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent
         data-testid="task-create-dialog"
         className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-[max(1rem,env(safe-area-inset-top))]`}
@@ -196,12 +215,16 @@ export function TaskCreateDialog({
             <Button
               type="button"
               variant="ghost"
-              onClick={() => onOpenChange(false)}
+              onClick={() => changeOpen(false)}
             >
               Cancel
             </Button>
             <Button type="submit" disabled={!canSave}>
-              {saving ? "Creating…" : "Create task"}
+              {saving
+                ? "Creating…"
+                : created
+                  ? "Retry assignment"
+                  : "Create task"}
             </Button>
           </div>
         </form>

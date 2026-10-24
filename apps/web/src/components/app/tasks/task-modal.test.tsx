@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
@@ -12,13 +13,25 @@ import { AssignedTaskChip } from "@/components/app/agent-pane";
 import { TaskModal } from "./task-modal";
 
 const task = { id: "tsk_1", projectId: "p1", title: "Build the board" };
+const failing = vi.hoisted(() => ({
+  task: null as Error | null,
+  board: null as Error | null,
+  refetch: vi.fn(),
+}));
 vi.mock("@/hooks/use-tasks", () => ({
   useAssignedTasks: () => ({ data: [task] }),
-  useTaskDetail: (id: string | null) => ({ data: id ? task : undefined }),
+  useTaskDetail: (id: string | null) => ({
+    data: id && !failing.task ? task : undefined,
+    error: id ? failing.task : null,
+    refetch: failing.refetch,
+  }),
   useTaskBoard: (projectId: string | null) => ({
-    data: projectId
-      ? { projectId, columns: [], tasks: [{ ...task, position: 0 }] }
-      : undefined,
+    data:
+      projectId && !failing.board
+        ? { projectId, columns: [], tasks: [{ ...task, position: 0 }] }
+        : undefined,
+    error: projectId ? failing.board : null,
+    refetch: failing.refetch,
   }),
   useTaskActions: () => ({ update: { mutateAsync: vi.fn() } }),
 }));
@@ -37,12 +50,36 @@ vi.mock("./task-drawer", () => ({
       {id}
       {headerAction}
       <button onClick={close}>Close task</button>
+      <Preview />
     </div>
   ),
 }));
+// Stands in for FileLightbox: it closes on Escape from a window listener,
+// after Radix's document-capture listener has already seen the key.
+function Preview() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+  return open ? (
+    <div data-testid="file-lightbox" role="dialog" aria-label="File viewer" />
+  ) : (
+    <button onClick={() => setOpen(true)}>Preview</button>
+  );
+}
 vi.mock("@/components/app/chat/chat-pane", () => ({ ChatPane: () => null }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  failing.task = null;
+  failing.board = null;
+  failing.refetch.mockClear();
+});
 
 function Where() {
   const location = useLocation();
@@ -120,4 +157,40 @@ it("links through to the task on the Tasks surface", () => {
   renderStream("/agents/a1?task=tsk_1");
   fireEvent.click(screen.getByRole("link", { name: /Open in Tasks/ }));
   expect(where()).toBe("/tasks?task=tsk_1&project=p1");
+});
+
+it("keeps a way out when the task fails to load", () => {
+  failing.task = new Error("Task not found");
+  renderStream("/agents/a1?task=tsk_gone");
+  expect(screen.getByRole("alert").textContent).toContain("Task not found");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(failing.refetch).toHaveBeenCalled();
+  fireEvent.click(screen.getAllByRole("button", { name: "Close task" })[0]);
+  expect(where()).toBe("/agents/a1");
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("shows the board's failure instead of loading forever, and closes", () => {
+  failing.board = new Error("Board unavailable");
+  renderStream("/agents/a1?task=tsk_1");
+  expect(screen.getByRole("alert").textContent).toContain("Board unavailable");
+  expect(screen.queryByText("Loading task…")).toBeNull();
+  expect(
+    screen.getByRole("link", { name: /Open in Tasks/ }).getAttribute("href")
+  ).toBe("/tasks?task=tsk_1&project=p1");
+  fireEvent.click(screen.getAllByRole("button", { name: "Close task" })[0]);
+  expect(where()).toBe("/agents/a1");
+});
+
+it("closes an attachment preview on Escape, not the task", () => {
+  renderStream("/agents/a1?task=tsk_1");
+  const panel = screen.getByTestId("task-panel");
+  fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+  fireEvent.keyDown(screen.getByTestId("file-lightbox"), { key: "Escape" });
+  expect(screen.queryByTestId("file-lightbox")).toBeNull();
+  expect(where()).toBe("/agents/a1?task=tsk_1");
+  expect(screen.getByTestId("task-panel")).toBe(panel);
+  // With the preview gone, Escape closes the task again.
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  expect(where()).toBe("/agents/a1");
 });

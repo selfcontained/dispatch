@@ -1,11 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   Link,
   useLocation,
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useTaskBoard, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import {
@@ -32,9 +33,12 @@ export function TaskModal({
 }) {
   const [params, setParams] = useSearchParams();
   const id = params.get("task");
-  const { data: task, error } = useTaskDetail(id);
+  const taskQuery = useTaskDetail(id);
+  const task = taskQuery.data;
   const projectId = task?.projectId ?? null;
-  const { data: board } = useTaskBoard(projectId);
+  const boardQuery = useTaskBoard(projectId);
+  const board = boardQuery.data;
+  const contentRef = useRef<HTMLDivElement>(null);
   const columns = useMemo(() => (board ? orderedColumns(board) : []), [board]);
   const { moveTask, dialog } = useMoveTask(projectId ?? "", board);
   const location = useLocation();
@@ -50,6 +54,21 @@ export function TaskModal({
     else updated.delete("task");
     setParams(updated, { replace: true, state: location.state });
   };
+  const close = () => setTask(null);
+  const loadError = taskQuery.error
+    ? `Could not load the task: ${taskQuery.error.message}`
+    : boardQuery.error
+      ? `Could not load the task's board: ${boardQuery.error.message}`
+      : null;
+  const openInTasks = id ? (
+    <Link
+      to={`/tasks?task=${encodeURIComponent(id)}${projectId ? `&project=${encodeURIComponent(projectId)}` : ""}`}
+      className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-muted"
+    >
+      Open in Tasks
+      <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+    </Link>
+  ) : null;
   return (
     <>
       <Dialog
@@ -59,7 +78,16 @@ export function TaskModal({
         }}
       >
         <DialogContent
+          ref={contentRef}
           data-testid="task-modal"
+          // An attachment preview inside the conversation closes on Escape
+          // itself; Radix sees the key first and would close the task.
+          onEscapeKeyDown={(event) => {
+            if (
+              contentRef.current?.querySelector('[data-testid="file-lightbox"]')
+            )
+              event.preventDefault();
+          }}
           className={`h-[min(860px,calc(100dvh-4rem))] max-h-none gap-0 bg-background p-0 md:w-[min(720px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET}`}
         >
           <DialogTitle className="sr-only">{task?.title ?? "Task"}</DialogTitle>
@@ -73,26 +101,64 @@ export function TaskModal({
               columns={columns}
               boardTasks={board.tasks}
               agents={agents}
-              close={() => setTask(null)}
+              close={close}
               openTask={setTask}
               moveTask={moveTask}
               isMobile={isMobile}
-              headerAction={
-                <Link
-                  to={`/tasks?task=${encodeURIComponent(id)}&project=${encodeURIComponent(projectId)}`}
-                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-muted"
-                >
-                  Open in Tasks
-                  <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-                </Link>
-              }
+              headerAction={openInTasks}
             />
-          ) : error ? (
-            <p className="p-5 text-sm text-destructive">
-              Could not load the task: {error.message}
-            </p>
           ) : (
-            <p className="p-5 text-sm text-muted-foreground">Loading task…</p>
+            <>
+              {/* The panel's header waits on both queries; until then this
+                  one keeps a way out, which a phone has no overlay for. */}
+              <header className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-card/60 px-2 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] text-xs text-muted-foreground">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={close}
+                  aria-label="Close task"
+                  className="md:hidden"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <span className="min-w-0 flex-1 truncate px-1 font-mono">
+                  {id}
+                </span>
+                {openInTasks}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={close}
+                  aria-label="Close task"
+                  className="hidden md:inline-flex"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </header>
+              {loadError ? (
+                <div
+                  role="alert"
+                  className="flex items-center justify-between gap-3 p-5 text-sm text-destructive"
+                >
+                  <span className="min-w-0">{loadError}</span>
+                  <Button
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => {
+                      void (taskQuery.error
+                        ? taskQuery.refetch()
+                        : boardQuery.refetch());
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <p className="p-5 text-sm text-muted-foreground">
+                  Loading task…
+                </p>
+              )}
+            </>
           )}
         </DialogContent>
       </Dialog>
