@@ -289,6 +289,7 @@ export function TaskDetailPanel({
                 onChange={(assignedAgentId) =>
                   void actions.update.mutateAsync({ id, assignedAgentId })
                 }
+                onNew={() => setLaunchOpen(true)}
                 className={PROPERTY_CONTROL}
               />
               <span className="text-xs text-muted-foreground">Created</span>
@@ -539,9 +540,6 @@ export function TaskDetailPanel({
       )}
       {task && (
         <footer className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <Button size="sm" onClick={() => setLaunchOpen(true)}>
-            Launch agent…
-          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -558,7 +556,7 @@ export function TaskDetailPanel({
       <Dialog open={launchOpen} onOpenChange={setLaunchOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Launch agent for task</DialogTitle>
+            <DialogTitle>New agent for this task</DialogTitle>
           </DialogHeader>
           <Select value={templateId} onValueChange={setTemplateId}>
             <SelectTrigger aria-label="Launch template">
@@ -602,7 +600,7 @@ export function TaskDetailPanel({
                 .then(() => setLaunchOpen(false));
             }}
           >
-            Launch
+            Launch and assign
           </Button>
         </DialogContent>
       </Dialog>
