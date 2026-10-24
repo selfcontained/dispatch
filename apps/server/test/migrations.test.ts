@@ -73,45 +73,13 @@ describe("block_reactions uniqueness migration", () => {
   });
 });
 
-/** Rewinds 0023–0024, which depend on projects and agents, so older eras can replay. */
+/** Rewinds 0023, which depends on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
   await pool.query(
     "DROP TABLE IF EXISTS task_events, task_agents, tasks, task_columns"
   );
-  await pool.query(
-    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_stream')"
-  );
+  await pool.query("DELETE FROM pgmigrations WHERE name = '0023_tasks'");
 }
-
-async function taskAgentColumns(): Promise<string[]> {
-  const { rows } = await pool.query<{ column_name: string }>(
-    `SELECT column_name FROM information_schema.columns
-      WHERE table_schema = current_schema() AND table_name = 'task_agents'`
-  );
-  return rows.map((row) => row.column_name);
-}
-
-describe("task stream migration", () => {
-  it("drops task_agents.conversation on a database that had 0023", async () => {
-    // Just after 0023, whatever earlier tests left: the column is there
-    // and 0024 has not run.
-    await pool.query(
-      "ALTER TABLE task_agents ADD COLUMN IF NOT EXISTS conversation jsonb"
-    );
-    await pool.query(
-      "DELETE FROM pgmigrations WHERE name = '0024_task_stream'"
-    );
-    expect(await taskAgentColumns()).toContain("conversation");
-    await runTestMigrations();
-    const columns = await taskAgentColumns();
-    expect(columns).toContain("agent_id");
-    expect(columns).not.toContain("conversation");
-    const applied = await pool.query(
-      "SELECT 1 FROM pgmigrations WHERE name = '0024_task_stream'"
-    );
-    expect(applied.rows).toHaveLength(1);
-  });
-});
 
 describe("Project upgrade ordering", () => {
   it("upgrades an existing persona-era database", async () => {

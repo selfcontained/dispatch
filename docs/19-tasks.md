@@ -44,7 +44,7 @@ Only `templateId` is required when setting one; the rest default as shown. The t
 
 ## Conversation
 
-A task is a **stream root**: its conversation is the blocks with `stream_id = <task id>`, served by the ordinary stream routes (`GET/POST /api/v1/streams/<taskId>/blocks`, `…/blocks/:blockId/thread`, `…/read`). Unread and open-input counts per task come back under `tasks` in `GET /api/v1/chat/unread`; `stream.changed` / `stream.entry` events carry the task id as `agentId`. Migration `0024_task_stream` dropped the old per-agent `task_agents.conversation` pointer.
+A task is a **stream root**: its conversation is the blocks with `stream_id = <task id>`, served by the ordinary stream routes (`GET/POST /api/v1/streams/<taskId>/blocks`, `…/blocks/:blockId/thread`, `…/read`). Unread and open-input counts per task come back under `tasks` in `GET /api/v1/chat/unread`; `stream.changed` / `stream.entry` events carry the task id as `agentId`.
 
 - **Assignment** posts a user block into the task's stream addressed to the new agent and delivers it as its prompt: "You're assigned to task tsk\_… — <title>. This stream is the task's conversation; reply here." A launch briefing also names the task's stream. If the post fails, the assignment stands.
 - **People** posting at the top of the task's stream reach the current assignee by default (400 "assign an agent first" when there is none), or the agents they `@mention` — the task's agents first, then running top-level agents. A thread reply follows the usual thread sides.

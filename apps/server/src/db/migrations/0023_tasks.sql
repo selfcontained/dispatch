@@ -42,14 +42,14 @@ CREATE INDEX IF NOT EXISTS tasks_project_column_idx
 CREATE INDEX IF NOT EXISTS tasks_assigned_idx
   ON tasks(assigned_agent_id) WHERE assigned_agent_id IS NOT NULL;
 
--- Every agent that has been assigned to a task, with where its
--- conversation about the task lives ({streamId, blockId} or NULL).
+-- Every agent that has been assigned to a task. The task's conversation
+-- is its own stream (blocks with stream_id = the task id), so nothing
+-- here points into an agent's stream.
 CREATE TABLE IF NOT EXISTS task_agents (
   task_id text NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   agent_id text NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   role text NOT NULL CHECK (role IN ('trigger', 'manual', 'self')),
   column_id text REFERENCES task_columns(id) ON DELETE SET NULL,
-  conversation jsonb,
   assigned_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (task_id, agent_id)
 );
