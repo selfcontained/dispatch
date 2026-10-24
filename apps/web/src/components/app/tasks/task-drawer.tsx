@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
 import { X, ChevronLeft, ChevronRight, ExternalLink, Plus } from "lucide-react";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions, useTaskDetail } from "@/hooks/use-tasks";
@@ -8,6 +7,7 @@ import type { Agent } from "@/components/app/types";
 import { useTemplates } from "@/hooks/use-templates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Markdown } from "@/components/ui/markdown";
 import {
   Dialog,
   DialogContent,
@@ -301,11 +301,11 @@ export function TaskDrawer({
               />
             ) : (
               <button
-                className="prose prose-sm min-h-16 w-full max-w-none rounded border border-transparent p-2 text-left text-foreground hover:border-border"
+                className="min-h-16 w-full rounded border border-transparent p-2 text-left text-sm text-foreground hover:border-border"
                 onClick={() => setEditingBody(true)}
               >
                 {task.body ? (
-                  <ReactMarkdown>{task.body}</ReactMarkdown>
+                  <Markdown headingAccents>{task.body}</Markdown>
                 ) : (
                   <span className="text-muted-foreground">
                     Add a deliverable and acceptance criteria…
@@ -384,7 +384,7 @@ export function TaskDrawer({
             value={task.columnId}
             onValueChange={(value) => moveTask(task, value)}
           >
-            <SelectTrigger aria-label="Move to" className="w-32">
+            <SelectTrigger aria-label="Move to" className="w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
