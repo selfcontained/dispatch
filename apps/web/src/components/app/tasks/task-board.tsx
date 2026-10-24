@@ -98,6 +98,7 @@ function BoardColumn({
   projectId,
   dropTarget,
   automationName,
+  hidden,
 }: {
   column: TaskColumn;
   columns: TaskColumn[];
@@ -111,12 +112,15 @@ function BoardColumn({
   dropTarget: boolean;
   /** The template its automation launches, when it has one. */
   automationName: string | null;
+  /** Filtered out: collapsed to nothing, so the kept column slides over. */
+  hidden: boolean;
 }) {
   const actions = useTaskActions(projectId);
   const [automation, setAutomation] = useState(false);
   const drop = useDroppable({
     id: `${COLUMN_PREFIX}${column.id}`,
     data: { columnId: column.id },
+    disabled: hidden,
   });
   const columnTasks = tasksInColumn(tasks, column.id);
   const index = columns.findIndex((item) => item.id === column.id);
@@ -130,9 +134,16 @@ function BoardColumn({
       data-testid={`task-column-${column.key}`}
       data-column-id={column.id}
       data-drop-target={dropTarget ? "true" : undefined}
+      aria-hidden={hidden || undefined}
+      // Stays mounted so it can fade and fold; inert keeps it out of the
+      // tab order meanwhile.
+      {...({ inert: hidden ? "" : undefined } as object)}
       style={{ "--col": columnAccent(column, index) } as React.CSSProperties}
       className={cn(
-        "flex h-full w-[min(300px,calc(100vw-3rem))] shrink-0 snap-start flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40 transition-shadow",
+        "flex h-full shrink-0 snap-start flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40 transition-[width,opacity,margin,box-shadow] duration-300 ease-out motion-reduce:transition-none",
+        hidden
+          ? "pointer-events-none -ml-3 w-0 opacity-0 ring-0"
+          : "w-[min(300px,calc(100vw-3rem))]",
         dropTarget && "ring-2 ring-[hsl(var(--col)/0.6)]"
       )}
     >
@@ -279,6 +290,7 @@ export function TaskBoard({
   openTask,
   moveTask,
   addTask,
+  onlyColumnId = null,
 }: {
   board: TaskBoardData;
   tasks: Task[];
@@ -287,6 +299,8 @@ export function TaskBoard({
   moveTask: (task: Task, columnId: string, beforeId?: string) => void;
   /** Opens the create form on this column. */
   addTask: (columnId: string) => void;
+  /** Show this column alone; the rest fold away. */
+  onlyColumnId?: string | null;
 }) {
   const columns = orderedColumns(board);
   // A finger drags only after a long press on the grip, so a swipe still
@@ -370,6 +384,7 @@ export function TaskBoard({
             addTask={addTask}
             projectId={board.projectId}
             dropTarget={overColumnId === column.id}
+            hidden={Boolean(onlyColumnId) && onlyColumnId !== column.id}
             automationName={
               column.trigger
                 ? templateName(templates, column.trigger.templateId)

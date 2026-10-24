@@ -20,19 +20,24 @@ export function TaskList({
   agents,
   openTask,
   moveTask,
+  onlyColumnId = null,
 }: {
   board: TaskBoard;
   tasks: Task[];
   agents: Agent[];
   openTask: (id: string) => void;
   moveTask: (task: Task, columnId: string) => void;
+  /** Show this column's group alone. */
+  onlyColumnId?: string | null;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const { data: templates } = useTemplates();
   const [sort, setSort] = useState<
     "position" | "age" | "assignee" | "activity"
   >("position");
-  const grouped = groupTasks(tasks, board.columns);
+  const grouped = groupTasks(tasks, board.columns).filter(
+    ({ column }) => !onlyColumnId || column.id === onlyColumnId
+  );
   const sortTasks = (items: Task[]) =>
     [...items].sort((a, b) =>
       sort === "age"

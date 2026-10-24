@@ -164,6 +164,23 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       scale: "device",
     });
     await page.getByRole("button", { name: "Board layout" }).click();
+    // A sidebar column is a filter: the others fold away; again clears it.
+    await page.getByTestId("task-nav-column-ready").click();
+    await expect(page).toHaveURL(/column=ready/);
+    await expect(page.getByTestId("task-column-backlog")).toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
+    await expect(page.getByTestId("task-column-ready")).not.toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
+    await page.getByTestId("task-column-filter").click();
+    await expect(page).not.toHaveURL(/column=/);
+    await expect(page.getByTestId("task-column-backlog")).not.toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
     await page.getByRole("button", { name: "Ready menu" }).click();
     await expect(
       page.getByTestId("task-column-ready").getByTitle(/Tasks builder/)

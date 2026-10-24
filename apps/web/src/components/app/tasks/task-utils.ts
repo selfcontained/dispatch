@@ -101,8 +101,13 @@ export function agentQualifier(
     (other) => other.id !== agent.id && other.name.trim().toLowerCase() === name
   );
   if (!clash || !agent.createdAt) return null;
-  const age = taskAge(agent.createdAt);
-  return age === "now" ? "started just now" : `started ${age} ago`;
+  const minutes = Math.max(
+    0,
+    Math.floor((Date.now() - Date.parse(agent.createdAt)) / 60000)
+  );
+  if (minutes < 1) return "started just now";
+  if (minutes < 60) return `started ${minutes}m ago`;
+  return `started ${taskAge(agent.createdAt)} ago`;
 }
 /** A column trigger's template, by name; the id when it is gone. */
 export function templateName(

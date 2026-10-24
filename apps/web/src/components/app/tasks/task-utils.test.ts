@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import {
+  agentQualifier,
   taskMentionables,
   columnAccent,
   groupTasks,
@@ -101,5 +102,27 @@ describe("task board utilities", () => {
     // An outside name that reads as a member's is qualified by id, as the
     // server resolves it.
     expect(offered[2].mentionName).toBe("assignee two [assignee two]");
+  });
+});
+
+describe("agentQualifier", () => {
+  const at = (minutesAgo: number) =>
+    new Date(Date.now() - minutesAgo * 60000).toISOString();
+  const builder = (id: string, createdAt: string) =>
+    ({ id, name: "Builder", createdAt }) as Agent;
+  it("is nothing while the name is unique", () => {
+    const one = builder("agt_1", at(5));
+    expect(
+      agentQualifier(one, [one, { id: "agt_2", name: "Reviewer" } as Agent])
+    ).toBeNull();
+  });
+  it("says when each same-named agent started, to the minute under an hour", () => {
+    const fresh = builder("agt_1", at(0));
+    const earlier = builder("agt_2", at(7));
+    const old = builder("agt_3", at(3 * 60));
+    const all = [fresh, earlier, old];
+    expect(agentQualifier(fresh, all)).toBe("started just now");
+    expect(agentQualifier(earlier, all)).toBe("started 7m ago");
+    expect(agentQualifier(old, all)).toBe("started 3h ago");
   });
 });

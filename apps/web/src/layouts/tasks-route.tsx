@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAtom } from "jotai";
-import { LayoutGrid, List, Plus, Zap } from "lucide-react";
+import { LayoutGrid, List, Plus, X, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { SectionShell } from "./section-shell";
 import { ProjectSwitcher } from "@/components/app/project-switcher";
 import { ProjectIcon } from "@/components/app/project-location";
@@ -101,14 +102,16 @@ function TasksContent({ projectId }: { projectId: string }) {
   const leaveSidebar = () => {
     if (isMobile) setMobileLeftOpen(false);
   };
+  // A column picked in the sidebar is a filter: the board keeps only it,
+  // the list only its group. Picking it again shows everything.
+  const onlyColumn =
+    columns.find((column) => column.key === params.get("column")) ?? null;
   const showColumn = (columnId: string) => {
     leaveSidebar();
-    requestAnimationFrame(() =>
-      document.getElementById(`task-column-${columnId}`)?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-        inline: "start",
-      })
+    const column = columns.find((item) => item.id === columnId);
+    updateParam(
+      "column",
+      column && column.id !== onlyColumn?.id ? column.key : null
     );
   };
   const startNewTask = (columnId: string | null = null) => {
@@ -144,7 +147,12 @@ function TasksContent({ projectId }: { projectId: string }) {
         {columns.map((column, index) => (
           <button
             key={column.id}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60"
+            data-testid={`task-nav-column-${column.key}`}
+            aria-pressed={onlyColumn?.id === column.id}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60",
+              onlyColumn?.id === column.id && "bg-muted/70 font-medium"
+            )}
             onClick={() => showColumn(column.id)}
           >
             <span
@@ -196,6 +204,27 @@ function TasksContent({ projectId }: { projectId: string }) {
                 · {project?.name}
               </span>
             </h1>
+            {onlyColumn && (
+              <button
+                data-testid="task-column-filter"
+                className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted/60 py-0.5 pl-2.5 pr-1.5 text-xs hover:bg-muted"
+                onClick={() => updateParam("column", null)}
+                aria-label={`Show all columns (showing only ${onlyColumn.name})`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-2 w-2 rounded-full"
+                  style={{
+                    background: `hsl(${columnAccent(onlyColumn, columns.indexOf(onlyColumn))})`,
+                  }}
+                />
+                {onlyColumn.name}
+                <X
+                  className="h-3 w-3 text-muted-foreground"
+                  aria-hidden="true"
+                />
+              </button>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -278,6 +307,7 @@ function TasksContent({ projectId }: { projectId: string }) {
                 openTask={openTask}
                 moveTask={moveTask}
                 addTask={(columnId) => startNewTask(columnId)}
+                onlyColumnId={onlyColumn?.id ?? null}
               />
             ) : (
               <TaskList
@@ -286,6 +316,7 @@ function TasksContent({ projectId }: { projectId: string }) {
                 agents={agents}
                 openTask={openTask}
                 moveTask={moveTask}
+                onlyColumnId={onlyColumn?.id ?? null}
               />
             )}
           </div>
