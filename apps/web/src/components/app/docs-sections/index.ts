@@ -12,3 +12,4 @@ export { NotificationsContent } from "./notifications";
 export { PluginContent } from "./plugin";
 export { ResourcesContent } from "./resources";
 export { UpdatesContent } from "./updates";
+export { TasksContent } from "./tasks";

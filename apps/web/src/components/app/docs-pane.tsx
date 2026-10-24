@@ -8,6 +8,7 @@ import {
   GitBranch,
   Image,
   Keyboard,
+  ListTodo,
   Monitor,
   MousePointerClick,
   PlugZap,
@@ -31,6 +32,7 @@ import {
   PluginContent,
   ResourcesContent,
   ShortcutsContent,
+  TasksContent,
   ToolsContent,
   UpdatesContent,
   WorktreesContent,
@@ -42,6 +44,7 @@ export type DocsSection =
   | "personalities"
   | "tools"
   | "automations"
+  | "tasks"
   | "worktrees"
   | "personas"
   | "events"
@@ -95,6 +98,13 @@ const SECTIONS: SectionDef[] = [
     icon: Briefcase,
     title: "Automations: Templates & Jobs",
     content: <AutomationsContent />,
+  },
+  {
+    id: "tasks",
+    label: "Tasks",
+    icon: ListTodo,
+    title: "Tasks",
+    content: <TasksContent />,
   },
   {
     id: "worktrees",
