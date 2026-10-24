@@ -5,6 +5,7 @@
  * names. Split out of chat-entries.tsx, which composes them into posts.
  */
 import { type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import {
   CHAT_GALLERY_MAX_TILES,
   layoutAttachments,
@@ -112,29 +113,45 @@ export function LinkAttachment({
   testId: string;
 }): JSX.Element {
   const host = hostOf(href);
+  const inApp = href.startsWith("/") && !href.startsWith("//");
+  const content = (
+    <>
+      <Tile>{icon}</Tile>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-foreground">
+          {title ?? href}
+        </span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {inApp
+            ? "Opens in Dispatch"
+            : title && host
+              ? host
+              : "Opens in a new tab"}
+        </span>
+      </span>
+      <ArrowUpRight
+        className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
+        aria-hidden="true"
+      />
+    </>
+  );
   return (
     <AttachmentBlock data-testid={testId}>
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className={cn("group/link", CARD_ROW)}
-        title={href}
-      >
-        <Tile>{icon}</Tile>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-foreground">
-            {title ?? href}
-          </span>
-          <span className="block truncate text-[11px] text-muted-foreground">
-            {title && host ? host : "Opens in a new tab"}
-          </span>
-        </span>
-        <ArrowUpRight
-          className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
-          aria-hidden="true"
-        />
-      </a>
+      {inApp ? (
+        <Link to={href} className={cn("group/link", CARD_ROW)} title={href}>
+          {content}
+        </Link>
+      ) : (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className={cn("group/link", CARD_ROW)}
+          title={href}
+        >
+          {content}
+        </a>
+      )}
     </AttachmentBlock>
   );
 }

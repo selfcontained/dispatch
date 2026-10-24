@@ -47,7 +47,7 @@ export type SharedUiEvent =
   | { type: "template.changed" }
   | { type: "project.changed" }
   | { type: "brain.changed"; repoRoot: string }
-  /** A task, or a project's columns, changed; `taskId` names a single task. */
+  /** A project's task board changed; `taskId` is omitted for column changes. */
   | { type: "task.changed"; projectId: string; taskId?: string }
   /** An engine published a model list that changed the catalog for its type. */
   | { type: "agent_models.changed"; agentType: string }

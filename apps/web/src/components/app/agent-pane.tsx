@@ -1,4 +1,6 @@
 import { useProjects } from "@/hooks/use-projects";
+import { useAssignedTasks } from "@/hooks/use-tasks";
+import { Link } from "react-router-dom";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { useAtom } from "jotai";
@@ -23,6 +25,20 @@ export type ChatFiltersButtonProps = {
   showChildAgents?: boolean;
   onShowChildAgentsChange?: (show: boolean) => void;
 };
+
+function AssignedTaskChip({ agentId }: { agentId: string }) {
+  const { data: tasks = [] } = useAssignedTasks(agentId);
+  const task = tasks[0];
+  return task ? (
+    <Link
+      className="max-w-44 truncate rounded bg-primary/10 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/20"
+      to={`/tasks?task=${encodeURIComponent(task.id)}&project=${encodeURIComponent(task.projectId)}`}
+      title={task.title}
+    >
+      Task: {task.title}
+    </Link>
+  ) : null;
+}
 
 /** The Chat options popover in the Agent pane header. */
 export function ChatFiltersButton({
@@ -198,6 +214,7 @@ export function AgentPane({
               <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
             <span className="truncate">{agent?.name ?? "Agent"}</span>
+            {agentId && <AssignedTaskChip agentId={agentId} />}
           </span>
           {agentSwitchValidationMode ? (
             <span
