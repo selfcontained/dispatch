@@ -26,12 +26,18 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TaskCard } from "./task-card";
-import { orderedColumns, tasksInColumn } from "./task-utils";
+import { columnAccent, orderedColumns, tasksInColumn } from "./task-utils";
+import { MoreHorizontal, Plus, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { TaskAutomationDialog } from "./task-automation-dialog";
 import { useTaskActions } from "@/hooks/use-tasks";
+/** The app's menu items default to the destructive tint; these are ordinary. */
+const MENU_ITEM =
+  "text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
 function BoardColumn({
   column,
   columns,
@@ -72,28 +78,48 @@ function BoardColumn({
   return (
     <section
       ref={drop.setNodeRef}
+      id={`task-column-${column.id}`}
       data-testid={`task-column-${column.key}`}
-      className="flex h-full w-[290px] min-w-[290px] snap-start flex-col rounded-xl border border-border/60 bg-muted/25"
+      style={{ "--col": columnAccent(column, index) } as React.CSSProperties}
+      className={cn(
+        "flex h-full w-[min(300px,calc(100vw-3rem))] shrink-0 snap-start flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40 transition-shadow",
+        drop.isOver && "ring-2 ring-[hsl(var(--col)/0.6)]"
+      )}
     >
-      <header className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
+      <header className="flex items-center gap-2 border-t-2 border-[hsl(var(--col)/0.7)] bg-[hsl(var(--col)/0.08)] px-3 py-2">
+        <span
+          aria-hidden="true"
+          className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
+        />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {column.name}{" "}
-          <span className="text-muted-foreground">{columnTasks.length}</span>
+          {column.name}
         </h2>
-        {column.trigger && <span title="Automation configured">⚡</span>}
+        <span className="rounded-full bg-background/50 px-1.5 text-xs tabular-nums text-muted-foreground">
+          {columnTasks.length}
+        </span>
+        {column.trigger && (
+          <span
+            title="Automation configured"
+            aria-label="Automation configured"
+            className="text-[hsl(var(--col))]"
+          >
+            <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               size="icon"
               variant="ghost"
               aria-label={`${column.name} menu`}
-              className="h-7 w-7"
+              className="h-7 w-7 text-muted-foreground"
             >
-              ⋯
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
+              className={MENU_ITEM}
               onSelect={() => {
                 const name = window.prompt("Column name", column.name);
                 if (name?.trim())
@@ -105,10 +131,14 @@ function BoardColumn({
             >
               Rename
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setAutomation(true)}>
+            <DropdownMenuItem
+              className={MENU_ITEM}
+              onSelect={() => setAutomation(true)}
+            >
               Automation…
             </DropdownMenuItem>
             <DropdownMenuItem
+              className={MENU_ITEM}
               disabled={index === 0}
               onSelect={() =>
                 void actions.updateColumn.mutateAsync({
@@ -125,6 +155,7 @@ function BoardColumn({
               Move left
             </DropdownMenuItem>
             <DropdownMenuItem
+              className={MENU_ITEM}
               disabled={index === columns.length - 1}
               onSelect={() =>
                 void actions.updateColumn.mutateAsync({
@@ -140,14 +171,16 @@ function BoardColumn({
             >
               Move right
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
+              className={cn(MENU_ITEM, "text-destructive")}
               disabled={columnTasks.length > 0}
               onSelect={() => {
                 if (window.confirm(`Delete ${column.name}?`))
                   void actions.removeColumn.mutateAsync(column.id);
               }}
             >
-              Delete
+              {columnTasks.length > 0 ? "Delete (empty it first)" : "Delete"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -156,7 +189,7 @@ function BoardColumn({
         items={columnTasks.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
       >
-        <div className="min-h-16 flex-1 space-y-2 overflow-y-auto p-2">
+        <div className="min-h-16 flex-1 space-y-2 overflow-y-auto overscroll-contain px-2 pb-1 pt-2">
           {columnTasks.map((task) => (
             <TaskCard
               key={task.id}
@@ -187,10 +220,11 @@ function BoardColumn({
         ) : (
           <Button
             variant="ghost"
-            className="w-full justify-start text-muted-foreground"
+            className="w-full justify-start text-muted-foreground hover:bg-muted/60"
             onClick={() => setAdding(true)}
           >
-            + Add task
+            <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+            Add task
           </Button>
         )}
       </div>
@@ -244,7 +278,7 @@ export function TaskBoard({
     >
       <div
         data-testid="tasks-board"
-        className="flex h-full min-h-0 gap-3 overflow-x-auto p-4 snap-x"
+        className="flex h-full min-h-0 snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain p-3 scroll-px-3 md:snap-none md:p-4"
       >
         {columns.map((column) => (
           <BoardColumn

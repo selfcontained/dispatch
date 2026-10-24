@@ -1,6 +1,6 @@
 import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useMatches } from "react-router-dom";
+import { Outlet, useLocation, useMatches } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { type NavSection } from "@/components/app/sidebar-shell";
@@ -128,6 +128,10 @@ export function DashboardLayout(): JSX.Element {
   );
   const [pendingNavPulse, setPendingNavPulse] = useState<string | null>(null);
   const prevNavItemRef = useRef(currentNavItem);
+  const location = useLocation();
+  // A link straight to one task (an agent's Task chip) lands on that task,
+  // not on the section's sidebar sheet.
+  const opensTask = new URLSearchParams(location.search).has("task");
 
   useEffect(() => {
     const previousNavItem = prevNavItemRef.current;
@@ -138,9 +142,12 @@ export function DashboardLayout(): JSX.Element {
     if (currentNavItem === previousNavItem) return;
 
     setMobileDrawerOpen(false);
-    if (currentNavItem !== "activity") {
+    if (currentNavItem !== "activity" && !opensTask) {
       setMobileLeftOpen(true);
     }
+    // Read on the section change only; a later ?task= change is the
+    // section's own business.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileDrawerOpen]);
 
   useEffect(() => {

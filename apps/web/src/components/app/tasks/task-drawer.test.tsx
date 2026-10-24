@@ -11,7 +11,9 @@ import {
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { taskKeys, type TaskDetail } from "@/hooks/use-tasks";
+import type { Agent } from "@/components/app/types";
 import { TaskDrawer } from "./task-drawer";
+import { assigneeOptions } from "./task-utils";
 
 vi.mock("@/hooks/use-templates", () => ({
   useTemplates: () => ({ data: [] }),
@@ -20,7 +22,28 @@ vi.mock("@/hooks/use-agent-model-catalog", () => ({
   useAgentModelCatalog: () => [],
 }));
 
+vi.mock("./task-conversation", () => ({
+  TaskConversation: ({ taskId }: { taskId: string }) => (
+    <div data-testid="task-conversation">{taskId}</div>
+  ),
+}));
+
 afterEach(cleanup);
+
+it("offers the project's agents for assignment, running first", () => {
+  const agent = (id: string, status: string, projectId = "p1") =>
+    ({ id, name: id, status, projectId }) as unknown as Agent;
+  const agents = [
+    agent("b-stopped", "stopped"),
+    agent("other-project", "running", "p2"),
+    agent("c-running", "running"),
+    agent("a-stopped", "stopped"),
+    agent("current-elsewhere", "stopped", "p2"),
+  ];
+  expect(
+    assigneeOptions(agents, "p1", "current-elsewhere").map((item) => item.id)
+  ).toEqual(["c-running", "a-stopped", "b-stopped", "current-elsewhere"]);
+});
 
 it("keeps an unsaved description open when cached task fields change", async () => {
   const detail: TaskDetail = {
@@ -65,6 +88,7 @@ it("keeps an unsaved description open when cached task fields change", async () 
     close: vi.fn(),
     openTask: vi.fn(),
     moveTask: vi.fn(),
+    isMobile: false,
   };
   render(
     <MemoryRouter>
@@ -91,5 +115,6 @@ it("keeps an unsaved description open when cached task fields change", async () 
     ).toBeTruthy()
   );
   expect(screen.getByRole("textbox")).toBe(textarea);
+  expect(screen.getByTestId("task-conversation").textContent).toBe("task-1");
   expect((textarea as HTMLTextAreaElement).value).toBe("My unsaved draft");
 });
