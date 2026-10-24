@@ -1312,7 +1312,16 @@ export class AgentManager {
       ).rows[0];
       if (!project) throw new AgentError("Project not found.", 404);
       // A child can use its parent's worktree while retaining explicit membership.
-      if (!input.parentAgentId) input.cwd = project.repo_root;
+      if (!input.parentAgentId) {
+        input.cwd = project.repo_root;
+        // Plain-folder projects have no Git to branch from; only an explicit
+        // useWorktree: true should attempt (and fail) a worktree there.
+        if (input.useWorktree === undefined) {
+          const git = await probeGitContext(project.repo_root);
+          if (git.status === "ok" && git.value === null)
+            input.useWorktree = false;
+        }
+      }
     }
     const taskPersona = Boolean(input.persona && input.role !== "review");
     if (taskPersona && !options.detachLaunch) {

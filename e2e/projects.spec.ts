@@ -291,6 +291,7 @@ test("canonicalizes nested and linked checkouts and separate Git metadata", asyn
 test("plain folders without Git can be projects", async ({ request }) => {
   const folder = mkdtempSync(join(tmpdir(), "dispatch-project-plain-"));
   let id: string | undefined;
+  const agentIds: string[] = [];
   try {
     const created = await request.post("/api/v1/projects", {
       headers,
@@ -305,6 +306,30 @@ test("plain folders without Git can be projects", async ({ request }) => {
       data: { name: "Plain again", repoRoot: folder, color: "#9575ed" },
     });
     expect(duplicate.status()).toBe(409);
+    // A default launch skips worktrees; explicitly asking for one still fails.
+    const launch = await request.post("/api/v1/agents", {
+      headers,
+      data: { type: "codex", projectId: id, name: "plain" },
+    });
+    expect(launch.ok(), await launch.text()).toBeTruthy();
+    const agent = (await launch.json()).agent;
+    agentIds.push(agent.id);
+    expect(agent.cwd).toBe(realpathSync(folder));
+    expect(agent.setupPhase).not.toBe("worktree");
+    expect(agent.worktreePath ?? null).toBeNull();
+    await expect
+      .poll(async () => {
+        const all = await (
+          await request.get("/api/v1/agents", { headers })
+        ).json();
+        return all.agents.find((a: { id: string }) => a.id === agent.id)
+          ?.status;
+      })
+      .not.toMatch(/creating/);
+    const all = await (await request.get("/api/v1/agents", { headers })).json();
+    expect(
+      all.agents.find((a: { id: string }) => a.id === agent.id)?.status
+    ).not.toBe("error");
     const missing = await request.post("/api/v1/projects", {
       headers,
       data: {
@@ -315,6 +340,8 @@ test("plain folders without Git can be projects", async ({ request }) => {
     });
     expect(missing.status()).toBe(400);
   } finally {
+    for (const agentId of agentIds)
+      await request.delete(`/api/v1/agents/${agentId}`, { headers });
     if (id) await request.delete(`/api/v1/projects/${id}`, { headers });
     rmSync(folder, { recursive: true, force: true });
   }
