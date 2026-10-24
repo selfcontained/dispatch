@@ -78,6 +78,35 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       waitUntil: "domcontentloaded",
     });
     await expect(page.getByTestId(`task-card-${task.id}`)).toBeVisible();
+    await page
+      .getByTestId("task-column-backlog")
+      .getByRole("button", { name: "Add task" })
+      .click();
+    const createDialog = page.getByTestId("task-create-dialog");
+    await expect(
+      createDialog.getByRole("combobox", { name: "Column" })
+    ).toHaveText("Backlog");
+    await createDialog.getByLabel("Title").fill("Write the release notes");
+    await createDialog
+      .getByLabel("Description")
+      .fill("## Deliverable\nNotes for the release");
+    await page.screenshot({
+      path: "/tmp/dispatch-tasks-create.png",
+      scale: "device",
+    });
+    await createDialog.getByLabel("Description").press("ControlOrMeta+Enter");
+    await expect(createDialog).toHaveCount(0);
+    await expect(
+      page.getByTestId("task-drawer").getByRole("button", {
+        name: "Write the release notes",
+      })
+    ).toBeVisible();
+    await expect(
+      page
+        .getByTestId("task-column-backlog")
+        .getByText("Write the release notes")
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Close task" }).last().click();
     await page.getByTestId(`task-card-${task.id}`).focus();
     await page.keyboard.press("]");
     await expect(
@@ -199,14 +228,27 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       `/agents/${assigned.assignedAgentId}?project=${project.id}`,
       { waitUntil: "domcontentloaded" }
     );
-    await page.getByRole("link", { name: /^Task:/ }).click();
-    await expect(page.getByTestId("task-drawer")).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`task=${task.id}`));
-    await expect(page.getByTitle("Open sidebar")).toBeAttached();
+    await expect(page.getByTestId("agent-pane")).toBeVisible();
+    await page.getByRole("button", { name: /^Task:/ }).click();
+    const modal = page.getByTestId("task-modal");
+    await expect(modal.getByText("Renamed by an agent").first()).toBeVisible();
+    await expect(page).toHaveURL(
+      new RegExp(`/agents/${assigned.assignedAgentId}\\?.*task=${task.id}`)
+    );
     await page.screenshot({
-      path: "/tmp/dispatch-tasks-mobile-deeplink.png",
+      path: "/tmp/dispatch-tasks-mobile-modal.png",
       scale: "device",
     });
+    await modal.getByRole("button", { name: "Close task" }).first().click();
+    await expect(modal).toHaveCount(0);
+    await expect(page).not.toHaveURL(/task=/);
+    await expect(page.getByTestId("agent-pane")).toBeVisible();
+    await page.getByRole("button", { name: /^Task:/ }).click();
+    await modal.getByRole("link", { name: /Open in Tasks/ }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/tasks\\?task=${task.id}&project=${project.id}`)
+    );
+    await expect(page.getByTestId("task-drawer")).toBeVisible();
     await page.getByRole("button", { name: "Close task" }).first().click();
     await expect(page.getByTestId("task-drawer")).toHaveCount(0);
     await page.setViewportSize({ width: 1280, height: 800 });

@@ -21,7 +21,6 @@ import type {
 } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +44,7 @@ function BoardColumn({
   agents,
   openTask,
   moveTask,
+  addTask,
   projectId,
 }: {
   column: TaskColumn;
@@ -53,27 +53,16 @@ function BoardColumn({
   agents: Agent[];
   openTask: (id: string) => void;
   moveTask: (task: Task, columnId: string, beforeId?: string) => void;
+  addTask: (columnId: string) => void;
   projectId: string;
 }) {
   const actions = useTaskActions(projectId);
-  const [adding, setAdding] = useState(false);
-  const [title, setTitle] = useState("");
   const [automation, setAutomation] = useState(false);
   const drop = useDroppable({
     id: `column:${column.id}`,
     data: { columnId: column.id },
   });
   const columnTasks = tasksInColumn(tasks, column.id);
-  const save = async () => {
-    if (!title.trim()) return;
-    await actions.create.mutateAsync({
-      projectId,
-      columnId: column.id,
-      title: title.trim(),
-    });
-    setTitle("");
-    setAdding(false);
-  };
   const index = columns.findIndex((item) => item.id === column.id);
   return (
     <section
@@ -203,30 +192,14 @@ function BoardColumn({
         </div>
       </SortableContext>
       <div className="p-2">
-        {adding ? (
-          <Input
-            autoFocus
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void save();
-              if (event.key === "Escape") setAdding(false);
-            }}
-            onBlur={() => {
-              if (!title.trim()) setAdding(false);
-            }}
-            placeholder="Task title"
-          />
-        ) : (
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-muted-foreground hover:bg-muted/60"
-            onClick={() => setAdding(true)}
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-            Add task
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-muted-foreground hover:bg-muted/60"
+          onClick={() => addTask(column.id)}
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+          Add task
+        </Button>
       </div>
       <TaskAutomationDialog
         column={column}
@@ -243,12 +216,15 @@ export function TaskBoard({
   agents,
   openTask,
   moveTask,
+  addTask,
 }: {
   board: TaskBoardData;
   tasks: Task[];
   agents: Agent[];
   openTask: (id: string) => void;
   moveTask: (task: Task, columnId: string, beforeId?: string) => void;
+  /** Opens the create form on this column. */
+  addTask: (columnId: string) => void;
 }) {
   const columns = orderedColumns(board);
   const sensors = useSensors(
@@ -289,6 +265,7 @@ export function TaskBoard({
             agents={agents}
             openTask={openTask}
             moveTask={moveTask}
+            addTask={addTask}
             projectId={board.projectId}
           />
         ))}

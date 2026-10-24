@@ -21,24 +21,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { taskLayoutAtomFamily } from "@/lib/store";
 import { TaskBoard } from "@/components/app/tasks/task-board";
 import { TaskList } from "@/components/app/tasks/task-list";
 import { TaskDrawer } from "@/components/app/tasks/task-drawer";
+import { TaskCreateDialog } from "@/components/app/tasks/task-create-dialog";
+import { useMoveTask } from "@/components/app/tasks/use-move-task";
 import {
   columnAccent,
   needsAttention,
-  nextPosition,
   orderedColumns,
   visibleTasks,
 } from "@/components/app/tasks/task-utils";
-import { ApiError } from "@/lib/api";
 
 const ATTENTION = "__attention";
 function TasksContent({ projectId }: { projectId: string }) {
@@ -57,15 +51,13 @@ function TasksContent({ projectId }: { projectId: string }) {
       : isMobile
         ? "list"
         : savedLayout;
-  const [newTask, setNewTask] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
+  // The create dialog is open on a column (null: the first one).
+  const [newTask, setNewTask] = useState<{ columnId: string | null } | null>(
+    null
+  );
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("all");
-  const [relaunch, setRelaunch] = useState<{
-    task: Task;
-    columnId: string;
-    position: number;
-  } | null>(null);
+  const { moveTask, dialog: relaunchDialog } = useMoveTask(projectId, board);
   const columns = useMemo(() => (board ? orderedColumns(board) : []), [board]);
   const attention = new Set(
     agents
@@ -115,35 +107,29 @@ function TasksContent({ projectId }: { projectId: string }) {
       })
     );
   };
-  const startNewTask = () => {
+  const startNewTask = (columnId: string | null = null) => {
     leaveSidebar();
-    setNewTask(true);
+    setNewTask({ columnId });
   };
-  const moveTask = async (task: Task, columnId: string, beforeId?: string) => {
-    if (!board || task.id === beforeId) return;
-    const position = nextPosition(board.tasks, columnId, beforeId);
-    try {
-      await actions.update.mutateAsync({ id: task.id, columnId, position });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409)
-        setRelaunch({ task, columnId, position });
-    }
-  };
-  const saveNew = async () => {
-    if (!newTitle.trim()) return;
-    const task = await actions.create.mutateAsync({
-      projectId,
-      title: newTitle.trim(),
-      columnId: columns[0]?.id,
+  // A new task is selected: its drawer on desktop; on a phone, where the
+  // drawer would cover the board, its card scrolled to and focused.
+  const selectNew = (task: Task) => {
+    if (!isMobile) return openTask(task.id);
+    requestAnimationFrame(() => {
+      const card = document.querySelector<HTMLElement>(
+        `[data-testid="task-card-${task.id}"], [data-testid="task-row-${task.id}"]`
+      );
+      card?.scrollIntoView({ block: "center", inline: "center" });
+      (card?.matches("[tabindex]")
+        ? card
+        : card?.querySelector("button")
+      )?.focus({ preventScroll: true });
     });
-    setNewTask(false);
-    setNewTitle("");
-    openTask(task.id);
   };
   const sidebar = (
     <div className="space-y-5 p-3">
       <ProjectSwitcher />
-      <Button className="w-full justify-start" onClick={startNewTask}>
+      <Button className="w-full justify-start" onClick={() => startNewTask()}>
         <Plus className="mr-2 h-4 w-4" />
         New task
       </Button>
@@ -208,7 +194,7 @@ function TasksContent({ projectId }: { projectId: string }) {
               variant="ghost"
               className="md:hidden"
               aria-label="New task"
-              onClick={startNewTask}
+              onClick={() => startNewTask()}
             >
               <Plus className="h-4 w-4" />
             </Button>
@@ -284,6 +270,7 @@ function TasksContent({ projectId }: { projectId: string }) {
                 agents={agents}
                 openTask={openTask}
                 moveTask={moveTask}
+                addTask={(columnId) => startNewTask(columnId)}
               />
             ) : (
               <TaskList
@@ -310,62 +297,18 @@ function TasksContent({ projectId }: { projectId: string }) {
           isMobile={isMobile}
         />
       )}
-      <Dialog open={newTask} onOpenChange={setNewTask}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New task</DialogTitle>
-          </DialogHeader>
-          <Input
-            autoFocus
-            aria-label="Task title"
-            placeholder="What needs doing?"
-            value={newTitle}
-            onChange={(event) => setNewTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void saveNew();
-            }}
-          />
-          <Button disabled={!newTitle.trim()} onClick={() => void saveNew()}>
-            Create task
-          </Button>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!relaunch}
+      <TaskCreateDialog
+        open={!!newTask}
         onOpenChange={(open) => {
-          if (!open) setRelaunch(null);
+          if (!open) setNewTask(null);
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Launch another agent?</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm">
-            The assigned agent is still working on this task. Moving it here
-            will launch another agent.
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setRelaunch(null)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (relaunch)
-                  void actions.update
-                    .mutateAsync({
-                      id: relaunch.task.id,
-                      columnId: relaunch.columnId,
-                      position: relaunch.position,
-                      confirmRelaunch: true,
-                    })
-                    .finally(() => setRelaunch(null));
-              }}
-            >
-              Move and launch
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        projectId={projectId}
+        columns={columns}
+        agents={agents}
+        columnId={newTask?.columnId}
+        onCreated={selectNew}
+      />
+      {relaunchDialog}
     </SectionShell>
   );
 }

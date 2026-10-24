@@ -1552,6 +1552,16 @@ html[data-hidden] .animate-sidebar-nav-pulse {
       padding-bottom: 10px;
       border-radius: 1rem;
     }
+
+    /* One line at rest means a long placeholder (a disabled reason)
+       ellipsizes instead of wrapping under the clipped second line. */
+    [data-chat-composer][data-empty="true"]::before {
+      left: 1rem;
+      right: 1rem;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
   }
 }
 

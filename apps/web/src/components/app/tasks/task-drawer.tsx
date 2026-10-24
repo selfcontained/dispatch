@@ -7,7 +7,7 @@ import {
   ExternalLink,
   Plus,
 } from "lucide-react";
-import type { Task, TaskColumn, TaskDetail } from "@/hooks/use-tasks";
+import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { useTemplates } from "@/hooks/use-templates";
@@ -27,10 +27,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TaskAgent, TaskAgentChip } from "./task-agent";
+import { TaskAgent } from "./task-agent";
+import { AssigneeSelect } from "./task-assignee-select";
 import { TaskConversation } from "./task-conversation";
 import { StatusSelect } from "./task-list";
-import { assigneeOptions, columnAccent, taskAge } from "./task-utils";
+import { columnAccent, taskAge } from "./task-utils";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
@@ -63,54 +64,7 @@ function DrawerSection({
     </section>
   );
 }
-function AssigneeSelect({
-  task,
-  agents,
-  projectId,
-  onChange,
-}: {
-  task: TaskDetail;
-  agents: Agent[];
-  projectId: string;
-  onChange: (agentId: string | null) => void;
-}) {
-  const options = assigneeOptions(agents, projectId, task.assignedAgentId);
-  return (
-    <Select
-      value={task.assignedAgentId ?? UNASSIGNED}
-      onValueChange={(value) => onChange(value === UNASSIGNED ? null : value)}
-    >
-      <SelectTrigger
-        aria-label="Assignee"
-        className="h-8 w-full max-w-64 border-transparent bg-muted/50 text-xs hover:bg-muted"
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={UNASSIGNED}>
-          <span className="text-muted-foreground">Unassigned</span>
-        </SelectItem>
-        {options.map((agent) => (
-          <SelectItem key={agent.id} value={agent.id}>
-            <TaskAgentChip agent={agent} compact />
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-const UNASSIGNED = "__unassigned";
-export function TaskDrawer({
-  id,
-  projectId,
-  columns,
-  boardTasks,
-  agents,
-  close,
-  openTask,
-  moveTask,
-  isMobile,
-}: {
+export type TaskDetailProps = {
   id: string;
   projectId: string;
   columns: TaskColumn[];
@@ -120,6 +74,40 @@ export function TaskDrawer({
   openTask: (id: string) => void;
   moveTask: (task: Task, columnId: string) => void;
   isMobile: boolean;
+};
+
+/** The Tasks surface's side drawer over the board. */
+export function TaskDrawer(props: TaskDetailProps) {
+  return (
+    <aside
+      data-testid="task-drawer"
+      aria-label="Task"
+      className="fixed inset-0 z-40 flex flex-col bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[600px] md:border-l md:border-border/40 md:shadow-2xl"
+    >
+      <TaskDetailPanel {...props} />
+    </aside>
+  );
+}
+
+/**
+ * A task's header, properties, description, agents, activity and
+ * conversation. Fills a flex column of definite height: the drawer, or
+ * the task modal over an agent stream.
+ */
+export function TaskDetailPanel({
+  id,
+  projectId,
+  columns,
+  boardTasks,
+  agents,
+  close,
+  openTask,
+  moveTask,
+  isMobile,
+  headerAction,
+}: TaskDetailProps & {
+  /** Rendered in the header before the close button. */
+  headerAction?: React.ReactNode;
 }) {
   const { data: task, isLoading } = useTaskDetail(id);
   const actions = useTaskActions(projectId);
@@ -178,11 +166,7 @@ export function TaskDrawer({
         })()
       : task?.createdBy.kind;
   return (
-    <aside
-      data-testid="task-drawer"
-      aria-label="Task"
-      className="fixed inset-0 z-40 flex flex-col bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[600px] md:border-l md:border-border/40 md:shadow-2xl"
-    >
+    <>
       <header className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-card/60 px-2 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] text-xs text-muted-foreground">
         <Button
           size="icon"
@@ -225,6 +209,7 @@ export function TaskDrawer({
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
+        {headerAction}
         <Button
           size="icon"
           variant="ghost"
@@ -268,7 +253,7 @@ export function TaskDrawer({
               <StatusSelect task={task} columns={columns} moveTask={moveTask} />
               <span className="text-xs text-muted-foreground">Assignee</span>
               <AssigneeSelect
-                task={task}
+                value={task.assignedAgentId}
                 agents={agents}
                 projectId={projectId}
                 onChange={(assignedAgentId) =>
@@ -525,6 +510,6 @@ export function TaskDrawer({
           </Button>
         </DialogContent>
       </Dialog>
-    </aside>
+    </>
   );
 }
