@@ -242,6 +242,25 @@ export type StreamServiceDeps = {
   };
 };
 
+/** A person's post, as `sendUserPost` takes it. */
+export type UserPostInput = {
+  id?: string;
+  to?: string | null;
+  text: string;
+  replyTo?: string | null;
+  attachments?: Array<
+    ChatUserAttachmentInput | Extract<ChatAttachment, { type: "code" }>
+  >;
+  /** External captures address the selected agent; page text cannot redirect them. */
+  resolveMentions?: boolean;
+  /** A review left by hand: the block is a `review` with these findings. */
+  review?: BlockReviewInput | null;
+  allowInert?: boolean;
+  delivery?: "auto" | "queue" | "interrupt";
+  /** Legacy clients: sending no longer cancels the running turn. */
+  interrupt?: boolean;
+};
+
 /** What a stream needs to know about a task whose conversation it is. */
 export type TaskStreamRoot = {
   id: string;
@@ -734,6 +753,8 @@ export class StreamService {
   private readonly turnPublishes = new Map<string, TurnPublish>();
   /** Streams being deleted (a task's): nothing new is written or delivered. */
   private readonly closingRoots = new Set<string>();
+  /** Writes under way per stream, from admission to handover; `closeStream` drains them. */
+  private readonly activeWrites = new Map<string, Set<Promise<void>>>();
   private readonly log: NonNullable<StreamServiceDeps["log"]>;
 
   constructor(private readonly deps: StreamServiceDeps) {
@@ -764,12 +785,80 @@ export class StreamService {
   }
 
   /**
-   * Readies a stream for deletion: refuses new posts into it and takes
-   * back every delivery of its blocks still queued at an agent, so none
-   * runs after its block is gone. A delivery still being handed over is
-   * retried until `settleMs`; one that cannot be taken back (an engine
-   * that never claims or releases it) refuses the deletion. Pair with
-   * `releaseStream` once the blocks are deleted, or on failure.
+   * Admits a write to `streamId` and holds it open until the returned
+   * function runs: `closeStream` waits for it, and refuses new ones. The
+   * check and the registration are one synchronous step.
+   */
+  private beginWrite(streamId: string): () => void {
+    this.assertOpen(streamId);
+    let set = this.activeWrites.get(streamId);
+    if (!set) {
+      set = new Set();
+      this.activeWrites.set(streamId, set);
+    }
+    const writes = set;
+    let finish!: () => void;
+    const write = new Promise<void>((resolve) => (finish = resolve));
+    writes.add(write);
+    return () => {
+      finish();
+      writes.delete(write);
+      if (writes.size === 0 && this.activeWrites.get(streamId) === writes)
+        this.activeWrites.delete(streamId);
+    };
+  }
+
+  /** Runs `run` as an admitted write to `streamId` (see `beginWrite`). */
+  private async withWrite<T>(
+    streamId: string,
+    run: () => Promise<T>
+  ): Promise<T> {
+    const end = this.beginWrite(streamId);
+    try {
+      return await run();
+    } finally {
+      end();
+    }
+  }
+
+  /**
+   * A task's stream is written only while the task exists. Checked inside
+   * an admitted write, right before the insert, so a write that passed
+   * the route's check before the task was deleted cannot leave an orphan.
+   */
+  private async requireLiveRoot(streamId: string): Promise<void> {
+    if (
+      streamId.startsWith(TASK_ROOT_PREFIX) &&
+      !(await this.taskRoot(streamId))
+    )
+      throw new StreamNotFoundError("Task not found.");
+  }
+
+  /** Waits for the stream's admitted writes; false if any outlast `deadline`. */
+  private async drainWrites(
+    streamId: string,
+    deadline: number
+  ): Promise<boolean> {
+    for (;;) {
+      const writes = this.activeWrites.get(streamId);
+      if (!writes?.size) return true;
+      const left = deadline - Date.now();
+      if (left <= 0) return false;
+      await Promise.race([
+        Promise.all([...writes]),
+        new Promise((resolve) => setTimeout(resolve, left)),
+      ]);
+    }
+  }
+
+  /**
+   * Readies a stream for deletion: refuses new writes to it, waits for
+   * the ones already admitted to hand their prompts over, then takes back
+   * every delivery of its blocks still queued at an agent, so none runs
+   * after its block is gone. A delivery still being handed over is
+   * retried until `settleMs`; a write or a delivery that outlasts it (an
+   * engine that never claims or releases a prompt) refuses the deletion.
+   * Pair with `releaseStream` once the blocks are deleted, or on failure.
    */
   async closeStream(
     streamId: string,
@@ -778,7 +867,11 @@ export class StreamService {
     this.closingRoots.add(streamId);
     const cancelled = new Set<string>();
     const deadline = Date.now() + (opts.settleMs ?? 2_000);
+    const inFlight = new StreamConflictError(
+      "A message on this task is being delivered right now; try again in a moment."
+    );
     try {
+      if (!(await this.drainWrites(streamId, deadline))) throw inFlight;
       for (;;) {
         const open = (await this.store.pendingDeliveries(streamId)).filter(
           ({ blockId, agentId }) => !cancelled.has(`${blockId}:${agentId}`)
@@ -795,10 +888,7 @@ export class StreamService {
         }
         if (open.every((d) => cancelled.has(`${d.blockId}:${d.agentId}`)))
           return;
-        if (Date.now() >= deadline)
-          throw new StreamConflictError(
-            "A message on this task is being delivered right now; try again in a moment."
-          );
+        if (Date.now() >= deadline) throw inFlight;
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     } catch (error) {
@@ -958,25 +1048,15 @@ export class StreamService {
    */
   async sendUserPost(
     streamId: string,
-    input: {
-      id?: string;
-      to?: string | null;
-      text: string;
-      replyTo?: string | null;
-      attachments?: Array<
-        ChatUserAttachmentInput | Extract<ChatAttachment, { type: "code" }>
-      >;
-      /** External captures address the selected agent; page text cannot redirect them. */
-      resolveMentions?: boolean;
-      /** A review left by hand: the block is a `review` with these findings. */
-      review?: BlockReviewInput | null;
-      allowInert?: boolean;
-      delivery?: "auto" | "queue" | "interrupt";
-      /** Legacy clients: sending no longer cancels the running turn. */
-      interrupt?: boolean;
-    }
+    input: UserPostInput
   ): Promise<StreamPostResponse> {
-    this.assertOpen(streamId);
+    return this.withWrite(streamId, () => this.writeUserPost(streamId, input));
+  }
+
+  private async writeUserPost(
+    streamId: string,
+    input: UserPostInput
+  ): Promise<StreamPostResponse> {
     const attachments = input.attachments ?? [];
     const text = requireText(input.text);
     const review = input.review
@@ -993,6 +1073,7 @@ export class StreamService {
     if (review) {
       const toAgentId = input.to ?? (await this.defaultRecipient(streamId));
       await this.requireAgent(toAgentId);
+      await this.requireLiveRoot(streamId);
       const created = await this.createReview({
         ...(input.id ? { id: input.id } : {}),
         streamId,
@@ -1103,6 +1184,7 @@ export class StreamService {
       attachments: resolved,
       delivered: live ? null : false,
     };
+    await this.requireLiveRoot(streamId);
     const block = input.id
       ? await this.store.insertIfAbsent({ id: input.id, ...row })
       : await this.store.insert(row);
@@ -1238,7 +1320,16 @@ export class StreamService {
     blockId: string,
     input: AnswerInput
   ): Promise<StreamAnswerResponse> {
-    this.assertOpen(streamId);
+    return this.withWrite(streamId, () =>
+      this.writeAnswer(streamId, blockId, input)
+    );
+  }
+
+  private async writeAnswer(
+    streamId: string,
+    blockId: string,
+    input: AnswerInput
+  ): Promise<StreamAnswerResponse> {
     if (!isBlockId(blockId)) {
       throw new StreamValidationError("blockId must be a UUID.");
     }
@@ -1365,7 +1456,17 @@ export class StreamService {
     input: { id?: string; values: Record<string, string | number | boolean> },
     by: BlockAuthor = USER
   ): Promise<StreamAnswerResponse> {
-    this.assertOpen(streamId);
+    return this.withWrite(streamId, () =>
+      this.writeSubmission(streamId, blockId, input, by)
+    );
+  }
+
+  private async writeSubmission(
+    streamId: string,
+    blockId: string,
+    input: { id?: string; values: Record<string, string | number | boolean> },
+    by: BlockAuthor
+  ): Promise<StreamAnswerResponse> {
     const form = await this.store.getById(blockId);
     if (
       !form ||
@@ -1813,6 +1914,17 @@ export class StreamService {
       rawEmoji,
       author
     );
+    return this.withWrite(streamId, () =>
+      this.writeReaction(streamId, block, emoji, author)
+    );
+  }
+
+  private async writeReaction(
+    streamId: string,
+    block: Block,
+    emoji: string,
+    author: BlockAuthor
+  ): Promise<StreamReactionResponse> {
     const existing = await this.store.listReactions(block.id);
     if (
       existing.some(
@@ -1930,7 +2042,6 @@ export class StreamService {
           : "Block not found."
       );
     }
-    this.assertOpen(block.streamId);
     return { block, emoji, streamId: block.streamId };
   }
 
@@ -2241,6 +2352,25 @@ export class StreamService {
     input: PostInput,
     opts: { root?: string } = {}
   ): Promise<Block> {
+    // The stream is known only once the post has found its place, so the
+    // write is admitted there, right before the insert.
+    const ends: Array<() => void> = [];
+    try {
+      return await this.writePost(agentId, input, opts, async (streamId) => {
+        ends.push(this.beginWrite(streamId));
+        await this.requireLiveRoot(streamId);
+      });
+    } finally {
+      for (const end of ends) end();
+    }
+  }
+
+  private async writePost(
+    agentId: string,
+    input: PostInput,
+    opts: { root?: string },
+    admit: (streamId: string) => Promise<void>
+  ): Promise<Block> {
     const author: BlockAuthor = { kind: "agent", agentId };
     const agent = await this.requireAgent(agentId);
     let streamId = opts.root ?? (await this.streamOf(agentId));
@@ -2340,6 +2470,7 @@ export class StreamService {
     if (kind === "review") {
       // A review is its own record, not a reply: a child's goes on its
       // launch card, which shows it; anyone else's goes in the stream.
+      await admit(streamId);
       const review = await this.createReview({
         streamId,
         author,
@@ -2428,7 +2559,7 @@ export class StreamService {
       })
     );
     const live = recipients.length > 0 && liveAll.every(Boolean);
-    this.assertOpen(streamId);
+    await admit(streamId);
     const insert: Parameters<BlockStore["insert"]>[0] = {
       streamId,
       author,
@@ -3536,9 +3667,44 @@ export class StreamService {
           },
         });
       }
-      // The stream is being deleted: no new prompt from it. Checked right
-      // before handing over, so `closeStream` sees anything already on its
-      // way as a pending delivery it can take back.
+      const envelope =
+        own.rawPrompt ??
+        buildPostEnvelope({
+          blockId: block.id,
+          from,
+          text: envelopeText(block),
+          quotedContext: closes
+            ? undefined
+            : await this.automaticContext(block, agentId),
+          attachmentLines: own.attachmentLines ?? [],
+          threadId: structuredAnswer
+            ? (deliverySource.conversation?.threadId ?? null)
+            : block.threadId,
+          finding: finding
+            ? {
+                id: finding.id,
+                title: finding.title,
+                opened: finding.authorAgentId === agentId,
+              }
+            : null,
+          answers: own.answers ?? null,
+          cancels: own.cancels ?? null,
+          addressed:
+            mentioned || perAgent
+              ? {
+                  mention: mentioned,
+                  alsoTo: named
+                    .filter((id) => id !== agentId)
+                    .map((id) => nameOf.get(id) ?? id),
+                }
+              : null,
+          task: task
+            ? { id: task.id, title: task.title, column: task.column }
+            : null,
+        });
+      // The stream is being deleted: no new prompt from it. Checked with
+      // no await before the handover, so a prompt either is refused here
+      // or is queued where `closeStream` can take it back.
       if (this.closingRoots.has(block.streamId)) {
         await this.store.setDelivered(block.id, false);
         return { held };
@@ -3546,41 +3712,7 @@ export class StreamService {
       const result = this.injectDetached({
         agentId,
         source: deliverySource,
-        envelope:
-          own.rawPrompt ??
-          buildPostEnvelope({
-            blockId: block.id,
-            from,
-            text: envelopeText(block),
-            quotedContext: closes
-              ? undefined
-              : await this.automaticContext(block, agentId),
-            attachmentLines: own.attachmentLines ?? [],
-            threadId: structuredAnswer
-              ? (deliverySource.conversation?.threadId ?? null)
-              : block.threadId,
-            finding: finding
-              ? {
-                  id: finding.id,
-                  title: finding.title,
-                  opened: finding.authorAgentId === agentId,
-                }
-              : null,
-            answers: own.answers ?? null,
-            cancels: own.cancels ?? null,
-            addressed:
-              mentioned || perAgent
-                ? {
-                    mention: mentioned,
-                    alsoTo: named
-                      .filter((id) => id !== agentId)
-                      .map((id) => nameOf.get(id) ?? id),
-                  }
-                : null,
-            task: task
-              ? { id: task.id, title: task.title, column: task.column }
-              : null,
-          }),
+        envelope,
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
           if (perAgent) {
@@ -3899,6 +4031,13 @@ export class StreamService {
   }
 
   async retryDelivery(
+    streamId: string,
+    blockId: string
+  ): Promise<{ block: Block; held: boolean }> {
+    return this.withWrite(streamId, () => this.writeRetry(streamId, blockId));
+  }
+
+  private async writeRetry(
     streamId: string,
     blockId: string
   ): Promise<{ block: Block; held: boolean }> {
