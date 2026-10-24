@@ -1,4 +1,4 @@
-import { useProjectScope } from "@/hooks/use-projects";
+import { type Project, useProjectScope } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
@@ -18,27 +18,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useTemplateActions } from "@/hooks/use-templates";
+import { type Template, useTemplateActions } from "@/hooks/use-templates";
 import { type AgentType } from "@/lib/agent-types";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 
-export function CreateTemplateDialog({
-  open,
-  onOpenChange,
-  enabledAgentTypes,
-}: {
-  open: boolean;
+type CreateTemplateDialogProps = {
   onOpenChange: (open: boolean) => void;
   enabledAgentTypes: AgentType[];
-}): JSX.Element {
+  /** Scopes the new template to this project instead of the current scope. */
+  project?: Pick<Project, "id" | "repoRoot">;
+  onCreated?: (template: Template) => void;
+  onCloseAutoFocus?: (event: Event) => void;
+};
+
+export function CreateTemplateDialog({
+  open,
+  ...props
+}: CreateTemplateDialogProps & { open: boolean }): JSX.Element {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {open ? (
-        <CreateTemplateDialogContent
-          onOpenChange={onOpenChange}
-          enabledAgentTypes={enabledAgentTypes}
-        />
-      ) : null}
+    <Dialog open={open} onOpenChange={props.onOpenChange}>
+      {open ? <CreateTemplateDialogContent {...props} /> : null}
     </Dialog>
   );
 }
@@ -46,11 +45,12 @@ export function CreateTemplateDialog({
 function CreateTemplateDialogContent({
   onOpenChange,
   enabledAgentTypes,
-}: {
-  onOpenChange: (open: boolean) => void;
-  enabledAgentTypes: AgentType[];
-}): JSX.Element {
-  const { project } = useProjectScope();
+  project: projectOverride,
+  onCreated,
+  onCloseAutoFocus,
+}: CreateTemplateDialogProps): JSX.Element {
+  const scope = useProjectScope();
+  const project = projectOverride ?? scope.project;
   const { addTemplate } = useTemplateActions();
   const { draft, fieldProps } = useTemplateDraft({
     ...EMPTY_TEMPLATE_DRAFT,
@@ -69,8 +69,9 @@ function CreateTemplateDialogContent({
         model: draft.model,
         ...templateConfigFromDraft(draft),
       })
-      .then(() => {
+      .then((template) => {
         addCwdHistory(draft.directory);
+        onCreated?.(template);
         onOpenChange(false);
         toast.success("Template created.");
       })
@@ -78,7 +79,7 @@ function CreateTemplateDialogContent({
         toast.error(`Failed to create template: ${err.message}`);
       })
       .finally(() => setCreating(false));
-  }, [addTemplate, draft, addCwdHistory, onOpenChange]);
+  }, [addTemplate, draft, addCwdHistory, onCreated, onOpenChange]);
 
   const canCreate = draft.name.trim() && draft.directory.trim();
 
@@ -88,6 +89,7 @@ function CreateTemplateDialogContent({
       onEscapeKeyDown={(e) => {
         swallowEscapeFromCombobox(e);
       }}
+      onCloseAutoFocus={onCloseAutoFocus}
     >
       <DialogHeader>
         <DialogTitle>Create Template</DialogTitle>

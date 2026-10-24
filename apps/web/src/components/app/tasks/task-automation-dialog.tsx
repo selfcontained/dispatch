@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,16 +13,21 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
+import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
+import { useProjects } from "@/hooks/use-projects";
 import { useTemplates } from "@/hooks/use-templates";
 import type { TaskColumn, TaskColumnTrigger } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import type { AgentType } from "@/lib/agent-types";
+const NEW_TEMPLATE = "__new_template__";
+const runtimes: AgentType[] = ["claude", "codex", "opencode"];
 const empty = {
   templateId: "",
   agentType: null,
@@ -42,6 +48,16 @@ export function TaskAutomationDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { data: templates = [] } = useTemplates(open);
+  const { data: projects = [] } = useProjects();
+  const project = projects.find((p) => p.id === projectId) ?? {
+    id: projectId,
+    repoRoot: "",
+  };
+  const [creating, setCreating] = useState(false);
+  // Opening the create dialog from the menu; the Select must not pull focus
+  // back to its trigger over the new dialog's name field.
+  const openingCreate = useRef(false);
+  const templateTrigger = useRef<HTMLButtonElement>(null);
   const actions = useTaskActions(projectId);
   const [trigger, setTrigger] = useState<TaskColumnTrigger>(
     column.trigger ?? empty
@@ -50,6 +66,8 @@ export function TaskAutomationDialog({
   const projectTemplates = templates.filter(
     (template) => template.projectId === projectId
   );
+  const sharedName = (name: string) =>
+    projectTemplates.filter((template) => template.name === name).length > 1;
   const chosen = projectTemplates.find(
     (template) => template.id === trigger.templateId
   );
@@ -84,23 +102,45 @@ export function TaskAutomationDialog({
             </label>
             <Select
               value={trigger.templateId || "none"}
-              onValueChange={(value) =>
+              onValueChange={(value) => {
+                if (value === NEW_TEMPLATE) {
+                  openingCreate.current = true;
+                  return setCreating(true);
+                }
                 setTrigger((old) => ({
                   ...old,
                   templateId: value === "none" ? "" : value,
-                }))
-              }
+                }));
+              }}
             >
-              <SelectTrigger id="task-trigger-template">
+              <SelectTrigger id="task-trigger-template" ref={templateTrigger}>
                 <SelectValue placeholder="Choose a template" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent
+                onCloseAutoFocus={(event) => {
+                  if (!openingCreate.current) return;
+                  openingCreate.current = false;
+                  event.preventDefault();
+                }}
+              >
                 <SelectItem value="none">None</SelectItem>
                 {projectTemplates.map((template) => (
                   <SelectItem key={template.id} value={template.id}>
                     {template.name}
+                    {sharedName(template.name) ? (
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        {template.directory.split("/").filter(Boolean).pop()}
+                      </span>
+                    ) : null}
                   </SelectItem>
                 ))}
+                <SelectSeparator />
+                <SelectItem value={NEW_TEMPLATE}>
+                  <span className="flex items-center gap-1.5">
+                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    New template…
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -110,7 +150,7 @@ export function TaskAutomationDialog({
             onChange={(value) =>
               setTrigger((old) => ({ ...old, agentType: value }))
             }
-            agentTypes={["claude", "codex", "opencode"]}
+            agentTypes={runtimes}
             label="Runtime"
           />
           <AgentModelSelect
@@ -162,6 +202,20 @@ export function TaskAutomationDialog({
           </div>
         </div>
       </DialogContent>
+      <CreateTemplateDialog
+        open={creating}
+        onOpenChange={setCreating}
+        enabledAgentTypes={runtimes}
+        project={project}
+        onCreated={(template) =>
+          setTrigger((old) => ({ ...old, templateId: template.id }))
+        }
+        onCloseAutoFocus={(event) => {
+          // The menu item that opened it is gone; return to the picker.
+          event.preventDefault();
+          templateTrigger.current?.focus();
+        }}
+      />
     </Dialog>
   );
 }
