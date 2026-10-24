@@ -25,17 +25,25 @@ const appearance = z.object({
       "Choose a valid prepared icon image."
     ),
 });
-async function resolveProjectRoot(input: string): Promise<string> {
+export async function resolveProjectRoot(input: string): Promise<string> {
   const cwd = await realpath(resolveTilde(input));
   if (!(await stat(cwd)).isDirectory()) throw new Error("Not a directory");
   const git = async (...args: string[]) =>
-    (await promisify(execFile)("git", ["-C", cwd, ...args])).stdout.trim();
-  // A plain folder (no Git) is its own project root.
+    (
+      await promisify(execFile)("git", ["-C", cwd, ...args], {
+        env: { ...process.env, LC_ALL: "C" },
+      })
+    ).stdout.trim();
+  // A plain folder (no Git) is its own project root. Any other Git failure
+  // (dubious ownership, broken install) must not bypass canonicalization.
   const common = await git(
     "rev-parse",
     "--path-format=absolute",
     "--git-common-dir"
-  ).catch(() => null);
+  ).catch((error: { stderr?: string }) => {
+    if (/not a git repository/i.test(error.stderr ?? "")) return null;
+    throw error;
+  });
   if (common === null) return cwd;
   const gitDir = await git("rev-parse", "--absolute-git-dir");
   // Normal discovery handles nested paths and separate Git metadata.
