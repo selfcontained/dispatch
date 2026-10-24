@@ -122,6 +122,36 @@ describe("origin-qualified worktree bases", () => {
     expect(await git("rev-parse", "main")).toBe(remoteSha);
   });
 
+  it.each([false, true])(
+    "bases on an unpushed local branch createNewBranch=%s",
+    async (createNewBranch) => {
+      await git("branch", "agt_parent/agent-1", "main");
+      const worktree = await createGitWorktree({
+        cwd: repo,
+        name: "Unpushed base",
+        baseBranch: "agt_parent/agent-1",
+        branchName: "agt_child/agent-2",
+        createNewBranch,
+      });
+      expect(worktree.baseRef).toBe("agt_parent/agent-1");
+      expect(worktree.baseSha.trim()).toBe(localSha);
+      expect(await git("-C", worktree.worktreePath, "rev-parse", "HEAD")).toBe(
+        localSha
+      );
+    }
+  );
+
+  it("still fails when the base branch exists neither locally nor on origin", async () => {
+    await expect(
+      createGitWorktree({
+        cwd: repo,
+        name: "Missing base",
+        baseBranch: "no-such-branch",
+        createNewBranch: true,
+      })
+    ).rejects.toThrow(/couldn't find remote ref/);
+  });
+
   it.each([
     "origin/",
     "origin/origin/main",
