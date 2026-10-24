@@ -434,6 +434,65 @@ describe("task stream root", () => {
       expect(rows[0].n).toBe(1);
     });
 
+    it("closes it to posts placed by its running task turn too", async () => {
+      const task = await newTask();
+      // The agent is mid-turn in the task: its own block there is the turn.
+      await tasks.comment(task.id, ASSIGNEE, "Working on it");
+      const { rows } = await pool.query<{ id: string }>(
+        "SELECT id FROM blocks WHERE stream_id = $1 AND author_agent_id = $2 ORDER BY created_at DESC LIMIT 1",
+        [task.id, ASSIGNEE]
+      );
+      const turns = (streams as unknown as { turns: { openTurn: unknown } })
+        .turns;
+      const openTurn = vi
+        .spyOn(
+          turns as { openTurn: (id: string) => Promise<unknown> },
+          "openTurn"
+        )
+        .mockResolvedValue({ payload: { blockId: rows[0]!.id } });
+      try {
+        const mine = await streams.post(ASSIGNEE, { text: "Still mine" });
+        expect(mine.streamId).toBe(task.id);
+        await tasks.removeAgent(task.id, ASSIGNEE, USER);
+        await expect(
+          streams.post(ASSIGNEE, { text: "Still here" })
+        ).rejects.toThrow(/removed from task/);
+      } finally {
+        openTurn.mockRestore();
+      }
+    });
+
+    it("waits for a send it overlaps, then takes that prompt back too", async () => {
+      const task = await newTask();
+      holding = true;
+      let open!: () => void;
+      agentGate = new Promise<void>((resolve) => (open = resolve));
+      // A person's post to the task, admitted and paused while it resolves
+      // the assignee as its recipient.
+      const send = postBlock(task.id, { text: "paused mid-send" });
+      await vi.waitFor(() => expect(gateHits).toBeGreaterThan(0));
+      let removed = false;
+      const removal = tasks
+        .removeAgent(task.id, ASSIGNEE, USER)
+        .then(() => (removed = true));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // The removal is waiting for the send it admitted.
+      expect(removed).toBe(false);
+      agentGate = null;
+      open();
+      expect((await send).statusCode).toBe(200);
+      await removal;
+      // The send's prompt went to the agent's queue and was taken back.
+      expect(waiting).toEqual([]);
+      holding = false;
+      await settle();
+      expect(prompts).toEqual([]);
+      // The fence is lifted: the task takes posts again (to no one, now).
+      expect((await postBlock(task.id, { text: "after" })).statusCode).toBe(
+        400
+      );
+    });
+
     it("takes back the task's prompts queued at it, and only those", async () => {
       const task = await newTask();
       holding = true;

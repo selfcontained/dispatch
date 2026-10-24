@@ -758,6 +758,8 @@ export class StreamService {
   private readonly turnPublishes = new Map<string, TurnPublish>();
   /** Streams being deleted (a task's): nothing new is written or delivered. */
   private readonly closingRoots = new Set<string>();
+  /** Task streams whose agents are changing: writes wait, see `withdrawDeliveries`. */
+  private readonly fencedRoots = new Set<string>();
   /** Writes under way per stream, from admission to handover; `closeStream` drains them. */
   private readonly activeWrites = new Map<string, Set<Promise<void>>>();
   private readonly log: NonNullable<StreamServiceDeps["log"]>;
@@ -787,6 +789,10 @@ export class StreamService {
   private assertOpen(streamId: string): void {
     if (this.closingRoots.has(streamId))
       throw new StreamConflictError("This task is being deleted.");
+    if (this.fencedRoots.has(streamId))
+      throw new StreamConflictError(
+        "This task's agents are changing; try again in a moment."
+      );
   }
 
   /**
@@ -907,38 +913,50 @@ export class StreamService {
   }
 
   /**
-   * Takes back every delivery of `streamId`'s blocks still queued at
-   * `agentId`, so none runs after the agent is taken off a task. Other
-   * agents' deliveries stay. A delivery still being handed over is retried
-   * until `settleMs`; one that outlasts it refuses the withdrawal.
+   * Fences a task's stream while one of its agents is taken off it: new
+   * writes are refused (briefly), the ones already admitted finish handing
+   * over, then every delivery of the stream's blocks still queued at
+   * `agentId` is taken back. The fence holds until the returned function
+   * runs, so nothing admitted in between can pick the agent as its
+   * recipient; the caller releases it once membership is gone. A delivery
+   * mid-handover is retried until `settleMs`; one that outlasts it refuses
+   * the withdrawal and lifts the fence. Other agents' deliveries stay.
    */
   async withdrawDeliveries(
     streamId: string,
     agentId: string,
     opts: { settleMs?: number } = {}
-  ): Promise<void> {
+  ): Promise<() => void> {
+    this.fencedRoots.add(streamId);
+    const release = () => this.fencedRoots.delete(streamId);
     const cancelled = new Set<string>();
     const deadline = Date.now() + (opts.settleMs ?? 2_000);
-    for (;;) {
-      const open = (await this.store.pendingDeliveries(streamId)).filter(
-        (d) => d.agentId === agentId && !cancelled.has(d.blockId)
-      );
-      for (const { blockId } of open) {
-        if (
-          this.deps.delivery?.controlQueuedPrompt?.(
-            [agentId],
-            blockId,
-            "delete"
-          )
-        )
-          cancelled.add(blockId);
-      }
-      if (open.every((d) => cancelled.has(d.blockId))) return;
-      if (Date.now() >= deadline)
-        throw new StreamConflictError(
-          "A message on this task is being delivered to that agent right now; try again in a moment."
+    const inFlight = new StreamConflictError(
+      "A message on this task is being delivered to that agent right now; try again in a moment."
+    );
+    try {
+      if (!(await this.drainWrites(streamId, deadline))) throw inFlight;
+      for (;;) {
+        const open = (await this.store.pendingDeliveries(streamId)).filter(
+          (d) => d.agentId === agentId && !cancelled.has(d.blockId)
         );
-      await new Promise((resolve) => setTimeout(resolve, 50));
+        for (const { blockId } of open) {
+          if (
+            this.deps.delivery?.controlQueuedPrompt?.(
+              [agentId],
+              blockId,
+              "delete"
+            )
+          )
+            cancelled.add(blockId);
+        }
+        if (open.every((d) => cancelled.has(d.blockId))) return release;
+        if (Date.now() >= deadline) throw inFlight;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } catch (error) {
+      release();
+      throw error;
     }
   }
 
@@ -2409,6 +2427,10 @@ export class StreamService {
       return await this.writePost(agentId, input, opts, async (streamId) => {
         ends.push(this.beginWrite(streamId));
         await this.requireLiveRoot(streamId);
+        // Wherever the post resolved to — a reply, the current turn's
+        // place, a review — a task closed to the agent refuses it.
+        const task = await this.taskRoot(streamId);
+        if (task) this.requireNotRemoved(task, agentId);
       });
     } finally {
       for (const end of ends) end();

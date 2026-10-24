@@ -849,17 +849,23 @@ export class TaskService {
       // Nothing of this task may still reach the agent: its queued
       // deliveries are taken back first, and a handover in flight refuses
       // the removal rather than letting the agent work on after it.
+      let release: () => void;
       try {
-        await this.deps.chat.withdrawDeliveries(id, agentId);
+        release = await this.deps.chat.withdrawDeliveries(id, agentId);
       } catch (error) {
         throw new TaskError(errorMessage(error), 409, "delivery_in_flight");
       }
-      if (task.assignedAgentId === agentId) await this.unassign(task, actor);
-      await this.store.deleteTaskAgent(id, agentId);
-      await this.store.insertEvent(id, "agent_removed", actor, {
-        agentId,
-        role: row.role,
-      });
+      try {
+        if (task.assignedAgentId === agentId) await this.unassign(task, actor);
+        await this.store.deleteTaskAgent(id, agentId);
+        await this.store.insertEvent(id, "agent_removed", actor, {
+          agentId,
+          role: row.role,
+        });
+      } finally {
+        // Membership is gone: writes admitted from here cannot reach it.
+        release();
+      }
       this.publish(task.projectId, id);
       return await this.getTaskDetail(id);
     });

@@ -102,6 +102,7 @@ function build(): TaskService {
       withdrawDeliveries: async (streamId: string, agentId: string) => {
         withdrawals.push({ streamId, agentId });
         if (withdrawFails) throw new Error("in flight");
+        return () => {};
       },
       sendUserPost: (async (
         streamId: string,
