@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 
 import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
 import type { AgentRecord } from "../agents/types.js";
-import type { StreamService } from "../chat/service.js";
+import type { StreamService, TaskStreamRoot } from "../chat/service.js";
 import { ProjectStore, type ProjectRecord } from "../projects/store.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
@@ -104,7 +104,7 @@ export type TaskServiceDeps = {
   getTemplate: (templateId: string) => Promise<TemplateRecord | null>;
   /** Launches a top-level agent from a template; resolves to the new agent. */
   launchTemplate: (input: TaskLaunchRequest) => Promise<AgentRecord>;
-  chat: Pick<StreamService, "sendUserPost" | "post" | "streamOf">;
+  chat: Pick<StreamService, "sendUserPost" | "post">;
   publishUiEvent: (event: {
     type: "task.changed";
     projectId: string;
@@ -153,22 +153,18 @@ export function buildTaskBriefing(input: {
     `Task: ${task.id} — ${task.title}`,
     `Project: ${project.name} (${project.repoRoot})`,
     `Column: ${column.name}`,
+    `Conversation: stream ${task.id} (the task's own stream; people and the task's agents post there)`,
     `Links:${links}`,
     "",
     task.body.trim() || "(no description)",
     "",
-    `Move the task with task_update({ id, column }) as the work changes state (for example to "in_review" when a PR is up). Add PR links with task_update({ id, links: [...] }). Post progress for the board with task_comment.`,
+    `Move the task with task_update({ id, column }) as the work changes state (for example to "in_review" when a PR is up). Add PR links with task_update({ id, links: [...] }). Posts from the task's conversation reach you as DISPATCH POSTs naming the task; answer in place, or with post({ replyTo }) on one of its ids. Post progress there with task_comment.`,
   ].join("\n");
 }
 
-export function taskBlockText(
-  task: Pick<Task, "id" | "title">,
-  columnName: string
-): string {
-  return [
-    `Task ${task.id} — ${task.title} (${columnName})`,
-    "This thread is the task's conversation. Replies here reach the board; use task_update to move the task, task_comment to post here from a tool.",
-  ].join("\n");
+/** The block that tells an agent it has the task, posted in the task's stream. */
+export function assignmentText(task: Pick<Task, "id" | "title">): string {
+  return `You're assigned to task ${task.id} — ${task.title}. This stream is the task's conversation; reply here.`;
 }
 
 function sameLink(a: TaskLink, b: TaskLink): boolean {
@@ -194,7 +190,7 @@ export function mergeLinks(
 
 /**
  * The rules of the board: columns and their triggers, moves, assignments and
- * the conversation block. The store is SQL only.
+ * the task's conversation (a stream rooted at the task). The store is SQL only.
  */
 export class TaskService {
   readonly store: TaskStore;
@@ -223,6 +219,23 @@ export class TaskService {
     const project = await this.projects.get(projectId);
     if (!project) throw notFound("Project");
     return project;
+  }
+
+  /** The task as a stream root, for `StreamService`; null when there is none. */
+  async streamRoot(id: string): Promise<TaskStreamRoot | null> {
+    const task = await this.store.getTask(id);
+    if (!task) return null;
+    const [column, agents] = await Promise.all([
+      this.store.getColumn(task.columnId),
+      this.store.listTaskAgents(id),
+    ]);
+    return {
+      id: task.id,
+      title: task.title,
+      column: column?.name ?? "—",
+      assignedAgentId: task.assignedAgentId,
+      agentIds: agents.map((a) => a.agentId),
+    };
   }
 
   async requireTask(id: string): Promise<Task> {
@@ -671,8 +684,7 @@ export class TaskService {
 
     if (selfAgentId) {
       const current = await this.requireTask(id);
-      const row = await this.store.getTaskAgent(id, selfAgentId);
-      if (current.assignedAgentId !== selfAgentId || !row?.conversation)
+      if (current.assignedAgentId !== selfAgentId)
         await this.assign(current, selfAgentId, "self", actor);
     } else if (
       input.assignedAgentId !== undefined &&
@@ -834,10 +846,9 @@ export class TaskService {
   // ── Assignment ───────────────────────────────────────────────────
 
   /**
-   * Makes `agentId` the task's agent and opens the task's conversation in
-   * its stream. Runs inside the task's lock, so the block is posted once
-   * per agent; a repeat assignment reuses it. A failed post keeps the
-   * assignment without a conversation.
+   * Makes `agentId` the task's agent and tells it so in the task's stream:
+   * a block from the user addressed to it, delivered as its prompt. Runs
+   * inside the task's lock. A failed post keeps the assignment.
    */
   private async assign(
     task: Task,
@@ -848,7 +859,7 @@ export class TaskService {
   ): Promise<void> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent) throw invalid(`Agent ${agentId} not found.`);
-    const row = await this.store.upsertTaskAgent({
+    await this.store.upsertTaskAgent({
       taskId: task.id,
       agentId,
       role,
@@ -859,35 +870,19 @@ export class TaskService {
       agentId,
       role,
     });
-    if (row.conversation) return;
     try {
-      const column = await this.store.getColumn(task.columnId);
-      const streamId = await this.deps.chat.streamOf(agentId);
-      const posted = await this.deps.chat.sendUserPost(streamId, {
+      await this.deps.chat.sendUserPost(task.id, {
         to: agentId,
-        text: taskBlockText(task, column?.name ?? "—"),
-        attachments: [
-          { type: "link", url: `/tasks?task=${task.id}`, title: task.title },
-        ],
+        text: assignmentText(task),
         allowInert: true,
         // The assignee is chosen explicitly; an "@name" in the task title
         // must not redirect the block to another agent.
         resolveMentions: false,
       });
-      const stored = await this.store.setConversation(task.id, agentId, {
-        streamId,
-        blockId: posted.block.id,
-      });
-      if (!stored) {
-        this.deps.log.warn(
-          { taskId: task.id, agentId, blockId: posted.block.id },
-          "Task conversation already existed; keeping the stored one"
-        );
-      }
     } catch (error) {
       this.deps.log.warn(
         { taskId: task.id, agentId, err: error },
-        "Could not post the task block into the agent's stream"
+        "Could not post the assignment into the task's stream"
       );
     }
   }
@@ -924,23 +919,29 @@ export class TaskService {
     return best?.id ?? null;
   }
 
-  /** Posts into the caller's conversation thread on the task. */
+  /**
+   * Posts into the task's conversation as the calling agent, which must be
+   * on the task; `to` addresses another of the task's agents.
+   */
   async comment(
     id: string,
     agentId: string,
-    text: string
+    text: string,
+    to?: string
   ): Promise<{ blockId: string }> {
     await this.requireTask(id);
-    const row = await this.store.getTaskAgent(id, agentId);
-    if (!row?.conversation) {
+    if (!(await this.store.getTaskAgent(id, agentId))) {
       throw invalid(
-        `You have no conversation on task ${id}. Call task_update({ id: "${id}", assign: "self" }) first.`
+        `You are not on task ${id}. Call task_update({ id: "${id}", assign: "self" }) first.`
       );
     }
-    const block = await this.deps.chat.post(agentId, {
-      text,
-      replyTo: row.conversation.blockId,
-    });
+    if (to !== undefined && !(await this.store.getTaskAgent(id, to)))
+      throw invalid(`Agent ${to} is not on task ${id}.`);
+    const block = await this.deps.chat.post(
+      agentId,
+      { text, ...(to ? { to } : {}) },
+      { root: id }
+    );
     return { blockId: block.id };
   }
 }

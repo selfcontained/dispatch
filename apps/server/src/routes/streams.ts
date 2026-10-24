@@ -18,7 +18,11 @@ import {
   decodeFeedCursor,
   loadBlockEntry,
 } from "../chat/feed.js";
-import { StreamServiceError, type StreamService } from "../chat/service.js";
+import {
+  StreamServiceError,
+  TASK_ROOT_PREFIX,
+  type StreamService,
+} from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
 import { attachTurns } from "../chat/turns.js";
 import { attachmentCaptionSchema, chatUrlSchema } from "../chat/validation.js";
@@ -128,7 +132,7 @@ function bodyIssueMessage(error: z.ZodError): string {
 /**
  * HTTP surface over `StreamService`: body shape checks and status-code
  * mapping live here; the workflows live in the service. `:rootId` is the
- * stream's root agent.
+ * stream's root: an agent, or a task (`tsk_…`) whose conversation it is.
  */
 export async function registerStreamRoutes(
   app: FastifyInstance,
@@ -142,6 +146,20 @@ export async function registerStreamRoutes(
       id,
     ]);
     return result.rows.length > 0;
+  }
+
+  /** 404s unless `rootId` is a stream root: an agent, or a task. */
+  async function requireRoot(
+    reply: FastifyReply,
+    rootId: string
+  ): Promise<boolean> {
+    if (await streams.rootExists(rootId)) return true;
+    await reply.code(404).send({
+      error: rootId.startsWith(TASK_ROOT_PREFIX)
+        ? "Task not found."
+        : "Agent not found.",
+    });
+    return false;
   }
 
   function sendError(reply: FastifyReply, error: unknown): FastifyReply {
@@ -175,9 +193,7 @@ export async function registerStreamRoutes(
       fullTurnDetails?: string;
       launchReplies?: string;
     };
-    if (!(await agentExists(rootId))) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
+    if (!(await requireRoot(reply, rootId))) return reply;
     const rawCursor = query.cursor || null;
     const cursor = rawCursor ? decodeFeedCursor(rawCursor) : null;
     if (rawCursor && !cursor) {
@@ -258,9 +274,7 @@ export async function registerStreamRoutes(
     if (!parsed.success) {
       return reply.code(400).send({ error: bodyIssueMessage(parsed.error) });
     }
-    if (!(await agentExists(rootId))) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
+    if (!(await requireRoot(reply, rootId))) return reply;
     try {
       return await streams.sendUserPost(rootId, {
         id: parsed.data.id,
@@ -477,9 +491,7 @@ export async function registerStreamRoutes(
       if (!isBlockId(blockId)) {
         return reply.code(400).send({ error: "blockId must be a UUID." });
       }
-      if (!(await agentExists(rootId))) {
-        return reply.code(404).send({ error: "Agent not found." });
-      }
+      if (!(await requireRoot(reply, rootId))) return reply;
       const marked = await store.markThreadRead(rootId, blockId);
       return { ids: marked.ids, readAt: marked.readAt };
     }
@@ -492,9 +504,7 @@ export async function registerStreamRoutes(
     if (upTo != null && !isBlockId(upTo)) {
       return reply.code(400).send({ error: "upTo must be a block id (UUID)." });
     }
-    if (!(await agentExists(rootId))) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
+    if (!(await requireRoot(reply, rootId))) return reply;
     const marked = await store.markRead(rootId, upTo ?? undefined);
     const unreadCount = await store.countUnread(rootId);
     if (marked.updated > 0 && marked.readAt !== null) {

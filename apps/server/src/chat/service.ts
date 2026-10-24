@@ -231,11 +231,29 @@ export type StreamServiceDeps = {
   ) => Promise<unknown>;
   /** Required for anything that delivers to an agent. */
   delivery?: StreamDeliveryAdapter;
+  /**
+   * A task as a stream root (`tsk_…`): its blocks live in `blocks` with
+   * `stream_id = task.id`. Absent means no stream is a task's.
+   */
+  taskRoot?: (taskId: string) => Promise<TaskStreamRoot | null>;
   log?: {
     warn: (obj: object, msg: string) => void;
     error: (obj: object, msg: string) => void;
   };
 };
+
+/** What a stream needs to know about a task whose conversation it is. */
+export type TaskStreamRoot = {
+  id: string;
+  title: string;
+  /** The column's name, for the envelope. */
+  column: string;
+  assignedAgentId: string | null;
+  /** Every agent that has been on the task (`task_agents`). */
+  agentIds: string[];
+};
+
+export const TASK_ROOT_PREFIX = "tsk_";
 
 /** Base for the domain errors the HTTP layer maps to a status code. */
 export abstract class StreamServiceError extends Error {
@@ -730,6 +748,38 @@ export class StreamService {
     return rootAgentId(this.deps.pool, agentId);
   }
 
+  /** The task whose conversation `streamId` is, or null for an agent's stream. */
+  async taskRoot(streamId: string): Promise<TaskStreamRoot | null> {
+    if (!streamId.startsWith(TASK_ROOT_PREFIX) || !this.deps.taskRoot)
+      return null;
+    return await this.deps.taskRoot(streamId);
+  }
+
+  /** Whether `rootId` names a stream: an agent's, or a task's. */
+  async rootExists(rootId: string): Promise<boolean> {
+    if (rootId.startsWith(TASK_ROOT_PREFIX))
+      return (await this.taskRoot(rootId)) !== null;
+    const result = await this.deps.pool.query(
+      "SELECT 1 FROM agents WHERE id = $1",
+      [rootId]
+    );
+    return result.rows.length > 0;
+  }
+
+  /**
+   * Who a person's unaddressed post to a stream reaches: the stream's
+   * agent, or on a task the task's current agent.
+   */
+  private async defaultRecipient(streamId: string): Promise<string> {
+    const task = await this.taskRoot(streamId);
+    if (!task) return streamId;
+    if (!task.assignedAgentId)
+      throw new StreamValidationError(
+        "This task has no agent; assign an agent first."
+      );
+    return task.assignedAgentId;
+  }
+
   /**
    * Who a reply in a thread is for, when the writer named nobody. A thread
    * has two sides: its host's author (or the agent that launched it) and
@@ -772,7 +822,10 @@ export class StreamService {
   ): Promise<string[]> {
     const thread = await this.resolveThread(streamId, blockId);
     const recipients = thread ? await this.threadRecipients(thread, USER) : [];
-    return recipients.length ? recipients : [streamId];
+    if (recipients.length) return recipients;
+    const task = await this.taskRoot(streamId);
+    if (!task) return [streamId];
+    return task.assignedAgentId ? [task.assignedAgentId] : [];
   }
 
   /**
@@ -881,7 +934,7 @@ export class StreamService {
       );
     }
     if (review) {
-      const toAgentId = input.to ?? streamId;
+      const toAgentId = input.to ?? (await this.defaultRecipient(streamId));
       await this.requireAgent(toAgentId);
       const created = await this.createReview({
         ...(input.id ? { id: input.id } : {}),
@@ -908,7 +961,7 @@ export class StreamService {
     // `@name` names recipients in this tree or running parent sessions; it
     // wins over the page's default. Otherwise a reply in a thread goes to
     // the agents on its sides, and a top-level post to the stream's agent
-    // unless addressed elsewhere.
+    // (a task's current agent) unless addressed elsewhere.
     const tree = await this.mentionAgents(streamId);
     const mentioned =
       input.resolveMentions === false ? [] : findMentions(text, tree);
@@ -921,7 +974,7 @@ export class StreamService {
         ? mentioned
         : sides.length > 0
           ? sides
-          : [input.to ?? streamId];
+          : [input.to ?? (await this.defaultRecipient(streamId))];
     const toAgentId = recipients[0]!;
     // ACP commands must be the entire prompt's first token. A normal post's
     // DISPATCH POST envelope would hide the slash from the adapter, so an
@@ -1817,8 +1870,11 @@ export class StreamService {
     const block = await this.store.getById(id);
     if (!block) throw new StreamNotFoundError("Message not found.");
     const host = await this.threadHostFor(block);
+    // A task's conversation is readable by every agent on the task.
+    const task = await this.taskRoot(block.streamId);
     if (
       block.streamId !== (await this.streamOf(agentId)) &&
+      !task?.agentIds.includes(agentId) &&
       !(await this.store.hasContextAddress(host, agentId))
     ) {
       const container =
@@ -2083,11 +2139,26 @@ export class StreamService {
     return block;
   }
 
-  /** An agent's `post`. */
-  async post(agentId: string, input: PostInput): Promise<Block> {
+  /**
+   * An agent's `post`. `opts.root` puts it at the top of that stream
+   * instead — a task's conversation, for `task_comment` — which the agent
+   * must be on.
+   */
+  async post(
+    agentId: string,
+    input: PostInput,
+    opts: { root?: string } = {}
+  ): Promise<Block> {
     const author: BlockAuthor = { kind: "agent", agentId };
     const agent = await this.requireAgent(agentId);
-    let streamId = await this.streamOf(agentId);
+    let streamId = opts.root ?? (await this.streamOf(agentId));
+    if (opts.root) {
+      if (input.replyTo != null || input.placement !== undefined)
+        throw new StreamValidationError(
+          "A post at a stream's root takes no replyTo or placement."
+        );
+      await this.requireTaskMember(opts.root, agentId);
+    }
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
     let data = resolved.data;
@@ -2139,8 +2210,11 @@ export class StreamService {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    let home = input.placement === "root" ? null : await this.homeOf(agentId);
-    const active = await this.turns.openTurn(agentId);
+    let home =
+      input.placement === "root" || opts.root
+        ? null
+        : await this.homeOf(agentId);
+    const active = opts.root ? null : await this.turns.openTurn(agentId);
     const turnId = active?.payload.blockId;
     const turn =
       typeof turnId === "string" ? await this.store.getById(turnId) : null;
@@ -2198,7 +2272,12 @@ export class StreamService {
     // post is delivered only to whoever it names.
     if (replyTo) {
       const target = await this.store.getById(replyTo);
-      if (target && addressedTo(target).includes(agentId)) {
+      const task = target ? await this.taskRoot(target.streamId) : null;
+      if (target && task && !addressedTo(target).includes(agentId)) {
+        // A task's conversation is open to every agent on the task.
+        await this.requireTaskMember(task, agentId);
+        streamId = target.streamId;
+      } else if (target && addressedTo(target).includes(agentId)) {
         if (parentRequest && target.streamId !== streamId) {
           data = {
             ...(data as object),
@@ -3286,6 +3365,7 @@ export class StreamService {
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
+    const task = await this.taskRoot(block.streamId);
     const images = await this.promptImages(block.attachments, block.streamId);
     const outcomes = new Map<string, boolean>();
     // A post to several agents keeps each outcome of its own, so one
@@ -3397,6 +3477,9 @@ export class StreamService {
                       .map((id) => nameOf.get(id) ?? id),
                   }
                 : null,
+            task: task
+              ? { id: task.id, title: task.title, column: task.column }
+              : null,
           }),
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
@@ -3439,7 +3522,11 @@ export class StreamService {
 
   /** This tree plus running roots from other sessions; never their children. */
   private async mentionAgents(streamId: string): Promise<Mentionable[]> {
-    const ids = await agentTree(this.deps.pool, streamId);
+    // A task's conversation names the task's agents first.
+    const task = await this.taskRoot(streamId);
+    const ids = task
+      ? task.agentIds
+      : await agentTree(this.deps.pool, streamId);
     const result = await this.deps.pool.query<{ id: string; name: string }>(
       `SELECT id, name FROM agents
        WHERE deleted_at IS NULL
@@ -3996,6 +4083,20 @@ export class StreamService {
       title: host.data.title,
       authorAgentId: host.author.kind === "agent" ? host.author.agentId : null,
     };
+  }
+
+  /** Refuses an agent that is not on the task whose stream it writes to. */
+  private async requireTaskMember(
+    task: string | TaskStreamRoot,
+    agentId: string
+  ): Promise<TaskStreamRoot> {
+    const root = typeof task === "string" ? await this.taskRoot(task) : task;
+    if (!root) throw new StreamNotFoundError(`Task ${String(task)} not found.`);
+    if (!root.agentIds.includes(agentId))
+      throw new StreamValidationError(
+        `You are not on task ${root.id}; only its agents post in its conversation. Take it with task_update({ id: "${root.id}", assign: "self" }) first.`
+      );
+    return root;
   }
 
   private async requireAgent(agentId: string): Promise<StreamAgent> {
