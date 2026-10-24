@@ -38,7 +38,11 @@ let launchFails: string | null;
 /** When set, launches wait for it before creating their agent. */
 let launchGate: Promise<void> | null;
 let posts: Array<{ streamId: string; input: Record<string, unknown> }>;
-let agentPosts: Array<{ agentId: string; input: Record<string, unknown> }>;
+let agentPosts: Array<{
+  agentId: string;
+  input: Record<string, unknown>;
+  opts: Record<string, unknown>;
+}>;
 let postFails: boolean;
 let published: Array<{ type: string; projectId: string; taskId?: string }>;
 let service: TaskService;
@@ -91,7 +95,6 @@ function build(): TaskService {
       return { id } as AgentRecord;
     },
     chat: {
-      streamOf: async (agentId: string) => `stream:${agentId}`,
       sendUserPost: (async (
         streamId: string,
         input: Record<string, unknown>
@@ -106,8 +109,12 @@ function build(): TaskService {
           held: false,
         };
       }) as never,
-      post: (async (agentId: string, input: Record<string, unknown>) => {
-        agentPosts.push({ agentId, input });
+      post: (async (
+        agentId: string,
+        input: Record<string, unknown>,
+        opts: Record<string, unknown>
+      ) => {
+        agentPosts.push({ agentId, input, opts });
         return { id: "reply-block" };
       }) as never,
     },
@@ -453,7 +460,7 @@ describe("triggers", () => {
 });
 
 describe("assignment", () => {
-  it("posts the task block and stores the conversation", async () => {
+  it("posts the assignment into the task's stream", async () => {
     const ready = await withTrigger("ready");
     // The title names another agent: the block must still go to the assignee.
     const task = await service.createTask(
@@ -464,35 +471,21 @@ describe("assignment", () => {
     const detail = await service.getTaskDetail(task.id);
     const agentId = detail.assignedAgentId!;
     expect(posts).toHaveLength(1);
-    expect(posts[0]).toMatchObject({
-      streamId: `stream:${agentId}`,
+    expect(posts[0]).toEqual({
+      streamId: task.id,
       input: {
         to: agentId,
+        text: `You're assigned to task ${task.id} — Ship it with @Reviewer. This stream is the task's conversation; reply here.`,
         allowInert: true,
         resolveMentions: false,
-        attachments: [
-          {
-            type: "link",
-            url: `/tasks?task=${task.id}`,
-            title: "Ship it with @Reviewer",
-          },
-        ],
       },
     });
-    expect(posts[0]!.input.text).toContain(
-      `Task ${task.id} — Ship it with @Reviewer (Ready)`
-    );
     expect(detail.agents).toEqual([
-      expect.objectContaining({
-        agentId,
-        role: "trigger",
-        columnId: ready,
-        conversation: {
-          streamId: `stream:${agentId}`,
-          blockId: expect.any(String),
-        },
-      }),
+      expect.objectContaining({ agentId, role: "trigger", columnId: ready }),
     ]);
+    expect(detail.agents[0]).not.toHaveProperty("conversation");
+    // The launch briefing names the task's stream.
+    expect(launches[0]!.appendix).toContain(`Conversation: stream ${task.id}`);
   });
 
   it("keeps the assignment when the post fails", async () => {
@@ -506,10 +499,7 @@ describe("assignment", () => {
     );
     expect(updated.assignedAgentId).toBe("agt_a");
     const detail = await service.getTaskDetail(task.id);
-    expect(detail.agents[0]).toMatchObject({
-      role: "manual",
-      conversation: null,
-    });
+    expect(detail.agents[0]).toMatchObject({ role: "manual" });
   });
 
   it("unassigning keeps the history row", async () => {
@@ -655,7 +645,7 @@ describe("task tools", () => {
     expect(refused.content[0]!.text).toMatch(/not in a Dispatch project/);
   });
 
-  it("assign self posts the block into the caller's stream", async () => {
+  it("assign self posts the assignment into the task's stream", async () => {
     await insertAgent("agt_tool");
     const call = tools("agt_tool", projectId);
     const task = await service.createTask({ projectId, title: "t" }, USER);
@@ -671,7 +661,8 @@ describe("task tools", () => {
       links: [{ url: "https://github.com/o/r/pull/1" }],
     });
     expect(posts).toHaveLength(1);
-    expect(posts[0]!.streamId).toBe("stream:agt_tool");
+    expect(posts[0]!.streamId).toBe(task.id);
+    expect(posts[0]!.input.to).toBe("agt_tool");
     const detail = await service.getTaskDetail(task.id);
     expect(detail.agents[0]).toMatchObject({ role: "self" });
     expect(detail.events.map((e) => e.kind)).toContain("link_added");
@@ -686,7 +677,7 @@ describe("task tools", () => {
     expect((await service.requireTask(task.id)).links).toHaveLength(1);
   });
 
-  it("task_comment needs an assignment, then replies in its thread", async () => {
+  it("task_comment needs an assignment, then posts in the task's stream", async () => {
     await insertAgent("agt_tool");
     const call = tools("agt_tool", projectId);
     const task = await service.createTask({ projectId, title: "t" }, USER);
@@ -697,11 +688,34 @@ describe("task tools", () => {
     await call("task_update", { id: task.id, assign: "self" });
     const ok = await call("task_comment", { id: task.id, text: "progress" });
     expect(ok.isError).toBeUndefined();
-    const blockId = (await service.getTaskDetail(task.id)).agents[0]!
-      .conversation!.blockId;
     expect(agentPosts).toEqual([
-      { agentId: "agt_tool", input: { text: "progress", replyTo: blockId } },
+      {
+        agentId: "agt_tool",
+        input: { text: "progress" },
+        opts: { root: task.id },
+      },
     ]);
+
+    // `to` must name another agent on the task.
+    await insertAgent("agt_other");
+    const stranger = await call("task_comment", {
+      id: task.id,
+      text: "hi",
+      to: "agt_other",
+    });
+    expect(stranger.isError).toBe(true);
+    expect(stranger.content[0]!.text).toMatch(/not on task/);
+    await service.updateTask(task.id, { assignedAgentId: "agt_other" }, USER);
+    await call("task_comment", {
+      id: task.id,
+      text: "over to you",
+      to: "agt_other",
+    });
+    expect(agentPosts.at(-1)).toEqual({
+      agentId: "agt_tool",
+      input: { text: "over to you", to: "agt_other" },
+      opts: { root: task.id },
+    });
   });
 
   it("refuses a move that would relaunch over another running agent", async () => {
@@ -817,7 +831,7 @@ describe("concurrent transitions", () => {
     expect((await service.requireTask(task.id)).columnId).toBe(task.columnId);
   });
 
-  it("opens one conversation for two overlapping assignments", async () => {
+  it("posts one assignment for two overlapping self-assignments", async () => {
     await insertAgent("agt_tool");
     const call = tools("agt_tool", projectId);
     const task = await service.createTask({ projectId, title: "t" }, USER);
@@ -826,27 +840,6 @@ describe("concurrent transitions", () => {
       call("task_update", { id: task.id, assign: "self" }),
     ]);
     expect(posts).toHaveLength(1);
-    const detail = await service.getTaskDetail(task.id);
-    expect(detail.agents[0]!.conversation!.blockId).toBe(
-      "00000000-0000-4000-8000-000000000001"
-    );
-  });
-
-  it("keeps the first conversation pointer", async () => {
-    await insertAgent("agt_a");
-    const task = await service.createTask({ projectId, title: "t" }, USER);
-    await service.updateTask(task.id, { assignedAgentId: "agt_a" }, USER);
-    const first = (await service.getTaskDetail(task.id)).agents[0]!
-      .conversation!;
-    expect(
-      await service.store.setConversation(task.id, "agt_a", {
-        streamId: "s",
-        blockId: "other",
-      })
-    ).toBe(false);
-    expect(
-      (await service.getTaskDetail(task.id)).agents[0]!.conversation
-    ).toEqual(first);
   });
 });
 

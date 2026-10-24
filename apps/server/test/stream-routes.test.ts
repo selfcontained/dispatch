@@ -1244,6 +1244,7 @@ describe("GET /api/v1/chat/unread", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       agents: { [agentId]: { unread: 3, pendingQuestions: 2 } },
+      tasks: {},
     });
     expect(res.json().agents[other]).toBeUndefined();
   });

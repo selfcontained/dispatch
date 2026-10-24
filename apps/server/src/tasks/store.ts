@@ -9,7 +9,6 @@ import type {
   TaskAgentRole,
   TaskColumn,
   TaskColumnTrigger,
-  TaskConversation,
   TaskEvent,
   TaskEventKind,
   TaskLink,
@@ -137,7 +136,6 @@ type TaskAgentRow = {
   agent_id: string;
   role: TaskAgentRole;
   column_id: string | null;
-  conversation: TaskConversation | null;
   assigned_at: Date;
 };
 
@@ -147,7 +145,6 @@ function toTaskAgent(row: TaskAgentRow): TaskAgent {
     agentId: row.agent_id,
     role: row.role,
     columnId: row.column_id,
-    conversation: row.conversation,
     assignedAt: iso(row.assigned_at)!,
   };
 }
@@ -468,18 +465,20 @@ export class TaskStore {
     );
   }
 
+  /** Deletes the task and its conversation (the blocks rooted at it). */
   async deleteTask(id: string): Promise<boolean> {
-    const result = await this.pool.query(`DELETE FROM tasks WHERE id = $1`, [
-      id,
-    ]);
-    return result.rowCount === 1;
+    return await this.transaction(async (db) => {
+      await db.query(`DELETE FROM blocks WHERE stream_id = $1`, [id]);
+      const result = await db.query(`DELETE FROM tasks WHERE id = $1`, [id]);
+      return result.rowCount === 1;
+    });
   }
 
   // ── Assignments ──────────────────────────────────────────────────
 
   /**
    * Records an assignment. A repeat assignment of the same agent refreshes
-   * its role and column but keeps the conversation it already has.
+   * its role and column.
    */
   async upsertTaskAgent(input: {
     taskId: string;
@@ -497,23 +496,6 @@ export class TaskStore {
       [input.taskId, input.agentId, input.role, input.columnId]
     );
     return toTaskAgent(rows[0]!);
-  }
-
-  /**
-   * Records the conversation unless one is already stored; false means
-   * another assignment got there first and its pointer stands.
-   */
-  async setConversation(
-    taskId: string,
-    agentId: string,
-    conversation: TaskConversation
-  ): Promise<boolean> {
-    const result = await this.pool.query(
-      `UPDATE task_agents SET conversation = $3
-       WHERE task_id = $1 AND agent_id = $2 AND conversation IS NULL`,
-      [taskId, agentId, JSON.stringify(conversation)]
-    );
-    return result.rowCount === 1;
   }
 
   async getTaskAgent(
