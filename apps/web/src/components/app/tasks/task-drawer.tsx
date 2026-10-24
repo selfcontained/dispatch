@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { X, ChevronLeft, ChevronRight, ExternalLink, Plus } from "lucide-react";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
@@ -24,41 +24,50 @@ import {
 import { TaskAgent } from "./task-agent";
 import { StatusSelect } from "./task-list";
 import { taskAge } from "./task-utils";
-import { useThread } from "@/hooks/use-stream";
+import { ThreadPage } from "@/components/app/drawer/thread-page";
+import { FileLightbox } from "@/components/app/file-lightbox";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
 
-function TaskConversationPreview({
+function TaskConversation({
   streamId,
   blockId,
   projectId,
+  agent,
 }: {
   streamId: string;
   blockId: string;
   projectId: string;
+  agent: Agent | null;
 }) {
-  const thread = useThread(streamId, blockId);
-  const entries = [thread.root, ...thread.replies]
-    .filter((entry) => entry?.text)
-    .slice(-10);
+  const navigate = useNavigate();
+  const [fileId, setFileId] = useState<number | null>(null);
+  const [fileIds, setFileIds] = useState<number[]>([]);
   return (
     <div className="space-y-2">
-      {entries.map((entry) => (
-        <div
-          key={entry!.id}
-          className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs"
-        >
-          <span className="font-semibold">
-            {entry!.author.kind === "user"
-              ? "You"
-              : (thread.agentNames?.[entry!.author.agentId] ??
-                entry!.author.agentId)}
-          </span>
-          <p className="mt-1 whitespace-pre-wrap">{entry!.text}</p>
-        </div>
-      ))}
+      <div className="flex h-[30rem] min-h-0 overflow-hidden rounded-lg border border-border/60">
+        <ThreadPage
+          agentId={agent?.id ?? streamId}
+          agent={agent}
+          rootId={streamId}
+          blockId={blockId}
+          findingId={null}
+          isMobile={false}
+          openLightbox={(id, order) => {
+            setFileId(id);
+            setFileIds(order ?? [id]);
+          }}
+          onOpenThread={(id, findingId) =>
+            navigate(
+              `/agents/${streamId}?project=${encodeURIComponent(projectId)}&thread=${encodeURIComponent(id)}${findingId ? `&finding=${encodeURIComponent(findingId)}` : ""}`
+            )
+          }
+          onBack={() => undefined}
+        />
+      </div>
+      <FileLightbox fileId={fileId} fileIds={fileIds} setFileId={setFileId} />
       <Link
         className="text-sm text-primary hover:underline"
         to={`/agents/${streamId}?thread=${encodeURIComponent(blockId)}&project=${encodeURIComponent(projectId)}`}
@@ -346,10 +355,14 @@ export function TaskDrawer({
           <section>
             <h3 className="mb-2 text-sm font-semibold">Conversation</h3>
             {conversation ? (
-              <TaskConversationPreview
+              <TaskConversation
                 streamId={conversation.streamId}
                 blockId={conversation.blockId}
                 projectId={projectId}
+                agent={
+                  agents.find((agent) => agent.id === task.assignedAgentId) ??
+                  null
+                }
               />
             ) : (
               <p className="text-xs text-muted-foreground">
