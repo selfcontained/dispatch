@@ -203,10 +203,12 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     const strip = page.getByTestId("task-column-automation-ready");
     await expect(strip).toContainText("launches Tasks builder");
     await page.getByRole("button", { name: "Ready menu" }).click();
-    await expect(
-      page.getByRole("menuitem", { name: "Edit automation…" })
-    ).toBeVisible();
+    await page.getByRole("menuitem", { name: "Edit automation…" }).click();
+    await expect(page.getByRole("dialog")).toContainText(
+      "already launches Tasks builder"
+    );
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await strip.click();
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
