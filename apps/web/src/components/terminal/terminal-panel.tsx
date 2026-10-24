@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchAuthStatus, type AuthStatus } from "@/hooks/use-auth";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -169,6 +171,12 @@ export default function TerminalPanel({
   agentId: string;
   active: boolean;
 }) {
+  // Subscribe to the existing auth query; the app's auth hook owns fetching it.
+  const { data: authStatus } = useQuery<AuthStatus>({
+    queryKey: ["auth-status"],
+    queryFn: fetchAuthStatus,
+    enabled: false,
+  });
   const [info, setInfo] = useState<Info | null>(null);
   const [status, setStatus] = useState<Status>(() => {
     const saved = readSession(agentId);
@@ -386,6 +394,18 @@ export default function TerminalPanel({
     }
   }, [agentId, info]);
 
+  useEffect(() => {
+    if (authStatus?.passwordSet && errorCode === "password_not_set") {
+      setErrorCode(undefined);
+      setGeneration((value) => value + 1);
+    }
+  }, [authStatus?.passwordSet, errorCode]);
+
+  const retryAfterSetup = () => {
+    setErrorCode(undefined);
+    setGeneration((value) => value + 1);
+  };
+
   const ready = status === "connected";
   const finished = status === "ended" || typeof status === "object";
   const statusLabel =
@@ -463,7 +483,8 @@ export default function TerminalPanel({
       {status === "unavailable" && errorCode === "password_not_set" ? (
         <div className="min-h-0 flex-1 overflow-auto rounded bg-[#101014] p-4">
           <SetPasswordForm
-            onSuccess={() => setGeneration((value) => value + 1)}
+            onSuccess={retryAfterSetup}
+            onPasswordAlreadySet={retryAfterSetup}
           />
         </div>
       ) : ready ? (

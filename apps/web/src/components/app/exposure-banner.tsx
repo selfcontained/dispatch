@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { useAuthContext } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
@@ -15,10 +15,31 @@ import { SetPasswordForm } from "./set-password-form";
 export function ExposureBanner() {
   const { exposed } = useAuthContext();
   const [open, setOpen] = useState(false);
+  const bannerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const banner = bannerRef.current;
+    const shell = banner?.parentElement;
+    if (!banner || !shell) return;
+    // Floating drawers inherit this offset; keep their tabs and the banner's
+    // action reachable even when the warning wraps or safe-area padding changes.
+    const measure = () =>
+      shell.style.setProperty(
+        "--exposure-banner-height",
+        `${banner.getBoundingClientRect().height}px`
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(banner);
+    return () => {
+      observer.disconnect();
+      shell.style.removeProperty("--exposure-banner-height");
+    };
+  }, [exposed]);
   if (!exposed) return null;
 
   return (
     <div
+      ref={bannerRef}
       role="alert"
       className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-sm text-amber-600 dark:text-amber-300"
     >

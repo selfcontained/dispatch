@@ -3,7 +3,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-export function SetPasswordForm({ onSuccess }: { onSuccess?: () => void }) {
+export function SetPasswordForm({
+  onSuccess,
+  onPasswordAlreadySet,
+}: {
+  onSuccess?: () => void;
+  onPasswordAlreadySet?: () => void;
+}) {
   const id = useId();
   const queryClient = useQueryClient();
   const [password, setPassword] = useState("");
@@ -26,13 +32,22 @@ export function SetPasswordForm({ onSuccess }: { onSuccess?: () => void }) {
       });
       if (!response.ok) {
         const body = (await response.json()) as { error?: string };
+        if (
+          response.status === 400 &&
+          body.error === "Password is already set." &&
+          onPasswordAlreadySet
+        ) {
+          onPasswordAlreadySet();
+          await queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+          return;
+        }
         setError(body.error ?? "Failed to set password.");
         return;
       }
-      await queryClient.invalidateQueries({ queryKey: ["auth-status"] });
       setPassword("");
       setConfirm("");
       onSuccess?.();
+      await queryClient.invalidateQueries({ queryKey: ["auth-status"] });
     } catch {
       setError("Unable to reach the server.");
     } finally {

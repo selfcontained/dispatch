@@ -91,7 +91,7 @@ function MobileSidebar({
       {/* Backdrop */}
       <div
         className={cn(
-          "fixed inset-0 z-50 bg-black/50 backdrop-blur-md transition-opacity duration-300",
+          "fixed inset-x-0 bottom-0 top-[var(--exposure-banner-height,0px)] z-50 bg-black/50 backdrop-blur-md transition-opacity duration-300",
           open ? "opacity-100" : "pointer-events-none opacity-0"
         )}
         onClick={() => onOpenChange(false)}
@@ -99,7 +99,7 @@ function MobileSidebar({
       {/* Panel */}
       <div
         className={cn(
-          "fixed inset-y-0 z-[60] h-dvh w-screen transition-transform duration-300",
+          "fixed bottom-0 top-[var(--exposure-banner-height,0px)] z-[60] w-screen transition-transform duration-300",
           side === "left" ? "left-0" : "right-0",
           open
             ? "translate-x-0"
