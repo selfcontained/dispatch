@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
-import { groupTasks, nextPosition, visibleTasks } from "./task-utils";
+import {
+  columnAccent,
+  groupTasks,
+  needsAttention,
+  nextPosition,
+  visibleTasks,
+} from "./task-utils";
 const columns = [
   {
     id: "backlog",
@@ -51,34 +57,25 @@ describe("task board utilities", () => {
     expect(nextPosition(tasks, "backlog", "a")).toBeLessThan(10);
     expect(nextPosition(tasks, "done")).toBe(2);
   });
-  it("filters agent, attention, working, and recent done views", () => {
+  it("hides done work older than a week and flags attention", () => {
+    const old = {
+      ...tasks[2],
+      id: "old",
+      completedAt: new Date(Date.now() - 8 * 86400000).toISOString(),
+    } as Task;
     expect(
-      visibleTasks(tasks, columns, "agents", new Set(), new Set()).map(
-        (task) => task.id
-      )
-    ).toEqual(["b"]);
+      visibleTasks([...tasks, old], columns).map((task) => task.id)
+    ).toEqual(["b", "a", "c"]);
     expect(
-      visibleTasks(
-        tasks,
-        columns,
-        "attention",
-        new Set(["agent"]),
-        new Set()
-      ).map((task) => task.id)
+      tasks
+        .filter((task) => needsAttention(task, new Set(["agent"])))
+        .map((task) => task.id)
     ).toEqual(["a"]);
+  });
+  it("gives known columns a fixed accent and cycles the rest", () => {
+    expect(columnAccent(columns[1], 1)).toBe("var(--chart-1)");
     expect(
-      visibleTasks(
-        tasks,
-        columns,
-        "working",
-        new Set(),
-        new Set(["agent"])
-      ).map((task) => task.id)
-    ).toEqual(["a"]);
-    expect(
-      visibleTasks(tasks, columns, "done", new Set(), new Set()).map(
-        (task) => task.id
-      )
-    ).toEqual(["c"]);
+      columnAccent({ ...columns[0], key: "custom" } as TaskColumn, 0)
+    ).toBe("var(--chart-3)");
   });
 });

@@ -1,5 +1,5 @@
 import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
-export type TaskView = "all" | "attention" | "working" | "agents" | "done";
+import type { Agent } from "@/components/app/types";
 export function orderedColumns(board: TaskBoard): TaskColumn[] {
   return [...board.columns].sort((a, b) => a.position - b.position);
 }
@@ -22,38 +22,47 @@ export function nextPosition(
     ? ordered[0].position - 1
     : (ordered[index - 1].position + ordered[index].position) / 2;
 }
-export function visibleTasks(
-  tasks: Task[],
-  columns: TaskColumn[],
-  view: TaskView,
-  attentionIds: Set<string>,
-  workingIds: Set<string>
-): Task[] {
+/** The board's default scope: everything except work finished over a week ago. */
+export function visibleTasks(tasks: Task[], columns: TaskColumn[]): Task[] {
   const doneIds = new Set(
     columns.filter((column) => column.isDone).map((column) => column.id)
   );
   const weekAgo = Date.now() - 7 * 86400000;
-  return tasks.filter((task) => {
-    if (view === "attention")
-      return (
-        !!task.latestFailure ||
-        (!!task.assignedAgentId && attentionIds.has(task.assignedAgentId))
-      );
-    if (view === "working")
-      return !!task.assignedAgentId && workingIds.has(task.assignedAgentId);
-    if (view === "agents") return task.createdBy.kind === "agent";
-    if (view === "done")
-      return (
-        doneIds.has(task.columnId) &&
-        !!task.completedAt &&
-        Date.parse(task.completedAt) > weekAgo
-      );
-    return (
+  return tasks.filter(
+    (task) =>
       !doneIds.has(task.columnId) ||
       !task.completedAt ||
       Date.parse(task.completedAt) > weekAgo
-    );
-  });
+  );
+}
+/** A failed launch, or an assignee blocked or waiting on someone. */
+export function needsAttention(task: Task, attentionIds: Set<string>): boolean {
+  return (
+    !!task.latestFailure ||
+    (!!task.assignedAgentId && attentionIds.has(task.assignedAgentId))
+  );
+}
+/** Accent token per column: known keys keep their colour, others cycle. */
+const COLUMN_ACCENTS: Record<string, string> = {
+  // Not started yet: a neutral, so the coloured columns read as progress.
+  backlog: "--muted-foreground",
+  ready: "--chart-3",
+  in_progress: "--chart-2",
+  in_review: "--chart-4",
+  done: "--chart-1",
+};
+const ACCENT_CYCLE = [
+  "--chart-3",
+  "--chart-2",
+  "--chart-4",
+  "--chart-1",
+  "--chart-5",
+  "--chart-6",
+];
+export function columnAccent(column: TaskColumn, index: number): string {
+  const token =
+    COLUMN_ACCENTS[column.key] ?? ACCENT_CYCLE[index % ACCENT_CYCLE.length];
+  return `var(${token})`;
 }
 export function groupTasks(
   tasks: Task[],
@@ -75,4 +84,16 @@ export function taskAge(date: string): string {
     Math.floor((Date.now() - Date.parse(date)) / 3600000)
   );
   return hours ? `${hours}h` : "now";
+}
+/** Running agents first, then the rest; each group by name. */
+export function assigneeOptions(
+  agents: Agent[],
+  projectId: string,
+  currentId: string | null
+): Agent[] {
+  const live = (agent: Agent) =>
+    agent.status === "running" || agent.status === "creating" ? 0 : 1;
+  return agents
+    .filter((agent) => agent.projectId === projectId || agent.id === currentId)
+    .sort((a, b) => live(a) - live(b) || a.name.localeCompare(b.name));
 }

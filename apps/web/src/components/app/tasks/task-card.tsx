@@ -4,6 +4,8 @@ import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { TaskAgent } from "./task-agent";
 import { taskAge } from "./task-utils";
+import { GripVertical } from "lucide-react";
+import { cn } from "@/lib/utils";
 export function TaskCard({
   task,
   columns,
@@ -39,7 +41,10 @@ export function TaskCard({
         transition: sortable.transition,
       }}
       data-testid={`task-card-${task.id}`}
-      className="rounded-lg border border-border/70 bg-card p-3 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "group rounded-lg bg-muted/70 p-3 shadow-sm ring-1 ring-foreground/[0.05] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        sortable.isDragging && "relative z-10 shadow-lg"
+      )}
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
@@ -48,13 +53,13 @@ export function TaskCard({
           type="button"
           {...sortable.attributes}
           {...sortable.listeners}
-          className="cursor-grab text-muted-foreground touch-none"
+          className="-ml-1 cursor-grab self-start rounded text-muted-foreground/50 touch-none hover:text-foreground"
           aria-label={`Drag ${task.title}`}
         >
-          ⋮⋮
+          <GripVertical className="h-4 w-4" aria-hidden="true" />
         </button>
         <button
-          className="line-clamp-2 flex-1 text-left text-sm font-medium"
+          className="line-clamp-3 min-w-0 flex-1 break-words text-left text-sm font-medium leading-5"
           onClick={onOpen}
         >
           {task.title}
@@ -73,7 +78,9 @@ export function TaskCard({
             )?.name ?? task.createdBy.agentId}
           </span>
         ) : null}
-        <time title={task.createdAt}>{taskAge(task.createdAt)}</time>
+        <time className="ml-auto" title={task.createdAt}>
+          {taskAge(task.createdAt)}
+        </time>
       </div>
       {(task.links.some((link) => link.kind === "pr") ||
         task.latestFailure) && (
@@ -86,7 +93,7 @@ export function TaskCard({
                 href={link.url ?? undefined}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded bg-muted px-1.5 py-0.5"
+                className="rounded bg-background/60 px-1.5 py-0.5"
                 onClick={(event) => event.stopPropagation()}
               >
                 {link.label}
@@ -94,7 +101,7 @@ export function TaskCard({
             ))}
           {task.latestFailure && (
             <span
-              className="rounded bg-destructive/15 px-1.5 py-0.5 text-destructive"
+              className="max-w-full truncate rounded bg-destructive/15 px-1.5 py-0.5 text-destructive"
               title={task.latestFailure.reason}
             >
               ⚠ launch failed · {task.latestFailure.reason}

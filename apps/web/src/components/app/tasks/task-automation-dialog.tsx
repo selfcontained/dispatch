@@ -77,7 +77,7 @@ export function TaskAutomationDialog({
             Launch a template when a task enters this column.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="-mx-1 min-h-0 space-y-4 overflow-y-auto px-1 pb-1">
           <div className="space-y-1">
             <label className="text-sm" htmlFor="task-trigger-template">
               Template
@@ -141,7 +141,7 @@ export function TaskAutomationDialog({
               ? `Entering ${column.name} launches ${chosen.name}${trigger.assign ? " and assigns the agent" : ""}.`
               : "Choose a project template to configure this column."}
           </p>
-          <div className="flex justify-between">
+          <div className="flex flex-wrap justify-between gap-2">
             <Button
               variant="ghost"
               disabled={!column.trigger}

@@ -98,18 +98,18 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await expect(
       page.getByTestId("task-drawer").getByText("trigger launched")
     ).toBeVisible();
-    await page
-      .getByText("Conversation", { exact: true })
-      .scrollIntoViewIfNeeded();
-    await expect(page.getByTestId("chat-thread-panel")).toBeVisible();
-    await page
+    const conversation = page.getByTestId("task-conversation");
+    await conversation.scrollIntoViewIfNeeded();
+    await expect(conversation).toBeVisible();
+    await expect(
+      page.getByTestId("task-drawer").getByText("Open conversation →")
+    ).toHaveCount(0);
+    await conversation
       .getByRole("textbox", { name: "Message the agent" })
       .fill("Progress from the task drawer");
-    await page.getByTestId("chat-composer-send").click();
+    await conversation.getByTestId("chat-composer-send").click();
     await expect(
-      page
-        .getByTestId("chat-thread-panel")
-        .getByText("Progress from the task drawer")
+      conversation.getByText("Progress from the task drawer")
     ).toBeVisible();
     await page.screenshot({
       path: "/tmp/dispatch-tasks-drawer.png",
@@ -165,6 +165,51 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       path: "/tmp/dispatch-tasks-draft-refetch.png",
       scale: "device",
     });
+    const assigned = await (
+      await request.get(`/api/v1/tasks/${task.id}`, { headers })
+    ).json();
+    expect(assigned.assignedAgentId).toBeTruthy();
+    const drawer = page.getByTestId("task-drawer");
+    await drawer.getByRole("combobox", { name: "Assignee" }).click();
+    await page.getByRole("option", { name: "Unassigned" }).click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await (
+              await request.get(`/api/v1/tasks/${task.id}`, { headers })
+            ).json()
+          ).assignedAgentId
+      )
+      .toBeNull();
+    await drawer.getByRole("combobox", { name: "Assignee" }).click();
+    await page.getByRole("option").nth(1).click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await (
+              await request.get(`/api/v1/tasks/${task.id}`, { headers })
+            ).json()
+          ).assignedAgentId
+      )
+      .toBe(assigned.assignedAgentId);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(
+      `/agents/${assigned.assignedAgentId}?project=${project.id}`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await page.getByRole("link", { name: /^Task:/ }).click();
+    await expect(page.getByTestId("task-drawer")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`task=${task.id}`));
+    await expect(page.getByTitle("Open sidebar")).toBeAttached();
+    await page.screenshot({
+      path: "/tmp/dispatch-tasks-mobile-deeplink.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Close task" }).first().click();
+    await expect(page.getByTestId("task-drawer")).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.getByRole("button", { name: "Filter by project" }).click();
     await page.getByRole("menuitem", { name: "All projects" }).click();
     await expect(page).not.toHaveURL(/task=/);

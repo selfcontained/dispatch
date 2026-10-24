@@ -10,7 +10,9 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { TaskAgent } from "./task-agent";
-import { groupTasks, taskAge } from "./task-utils";
+import { columnAccent, groupTasks, taskAge } from "./task-utils";
+import { ChevronDown, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 export function TaskList({
   board,
   tasks,
@@ -67,14 +69,19 @@ export function TaskList({
           </SelectContent>
         </Select>
       </div>
-      {grouped.map(({ column, tasks: group }) => (
+      {grouped.map(({ column, tasks: group }, index) => (
         <section
           key={column.id}
-          className="mb-4 overflow-hidden rounded-lg border border-border/60"
+          id={`task-column-${column.id}`}
+          style={
+            { "--col": columnAccent(column, index) } as React.CSSProperties
+          }
+          className="mb-3 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40"
         >
           <Button
             variant="ghost"
-            className="w-full justify-start rounded-none bg-muted/40 text-sm"
+            aria-expanded={!collapsed.has(column.id)}
+            className="h-10 w-full justify-start gap-2 rounded-none bg-[hsl(var(--col)/0.08)] px-3 text-sm font-semibold hover:bg-[hsl(var(--col)/0.14)]"
             onClick={() =>
               setCollapsed((old) => {
                 const next = new Set(old);
@@ -84,20 +91,38 @@ export function TaskList({
               })
             }
           >
-            {collapsed.has(column.id) ? "▸" : "▾"} {column.name}{" "}
-            <span className="ml-1 text-muted-foreground">{group.length}</span>
-            {column.trigger && <span className="ml-2">⚡</span>}
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "h-4 w-4 text-muted-foreground transition-transform",
+                collapsed.has(column.id) && "-rotate-90"
+              )}
+            />
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
+            />
+            {column.name}
+            <span className="rounded-full bg-background/50 px-1.5 text-xs font-normal tabular-nums text-muted-foreground">
+              {group.length}
+            </span>
+            {column.trigger && (
+              <Zap
+                aria-label="Automation configured"
+                className="h-3.5 w-3.5 text-[hsl(var(--col))]"
+              />
+            )}
           </Button>
           {!collapsed.has(column.id) && (
-            <div className="divide-y divide-border/40">
+            <div className="divide-y divide-border/30">
               {sortTasks(group).map((task) => (
                 <div
                   key={task.id}
                   data-testid={`task-row-${task.id}`}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 p-2 text-sm md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)_minmax(120px,1fr)_55px_minmax(80px,1fr)] md:gap-3"
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)_minmax(120px,1fr)_55px_minmax(80px,1fr)] md:gap-3"
                 >
                   <button
-                    className="truncate text-left font-medium hover:underline"
+                    className="min-w-0 truncate text-left font-medium hover:underline"
                     onClick={() => openTask(task.id)}
                   >
                     {task.title}
@@ -141,7 +166,16 @@ export function TaskList({
                           {link.label}
                         </a>
                       ))}
-                    <div className="md:hidden">
+                    <div className="flex min-w-0 items-center gap-2 md:hidden">
+                      <TaskAgent
+                        agent={agents.find(
+                          (agent) => agent.id === task.assignedAgentId
+                        )}
+                        projectId={task.projectId}
+                        compact
+                      />
+                    </div>
+                    <div className="ml-auto md:hidden">
                       <StatusSelect
                         task={task}
                         columns={board.columns}
@@ -152,7 +186,9 @@ export function TaskList({
                 </div>
               ))}
               {!group.length && (
-                <p className="p-3 text-xs text-muted-foreground">No tasks</p>
+                <p className="px-3 py-3 text-xs text-muted-foreground">
+                  No tasks
+                </p>
               )}
             </div>
           )}

@@ -38,7 +38,11 @@ vi.mock("@/hooks/use-tasks", () => ({
   useTaskActions: () => ({ createColumn: { mutateAsync: vi.fn() } }),
 }));
 vi.mock("@/components/app/dashboard-context", () => ({
-  useDashboardContext: () => ({ agents: [], isMobile: false }),
+  useDashboardContext: () => ({
+    agents: [],
+    isMobile: false,
+    setMobileLeftOpen: vi.fn(),
+  }),
 }));
 vi.mock("./section-shell", () => ({
   SectionShell: ({
@@ -95,6 +99,9 @@ it("resolves a task deep link, then clears it when the user changes projects", a
     expect(screen.getByTestId("location").textContent).toContain("project=p1")
   );
   expect(screen.getByTestId("location").textContent).toContain("task=t1");
+  // No saved views: the board is scoped by search and the assignee filter.
+  expect(screen.queryByText("Views")).toBeNull();
+  expect(screen.queryByText("Working now")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Second" }));
   await waitFor(() =>
