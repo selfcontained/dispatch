@@ -30,7 +30,7 @@ export function TaskAgentChip({
   return (
     <span
       className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 py-0.5 pl-0.5 pr-2 text-xs text-foreground",
+        "inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-background/70 py-0.5 pl-0.5 pr-2 text-xs text-foreground shadow-sm",
         className
       )}
       title={
