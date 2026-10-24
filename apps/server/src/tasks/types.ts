@@ -65,6 +65,11 @@ export type Task = {
   assignedAgentId: string | null;
   links: TaskLink[];
   createdBy: TaskActor;
+  /**
+   * The last trigger failure not followed by a successful launch, so the
+   * card can badge it; null once a launch succeeds or nothing failed.
+   */
+  latestFailure: { reason: string; at: string } | null;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
