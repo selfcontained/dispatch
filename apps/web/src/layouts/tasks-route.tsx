@@ -10,6 +10,13 @@ import { useTaskActions, useTaskBoard, type Task } from "@/hooks/use-tasks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -27,6 +34,7 @@ import {
 } from "@/components/app/tasks/task-utils";
 import { ApiError } from "@/lib/api";
 function TasksContent({ projectId }: { projectId: string }) {
+  const { project } = useProjectScope();
   const [params, setParams] = useSearchParams();
   const { agents, isMobile } = useDashboardContext();
   const { data: board, isLoading, error } = useTaskBoard(projectId);
@@ -43,6 +51,8 @@ function TasksContent({ projectId }: { projectId: string }) {
         : savedLayout;
   const [newTask, setNewTask] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [search, setSearch] = useState("");
+  const [assignee, setAssignee] = useState("all");
   const [relaunch, setRelaunch] = useState<{
     task: Task;
     columnId: string;
@@ -64,7 +74,11 @@ function TasksContent({ projectId }: { projectId: string }) {
       .map((agent) => agent.id)
   );
   const tasks = board
-    ? visibleTasks(board.tasks, columns, view, attention, working)
+    ? visibleTasks(board.tasks, columns, view, attention, working).filter(
+        (task) =>
+          task.title.toLowerCase().includes(search.toLowerCase()) &&
+          (assignee === "all" || task.assignedAgentId === assignee)
+      )
     : [];
   const updateParam = (name: string, value: string | null) => {
     const next = new URLSearchParams(params);
@@ -178,7 +192,34 @@ function TasksContent({ projectId }: { projectId: string }) {
     <SectionShell activeSection="tasks" sidebar={sidebar}>
       <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-          <h1 className="mr-auto text-lg font-semibold">Tasks</h1>
+          <h1 className="mr-auto text-lg font-semibold">
+            Tasks{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              · {project?.name}
+            </span>
+          </h1>
+          <Input
+            aria-label="Search tasks"
+            placeholder="Search tasks"
+            className="h-8 w-36 sm:w-44"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <Select value={assignee} onValueChange={setAssignee}>
+            <SelectTrigger aria-label="Filter by assignee" className="h-8 w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All assignees</SelectItem>
+              {agents
+                .filter((agent) => agent.projectId === projectId)
+                .map((agent) => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
           <div className="flex rounded-md border border-border p-0.5">
             <Button
               size="sm"
