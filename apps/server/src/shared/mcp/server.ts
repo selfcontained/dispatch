@@ -37,6 +37,8 @@ import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import { registerStreamTools } from "./stream-tools.js";
+import { registerTaskTools } from "./task-tools.js";
+import type { TaskService } from "../../tasks/service.js";
 import type { StreamService } from "../../chat/service.js";
 
 export type McpAgent = {
@@ -47,6 +49,8 @@ export type McpAgent = {
   persona?: string | null;
   parentAgentId?: string | null;
   baseBranch?: string | null;
+  /** The agent's project: the default board for the task tools. */
+  projectId?: string | null;
 };
 
 /** Arguments the share_file tool hands to the file-sharing callback. */
@@ -115,6 +119,11 @@ const AGENT_TOOLS = new Set([
   "brain_query_events",
   "brain_get_event",
   "brain_delete_events",
+  "task_list",
+  "task_get",
+  "task_create",
+  "task_update",
+  "task_comment",
   "list_jobs",
   "get_job",
   "create_job",
@@ -168,6 +177,11 @@ const JOB_TOOLS = new Set([
   "brain_query_events",
   "brain_get_event",
   "brain_delete_events",
+  "task_list",
+  "task_get",
+  "task_create",
+  "task_update",
+  "task_comment",
   "list_jobs",
   "get_job",
   "create_job",
@@ -341,6 +355,7 @@ export type McpRequestContext = UsageCallbacks & {
   toolScope?: "agent" | "job";
   brainStore?: BrainStore;
   publishBrainChanged?: (repoRoot: string) => void;
+  taskService?: TaskService;
 };
 
 export async function handleMcpRequest(
@@ -510,6 +525,15 @@ export async function createDispatchMcpServer(
       publishBrainChanged: context.publishBrainChanged
         ? () => context.publishBrainChanged!(brainRepoRoot)
         : undefined,
+    });
+  }
+
+  // ── Task tools (the project board) ────────────────────────────────
+  if (context.agent && context.taskService) {
+    registerTaskTools(server, allowed, {
+      agentId: context.agent.id,
+      projectId: context.agent.projectId ?? null,
+      service: context.taskService,
     });
   }
 
