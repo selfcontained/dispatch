@@ -795,6 +795,22 @@ export class BlockStore {
     return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
 
+  /** Every recipient of this stream's blocks whose delivery has not settled. */
+  async pendingDeliveries(
+    streamId: string
+  ): Promise<Array<{ blockId: string; agentId: string }>> {
+    const result = await this.db.query<BlockRow>(
+      `SELECT * FROM blocks
+        WHERE stream_id = $1 AND to_agent_id IS NOT NULL AND delivered IS NULL`,
+      [streamId]
+    );
+    return result.rows.flatMap((row) =>
+      deliveryOf(row)
+        .filter((d) => d.state === "pending")
+        .map((d) => ({ blockId: row.id, agentId: d.agentId }))
+    );
+  }
+
   async getById(id: string): Promise<Block | null> {
     if (!isBlockId(id)) return null;
     const result = await this.db.query<BlockRow>(

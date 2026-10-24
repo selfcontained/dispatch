@@ -104,7 +104,10 @@ export type TaskServiceDeps = {
   getTemplate: (templateId: string) => Promise<TemplateRecord | null>;
   /** Launches a top-level agent from a template; resolves to the new agent. */
   launchTemplate: (input: TaskLaunchRequest) => Promise<AgentRecord>;
-  chat: Pick<StreamService, "sendUserPost" | "post">;
+  chat: Pick<
+    StreamService,
+    "sendUserPost" | "post" | "closeStream" | "releaseStream"
+  >;
   publishUiEvent: (event: {
     type: "task.changed";
     projectId: string;
@@ -708,10 +711,26 @@ export class TaskService {
     return await this.requireTask(id);
   }
 
+  /**
+   * Deletes the task and its conversation. Deliveries of its posts still
+   * queued at an agent are taken back first, so none runs after the task
+   * is gone; one that cannot be is a 409 and nothing is deleted.
+   */
   async deleteTask(id: string): Promise<void> {
-    const task = await this.requireTask(id);
-    await this.store.deleteTask(id);
-    this.publish(task.projectId, id);
+    await this.withTaskLock(id, async () => {
+      const task = await this.requireTask(id);
+      try {
+        await this.deps.chat.closeStream(id);
+      } catch (error) {
+        throw new TaskError(errorMessage(error), 409, "delivery_in_flight");
+      }
+      try {
+        await this.store.deleteTask(id);
+      } finally {
+        this.deps.chat.releaseStream(id);
+      }
+      this.publish(task.projectId, id);
+    });
   }
 
   // ── Launching ────────────────────────────────────────────────────
