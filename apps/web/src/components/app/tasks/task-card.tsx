@@ -46,8 +46,9 @@ export function TaskCard({
     id: task.id,
     data: { columnId: task.columnId },
     // A card in a filtered-out column is neither draggable nor a target,
-    // so a keyboard drag cannot land beside it unseen.
-    disabled,
+    // so a keyboard drag cannot land beside it unseen. (A bare boolean
+    // would only stop the dragging.)
+    disabled: { draggable: disabled, droppable: disabled },
   });
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== "[" && event.key !== "]") return;

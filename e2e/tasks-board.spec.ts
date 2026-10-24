@@ -174,14 +174,30 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       "aria-hidden",
       "true"
     );
-    // A keyboard drag cannot land in a folded column.
+    // A keyboard drag cannot land in a folded column — not even beside a
+    // card there.
+    const inProgress = board.columns.find(
+      (column: { key: string }) => column.key === "in_progress"
+    );
+    const hiddenResponse = await request.post("/api/v1/tasks", {
+      headers,
+      data: {
+        projectId: project.id,
+        title: "Hidden neighbour",
+        columnId: inProgress.id,
+      },
+    });
+    expect(hiddenResponse.ok(), await hiddenResponse.text()).toBeTruthy();
     await page
       .getByTestId(`task-card-${task.id}`)
       .getByRole("button", { name: /^Drag/ })
       .focus();
     await page.keyboard.press("Space");
+    await expect(page.getByTestId("task-card-overlay")).toBeVisible();
     await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(250);
     await page.keyboard.press("Space");
+    await expect(page.getByTestId("task-card-overlay")).toHaveCount(0);
     await page.waitForTimeout(300);
     expect(
       (
