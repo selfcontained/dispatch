@@ -55,7 +55,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -514,30 +516,13 @@ function FormFieldInput({
       );
     case "select":
       return (
-        <Select
-          value={
-            value === undefined || value === "" ? undefined : String(value)
-          }
+        <FormSelectInput
+          id={id}
+          field={field}
+          value={value}
           disabled={disabled}
-          onValueChange={onChange}
-        >
-          <SelectTrigger
-            id={id}
-            className="h-7 min-w-0 max-w-[18rem] border border-border/70 bg-transparent px-2 text-xs shadow-none"
-          >
-            <SelectValue placeholder={field.placeholder ?? "Choose…"} />
-          </SelectTrigger>
-          <SelectContent>
-            {(field.options ?? []).map((option, index) => {
-              const optionValue = option.value ?? option.label;
-              return (
-                <SelectItem key={`${index}-${optionValue}`} value={optionValue}>
-                  {option.label}
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
+          onChange={onChange}
+        />
       );
     case "checkbox":
       return (
@@ -563,6 +548,97 @@ function FormFieldInput({
         />
       );
   }
+}
+
+/** Select value for the built-in "Other" item; never sent as the answer. */
+const OTHER_SELECT_VALUE = "__dispatch_other__";
+
+/**
+ * Every select ends with an "Other…" item in its own group. Choosing it opens
+ * a textarea whose text becomes the field's value, like a question's freeform.
+ */
+function FormSelectInput({
+  id,
+  field,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  field: BlockFormField;
+  value: FormValue | undefined;
+  disabled: boolean;
+  onChange: (value: FormValue) => void;
+}): JSX.Element {
+  const options = field.options ?? [];
+  const isOption = (v: FormValue | undefined) =>
+    options.some((o) => (o.value ?? o.label) === String(v));
+  const [other, setOther] = useState(
+    () => value !== undefined && value !== "" && !isOption(value)
+  );
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <Select
+        value={
+          other
+            ? OTHER_SELECT_VALUE
+            : value === undefined || value === ""
+              ? undefined
+              : String(value)
+        }
+        disabled={disabled}
+        onValueChange={(next) => {
+          if (next === OTHER_SELECT_VALUE) {
+            setOther(true);
+            onChange("");
+            return;
+          }
+          setOther(false);
+          onChange(next);
+        }}
+      >
+        <SelectTrigger
+          id={id}
+          className="h-7 min-w-0 max-w-[18rem] border border-border/70 bg-transparent px-2 text-xs shadow-none"
+        >
+          <SelectValue placeholder={field.placeholder ?? "Choose…"} />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option, index) => {
+            const optionValue = option.value ?? option.label;
+            return (
+              <SelectItem key={`${index}-${optionValue}`} value={optionValue}>
+                {option.label}
+              </SelectItem>
+            );
+          })}
+          <SelectSeparator />
+          <SelectGroup>
+            <SelectItem
+              value={OTHER_SELECT_VALUE}
+              data-testid="chat-form-select-other"
+            >
+              Other…
+            </SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      {other ? (
+        <Textarea
+          value={String(value ?? "")}
+          placeholder="Type your answer"
+          aria-label={`${field.label} (other)`}
+          disabled={disabled}
+          required={field.required}
+          autoFocus
+          rows={2}
+          className="min-h-[3rem] min-w-0 border border-border/70 bg-transparent px-2 text-xs shadow-none"
+          data-testid="chat-form-select-other-input"
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function formatFormValue(field: BlockFormField, value: FormValue): string {

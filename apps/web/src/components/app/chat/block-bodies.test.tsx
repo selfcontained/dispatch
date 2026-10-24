@@ -259,6 +259,41 @@ describe("FormBlockBody", () => {
     });
   });
 
+  it("opens a select's Other answer for a value outside its options and submits the typed text", () => {
+    const onSubmit = vi.fn();
+    const select = block({
+      id: "f-other",
+      body: formBody([
+        {
+          id: "db",
+          label: "Database",
+          type: "select",
+          required: true,
+          options: [{ label: "Postgres" }, { label: "SQLite" }],
+          value: "DuckDB",
+        },
+      ]),
+    }) as Extract<Block, { kind: "form" }>;
+    render(
+      <FormBlockBody
+        block={select}
+        submitting={false}
+        disabled={false}
+        onSubmit={onSubmit}
+      />
+    );
+    const other = screen.getByTestId(
+      "chat-form-select-other-input"
+    ) as HTMLTextAreaElement;
+    expect(other.value).toBe("DuckDB");
+    const submit = screen.getByTestId("chat-form-submit") as HTMLButtonElement;
+    fireEvent.change(other, { target: { value: "" } });
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(other, { target: { value: "ClickHouse\nfor analytics" } });
+    fireEvent.click(submit);
+    expect(onSubmit).toHaveBeenCalledWith({ db: "ClickHouse\nfor analytics" });
+  });
+
   it("shows a submission read-only with no submit button", () => {
     const submitted = {
       ...form(),
