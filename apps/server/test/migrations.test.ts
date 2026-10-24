@@ -86,27 +86,30 @@ async function dropTasks(): Promise<void> {
 async function taskAgentColumns(): Promise<string[]> {
   const { rows } = await pool.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
-      WHERE table_name = 'task_agents' ORDER BY column_name`
+      WHERE table_schema = current_schema() AND table_name = 'task_agents'`
   );
   return rows.map((row) => row.column_name);
 }
 
 describe("task stream migration", () => {
   it("drops task_agents.conversation on a database that had 0023", async () => {
-    expect(await taskAgentColumns()).not.toContain("conversation");
-    // Back to just after 0023: the column is there, 0024 not yet applied.
-    await pool.query("ALTER TABLE task_agents ADD COLUMN conversation jsonb");
+    // Just after 0023, whatever earlier tests left: the column is there
+    // and 0024 has not run.
+    await pool.query(
+      "ALTER TABLE task_agents ADD COLUMN IF NOT EXISTS conversation jsonb"
+    );
     await pool.query(
       "DELETE FROM pgmigrations WHERE name = '0024_task_stream'"
     );
+    expect(await taskAgentColumns()).toContain("conversation");
     await runTestMigrations();
-    expect(await taskAgentColumns()).toEqual([
-      "agent_id",
-      "assigned_at",
-      "column_id",
-      "role",
-      "task_id",
-    ]);
+    const columns = await taskAgentColumns();
+    expect(columns).toContain("agent_id");
+    expect(columns).not.toContain("conversation");
+    const applied = await pool.query(
+      "SELECT 1 FROM pgmigrations WHERE name = '0024_task_stream'"
+    );
+    expect(applied.rows).toHaveLength(1);
   });
 });
 

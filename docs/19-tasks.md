@@ -49,8 +49,9 @@ A task is a **stream root**: its conversation is the blocks with `stream_id = <t
 - **Assignment** posts a user block into the task's stream addressed to the new agent and delivers it as its prompt: "You're assigned to task tsk\_… — <title>. This stream is the task's conversation; reply here." A launch briefing also names the task's stream. If the post fails, the assignment stands.
 - **People** posting at the top of the task's stream reach the current assignee by default (400 "assign an agent first" when there is none), or the agents they `@mention` — the task's agents first, then running top-level agents. A thread reply follows the usual thread sides.
 - **Delivery**: the DISPATCH POST envelope says `Task tsk_… — <title> (<column>). This is the task's conversation.`; a turn it opens answers in the task's stream, and `post({ replyTo })` on its ids lands there.
-- **Agents** on the task (`task_agents`) may post into its stream with `replyTo` and read it with `get_message`/`get_thread`; any other agent is refused unless the block it replies to was addressed to it. `task_comment` posts at the top of the stream.
-- Deleting a task deletes its conversation.
+- **Agents** on the task (`task_agents`) may post into its stream with `replyTo` and read it with `get_message`/`get_thread`; any other agent is refused unless the block it replies to was addressed to it. They may react to its blocks the same way. `task_comment` posts at the top of the stream.
+- **Files**: a person's attachment resolves against any agent on the task, so a file uploaded under an earlier assignee can still be sent to the current one.
+- **Deleting** a task deletes its conversation. Deliveries of its posts still queued at an agent are taken back first, and new posts into it are refused while it is being deleted; a delivery that cannot be taken back within a moment answers 409 `delivery_in_flight` and nothing is deleted.
 
 ## MCP Tools
 

@@ -95,6 +95,8 @@ function build(): TaskService {
       return { id } as AgentRecord;
     },
     chat: {
+      closeStream: async () => {},
+      releaseStream: () => {},
       sendUserPost: (async (
         streamId: string,
         input: Record<string, unknown>

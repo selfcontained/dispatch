@@ -25,6 +25,14 @@ let streams: StreamService;
 let tasks: TaskService;
 let app: FastifyInstance;
 let prompts: Array<{ agentId: string; text: string }>;
+/** When set, prompts wait in `waiting` (behind a turn) instead of reaching the engine. */
+let holding: boolean;
+let waiting: Array<{
+  agentId: string;
+  blockId?: string;
+  release: () => void;
+  reject: (error: Error) => void;
+}>;
 let projectId: string;
 
 const ASSIGNEE = "agt_task_owner";
@@ -75,6 +83,8 @@ beforeEach(async () => {
     )
   ).rows[0].id;
   prompts = [];
+  holding = false;
+  waiting = [];
   streams = new StreamService({
     pool,
     publishUiEvent: () => {},
@@ -82,11 +92,38 @@ beforeEach(async () => {
     filesRoot: "/files-root",
     delivery: {
       access: async () => ({ mode: "live" as const }),
-      inject: async (agentId, text) => {
-        prompts.push({ agentId, text });
+      inject: (agentId, text, opts) => {
+        if (!holding) {
+          prompts.push({ agentId, text });
+          return Promise.resolve();
+        }
+        return new Promise<void>((resolve, reject) =>
+          waiting.push({
+            agentId,
+            ...(opts?.blockId ? { blockId: opts.blockId } : {}),
+            release: () => {
+              prompts.push({ agentId, text });
+              resolve();
+            },
+            reject,
+          })
+        );
       },
-      held: () => false,
-      activeTurn: () => false,
+      held: () => waiting.length > 0,
+      activeTurn: () => waiting.length > 0,
+      // The runtime's claim: an unsent prompt is taken out of the queue.
+      controlQueuedPrompt: (ids, blockId, action) => {
+        const index = waiting.findIndex(
+          (w) => ids.includes(w.agentId) && w.blockId === blockId
+        );
+        if (index < 0 || action !== "delete") return false;
+        const [prompt] = waiting.splice(index, 1);
+        const error = new Error("Queued message deleted.");
+        error.name = "QueuedPromptDeletedError";
+        prompt!.reject(error);
+        return true;
+      },
+      cancel: async () => {},
     },
     taskRoot: (id) => tasks.streamRoot(id),
   });
@@ -317,5 +354,133 @@ describe("task stream root", () => {
       [task.id]
     );
     expect(rows[0].n).toBe(0);
+  });
+
+  it("takes back a task's queued prompts before deleting it", async () => {
+    const task = await newTask();
+    holding = true;
+    const queued = (
+      await postBlock(task.id, { text: "Held behind a turn" })
+    ).json().block;
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    expect(waiting[0]!.blockId).toBe(queued.id);
+
+    await tasks.deleteTask(task.id);
+    expect(waiting).toEqual([]);
+    // The turn ends: nothing from the deleted task reaches the engine.
+    holding = false;
+    await settle();
+    expect(prompts).toEqual([]);
+    expect(await streams.store.getById(queued.id)).toBeNull();
+  });
+
+  it("refuses to delete while a delivery cannot be taken back", async () => {
+    const task = await newTask();
+    holding = true;
+    await postBlock(task.id, { text: "On its way" });
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    // An engine that claimed the prompt: the runtime no longer has it queued.
+    const [claimed] = waiting.splice(0, 1);
+    await expect(
+      streams.closeStream(task.id, { settleMs: 100 })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    // The stream is open again, and the task is still there.
+    expect(await streams.rootExists(task.id)).toBe(true);
+    claimed!.release();
+    await settle();
+    await tasks.deleteTask(task.id);
+    expect(await streams.rootExists(task.id)).toBe(false);
+  });
+
+  it("refuses posts into a task stream being deleted", async () => {
+    const task = await newTask();
+    await streams.closeStream(task.id);
+    const res = await postBlock(task.id, { text: "too late" });
+    expect(res.statusCode).toBe(409);
+    await expect(
+      tasks.comment(task.id, ASSIGNEE, "too late")
+    ).rejects.toMatchObject({ statusCode: 409 });
+    streams.releaseStream(task.id);
+    expect((await postBlock(task.id, { text: "ok now" })).statusCode).toBe(200);
+  });
+
+  it("attaches a file uploaded under an earlier assignee", async () => {
+    const task = await newTask(HELPER);
+    const fileId = (
+      await pool.query(
+        `INSERT INTO files (agent_id, file_name, size_bytes, mime_type)
+         VALUES ($1, 'shot.png', 10, 'image/png') RETURNING id`,
+        [HELPER]
+      )
+    ).rows[0].id as number;
+    const thread = (await postBlock(task.id, { text: "Look at this" })).json()
+      .block;
+    await tasks.updateTask(task.id, { assignedAgentId: ASSIGNEE }, USER);
+    await settle();
+
+    // A draft sent after the reassignment goes to the new assignee.
+    const draft = await postBlock(task.id, {
+      text: "the screenshot",
+      attachments: [{ type: "file", fileId }],
+    });
+    expect(draft.statusCode).toBe(200);
+    expect(draft.json().block).toMatchObject({
+      toAgentId: ASSIGNEE,
+      attachments: [{ type: "file", fileId, ownerAgentId: HELPER }],
+    });
+
+    // A reply in the earlier assignee's thread, with the same file.
+    const reply = await postBlock(task.id, {
+      text: "again",
+      replyTo: thread.id,
+      attachments: [{ type: "file", fileId }],
+    });
+    expect(reply.statusCode).toBe(200);
+    expect(reply.json().block.attachments[0]).toMatchObject({
+      fileId,
+      ownerAgentId: HELPER,
+    });
+
+    // Not a file of anyone on the task: still unknown.
+    const foreign = (
+      await pool.query(
+        `INSERT INTO files (agent_id, file_name, size_bytes, mime_type)
+         VALUES ($1, 'x.png', 10, 'image/png') RETURNING id`,
+        [STRANGER]
+      )
+    ).rows[0].id as number;
+    const refused = await postBlock(task.id, {
+      text: "nope",
+      attachments: [{ type: "file", fileId: foreign }],
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toMatch(/Unknown file/);
+  });
+
+  it("lets the task's agents react to its blocks, and no one else", async () => {
+    const task = await newTask();
+    const asked = (await postBlock(task.id, { text: "Status?" })).json().block;
+    await settle();
+    // The MCP react tool passes the agent's own id as the stream.
+    const reacted = await streams.addReaction(ASSIGNEE, asked.id, "👍", {
+      kind: "agent",
+      agentId: ASSIGNEE,
+    });
+    expect(reacted.reactions).toEqual([
+      expect.objectContaining({ emoji: "👍" }),
+    ]);
+    const removed = await streams.removeReaction(ASSIGNEE, asked.id, "👍", {
+      kind: "agent",
+      agentId: ASSIGNEE,
+    });
+    expect(removed.reactions).toEqual([]);
+    await expect(
+      streams.addReaction(STRANGER, asked.id, "👍", {
+        kind: "agent",
+        agentId: STRANGER,
+      })
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 });

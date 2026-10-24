@@ -732,6 +732,8 @@ export class StreamService {
   private readonly turns: StreamStore;
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
   private readonly turnPublishes = new Map<string, TurnPublish>();
+  /** Streams being deleted (a task's): nothing new is written or delivered. */
+  private readonly closingRoots = new Set<string>();
   private readonly log: NonNullable<StreamServiceDeps["log"]>;
 
   constructor(private readonly deps: StreamServiceDeps) {
@@ -753,6 +755,60 @@ export class StreamService {
     if (!streamId.startsWith(TASK_ROOT_PREFIX) || !this.deps.taskRoot)
       return null;
     return await this.deps.taskRoot(streamId);
+  }
+
+  /** Refuses a write to a stream that is being deleted. */
+  private assertOpen(streamId: string): void {
+    if (this.closingRoots.has(streamId))
+      throw new StreamConflictError("This task is being deleted.");
+  }
+
+  /**
+   * Readies a stream for deletion: refuses new posts into it and takes
+   * back every delivery of its blocks still queued at an agent, so none
+   * runs after its block is gone. A delivery still being handed over is
+   * retried until `settleMs`; one that cannot be taken back (an engine
+   * that never claims or releases it) refuses the deletion. Pair with
+   * `releaseStream` once the blocks are deleted, or on failure.
+   */
+  async closeStream(
+    streamId: string,
+    opts: { settleMs?: number } = {}
+  ): Promise<void> {
+    this.closingRoots.add(streamId);
+    const cancelled = new Set<string>();
+    const deadline = Date.now() + (opts.settleMs ?? 2_000);
+    try {
+      for (;;) {
+        const open = (await this.store.pendingDeliveries(streamId)).filter(
+          ({ blockId, agentId }) => !cancelled.has(`${blockId}:${agentId}`)
+        );
+        for (const { blockId, agentId } of open) {
+          if (
+            this.deps.delivery?.controlQueuedPrompt?.(
+              [agentId],
+              blockId,
+              "delete"
+            )
+          )
+            cancelled.add(`${blockId}:${agentId}`);
+        }
+        if (open.every((d) => cancelled.has(`${d.blockId}:${d.agentId}`)))
+          return;
+        if (Date.now() >= deadline)
+          throw new StreamConflictError(
+            "A message on this task is being delivered right now; try again in a moment."
+          );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } catch (error) {
+      this.closingRoots.delete(streamId);
+      throw error;
+    }
+  }
+
+  releaseStream(streamId: string): void {
+    this.closingRoots.delete(streamId);
   }
 
   /** Whether `rootId` names a stream: an agent's, or a task's. */
@@ -920,6 +976,7 @@ export class StreamService {
       interrupt?: boolean;
     }
   ): Promise<StreamPostResponse> {
+    this.assertOpen(streamId);
     const attachments = input.attachments ?? [];
     const text = requireText(input.text);
     const review = input.review
@@ -997,7 +1054,11 @@ export class StreamService {
     const recipient = recipientAgents[0]!;
     let resolved: ChatAttachment[] = [];
     if (attachments.length > 0) {
-      resolved = await this.resolveAttachmentsFor(recipient, attachments);
+      resolved = await this.resolveAttachmentsFor(
+        recipient,
+        attachments,
+        (await this.taskRoot(streamId))?.agentIds
+      );
     }
     const linesFor = new Map(
       await Promise.all(
@@ -1177,6 +1238,7 @@ export class StreamService {
     blockId: string,
     input: AnswerInput
   ): Promise<StreamAnswerResponse> {
+    this.assertOpen(streamId);
     if (!isBlockId(blockId)) {
       throw new StreamValidationError("blockId must be a UUID.");
     }
@@ -1224,7 +1286,11 @@ export class StreamService {
     let resolved: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
-      resolved = await this.resolveAttachmentsFor(recipient, attachments);
+      resolved = await this.resolveAttachmentsFor(
+        recipient,
+        attachments,
+        (await this.taskRoot(streamId))?.agentIds
+      );
       attachmentLines = await this.describeAttachments(recipient, resolved);
     }
     const live = await this.canDeliver(toAgentId, true).catch(
@@ -1299,6 +1365,7 @@ export class StreamService {
     input: { id?: string; values: Record<string, string | number | boolean> },
     by: BlockAuthor = USER
   ): Promise<StreamAnswerResponse> {
+    this.assertOpen(streamId);
     const form = await this.store.getById(blockId);
     if (
       !form ||
@@ -1735,13 +1802,13 @@ export class StreamService {
   // -------------------------------------------------------------------------
 
   async addReaction(
-    streamId: string,
+    rootId: string,
     blockId: string,
     rawEmoji: unknown,
     author: BlockAuthor = USER
   ): Promise<StreamReactionResponse> {
-    const { block, emoji } = await this.reactionTarget(
-      streamId,
+    const { block, emoji, streamId } = await this.reactionTarget(
+      rootId,
       blockId,
       rawEmoji,
       author
@@ -1803,13 +1870,13 @@ export class StreamService {
   }
 
   async removeReaction(
-    streamId: string,
+    rootId: string,
     blockId: string,
     rawEmoji: unknown,
     author: BlockAuthor = USER
   ): Promise<StreamReactionResponse> {
-    const { block, emoji } = await this.reactionTarget(
-      streamId,
+    const { block, emoji, streamId } = await this.reactionTarget(
+      rootId,
       blockId,
       rawEmoji,
       author
@@ -1823,12 +1890,16 @@ export class StreamService {
     };
   }
 
+  /**
+   * The block a reaction is on, and the stream it lives in: `streamId`'s,
+   * or for an agent a task's conversation it is on or was addressed in.
+   */
   private async reactionTarget(
     streamId: string,
     blockId: string,
     rawEmoji: unknown,
     author: BlockAuthor
-  ): Promise<{ block: Block; emoji: string }> {
+  ): Promise<{ block: Block; emoji: string; streamId: string }> {
     if (!isBlockId(blockId)) {
       throw new StreamValidationError(
         author.kind === "agent"
@@ -1843,9 +1914,14 @@ export class StreamService {
       );
     }
     const block = await this.store.getById(blockId);
+    const onTask =
+      !!block &&
+      author.kind === "agent" &&
+      block.streamId !== streamId &&
+      (await this.mayWriteTaskStream(block, author.agentId));
     if (
       !block ||
-      block.streamId !== streamId ||
+      (block.streamId !== streamId && !onTask) ||
       sameAuthor(block.author, author)
     ) {
       throw new StreamNotFoundError(
@@ -1854,7 +1930,23 @@ export class StreamService {
           : "Block not found."
       );
     }
-    return { block, emoji };
+    this.assertOpen(block.streamId);
+    return { block, emoji, streamId: block.streamId };
+  }
+
+  /**
+   * Whether an agent may write beside `block` in a task's conversation: it
+   * is on the task, or the block was addressed to it.
+   */
+  private async mayWriteTaskStream(
+    block: Block,
+    agentId: string
+  ): Promise<boolean> {
+    const task = await this.taskRoot(block.streamId);
+    return (
+      !!task &&
+      (task.agentIds.includes(agentId) || addressedTo(block).includes(agentId))
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -2336,6 +2428,7 @@ export class StreamService {
       })
     );
     const live = recipients.length > 0 && liveAll.every(Boolean);
+    this.assertOpen(streamId);
     const insert: Parameters<BlockStore["insert"]>[0] = {
       streamId,
       author,
@@ -3443,6 +3536,13 @@ export class StreamService {
           },
         });
       }
+      // The stream is being deleted: no new prompt from it. Checked right
+      // before handing over, so `closeStream` sees anything already on its
+      // way as a pending delivery it can take back.
+      if (this.closingRoots.has(block.streamId)) {
+        await this.store.setDelivered(block.id, false);
+        return { held };
+      }
       const result = this.injectDetached({
         agentId,
         source: deliverySource,
@@ -4123,7 +4223,7 @@ export class StreamService {
           description: input.description ?? path.basename(input.path),
         });
         out.push(
-          await this.resolveFile(agent.id, {
+          await this.resolveFile([agent.id], {
             fileName: uploaded.fileName,
             caption: input.caption,
           })
@@ -4135,14 +4235,23 @@ export class StreamService {
     return out;
   }
 
+  /**
+   * `owners` are other agents whose files a person may attach here: on a
+   * task, everyone on it, since the file was uploaded under whoever was
+   * the task's agent at the time. The recipient's own file wins a name
+   * clash.
+   */
   private async resolveAttachmentsFor(
     agent: StreamAgent,
-    inputs: Array<ChatUserAttachmentInput | BlockAttachmentInput>
+    inputs: Array<ChatUserAttachmentInput | BlockAttachmentInput>,
+    owners: readonly string[] = []
   ): Promise<ChatAttachment[]> {
     const out: ChatAttachment[] = [];
     for (const input of inputs) {
       if (input.type === "file") {
-        out.push(await this.resolveFile(agent.id, input));
+        out.push(
+          await this.resolveFile([...new Set([agent.id, ...owners])], input)
+        );
       } else if (input.type === "link" || input.type === "pr") {
         const url = chatUrlSchema.safeParse(input.url);
         if (!url.success) {
@@ -4235,7 +4344,7 @@ export class StreamService {
   }
 
   private async resolveFile(
-    agentId: string,
+    agentIds: readonly string[],
     input: { fileName?: string; fileId?: number; caption?: string }
   ): Promise<ChatAttachment> {
     const parsedCaption = attachmentCaptionSchema
@@ -4264,14 +4373,17 @@ export class StreamService {
     }
     const result = await this.deps.pool.query<{
       id: number;
+      agent_id: string;
       file_name: string;
       size_bytes: number;
       mime_type: string;
     }>(
-      `SELECT id, file_name, size_bytes, mime_type FROM files
-        WHERE agent_id = $1
-          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END`,
-      [agentId, fileName ?? null, fileId ?? null]
+      `SELECT id, agent_id, file_name, size_bytes, mime_type FROM files
+        WHERE agent_id = ANY($1::text[])
+          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END
+        ORDER BY array_position($1::text[], agent_id), id DESC
+        LIMIT 1`,
+      [agentIds, fileName ?? null, fileId ?? null]
     );
     const match = result.rows[0];
     if (!match) {
@@ -4286,7 +4398,7 @@ export class StreamService {
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: match.mime_type,
-      ownerAgentId: agentId,
+      ownerAgentId: match.agent_id,
     };
   }
 }
