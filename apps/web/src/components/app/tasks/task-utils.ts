@@ -1,5 +1,7 @@
 import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
+import { qualifyExternalMentions } from "@dispatch/shared";
 import type { Agent } from "@/components/app/types";
+import type { Mentionable } from "@/lib/mentions";
 export function orderedColumns(board: TaskBoard): TaskColumn[] {
   return [...board.columns].sort((a, b) => a.position - b.position);
 }
@@ -96,4 +98,37 @@ export function assigneeOptions(
   return agents
     .filter((agent) => agent.projectId === projectId || agent.id === currentId)
     .sort((a, b) => live(a) - live(b) || a.name.localeCompare(b.name));
+}
+/**
+ * Who a post in a task's conversation can name, as the server resolves it:
+ * the task's agents, then running top-level agents from elsewhere, those
+ * qualified by id where their name could be read as a member's.
+ */
+export function taskMentionables(
+  memberIds: readonly string[],
+  agents: readonly Agent[]
+): Mentionable[] {
+  const members = new Set(memberIds);
+  const byAge = (a: Agent, b: Agent) =>
+    (a.createdAt ?? "").localeCompare(b.createdAt ?? "") ||
+    a.id.localeCompare(b.id);
+  const toMentionable = (agent: Agent): Mentionable => ({
+    id: agent.id,
+    name: agent.name,
+    agentType: agent.type ?? null,
+  });
+  const tree = agents
+    .filter((agent) => members.has(agent.id))
+    .sort(byAge)
+    .map(toMentionable);
+  const external = agents
+    .filter(
+      (agent) =>
+        !members.has(agent.id) &&
+        !agent.parentAgentId &&
+        agent.status === "running"
+    )
+    .sort(byAge)
+    .map(toMentionable);
+  return [...tree, ...qualifyExternalMentions(tree, external)];
 }

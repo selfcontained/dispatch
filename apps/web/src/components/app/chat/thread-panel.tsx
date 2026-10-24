@@ -5,6 +5,7 @@ import { useDeliveryAgents } from "@/hooks/use-agent-tree";
  * replies, and a composer whose posts reply under the root. Questions and
  * forms for the user also appear in the main stream.
  */
+import { type Mentionable } from "@/lib/mentions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Block, BlockOption } from "@dispatch/shared";
@@ -160,6 +161,11 @@ export type ThreadPanelProps = {
   chrome?: boolean;
   /** A failed action to show above the composer. */
   error?: string | null;
+  /**
+   * Who the reply composer can name, in place of the tree read from the
+   * feed context: a task's stream names the task's agents.
+   */
+  mentionables?: readonly Mentionable[];
 };
 
 /**
@@ -192,6 +198,7 @@ export function ThreadPanel({
   submittingBlockId,
   chrome = true,
   error = null,
+  mentionables: mentionablesOverride,
 }: ThreadPanelProps): JSX.Element {
   // With a finding open over it, the panel is the finding's own thread:
   // the finding in full, its status controls, and its discussion.
@@ -231,7 +238,8 @@ export function ThreadPanel({
       }
     />
   ) : null;
-  const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
+  const derivedMentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
+  const mentionables = mentionablesOverride ?? derivedMentionables;
   const groupedById = useMemo(
     () => new Map(replies.map((reply, index) => [reply.id, grouped[index]])),
     [grouped, replies]

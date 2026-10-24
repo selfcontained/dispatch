@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
+import type { Agent } from "@/components/app/types";
 import {
+  taskMentionables,
   columnAccent,
   groupTasks,
   needsAttention,
@@ -77,5 +79,27 @@ describe("task board utilities", () => {
     expect(
       columnAccent({ ...columns[0], key: "custom" } as TaskColumn, 0)
     ).toBe("var(--chart-3)");
+  });
+  it("names the task's agents, then running roots, never a non-member child", () => {
+    const agent = (id: string, extra: Partial<Agent> = {}) =>
+      ({ id, name: id, status: "running", ...extra }) as Agent;
+    const offered = taskMentionables(
+      ["assignee", "member-elsewhere"],
+      [
+        agent("assignee"),
+        agent("assignee-child", { parentAgentId: "assignee" }),
+        agent("member-elsewhere", { parentAgentId: "other-root" }),
+        agent("assignee two"),
+        agent("stopped-root", { status: "stopped" }),
+      ]
+    );
+    expect(offered.map((item) => item.id)).toEqual([
+      "assignee",
+      "member-elsewhere",
+      "assignee two",
+    ]);
+    // An outside name that reads as a member's is qualified by id, as the
+    // server resolves it.
+    expect(offered[2].mentionName).toBe("assignee two [assignee two]");
   });
 });

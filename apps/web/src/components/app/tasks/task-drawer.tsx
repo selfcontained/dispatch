@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   X,
@@ -164,6 +164,10 @@ export function TaskDrawer({
     if (task && body !== task.body)
       void actions.update.mutateAsync({ id, body });
   };
+  const memberIds = useMemo(
+    () => task?.agents.map((item) => item.agentId) ?? [],
+    [task?.agents]
+  );
   const assignee =
     agents.find((agent) => agent.id === task?.assignedAgentId) ?? null;
   const creator =
@@ -446,6 +450,7 @@ export function TaskDrawer({
                 taskId={task.id}
                 assignee={assignee}
                 isMobile={isMobile}
+                memberIds={memberIds}
               />
             </div>
           </section>

@@ -11,12 +11,14 @@ import { ArrowLeft, MessageSquare } from "lucide-react";
 import type { ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import type { BlockStatePatch } from "@/components/app/chat/block-bodies";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
-import { ChatFeed, latestAgentBlockId } from "@/components/app/chat/chat-feed";
-import { isMainColumnEntry } from "@/components/app/chat/chat-pane";
 import {
-  agentDisplayName,
-  mentionablesOf,
-} from "@/components/app/chat/chat-entries";
+  ChatFeed,
+  entryGrowthKey,
+  latestAgentBlockId,
+} from "@/components/app/chat/chat-feed";
+import { newestTurnEntry } from "@/components/app/chat/turn/turn-feed";
+import { isMainColumnEntry } from "@/components/app/chat/chat-pane";
+import { agentDisplayName } from "@/components/app/chat/chat-entries";
 import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { ThreadPage } from "@/components/app/drawer/thread-page";
@@ -35,6 +37,7 @@ import {
   useToggleReaction,
 } from "@/hooks/use-stream";
 import { uploadAgentFile } from "@/lib/file-upload";
+import { taskMentionables } from "./task-utils";
 
 /** How close to the bottom still counts as reading the newest post. */
 const FOLLOW_PX = 80;
@@ -48,10 +51,13 @@ export function TaskConversation({
   taskId,
   assignee,
   isMobile,
+  memberIds,
 }: {
   taskId: string;
   assignee: Agent | null;
   isMobile: boolean;
+  /** The task's agents: whom a post here can @mention. */
+  memberIds: readonly string[];
 }) {
   const feed = useStreamFeed(taskId);
   const send = usePostBlock(taskId);
@@ -171,16 +177,37 @@ export function TaskConversation({
     retrying,
     agentNames: feed.agentNames,
   });
-  const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
+  // The server names the task's agents, not the assignee's tree.
+  const mentionables = useMemo(
+    () => taskMentionables(memberIds, deliveryAgents),
+    [memberIds, deliveryAgents]
+  );
 
-  // Follow the newest post unless the reader scrolled up to read.
+  // Follow the newest post unless the reader scrolled up to read. A turn
+  // grows in place under one id, so follow its growth key (the newest
+  // live turn's too, when a later post sits under it), and whatever else
+  // changes the content's height (an image sizing itself).
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
-  const lastId = entries[entries.length - 1]?.id ?? null;
-  useLayoutEffect(() => {
+  const last = entries[entries.length - 1];
+  const liveTurn = newestTurnEntry(entries);
+  const growthKey = [
+    last ? entryGrowthKey(last) : "",
+    liveTurn && !liveTurn.block.turn?.settled ? entryGrowthKey(liveTurn) : "",
+  ].join("|");
+  const followBottom = useCallback(() => {
     const el = scrollRef.current;
     if (el && followingRef.current) el.scrollTop = el.scrollHeight;
-  }, [lastId, thread]);
+  }, []);
+  useLayoutEffect(followBottom, [followBottom, growthKey, thread]);
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(followBottom);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [followBottom, thread]);
   const onScroll = () => {
     const el = scrollRef.current;
     if (el)
@@ -216,7 +243,12 @@ export function TaskConversation({
     : undefined;
   // An answer goes to the question's author, not the assignee: only an
   // unready feed holds it back, never who the task is assigned to now.
-  const answersDisabled = feed.isLoading || feed.error !== null;
+  const feedReason = feed.error
+    ? "The conversation couldn't load — retry above."
+    : feed.isLoading
+      ? "Loading the conversation…"
+      : null;
+  const answersDisabled = feedReason !== null;
   const disabledReason = assignee
     ? composerDisabledReason(assignee, feed)
     : "Assign an agent to start the conversation.";
@@ -251,6 +283,10 @@ export function TaskConversation({
               openLightbox={openLightbox}
               onOpenThread={onOpenThread}
               onBack={() => setThread(null)}
+              mentionables={mentionables}
+              // Thread replies follow the thread's sides and answers go to
+              // the asker, so neither waits on an assignee.
+              disabledReason={feedReason}
             />
           </div>
         </>
@@ -262,59 +298,63 @@ export function TaskConversation({
             data-testid="task-conversation-scroll"
             className="stream-surfaces-flat min-h-0 flex-1 overflow-y-auto overscroll-contain py-2"
           >
-            {feed.error ? (
-              <div
-                role="alert"
-                className="mx-3 flex items-center justify-between gap-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              >
-                <span className="min-w-0 truncate">
-                  Couldn&apos;t load the conversation: {feed.error.message}
-                </span>
-                <Button
-                  size="sm"
-                  className="h-6 shrink-0 px-2 text-xs"
-                  onClick={feed.refetch}
+            <div ref={contentRef}>
+              {feed.error ? (
+                <div
+                  role="alert"
+                  className="mx-3 flex items-center justify-between gap-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
                 >
-                  Retry
-                </Button>
-              </div>
-            ) : null}
-            {feed.hasOlder ? (
-              <div className="mb-1 flex justify-center">
-                <Button
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={feed.loadOlder}
-                  disabled={feed.isFetchingOlder}
-                >
-                  {feed.isFetchingOlder ? "Loading…" : "Load older"}
-                </Button>
-              </div>
-            ) : null}
-            {!feed.isLoading && !feed.error && entries.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-6 text-center text-xs text-muted-foreground">
-                <MessageSquare className="h-6 w-6" aria-hidden="true" />
-                {assignee
-                  ? `Nothing here yet. A message goes to ${assignee.name}.`
-                  : "Nothing here yet. Assign an agent to start."}
-              </div>
-            ) : null}
-            {entries.length > 0 ? (
-              <ChatFeed
-                entries={entries}
-                ctx={ctx}
-                answeringBlockId={
-                  answer.isPending ? (answer.variables?.blockId ?? null) : null
-                }
-                submittingBlockId={
-                  submitForm.isPending
-                    ? (submitForm.variables?.blockId ?? null)
-                    : null
-                }
-                answersDisabled={answersDisabled}
-                onAnswer={onAnswer}
-              />
-            ) : null}
+                  <span className="min-w-0 truncate">
+                    Couldn&apos;t load the conversation: {feed.error.message}
+                  </span>
+                  <Button
+                    size="sm"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    onClick={feed.refetch}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : null}
+              {feed.hasOlder ? (
+                <div className="mb-1 flex justify-center">
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={feed.loadOlder}
+                    disabled={feed.isFetchingOlder}
+                  >
+                    {feed.isFetchingOlder ? "Loading…" : "Load older"}
+                  </Button>
+                </div>
+              ) : null}
+              {!feed.isLoading && !feed.error && entries.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-6 text-center text-xs text-muted-foreground">
+                  <MessageSquare className="h-6 w-6" aria-hidden="true" />
+                  {assignee
+                    ? `Nothing here yet. A message goes to ${assignee.name}.`
+                    : "Nothing here yet. Assign an agent to start."}
+                </div>
+              ) : null}
+              {entries.length > 0 ? (
+                <ChatFeed
+                  entries={entries}
+                  ctx={ctx}
+                  answeringBlockId={
+                    answer.isPending
+                      ? (answer.variables?.blockId ?? null)
+                      : null
+                  }
+                  submittingBlockId={
+                    submitForm.isPending
+                      ? (submitForm.variables?.blockId ?? null)
+                      : null
+                  }
+                  answersDisabled={answersDisabled}
+                  onAnswer={onAnswer}
+                />
+              ) : null}
+            </div>
           </div>
           <div className="shrink-0 border-t border-border/40 bg-card px-2 pb-2 pt-2 md:px-3">
             {error ? (
