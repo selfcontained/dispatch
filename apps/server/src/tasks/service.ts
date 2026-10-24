@@ -52,6 +52,30 @@ export const DEFAULT_TASK_COLUMNS: ReadonlyArray<{
   { key: "done", name: "Done", isDone: true },
 ];
 
+/**
+ * Who is acting. An agent carries its access ceiling: without `fullAccess`
+ * it is restricted and cannot start a full-access template. People are
+ * trusted.
+ */
+export type TaskCaller =
+  | { kind: "user" }
+  | { kind: "system" }
+  | { kind: "agent"; agentId: string; fullAccess?: boolean };
+
+export const RESTRICTED_LAUNCH_REASON =
+  "restricted agent cannot launch a full-access template";
+
+function isRestricted(caller: TaskCaller): boolean {
+  return caller.kind === "agent" && caller.fullAccess !== true;
+}
+
+/** The caller as the task's history records it. */
+function actorOf(caller: TaskCaller): TaskActor {
+  return caller.kind === "agent"
+    ? { kind: "agent", agentId: caller.agentId }
+    : { kind: caller.kind };
+}
+
 /** Agent statuses that count as "still working" for the relaunch guard. */
 const WORKING_STATUSES = new Set(["running", "creating"]);
 
@@ -175,6 +199,8 @@ export function mergeLinks(
 export class TaskService {
   readonly store: TaskStore;
   private readonly projects: ProjectStore;
+  /** Per-task tail of the transition chain; see `withTaskLock`. */
+  private readonly locks = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: TaskServiceDeps) {
     this.store = new TaskStore(deps.pool);
@@ -445,7 +471,7 @@ export class TaskService {
     return { ...task, agents, events };
   }
 
-  async createTask(input: CreateTaskInput, actor: TaskActor): Promise<Task> {
+  async createTask(input: CreateTaskInput, caller: TaskCaller): Promise<Task> {
     await this.requireProject(input.projectId);
     const title = input.title.trim();
     if (!title) throw invalid("title is required.");
@@ -454,6 +480,7 @@ export class TaskService {
       ? columns.find((c) => c.id === input.columnId)
       : columns[0];
     if (!column) throw invalid("columnId is not a column of this project.");
+    const actor = actorOf(caller);
     const id = newTaskId();
     await this.store.insertTask({
       id,
@@ -469,33 +496,71 @@ export class TaskService {
       columnId: column.id,
     });
     if (column.trigger?.fireOnCreate) {
-      await this.fireTrigger(await this.requireTask(id), column);
+      await this.withTaskLock(id, async () =>
+        this.fireTrigger(await this.requireTask(id), column, caller)
+      );
     }
     this.publish(input.projectId, id);
     return await this.requireTask(id);
   }
 
   /**
-   * The running agent a trigger would relaunch over, if any. An agent moving
-   * its own task is handing it off, so it never blocks itself.
+   * Runs `run` after every earlier transition of the same task has settled,
+   * so a move, its launch and its assignment never interleave with another.
    */
+  private async withTaskLock<T>(id: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const current = previous.then(() => gate);
+    this.locks.set(id, current);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.locks.get(id) === current) this.locks.delete(id);
+    }
+  }
+
+  /** The task's assignee when it is running and is not `caller` itself. */
   private async workingAgent(
     task: Task,
-    actor: TaskActor
+    caller: TaskCaller
   ): Promise<TaskAgentInfo | null> {
     if (!task.assignedAgentId) return null;
-    if (actor.kind === "agent" && actor.agentId === task.assignedAgentId)
+    // An agent moving its own task is handing it off, not being run over.
+    if (caller.kind === "agent" && caller.agentId === task.assignedAgentId)
       return null;
     const agent = await this.deps.getAgent(task.assignedAgentId);
     return agent && WORKING_STATUSES.has(agent.status) ? agent : null;
   }
 
+  /**
+   * Updates a task. A `columnId` change is a move and may fire the
+   * destination's trigger; `assignSelf` makes the calling agent the task's
+   * agent. Everything is checked before anything is written, so a refusal
+   * leaves the task as it was.
+   */
   async updateTask(
     id: string,
     input: UpdateTaskInput,
-    actor: TaskActor
+    caller: TaskCaller,
+    opts: { assignSelf?: boolean } = {}
+  ): Promise<Task> {
+    return await this.withTaskLock(id, () =>
+      this.applyUpdate(id, input, caller, opts)
+    );
+  }
+
+  private async applyUpdate(
+    id: string,
+    input: UpdateTaskInput,
+    caller: TaskCaller,
+    opts: { assignSelf?: boolean }
   ): Promise<Task> {
     const task = await this.requireTask(id);
+    const actor = actorOf(caller);
     const patch: TaskPatch = {};
     const changed: string[] = [];
 
@@ -512,13 +577,36 @@ export class TaskService {
       changed.push("body");
     }
 
+    const selfAgentId =
+      opts.assignSelf && caller.kind === "agent" ? caller.agentId : null;
+    if (opts.assignSelf && !selfAgentId)
+      throw invalid("Only an agent can assign a task to itself.");
+    if (selfAgentId && task.assignedAgentId !== selfAgentId) {
+      const working = await this.workingAgent(task, caller);
+      if (working) {
+        throw new TaskError(
+          `${working.name} is still working this task; it cannot be taken over.`,
+          409,
+          "agent_working",
+          { agent: { id: working.id, name: working.name } }
+        );
+      }
+    }
+    if (
+      input.assignedAgentId &&
+      input.assignedAgentId !== task.assignedAgentId &&
+      !(await this.deps.getAgent(input.assignedAgentId))
+    ) {
+      throw invalid(`Agent ${input.assignedAgentId} not found.`);
+    }
+
     let destination: TaskColumn | null = null;
     if (input.columnId !== undefined && input.columnId !== task.columnId) {
       destination = await this.store.getColumn(input.columnId);
       if (!destination || destination.projectId !== task.projectId)
         throw invalid("columnId is not a column of this task's project.");
       if (destination.trigger && !input.confirmRelaunch) {
-        const working = await this.workingAgent(task, actor);
+        const working = await this.workingAgent(task, caller);
         if (working) {
           throw new TaskError(
             `${working.name} is still working this task.`,
@@ -544,18 +632,49 @@ export class TaskService {
       patch.links = input.links;
     }
 
-    if (Object.keys(patch).length > 0) await this.store.updateTask(id, patch);
-    if (changed.length > 0)
-      await this.store.insertEvent(id, "updated", actor, { fields: changed });
-    for (const link of addedLinks)
-      await this.store.insertEvent(id, "link_added", actor, { link });
-    if (destination)
-      await this.store.insertEvent(id, "moved", actor, {
-        fromColumnId: task.columnId,
-        toColumnId: destination.id,
-      });
+    const applied = await this.store.transaction(async (db) => {
+      if (Object.keys(patch).length > 0) {
+        const updated = await this.store.updateTask(id, patch, {
+          ...(destination ? { fromColumnId: task.columnId } : {}),
+          db,
+        });
+        if (!updated) return false;
+      }
+      if (changed.length > 0)
+        await this.store.insertEvent(
+          id,
+          "updated",
+          actor,
+          { fields: changed },
+          db
+        );
+      for (const link of addedLinks)
+        await this.store.insertEvent(id, "link_added", actor, { link }, db);
+      if (destination)
+        await this.store.insertEvent(
+          id,
+          "moved",
+          actor,
+          { fromColumnId: task.columnId, toColumnId: destination.id },
+          db
+        );
+      return true;
+    });
+    if (!applied) {
+      // Another write moved the task first; what it did stands.
+      this.deps.log.info(
+        { taskId: id, toColumnId: destination?.id },
+        "Task move skipped: it was no longer in the column it was moved from"
+      );
+      return await this.requireTask(id);
+    }
 
-    if (
+    if (selfAgentId) {
+      const current = await this.requireTask(id);
+      const row = await this.store.getTaskAgent(id, selfAgentId);
+      if (current.assignedAgentId !== selfAgentId || !row?.conversation)
+        await this.assign(current, selfAgentId, "self", actor);
+    } else if (
       input.assignedAgentId !== undefined &&
       input.assignedAgentId !== task.assignedAgentId
     ) {
@@ -570,7 +689,7 @@ export class TaskService {
     }
 
     if (destination?.trigger) {
-      await this.fireTrigger(await this.requireTask(id), destination);
+      await this.fireTrigger(await this.requireTask(id), destination, caller);
     }
 
     this.publish(task.projectId, id);
@@ -585,6 +704,11 @@ export class TaskService {
 
   // ── Launching ────────────────────────────────────────────────────
 
+  /**
+   * Launches `launch.templateId` for the task. A restricted agent cannot
+   * start a full-access agent this way, the same ceiling `launch_agent`
+   * holds it to.
+   */
   private async launchFor(
     task: Task,
     column: TaskColumn,
@@ -593,10 +717,13 @@ export class TaskService {
       agentType: AgentType | null;
       model: string | null;
       passContext: boolean;
-    }
+    },
+    caller: TaskCaller
   ): Promise<AgentRecord> {
     const template = await this.deps.getTemplate(launch.templateId);
     if (!template) throw new Error(`Template ${launch.templateId} not found.`);
+    if (template.fullAccess && isRestricted(caller))
+      throw new Error(RESTRICTED_LAUNCH_REASON);
     const project = await this.requireProject(task.projectId);
     return await this.deps.launchTemplate({
       templateId: template.id,
@@ -615,16 +742,21 @@ export class TaskService {
   }
 
   /**
-   * Runs `column`'s trigger for a task that just entered it. A failure is
-   * recorded on the task and never undoes the move.
+   * Runs `column`'s trigger for a task that just entered it, inside the
+   * task's lock. A failure is recorded on the task and never undoes the
+   * move; a launch that finds the task gone from the column does not assign.
    */
-  private async fireTrigger(task: Task, column: TaskColumn): Promise<void> {
+  private async fireTrigger(
+    task: Task,
+    column: TaskColumn,
+    caller: TaskCaller
+  ): Promise<void> {
     const trigger = column.trigger;
     if (!trigger) return;
     const system: TaskActor = { kind: "system" };
     let agent: { id: string };
     try {
-      agent = await this.launchFor(task, column, trigger);
+      agent = await this.launchFor(task, column, trigger, caller);
     } catch (error) {
       const reason = errorMessage(error);
       this.deps.log.warn(
@@ -641,15 +773,22 @@ export class TaskService {
       agentId: agent.id,
       templateId: trigger.templateId,
     });
-    if (trigger.assign) {
-      try {
-        await this.assign(task, agent.id, "trigger", system, column.id);
-      } catch (error) {
-        this.deps.log.warn(
-          { taskId: task.id, agentId: agent.id, err: error },
-          "Task trigger assignment failed"
-        );
-      }
+    if (!trigger.assign) return;
+    const current = await this.store.getTask(task.id);
+    if (current?.columnId !== column.id) {
+      this.deps.log.info(
+        { taskId: task.id, agentId: agent.id, columnId: column.id },
+        "Task left the trigger's column during the launch; not assigning"
+      );
+      return;
+    }
+    try {
+      await this.assign(current, agent.id, "trigger", system, column.id);
+    } catch (error) {
+      this.deps.log.warn(
+        { taskId: task.id, agentId: agent.id, err: error },
+        "Task trigger assignment failed"
+      );
     }
   }
 
@@ -657,42 +796,48 @@ export class TaskService {
   async launchAgent(
     id: string,
     input: LaunchTaskAgentInput,
-    actor: TaskActor
+    caller: TaskCaller
   ): Promise<{ agent: AgentRecord }> {
-    const task = await this.requireTask(id);
-    const project = await this.requireProject(task.projectId);
-    const launch = await this.validateTrigger(project, {
-      templateId: input.templateId,
-      agentType: input.agentType ?? null,
-      model: input.model ?? null,
-    });
-    const column = await this.requireColumn(task.columnId);
-    let agent: AgentRecord;
-    try {
-      agent = await this.launchFor(task, column, {
-        ...launch,
-        passContext: true,
+    return await this.withTaskLock(id, async () => {
+      const task = await this.requireTask(id);
+      const project = await this.requireProject(task.projectId);
+      const launch = await this.validateTrigger(project, {
+        templateId: input.templateId,
+        agentType: input.agentType ?? null,
+        model: input.model ?? null,
       });
-    } catch (error) {
-      throw invalid(errorMessage(error));
-    }
-    await this.store.insertEvent(task.id, "agent_launched", actor, {
-      agentId: agent.id,
-      templateId: launch.templateId,
+      const column = await this.requireColumn(task.columnId);
+      const actor = actorOf(caller);
+      let agent: AgentRecord;
+      try {
+        agent = await this.launchFor(
+          task,
+          column,
+          { ...launch, passContext: true },
+          caller
+        );
+      } catch (error) {
+        throw invalid(errorMessage(error));
+      }
+      await this.store.insertEvent(task.id, "agent_launched", actor, {
+        agentId: agent.id,
+        templateId: launch.templateId,
+      });
+      await this.assign(task, agent.id, "manual", actor);
+      this.publish(task.projectId, task.id);
+      return { agent };
     });
-    await this.assign(task, agent.id, "manual", actor);
-    this.publish(task.projectId, task.id);
-    return { agent };
   }
 
   // ── Assignment ───────────────────────────────────────────────────
 
   /**
    * Makes `agentId` the task's agent and opens the task's conversation in
-   * its stream. The block is posted once per agent; a repeat assignment
-   * reuses it. A failed post keeps the assignment without a conversation.
+   * its stream. Runs inside the task's lock, so the block is posted once
+   * per agent; a repeat assignment reuses it. A failed post keeps the
+   * assignment without a conversation.
    */
-  async assign(
+  private async assign(
     task: Task,
     agentId: string,
     role: TaskAgentRole,
@@ -724,10 +869,16 @@ export class TaskService {
         ],
         allowInert: true,
       });
-      await this.store.setConversation(task.id, agentId, {
+      const stored = await this.store.setConversation(task.id, agentId, {
         streamId,
         blockId: posted.block.id,
       });
+      if (!stored) {
+        this.deps.log.warn(
+          { taskId: task.id, agentId, blockId: posted.block.id },
+          "Task conversation already existed; keeping the stored one"
+        );
+      }
     } catch (error) {
       this.deps.log.warn(
         { taskId: task.id, agentId, err: error },
@@ -748,21 +899,24 @@ export class TaskService {
 
   // ── Agent-facing (MCP) ───────────────────────────────────────────
 
-  /** Assigns the calling agent to the task as `self`. */
-  async assignSelf(id: string, agentId: string): Promise<void> {
-    const task = await this.requireTask(id);
-    if (task.assignedAgentId === agentId) {
-      const row = await this.store.getTaskAgent(id, agentId);
-      if (row?.conversation) return;
+  /**
+   * The project an agent's task tools act on: its own, or for an agent
+   * outside any project, the project whose repo holds its workspace.
+   */
+  async projectForAgent(agent: {
+    projectId?: string | null;
+    paths: Array<string | null | undefined>;
+  }): Promise<string | null> {
+    if (agent.projectId) return agent.projectId;
+    const paths = agent.paths.filter((p): p is string => !!p);
+    let best: ProjectRecord | null = null;
+    for (const project of await this.projects.list()) {
+      const root = project.repoRoot.replace(/\/+$/, "");
+      const holds = paths.some((p) => p === root || p.startsWith(`${root}/`));
+      if (holds && (!best || root.length > best.repoRoot.length))
+        best = project;
     }
-    await this.assign(task, agentId, "self", { kind: "agent", agentId });
-    this.publish(task.projectId, id);
-  }
-
-  async unassignSelf(id: string, agentId: string): Promise<void> {
-    const task = await this.requireTask(id);
-    await this.unassign(task, { kind: "agent", agentId });
-    this.publish(task.projectId, id);
+    return best?.id ?? null;
   }
 
   /** Posts into the caller's conversation thread on the task. */

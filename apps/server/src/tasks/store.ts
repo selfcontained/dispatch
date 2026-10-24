@@ -421,7 +421,16 @@ export class TaskStore {
     return min === null || min === undefined ? 0 : min - 1;
   }
 
-  async updateTask(id: string, patch: TaskPatch): Promise<void> {
+  /**
+   * Applies `patch`. With `fromColumnId` it is a conditional transition: the
+   * row only changes while the task is still in that column, and the result
+   * says whether it did — false means another write moved it first.
+   */
+  async updateTask(
+    id: string,
+    patch: TaskPatch,
+    opts: { fromColumnId?: string; db?: Queryable } = {}
+  ): Promise<boolean> {
     const sets: string[] = [];
     const values: unknown[] = [id];
     const set = (column: string, value: unknown) => {
@@ -440,10 +449,16 @@ export class TaskStore {
           : "completed_at = NULL"
       );
     sets.push("updated_at = now()");
-    await this.pool.query(
-      `UPDATE tasks SET ${sets.join(", ")} WHERE id = $1`,
+    let where = "id = $1";
+    if (opts.fromColumnId !== undefined) {
+      values.push(opts.fromColumnId);
+      where += ` AND column_id = $${values.length}`;
+    }
+    const result = await (opts.db ?? this.pool).query(
+      `UPDATE tasks SET ${sets.join(", ")} WHERE ${where}`,
       values
     );
+    return result.rowCount === 1;
   }
 
   async setAssignedAgent(id: string, agentId: string | null): Promise<void> {
@@ -484,15 +499,21 @@ export class TaskStore {
     return toTaskAgent(rows[0]!);
   }
 
+  /**
+   * Records the conversation unless one is already stored; false means
+   * another assignment got there first and its pointer stands.
+   */
   async setConversation(
     taskId: string,
     agentId: string,
     conversation: TaskConversation
-  ): Promise<void> {
-    await this.pool.query(
-      `UPDATE task_agents SET conversation = $3 WHERE task_id = $1 AND agent_id = $2`,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE task_agents SET conversation = $3
+       WHERE task_id = $1 AND agent_id = $2 AND conversation IS NULL`,
       [taskId, agentId, JSON.stringify(conversation)]
     );
+    return result.rowCount === 1;
   }
 
   async getTaskAgent(
@@ -524,10 +545,11 @@ export class TaskStore {
     taskId: string,
     kind: TaskEventKind,
     actor: TaskActor,
-    data: Record<string, unknown> = {}
+    data: Record<string, unknown> = {},
+    db: Queryable = this.pool
   ): Promise<void> {
     const [actorKind, actorAgentId] = actorColumns(actor);
-    await this.pool.query(
+    await db.query(
       `INSERT INTO task_events (id, task_id, kind, actor_kind, actor_agent_id, data, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())`,
       [

@@ -28,12 +28,15 @@ let pool: Pool;
 const REPO = "/repo/tasks";
 const TEMPLATE_ID = "tpl_tasks";
 const OTHER_TEMPLATE_ID = "tpl_elsewhere";
+const FULL_TEMPLATE_ID = "tpl_full";
 
 let projectId: string;
 let otherProjectId: string;
 let agents: Map<string, TaskAgentInfo>;
 let launches: TaskLaunchRequest[];
 let launchFails: string | null;
+/** When set, launches wait for it before creating their agent. */
+let launchGate: Promise<void> | null;
 let posts: Array<{ streamId: string; input: Record<string, unknown> }>;
 let agentPosts: Array<{ agentId: string; input: Record<string, unknown> }>;
 let postFails: boolean;
@@ -76,9 +79,12 @@ function build(): TaskService {
         ? template({ id })
         : id === OTHER_TEMPLATE_ID
           ? template({ id, projectId: otherProjectId })
-          : null,
+          : id === FULL_TEMPLATE_ID
+            ? template({ id, fullAccess: true })
+            : null,
     launchTemplate: async (input) => {
       launches.push(input);
+      if (launchGate) await launchGate;
       if (launchFails) throw new Error(launchFails);
       const id = `agt_launch_${++agentSeq}`;
       await insertAgent(id, "running", "Builder");
@@ -138,6 +144,7 @@ beforeEach(async () => {
   agents = new Map();
   launches = [];
   launchFails = null;
+  launchGate = null;
   posts = [];
   agentPosts = [];
   postFails = false;
@@ -579,7 +586,11 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
   structuredContent?: Record<string, unknown>;
 }>;
 
-function tools(agentId: string, agentProjectId: string | null) {
+function tools(
+  agentId: string,
+  agentProjectId: string | null,
+  opts: { fullAccess?: boolean; paths?: string[] } = {}
+) {
   const handlers = new Map<string, ToolHandler>();
   const server = {
     registerTool: (name: string, _config: unknown, handler: ToolHandler) => {
@@ -595,7 +606,15 @@ function tools(agentId: string, agentProjectId: string | null) {
       "task_update",
       "task_comment",
     ]),
-    { agentId, projectId: agentProjectId, service }
+    {
+      caller: { kind: "agent", agentId, fullAccess: opts.fullAccess },
+      resolveProject: () =>
+        service.projectForAgent({
+          projectId: agentProjectId,
+          paths: opts.paths ?? [],
+        }),
+      service,
+    }
   );
   return (name: string, args: Record<string, unknown>) =>
     handlers.get(name)!(args);
@@ -620,7 +639,7 @@ describe("task tools", () => {
     const nowhere = tools("agt_tool", null);
     const refused = await nowhere("task_create", { title: "x" });
     expect(refused.isError).toBe(true);
-    expect(refused.content[0]!.text).toMatch(/Pass projectId/);
+    expect(refused.content[0]!.text).toMatch(/not in a Dispatch project/);
   });
 
   it("assign self posts the block into the caller's stream", async () => {
@@ -702,5 +721,265 @@ describe("task tools", () => {
     }>;
     expect(events).toHaveLength(30);
     expect((await service.getTaskDetail(task.id)).events).toHaveLength(36);
+  });
+});
+
+// ── Review follow-ups ───────────────────────────────────────────────
+
+describe("concurrent transitions", () => {
+  it("fires once when the same move lands twice at once", async () => {
+    const ready = await withTrigger("ready");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await Promise.all([
+      service.updateTask(task.id, { columnId: ready }, USER),
+      service.updateTask(task.id, { columnId: ready }, USER),
+    ]);
+    expect(launches).toHaveLength(1);
+    const kinds = (await service.getTaskDetail(task.id)).events.map(
+      (e) => e.kind
+    );
+    expect(kinds.filter((k) => k === "moved")).toHaveLength(1);
+  });
+
+  it("serializes a newer move behind a slow launch", async () => {
+    const ready = await withTrigger("ready");
+    const backlog = await columnId("backlog");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    let open!: () => void;
+    launchGate = new Promise((resolve) => (open = resolve));
+    const first = service.updateTask(task.id, { columnId: ready }, USER);
+    const second = service.updateTask(
+      task.id,
+      { columnId: backlog, confirmRelaunch: true },
+      USER
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The newer move is waiting on the launch, not racing it.
+    expect((await service.requireTask(task.id)).columnId).toBe(ready);
+    open();
+    await Promise.all([first, second]);
+    const final = await service.requireTask(task.id);
+    expect(final.columnId).toBe(backlog);
+    const kinds = (await service.getTaskDetail(task.id)).events.map(
+      (e) => e.kind
+    );
+    expect(kinds.slice(-2)).toEqual(["assigned", "moved"]);
+  });
+
+  it("a launch that finds the task moved away does not assign", async () => {
+    await withTrigger("ready");
+    const ready = await columnId("ready");
+    const backlog = await columnId("backlog");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    let open!: () => void;
+    launchGate = new Promise((resolve) => (open = resolve));
+    const move = service.updateTask(task.id, { columnId: ready }, USER);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // A write from outside this process's lock moves it on mid-launch.
+    await pool.query("UPDATE tasks SET column_id = $2 WHERE id = $1", [
+      task.id,
+      backlog,
+    ]);
+    open();
+    const after = await move;
+    expect(launches).toHaveLength(1);
+    expect(after.assignedAgentId).toBeNull();
+    expect(posts).toHaveLength(0);
+    const kinds = (await service.getTaskDetail(task.id)).events.map(
+      (e) => e.kind
+    );
+    expect(kinds).toContain("trigger_launched");
+    expect(kinds).not.toContain("assigned");
+  });
+
+  it("skips a move whose source column changed underneath it", async () => {
+    const ready = await withTrigger("ready");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    const moved = await service.store.updateTask(
+      task.id,
+      { columnId: ready },
+      { fromColumnId: "tcol_not_its_column" }
+    );
+    expect(moved).toBe(false);
+    expect((await service.requireTask(task.id)).columnId).toBe(task.columnId);
+  });
+
+  it("opens one conversation for two overlapping assignments", async () => {
+    await insertAgent("agt_tool");
+    const call = tools("agt_tool", projectId);
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await Promise.all([
+      call("task_update", { id: task.id, assign: "self" }),
+      call("task_update", { id: task.id, assign: "self" }),
+    ]);
+    expect(posts).toHaveLength(1);
+    const detail = await service.getTaskDetail(task.id);
+    expect(detail.agents[0]!.conversation!.blockId).toBe(
+      "00000000-0000-4000-8000-000000000001"
+    );
+  });
+
+  it("keeps the first conversation pointer", async () => {
+    await insertAgent("agt_a");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_a" }, USER);
+    const first = (await service.getTaskDetail(task.id)).agents[0]!
+      .conversation!;
+    expect(
+      await service.store.setConversation(task.id, "agt_a", {
+        streamId: "s",
+        blockId: "other",
+      })
+    ).toBe(false);
+    expect(
+      (await service.getTaskDetail(task.id)).agents[0]!.conversation
+    ).toEqual(first);
+  });
+});
+
+describe("access ceiling", () => {
+  it("a restricted agent's move cannot launch a full-access template", async () => {
+    const ready = await columnId("ready");
+    await service.updateColumn(ready, {
+      trigger: { templateId: FULL_TEMPLATE_ID },
+    });
+    await insertAgent("agt_tool");
+    const call = tools("agt_tool", projectId);
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    const result = await call("task_update", { id: task.id, column: "ready" });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      column: "ready",
+      latestFailure: {
+        reason: "restricted agent cannot launch a full-access template",
+      },
+    });
+    expect(launches).toHaveLength(0);
+  });
+
+  it("a restricted agent's fireOnCreate cannot launch one either", async () => {
+    const ready = await columnId("ready");
+    await service.updateColumn(ready, {
+      trigger: { templateId: FULL_TEMPLATE_ID, fireOnCreate: true },
+    });
+    await insertAgent("agt_tool");
+    const call = tools("agt_tool", projectId);
+    const created = await call("task_create", { title: "t", column: "ready" });
+    const task = await service.requireTask(
+      created.structuredContent!.id as string
+    );
+    expect(task.columnId).toBe(ready);
+    expect(task.latestFailure?.reason).toBe(
+      "restricted agent cannot launch a full-access template"
+    );
+    expect(launches).toHaveLength(0);
+  });
+
+  it("full-access agents and people may", async () => {
+    const ready = await columnId("ready");
+    await service.updateColumn(ready, {
+      trigger: { templateId: FULL_TEMPLATE_ID, assign: false },
+    });
+    await insertAgent("agt_full");
+    const call = tools("agt_full", projectId, { fullAccess: true });
+    const a = await service.createTask({ projectId, title: "a" }, USER);
+    await call("task_update", { id: a.id, column: "ready" });
+    const b = await service.createTask({ projectId, title: "b" }, USER);
+    await service.updateTask(b.id, { columnId: ready }, USER);
+    expect(launches).toHaveLength(2);
+  });
+
+  it("holds for a manual launch by an agent", async () => {
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await expect(
+      service.launchAgent(
+        task.id,
+        { templateId: FULL_TEMPLATE_ID },
+        { kind: "agent", agentId: "agt_x" }
+      )
+    ).rejects.toThrow(/restricted agent/);
+    expect(launches).toHaveLength(0);
+  });
+});
+
+describe("tool project scope", () => {
+  it("refuses another project's board and tasks", async () => {
+    await insertAgent("agt_tool");
+    const call = tools("agt_tool", projectId);
+    const theirs = await service.createTask(
+      { projectId: otherProjectId, title: "theirs" },
+      USER
+    );
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["task_list", { projectId: otherProjectId }],
+      ["task_create", { title: "x", projectId: otherProjectId }],
+      ["task_get", { id: theirs.id }],
+      ["task_update", { id: theirs.id, title: "mine now" }],
+      ["task_comment", { id: theirs.id, text: "hi" }],
+    ];
+    for (const [name, args] of cases) {
+      const result = await call(name, args);
+      expect(result.isError, name).toBe(true);
+      expect(result.content[0]!.text, name).toMatch(/own project/);
+    }
+    expect((await service.requireTask(theirs.id)).title).toBe("theirs");
+  });
+
+  it("places a projectless agent by its workspace", async () => {
+    await insertAgent("agt_loose");
+    const call = tools("agt_loose", null, {
+      paths: [`${REPO}/packages/app`],
+    });
+    const created = await call("task_create", { title: "found my board" });
+    expect(
+      (await service.requireTask(created.structuredContent!.id as string))
+        .projectId
+    ).toBe(projectId);
+    const lost = tools("agt_loose", null, { paths: ["/elsewhere"] });
+    expect((await lost("task_list", {})).isError).toBe(true);
+  });
+});
+
+describe("assign self", () => {
+  it("cannot take over a running agent's task", async () => {
+    await withTrigger("ready");
+    await insertAgent("agt_a");
+    await insertAgent("agt_b");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_a" }, USER);
+    posts = [];
+    const call = tools("agt_b", projectId);
+    const result = await call("task_update", {
+      id: task.id,
+      assign: "self",
+      column: "ready",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: { code: "agent_working" },
+    });
+    const after = await service.requireTask(task.id);
+    expect(after.assignedAgentId).toBe("agt_a");
+    expect(after.columnId).toBe(task.columnId);
+    expect(launches).toHaveLength(0);
+    expect(posts).toHaveLength(0);
+  });
+
+  it("cannot take it over without a move either", async () => {
+    await insertAgent("agt_a");
+    await insertAgent("agt_b");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_a" }, USER);
+    posts = [];
+    const call = tools("agt_b", projectId);
+    const result = await call("task_update", { id: task.id, assign: "self" });
+    expect(result.isError).toBe(true);
+    expect((await service.requireTask(task.id)).assignedAgentId).toBe("agt_a");
+    expect(posts).toHaveLength(0);
+
+    // Once agt_a has stopped, agt_b may pick the task up.
+    agents.set("agt_a", { ...agents.get("agt_a")!, status: "stopped" });
+    await call("task_update", { id: task.id, assign: "self" });
+    expect((await service.requireTask(task.id)).assignedAgentId).toBe("agt_b");
   });
 });
