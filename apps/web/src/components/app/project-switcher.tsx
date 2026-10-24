@@ -112,7 +112,7 @@ export function ProjectSwitcher() {
           <DialogHeader>
             <DialogTitle>Projects</DialogTitle>
             <DialogDescription>
-              Give each repository a name, icon, and color.
+              Give each folder a name, icon, and color.
             </DialogDescription>
           </DialogHeader>
           <div className="-m-1 min-h-0 space-y-2 overflow-y-auto p-1">
