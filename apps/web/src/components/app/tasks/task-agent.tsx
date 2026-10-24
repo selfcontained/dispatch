@@ -1,6 +1,7 @@
 import type { Agent } from "@/components/app/types";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { AgentActivityLabel } from "@/components/app/agent-activity";
+import { TurnGlyph } from "@/components/app/chat/turn/activity-block";
+import { useAgentTurnLabel } from "@/hooks/use-agent-turn-label";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { agentQualifier } from "./task-utils";
@@ -14,24 +15,10 @@ const ENGINE_CHIP: Record<string, string> = {
 };
 
 /**
- * The agent's state as the sidebar colours it: working pulses green, a
- * question or block waits in amber, idle is quiet, stopped is hollow.
+ * An agent on a task. While the agent is in a turn the chip carries the
+ * same live glyph the sidebar and its turns show, and (unless compact)
+ * the step it is on, so a glance at the board says who is working.
  */
-const ACTIVITY_DOT: Record<
-  NonNullable<Agent["activity"]>,
-  { className: string; label: string }
-> = {
-  starting: { className: "bg-status-working animate-pulse", label: "Starting" },
-  working: { className: "bg-status-working animate-pulse", label: "Working" },
-  waiting: { className: "bg-status-waiting", label: "Waiting on you" },
-  blocked: { className: "bg-status-blocked", label: "Blocked" },
-  idle: { className: "bg-status-idle", label: "Idle" },
-  stopped: {
-    className: "border border-muted-foreground/60 bg-transparent",
-    label: "Stopped",
-  },
-};
-
 export function TaskAgentChip({
   agent,
   agents,
@@ -39,12 +26,14 @@ export function TaskAgentChip({
   className,
 }: {
   agent: Agent;
-  /** The agents it sits among, so a shared name gets its id tail. */
+  /** The agents it sits among, so a shared name says when it started. */
   agents?: readonly Agent[];
   compact?: boolean;
   className?: string;
 }) {
-  const dot = ACTIVITY_DOT[agent.activity ?? "stopped"];
+  const turn = agent.currentTurn ?? null;
+  const step = useAgentTurnLabel(agent.id, turn?.blockId ?? null);
+  const live = agent.activity === "working" || Boolean(turn);
   const qualifier = agentQualifier(agent, agents);
   return (
     <span
@@ -53,35 +42,34 @@ export function TaskAgentChip({
         ENGINE_CHIP[agent.type ?? "claude"],
         className
       )}
-      title={`${agent.name}${qualifier ? ` (${agent.id})` : ""} · ${dot.label}`}
+      title={qualifier ? `${agent.name} · ${qualifier}` : agent.name}
     >
-      <span className="relative inline-flex shrink-0">
-        <AgentTypeIcon
-          type={agent.type ?? "claude"}
-          className="h-4 w-4 rounded-full border-0 bg-transparent"
-        />
-        <span
-          role="img"
-          aria-label={dot.label}
-          data-testid={`task-agent-activity-${agent.id}`}
-          data-activity={agent.activity}
-          className={cn(
-            "absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-card",
-            dot.className
-          )}
-        />
-      </span>
+      <AgentTypeIcon
+        type={agent.type ?? "claude"}
+        className="h-4 w-4 rounded-full border-0 bg-transparent"
+      />
       <span className="max-w-28 truncate">{agent.name}</span>
       {qualifier && (
-        <span className="-ml-1 font-mono text-[10px] text-muted-foreground">
-          {qualifier}
+        <span className="truncate text-[10px] text-muted-foreground">
+          · {qualifier}
         </span>
       )}
-      {!compact && (
-        <AgentActivityLabel
-          agent={agent}
-          className="max-w-24 truncate text-[10px] text-muted-foreground"
-        />
+      {live && (
+        <span
+          className="flex w-3 shrink-0 items-center justify-center leading-none"
+          data-testid={`task-agent-live-${agent.id}`}
+          aria-label="Working"
+          role="img"
+        >
+          <TurnGlyph
+            summary={{ done: false, failed: false, interrupted: false }}
+          />
+        </span>
+      )}
+      {live && !compact && step && (
+        <span className="max-w-24 truncate text-[10px] font-medium text-status-working">
+          {step}
+        </span>
       )}
     </span>
   );

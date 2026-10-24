@@ -89,8 +89,8 @@ export function taskAge(date: string): string {
 }
 /**
  * What tells this agent apart when another in the list wears the same
- * name (two "Builder"s launched by the same column): the tail of its id,
- * the way an ambiguous @mention is qualified. Null when the name is enough.
+ * name (two "Builder"s launched by the same column): when it started.
+ * Null when the name is enough.
  */
 export function agentQualifier(
   agent: Agent,
@@ -100,7 +100,9 @@ export function agentQualifier(
   const clash = agents?.some(
     (other) => other.id !== agent.id && other.name.trim().toLowerCase() === name
   );
-  return clash ? agent.id.replace(/^agt_/, "").slice(-6) : null;
+  if (!clash || !agent.createdAt) return null;
+  const age = taskAge(agent.createdAt);
+  return age === "now" ? "started just now" : `started ${age} ago`;
 }
 /** A column trigger's template, by name; the id when it is gone. */
 export function templateName(

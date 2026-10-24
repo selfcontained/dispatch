@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { TaskAgent } from "./task-agent";
 import { AssigneeSelect } from "./task-assignee-select";
+import { cn } from "@/lib/utils";
 import { TaskConversation } from "./task-conversation";
 import { StatusSelect } from "./task-list";
 import { columnAccent, taskAge } from "./task-utils";
@@ -37,12 +38,19 @@ import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
 
+/** Status and Assignee share one width and one quiet field style. */
+const PROPERTY_CONTROL =
+  "h-8 w-full max-w-64 border-transparent bg-muted/50 text-xs hover:bg-muted";
 const ago = (date: string) => {
   const age = taskAge(date);
   return age === "now" ? "just now" : `${age} ago`;
 };
 
-/** A drawer group: a quiet label over its content, no box around it. */
+/** The raised surface each drawer group sits on, over the pane's base. */
+const DRAWER_SURFACE =
+  "rounded-xl bg-card/70 p-3 shadow-sm ring-1 ring-border/40";
+
+/** A drawer group: a quiet label over its content, on its own surface. */
 function DrawerSection({
   label,
   action,
@@ -53,7 +61,7 @@ function DrawerSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-2">
+    <section className={cn(DRAWER_SURFACE, "space-y-2")}>
       <div className="flex min-h-7 items-center justify-between gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
@@ -82,7 +90,7 @@ export function TaskDrawer(props: TaskDetailProps) {
     <aside
       data-testid="task-drawer"
       aria-label="Task"
-      className="fixed inset-0 z-40 flex flex-col bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[600px] md:border-l md:border-border/40 md:shadow-2xl"
+      className="fixed inset-0 z-40 flex flex-col bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(600px,100%)] md:border-l md:border-border md:shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.6)]"
     >
       <TaskDetailPanel {...props} />
     </aside>
@@ -248,9 +256,19 @@ export function TaskDetailPanel({
                 {task.title}
               </button>
             )}
-            <section className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl bg-muted/30 p-3 text-sm">
+            <section
+              className={cn(
+                DRAWER_SURFACE,
+                "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm"
+              )}
+            >
               <span className="text-xs text-muted-foreground">Status</span>
-              <StatusSelect task={task} columns={columns} moveTask={moveTask} />
+              <StatusSelect
+                task={task}
+                columns={columns}
+                moveTask={moveTask}
+                className={PROPERTY_CONTROL}
+              />
               <span className="text-xs text-muted-foreground">Assignee</span>
               <AssigneeSelect
                 value={task.assignedAgentId}
@@ -259,6 +277,7 @@ export function TaskDetailPanel({
                 onChange={(assignedAgentId) =>
                   void actions.update.mutateAsync({ id, assignedAgentId })
                 }
+                className={PROPERTY_CONTROL}
               />
               <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
                 The assignee is told it owns this task and receives what you

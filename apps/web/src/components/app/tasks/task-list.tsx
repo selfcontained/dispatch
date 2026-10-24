@@ -208,16 +208,18 @@ export function StatusSelect({
   task,
   columns,
   moveTask,
+  className,
 }: {
   task: Task;
   columns: TaskColumn[];
   moveTask: (task: Task, columnId: string) => void;
+  className?: string;
 }) {
   return (
     <Select value={task.columnId} onValueChange={(id) => moveTask(task, id)}>
       <SelectTrigger
         aria-label={`Status for ${task.title}`}
-        className="h-8 w-32 text-xs"
+        className={cn("h-8 w-32 text-xs", className)}
       >
         <SelectValue />
       </SelectTrigger>

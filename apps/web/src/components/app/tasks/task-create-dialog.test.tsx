@@ -13,6 +13,11 @@ import { TaskCreateDialog } from "./task-create-dialog";
 
 const create = vi.fn();
 const update = vi.fn();
+// The assignee chips read the current turn's step through React Query,
+// which this dialog test does not stand up.
+vi.mock("@/hooks/use-agent-turn-label", () => ({
+  useAgentTurnLabel: () => null,
+}));
 vi.mock("@/hooks/use-tasks", () => ({
   useTaskActions: () => ({
     create: { mutateAsync: create },

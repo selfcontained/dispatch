@@ -343,7 +343,7 @@ export function TasksRoute(): JSX.Element {
     >
       {/* Boards are per project, so with none chosen the page is the choice. */}
       <div className="flex h-full items-center justify-center p-6">
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm text-center">
           <h1 className="text-lg font-semibold">Choose a project</h1>
           <p className="mb-4 text-sm text-muted-foreground">
             {projects.length
@@ -354,7 +354,7 @@ export function TasksRoute(): JSX.Element {
             {projects.map((project) => (
               <button
                 key={project.id}
-                className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-left text-sm hover:bg-muted/60"
+                className="flex w-full items-center justify-center gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-sm hover:bg-muted/60"
                 onClick={() => {
                   const next = new URLSearchParams(params);
                   next.set("project", project.id);
@@ -362,7 +362,7 @@ export function TasksRoute(): JSX.Element {
                 }}
               >
                 <ProjectIcon project={project} className="h-5 w-5" />
-                <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                <span className="min-w-0 truncate">{project.name}</span>
               </button>
             ))}
           </div>

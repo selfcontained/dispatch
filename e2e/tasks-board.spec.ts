@@ -282,7 +282,8 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     ).toBeVisible();
     await page.getByRole("button", { name: project.name }).click();
     await expect(page).toHaveURL(new RegExp(`project=${project.id}`));
-    await expect(page.getByTestId("tasks-board")).toBeVisible();
+    // The layout last chosen for this project (List, above) comes back.
+    await expect(page.getByTestId("tasks-list")).toBeVisible();
     await page.screenshot({
       path: "/tmp/dispatch-tasks-project-switch.png",
       scale: "device",
