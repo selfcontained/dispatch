@@ -231,11 +231,53 @@ export type StreamServiceDeps = {
   ) => Promise<unknown>;
   /** Required for anything that delivers to an agent. */
   delivery?: StreamDeliveryAdapter;
+  /**
+   * A task as a stream root (`tsk_…`): its blocks live in `blocks` with
+   * `stream_id = task.id`. Absent means no stream is a task's.
+   */
+  taskRoot?: (taskId: string) => Promise<TaskStreamRoot | null>;
   log?: {
     warn: (obj: object, msg: string) => void;
     error: (obj: object, msg: string) => void;
   };
 };
+
+/** A person's post, as `sendUserPost` takes it. */
+export type UserPostInput = {
+  id?: string;
+  to?: string | null;
+  text: string;
+  replyTo?: string | null;
+  attachments?: Array<
+    ChatUserAttachmentInput | Extract<ChatAttachment, { type: "code" }>
+  >;
+  /** External captures address the selected agent; page text cannot redirect them. */
+  resolveMentions?: boolean;
+  /** A review left by hand: the block is a `review` with these findings. */
+  review?: BlockReviewInput | null;
+  allowInert?: boolean;
+  delivery?: "auto" | "queue" | "interrupt";
+  /** Legacy clients: sending no longer cancels the running turn. */
+  interrupt?: boolean;
+};
+
+/** What a stream needs to know about a task whose conversation it is. */
+export type TaskStreamRoot = {
+  id: string;
+  title: string;
+  /** The column's name, for the envelope. */
+  column: string;
+  assignedAgentId: string | null;
+  /** Every agent on the task (`task_agents`). */
+  agentIds: string[];
+  /**
+   * Agents taken off the task and not put back. A block addressed to one
+   * no longer lets it write here, unlike an agent that was only mentioned.
+   */
+  removedAgentIds: string[];
+};
+
+export const TASK_ROOT_PREFIX = "tsk_";
 
 /** Base for the domain errors the HTTP layer maps to a status code. */
 export abstract class StreamServiceError extends Error {
@@ -714,6 +756,12 @@ export class StreamService {
   private readonly turns: StreamStore;
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
   private readonly turnPublishes = new Map<string, TurnPublish>();
+  /** Streams being deleted (a task's): nothing new is written or delivered. */
+  private readonly closingRoots = new Set<string>();
+  /** Task streams whose agents are changing: writes wait, see `withdrawDeliveries`. */
+  private readonly fencedRoots = new Set<string>();
+  /** Writes under way per stream, from admission to handover; `closeStream` drains them. */
+  private readonly activeWrites = new Map<string, Set<Promise<void>>>();
   private readonly log: NonNullable<StreamServiceDeps["log"]>;
 
   constructor(private readonly deps: StreamServiceDeps) {
@@ -728,6 +776,213 @@ export class StreamService {
    */
   streamOf(agentId: string): Promise<string> {
     return rootAgentId(this.deps.pool, agentId);
+  }
+
+  /** The task whose conversation `streamId` is, or null for an agent's stream. */
+  async taskRoot(streamId: string): Promise<TaskStreamRoot | null> {
+    if (!streamId.startsWith(TASK_ROOT_PREFIX) || !this.deps.taskRoot)
+      return null;
+    return await this.deps.taskRoot(streamId);
+  }
+
+  /** Refuses a write to a stream that is being deleted. */
+  private assertOpen(streamId: string): void {
+    if (this.closingRoots.has(streamId))
+      throw new StreamConflictError("This task is being deleted.");
+    if (this.fencedRoots.has(streamId))
+      throw new StreamConflictError(
+        "This task's agents are changing; try again in a moment."
+      );
+  }
+
+  /**
+   * Admits a write to `streamId` and holds it open until the returned
+   * function runs: `closeStream` waits for it, and refuses new ones. The
+   * check and the registration are one synchronous step.
+   */
+  private beginWrite(streamId: string): () => void {
+    this.assertOpen(streamId);
+    let set = this.activeWrites.get(streamId);
+    if (!set) {
+      set = new Set();
+      this.activeWrites.set(streamId, set);
+    }
+    const writes = set;
+    let finish!: () => void;
+    const write = new Promise<void>((resolve) => (finish = resolve));
+    writes.add(write);
+    return () => {
+      finish();
+      writes.delete(write);
+      if (writes.size === 0 && this.activeWrites.get(streamId) === writes)
+        this.activeWrites.delete(streamId);
+    };
+  }
+
+  /** Runs `run` as an admitted write to `streamId` (see `beginWrite`). */
+  private async withWrite<T>(
+    streamId: string,
+    run: () => Promise<T>
+  ): Promise<T> {
+    const end = this.beginWrite(streamId);
+    try {
+      return await run();
+    } finally {
+      end();
+    }
+  }
+
+  /**
+   * A task's stream is written only while the task exists. Checked inside
+   * an admitted write, right before the insert, so a write that passed
+   * the route's check before the task was deleted cannot leave an orphan.
+   */
+  private async requireLiveRoot(streamId: string): Promise<void> {
+    if (
+      streamId.startsWith(TASK_ROOT_PREFIX) &&
+      !(await this.taskRoot(streamId))
+    )
+      throw new StreamNotFoundError("Task not found.");
+  }
+
+  /** Waits for the stream's admitted writes; false if any outlast `deadline`. */
+  private async drainWrites(
+    streamId: string,
+    deadline: number
+  ): Promise<boolean> {
+    for (;;) {
+      const writes = this.activeWrites.get(streamId);
+      if (!writes?.size) return true;
+      const left = deadline - Date.now();
+      if (left <= 0) return false;
+      await Promise.race([
+        Promise.all([...writes]),
+        new Promise((resolve) => setTimeout(resolve, left)),
+      ]);
+    }
+  }
+
+  /**
+   * Readies a stream for deletion: refuses new writes to it, waits for
+   * the ones already admitted to hand their prompts over, then takes back
+   * every delivery of its blocks still queued at an agent, so none runs
+   * after its block is gone. A delivery still being handed over is
+   * retried until `settleMs`; a write or a delivery that outlasts it (an
+   * engine that never claims or releases a prompt) refuses the deletion.
+   * Pair with `releaseStream` once the blocks are deleted, or on failure.
+   */
+  async closeStream(
+    streamId: string,
+    opts: { settleMs?: number } = {}
+  ): Promise<void> {
+    this.closingRoots.add(streamId);
+    const cancelled = new Set<string>();
+    const deadline = Date.now() + (opts.settleMs ?? 2_000);
+    const inFlight = new StreamConflictError(
+      "A message on this task is being delivered right now; try again in a moment."
+    );
+    try {
+      if (!(await this.drainWrites(streamId, deadline))) throw inFlight;
+      for (;;) {
+        const open = (await this.store.pendingDeliveries(streamId)).filter(
+          ({ blockId, agentId }) => !cancelled.has(`${blockId}:${agentId}`)
+        );
+        for (const { blockId, agentId } of open) {
+          if (
+            this.deps.delivery?.controlQueuedPrompt?.(
+              [agentId],
+              blockId,
+              "delete"
+            )
+          )
+            cancelled.add(`${blockId}:${agentId}`);
+        }
+        if (open.every((d) => cancelled.has(`${d.blockId}:${d.agentId}`)))
+          return;
+        if (Date.now() >= deadline) throw inFlight;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } catch (error) {
+      this.closingRoots.delete(streamId);
+      throw error;
+    }
+  }
+
+  releaseStream(streamId: string): void {
+    this.closingRoots.delete(streamId);
+  }
+
+  /**
+   * Fences a task's stream while one of its agents is taken off it: new
+   * writes are refused (briefly), the ones already admitted finish handing
+   * over, then every delivery of the stream's blocks still queued at
+   * `agentId` is taken back. The fence holds until the returned function
+   * runs, so nothing admitted in between can pick the agent as its
+   * recipient; the caller releases it once membership is gone. A delivery
+   * mid-handover is retried until `settleMs`; one that outlasts it refuses
+   * the withdrawal and lifts the fence. Other agents' deliveries stay.
+   */
+  async withdrawDeliveries(
+    streamId: string,
+    agentId: string,
+    opts: { settleMs?: number } = {}
+  ): Promise<() => void> {
+    this.fencedRoots.add(streamId);
+    const release = () => this.fencedRoots.delete(streamId);
+    const cancelled = new Set<string>();
+    const deadline = Date.now() + (opts.settleMs ?? 2_000);
+    const inFlight = new StreamConflictError(
+      "A message on this task is being delivered to that agent right now; try again in a moment."
+    );
+    try {
+      if (!(await this.drainWrites(streamId, deadline))) throw inFlight;
+      for (;;) {
+        const open = (await this.store.pendingDeliveries(streamId)).filter(
+          (d) => d.agentId === agentId && !cancelled.has(d.blockId)
+        );
+        for (const { blockId } of open) {
+          if (
+            this.deps.delivery?.controlQueuedPrompt?.(
+              [agentId],
+              blockId,
+              "delete"
+            )
+          )
+            cancelled.add(blockId);
+        }
+        if (open.every((d) => cancelled.has(d.blockId))) return release;
+        if (Date.now() >= deadline) throw inFlight;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
+  /** Whether `rootId` names a stream: an agent's, or a task's. */
+  async rootExists(rootId: string): Promise<boolean> {
+    if (rootId.startsWith(TASK_ROOT_PREFIX))
+      return (await this.taskRoot(rootId)) !== null;
+    const result = await this.deps.pool.query(
+      "SELECT 1 FROM agents WHERE id = $1",
+      [rootId]
+    );
+    return result.rows.length > 0;
+  }
+
+  /**
+   * Who a person's unaddressed post to a stream reaches: the stream's
+   * agent, or on a task the task's current agent.
+   */
+  private async defaultRecipient(streamId: string): Promise<string> {
+    const task = await this.taskRoot(streamId);
+    if (!task) return streamId;
+    if (!task.assignedAgentId)
+      throw new StreamValidationError(
+        "This task has no agent; assign an agent first."
+      );
+    return task.assignedAgentId;
   }
 
   /**
@@ -772,7 +1027,10 @@ export class StreamService {
   ): Promise<string[]> {
     const thread = await this.resolveThread(streamId, blockId);
     const recipients = thread ? await this.threadRecipients(thread, USER) : [];
-    return recipients.length ? recipients : [streamId];
+    if (recipients.length) return recipients;
+    const task = await this.taskRoot(streamId);
+    if (!task) return [streamId];
+    return task.assignedAgentId ? [task.assignedAgentId] : [];
   }
 
   /**
@@ -849,23 +1107,14 @@ export class StreamService {
    */
   async sendUserPost(
     streamId: string,
-    input: {
-      id?: string;
-      to?: string | null;
-      text: string;
-      replyTo?: string | null;
-      attachments?: Array<
-        ChatUserAttachmentInput | Extract<ChatAttachment, { type: "code" }>
-      >;
-      /** External captures address the selected agent; page text cannot redirect them. */
-      resolveMentions?: boolean;
-      /** A review left by hand: the block is a `review` with these findings. */
-      review?: BlockReviewInput | null;
-      allowInert?: boolean;
-      delivery?: "auto" | "queue" | "interrupt";
-      /** Legacy clients: sending no longer cancels the running turn. */
-      interrupt?: boolean;
-    }
+    input: UserPostInput
+  ): Promise<StreamPostResponse> {
+    return this.withWrite(streamId, () => this.writeUserPost(streamId, input));
+  }
+
+  private async writeUserPost(
+    streamId: string,
+    input: UserPostInput
   ): Promise<StreamPostResponse> {
     const attachments = input.attachments ?? [];
     const text = requireText(input.text);
@@ -881,8 +1130,9 @@ export class StreamService {
       );
     }
     if (review) {
-      const toAgentId = input.to ?? streamId;
+      const toAgentId = input.to ?? (await this.defaultRecipient(streamId));
       await this.requireAgent(toAgentId);
+      await this.requireLiveRoot(streamId);
       const created = await this.createReview({
         ...(input.id ? { id: input.id } : {}),
         streamId,
@@ -908,7 +1158,7 @@ export class StreamService {
     // `@name` names recipients in this tree or running parent sessions; it
     // wins over the page's default. Otherwise a reply in a thread goes to
     // the agents on its sides, and a top-level post to the stream's agent
-    // unless addressed elsewhere.
+    // (a task's current agent) unless addressed elsewhere.
     const tree = await this.mentionAgents(streamId);
     const mentioned =
       input.resolveMentions === false ? [] : findMentions(text, tree);
@@ -921,7 +1171,7 @@ export class StreamService {
         ? mentioned
         : sides.length > 0
           ? sides
-          : [input.to ?? streamId];
+          : [input.to ?? (await this.defaultRecipient(streamId))];
     const toAgentId = recipients[0]!;
     // ACP commands must be the entire prompt's first token. A normal post's
     // DISPATCH POST envelope would hide the slash from the adapter, so an
@@ -944,7 +1194,11 @@ export class StreamService {
     const recipient = recipientAgents[0]!;
     let resolved: ChatAttachment[] = [];
     if (attachments.length > 0) {
-      resolved = await this.resolveAttachmentsFor(recipient, attachments);
+      resolved = await this.resolveAttachmentsFor(
+        recipient,
+        attachments,
+        (await this.taskRoot(streamId))?.agentIds
+      );
     }
     const linesFor = new Map(
       await Promise.all(
@@ -989,6 +1243,7 @@ export class StreamService {
       attachments: resolved,
       delivered: live ? null : false,
     };
+    await this.requireLiveRoot(streamId);
     const block = input.id
       ? await this.store.insertIfAbsent({ id: input.id, ...row })
       : await this.store.insert(row);
@@ -1124,6 +1379,16 @@ export class StreamService {
     blockId: string,
     input: AnswerInput
   ): Promise<StreamAnswerResponse> {
+    return this.withWrite(streamId, () =>
+      this.writeAnswer(streamId, blockId, input)
+    );
+  }
+
+  private async writeAnswer(
+    streamId: string,
+    blockId: string,
+    input: AnswerInput
+  ): Promise<StreamAnswerResponse> {
     if (!isBlockId(blockId)) {
       throw new StreamValidationError("blockId must be a UUID.");
     }
@@ -1171,7 +1436,11 @@ export class StreamService {
     let resolved: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
-      resolved = await this.resolveAttachmentsFor(recipient, attachments);
+      resolved = await this.resolveAttachmentsFor(
+        recipient,
+        attachments,
+        (await this.taskRoot(streamId))?.agentIds
+      );
       attachmentLines = await this.describeAttachments(recipient, resolved);
     }
     const live = await this.canDeliver(toAgentId, true).catch(
@@ -1245,6 +1514,17 @@ export class StreamService {
     blockId: string,
     input: { id?: string; values: Record<string, string | number | boolean> },
     by: BlockAuthor = USER
+  ): Promise<StreamAnswerResponse> {
+    return this.withWrite(streamId, () =>
+      this.writeSubmission(streamId, blockId, input, by)
+    );
+  }
+
+  private async writeSubmission(
+    streamId: string,
+    blockId: string,
+    input: { id?: string; values: Record<string, string | number | boolean> },
+    by: BlockAuthor
   ): Promise<StreamAnswerResponse> {
     const form = await this.store.getById(blockId);
     if (
@@ -1682,17 +1962,28 @@ export class StreamService {
   // -------------------------------------------------------------------------
 
   async addReaction(
-    streamId: string,
+    rootId: string,
     blockId: string,
     rawEmoji: unknown,
     author: BlockAuthor = USER
   ): Promise<StreamReactionResponse> {
-    const { block, emoji } = await this.reactionTarget(
-      streamId,
+    const { block, emoji, streamId } = await this.reactionTarget(
+      rootId,
       blockId,
       rawEmoji,
       author
     );
+    return this.withWrite(streamId, () =>
+      this.writeReaction(streamId, block, emoji, author)
+    );
+  }
+
+  private async writeReaction(
+    streamId: string,
+    block: Block,
+    emoji: string,
+    author: BlockAuthor
+  ): Promise<StreamReactionResponse> {
     const existing = await this.store.listReactions(block.id);
     if (
       existing.some(
@@ -1750,13 +2041,13 @@ export class StreamService {
   }
 
   async removeReaction(
-    streamId: string,
+    rootId: string,
     blockId: string,
     rawEmoji: unknown,
     author: BlockAuthor = USER
   ): Promise<StreamReactionResponse> {
-    const { block, emoji } = await this.reactionTarget(
-      streamId,
+    const { block, emoji, streamId } = await this.reactionTarget(
+      rootId,
       blockId,
       rawEmoji,
       author
@@ -1770,12 +2061,16 @@ export class StreamService {
     };
   }
 
+  /**
+   * The block a reaction is on, and the stream it lives in: `streamId`'s,
+   * or for an agent a task's conversation it is on or was addressed in.
+   */
   private async reactionTarget(
     streamId: string,
     blockId: string,
     rawEmoji: unknown,
     author: BlockAuthor
-  ): Promise<{ block: Block; emoji: string }> {
+  ): Promise<{ block: Block; emoji: string; streamId: string }> {
     if (!isBlockId(blockId)) {
       throw new StreamValidationError(
         author.kind === "agent"
@@ -1790,9 +2085,14 @@ export class StreamService {
       );
     }
     const block = await this.store.getById(blockId);
+    const onTask =
+      !!block &&
+      author.kind === "agent" &&
+      block.streamId !== streamId &&
+      (await this.mayWriteTaskStream(block, author.agentId));
     if (
       !block ||
-      block.streamId !== streamId ||
+      (block.streamId !== streamId && !onTask) ||
       sameAuthor(block.author, author)
     ) {
       throw new StreamNotFoundError(
@@ -1801,7 +2101,31 @@ export class StreamService {
           : "Block not found."
       );
     }
-    return { block, emoji };
+    return { block, emoji, streamId: block.streamId };
+  }
+
+  /**
+   * Whether an agent may write beside `block` in a task's conversation: it
+   * is on the task, or the block was addressed to it.
+   */
+  private async mayWriteTaskStream(
+    block: Block,
+    agentId: string
+  ): Promise<boolean> {
+    const task = await this.taskRoot(block.streamId);
+    return (
+      !!task &&
+      !task.removedAgentIds.includes(agentId) &&
+      (task.agentIds.includes(agentId) || addressedTo(block).includes(agentId))
+    );
+  }
+
+  /** A block addressed to an agent is no write authority once it was removed. */
+  private requireNotRemoved(task: TaskStreamRoot, agentId: string): void {
+    if (task.removedAgentIds.includes(agentId))
+      throw new StreamValidationError(
+        `You were removed from task ${task.id}; its conversation is closed to you.`
+      );
   }
 
   // -------------------------------------------------------------------------
@@ -1817,8 +2141,11 @@ export class StreamService {
     const block = await this.store.getById(id);
     if (!block) throw new StreamNotFoundError("Message not found.");
     const host = await this.threadHostFor(block);
+    // A task's conversation is readable by every agent on the task.
+    const task = await this.taskRoot(block.streamId);
     if (
       block.streamId !== (await this.streamOf(agentId)) &&
+      !task?.agentIds.includes(agentId) &&
       !(await this.store.hasContextAddress(host, agentId))
     ) {
       const container =
@@ -2083,11 +2410,49 @@ export class StreamService {
     return block;
   }
 
-  /** An agent's `post`. */
-  async post(agentId: string, input: PostInput): Promise<Block> {
+  /**
+   * An agent's `post`. `opts.root` puts it at the top of that stream
+   * instead — a task's conversation, for `task_comment` — which the agent
+   * must be on.
+   */
+  async post(
+    agentId: string,
+    input: PostInput,
+    opts: { root?: string } = {}
+  ): Promise<Block> {
+    // The stream is known only once the post has found its place, so the
+    // write is admitted there, right before the insert.
+    const ends: Array<() => void> = [];
+    try {
+      return await this.writePost(agentId, input, opts, async (streamId) => {
+        ends.push(this.beginWrite(streamId));
+        await this.requireLiveRoot(streamId);
+        // Wherever the post resolved to — a reply, the current turn's
+        // place, a review — a task closed to the agent refuses it.
+        const task = await this.taskRoot(streamId);
+        if (task) this.requireNotRemoved(task, agentId);
+      });
+    } finally {
+      for (const end of ends) end();
+    }
+  }
+
+  private async writePost(
+    agentId: string,
+    input: PostInput,
+    opts: { root?: string },
+    admit: (streamId: string) => Promise<void>
+  ): Promise<Block> {
     const author: BlockAuthor = { kind: "agent", agentId };
     const agent = await this.requireAgent(agentId);
-    let streamId = await this.streamOf(agentId);
+    let streamId = opts.root ?? (await this.streamOf(agentId));
+    if (opts.root) {
+      if (input.replyTo != null || input.placement !== undefined)
+        throw new StreamValidationError(
+          "A post at a stream's root takes no replyTo or placement."
+        );
+      await this.requireTaskMember(opts.root, agentId);
+    }
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
     let data = resolved.data;
@@ -2139,8 +2504,11 @@ export class StreamService {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    let home = input.placement === "root" ? null : await this.homeOf(agentId);
-    const active = await this.turns.openTurn(agentId);
+    let home =
+      input.placement === "root" || opts.root
+        ? null
+        : await this.homeOf(agentId);
+    const active = opts.root ? null : await this.turns.openTurn(agentId);
     const turnId = active?.payload.blockId;
     const turn =
       typeof turnId === "string" ? await this.store.getById(turnId) : null;
@@ -2174,6 +2542,7 @@ export class StreamService {
     if (kind === "review") {
       // A review is its own record, not a reply: a child's goes on its
       // launch card, which shows it; anyone else's goes in the stream.
+      await admit(streamId);
       const review = await this.createReview({
         streamId,
         author,
@@ -2198,7 +2567,13 @@ export class StreamService {
     // post is delivered only to whoever it names.
     if (replyTo) {
       const target = await this.store.getById(replyTo);
-      if (target && addressedTo(target).includes(agentId)) {
+      const task = target ? await this.taskRoot(target.streamId) : null;
+      if (task) this.requireNotRemoved(task, agentId);
+      if (target && task && !addressedTo(target).includes(agentId)) {
+        // A task's conversation is open to every agent on the task.
+        await this.requireTaskMember(task, agentId);
+        streamId = target.streamId;
+      } else if (target && addressedTo(target).includes(agentId)) {
         if (parentRequest && target.streamId !== streamId) {
           data = {
             ...(data as object),
@@ -2257,6 +2632,7 @@ export class StreamService {
       })
     );
     const live = recipients.length > 0 && liveAll.every(Boolean);
+    await admit(streamId);
     const insert: Parameters<BlockStore["insert"]>[0] = {
       streamId,
       author,
@@ -3286,6 +3662,7 @@ export class StreamService {
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
+    const task = await this.taskRoot(block.streamId);
     const images = await this.promptImages(block.attachments, block.streamId);
     const outcomes = new Map<string, boolean>();
     // A post to several agents keeps each outcome of its own, so one
@@ -3363,41 +3740,52 @@ export class StreamService {
           },
         });
       }
+      const envelope =
+        own.rawPrompt ??
+        buildPostEnvelope({
+          blockId: block.id,
+          from,
+          text: envelopeText(block),
+          quotedContext: closes
+            ? undefined
+            : await this.automaticContext(block, agentId),
+          attachmentLines: own.attachmentLines ?? [],
+          threadId: structuredAnswer
+            ? (deliverySource.conversation?.threadId ?? null)
+            : block.threadId,
+          finding: finding
+            ? {
+                id: finding.id,
+                title: finding.title,
+                opened: finding.authorAgentId === agentId,
+              }
+            : null,
+          answers: own.answers ?? null,
+          cancels: own.cancels ?? null,
+          addressed:
+            mentioned || perAgent
+              ? {
+                  mention: mentioned,
+                  alsoTo: named
+                    .filter((id) => id !== agentId)
+                    .map((id) => nameOf.get(id) ?? id),
+                }
+              : null,
+          task: task
+            ? { id: task.id, title: task.title, column: task.column }
+            : null,
+        });
+      // The stream is being deleted: no new prompt from it. Checked with
+      // no await before the handover, so a prompt either is refused here
+      // or is queued where `closeStream` can take it back.
+      if (this.closingRoots.has(block.streamId)) {
+        await this.store.setDelivered(block.id, false);
+        return { held };
+      }
       const result = this.injectDetached({
         agentId,
         source: deliverySource,
-        envelope:
-          own.rawPrompt ??
-          buildPostEnvelope({
-            blockId: block.id,
-            from,
-            text: envelopeText(block),
-            quotedContext: closes
-              ? undefined
-              : await this.automaticContext(block, agentId),
-            attachmentLines: own.attachmentLines ?? [],
-            threadId: structuredAnswer
-              ? (deliverySource.conversation?.threadId ?? null)
-              : block.threadId,
-            finding: finding
-              ? {
-                  id: finding.id,
-                  title: finding.title,
-                  opened: finding.authorAgentId === agentId,
-                }
-              : null,
-            answers: own.answers ?? null,
-            cancels: own.cancels ?? null,
-            addressed:
-              mentioned || perAgent
-                ? {
-                    mention: mentioned,
-                    alsoTo: named
-                      .filter((id) => id !== agentId)
-                      .map((id) => nameOf.get(id) ?? id),
-                  }
-                : null,
-          }),
+        envelope,
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
           if (perAgent) {
@@ -3439,7 +3827,11 @@ export class StreamService {
 
   /** This tree plus running roots from other sessions; never their children. */
   private async mentionAgents(streamId: string): Promise<Mentionable[]> {
-    const ids = await agentTree(this.deps.pool, streamId);
+    // A task's conversation names the task's agents first.
+    const task = await this.taskRoot(streamId);
+    const ids = task
+      ? task.agentIds
+      : await agentTree(this.deps.pool, streamId);
     const result = await this.deps.pool.query<{ id: string; name: string }>(
       `SELECT id, name FROM agents
        WHERE deleted_at IS NULL
@@ -3712,6 +4104,13 @@ export class StreamService {
   }
 
   async retryDelivery(
+    streamId: string,
+    blockId: string
+  ): Promise<{ block: Block; held: boolean }> {
+    return this.withWrite(streamId, () => this.writeRetry(streamId, blockId));
+  }
+
+  private async writeRetry(
     streamId: string,
     blockId: string
   ): Promise<{ block: Block; held: boolean }> {
@@ -3998,6 +4397,20 @@ export class StreamService {
     };
   }
 
+  /** Refuses an agent that is not on the task whose stream it writes to. */
+  private async requireTaskMember(
+    task: string | TaskStreamRoot,
+    agentId: string
+  ): Promise<TaskStreamRoot> {
+    const root = typeof task === "string" ? await this.taskRoot(task) : task;
+    if (!root) throw new StreamNotFoundError(`Task ${String(task)} not found.`);
+    if (!root.agentIds.includes(agentId))
+      throw new StreamValidationError(
+        `You are not on task ${root.id}; only its agents post in its conversation. Take it with task_update({ id: "${root.id}", assign: "self" }) first.`
+      );
+    return root;
+  }
+
   private async requireAgent(agentId: string): Promise<StreamAgent> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent) throw new StreamValidationError(`Agent ${agentId} not found.`);
@@ -4022,7 +4435,7 @@ export class StreamService {
           description: input.description ?? path.basename(input.path),
         });
         out.push(
-          await this.resolveFile(agent.id, {
+          await this.resolveFile([agent.id], {
             fileName: uploaded.fileName,
             caption: input.caption,
           })
@@ -4034,19 +4447,28 @@ export class StreamService {
     return out;
   }
 
+  /**
+   * `owners` are other agents whose files a person may attach here: on a
+   * task, everyone on it, since the file was uploaded under whoever was
+   * the task's agent at the time. The recipient's own file wins a name
+   * clash.
+   */
   private async resolveAttachmentsFor(
     agent: StreamAgent,
-    inputs: Array<ChatUserAttachmentInput | BlockAttachmentInput>
+    inputs: Array<ChatUserAttachmentInput | BlockAttachmentInput>,
+    owners: readonly string[] = []
   ): Promise<ChatAttachment[]> {
     const out: ChatAttachment[] = [];
     for (const input of inputs) {
       if (input.type === "file") {
-        out.push(await this.resolveFile(agent.id, input));
+        out.push(
+          await this.resolveFile([...new Set([agent.id, ...owners])], input)
+        );
       } else if (input.type === "link" || input.type === "pr") {
         const url = chatUrlSchema.safeParse(input.url);
         if (!url.success) {
           throw new StreamValidationError(
-            "url must be an absolute http or https URL."
+            "url must be an absolute http or https URL, or an app path starting with /."
           );
         }
         out.push({
@@ -4134,7 +4556,7 @@ export class StreamService {
   }
 
   private async resolveFile(
-    agentId: string,
+    agentIds: readonly string[],
     input: { fileName?: string; fileId?: number; caption?: string }
   ): Promise<ChatAttachment> {
     const parsedCaption = attachmentCaptionSchema
@@ -4163,14 +4585,17 @@ export class StreamService {
     }
     const result = await this.deps.pool.query<{
       id: number;
+      agent_id: string;
       file_name: string;
       size_bytes: number;
       mime_type: string;
     }>(
-      `SELECT id, file_name, size_bytes, mime_type FROM files
-        WHERE agent_id = $1
-          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END`,
-      [agentId, fileName ?? null, fileId ?? null]
+      `SELECT id, agent_id, file_name, size_bytes, mime_type FROM files
+        WHERE agent_id = ANY($1::text[])
+          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END
+        ORDER BY array_position($1::text[], agent_id), id DESC
+        LIMIT 1`,
+      [agentIds, fileName ?? null, fileId ?? null]
     );
     const match = result.rows[0];
     if (!match) {
@@ -4185,7 +4610,7 @@ export class StreamService {
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: match.mime_type,
-      ownerAgentId: agentId,
+      ownerAgentId: match.agent_id,
     };
   }
 }

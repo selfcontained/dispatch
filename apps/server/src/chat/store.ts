@@ -795,6 +795,22 @@ export class BlockStore {
     return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
 
+  /** Every recipient of this stream's blocks whose delivery has not settled. */
+  async pendingDeliveries(
+    streamId: string
+  ): Promise<Array<{ blockId: string; agentId: string }>> {
+    const result = await this.db.query<BlockRow>(
+      `SELECT * FROM blocks
+        WHERE stream_id = $1 AND to_agent_id IS NOT NULL AND delivered IS NULL`,
+      [streamId]
+    );
+    return result.rows.flatMap((row) =>
+      deliveryOf(row)
+        .filter((d) => d.state === "pending")
+        .map((d) => ({ blockId: row.id, agentId: d.agentId }))
+    );
+  }
+
   async getById(id: string): Promise<Block | null> {
     if (!isBlockId(id)) return null;
     const result = await this.db.query<BlockRow>(
@@ -1097,32 +1113,37 @@ export class BlockStore {
   }
 
   /**
-   * Unread and open-input counts for every non-deleted agent that has a
-   * non-zero value — one grouped query, for the sidebar badges.
+   * Unread and open-input counts for every non-deleted agent, and every
+   * task, that has a non-zero value — one grouped query, for the badges.
    */
   async unreadSummary(): Promise<ChatUnreadSummary> {
     const result = await this.db.query<{
       stream_id: string;
+      is_task: boolean;
       unread: string;
       pending: string;
     }>(
       `SELECT b.stream_id,
+              (t.id IS NOT NULL) AS is_task,
               COUNT(*) FILTER (WHERE b.read_at IS NULL)::text AS unread,
               COUNT(*) FILTER (WHERE ${OPEN_INPUT_SQL})::text AS pending
          FROM blocks b
-         JOIN agents a ON a.id = b.stream_id AND a.deleted_at IS NULL
+         LEFT JOIN agents a ON a.id = b.stream_id AND a.deleted_at IS NULL
+         LEFT JOIN tasks t ON t.id = b.stream_id
         WHERE b.author_kind = 'agent' AND b.to_agent_id IS NULL
+          AND (a.id IS NOT NULL OR t.id IS NOT NULL)
           AND (b.read_at IS NULL OR ${OPEN_INPUT_SQL})
-        GROUP BY b.stream_id`
+        GROUP BY b.stream_id, t.id`
     );
     const agents: ChatUnreadSummary["agents"] = {};
+    const tasks: NonNullable<ChatUnreadSummary["tasks"]> = {};
     for (const row of result.rows) {
-      agents[row.stream_id] = {
+      (row.is_task ? tasks : agents)[row.stream_id] = {
         unread: Number(row.unread),
         pendingQuestions: Number(row.pending),
       };
     }
-    return { agents };
+    return { agents, tasks };
   }
 
   /** Sidebar review state must remain available after the launch leaves the feed window. */

@@ -13,6 +13,7 @@ import { composerDisabledReason } from "@/components/app/chat/composer-disabled"
 import { ThreadPanel } from "@/components/app/chat/thread-panel";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
+import { type Mentionable } from "@/lib/mentions";
 import {
   useAnswerQuestion,
   useRetryDelivery,
@@ -32,6 +33,14 @@ export type ThreadPageProps = {
   onOpenPath?: (path: string, line: number | null) => void;
   onOpenThread: (blockId: string, findingId?: string) => void;
   onBack: () => void;
+  /**
+   * Why nothing can be posted here, in place of the one derived from
+   * `agent`. A task's stream is not one agent's: its threads stay open
+   * whoever is assigned, so the task passes its feed's readiness instead.
+   */
+  disabledReason?: string | null;
+  /** Who replies can name, in place of the agent's tree (a task's agents). */
+  mentionables?: readonly Mentionable[];
 };
 
 export function ThreadPage({
@@ -45,6 +54,8 @@ export function ThreadPage({
   onOpenPath,
   onOpenThread,
   onBack,
+  disabledReason: disabledOverride,
+  mentionables,
 }: ThreadPageProps): JSX.Element {
   const answer = useAnswerQuestion(rootId);
   const submitForm = useSubmitForm(rootId);
@@ -135,7 +146,9 @@ export function ThreadPage({
     onRetryDelivery,
     retrying,
   });
-  const disabledReason = useMemo(() => composerDisabledReason(agent), [agent]);
+  const derivedReason = useMemo(() => composerDisabledReason(agent), [agent]);
+  const disabledReason =
+    disabledOverride === undefined ? derivedReason : disabledOverride;
 
   return (
     <ThreadPanel
@@ -156,6 +169,7 @@ export function ThreadPage({
         submitForm.isPending ? (submitForm.variables?.blockId ?? null) : null
       }
       error={error}
+      mentionables={mentionables}
     />
   );
 }

@@ -1292,12 +1292,15 @@ export class AgentManager {
       ).rows[0];
       if (!template) throw new AgentError("Template not found.", 404);
       if (!input.parentAgentId) {
+        // A projectless template may launch into a project; a project's
+        // template only into its own.
         if (
+          template.project_id !== null &&
           input.projectId !== undefined &&
           input.projectId !== template.project_id
         )
           throw new AgentError("Template and project must match.", 400);
-        input.projectId = template.project_id;
+        input.projectId = template.project_id ?? input.projectId ?? null;
       }
     }
     if (input.parentAgentId) {

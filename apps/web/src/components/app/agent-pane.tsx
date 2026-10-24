@@ -1,4 +1,8 @@
 import { useProjects } from "@/hooks/use-projects";
+import { useAssignedTasks } from "@/hooks/use-tasks";
+import { useSearchParams } from "react-router-dom";
+import { TaskModal } from "./tasks/task-modal";
+import { TASK_MODAL_STATE } from "./tasks/task-utils";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { useAtom } from "jotai";
@@ -23,6 +27,28 @@ export type ChatFiltersButtonProps = {
   showChildAgents?: boolean;
   onShowChildAgentsChange?: (show: boolean) => void;
 };
+
+/** Opens the agent's task over the stream (`?task=`), not on the board. */
+export function AssignedTaskChip({ agentId }: { agentId: string }) {
+  const { data: tasks = [] } = useAssignedTasks(agentId);
+  const [params, setParams] = useSearchParams();
+  const task = tasks[0];
+  return task ? (
+    <button
+      type="button"
+      className="max-w-44 truncate rounded bg-primary/10 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/20"
+      onClick={() => {
+        const next = new URLSearchParams(params);
+        next.set("task", task.id);
+        setParams(next, { state: TASK_MODAL_STATE });
+      }}
+      title={task.title}
+      aria-haspopup="dialog"
+    >
+      Task: {task.title}
+    </button>
+  ) : null;
+}
 
 /** The Chat options popover in the Agent pane header. */
 export function ChatFiltersButton({
@@ -198,6 +224,7 @@ export function AgentPane({
               <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
             <span className="truncate">{agent?.name ?? "Agent"}</span>
+            {agentId && <AssignedTaskChip agentId={agentId} />}
           </span>
           {agentSwitchValidationMode ? (
             <span
@@ -253,6 +280,7 @@ export function AgentPane({
           </div>
         )}
       </div>
+      <TaskModal agents={agents ?? []} isMobile={isMobile} />
     </div>
   );
 }

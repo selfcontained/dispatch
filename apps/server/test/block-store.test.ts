@@ -804,12 +804,14 @@ describe("BlockStore read state", () => {
     });
     expect(await store.unreadSummary()).toEqual({
       agents: { [A]: { unread: 3, pendingQuestions: 2 } },
+      tasks: {},
     });
 
     // Read but still open keeps the agent listed.
     await store.markRead(A);
     expect(await store.unreadSummary()).toEqual({
       agents: { [A]: { unread: 0, pendingQuestions: 2 } },
+      tasks: {},
     });
     await store.recordAnswer(q.id, {
       value: "a",
@@ -819,6 +821,7 @@ describe("BlockStore read state", () => {
     });
     expect(await store.unreadSummary()).toEqual({
       agents: { [A]: { unread: 0, pendingQuestions: 1 } },
+      tasks: {},
     });
     await store.recordSubmission(form.id, {
       values: { f: "v" },
@@ -826,7 +829,7 @@ describe("BlockStore read state", () => {
       blockId: form.id,
       at: new Date().toISOString(),
     });
-    expect(await store.unreadSummary()).toEqual({ agents: {} });
+    expect(await store.unreadSummary()).toEqual({ agents: {}, tasks: {} });
   });
 
   it("openInput returns the newest open question or form for people", async () => {

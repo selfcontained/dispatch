@@ -212,6 +212,21 @@ export async function registerAgentCrudRoutes(
       (typeof body.projectId !== "string" || !body.projectId)
     )
       return reply.code(400).send({ error: "Invalid project." });
+    // Created for a task: briefed on it in its prompt, placed in its
+    // project unless a location was chosen, and assigned once it exists.
+    let taskBriefing: { projectId: string; text: string } | null = null;
+    if (body.taskId !== undefined) {
+      if (typeof body.taskId !== "string" || !body.taskId)
+        return reply.code(400).send({ error: "Invalid taskId." });
+      if (!deps.tasks)
+        return reply.code(400).send({ error: "Tasks are not available." });
+      try {
+        taskBriefing = await deps.tasks.briefingFor(body.taskId);
+      } catch (error) {
+        return reply.code(400).send({ error: errorMessage(error) });
+      }
+      if (!body.projectId && !body.cwd) body.projectId = taskBriefing.projectId;
+    }
     if (body.projectId && body.cwd)
       return reply
         .code(400)
@@ -358,6 +373,14 @@ export async function registerAgentCrudRoutes(
       });
     }
 
+    const typedPrompt =
+      typeof body.initialPrompt === "string"
+        ? body.initialPrompt.trim() || undefined
+        : undefined;
+    const initialPrompt = taskBriefing
+      ? [typedPrompt, taskBriefing.text].filter(Boolean).join("\n\n")
+      : typedPrompt;
+
     try {
       const worktreeLocation = await getWorktreeLocation(deps.pool);
 
@@ -389,20 +412,24 @@ export async function registerAgentCrudRoutes(
             typeof body.personaContext === "string"
               ? body.personaContext
               : undefined,
-          initialPrompt:
-            typeof body.initialPrompt === "string"
-              ? body.initialPrompt.trim() || undefined
-              : undefined,
+          initialPrompt,
           launchContext: {
-            prompt:
-              typeof body.initialPrompt === "string"
-                ? body.initialPrompt.trim() || undefined
-                : undefined,
+            prompt: initialPrompt,
             links,
           },
           initialFiles: startupFiles,
         },
-        { detachLaunch: true }
+        {
+          detachLaunch: true,
+          // The task owns the agent before its engine can discover tools
+          // or run a turn, so its first task_comment finds it a member.
+          ...(taskBriefing && typeof body.taskId === "string"
+            ? {
+                beforeLaunch: (agentId: string) =>
+                  deps.tasks!.assignCreated(body.taskId as string, agentId),
+              }
+            : {}),
+        }
       );
       deps.publishUiEvent({
         type: "agent.upsert",

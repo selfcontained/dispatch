@@ -25,6 +25,11 @@ const loadAutomationsRoute = async () => {
   return { Component: AutomationsRoute };
 };
 
+const loadTasksRoute = async () => {
+  const { TasksRoute } = await import("@/layouts/tasks-route");
+  return { Component: TasksRoute };
+};
+
 const loadDesignLabRoute = async () => {
   const { DesignLabRoute } = await import("@/layouts/design-lab-route");
   return { Component: DesignLabRoute };
@@ -47,6 +52,11 @@ export const router = createBrowserRouter([
             element: <DashboardLayout />,
             children: [
               { index: true, element: <Navigate to="/agents" replace /> },
+              {
+                path: "tasks",
+                lazy: loadTasksRoute,
+                handle: { navSection: "tasks" },
+              },
               {
                 path: "agents",
                 element: <AgentsRoute />,

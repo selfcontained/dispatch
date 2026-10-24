@@ -767,12 +767,14 @@ html[data-theme="matrix"] body::after {
   /* Stop inner scroll containers from bubbling their elastic-bounce to the
      locked body. Without this, dragging in the empty space below a short
      scroll container (e.g. the agent list when only one agent is open)
-     pulls the whole document up via overscroll. */
+     pulls the whole document up via overscroll. Vertical only: a sideways
+     swipe over a vertical list (a Tasks column) must still chain up to a
+     horizontal scroller around it (the board). */
   .overflow-y-auto,
   .overflow-auto,
   .overflow-y-scroll,
   .overflow-scroll {
-    overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
   }
 }
 
@@ -1551,6 +1553,16 @@ html[data-hidden] .animate-sidebar-nav-pulse {
       padding-top: 10px;
       padding-bottom: 10px;
       border-radius: 1rem;
+    }
+
+    /* One line at rest means a long placeholder (a disabled reason)
+       ellipsizes instead of wrapping under the clipped second line. */
+    [data-chat-composer][data-empty="true"]::before {
+      left: 1rem;
+      right: 1rem;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
   }
 }

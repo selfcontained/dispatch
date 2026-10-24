@@ -1160,13 +1160,10 @@ export function ChatComposer({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       data-testid="chat-composer"
+      // A disabled composer rests as one line too: its reason is the
+      // placeholder, and none of the controls can act anyway.
       data-mobile-idle={
-        !text &&
-        !hasAttachments &&
-        !error &&
-        !disabledReason &&
-        !draggingFiles &&
-        !inFlight
+        !text && !hasAttachments && !error && !draggingFiles && !inFlight
           ? "true"
           : undefined
       }

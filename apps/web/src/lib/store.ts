@@ -137,6 +137,17 @@ export const selectedProjectIdAtom = atomWithLocalStorage<string | null>(
       value === null || (typeof value === "string" && value.length > 0),
   }
 );
+
+export const taskLayoutAtomFamily = atomFamily((projectId: string) =>
+  atomWithLocalStorage<"board" | "list">(
+    `dispatch:taskLayout:${projectId}`,
+    "board",
+    {
+      validate: (value): value is "board" | "list" =>
+        value === "board" || value === "list",
+    }
+  )
+);
 // null means no explicit launch choice yet; dashboard scope supplies the default.
 export const createAgentLocationPrefAtom = atomWithLocalStorage<{
   mode: "project" | "folder";

@@ -43,7 +43,7 @@ function projectIdForLocation(location: Location, savedId: string | null) {
 
 function isProjectDashboard(pathname: string) {
   return (
-    /^\/(agents|automations)(\/|$)/.test(pathname) &&
+    /^\/(agents|tasks|automations)(\/|$)/.test(pathname) &&
     !/^\/automations\/brains(\/|$)/.test(pathname)
   );
 }

@@ -77,6 +77,8 @@ import { registerActivityRoutes } from "./routes/activity/index.js";
 import { createProviderPlansReporter } from "./agents/provider-plans.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
+import { registerTaskRoutes } from "./routes/tasks.js";
+import { TaskService } from "./tasks/service.js";
 import { registerBrowserExtensionRoutes } from "./routes/browser-extension.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -84,7 +86,7 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerStreamRoutes } from "./routes/streams.js";
-import { StreamService } from "./chat/service.js";
+import { StreamService, type TaskStreamRoot } from "./chat/service.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -422,6 +424,9 @@ const streamService = new StreamService({
     commands: (agentId) =>
       (agentManager.getCommands(agentId) ?? []).map((command) => command.name),
   },
+  // Created below; only called once requests arrive.
+  taskRoot: (taskId): Promise<TaskStreamRoot | null> =>
+    taskService.streamRoot(taskId),
   log: app.log,
 });
 const scheduledMessages = new ScheduledMessageService(
@@ -450,6 +455,16 @@ agentManager.onStreamWrite((agentId) => {
   void streamService.publishTurnEntry(agentId);
 });
 jobService.setBrainStore(brainStore);
+const taskService: TaskService = new TaskService({
+  pool,
+  getAgent: (agentId) => agentManager.getAgent(agentId),
+  getTemplate: (templateId) => templateService.getTemplate(templateId),
+  launchTemplate: async (input) =>
+    (await templateService.launchTemplate(input)).agent,
+  chat: streamService,
+  publishUiEvent: (event) => uiEventBroker.publish(event),
+  log: app.log,
+});
 const mcpHandlers = createMcpHandlers({
   pool,
   filesRoot: config.filesRoot,
@@ -715,6 +730,7 @@ async function registerRoutes() {
     brainStore,
     publishBrainChanged: (repoRoot: string) =>
       uiEventBroker.publish({ type: "brain.changed", repoRoot }),
+    taskService,
     publishUiEvent: (event) => uiEventBroker.publish(event),
     getBearerToken,
     validateJobMcpToken,
@@ -785,6 +801,8 @@ async function registerRoutes() {
   await registerBrainRoutes(app, {
     brainStore,
   });
+
+  await registerTaskRoutes(app, { taskService, withStreamFlag });
 
   await registerActivityRoutes(app, {
     pool,
@@ -859,6 +877,11 @@ async function registerRoutes() {
 
   await registerAgentRoutes(app, {
     providerPlans,
+    tasks: {
+      briefingFor: (taskId) => taskService.briefingFor(taskId),
+      assignCreated: (taskId, agentId) =>
+        taskService.assignCreated(taskId, agentId),
+    },
     pool,
     appLog: app.log,
     agentManager,
