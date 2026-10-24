@@ -174,6 +174,22 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       "aria-hidden",
       "true"
     );
+    // A keyboard drag cannot land in a folded column.
+    await page
+      .getByTestId(`task-card-${task.id}`)
+      .getByRole("button", { name: /^Drag/ })
+      .focus();
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Space");
+    await page.waitForTimeout(300);
+    expect(
+      (
+        await (
+          await request.get(`/api/v1/tasks/${task.id}`, { headers })
+        ).json()
+      ).columnId
+    ).toBe(ready.id);
     await page.getByTestId("task-column-filter").click();
     await expect(page).not.toHaveURL(/column=/);
     await expect(page.getByTestId("task-column-backlog")).not.toHaveAttribute(

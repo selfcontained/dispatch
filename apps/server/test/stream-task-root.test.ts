@@ -405,6 +405,70 @@ describe("task stream root", () => {
     expect(await streams.rootExists(task.id)).toBe(false);
   });
 
+  describe("removing an agent from the task", () => {
+    async function assignmentBlockFor(taskId: string, agentId: string) {
+      const { rows } = await pool.query<{ id: string }>(
+        "SELECT id FROM blocks WHERE stream_id = $1 AND to_agent_id = $2 ORDER BY created_at LIMIT 1",
+        [taskId, agentId]
+      );
+      return rows[0]!.id;
+    }
+
+    it("closes the conversation to it, even through blocks addressed to it", async () => {
+      const task = await newTask();
+      const assignment = await assignmentBlockFor(task.id, ASSIGNEE);
+      // Still a member: replying to its assignment is fine.
+      await streams.post(ASSIGNEE, { text: "On it", replyTo: assignment });
+      await tasks.removeAgent(task.id, ASSIGNEE, USER);
+      await expect(
+        streams.post(ASSIGNEE, { text: "Still here", replyTo: assignment })
+      ).rejects.toThrow(/removed from task/);
+      await expect(
+        tasks.comment(task.id, ASSIGNEE, "Still here")
+      ).rejects.toBeInstanceOf(Error);
+      // What it posted before stays.
+      const { rows } = await pool.query(
+        "SELECT count(*)::int AS n FROM blocks WHERE stream_id = $1 AND author_agent_id = $2",
+        [task.id, ASSIGNEE]
+      );
+      expect(rows[0].n).toBe(1);
+    });
+
+    it("takes back the task's prompts queued at it, and only those", async () => {
+      const task = await newTask();
+      holding = true;
+      const queued = (
+        await postBlock(task.id, { text: "Held behind a turn" })
+      ).json().block;
+      await vi.waitFor(() => expect(waiting).toHaveLength(1));
+      await tasks.removeAgent(task.id, ASSIGNEE, USER);
+      expect(waiting).toEqual([]);
+      holding = false;
+      await settle();
+      expect(prompts).toEqual([]);
+      // The block itself stays in the conversation.
+      expect(await streams.store.getById(queued.id)).not.toBeNull();
+    });
+
+    it("refuses while a delivery to it cannot be taken back", async () => {
+      const task = await newTask();
+      holding = true;
+      await postBlock(task.id, { text: "On its way" });
+      await vi.waitFor(() => expect(waiting).toHaveLength(1));
+      const [claimed] = waiting.splice(0, 1);
+      await expect(
+        tasks.removeAgent(task.id, ASSIGNEE, USER)
+      ).rejects.toMatchObject({ status: 409, code: "delivery_in_flight" });
+      expect((await tasks.getTaskDetail(task.id)).assignedAgentId).toBe(
+        ASSIGNEE
+      );
+      claimed!.release();
+      await settle();
+      await tasks.removeAgent(task.id, ASSIGNEE, USER);
+      expect((await tasks.getTaskDetail(task.id)).agents).toEqual([]);
+    });
+  });
+
   it("refuses posts into a task stream being deleted", async () => {
     const task = await newTask();
     await streams.closeStream(task.id);

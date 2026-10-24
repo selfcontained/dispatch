@@ -248,6 +248,7 @@ function BoardColumn({
               agents={agents}
               onOpen={() => openTask(task.id)}
               onMove={(id) => moveTask(task, id)}
+              disabled={hidden}
             />
           ))}
         </div>

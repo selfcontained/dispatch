@@ -419,24 +419,22 @@ export async function registerAgentCrudRoutes(
           },
           initialFiles: startupFiles,
         },
-        { detachLaunch: true }
+        {
+          detachLaunch: true,
+          // The task owns the agent before its engine can discover tools
+          // or run a turn, so its first task_comment finds it a member.
+          ...(taskBriefing && typeof body.taskId === "string"
+            ? {
+                beforeLaunch: (agentId: string) =>
+                  deps.tasks!.assignCreated(body.taskId as string, agentId),
+              }
+            : {}),
+        }
       );
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      if (taskBriefing && typeof body.taskId === "string") {
-        try {
-          await deps.tasks!.assignCreated(body.taskId, agent.id);
-        } catch (error) {
-          // The agent exists and knows its task; the card just does not
-          // show it. Assigning by hand still works.
-          deps.appLog.warn(
-            { taskId: body.taskId, agentId: agent.id, err: error },
-            "Agent created for a task could not be assigned to it"
-          );
-        }
-      }
       return reply.code(201).send({ agent: deps.withStreamFlag(agent) });
     } catch (error) {
       return deps.handleAgentError(reply, error);

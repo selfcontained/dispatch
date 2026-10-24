@@ -44,6 +44,8 @@ let agentPosts: Array<{
   opts: Record<string, unknown>;
 }>;
 let postFails: boolean;
+let withdrawals: Array<{ streamId: string; agentId: string }>;
+let withdrawFails: boolean;
 let published: Array<{ type: string; projectId: string; taskId?: string }>;
 let service: TaskService;
 let agentSeq = 0;
@@ -97,6 +99,10 @@ function build(): TaskService {
     chat: {
       closeStream: async () => {},
       releaseStream: () => {},
+      withdrawDeliveries: async (streamId: string, agentId: string) => {
+        withdrawals.push({ streamId, agentId });
+        if (withdrawFails) throw new Error("in flight");
+      },
       sendUserPost: (async (
         streamId: string,
         input: Record<string, unknown>
@@ -157,6 +163,8 @@ beforeEach(async () => {
   posts = [];
   agentPosts = [];
   postFails = false;
+  withdrawals = [];
+  withdrawFails = false;
   published = [];
   service = build();
 });
@@ -377,12 +385,30 @@ describe("triggers", () => {
     const afterCurrent = await service.removeAgent(task.id, "agt_idle", USER);
     expect(afterCurrent.assignedAgentId).toBeNull();
     expect(afterCurrent.agents).toEqual([]);
+    // Anything of the task still queued at either agent was taken back first.
+    expect(withdrawals).toEqual([
+      { streamId: task.id, agentId: "agt_a" },
+      { streamId: task.id, agentId: "agt_idle" },
+    ]);
     expect(afterCurrent.events.map((e) => e.kind)).toEqual(
       expect.arrayContaining(["agent_removed", "unassigned"])
     );
     await expect(
       service.removeAgent(task.id, "agt_a", USER)
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("keeps the agent on the task while a delivery to it is in flight", async () => {
+    await insertAgent("agt_a");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_a" }, USER);
+    withdrawFails = true;
+    await expect(
+      service.removeAgent(task.id, "agt_a", USER)
+    ).rejects.toMatchObject({ status: 409, code: "delivery_in_flight" });
+    const detail = await service.getTaskDetail(task.id);
+    expect(detail.assignedAgentId).toBe("agt_a");
+    expect(detail.agents.map((a) => a.agentId)).toEqual(["agt_a"]);
   });
 
   it("fires on create only with fireOnCreate", async () => {
@@ -1024,10 +1050,14 @@ describe("agents created for a task", () => {
     expect(briefing.projectId).toBe(projectId);
     expect(briefing.text).toContain(task.id);
     expect(briefing.text).toContain("Do the thing.");
+    posts = [];
     await service.assignCreated(task.id, "agt_new");
     const detail = await service.getTaskDetail(task.id);
     expect(detail.assignedAgentId).toBe("agt_new");
     expect(detail.agents.map((a) => a.role)).toEqual(["manual"]);
+    // Its first prompt carries the briefing; no assignment post is queued
+    // to start a turn before the engine is up.
+    expect(posts).toEqual([]);
     await expect(service.briefingFor("tsk_missing")).rejects.toMatchObject({
       status: 404,
     });

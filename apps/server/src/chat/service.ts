@@ -268,8 +268,13 @@ export type TaskStreamRoot = {
   /** The column's name, for the envelope. */
   column: string;
   assignedAgentId: string | null;
-  /** Every agent that has been on the task (`task_agents`). */
+  /** Every agent on the task (`task_agents`). */
   agentIds: string[];
+  /**
+   * Agents taken off the task and not put back. A block addressed to one
+   * no longer lets it write here, unlike an agent that was only mentioned.
+   */
+  removedAgentIds: string[];
 };
 
 export const TASK_ROOT_PREFIX = "tsk_";
@@ -899,6 +904,42 @@ export class StreamService {
 
   releaseStream(streamId: string): void {
     this.closingRoots.delete(streamId);
+  }
+
+  /**
+   * Takes back every delivery of `streamId`'s blocks still queued at
+   * `agentId`, so none runs after the agent is taken off a task. Other
+   * agents' deliveries stay. A delivery still being handed over is retried
+   * until `settleMs`; one that outlasts it refuses the withdrawal.
+   */
+  async withdrawDeliveries(
+    streamId: string,
+    agentId: string,
+    opts: { settleMs?: number } = {}
+  ): Promise<void> {
+    const cancelled = new Set<string>();
+    const deadline = Date.now() + (opts.settleMs ?? 2_000);
+    for (;;) {
+      const open = (await this.store.pendingDeliveries(streamId)).filter(
+        (d) => d.agentId === agentId && !cancelled.has(d.blockId)
+      );
+      for (const { blockId } of open) {
+        if (
+          this.deps.delivery?.controlQueuedPrompt?.(
+            [agentId],
+            blockId,
+            "delete"
+          )
+        )
+          cancelled.add(blockId);
+      }
+      if (open.every((d) => cancelled.has(d.blockId))) return;
+      if (Date.now() >= deadline)
+        throw new StreamConflictError(
+          "A message on this task is being delivered to that agent right now; try again in a moment."
+        );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   /** Whether `rootId` names a stream: an agent's, or a task's. */
@@ -2056,8 +2097,17 @@ export class StreamService {
     const task = await this.taskRoot(block.streamId);
     return (
       !!task &&
+      !task.removedAgentIds.includes(agentId) &&
       (task.agentIds.includes(agentId) || addressedTo(block).includes(agentId))
     );
+  }
+
+  /** A block addressed to an agent is no write authority once it was removed. */
+  private requireNotRemoved(task: TaskStreamRoot, agentId: string): void {
+    if (task.removedAgentIds.includes(agentId))
+      throw new StreamValidationError(
+        `You were removed from task ${task.id}; its conversation is closed to you.`
+      );
   }
 
   // -------------------------------------------------------------------------
@@ -2496,6 +2546,7 @@ export class StreamService {
     if (replyTo) {
       const target = await this.store.getById(replyTo);
       const task = target ? await this.taskRoot(target.streamId) : null;
+      if (task) this.requireNotRemoved(task, agentId);
       if (target && task && !addressedTo(target).includes(agentId)) {
         // A task's conversation is open to every agent on the task.
         await this.requireTaskMember(task, agentId);

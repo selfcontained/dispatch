@@ -106,7 +106,11 @@ export type TaskServiceDeps = {
   launchTemplate: (input: TaskLaunchRequest) => Promise<AgentRecord>;
   chat: Pick<
     StreamService,
-    "sendUserPost" | "post" | "closeStream" | "releaseStream"
+    | "sendUserPost"
+    | "post"
+    | "closeStream"
+    | "releaseStream"
+    | "withdrawDeliveries"
   >;
   publishUiEvent: (event: {
     type: "task.changed";
@@ -228,16 +232,19 @@ export class TaskService {
   async streamRoot(id: string): Promise<TaskStreamRoot | null> {
     const task = await this.store.getTask(id);
     if (!task) return null;
-    const [column, agents] = await Promise.all([
+    const [column, agents, removed] = await Promise.all([
       this.store.getColumn(task.columnId),
       this.store.listTaskAgents(id),
+      this.store.removedAgentIds(id),
     ]);
+    const agentIds = agents.map((a) => a.agentId);
     return {
       id: task.id,
       title: task.title,
       column: column?.name ?? "—",
       assignedAgentId: task.assignedAgentId,
-      agentIds: agents.map((a) => a.agentId),
+      agentIds,
+      removedAgentIds: removed.filter((agentId) => !agentIds.includes(agentId)),
     };
   }
 
@@ -839,6 +846,14 @@ export class TaskService {
       const row = await this.store.getTaskAgent(id, agentId);
       if (!row) throw invalid(`Agent ${agentId} is not on this task.`);
       const actor = actorOf(caller);
+      // Nothing of this task may still reach the agent: its queued
+      // deliveries are taken back first, and a handover in flight refuses
+      // the removal rather than letting the agent work on after it.
+      try {
+        await this.deps.chat.withdrawDeliveries(id, agentId);
+      } catch (error) {
+        throw new TaskError(errorMessage(error), 409, "delivery_in_flight");
+      }
       if (task.assignedAgentId === agentId) await this.unassign(task, actor);
       await this.store.deleteTaskAgent(id, agentId);
       await this.store.insertEvent(id, "agent_removed", actor, {
@@ -867,9 +882,32 @@ export class TaskService {
     };
   }
 
-  /** The agent just created for the task becomes its assignee. */
+  /**
+   * The agent being created for the task becomes its assignee, before its
+   * engine starts (the create route's `beforeLaunch`). No assignment post:
+   * the briefing in its first prompt already says the task is its own.
+   */
   async assignCreated(id: string, agentId: string): Promise<void> {
-    await this.updateTask(id, { assignedAgentId: agentId }, { kind: "user" });
+    await this.withTaskLock(id, async () => {
+      const task = await this.requireTask(id);
+      await this.store.upsertTaskAgent({
+        taskId: id,
+        agentId,
+        role: "manual",
+        columnId: null,
+      });
+      await this.store.setAssignedAgent(id, agentId);
+      await this.store.insertEvent(
+        id,
+        "assigned",
+        { kind: "user" },
+        {
+          agentId,
+          role: "manual",
+        }
+      );
+      this.publish(task.projectId, id);
+    });
   }
 
   /** A launch by hand from the task: briefed, and assigned as `manual`. */

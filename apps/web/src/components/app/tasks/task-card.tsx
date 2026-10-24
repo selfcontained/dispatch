@@ -32,16 +32,22 @@ export function TaskCard({
   agents,
   onOpen,
   onMove,
+  disabled = false,
 }: {
   task: Task;
   columns: TaskColumn[];
   agents: Agent[];
   onOpen: () => void;
   onMove: (columnId: string) => void;
+  /** In a filtered-out column: not draggable, not a drop target. */
+  disabled?: boolean;
 }) {
   const sortable = useSortable({
     id: task.id,
     data: { columnId: task.columnId },
+    // A card in a filtered-out column is neither draggable nor a target,
+    // so a keyboard drag cannot land beside it unseen.
+    disabled,
   });
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== "[" && event.key !== "]") return;

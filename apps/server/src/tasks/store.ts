@@ -517,6 +517,16 @@ export class TaskStore {
     return rows.map(toTaskAgent);
   }
 
+  /** Agents the task's history says were removed from it, ever. */
+  async removedAgentIds(taskId: string): Promise<string[]> {
+    const { rows } = await this.pool.query<{ agent_id: string }>(
+      `SELECT DISTINCT data->>'agentId' AS agent_id FROM task_events
+        WHERE task_id = $1 AND kind = 'agent_removed' AND data->>'agentId' IS NOT NULL`,
+      [taskId]
+    );
+    return rows.map((row) => row.agent_id);
+  }
+
   async deleteTaskAgent(taskId: string, agentId: string): Promise<boolean> {
     const { rowCount } = await this.pool.query(
       `DELETE FROM task_agents WHERE task_id = $1 AND agent_id = $2`,
