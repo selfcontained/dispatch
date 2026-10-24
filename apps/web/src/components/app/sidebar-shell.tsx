@@ -1,4 +1,12 @@
-import { Activity, Zap, Bot, ChevronLeft, Settings, X } from "lucide-react";
+import {
+  Activity,
+  Zap,
+  Bot,
+  ChevronLeft,
+  Settings,
+  X,
+  ListTodo,
+} from "lucide-react";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +20,12 @@ import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { cn } from "@/lib/utils";
 
-export type NavSection = "agents" | "automations" | "activity" | "settings";
+export type NavSection =
+  | "agents"
+  | "tasks"
+  | "automations"
+  | "activity"
+  | "settings";
 
 type SidebarNavBarProps = {
   activeSection?: NavSection;
@@ -44,6 +57,7 @@ export function SidebarNavBar({
 
   const items: Array<{ id: NavSection; icon: typeof Bot; label: string }> = [
     { id: "agents", icon: Bot, label: "Agents" },
+    { id: "tasks", icon: ListTodo, label: "Tasks" },
     { id: "automations", icon: Zap, label: "Automations" },
     { id: "activity", icon: Activity, label: "Activity" },
     { id: "settings", icon: Settings, label: "Settings" },

@@ -581,6 +581,11 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
+        if (payload.type === "task.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          return;
+        }
+
         if (payload.type === "notification") {
           const shown = showWebNotification(payload);
           if (shown) {
