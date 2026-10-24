@@ -38,13 +38,14 @@ import {
   columnAccent,
   orderedColumns,
   tasksInColumn,
-  templateName,
 } from "./task-utils";
-import { MoreHorizontal, Plus, Zap } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TaskAutomationDialog } from "./task-automation-dialog";
+import {
+  ColumnAutomationStrip,
+  TaskAutomationDialog,
+} from "./task-automation-dialog";
 import { useTaskActions } from "@/hooks/use-tasks";
-import { useTemplates } from "@/hooks/use-templates";
 
 /**
  * What is under the pointer wins, read from the DOM. dnd-kit's rect-based
@@ -97,7 +98,6 @@ function BoardColumn({
   addTask,
   projectId,
   dropTarget,
-  automationName,
   hidden,
 }: {
   column: TaskColumn;
@@ -110,8 +110,6 @@ function BoardColumn({
   projectId: string;
   /** A lifted card would land here: over the column or a card in it. */
   dropTarget: boolean;
-  /** The template its automation launches, when it has one. */
-  automationName: string | null;
   /** Filtered out: collapsed to nothing, so the kept column slides over. */
   hidden: boolean;
 }) {
@@ -124,9 +122,6 @@ function BoardColumn({
   });
   const columnTasks = tasksInColumn(tasks, column.id);
   const index = columns.findIndex((item) => item.id === column.id);
-  const automationTitle = automationName
-    ? `Launches ${automationName} when a task enters`
-    : null;
   return (
     <section
       ref={drop.setNodeRef}
@@ -158,16 +153,6 @@ function BoardColumn({
         <span className="rounded-full bg-background/50 px-1.5 text-xs tabular-nums text-muted-foreground">
           {columnTasks.length}
         </span>
-        {automationTitle && (
-          <span
-            title={automationTitle}
-            aria-label={automationTitle}
-            className="flex min-w-0 max-w-24 items-center gap-0.5 text-[hsl(var(--col))]"
-          >
-            <Zap className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate text-[11px]">{automationName}</span>
-          </span>
-        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -247,6 +232,7 @@ function BoardColumn({
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
+      <ColumnAutomationStrip column={column} projectId={projectId} />
       <SortableContext
         items={columnTasks.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
@@ -317,7 +303,6 @@ export function TaskBoard({
   // column itself or a card in it.
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const activeTask = tasks.find((task) => task.id === activeId);
-  const { data: templates } = useTemplates();
   const columnOf = (over: DragEndEvent["over"]): string | null => {
     if (!over) return null;
     const id = String(over.id);
@@ -385,11 +370,6 @@ export function TaskBoard({
             projectId={board.projectId}
             dropTarget={overColumnId === column.id}
             hidden={Boolean(onlyColumnId) && onlyColumnId !== column.id}
-            automationName={
-              column.trigger
-                ? templateName(templates, column.trigger.templateId)
-                : null
-            }
           />
         ))}
       </div>

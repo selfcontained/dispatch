@@ -181,11 +181,15 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       "aria-hidden",
       "true"
     );
+    // The column wears its automation as a rule; clicking it edits.
+    const strip = page.getByTestId("task-column-automation-ready");
+    await expect(strip).toContainText("launches Tasks builder");
     await page.getByRole("button", { name: "Ready menu" }).click();
     await expect(
-      page.getByTestId("task-column-ready").getByTitle(/Tasks builder/)
+      page.getByRole("menuitem", { name: "Edit automation…" })
     ).toBeVisible();
-    await page.getByRole("menuitem", { name: "Edit automation…" }).click();
+    await page.keyboard.press("Escape");
+    await strip.click();
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );

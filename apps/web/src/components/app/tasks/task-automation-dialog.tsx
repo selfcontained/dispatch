@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Settings2, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,59 @@ import { useTaskActions } from "@/hooks/use-tasks";
 import type { AgentType } from "@/lib/agent-types";
 import { templateName } from "./task-utils";
 const NEW_TEMPLATE = "__new_template__";
+
+/**
+ * The column's automation, written out as the rule it is and sitting
+ * under the column header where a task would cross into it. Click to
+ * edit. Nothing renders for a column without one; the menu adds it.
+ */
+export function ColumnAutomationStrip({
+  column,
+  projectId,
+  className,
+}: {
+  column: TaskColumn;
+  projectId: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data: templates } = useTemplates();
+  if (!column.trigger) return null;
+  const name = templateName(templates, column.trigger.templateId);
+  return (
+    <>
+      <button
+        type="button"
+        data-testid={`task-column-automation-${column.key}`}
+        onClick={() => setOpen(true)}
+        title="Edit automation"
+        className={cn(
+          "flex w-full items-center gap-2 border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-left text-xs transition-colors hover:bg-[hsl(var(--col)/0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          className
+        )}
+      >
+        <Zap
+          className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--col))]"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground">
+          On entry → launches{" "}
+          <span className="font-medium text-foreground">{name}</span>
+        </span>
+        <Settings2
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+      </button>
+      <TaskAutomationDialog
+        column={column}
+        projectId={projectId}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </>
+  );
+}
 const runtimes: AgentType[] = ["claude", "codex", "opencode"];
 const empty = {
   templateId: "",
