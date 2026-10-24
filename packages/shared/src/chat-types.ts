@@ -414,6 +414,8 @@ export type ChatFeedResponse = {
  */
 export type ChatUnreadSummary = {
   agents: Record<string, { unread: number; pendingQuestions: number }>;
+  /** The same counts for each task's conversation (a `tsk_…` stream root). */
+  tasks?: Record<string, { unread: number; pendingQuestions: number }>;
 };
 
 /** Latest submitted review by each non-deleted agent, across all feed pages. */

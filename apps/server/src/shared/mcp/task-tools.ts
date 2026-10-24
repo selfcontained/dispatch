@@ -226,7 +226,7 @@ export function registerTaskTools(
       "task_update",
       {
         description:
-          'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up; a column with automation may launch the next agent. assign "self" makes it yours and opens its conversation in your stream; links are appended.',
+          'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up; a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended.',
         inputSchema: {
           id: z.string().min(1),
           title: z.string().min(1).max(500).optional(),
@@ -292,16 +292,23 @@ export function registerTaskTools(
       "task_comment",
       {
         description:
-          'Post progress on a task into your conversation thread for it, where the board shows it. Needs an assignment (task_update with assign: "self").',
+          'Post on a task\'s conversation (its own stream, shown on the board) for people; to addresses another agent on the task. You must be on the task (task_update with assign: "self").',
         inputSchema: {
           id: z.string().min(1),
           text: z.string().min(1).max(20_000),
+          to: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Another agent on the task to deliver this to."),
         },
       },
       async (args) => {
         try {
           await taskInScope(args.id);
-          return ok(await service.comment(args.id, agentId, args.text));
+          return ok(
+            await service.comment(args.id, agentId, args.text, args.to)
+          );
         } catch (error) {
           return toTaskToolError(error);
         }

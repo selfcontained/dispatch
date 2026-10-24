@@ -86,7 +86,7 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerStreamRoutes } from "./routes/streams.js";
-import { StreamService } from "./chat/service.js";
+import { StreamService, type TaskStreamRoot } from "./chat/service.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -424,6 +424,9 @@ const streamService = new StreamService({
     commands: (agentId) =>
       (agentManager.getCommands(agentId) ?? []).map((command) => command.name),
   },
+  // Created below; only called once requests arrive.
+  taskRoot: (taskId): Promise<TaskStreamRoot | null> =>
+    taskService.streamRoot(taskId),
   log: app.log,
 });
 const scheduledMessages = new ScheduledMessageService(
@@ -452,7 +455,7 @@ agentManager.onStreamWrite((agentId) => {
   void streamService.publishTurnEntry(agentId);
 });
 jobService.setBrainStore(brainStore);
-const taskService = new TaskService({
+const taskService: TaskService = new TaskService({
   pool,
   getAgent: (agentId) => agentManager.getAgent(agentId),
   getTemplate: (templateId) => templateService.getTemplate(templateId),

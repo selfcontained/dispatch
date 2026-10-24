@@ -75,12 +75,6 @@ export type Task = {
   updatedAt: string;
 };
 
-/** Where a task's conversation with one agent lives: a thread in a stream. */
-export type TaskConversation = {
-  streamId: string;
-  blockId: string;
-};
-
 export type TaskAgentRole = "trigger" | "manual" | "self";
 
 /** One agent's assignment to a task; history is kept after reassignment. */
@@ -90,7 +84,6 @@ export type TaskAgent = {
   role: TaskAgentRole;
   /** The column whose trigger launched it, for `role: "trigger"`. */
   columnId: string | null;
-  conversation: TaskConversation | null;
   assignedAt: string;
 };
 
