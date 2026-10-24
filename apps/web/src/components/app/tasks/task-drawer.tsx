@@ -361,6 +361,9 @@ export function TaskDrawer({
             <h3 className="mb-2 text-sm font-semibold">Conversation</h3>
             {conversation ? (
               <TaskConversation
+                // Remount per thread: the composer keeps a mount-local draft,
+                // which must not follow prev/next onto another task's agent.
+                key={`${conversation.streamId}:${conversation.blockId}`}
                 streamId={conversation.streamId}
                 blockId={conversation.blockId}
                 projectId={projectId}

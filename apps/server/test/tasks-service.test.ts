@@ -325,7 +325,7 @@ describe("triggers", () => {
     expect(launches[0]).toMatchObject({
       templateId: TEMPLATE_ID,
       projectId,
-      args: { "Task ID": task.id, "Task Title": "Fix it", "Task Body": "" },
+      args: { "task id": task.id, "task title": "Fix it", "task body": "" },
     });
     expect(launches[0]!.appendix).toContain("## Dispatch task");
     const detail = await service.getTaskDetail(task.id);
@@ -448,8 +448,9 @@ describe("triggers", () => {
 describe("assignment", () => {
   it("posts the task block and stores the conversation", async () => {
     const ready = await withTrigger("ready");
+    // The title names another agent: the block must still go to the assignee.
     const task = await service.createTask(
-      { projectId, title: "Ship it" },
+      { projectId, title: "Ship it with @Reviewer" },
       USER
     );
     await service.updateTask(task.id, { columnId: ready }, USER);
@@ -461,12 +462,19 @@ describe("assignment", () => {
       input: {
         to: agentId,
         allowInert: true,
+        resolveMentions: false,
         attachments: [
-          { type: "link", url: `/tasks?task=${task.id}`, title: "Ship it" },
+          {
+            type: "link",
+            url: `/tasks?task=${task.id}`,
+            title: "Ship it with @Reviewer",
+          },
         ],
       },
     });
-    expect(posts[0]!.input.text).toContain(`Task ${task.id} — Ship it (Ready)`);
+    expect(posts[0]!.input.text).toContain(
+      `Task ${task.id} — Ship it with @Reviewer (Ready)`
+    );
     expect(detail.agents).toEqual([
       expect.objectContaining({
         agentId,
@@ -568,6 +576,11 @@ describe("helpers", () => {
     expect(chatUrlSchema.safeParse("/\\evil.example").success).toBe(false);
     expect(chatUrlSchema.safeParse("javascript:alert(1)").success).toBe(false);
     expect(chatUrlSchema.safeParse("tasks?task=tsk_1").success).toBe(false);
+    // URL parsing strips tabs and newlines, which would make these
+    // protocol-relative: "/\t/host" → "//host".
+    expect(chatUrlSchema.safeParse("/\t/evil.example").success).toBe(false);
+    expect(chatUrlSchema.safeParse("/\n/evil.example").success).toBe(false);
+    expect(chatUrlSchema.safeParse("/tasks\r?task=1").success).toBe(false);
   });
 });
 

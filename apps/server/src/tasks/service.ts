@@ -601,10 +601,12 @@ export class TaskService {
     return await this.deps.launchTemplate({
       templateId: template.id,
       projectId: task.projectId,
+      // Placeholders resolve by lowercase key, so these satisfy
+      // `{{D:Task Title}}`, `{{D:task title}}` and any other casing.
       args: {
-        "Task ID": task.id,
-        "Task Title": task.title,
-        "Task Body": task.body,
+        "task id": task.id,
+        "task title": task.title,
+        "task body": task.body,
       },
       ...(launch.passContext
         ? { appendix: buildTaskBriefing({ task, project, column }) }
@@ -723,6 +725,9 @@ export class TaskService {
           { type: "link", url: `/tasks?task=${task.id}`, title: task.title },
         ],
         allowInert: true,
+        // The assignee is chosen explicitly; an "@name" in the task title
+        // must not redirect the block to another agent.
+        resolveMentions: false,
       });
       await this.store.setConversation(task.id, agentId, {
         streamId,

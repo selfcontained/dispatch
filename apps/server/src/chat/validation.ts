@@ -25,7 +25,9 @@ export const chatUrlSchema = z
   .refine((value) => {
     // An app path ("/tasks?task=…") opens in Dispatch itself; "//" and "/\\"
     // are protocol-relative to another host, so they are not app paths.
-    if (/^\/(?![/\\])/.test(value)) return true;
+    // URL parsing strips tabs and newlines, so "/\t/host" would resolve
+    // protocol-relative too: no control characters anywhere in a path.
+    if (/^\/(?![/\\])/.test(value)) return !/[\t\r\n]/.test(value);
     try {
       const { protocol } = new URL(value);
       return protocol === "http:" || protocol === "https:";

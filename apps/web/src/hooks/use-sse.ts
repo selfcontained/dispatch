@@ -362,6 +362,7 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["projects"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
+          void queryClient.invalidateQueries({ queryKey: ["tasks"] });
           void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
           void queryClient.invalidateQueries({ queryKey: ["agent-identity"] });
           void queryClient.invalidateQueries({
