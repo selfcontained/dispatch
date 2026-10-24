@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -279,5 +285,64 @@ test("canonicalizes nested and linked checkouts and separate Git metadata", asyn
     for (const id of ids)
       await request.delete(`/api/v1/projects/${id}`, { headers });
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("plain folders without Git can be projects", async ({ request }) => {
+  const folder = mkdtempSync(join(tmpdir(), "dispatch-project-plain-"));
+  let id: string | undefined;
+  const agentIds: string[] = [];
+  try {
+    const created = await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Plain", repoRoot: folder, color: "#9575ed" },
+    });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    const project = await created.json();
+    id = project.id;
+    expect(project.repoRoot).toBe(realpathSync(folder));
+    const duplicate = await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Plain again", repoRoot: folder, color: "#9575ed" },
+    });
+    expect(duplicate.status()).toBe(409);
+    // A default launch skips worktrees; explicitly asking for one still fails.
+    const launch = await request.post("/api/v1/agents", {
+      headers,
+      data: { type: "codex", projectId: id, name: "plain" },
+    });
+    expect(launch.ok(), await launch.text()).toBeTruthy();
+    const agent = (await launch.json()).agent;
+    agentIds.push(agent.id);
+    expect(agent.cwd).toBe(realpathSync(folder));
+    expect(agent.setupPhase).not.toBe("worktree");
+    expect(agent.worktreePath ?? null).toBeNull();
+    await expect
+      .poll(async () => {
+        const all = await (
+          await request.get("/api/v1/agents", { headers })
+        ).json();
+        return all.agents.find((a: { id: string }) => a.id === agent.id)
+          ?.status;
+      })
+      .not.toMatch(/creating/);
+    const all = await (await request.get("/api/v1/agents", { headers })).json();
+    expect(
+      all.agents.find((a: { id: string }) => a.id === agent.id)?.status
+    ).not.toBe("error");
+    const missing = await request.post("/api/v1/projects", {
+      headers,
+      data: {
+        name: "Missing",
+        repoRoot: join(folder, "missing"),
+        color: "#9575ed",
+      },
+    });
+    expect(missing.status()).toBe(400);
+  } finally {
+    for (const agentId of agentIds)
+      await request.delete(`/api/v1/agents/${agentId}`, { headers });
+    if (id) await request.delete(`/api/v1/projects/${id}`, { headers });
+    rmSync(folder, { recursive: true, force: true });
   }
 });

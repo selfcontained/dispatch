@@ -91,7 +91,7 @@ export function ProjectEditor({
             <DialogDescription className="sr-only">
               {project
                 ? `Update ${project.name}’s identity.`
-                : "Organize sessions and templates around a repository."}
+                : "Organize sessions and templates around a folder."}
             </DialogDescription>
           </DialogHeader>
           <form
@@ -121,7 +121,7 @@ export function ProjectEditor({
               </label>
               {project ? (
                 <div className="space-y-1 text-sm">
-                  <span>Repository</span>
+                  <span>Folder</span>
                   <p
                     title={repoRoot}
                     className="truncate text-xs text-muted-foreground"
@@ -132,7 +132,7 @@ export function ProjectEditor({
               ) : (
                 <PathInput
                   id="project-repo"
-                  label="Repository"
+                  label="Folder"
                   value={repoRoot}
                   onChange={setRepoRoot}
                   history={history}
@@ -169,8 +169,8 @@ export function ProjectEditor({
                           : preview.isFetching && !preview.data
                             ? "Loading icon…"
                             : preview.data?.dataUrl
-                              ? "From repository"
-                              : "No repository icon"}
+                              ? "From folder"
+                              : "No folder icon"}
                       </p>
                       <Popover>
                         <PopoverTrigger asChild>
@@ -179,14 +179,14 @@ export function ProjectEditor({
                             variant="ghost"
                             size="icon"
                             className="h-5 w-5 shrink-0"
-                            aria-label="About repository icons"
+                            aria-label="About folder icons"
                           >
                             <Info className="h-3.5 w-3.5" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-64 text-xs" side="top">
-                          Add .dispatch/logo.svg or .dispatch/logo.png to your
-                          repo to use it automatically. Upload an image to
+                          Add .dispatch/logo.svg or .dispatch/logo.png to the
+                          folder to use it automatically. Upload an image to
                           override it.
                           {preview.data?.path && (
                             <p className="mt-2 break-all text-muted-foreground">

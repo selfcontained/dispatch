@@ -1,5 +1,5 @@
 import type { PublishUiEvent } from "../server/ui-events.js";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -25,15 +25,26 @@ const appearance = z.object({
       "Choose a valid prepared icon image."
     ),
 });
-async function resolveProjectRoot(input: string): Promise<string> {
+export async function resolveProjectRoot(input: string): Promise<string> {
   const cwd = await realpath(resolveTilde(input));
+  if (!(await stat(cwd)).isDirectory()) throw new Error("Not a directory");
   const git = async (...args: string[]) =>
-    (await promisify(execFile)("git", ["-C", cwd, ...args])).stdout.trim();
+    (
+      await promisify(execFile)("git", ["-C", cwd, ...args], {
+        env: { ...process.env, LC_ALL: "C" },
+      })
+    ).stdout.trim();
+  // A plain folder (no Git) is its own project root. Any other Git failure
+  // (dubious ownership, broken install) must not bypass canonicalization.
   const common = await git(
     "rev-parse",
     "--path-format=absolute",
     "--git-common-dir"
-  );
+  ).catch((error: { stderr?: string }) => {
+    if (/not a git repository/i.test(error.stderr ?? "")) return null;
+    throw error;
+  });
+  if (common === null) return cwd;
   const gitDir = await git("rev-parse", "--absolute-git-dir");
   // Normal discovery handles nested paths and separate Git metadata.
   // A linked worktree instead uses the primary checkout from Git's registry.
@@ -141,8 +152,8 @@ export async function registerProjectRoutes(
       return reply.code(code === "23505" ? 409 : 400).send({
         error:
           code === "23505"
-            ? "This repository already has a project."
-            : "Choose an existing Git repository.",
+            ? "This folder already has a project."
+            : "Choose an existing folder.",
       });
     }
   });
