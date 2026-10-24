@@ -227,6 +227,27 @@ describe("ChatComposer", () => {
     await waitFor(() => expect(input.value).toBe(""));
   });
 
+  it("rests as one line on mobile when empty, enabled or disabled", () => {
+    // index.css collapses [data-mobile-idle] under 768px until focus.
+    renderComposer();
+    expect(
+      screen.getByTestId("chat-composer").getAttribute("data-mobile-idle")
+    ).toBe("true");
+    cleanup();
+    renderComposer({
+      disabledReason: "The agent is not running. Start it to send messages.",
+    });
+    expect(
+      screen.getByTestId("chat-composer").getAttribute("data-mobile-idle")
+    ).toBe("true");
+    cleanup();
+    const { input } = renderComposer();
+    fireEvent.change(input, { target: { value: "a draft" } });
+    expect(
+      screen.getByTestId("chat-composer").hasAttribute("data-mobile-idle")
+    ).toBe(false);
+  });
+
   it("does not send on Shift+Enter", () => {
     const { onSend, input } = renderComposer();
     fireEvent.change(input, { target: { value: "line one" } });

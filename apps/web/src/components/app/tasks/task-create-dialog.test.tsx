@@ -1,0 +1,148 @@
+// @vitest-environment jsdom
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { Task, TaskColumn } from "@/hooks/use-tasks";
+import type { Agent } from "@/components/app/types";
+import { TaskCreateDialog } from "./task-create-dialog";
+
+const create = vi.fn();
+const update = vi.fn();
+vi.mock("@/hooks/use-tasks", () => ({
+  useTaskActions: () => ({
+    create: { mutateAsync: create },
+    update: { mutateAsync: update },
+  }),
+}));
+
+beforeAll(() => {
+  // Radix Select measures and captures pointers jsdom doesn't implement.
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.scrollIntoView = () => {};
+});
+beforeEach(() => {
+  create.mockResolvedValue({ id: "tsk_new" } as Task);
+  update.mockResolvedValue({});
+});
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+const column = (id: string, name: string, position: number) =>
+  ({ id, name, key: id, position, trigger: null }) as unknown as TaskColumn;
+const columns = [
+  column("backlog", "Backlog", 0),
+  column("ready", "Ready", 1),
+  column("doing", "Doing", 2),
+];
+const agents = [
+  { id: "a1", name: "builder", status: "running", projectId: "p1" },
+] as unknown as Agent[];
+
+const renderDialog = (columnId?: string | null) => {
+  const onCreated = vi.fn();
+  const onOpenChange = vi.fn();
+  render(
+    <TaskCreateDialog
+      open
+      onOpenChange={onOpenChange}
+      projectId="p1"
+      columns={columns}
+      agents={agents}
+      columnId={columnId}
+      onCreated={onCreated}
+    />
+  );
+  return { onCreated, onOpenChange };
+};
+const pick = (name: string, option: RegExp) => {
+  fireEvent.keyDown(screen.getByRole("combobox", { name }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: option }));
+};
+
+it("needs a title before it creates anything", () => {
+  renderDialog();
+  const submit = screen.getByRole("button", { name: "Create task" });
+  expect((submit as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("Title"), {
+    target: { value: "   " },
+  });
+  fireEvent.submit(submit.closest("form")!);
+  expect((submit as HTMLButtonElement).disabled).toBe(true);
+  expect(create).not.toHaveBeenCalled();
+});
+
+it("opens on the column it was started from, else the first", () => {
+  renderDialog("ready");
+  expect(screen.getByRole("combobox", { name: "Column" }).textContent).toBe(
+    "Ready"
+  );
+  cleanup();
+  renderDialog();
+  expect(screen.getByRole("combobox", { name: "Column" }).textContent).toBe(
+    "Backlog"
+  );
+});
+
+it("creates from Enter in the title with description and column", async () => {
+  const { onCreated, onOpenChange } = renderDialog("ready");
+  fireEvent.change(screen.getByLabelText("Description"), {
+    target: { value: "## Deliverable\nA thing" },
+  });
+  const title = screen.getByLabelText("Title");
+  expect(document.activeElement).toBe(title);
+  fireEvent.change(title, { target: { value: " Ship it " } });
+  fireEvent.submit(title.closest("form")!);
+  await waitFor(() => expect(onCreated).toHaveBeenCalled());
+  expect(create).toHaveBeenCalledWith({
+    projectId: "p1",
+    title: "Ship it",
+    body: "## Deliverable\nA thing",
+    columnId: "ready",
+  });
+  expect(update).not.toHaveBeenCalled();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+it("creates from ⌘Enter in the description and then assigns", async () => {
+  const { onCreated } = renderDialog();
+  fireEvent.change(screen.getByLabelText("Title"), {
+    target: { value: "Assigned task" },
+  });
+  pick("Column", /Doing/);
+  pick("Assignee", /builder/);
+  const description = screen.getByLabelText("Description");
+  fireEvent.keyDown(description, { key: "Enter" });
+  expect(create).not.toHaveBeenCalled();
+  // jsdom has no requestSubmit; route it to a submit event.
+  const form = description.closest("form")!;
+  form.requestSubmit = () => fireEvent.submit(form);
+  fireEvent.keyDown(description, { key: "Enter", metaKey: true });
+  await waitFor(() => expect(onCreated).toHaveBeenCalled());
+  expect(create).toHaveBeenCalledWith({
+    projectId: "p1",
+    title: "Assigned task",
+    columnId: "doing",
+  });
+  expect(update).toHaveBeenCalledWith({ id: "tsk_new", assignedAgentId: "a1" });
+});
+
+it("keeps the form open with the error when creating fails", async () => {
+  create.mockRejectedValueOnce(new Error("Project is archived"));
+  const { onCreated, onOpenChange } = renderDialog();
+  const title = screen.getByLabelText("Title");
+  fireEvent.change(title, { target: { value: "Doomed" } });
+  fireEvent.submit(title.closest("form")!);
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Project is archived"
+  );
+  expect(onCreated).not.toHaveBeenCalled();
+  expect(onOpenChange).not.toHaveBeenCalledWith(false);
+});

@@ -132,3 +132,5 @@ export function taskMentionables(
     .map(toMentionable);
   return [...tree, ...qualifyExternalMentions(tree, external)];
 }
+/** History state marking an entry pushed by opening the task modal. */
+export const TASK_MODAL_STATE = { taskModal: true } as const;
