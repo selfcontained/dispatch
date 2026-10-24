@@ -37,6 +37,11 @@ vi.mock("@/hooks/use-tasks", () => ({
   useTaskBoard: () => ({ data: undefined, isLoading: true, error: null }),
   useTaskActions: () => ({ createColumn: { mutateAsync: vi.fn() } }),
 }));
+// Column automations are named by template; this route test has no
+// QueryClient to fetch them with.
+vi.mock("@/hooks/use-templates", () => ({
+  useTemplates: () => ({ data: [] }),
+}));
 vi.mock("@/components/app/dashboard-context", () => ({
   useDashboardContext: () => ({
     agents: [],
