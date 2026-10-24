@@ -97,6 +97,7 @@ describe("Project upgrade ordering", () => {
     await runTestMigrations();
     await pool.query("SELECT project_id FROM agents LIMIT 0");
     await pool.query("SELECT icon_data, icon_mime FROM projects LIMIT 0");
+    await pool.query("SELECT project_id FROM tasks LIMIT 0");
   });
 
   it("preserves preview projects while replaying at the new sequence", async () => {
