@@ -149,14 +149,24 @@ export async function createGitWorktree(
   if (updateBase) {
     const hasOrigin = await hasRemote(repoRoot, "origin", commandRunner);
     if (hasOrigin) {
-      await commandRunner("git", [
-        "-C",
-        repoRoot,
-        "fetch",
-        "origin",
-        baseBranch,
-        "--quiet",
-      ]);
+      try {
+        await commandRunner("git", [
+          "-C",
+          repoRoot,
+          "fetch",
+          "origin",
+          baseBranch,
+          "--quiet",
+        ]);
+      } catch (error) {
+        // A local branch that was never pushed (e.g. a parent agent basing a
+        // child on its own branch) has no origin ref to fetch. Base on the
+        // local branch instead; any other fetch failure still aborts.
+        if (!(await isLocalOnlyBranch(repoRoot, baseBranch, commandRunner))) {
+          throw error;
+        }
+        baseRef = baseBranch;
+      }
     } else {
       baseRef = baseBranch;
     }
@@ -517,6 +527,42 @@ async function hasRemote(
     { allowedExitCodes: [0, 2] }
   );
   return result.exitCode === 0;
+}
+
+async function isLocalOnlyBranch(
+  repoRoot: string,
+  branchName: string,
+  commandRunner: CommandRunner
+): Promise<boolean> {
+  const local = await commandRunner(
+    "git",
+    [
+      "-C",
+      repoRoot,
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branchName}`,
+    ],
+    { allowedExitCodes: [0, 1] }
+  );
+  if (local.exitCode !== 0) return false;
+  // exit 2 = origin reachable but has no such branch; network or auth
+  // failures exit 128 and must not be mistaken for an unpushed branch.
+  const remote = await commandRunner(
+    "git",
+    [
+      "-C",
+      repoRoot,
+      "ls-remote",
+      "--exit-code",
+      "--heads",
+      "origin",
+      `refs/heads/${branchName}`,
+    ],
+    { allowedExitCodes: [0, 2, 128] }
+  );
+  return remote.exitCode === 2;
 }
 
 async function ensurePathDoesNotExist(targetPath: string): Promise<void> {
