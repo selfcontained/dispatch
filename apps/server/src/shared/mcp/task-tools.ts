@@ -4,16 +4,21 @@ import * as z from "zod/v4";
 import {
   mergeLinks,
   TaskError,
+  type TaskCaller,
   type TaskService,
 } from "../../tasks/service.js";
-import type { TaskActor, TaskDetail } from "../../tasks/types.js";
+import type { Task, TaskDetail } from "../../tasks/types.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 type TaskToolContext = {
-  agentId: string;
-  /** The caller's project; the default for list and create. */
-  projectId: string | null;
+  /** The calling agent, with its access ceiling for triggered launches. */
+  caller: Extract<TaskCaller, { kind: "agent" }>;
+  /**
+   * The one project these tools act on for this caller: its own, or the
+   * project whose repo holds its workspace. Null when there is none.
+   */
+  resolveProject: () => Promise<string | null>;
   service: TaskService;
 };
 
@@ -37,7 +42,7 @@ function toTaskToolError(error: unknown): ToolResult {
   if (error instanceof TaskError) {
     const message =
       error.code === "agent_working"
-        ? `${error.message} Tools cannot relaunch over a running agent; leave the task where it is, or ask the user to move it on the board.`
+        ? `${error.message} Tools cannot act over a running agent; leave the task where it is, or ask the user to move it on the board.`
         : error.message;
     return {
       content: [{ type: "text", text: message }],
@@ -61,18 +66,39 @@ export function registerTaskTools(
   allowed: Set<string>,
   ctx: TaskToolContext
 ): void {
-  const { agentId, service } = ctx;
-  const actor: TaskActor = { kind: "agent", agentId };
+  const { caller, service } = ctx;
+  const agentId = caller.agentId;
 
-  const projectFor = (projectId: string | undefined): string => {
-    const resolved = projectId ?? ctx.projectId;
-    if (!resolved) {
+  let scope: Promise<string | null> | null = null;
+  /** The caller's project; an explicit `projectId` must name the same one. */
+  const projectFor = async (projectId?: string): Promise<string> => {
+    scope ??= ctx.resolveProject();
+    const own = await scope;
+    if (!own) {
       throw new TaskError(
-        "You are not in a project, so there is no default board. Pass projectId.",
+        "You are not in a Dispatch project (no project's repo holds your workspace), so there is no task board for you.",
         400
       );
     }
-    return resolved;
+    if (projectId !== undefined && projectId !== own) {
+      throw new TaskError(
+        `You can only use the task board of your own project (${own}).`,
+        403
+      );
+    }
+    return own;
+  };
+  /** The task, when it is on the caller's board. */
+  const taskInScope = async (id: string): Promise<Task> => {
+    const own = await projectFor();
+    const task = await service.requireTask(id);
+    if (task.projectId !== own) {
+      throw new TaskError(
+        `Task ${id} belongs to another project; you can only use your own project's tasks.`,
+        403
+      );
+    }
+    return task;
   };
 
   if (allowed.has("task_list")) {
@@ -80,7 +106,7 @@ export function registerTaskTools(
       "task_list",
       {
         description:
-          "List tasks on a project's board (your project by default). Thin rows; task_get has the body, agents and activity.",
+          "List tasks on your project's board. Thin rows; task_get has the body, agents and activity.",
         inputSchema: {
           projectId: z.string().min(1).optional(),
           column: z
@@ -96,7 +122,9 @@ export function registerTaskTools(
       },
       async (args) => {
         try {
-          const board = await service.getBoard(projectFor(args.projectId));
+          const board = await service.getBoard(
+            await projectFor(args.projectId)
+          );
           const keyOf = new Map(board.columns.map((c) => [c.id, c.key]));
           if (args.column && !board.columns.some((c) => c.key === args.column))
             throw new TaskError(
@@ -137,6 +165,7 @@ export function registerTaskTools(
       },
       async (args) => {
         try {
+          await taskInScope(args.id);
           const detail: TaskDetail = await service.getTaskDetail(
             args.id,
             TOOL_EVENT_LIMIT
@@ -154,7 +183,7 @@ export function registerTaskTools(
       "task_create",
       {
         description:
-          "Create a task on a project's board (your project by default), in the first column unless you name one. A column with automation may launch an agent for it.",
+          "Create a task on your project's board, in the first column unless you name one. A column with automation may launch an agent for it.",
         inputSchema: {
           title: z.string().min(1).max(500),
           body: z
@@ -168,7 +197,7 @@ export function registerTaskTools(
       },
       async (args) => {
         try {
-          const projectId = projectFor(args.projectId);
+          const projectId = await projectFor(args.projectId);
           const column = args.column
             ? await service.resolveColumnKey(projectId, args.column)
             : null;
@@ -179,7 +208,7 @@ export function registerTaskTools(
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
             },
-            actor
+            caller
           );
           const key = (await service.ensureColumns(projectId)).find(
             (c) => c.id === task.columnId
@@ -213,9 +242,9 @@ export function registerTaskTools(
       },
       async (args) => {
         try {
-          const task = await service.requireTask(args.id);
-          if (args.assign === "self")
-            await service.assignSelf(task.id, agentId);
+          const task = await taskInScope(args.id);
+          // Resolve everything first; the service then checks and applies
+          // the edit, the assignment and the move as one operation.
           const column = args.column
             ? await service.resolveColumnKey(task.projectId, args.column)
             : null;
@@ -238,7 +267,8 @@ export function registerTaskTools(
               ...(links ? { links } : {}),
               ...(args.assign === "none" ? { assignedAgentId: null } : {}),
             },
-            actor
+            caller,
+            { assignSelf: args.assign === "self" }
           );
           const key = (await service.ensureColumns(updated.projectId)).find(
             (c) => c.id === updated.columnId
@@ -270,6 +300,7 @@ export function registerTaskTools(
       },
       async (args) => {
         try {
+          await taskInScope(args.id);
           return ok(await service.comment(args.id, agentId, args.text));
         } catch (error) {
           return toTaskToolError(error);

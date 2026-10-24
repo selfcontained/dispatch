@@ -39,6 +39,8 @@ Only `templateId` is required when setting one; the rest default as shown. The t
 - If the task's assigned agent is still `running`/`creating`, the move is refused with 409 `{ code: "agent_working", agent: { id, name } }` and nothing changes. Retry with `confirmRelaunch: true` to launch anyway. An agent moving its own task is handing it off and is never refused.
 - Success records `trigger_launched`. With `assign`, the new agent becomes the task's agent (role `trigger`); the previous one stays in `task_agents`.
 - A failure (missing template, launch error) never undoes the move. It records `trigger_failed { templateId, reason }`, which the card shows through `latestFailure`.
+- An agent without full access cannot start a full-access template this way, whether by a move, a create with `fireOnCreate`, or a manual launch: the move stands and the trigger fails with "restricted agent cannot launch a full-access template". People (HTTP) are trusted.
+- Transitions of one task run one at a time (move, launch, assignment), and the move itself only applies while the task is still in the column it left, so overlapping moves fire the trigger once. A launch that finds the task already moved elsewhere does not assign itself.
 
 ## Conversation
 
@@ -46,7 +48,7 @@ Assigning an agent posts a short **task block** into its stream (its own, or its
 
 ## MCP Tools
 
-Available to agents and job agents. The default project is the caller's.
+Available to agents and job agents. They act on the caller's project only: its own, or for an agent outside any project, the project whose repo holds its workspace. Another project's board or tasks are refused.
 
 | Tool           | Does                                                                                                    |
 | -------------- | ------------------------------------------------------------------------------------------------------- |
@@ -56,7 +58,7 @@ Available to agents and job agents. The default project is the caller's.
 | `task_update`  | Edit title/body, move with `column` (key), `assign: "self" \| "none"`, append `links` (deduped by url)  |
 | `task_comment` | Reply in the caller's conversation thread on the task; requires an assignment                           |
 
-A tool move follows the trigger rules but cannot confirm a relaunch over another running agent; it returns the `agent_working` error instead.
+A tool move follows the trigger rules but cannot confirm a relaunch over another running agent; it returns the `agent_working` error instead. `assign: "self"` likewise refuses to take over a task whose agent is still running. `task_update` checks everything before it writes, so a refused call changes nothing.
 
 ## Live Updates
 

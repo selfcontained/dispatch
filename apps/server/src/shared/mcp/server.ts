@@ -49,8 +49,12 @@ export type McpAgent = {
   persona?: string | null;
   parentAgentId?: string | null;
   baseBranch?: string | null;
-  /** The agent's project: the default board for the task tools. */
+  /** The agent's project: the board the task tools act on. */
   projectId?: string | null;
+  /** The agent's launch directory; places a projectless agent's board. */
+  launchCwd?: string | null;
+  /** The agent's access ceiling, for launches it triggers through tasks. */
+  fullAccess?: boolean;
 };
 
 /** Arguments the share_file tool hands to the file-sharing callback. */
@@ -530,10 +534,20 @@ export async function createDispatchMcpServer(
 
   // ── Task tools (the project board) ────────────────────────────────
   if (context.agent && context.taskService) {
+    const agent = context.agent;
+    const taskService = context.taskService;
     registerTaskTools(server, allowed, {
-      agentId: context.agent.id,
-      projectId: context.agent.projectId ?? null,
-      service: context.taskService,
+      caller: {
+        kind: "agent",
+        agentId: agent.id,
+        fullAccess: agent.fullAccess === true,
+      },
+      resolveProject: () =>
+        taskService.projectForAgent({
+          projectId: agent.projectId,
+          paths: [context.repoRoot, agent.cwd, agent.launchCwd],
+        }),
+      service: taskService,
     });
   }
 
