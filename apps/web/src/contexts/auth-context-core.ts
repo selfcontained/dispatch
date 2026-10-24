@@ -4,6 +4,7 @@ import { type AuthState } from "@/components/app/types";
 
 export type AuthContextValue = {
   authState: AuthState;
+  exposed: boolean;
   handleAuthenticated: () => void;
   handleLogout: () => Promise<void>;
   retryAuth: () => void;

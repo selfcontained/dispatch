@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@/components/ui/button";
+import { SetPasswordForm } from "@/components/app/set-password-form";
 import { createClientId } from "@/lib/client-id";
 
 type Info = {
@@ -89,6 +90,7 @@ async function request(path: string, method: string, body?: object) {
   if (!response.ok)
     throw Object.assign(new Error(result.error || "Terminal request failed."), {
       status: response.status,
+      code: result.code,
     });
   return result;
 }
@@ -177,6 +179,7 @@ export default function TerminalPanel({
         : "connecting";
   });
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | undefined>();
   const [generation, setGeneration] = useState(0);
   const stream = useRef<Stream>({
     replay: new Uint8Array(),
@@ -212,6 +215,7 @@ export default function TerminalPanel({
     ended.current = false;
     setStatus("connecting");
     setError(null);
+    setErrorCode(undefined);
     const disconnect = () => {
       cancelled = true;
       clearTimeout(retry);
@@ -331,6 +335,7 @@ export default function TerminalPanel({
       } catch (cause) {
         if (!cancelled && !ended.current) {
           setStatus("unavailable");
+          setErrorCode((cause as { code?: string }).code);
           setError(
             cause instanceof Error ? cause.message : "Cannot open terminal."
           );
@@ -439,7 +444,7 @@ export default function TerminalPanel({
             New terminal
           </Button>
         )}
-        {status === "unavailable" && (
+        {status === "unavailable" && errorCode !== "password_not_set" && (
           <Button size="sm" onClick={() => setGeneration((value) => value + 1)}>
             Retry connection
           </Button>
@@ -455,7 +460,13 @@ export default function TerminalPanel({
           {error}
         </p>
       )}
-      {ready ? (
+      {status === "unavailable" && errorCode === "password_not_set" ? (
+        <div className="min-h-0 flex-1 overflow-auto rounded bg-[#101014] p-4">
+          <SetPasswordForm
+            onSuccess={() => setGeneration((value) => value + 1)}
+          />
+        </div>
+      ) : ready ? (
         <TerminalCanvas stream={stream} active={active} />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center rounded bg-[#101014] p-4 text-center text-xs text-muted-foreground">

@@ -3,7 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type AuthState } from "@/components/app/types";
 import { authEvents } from "@/lib/api";
 
-type AuthStatus = { passwordSet: boolean; authenticated: boolean };
+type AuthStatus = {
+  passwordSet: boolean;
+  authenticated: boolean;
+  exposed: boolean;
+};
 
 async function fetchAuthStatus(): Promise<AuthStatus> {
   const res = await fetch("/api/v1/auth/status", { credentials: "include" });
@@ -13,6 +17,7 @@ async function fetchAuthStatus(): Promise<AuthStatus> {
 
 export function useAuth(): {
   authState: AuthState;
+  exposed: boolean;
   handleAuthenticated: () => void;
   handleLogout: () => Promise<void>;
   retryAuth: () => void;
@@ -75,5 +80,11 @@ export function useAuth(): {
     void queryClient.invalidateQueries({ queryKey: ["auth-status"] });
   }, [queryClient]);
 
-  return { authState, handleAuthenticated, handleLogout, retryAuth };
+  return {
+    authState,
+    exposed: data?.exposed ?? false,
+    handleAuthenticated,
+    handleLogout,
+    retryAuth,
+  };
 }

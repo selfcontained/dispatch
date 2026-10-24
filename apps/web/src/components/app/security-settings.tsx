@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SetPasswordForm } from "./set-password-form";
 import { CertificateTrustSettings } from "./certificate-trust-settings";
 
 type SecuritySettingsProps = {
@@ -40,34 +41,6 @@ export function SecuritySettings({
     setNewPassword("");
     setConfirmPassword("");
     setError("");
-  };
-
-  const handleSetPassword = async (e: FormEvent) => {
-    e.preventDefault();
-    if (newPassword.length < 8 || newPassword !== confirmPassword) return;
-    setError("");
-    setMessage("");
-    setLoading(true);
-    try {
-      const res = await fetch("/api/v1/auth/setup", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ password: newPassword }),
-      });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: string };
-        setError(body.error ?? "Failed to set password.");
-        return;
-      }
-      setMessage("Password set successfully.");
-      setPasswordSet(true);
-      resetForm();
-    } catch {
-      setError("Unable to reach the server.");
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleChangePassword = async (e: FormEvent) => {
@@ -122,11 +95,15 @@ export function SecuritySettings({
             access. Set a password to require authentication.
           </p>
         )}
-        <form
-          onSubmit={passwordSet ? handleChangePassword : handleSetPassword}
-          className="max-w-sm space-y-3"
-        >
-          {passwordSet && (
+        {!passwordSet ? (
+          <SetPasswordForm
+            onSuccess={() => {
+              setPasswordSet(true);
+              setMessage("Password set successfully.");
+            }}
+          />
+        ) : (
+          <form onSubmit={handleChangePassword} className="max-w-sm space-y-3">
             <Input
               type="password"
               placeholder="Current password"
@@ -134,49 +111,43 @@ export function SecuritySettings({
               onChange={(e) => setCurrentPassword(e.target.value)}
               data-testid="change-current-password"
             />
-          )}
-          <Input
-            type="password"
-            placeholder={
-              passwordSet
-                ? "New password (min 8 characters)"
-                : "Password (min 8 characters)"
-            }
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            data-testid="security-new-password"
-          />
-          <Input
-            type="password"
-            placeholder="Confirm password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            data-testid="security-confirm-password"
-          />
-          {mismatch && (
-            <p className="text-sm text-destructive">Passwords do not match.</p>
-          )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {message && <p className="text-sm text-status-working">{message}</p>}
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={
-              loading ||
-              newPassword.length < 8 ||
-              newPassword !== confirmPassword ||
-              (passwordSet && !currentPassword)
-            }
-          >
-            {loading
-              ? passwordSet
-                ? "Changing..."
-                : "Setting up..."
-              : passwordSet
-                ? "Change password"
-                : "Set password"}
-          </Button>
-        </form>
+            <Input
+              type="password"
+              placeholder="New password (min 8 characters)"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              data-testid="security-new-password"
+            />
+            <Input
+              type="password"
+              placeholder="Confirm password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              data-testid="security-confirm-password"
+            />
+            {mismatch && (
+              <p className="text-sm text-destructive">
+                Passwords do not match.
+              </p>
+            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            {message && (
+              <p className="text-sm text-status-working">{message}</p>
+            )}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={
+                loading ||
+                newPassword.length < 8 ||
+                newPassword !== confirmPassword ||
+                !currentPassword
+              }
+            >
+              {loading ? "Changing..." : "Change password"}
+            </Button>
+          </form>
+        )}
       </div>
 
       {passwordSet && (

@@ -102,8 +102,10 @@ export async function registerHumanTerminalRoutes(
         !(await validateSession(deps.pool, unsigned.value))
       ) {
         return reply.code(401).send({
-          error:
-            "Set up a Dispatch password and sign in to use the terminal. API tokens cannot open terminals.",
+          code: passwordSet ? "session_required" : "password_not_set",
+          error: passwordSet
+            ? "Sign in with your Dispatch password to use the terminal."
+            : "Set a Dispatch password to use the terminal.",
         });
       }
       owners.set(request, {

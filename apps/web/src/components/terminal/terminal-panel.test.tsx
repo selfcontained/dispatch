@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TerminalPanel from "./terminal-panel";
 
 vi.mock("@xterm/xterm", () => ({
@@ -69,6 +70,60 @@ afterEach(() => {
 });
 
 describe("terminal panel", () => {
+  it("sets a password inline and opens the terminal without a reload", async () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          code: "password_not_set",
+          error: "Set a Dispatch password to use the terminal.",
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => info });
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <QueryClientProvider client={client}>
+        <TerminalPanel agentId="agent" active />
+      </QueryClientProvider>
+    );
+    await screen.findByRole("button", { name: "Set password" });
+    expect(screen.queryByText("Terminal unavailable.")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "new-password" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm password"), {
+      target: { value: "new-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Set password" }));
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["auth-status"] });
+    expect(fetch.mock.calls[1][0]).toBe("/api/v1/auth/setup");
+    act(() => Socket.instances[0].onopen?.());
+    expect(screen.getByRole("status").textContent).toBe("Connected");
+  });
+  it("shows the session-required message without a setup form", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          code: "session_required",
+          error: "Sign in with your Dispatch password to use the terminal.",
+        }),
+      })
+    );
+    render(<TerminalPanel agentId="agent" active />);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Sign in with your Dispatch password"
+    );
+    expect(screen.queryByRole("button", { name: "Set password" })).toBeNull();
+  });
   it("opens a fresh shell instead of retaining the legacy lost-session marker", async () => {
     sessionStorage.setItem("dispatch:human-terminal:agent", "ended");
     const fetch = vi

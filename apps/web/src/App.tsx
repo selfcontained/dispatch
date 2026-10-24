@@ -28,6 +28,7 @@ import { TipQueueProvider } from "@/components/tips/tip-queue-provider";
 import { TipsVersionInit } from "@/components/tips/tips-version-init";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
+import { ExposureBanner } from "@/components/app/exposure-banner";
 import { Toaster } from "sonner";
 
 type RouteHandle = {
@@ -204,7 +205,12 @@ export function DashboardLayout(): JSX.Element {
     <TipQueueProvider>
       <TipsVersionInit />
       <UserAvatarProvider>
-        <Outlet context={context} />
+        <div className="flex h-full min-h-0 flex-col">
+          <ExposureBanner />
+          <div className="min-h-0 flex-1">
+            <Outlet context={context} />
+          </div>
+        </div>
       </UserAvatarProvider>
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
