@@ -120,11 +120,15 @@ export function TaskDrawer({
   const [linkUrl, setLinkUrl] = useState("");
   const [addingLink, setAddingLink] = useState(false);
   useEffect(() => {
-    setTitle(task?.title ?? "");
-    setBody(task?.body ?? "");
     setEditingTitle(false);
     setEditingBody(false);
-  }, [task?.id, task?.title, task?.body]);
+  }, [id]);
+  useEffect(() => {
+    if (!editingTitle) setTitle(task?.title ?? "");
+  }, [task?.id, task?.title, editingTitle]);
+  useEffect(() => {
+    if (!editingBody) setBody(task?.body ?? "");
+  }, [task?.id, task?.body, editingBody]);
   const column = columns.find((item) => item.id === task?.columnId);
   const peers = boardTasks
     .filter((item) => item.columnId === task?.columnId)

@@ -37,6 +37,8 @@ export function ProjectSwitcher() {
   const select = (id?: string) => {
     const query = new URLSearchParams(location.search);
     query.set("project", id ?? "");
+    // A project choice is an explicit scope change, not a task deep link.
+    if (location.pathname === "/tasks") query.delete("task");
     navigate({
       pathname: location.pathname,
       search: query.toString(),

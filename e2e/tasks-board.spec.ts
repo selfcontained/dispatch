@@ -138,6 +138,43 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       path: "/tmp/dispatch-tasks-mobile-list.png",
       scale: "device",
     });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/tasks?task=${task.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page).toHaveURL(new RegExp(`project=${project.id}`));
+    await expect(page.getByTestId("task-drawer")).toBeVisible();
+    await page
+      .getByTestId("task-drawer")
+      .getByRole("button", { name: "Deliverable: task board" })
+      .click();
+    const description = page.getByTestId("task-drawer").locator("textarea");
+    await description.fill("Description draft during refetch");
+    const renameResponse = await request.patch(`/api/v1/tasks/${task.id}`, {
+      headers,
+      data: { title: "Renamed by an agent" },
+    });
+    expect(renameResponse.ok(), await renameResponse.text()).toBeTruthy();
+    await expect(
+      page.getByTestId("task-drawer").getByRole("button", {
+        name: "Renamed by an agent",
+      })
+    ).toBeVisible();
+    await expect(description).toHaveValue("Description draft during refetch");
+    await page.screenshot({
+      path: "/tmp/dispatch-tasks-draft-refetch.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Filter by project" }).click();
+    await page.getByRole("menuitem", { name: "All projects" }).click();
+    await expect(page).not.toHaveURL(/task=/);
+    await expect(
+      page.getByText("Pick a project to see its board")
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-tasks-project-switch.png",
+      scale: "device",
+    });
   } finally {
     await request.delete(`/api/v1/projects/${project.id}`, { headers });
   }
