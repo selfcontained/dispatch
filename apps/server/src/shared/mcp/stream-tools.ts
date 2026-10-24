@@ -82,7 +82,13 @@ const formSchema = strictObject({
         id: z.string().min(1).max(64),
         label: z.string().min(1).max(200),
         type: z.enum(["text", "textarea", "number", "select", "checkbox"]),
-        options: z.array(optionSchema).max(BLOCK_OPTIONS_MAX).optional(),
+        options: z
+          .array(optionSchema)
+          .max(BLOCK_OPTIONS_MAX)
+          .optional()
+          .describe(
+            "A select also offers Other, so its value may be text the person typed."
+          ),
         required: z.boolean().optional(),
         placeholder: z.string().max(200).optional(),
         value: z.union([z.string(), z.number(), z.boolean()]).optional(),
