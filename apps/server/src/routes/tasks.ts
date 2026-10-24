@@ -180,6 +180,12 @@ export async function registerTaskRoutes(
       })
   );
 
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/tasks/:id/briefing",
+    async (request, reply) =>
+      mapTaskErrors(reply, () => taskService.briefingFor(request.params.id))
+  );
+
   app.delete<{ Params: { id: string; agentId: string } }>(
     "/api/v1/tasks/:id/agents/:agentId",
     async (request, reply) =>

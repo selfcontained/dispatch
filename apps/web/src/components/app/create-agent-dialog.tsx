@@ -1,5 +1,7 @@
 import { ProjectLocation } from "./project-location";
-import { useProjectScope } from "@/hooks/use-projects";
+import { useProjectScope, useProjects } from "@/hooks/use-projects";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
@@ -125,11 +127,6 @@ function CreateAgentDialogContent({
         <>
           <DialogHeader>
             <DialogTitle>Create Agent</DialogTitle>
-            {task && (
-              <DialogDescription data-testid="create-agent-task">
-                For task <span className="text-foreground">{task.title}</span>
-              </DialogDescription>
-            )}
           </DialogHeader>
 
           <form
@@ -186,27 +183,31 @@ function CreateAgentDialogContent({
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <ProjectLocation
-                    projectId={form.createProjectId}
-                    rememberedProjectId={form.lastProjectId}
-                    onChange={(p) => {
-                      form.setCreateProjectId(p?.id ?? null);
-                    }}
-                  >
-                    <PathInput
-                      value={form.createCwd}
-                      onChange={form.setCreateCwd}
-                      history={form.cwdHistory}
-                      removableHistory={form.removableCwdHistory}
-                      historyMetadata={form.cwdHistoryMetadata}
-                      onRemoveHistory={form.removeCwdHistory}
-                      onPathInfoChange={form.handlePathInfoChange}
-                      data-testid="create-agent-cwd"
-                      historyItemTestId="create-agent-cwd-history-option"
-                    />
-                  </ProjectLocation>
-                </div>
+                {task ? (
+                  <TaskContextCard task={task} />
+                ) : (
+                  <div className="space-y-1">
+                    <ProjectLocation
+                      projectId={form.createProjectId}
+                      rememberedProjectId={form.lastProjectId}
+                      onChange={(p) => {
+                        form.setCreateProjectId(p?.id ?? null);
+                      }}
+                    >
+                      <PathInput
+                        value={form.createCwd}
+                        onChange={form.setCreateCwd}
+                        history={form.cwdHistory}
+                        removableHistory={form.removableCwdHistory}
+                        historyMetadata={form.cwdHistoryMetadata}
+                        onRemoveHistory={form.removeCwdHistory}
+                        onPathInfoChange={form.handlePathInfoChange}
+                        data-testid="create-agent-cwd"
+                        historyItemTestId="create-agent-cwd-history-option"
+                      />
+                    </ProjectLocation>
+                  </div>
+                )}
 
                 <AgentPersonaSelect
                   cwd={form.createCwd}
@@ -405,5 +406,54 @@ function CreateAgentDialogContent({
         </>
       )}
     </DialogContent>
+  );
+}
+
+/**
+ * Where an agent created for a task lives and what it is told: the task's
+ * project is not a choice, and the briefing that rides along with the
+ * prompt can be read before launching.
+ */
+function TaskContextCard({
+  task,
+}: {
+  task: { id: string; title: string; projectId: string };
+}): JSX.Element {
+  const { data: projects = [] } = useProjects();
+  const project = projects.find((item) => item.id === task.projectId);
+  const briefing = useQuery({
+    queryKey: ["tasks", "briefing", task.id],
+    queryFn: () =>
+      api<{ projectId: string; text: string }>(
+        `/api/v1/tasks/${encodeURIComponent(task.id)}/briefing`
+      ),
+  });
+  return (
+    <section
+      data-testid="create-agent-task"
+      className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2.5 text-sm"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate">
+          <span className="text-muted-foreground">Task </span>
+          {task.title}
+        </span>
+        <span
+          className="shrink-0 truncate font-mono text-xs text-muted-foreground"
+          title={project?.repoRoot}
+        >
+          {project?.name ?? "…"}
+        </span>
+      </div>
+      <details className="group text-xs">
+        <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">
+          What the agent is told
+        </summary>
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 font-mono text-[11px] leading-snug text-muted-foreground">
+          {briefing.data?.text ??
+            (briefing.error ? "Could not load the briefing." : "Loading…")}
+        </pre>
+      </details>
+    </section>
   );
 }
