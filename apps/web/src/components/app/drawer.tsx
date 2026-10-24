@@ -576,7 +576,7 @@ export function DrawerFrame({
       data-closing={closing ? "true" : undefined}
       data-resizing={dragging ? "true" : undefined}
       className={cn(
-        "fixed bottom-0 right-0 top-0 z-30 transition-transform ease-out",
+        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-30 transition-transform ease-out",
         !open && "pointer-events-none"
       )}
       style={{

@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import * as z from "zod/v4";
 
 import type { AppConfig } from "../config.js";
+import { isLoopbackAddress } from "../update-recovery/protocol.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import {
   changePassword,
@@ -72,7 +73,13 @@ export async function registerAuthRoutes(
     } else {
       authenticated = true;
     }
-    return { passwordSet: hasPassword, authenticated };
+    const remote =
+      !isLoopbackAddress(request.socket.remoteAddress) ||
+      request.headers["x-forwarded-for"] !== undefined ||
+      request.headers.forwarded !== undefined;
+    const exposed =
+      !hasPassword && remote && process.env.DISPATCH_DEV_STACK !== "1";
+    return { passwordSet: hasPassword, authenticated, exposed };
   });
 
   app.post(

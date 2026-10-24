@@ -337,16 +337,22 @@ describe("terminal browser security", () => {
         },
       });
     try {
-      expect(
-        (await create({ authorization: "Bearer mcp-token" })).statusCode
-      ).toBe(401);
+      const noSession = await create({ authorization: "Bearer mcp-token" });
+      expect(noSession.statusCode).toBe(401);
+      expect(noSession.json()).toEqual({
+        code: "session_required",
+        error: "Sign in with your Dispatch password to use the terminal.",
+      });
       expect((await create({ cookie: "session=unsigned" })).statusCode).toBe(
         401
       );
       vi.mocked(isPasswordSet).mockResolvedValue(false);
-      expect((await create({ cookie: signed("browser-a") })).statusCode).toBe(
-        401
-      );
+      const noPassword = await create({ cookie: signed("browser-a") });
+      expect(noPassword.statusCode).toBe(401);
+      expect(noPassword.json()).toEqual({
+        code: "password_not_set",
+        error: "Set a Dispatch password to use the terminal.",
+      });
       vi.mocked(isPasswordSet).mockResolvedValue(true);
       expect(
         (

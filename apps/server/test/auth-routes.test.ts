@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import Fastify from "fastify";
+import cookie from "@fastify/cookie";
+import type { Pool } from "pg";
+import { registerAuthRoutes } from "../src/routes/auth.js";
+import { LoginLinkStore } from "../src/auth.js";
+import { describe, expect, it, vi } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -363,4 +368,58 @@ describe("POST /api/v1/auth/change-password", () => {
     });
     expect(statusRes.json().authenticated).toBe(false);
   });
+});
+
+describe("auth status exposure", () => {
+  const cases = [false, true].flatMap((passwordSet) =>
+    ["127.0.0.1", "::1", "::ffff:127.0.0.1", "192.168.1.20"].flatMap(
+      (address) =>
+        [undefined, "x-forwarded-for", "forwarded"].flatMap((header) =>
+          [false, true].map((devStack) => ({
+            passwordSet,
+            address,
+            header,
+            devStack,
+          }))
+        )
+    )
+  );
+  it.each(cases)(
+    "exposure for %j",
+    async ({ passwordSet, address, header, devStack }) => {
+      vi.stubEnv("DISPATCH_DEV_STACK", devStack ? "1" : "0");
+      const app = Fastify();
+      try {
+        await app.register(cookie);
+        await registerAuthRoutes(app, {
+          pool: {} as Pool,
+          tls: null,
+          sessionCookie: "session",
+          sessionMaxAgeSeconds: 60,
+          isPasswordSetCached: async () => passwordSet,
+          invalidatePasswordSetCache: () => {},
+          loginLinkStore: new LoginLinkStore(),
+        });
+        const response = await app.inject({
+          method: "GET",
+          url: "/api/v1/auth/status",
+          remoteAddress: address,
+          // Even an empty/spoofed forwarding header must not hide exposure.
+          headers: header ? { [header]: "" } : {},
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({
+          passwordSet,
+          authenticated: !passwordSet,
+          exposed:
+            !passwordSet &&
+            !devStack &&
+            (address === "192.168.1.20" || !!header),
+        });
+      } finally {
+        await app.close();
+        vi.unstubAllEnvs();
+      }
+    }
+  );
 });
