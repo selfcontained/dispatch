@@ -8,7 +8,8 @@ import * as z from "zod/v4";
 export const CHAT_URL_MAX_CHARS = 2048;
 
 /**
- * A web URL an attachment may carry: absolute, http(s) only, bounded length.
+ * A web URL an attachment may carry: absolute http(s), or a path within the
+ * app, bounded length.
  * Shared by the user route and the agent MCP tools so both paths agree.
  * Non-web schemes (javascript:, data:, file:) are rejected because the value
  * is persisted, printed into the agent's terminal, and rendered as an anchor.
@@ -22,13 +23,16 @@ export const chatUrlSchema = z
     `url must be ${CHAT_URL_MAX_CHARS} characters or fewer.`
   )
   .refine((value) => {
+    // An app path ("/tasks?task=…") opens in Dispatch itself; "//" and "/\\"
+    // are protocol-relative to another host, so they are not app paths.
+    if (/^\/(?![/\\])/.test(value)) return true;
     try {
       const { protocol } = new URL(value);
       return protocol === "http:" || protocol === "https:";
     } catch {
       return false;
     }
-  }, "url must be an absolute http or https URL.");
+  }, "url must be an absolute http or https URL, or an app path starting with /.");
 
 /**
  * Longest emoji a reaction may carry, in UTF-16 units. ZWJ family sequences
