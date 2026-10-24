@@ -62,7 +62,12 @@ export function TaskConversation({
   const retry = useRetryDelivery(taskId);
   const markRead = useMarkStreamRead(taskId, feed.unreadCount);
   const deliveryAgents = useDeliveryAgents();
-  const [threadId, setThreadId] = useState<string | null>(null);
+  // A review's finding opens as its own thread: keep both ids, or replies
+  // land on the review instead of the finding.
+  const [thread, setThread] = useState<{
+    blockId: string;
+    findingId: string | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileId, setFileId] = useState<number | null>(null);
   const [fileIds, setFileIds] = useState<number[]>([]);
@@ -144,7 +149,11 @@ export function TaskConversation({
     () => new Set(retry.isPending && retry.variables ? [retry.variables] : []),
     [retry.isPending, retry.variables]
   );
-  const onOpenThread = useCallback((id: string) => setThreadId(id), []);
+  const onOpenThread = useCallback(
+    (blockId: string, findingId?: string) =>
+      setThread({ blockId, findingId: findingId ?? null }),
+    []
+  );
 
   const { ctx } = useChatFeedContext({
     agentId: assignee?.id ?? null,
@@ -171,7 +180,7 @@ export function TaskConversation({
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && followingRef.current) el.scrollTop = el.scrollHeight;
-  }, [lastId, threadId]);
+  }, [lastId, thread]);
   const onScroll = () => {
     const el = scrollRef.current;
     if (el)
@@ -205,6 +214,9 @@ export function TaskConversation({
     ? (file: File) =>
         uploadAgentFile(assignee.id, file, { source: "user", inject: false })
     : undefined;
+  // An answer goes to the question's author, not the assignee: only an
+  // unready feed holds it back, never who the task is assigned to now.
+  const answersDisabled = feed.isLoading || feed.error !== null;
   const disabledReason = assignee
     ? composerDisabledReason(assignee, feed)
     : "Assign an agent to start the conversation.";
@@ -214,14 +226,14 @@ export function TaskConversation({
       data-testid="task-conversation"
       className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40"
     >
-      {threadId ? (
+      {thread ? (
         <>
           <div className="flex shrink-0 items-center gap-1 border-b border-border/40 px-1.5 py-1">
             <Button
               variant="ghost"
               size="sm"
               className="h-8 text-xs"
-              onClick={() => setThreadId(null)}
+              onClick={() => setThread(null)}
             >
               <ArrowLeft className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
               Conversation
@@ -229,16 +241,16 @@ export function TaskConversation({
           </div>
           <div className="flex min-h-0 flex-1">
             <ThreadPage
-              key={threadId}
+              key={`${thread.blockId}:${thread.findingId ?? ""}`}
               agentId={assignee?.id ?? taskId}
               agent={assignee}
               rootId={taskId}
-              blockId={threadId}
-              findingId={null}
+              blockId={thread.blockId}
+              findingId={thread.findingId}
               isMobile={isMobile}
               openLightbox={openLightbox}
               onOpenThread={onOpenThread}
-              onBack={() => setThreadId(null)}
+              onBack={() => setThread(null)}
             />
           </div>
         </>
@@ -299,7 +311,7 @@ export function TaskConversation({
                     ? (submitForm.variables?.blockId ?? null)
                     : null
                 }
-                answersDisabled={disabledReason !== null}
+                answersDisabled={answersDisabled}
                 onAnswer={onAnswer}
               />
             ) : null}
