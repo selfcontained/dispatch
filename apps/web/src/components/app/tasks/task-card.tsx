@@ -1,11 +1,25 @@
+import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { TaskAgent } from "./task-agent";
-import { taskAge } from "./task-utils";
-import { GripVertical } from "lucide-react";
+import { MENU_ITEM, taskAge } from "./task-utils";
+import { TaskMoveSheet } from "./task-move-sheet";
+import { GripVertical, MoreHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+
+const CARD =
+  "group rounded-lg bg-muted/70 p-3 shadow-sm ring-1 ring-foreground/[0.05] pointer-coarse:select-none [-webkit-touch-callout:none]";
+const GRIP =
+  "-ml-1 self-start rounded text-muted-foreground/50 touch-none pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
 export function TaskCard({
   task,
   columns,
@@ -23,7 +37,6 @@ export function TaskCard({
     id: task.id,
     data: { columnId: task.columnId },
   });
-  const agent = agents.find((item) => item.id === task.assignedAgentId);
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== "[" && event.key !== "]") return;
     const index = columns.findIndex((column) => column.id === task.columnId);
@@ -33,6 +46,7 @@ export function TaskCard({
       onMove(target.id);
     }
   };
+  const [moving, setMoving] = useState(false);
   return (
     <article
       ref={sortable.setNodeRef}
@@ -42,8 +56,10 @@ export function TaskCard({
       }}
       data-testid={`task-card-${task.id}`}
       className={cn(
-        "group rounded-lg bg-muted/70 p-3 shadow-sm ring-1 ring-foreground/[0.05] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        sortable.isDragging && "relative z-10 shadow-lg"
+        CARD,
+        "transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        // Lifted into the drag overlay: what stays is the drop placeholder.
+        sortable.isDragging && "opacity-40"
       )}
       tabIndex={0}
       onKeyDown={handleKeyDown}
@@ -53,7 +69,7 @@ export function TaskCard({
           type="button"
           {...sortable.attributes}
           {...sortable.listeners}
-          className="-ml-1 cursor-grab self-start rounded text-muted-foreground/50 touch-none hover:text-foreground"
+          className={cn(GRIP, "cursor-grab hover:text-foreground")}
           aria-label={`Drag ${task.title}`}
         >
           <GripVertical className="h-4 w-4" aria-hidden="true" />
@@ -64,7 +80,75 @@ export function TaskCard({
         >
           {task.title}
         </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={`${task.title} actions`}
+              className="-mr-1.5 -mt-1 h-7 w-7 shrink-0 text-muted-foreground pointer-coarse:h-9 pointer-coarse:w-9"
+            >
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem className={MENU_ITEM} onSelect={onOpen}>
+              Open
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className={MENU_ITEM}
+              onSelect={() => setMoving(true)}
+            >
+              Move to…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+      <TaskCardDetails task={task} agents={agents} />
+      <TaskMoveSheet
+        task={task}
+        columns={columns}
+        open={moving}
+        onOpenChange={setMoving}
+        onMove={onMove}
+      />
+    </article>
+  );
+}
+
+/** The card as it rides under a finger or pointer while dragging. */
+export function TaskCardOverlay({
+  task,
+  agents,
+}: {
+  task: Task;
+  agents: Agent[];
+}) {
+  return (
+    <article
+      data-testid="task-card-overlay"
+      className={cn(
+        CARD,
+        "cursor-grabbing bg-muted shadow-xl ring-2 ring-ring/40"
+      )}
+    >
+      <div className="flex gap-2">
+        <span className={GRIP}>
+          <GripVertical className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <span className="line-clamp-3 min-w-0 flex-1 break-words text-sm font-medium leading-5">
+          {task.title}
+        </span>
+      </div>
+      <TaskCardDetails task={task} agents={agents} />
+    </article>
+  );
+}
+
+function TaskCardDetails({ task, agents }: { task: Task; agents: Agent[] }) {
+  const agent = agents.find((item) => item.id === task.assignedAgentId);
+  return (
+    <>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {task.assignedAgentId ? (
           <TaskAgent agent={agent} projectId={task.projectId} />
@@ -109,6 +193,6 @@ export function TaskCard({
           )}
         </div>
       )}
-    </article>
+    </>
   );
 }

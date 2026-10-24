@@ -134,3 +134,6 @@ export function taskMentionables(
 }
 /** History state marking an entry pushed by opening the task modal. */
 export const TASK_MODAL_STATE = { taskModal: true } as const;
+/** The app's menu items default to the destructive tint; these are ordinary. */
+export const MENU_ITEM =
+  "text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";

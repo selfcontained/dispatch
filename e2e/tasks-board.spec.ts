@@ -107,6 +107,18 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
         .getByText("Write the release notes")
     ).toBeVisible();
     await page.getByRole("button", { name: "Close task" }).last().click();
+    // The no-drag way across the board: the card's Move to… sheet.
+    await page
+      .getByRole("button", { name: "Write the release notes actions" })
+      .click();
+    await page.getByRole("menuitem", { name: "Move to…" }).click();
+    await page
+      .getByTestId("task-move-sheet")
+      .getByRole("option", { name: "Done" })
+      .click();
+    await expect(
+      page.getByTestId("task-column-done").getByText("Write the release notes")
+    ).toBeVisible();
     await page.getByTestId(`task-card-${task.id}`).focus();
     await page.keyboard.press("]");
     await expect(

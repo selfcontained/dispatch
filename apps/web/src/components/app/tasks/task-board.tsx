@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DndContext,
-  PointerSensor,
+  DragOverlay,
   KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   closestCorners,
@@ -28,15 +30,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { TaskCard } from "./task-card";
-import { columnAccent, orderedColumns, tasksInColumn } from "./task-utils";
+import { TaskCard, TaskCardOverlay } from "./task-card";
+import {
+  MENU_ITEM,
+  columnAccent,
+  orderedColumns,
+  tasksInColumn,
+} from "./task-utils";
 import { MoreHorizontal, Plus, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskAutomationDialog } from "./task-automation-dialog";
 import { useTaskActions } from "@/hooks/use-tasks";
-/** The app's menu items default to the destructive tint; these are ordinary. */
-const MENU_ITEM =
-  "text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
 function BoardColumn({
   column,
   columns,
@@ -227,11 +231,31 @@ export function TaskBoard({
   addTask: (columnId: string) => void;
 }) {
   const columns = orderedColumns(board);
+  // A finger drags only after a long press on the grip, so a swipe still
+  // scrolls the board; a mouse drags as soon as it moves.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 6 },
+    }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeTask = tasks.find((task) => task.id === activeId);
+  // Nothing on the page selects under a dragging finger.
+  useEffect(() => {
+    if (!activeId) return;
+    const { style } = document.body;
+    const previous = style.userSelect;
+    style.userSelect = "none";
+    style.webkitUserSelect = "none";
+    return () => {
+      style.userSelect = previous;
+      style.webkitUserSelect = previous;
+    };
+  }, [activeId]);
   const onDragEnd = (event: DragEndEvent) => {
+    setActiveId(null);
     const active = tasks.find((task) => task.id === event.active.id);
     const over = tasks.find((task) => task.id === event.over?.id);
     const targetId =
@@ -250,11 +274,20 @@ export function TaskBoard({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCorners}
+      onDragStart={(event) => setActiveId(String(event.active.id))}
+      onDragCancel={() => setActiveId(null)}
       onDragEnd={onDragEnd}
     >
       <div
         data-testid="tasks-board"
-        className="flex h-full min-h-0 snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain p-3 scroll-px-3 md:snap-none md:p-4"
+        data-dragging={activeId ? "true" : undefined}
+        className={cn(
+          "flex h-full min-h-0 gap-3 overflow-x-auto overscroll-x-contain p-3 scroll-px-3 md:p-4",
+          // Snapping fights auto-scroll, so it rests while a card is lifted.
+          activeId
+            ? "select-none snap-none"
+            : "snap-x snap-mandatory md:snap-none"
+        )}
       >
         {columns.map((column) => (
           <BoardColumn
@@ -270,6 +303,13 @@ export function TaskBoard({
           />
         ))}
       </div>
+      {/* No drop animation: it scrolls the card's old spot back into view
+          to fly there, losing the column it was just dropped in. */}
+      <DragOverlay dropAnimation={null}>
+        {activeTask ? (
+          <TaskCardOverlay task={activeTask} agents={agents} />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }
