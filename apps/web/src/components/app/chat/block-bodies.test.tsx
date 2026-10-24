@@ -294,6 +294,45 @@ describe("FormBlockBody", () => {
     expect(onSubmit).toHaveBeenCalledWith({ db: "ClickHouse\nfor analytics" });
   });
 
+  it("keeps an authored option selectable when its value looks like the built-in Other", async () => {
+    Element.prototype.scrollIntoView ??= () => {};
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.releasePointerCapture ??= () => {};
+    const onSubmit = vi.fn();
+    const select = block({
+      id: "f-collide",
+      body: formBody([
+        {
+          id: "pick",
+          label: "Pick",
+          type: "select",
+          options: [
+            { label: "Reserved", value: "__dispatch_other__" },
+            { label: "Lower", value: "other" },
+          ],
+        },
+      ]),
+    }) as Extract<Block, { kind: "form" }>;
+    render(
+      <FormBlockBody
+        block={select}
+        submitting={false}
+        disabled={false}
+        onSubmit={onSubmit}
+      />
+    );
+    const choose = async (name: string) => {
+      fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+      fireEvent.click(await screen.findByRole("option", { name }));
+    };
+    await choose("Reserved");
+    expect(screen.queryByTestId("chat-form-select-other-input")).toBeNull();
+    await choose("Lower");
+    expect(screen.queryByTestId("chat-form-select-other-input")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-form-submit"));
+    expect(onSubmit).toHaveBeenCalledWith({ pick: "other" });
+  });
+
   it("shows a submission read-only with no submit button", () => {
     const submitted = {
       ...form(),

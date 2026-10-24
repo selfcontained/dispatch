@@ -550,8 +550,11 @@ function FormFieldInput({
   }
 }
 
-/** Select value for the built-in "Other" item; never sent as the answer. */
-const OTHER_SELECT_VALUE = "__dispatch_other__";
+/**
+ * Items are keyed by position ("option:<index>"), never by the agent's option
+ * values, so the built-in "other" item cannot collide with a real choice.
+ */
+const OTHER_SELECT_ITEM = "other";
 
 /**
  * Every select ends with an "Other…" item in its own group. Choosing it opens
@@ -571,30 +574,34 @@ function FormSelectInput({
   onChange: (value: FormValue) => void;
 }): JSX.Element {
   const options = field.options ?? [];
-  const isOption = (v: FormValue | undefined) =>
-    options.some((o) => (o.value ?? o.label) === String(v));
+  const optionIndex =
+    value === undefined || value === ""
+      ? -1
+      : options.findIndex((o) => (o.value ?? o.label) === String(value));
   const [other, setOther] = useState(
-    () => value !== undefined && value !== "" && !isOption(value)
+    () => value !== undefined && value !== "" && optionIndex === -1
   );
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <Select
         value={
           other
-            ? OTHER_SELECT_VALUE
-            : value === undefined || value === ""
+            ? OTHER_SELECT_ITEM
+            : optionIndex === -1
               ? undefined
-              : String(value)
+              : `option:${optionIndex}`
         }
         disabled={disabled}
         onValueChange={(next) => {
-          if (next === OTHER_SELECT_VALUE) {
+          if (next === OTHER_SELECT_ITEM) {
             setOther(true);
             onChange("");
             return;
           }
+          const option = options[Number(next.slice("option:".length))];
+          if (!option) return;
           setOther(false);
-          onChange(next);
+          onChange(option.value ?? option.label);
         }}
       >
         <SelectTrigger
@@ -607,7 +614,10 @@ function FormSelectInput({
           {options.map((option, index) => {
             const optionValue = option.value ?? option.label;
             return (
-              <SelectItem key={`${index}-${optionValue}`} value={optionValue}>
+              <SelectItem
+                key={`${index}-${optionValue}`}
+                value={`option:${index}`}
+              >
                 {option.label}
               </SelectItem>
             );
@@ -615,7 +625,7 @@ function FormSelectInput({
           <SelectSeparator />
           <SelectGroup>
             <SelectItem
-              value={OTHER_SELECT_VALUE}
+              value={OTHER_SELECT_ITEM}
               data-testid="chat-form-select-other"
             >
               Other…
