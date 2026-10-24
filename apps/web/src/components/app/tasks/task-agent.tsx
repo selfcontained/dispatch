@@ -42,7 +42,11 @@ export function TaskAgentChip({
         ENGINE_CHIP[agent.type ?? "claude"],
         className
       )}
-      title={qualifier ? `${agent.name} · ${qualifier}` : agent.name}
+      title={
+        qualifier
+          ? `${agent.name} · started ${qualifier === "now" ? "just now" : `${qualifier} ago`}`
+          : agent.name
+      }
     >
       <AgentTypeIcon
         type={agent.type ?? "claude"}

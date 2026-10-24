@@ -236,7 +236,7 @@ export function TaskAutomationDialog({
           ))}
           <p className="rounded bg-muted/50 p-2 text-xs text-muted-foreground">
             {chosen
-              ? `Entering ${column.name} launches ${chosen.name}${trigger.assign ? " and assigns the agent" : ""}. The agent gets the full task (title, body, links, column) with its prompt; the template needs no placeholders.`
+              ? `Entering ${column.name} launches ${chosen.name}${trigger.assign ? " and assigns the agent" : ""}.`
               : "Choose a project template to configure this column."}
           </p>
           <div className="flex flex-wrap justify-between gap-2">

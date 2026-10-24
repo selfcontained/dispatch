@@ -121,8 +121,8 @@ describe("agentQualifier", () => {
     const earlier = builder("agt_2", at(7));
     const old = builder("agt_3", at(3 * 60));
     const all = [fresh, earlier, old];
-    expect(agentQualifier(fresh, all)).toBe("started just now");
-    expect(agentQualifier(earlier, all)).toBe("started 7m ago");
-    expect(agentQualifier(old, all)).toBe("started 3h ago");
+    expect(agentQualifier(fresh, all)).toBe("now");
+    expect(agentQualifier(earlier, all)).toBe("7m");
+    expect(agentQualifier(old, all)).toBe("3h");
   });
 });

@@ -291,10 +291,6 @@ export function TaskDetailPanel({
                 }
                 className={PROPERTY_CONTROL}
               />
-              <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
-                The assignee owns the task: it is told so when assigned, and
-                your posts in the conversation below go to it.
-              </p>
               <span className="text-xs text-muted-foreground">Created</span>
               <span className="text-xs">
                 by {creator} · {ago(task.createdAt)}
@@ -429,10 +425,16 @@ export function TaskDetailPanel({
                           agents={agents}
                           projectId={projectId}
                         />
-                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                          {current ? "assignee · " : ""}
-                          {assignmentLabel(assignment, columns)} ·{" "}
-                          {ago(assignment.assignedAt)}
+                        <span
+                          className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
+                          title={`${assignmentLabel(assignment, columns)} · ${ago(assignment.assignedAt)}`}
+                        >
+                          {current && (
+                            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                              Assignee
+                            </span>
+                          )}
+                          {taskAge(assignment.assignedAt)}
                         </span>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -491,10 +493,7 @@ export function TaskDetailPanel({
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">
-                  No agents yet. One joins when you assign it, when a column
-                  automation launches it, or when it picks the task up.
-                </p>
+                <p className="text-xs text-muted-foreground">No agents yet</p>
               )}
             </DrawerSection>
             <DrawerSection label="Activity">
