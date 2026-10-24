@@ -62,10 +62,14 @@ export function useTaskActions(projectId: string | null) {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
-    onMutate: async ({ id, ...input }) => {
+    onMutate: ({ id, ...input }) => {
       if (!projectId) return;
       const key = taskKeys.board(projectId);
-      await client.cancelQueries({ queryKey: key });
+      // Written synchronously: a dropped card has already left the drag
+      // overlay, so a frame spent awaiting anything shows it back where
+      // it was. In-flight refetches are cancelled so they cannot land
+      // stale on top of this.
+      void client.cancelQueries({ queryKey: key });
       const previous = client.getQueryData<TaskBoard>(key);
       client.setQueryData<TaskBoard>(key, (board) =>
         board
