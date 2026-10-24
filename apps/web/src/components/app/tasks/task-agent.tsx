@@ -15,22 +15,35 @@ export function TaskAgentChip({
   agent,
   agents,
   compact = false,
+  fullWidth = false,
   className,
 }: {
   agent: Agent;
   /** The agents it sits among, so a shared name says when it started. */
   agents?: readonly Agent[];
   compact?: boolean;
+  /** Fill the row while a step is showing, so it has the width. */
+  fullWidth?: boolean;
   className?: string;
 }) {
   const turn = agent.currentTurn ?? null;
   const step = useAgentTurnLabel(agent.id, turn?.blockId ?? null);
   const live = agent.activity === "working" || Boolean(turn);
+  const attention =
+    agent.activity === "waiting" || agent.activity === "blocked";
   const qualifier = agentQualifier(agent, agents);
   return (
     <span
       className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-background/70 py-0.5 pl-0.5 pr-2 text-xs text-foreground shadow-sm",
+        // Tinted by state, so colour on a card says something: green while
+        // the agent works, amber when it waits on someone, quiet otherwise.
+        "inline-flex min-w-0 items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-xs text-foreground shadow-sm",
+        live
+          ? "border-status-working/40 bg-status-working/10"
+          : attention
+            ? "border-status-waiting/40 bg-status-waiting/10"
+            : "border-border bg-background/70",
+        fullWidth && live && !compact && step && "w-full",
         className
       )}
       title={
@@ -41,7 +54,7 @@ export function TaskAgentChip({
     >
       <AgentTypeIcon
         type={agent.type ?? "claude"}
-        className="h-4 w-4 rounded-full border-0 bg-transparent"
+        className="h-4.5 w-4.5 rounded-full border-0 bg-transparent"
       />
       <span className="max-w-28 truncate">{agent.name}</span>
       {qualifier && (
@@ -99,7 +112,7 @@ export function TaskAgent({
         agent={agent}
         agents={agents}
         compact={compact}
-        className={fullWidth ? "w-full" : undefined}
+        fullWidth={fullWidth}
       />
     </Link>
   );
