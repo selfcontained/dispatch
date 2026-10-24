@@ -850,6 +850,28 @@ export class TaskService {
     });
   }
 
+  /**
+   * What an agent created by hand for this task is told, and the project
+   * it belongs in; `POST /api/v1/agents` with `taskId` uses it, then
+   * assigns the new agent with `assignCreated`.
+   */
+  async briefingFor(id: string): Promise<{ projectId: string; text: string }> {
+    const task = await this.requireTask(id);
+    const [project, column] = await Promise.all([
+      this.requireProject(task.projectId),
+      this.requireColumn(task.columnId),
+    ]);
+    return {
+      projectId: task.projectId,
+      text: buildTaskBriefing({ task, project, column }),
+    };
+  }
+
+  /** The agent just created for the task becomes its assignee. */
+  async assignCreated(id: string, agentId: string): Promise<void> {
+    await this.updateTask(id, { assignedAgentId: agentId }, { kind: "user" });
+  }
+
   /** A launch by hand from the task: briefed, and assigned as `manual`. */
   async launchAgent(
     id: string,

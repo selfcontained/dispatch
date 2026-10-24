@@ -36,6 +36,11 @@ type UseCreateAgentFormOptions = {
   initialAgentType: AgentType | null;
   resolveDefaultCwd: () => string;
   initialProjectId?: string | null;
+  /**
+   * Creating for a task: the server briefs the agent on it and assigns it,
+   * and the agent lives in the task's project whatever was last used.
+   */
+  task?: { id: string; projectId: string } | null;
   onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
 };
 
@@ -52,15 +57,18 @@ export function useCreateAgentForm({
   initialAgentType,
   resolveDefaultCwd,
   initialProjectId,
+  task = null,
   onCreated,
 }: UseCreateAgentFormOptions) {
   const [locationPref, setLocationPref] = useAtom(createAgentLocationPrefAtom);
   const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
-  const selectedProjectId = locationPref
-    ? locationPref.mode === "project"
-      ? locationPref.projectId
-      : null
-    : (initialProjectId ?? null);
+  const selectedProjectId = task
+    ? task.projectId
+    : locationPref
+      ? locationPref.mode === "project"
+        ? locationPref.projectId
+        : null
+      : (initialProjectId ?? null);
   const project = projects.find((p) => p.id === selectedProjectId);
   // Keep a pending choice while loading, but never submit an unavailable ID.
   const createProjectId = projectsLoaded
@@ -285,6 +293,7 @@ export function useCreateAgentForm({
               ? createBaseBranch
               : undefined,
           initialPrompt: contextInitialPrompt,
+          taskId: task?.id,
         };
         const resolvedStartupLinks = startupLinks;
         const useStartupContext =
@@ -344,6 +353,7 @@ export function useCreateAgentForm({
       initialPrompt,
       addCwdHistory,
       onCreated,
+      task,
       startupFiles,
       startupLinks,
       step,

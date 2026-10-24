@@ -212,6 +212,21 @@ export async function registerAgentCrudRoutes(
       (typeof body.projectId !== "string" || !body.projectId)
     )
       return reply.code(400).send({ error: "Invalid project." });
+    // Created for a task: briefed on it in its prompt, placed in its
+    // project unless a location was chosen, and assigned once it exists.
+    let taskBriefing: { projectId: string; text: string } | null = null;
+    if (body.taskId !== undefined) {
+      if (typeof body.taskId !== "string" || !body.taskId)
+        return reply.code(400).send({ error: "Invalid taskId." });
+      if (!deps.tasks)
+        return reply.code(400).send({ error: "Tasks are not available." });
+      try {
+        taskBriefing = await deps.tasks.briefingFor(body.taskId);
+      } catch (error) {
+        return reply.code(400).send({ error: errorMessage(error) });
+      }
+      if (!body.projectId && !body.cwd) body.projectId = taskBriefing.projectId;
+    }
     if (body.projectId && body.cwd)
       return reply
         .code(400)
@@ -358,6 +373,14 @@ export async function registerAgentCrudRoutes(
       });
     }
 
+    const typedPrompt =
+      typeof body.initialPrompt === "string"
+        ? body.initialPrompt.trim() || undefined
+        : undefined;
+    const initialPrompt = taskBriefing
+      ? [typedPrompt, taskBriefing.text].filter(Boolean).join("\n\n")
+      : typedPrompt;
+
     try {
       const worktreeLocation = await getWorktreeLocation(deps.pool);
 
@@ -389,15 +412,9 @@ export async function registerAgentCrudRoutes(
             typeof body.personaContext === "string"
               ? body.personaContext
               : undefined,
-          initialPrompt:
-            typeof body.initialPrompt === "string"
-              ? body.initialPrompt.trim() || undefined
-              : undefined,
+          initialPrompt,
           launchContext: {
-            prompt:
-              typeof body.initialPrompt === "string"
-                ? body.initialPrompt.trim() || undefined
-                : undefined,
+            prompt: initialPrompt,
             links,
           },
           initialFiles: startupFiles,
@@ -408,6 +425,18 @@ export async function registerAgentCrudRoutes(
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
+      if (taskBriefing && typeof body.taskId === "string") {
+        try {
+          await deps.tasks!.assignCreated(body.taskId, agent.id);
+        } catch (error) {
+          // The agent exists and knows its task; the card just does not
+          // show it. Assigning by hand still works.
+          deps.appLog.warn(
+            { taskId: body.taskId, agentId: agent.id, err: error },
+            "Agent created for a task could not be assigned to it"
+          );
+        }
+      }
       return reply.code(201).send({ agent: deps.withStreamFlag(agent) });
     } catch (error) {
       return deps.handleAgentError(reply, error);

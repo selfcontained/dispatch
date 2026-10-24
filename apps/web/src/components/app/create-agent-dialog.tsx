@@ -36,6 +36,8 @@ type CreateAgentDialogProps = {
   setOpen: (open: boolean) => void;
   resolveDefaultCwd: () => string;
   onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
+  /** Creating for a task: briefed on it, assigned to it, in its project. */
+  task?: { id: string; title: string; projectId: string } | null;
 };
 
 export function CreateAgentDialog({
@@ -45,6 +47,7 @@ export function CreateAgentDialog({
   setOpen,
   resolveDefaultCwd,
   onCreated,
+  task = null,
 }: CreateAgentDialogProps): JSX.Element {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -55,6 +58,7 @@ export function CreateAgentDialog({
           setOpen={setOpen}
           resolveDefaultCwd={resolveDefaultCwd}
           onCreated={onCreated}
+          task={task}
         />
       ) : null}
     </Dialog>
@@ -67,6 +71,7 @@ function CreateAgentDialogContent({
   setOpen,
   resolveDefaultCwd,
   onCreated,
+  task = null,
 }: Omit<CreateAgentDialogProps, "open">): JSX.Element {
   const { project, projectId } = useProjectScope();
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
@@ -90,6 +95,7 @@ function CreateAgentDialogContent({
     initialAgentType,
     resolveDefaultCwd: () => project?.repoRoot ?? resolveDefaultCwd(),
     initialProjectId: projectId,
+    task,
     onCreated,
   });
 
@@ -119,6 +125,11 @@ function CreateAgentDialogContent({
         <>
           <DialogHeader>
             <DialogTitle>Create Agent</DialogTitle>
+            {task && (
+              <DialogDescription data-testid="create-agent-task">
+                For task <span className="text-foreground">{task.title}</span>
+              </DialogDescription>
+            )}
           </DialogHeader>
 
           <form

@@ -72,18 +72,19 @@ Every write publishes `{ type: "task.changed", projectId, taskId? }` on the SSE 
 
 ## API
 
-| Method | Path                                        | Description                                                                                                    |
-| ------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/projects/:projectId/tasks/board`   | `TaskBoard`: columns and tasks; seeds defaults on first read                                                   |
-| POST   | `/api/v1/projects/:projectId/task-columns`  | Create a column (`key` derived from `name` when omitted)                                                       |
-| PATCH  | `/api/v1/task-columns/:id`                  | Update name, key, position, `isDone`, `trigger` (null removes)                                                 |
-| DELETE | `/api/v1/task-columns/:id`                  | Delete an empty column; 409 `column_not_empty` otherwise                                                       |
-| GET    | `/api/v1/tasks?projectId=&assignedAgentId=` | `Task[]`; either filter alone is allowed                                                                       |
-| POST   | `/api/v1/tasks`                             | Create; defaults to the first column, top of the column                                                        |
-| GET    | `/api/v1/tasks/:id`                         | `TaskDetail`: agents and the last 200 events, oldest first                                                     |
-| PATCH  | `/api/v1/tasks/:id`                         | Update; a `columnId` change is a move (see Triggers)                                                           |
-| DELETE | `/api/v1/tasks/:id`                         | Delete                                                                                                         |
-| POST   | `/api/v1/tasks/:id/launch`                  | Launch a template for the task (briefed, role `manual`); `{ agent }`                                           |
-| DELETE | `/api/v1/tasks/:id/agents/:agentId`         | Take an agent off the task: unassigned if current, out of the task's agents and its conversation; `TaskDetail` |
+| Method | Path                                        | Description                                                                                                                                                                                           |
+| ------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/v1/projects/:projectId/tasks/board`   | `TaskBoard`: columns and tasks; seeds defaults on first read                                                                                                                                          |
+| POST   | `/api/v1/projects/:projectId/task-columns`  | Create a column (`key` derived from `name` when omitted)                                                                                                                                              |
+| PATCH  | `/api/v1/task-columns/:id`                  | Update name, key, position, `isDone`, `trigger` (null removes)                                                                                                                                        |
+| DELETE | `/api/v1/task-columns/:id`                  | Delete an empty column; 409 `column_not_empty` otherwise                                                                                                                                              |
+| GET    | `/api/v1/tasks?projectId=&assignedAgentId=` | `Task[]`; either filter alone is allowed                                                                                                                                                              |
+| POST   | `/api/v1/tasks`                             | Create; defaults to the first column, top of the column                                                                                                                                               |
+| GET    | `/api/v1/tasks/:id`                         | `TaskDetail`: agents and the last 200 events, oldest first                                                                                                                                            |
+| PATCH  | `/api/v1/tasks/:id`                         | Update; a `columnId` change is a move (see Triggers)                                                                                                                                                  |
+| DELETE | `/api/v1/tasks/:id`                         | Delete                                                                                                                                                                                                |
+| POST   | `/api/v1/tasks/:id/launch`                  | Launch a template for the task (briefed, role `manual`); `{ agent }`                                                                                                                                  |
+| POST   | `/api/v1/agents` with `taskId`              | The ordinary create-agent route, for a task: the briefing is appended to the prompt, the project defaults to the task's, and the new agent is assigned (the UI's "New agent…" in the Assignee picker) |
+| DELETE | `/api/v1/tasks/:id/agents/:agentId`         | Take an agent off the task: unassigned if current, out of the task's agents and its conversation; `TaskDetail`                                                                                        |
 
 Errors are `{ error, code? }`: 400 for invalid input, 404 for an unknown project/task/column, 409 for `agent_working`, `column_not_empty` and `column_key_taken`.

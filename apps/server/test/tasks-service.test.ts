@@ -1012,3 +1012,24 @@ describe("assign self", () => {
     expect((await service.requireTask(task.id)).assignedAgentId).toBe("agt_b");
   });
 });
+
+describe("agents created for a task", () => {
+  it("briefs on the task and assigns the created agent", async () => {
+    await insertAgent("agt_new");
+    const task = await service.createTask(
+      { projectId, title: "Wire it", body: "Do the thing." },
+      USER
+    );
+    const briefing = await service.briefingFor(task.id);
+    expect(briefing.projectId).toBe(projectId);
+    expect(briefing.text).toContain(task.id);
+    expect(briefing.text).toContain("Do the thing.");
+    await service.assignCreated(task.id, "agt_new");
+    const detail = await service.getTaskDetail(task.id);
+    expect(detail.assignedAgentId).toBe("agt_new");
+    expect(detail.agents.map((a) => a.role)).toEqual(["manual"]);
+    await expect(service.briefingFor("tsk_missing")).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});

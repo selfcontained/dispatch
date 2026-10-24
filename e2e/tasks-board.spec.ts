@@ -207,7 +207,9 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
-    await page.keyboard.press("Escape");
+    // The menu's layer must be gone before Escape, or it eats the key.
+    await expect(page.getByRole("menuitem")).toHaveCount(0);
+    await page.getByRole("dialog").press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await strip.click();
     await expect(page.getByRole("dialog")).toContainText(
@@ -270,7 +272,12 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       )
       .toBeNull();
     await drawer.getByRole("combobox", { name: "Assignee" }).click();
-    await page.getByRole("option").nth(1).click();
+    // The first real agent: after "New agent…" and "Unassigned".
+    await page
+      .getByRole("option")
+      .filter({ hasNotText: /New agent|Unassigned/ })
+      .first()
+      .click();
     await expect
       .poll(
         async () =>

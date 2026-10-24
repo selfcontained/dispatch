@@ -15,6 +15,15 @@ import type { Agent } from "@/components/app/types";
 import { TaskDrawer } from "./task-drawer";
 import { assigneeOptions } from "./task-utils";
 
+// The "New agent…" launch dialog reads the enabled engines from the dashboard.
+vi.mock("@/components/app/dashboard-context", () => ({
+  useDashboardContext: () => ({
+    enabledAgentTypes: ["claude"],
+    agents: [],
+    isMobile: false,
+    setMobileLeftOpen: vi.fn(),
+  }),
+}));
 vi.mock("@/hooks/use-templates", () => ({
   useTemplates: () => ({ data: [] }),
 }));

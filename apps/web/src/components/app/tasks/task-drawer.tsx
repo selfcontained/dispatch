@@ -17,24 +17,13 @@ import {
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
-import { useTemplates } from "@/hooks/use-templates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { TaskAgent } from "./task-agent";
+import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
+import { useDashboardContext } from "@/components/app/dashboard-context";
+import { useQueryClient } from "@tanstack/react-query";
 import { AssigneeSelect } from "./task-assignee-select";
 import { cn } from "@/lib/utils";
 import { TaskConversation } from "./task-conversation";
@@ -45,10 +34,6 @@ import {
   columnAccent,
   taskAge,
 } from "./task-utils";
-import { AgentTypeSelect } from "@/components/app/agent-type-select";
-import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
-import type { AgentType } from "@/lib/agent-types";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =
@@ -131,19 +116,13 @@ export function TaskDetailPanel({
 }) {
   const { data: task, isLoading } = useTaskDetail(id);
   const actions = useTaskActions(projectId);
-  const { data: templates = [] } = useTemplates();
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState("");
   const [editingBody, setEditingBody] = useState(false);
   const [body, setBody] = useState("");
   const [launchOpen, setLaunchOpen] = useState(false);
-  const [templateId, setTemplateId] = useState("");
-  const [launchType, setLaunchType] = useState<AgentType | null>(null);
-  const [launchModel, setLaunchModel] = useState<string | null>(null);
-  const selectedTemplate = templates.find((item) => item.id === templateId);
-  const chosenLaunchType =
-    launchType ?? selectedTemplate?.agentType ?? "claude";
-  const models = useAgentModelCatalog(chosenLaunchType);
+  const { enabledAgentTypes } = useDashboardContext();
+  const queryClient = useQueryClient();
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [addingLink, setAddingLink] = useState(false);
@@ -553,57 +532,20 @@ export function TaskDetailPanel({
           </Button>
         </footer>
       )}
-      <Dialog open={launchOpen} onOpenChange={setLaunchOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New agent for this task</DialogTitle>
-          </DialogHeader>
-          <Select value={templateId} onValueChange={setTemplateId}>
-            <SelectTrigger aria-label="Launch template">
-              <SelectValue placeholder="Choose a template" />
-            </SelectTrigger>
-            <SelectContent>
-              {templates
-                .filter((item) => item.projectId === projectId)
-                .map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-          <AgentTypeSelect
-            id="task-launch-runtime"
-            value={chosenLaunchType}
-            onChange={setLaunchType}
-            agentTypes={["claude", "codex", "opencode"]}
-            label="Runtime"
-          />
-          <AgentModelSelect
-            id="task-launch-model"
-            testId="task-launch-model"
-            value={launchModel}
-            options={models.options}
-            onChange={setLaunchModel}
-            loading={models.loading}
-          />
-          <Button
-            disabled={!templateId}
-            onClick={() => {
-              void actions.launch
-                .mutateAsync({
-                  id,
-                  templateId,
-                  agentType: chosenLaunchType,
-                  model: models.normalizeModel(launchModel),
-                })
-                .then(() => setLaunchOpen(false));
-            }}
-          >
-            Launch and assign
-          </Button>
-        </DialogContent>
-      </Dialog>
+      {task && (
+        <CreateAgentDialog
+          open={launchOpen}
+          setOpen={setLaunchOpen}
+          enabledAgentTypes={enabledAgentTypes}
+          initialAgentType={null}
+          resolveDefaultCwd={() => ""}
+          task={{ id: task.id, title: task.title, projectId: task.projectId }}
+          onCreated={async () => {
+            setLaunchOpen(false);
+            await queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          }}
+        />
+      )}
     </>
   );
 }

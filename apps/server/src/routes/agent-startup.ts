@@ -23,6 +23,8 @@ export type CreateAgentBody = {
   personaContext?: unknown;
   initialPrompt?: unknown;
   startupLinks?: unknown;
+  /** Create the agent for a task: briefed on it, and assigned to it. */
+  taskId?: unknown;
 };
 
 export type StartupFileUpload = {

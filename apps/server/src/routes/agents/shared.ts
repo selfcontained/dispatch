@@ -54,6 +54,16 @@ export type AgentRouteDeps = {
   }) => Promise<ProviderPlansResponse>) & { invalidate?: () => void };
   /** Spends a Codex limit reset; tests inject one so nothing reaches ChatGPT. */
   consumeCodexReset?: () => Promise<CodexResetOutcome>;
+  /**
+   * An agent created with `taskId` is briefed on the task and becomes its
+   * assignee; absent (tests), `taskId` is refused.
+   */
+  tasks?: {
+    briefingFor: (
+      taskId: string
+    ) => Promise<{ projectId: string; text: string }>;
+    assignCreated: (taskId: string, agentId: string) => Promise<void>;
+  };
   /** Read per click: the flag is a cold path and must not be cached stale. */
 };
 

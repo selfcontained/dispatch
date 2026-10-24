@@ -877,6 +877,11 @@ async function registerRoutes() {
 
   await registerAgentRoutes(app, {
     providerPlans,
+    tasks: {
+      briefingFor: (taskId) => taskService.briefingFor(taskId),
+      assignCreated: (taskId, agentId) =>
+        taskService.assignCreated(taskId, agentId),
+    },
     pool,
     appLog: app.log,
     agentManager,
