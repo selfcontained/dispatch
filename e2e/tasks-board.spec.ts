@@ -272,10 +272,11 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       )
       .toBeNull();
     await drawer.getByRole("combobox", { name: "Assignee" }).click();
-    // The first real agent: after "New agent…" and "Unassigned".
+    // The first real agent: the launch entries carry a data-testid, agents
+    // do not, and "Unassigned" is text.
     await page
-      .getByRole("option")
-      .filter({ hasNotText: /New agent|Unassigned/ })
+      .locator('[role="option"]:not([data-testid])')
+      .filter({ hasNotText: "Unassigned" })
       .first()
       .click();
     await expect
