@@ -21,24 +21,36 @@ export function TaskMoveSheet({
   open,
   onOpenChange,
   onMove,
+  returnFocus,
 }: {
   task: Task;
   columns: TaskColumn[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onMove: (columnId: string) => void;
+  /** Where focus goes back to on close: the sheet has no trigger. */
+  returnFocus: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="task-move-sheet" className={BOTTOM_SHEET}>
+      <DialogContent
+        data-testid="task-move-sheet"
+        className={BOTTOM_SHEET}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="text-base">Move to…</DialogTitle>
           <DialogDescription className="truncate">
             {task.title}
           </DialogDescription>
         </DialogHeader>
+        {/* Plain buttons, one tab stop each: a listbox would promise arrow
+            keys this doesn't need. */}
         <div
-          role="listbox"
+          role="group"
           aria-label="Columns"
           className="-mx-1 overflow-y-auto"
         >
@@ -48,8 +60,6 @@ export function TaskMoveSheet({
               <button
                 key={column.id}
                 type="button"
-                role="option"
-                aria-selected={current}
                 className={cn(
                   "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-muted/60",
                   current && "font-medium"
@@ -66,10 +76,13 @@ export function TaskMoveSheet({
                 />
                 <span className="min-w-0 flex-1 truncate">{column.name}</span>
                 {current && (
-                  <Check
-                    className="h-4 w-4 text-muted-foreground"
-                    aria-label="Current column"
-                  />
+                  <>
+                    <span className="sr-only">, current column</span>
+                    <Check
+                      className="h-4 w-4 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </>
                 )}
               </button>
             );

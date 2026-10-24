@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
@@ -20,6 +20,12 @@ const CARD =
   "group rounded-lg bg-muted/70 p-3 shadow-sm ring-1 ring-foreground/[0.05] pointer-coarse:select-none [-webkit-touch-callout:none]";
 const GRIP =
   "-ml-1 self-start rounded text-muted-foreground/50 touch-none pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
+/**
+ * A card moved from its Move to… sheet remounts in its new column; that
+ * mount takes focus back, as the sheet can't reach the new card.
+ */
+let focusOnMount: { taskId: string; until: number } | null = null;
+
 export function TaskCard({
   task,
   columns,
@@ -47,6 +53,13 @@ export function TaskCard({
     }
   };
   const [moving, setMoving] = useState(false);
+  const actionsRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (focusOnMount?.taskId !== task.id) return;
+    // A refused move (relaunch confirmation) never remounts: let it lapse.
+    if (Date.now() < focusOnMount.until) actionsRef.current?.focus();
+    focusOnMount = null;
+  }, [task.id]);
   return (
     <article
       ref={sortable.setNodeRef}
@@ -83,6 +96,7 @@ export function TaskCard({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              ref={actionsRef}
               size="icon"
               variant="ghost"
               aria-label={`${task.title} actions`}
@@ -110,7 +124,11 @@ export function TaskCard({
         columns={columns}
         open={moving}
         onOpenChange={setMoving}
-        onMove={onMove}
+        onMove={(columnId) => {
+          focusOnMount = { taskId: task.id, until: Date.now() + 2000 };
+          onMove(columnId);
+        }}
+        returnFocus={() => actionsRef.current?.focus()}
       />
     </article>
   );

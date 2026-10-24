@@ -114,7 +114,7 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await page.getByRole("menuitem", { name: "Move to…" }).click();
     await page
       .getByTestId("task-move-sheet")
-      .getByRole("option", { name: "Done" })
+      .getByRole("button", { name: "Done" })
       .click();
     await expect(
       page.getByTestId("task-column-done").getByText("Write the release notes")
