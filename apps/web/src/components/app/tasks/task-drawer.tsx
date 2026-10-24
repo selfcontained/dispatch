@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
 import { TaskAgent } from "./task-agent";
+import { useTemplates } from "@/hooks/use-templates";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { useDashboardContext } from "@/components/app/dashboard-context";
 import { useQueryClient } from "@tanstack/react-query";
@@ -123,6 +124,11 @@ export function TaskDetailPanel({
   const [launchOpen, setLaunchOpen] = useState(false);
   const { enabledAgentTypes } = useDashboardContext();
   const queryClient = useQueryClient();
+  // Only the task's project's templates can launch for it.
+  const { data: templates = [] } = useTemplates();
+  const projectTemplates = templates.filter(
+    (template) => template.projectId === projectId
+  );
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [addingLink, setAddingLink] = useState(false);
@@ -269,6 +275,10 @@ export function TaskDetailPanel({
                   void actions.update.mutateAsync({ id, assignedAgentId })
                 }
                 onNew={() => setLaunchOpen(true)}
+                templates={projectTemplates}
+                onLaunchTemplate={(templateId) =>
+                  void actions.launch.mutateAsync({ id, templateId })
+                }
                 className={PROPERTY_CONTROL}
               />
               <span className="text-xs text-muted-foreground">Created</span>
