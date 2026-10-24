@@ -27,7 +27,12 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
-export function ProjectSwitcher() {
+/**
+ * Sections whose content is per project (Tasks) pass `allowAll={false}`:
+ * "All projects" is not a view there, so the menu omits it and an empty
+ * scope reads as a prompt rather than a selection.
+ */
+export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
   const { project, projects } = useProjectSelection();
   const navigate = useNavigate();
   const location = useLocation();
@@ -63,7 +68,8 @@ export function ProjectSwitcher() {
                 <Layers className="h-4 w-4 shrink-0" />
               )}
               <span className="truncate">
-                {project?.name ?? "All projects"}
+                {project?.name ??
+                  (allowAll ? "All projects" : "Choose a project")}
               </span>
             </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -73,14 +79,18 @@ export function ProjectSwitcher() {
           align="start"
           className="project-filter-menu w-[var(--radix-dropdown-menu-trigger-width)] min-w-0"
         >
-          <DropdownMenuItem
-            className="flex items-center gap-2 text-foreground"
-            onSelect={() => select()}
-          >
-            <span className="min-w-0 flex-1 truncate">All projects</span>
-            {!project && <Check className="h-3.5 w-3.5 shrink-0" />}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {allowAll && (
+            <>
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-foreground"
+                onSelect={() => select()}
+              >
+                <span className="min-w-0 flex-1 truncate">All projects</span>
+                {!project && <Check className="h-3.5 w-3.5 shrink-0" />}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {projects.map((p) => (
             <DropdownMenuItem
               key={p.id}

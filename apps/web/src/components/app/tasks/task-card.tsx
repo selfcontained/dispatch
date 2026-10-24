@@ -68,6 +68,7 @@ export function TaskCard({
         transition: sortable.transition,
       }}
       data-testid={`task-card-${task.id}`}
+      data-task-id={task.id}
       className={cn(
         CARD,
         "transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -169,7 +170,7 @@ function TaskCardDetails({ task, agents }: { task: Task; agents: Agent[] }) {
     <>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {task.assignedAgentId ? (
-          <TaskAgent agent={agent} projectId={task.projectId} />
+          <TaskAgent agent={agent} agents={agents} projectId={task.projectId} />
         ) : task.createdBy.kind === "agent" ? (
           <span>
             ⚙ by{" "}

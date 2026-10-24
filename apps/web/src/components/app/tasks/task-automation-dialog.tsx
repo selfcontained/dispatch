@@ -26,6 +26,7 @@ import { useTemplates } from "@/hooks/use-templates";
 import type { TaskColumn, TaskColumnTrigger } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import type { AgentType } from "@/lib/agent-types";
+import { templateName } from "./task-utils";
 const NEW_TEMPLATE = "__new_template__";
 const runtimes: AgentType[] = ["claude", "codex", "opencode"];
 const empty = {
@@ -90,9 +91,14 @@ export function TaskAutomationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Automation · {column.name}</DialogTitle>
+          <DialogTitle>
+            {column.trigger ? "Edit automation" : "Add automation"} ·{" "}
+            {column.name}
+          </DialogTitle>
           <DialogDescription>
-            Launch a template when a task enters this column.
+            {column.trigger
+              ? `This column already launches ${templateName(projectTemplates, column.trigger.templateId)} when a task enters it.`
+              : "Nothing happens yet when a task enters this column. Choose a template to launch."}
           </DialogDescription>
         </DialogHeader>
         <div className="-mx-1 min-h-0 space-y-4 overflow-y-auto px-1 pb-1">

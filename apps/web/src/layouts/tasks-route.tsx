@@ -4,6 +4,7 @@ import { useAtom } from "jotai";
 import { LayoutGrid, List, Plus, Zap } from "lucide-react";
 import { SectionShell } from "./section-shell";
 import { ProjectSwitcher } from "@/components/app/project-switcher";
+import { ProjectIcon } from "@/components/app/project-location";
 import { useDashboardContext } from "@/components/app/dashboard-context";
 import { useProjectScope } from "@/hooks/use-projects";
 import {
@@ -31,8 +32,10 @@ import {
   columnAccent,
   needsAttention,
   orderedColumns,
+  templateName,
   visibleTasks,
 } from "@/components/app/tasks/task-utils";
+import { useTemplates } from "@/hooks/use-templates";
 
 const ATTENTION = "__attention";
 function TasksContent({ projectId }: { projectId: string }) {
@@ -58,6 +61,7 @@ function TasksContent({ projectId }: { projectId: string }) {
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("all");
   const { moveTask, dialog: relaunchDialog } = useMoveTask(projectId, board);
+  const { data: templates } = useTemplates();
   const columns = useMemo(() => (board ? orderedColumns(board) : []), [board]);
   const attention = new Set(
     agents
@@ -128,7 +132,7 @@ function TasksContent({ projectId }: { projectId: string }) {
   };
   const sidebar = (
     <div className="space-y-5 p-3">
-      <ProjectSwitcher />
+      <ProjectSwitcher allowAll={false} />
       <Button className="w-full justify-start" onClick={() => startNewTask()}>
         <Plus className="mr-2 h-4 w-4" />
         New task
@@ -150,10 +154,13 @@ function TasksContent({ projectId }: { projectId: string }) {
             />
             <span className="min-w-0 flex-1 truncate">{column.name}</span>
             {column.trigger && (
-              <Zap
-                aria-label="Automation configured"
-                className="h-3.5 w-3.5 text-muted-foreground"
-              />
+              <span
+                title={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
+                aria-label={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
+                className="inline-flex text-muted-foreground"
+              >
+                <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
             )}
             <span className="tabular-nums text-muted-foreground">
               {
@@ -313,7 +320,7 @@ function TasksContent({ projectId }: { projectId: string }) {
   );
 }
 export function TasksRoute(): JSX.Element {
-  const { projectId } = useProjectScope();
+  const { projectId, projects } = useProjectScope();
   const [params, setParams] = useSearchParams();
   const { data: linkedTask } = useTaskDetail(params.get("task"));
   useEffect(() => {
@@ -330,12 +337,36 @@ export function TasksRoute(): JSX.Element {
       activeSection="tasks"
       sidebar={
         <div className="p-3">
-          <ProjectSwitcher />
+          <ProjectSwitcher allowAll={false} />
         </div>
       }
     >
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Pick a project to see its board
+      {/* Boards are per project, so with none chosen the page is the choice. */}
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="w-full max-w-sm">
+          <h1 className="text-lg font-semibold">Choose a project</h1>
+          <p className="mb-4 text-sm text-muted-foreground">
+            {projects.length
+              ? "Each project has its own board."
+              : "Create a project from the switcher to start a board."}
+          </p>
+          <div className="space-y-1">
+            {projects.map((project) => (
+              <button
+                key={project.id}
+                className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-left text-sm hover:bg-muted/60"
+                onClick={() => {
+                  const next = new URLSearchParams(params);
+                  next.set("project", project.id);
+                  setParams(next);
+                }}
+              >
+                <ProjectIcon project={project} className="h-5 w-5" />
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </SectionShell>
   );

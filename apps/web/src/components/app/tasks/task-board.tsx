@@ -8,7 +8,9 @@ import {
   useSensor,
   useSensors,
   closestCorners,
+  pointerWithin,
   useDroppable,
+  type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
@@ -36,11 +38,55 @@ import {
   columnAccent,
   orderedColumns,
   tasksInColumn,
+  templateName,
 } from "./task-utils";
 import { MoreHorizontal, Plus, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskAutomationDialog } from "./task-automation-dialog";
 import { useTaskActions } from "@/hooks/use-tasks";
+import { useTemplates } from "@/hooks/use-templates";
+
+/**
+ * What is under the pointer wins, read from the DOM. dnd-kit's rect-based
+ * detection goes wrong on a board that scrolls while a card is lifted: the
+ * lifted card's rect is shifted by the scroll since the lift and the
+ * columns are measured on pointer moves, so after auto-scroll a finger
+ * resting on one column "hovers" another. A hit test at the pointer is
+ * exact whatever has scrolled. A card beats its column so ordering within
+ * the column still works; nothing under the pointer (the gap between
+ * columns, the board's padding) falls back to dnd-kit's own answer.
+ */
+const underPointer: CollisionDetection = (args) => {
+  const point = args.pointerCoordinates;
+  if (point && typeof document !== "undefined") {
+    let columnId: string | null = null;
+    for (const element of document.elementsFromPoint(point.x, point.y)) {
+      if (element.closest("[data-testid='task-card-overlay']")) continue;
+      const card = element.closest<HTMLElement>("[data-task-id]");
+      const id = card?.dataset.taskId ?? null;
+      if (id && id !== args.active.id) {
+        const container = args.droppableContainers.find((c) => c.id === id);
+        if (container)
+          return [{ id, data: { droppableContainer: container, value: 0 } }];
+      }
+      const column = element.closest<HTMLElement>("[data-column-id]");
+      if (column?.dataset.columnId) {
+        columnId = `${COLUMN_PREFIX}${column.dataset.columnId}`;
+        break;
+      }
+    }
+    if (columnId) {
+      const container = args.droppableContainers.find((c) => c.id === columnId);
+      if (container)
+        return [
+          { id: columnId, data: { droppableContainer: container, value: 0 } },
+        ];
+    }
+  }
+  const hits = pointerWithin(args);
+  return hits.length ? hits : closestCorners(args);
+};
+const COLUMN_PREFIX = "column:";
 function BoardColumn({
   column,
   columns,
@@ -50,6 +96,8 @@ function BoardColumn({
   moveTask,
   addTask,
   projectId,
+  dropTarget,
+  automationName,
 }: {
   column: TaskColumn;
   columns: TaskColumn[];
@@ -59,24 +107,33 @@ function BoardColumn({
   moveTask: (task: Task, columnId: string, beforeId?: string) => void;
   addTask: (columnId: string) => void;
   projectId: string;
+  /** A lifted card would land here: over the column or a card in it. */
+  dropTarget: boolean;
+  /** The template its automation launches, when it has one. */
+  automationName: string | null;
 }) {
   const actions = useTaskActions(projectId);
   const [automation, setAutomation] = useState(false);
   const drop = useDroppable({
-    id: `column:${column.id}`,
+    id: `${COLUMN_PREFIX}${column.id}`,
     data: { columnId: column.id },
   });
   const columnTasks = tasksInColumn(tasks, column.id);
   const index = columns.findIndex((item) => item.id === column.id);
+  const automationTitle = automationName
+    ? `Launches ${automationName} when a task enters`
+    : null;
   return (
     <section
       ref={drop.setNodeRef}
       id={`task-column-${column.id}`}
       data-testid={`task-column-${column.key}`}
+      data-column-id={column.id}
+      data-drop-target={dropTarget ? "true" : undefined}
       style={{ "--col": columnAccent(column, index) } as React.CSSProperties}
       className={cn(
         "flex h-full w-[min(300px,calc(100vw-3rem))] shrink-0 snap-start flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40 transition-shadow",
-        drop.isOver && "ring-2 ring-[hsl(var(--col)/0.6)]"
+        dropTarget && "ring-2 ring-[hsl(var(--col)/0.6)]"
       )}
     >
       <header className="flex items-center gap-2 border-t-2 border-[hsl(var(--col)/0.7)] bg-[hsl(var(--col)/0.08)] px-3 py-2">
@@ -90,13 +147,14 @@ function BoardColumn({
         <span className="rounded-full bg-background/50 px-1.5 text-xs tabular-nums text-muted-foreground">
           {columnTasks.length}
         </span>
-        {column.trigger && (
+        {automationTitle && (
           <span
-            title="Automation configured"
-            aria-label="Automation configured"
-            className="text-[hsl(var(--col))]"
+            title={automationTitle}
+            aria-label={automationTitle}
+            className="flex min-w-0 max-w-24 items-center gap-0.5 text-[hsl(var(--col))]"
           >
-            <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+            <Zap className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate text-[11px]">{automationName}</span>
           </span>
         )}
         <DropdownMenu>
@@ -128,7 +186,7 @@ function BoardColumn({
               className={MENU_ITEM}
               onSelect={() => setAutomation(true)}
             >
-              Automation…
+              {column.trigger ? "Edit automation…" : "Add automation…"}
             </DropdownMenuItem>
             <DropdownMenuItem
               className={MENU_ITEM}
@@ -241,7 +299,17 @@ export function TaskBoard({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
   const [activeId, setActiveId] = useState<string | null>(null);
+  // The column a drop would land in, whether the pointer is over the
+  // column itself or a card in it.
+  const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const activeTask = tasks.find((task) => task.id === activeId);
+  const { data: templates } = useTemplates();
+  const columnOf = (over: DragEndEvent["over"]): string | null => {
+    if (!over) return null;
+    const id = String(over.id);
+    if (id.startsWith(COLUMN_PREFIX)) return id.slice(COLUMN_PREFIX.length);
+    return tasks.find((task) => task.id === id)?.columnId ?? null;
+  };
   // Nothing on the page selects under a dragging finger.
   useEffect(() => {
     if (!activeId) return;
@@ -256,13 +324,10 @@ export function TaskBoard({
   }, [activeId]);
   const onDragEnd = (event: DragEndEvent) => {
     setActiveId(null);
+    setOverColumnId(null);
     const active = tasks.find((task) => task.id === event.active.id);
     const over = tasks.find((task) => task.id === event.over?.id);
-    const targetId =
-      over?.columnId ??
-      (typeof event.over?.id === "string" && event.over.id.startsWith("column:")
-        ? event.over.id.slice(7)
-        : null);
+    const targetId = columnOf(event.over);
     if (
       active &&
       targetId &&
@@ -273,9 +338,13 @@ export function TaskBoard({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={underPointer}
       onDragStart={(event) => setActiveId(String(event.active.id))}
-      onDragCancel={() => setActiveId(null)}
+      onDragOver={(event) => setOverColumnId(columnOf(event.over))}
+      onDragCancel={() => {
+        setActiveId(null);
+        setOverColumnId(null);
+      }}
       onDragEnd={onDragEnd}
     >
       <div
@@ -300,6 +369,12 @@ export function TaskBoard({
             moveTask={moveTask}
             addTask={addTask}
             projectId={board.projectId}
+            dropTarget={overColumnId === column.id}
+            automationName={
+              column.trigger
+                ? templateName(templates, column.trigger.templateId)
+                : null
+            }
           />
         ))}
       </div>

@@ -260,6 +260,10 @@ export function TaskDetailPanel({
                   void actions.update.mutateAsync({ id, assignedAgentId })
                 }
               />
+              <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
+                The assignee is told it owns this task and receives what you
+                post below.
+              </p>
               <span className="text-xs text-muted-foreground">Created</span>
               <span className="text-xs">
                 by {creator} · {ago(task.createdAt)}
@@ -388,6 +392,7 @@ export function TaskDetailPanel({
                         agent={agents.find(
                           (agent) => agent.id === assignment.agentId
                         )}
+                        agents={agents}
                         projectId={projectId}
                       />
                       <span className="text-xs text-muted-foreground">

@@ -165,8 +165,13 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     });
     await page.getByRole("button", { name: "Board layout" }).click();
     await page.getByRole("button", { name: "Ready menu" }).click();
-    await page.getByRole("menuitem", { name: "Automation…" }).click();
-    await expect(page.getByRole("dialog")).toContainText("Tasks builder");
+    await expect(
+      page.getByTestId("task-column-ready").getByTitle(/Tasks builder/)
+    ).toBeVisible();
+    await page.getByRole("menuitem", { name: "Edit automation…" }).click();
+    await expect(page.getByRole("dialog")).toContainText(
+      "already launches Tasks builder"
+    );
     await page.screenshot({
       path: "/tmp/dispatch-tasks-automation.png",
       scale: "device",
@@ -264,12 +269,20 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await page.getByRole("button", { name: "Close task" }).first().click();
     await expect(page.getByTestId("task-drawer")).toHaveCount(0);
     await page.setViewportSize({ width: 1280, height: 800 });
+    // Boards are per project: the switcher offers no "All projects" here,
+    // and an empty scope is a project picker.
     await page.getByRole("button", { name: "Filter by project" }).click();
-    await page.getByRole("menuitem", { name: "All projects" }).click();
-    await expect(page).not.toHaveURL(/task=/);
     await expect(
-      page.getByText("Pick a project to see its board")
+      page.getByRole("menuitem", { name: "All projects" })
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.goto("/tasks?project=");
+    await expect(
+      page.getByRole("heading", { name: "Choose a project" })
     ).toBeVisible();
+    await page.getByRole("button", { name: project.name }).click();
+    await expect(page).toHaveURL(new RegExp(`project=${project.id}`));
+    await expect(page.getByTestId("tasks-board")).toBeVisible();
     await page.screenshot({
       path: "/tmp/dispatch-tasks-project-switch.png",
       scale: "device",

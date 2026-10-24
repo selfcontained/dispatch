@@ -47,7 +47,7 @@ export function AssigneeSelect({
         </SelectItem>
         {options.map((agent) => (
           <SelectItem key={agent.id} value={agent.id}>
-            <TaskAgentChip agent={agent} compact />
+            <TaskAgentChip agent={agent} agents={options} compact />
           </SelectItem>
         ))}
       </SelectContent>

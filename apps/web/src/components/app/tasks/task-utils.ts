@@ -87,6 +87,28 @@ export function taskAge(date: string): string {
   );
   return hours ? `${hours}h` : "now";
 }
+/**
+ * What tells this agent apart when another in the list wears the same
+ * name (two "Builder"s launched by the same column): the tail of its id,
+ * the way an ambiguous @mention is qualified. Null when the name is enough.
+ */
+export function agentQualifier(
+  agent: Agent,
+  agents: readonly Agent[] | undefined
+): string | null {
+  const name = agent.name.trim().toLowerCase();
+  const clash = agents?.some(
+    (other) => other.id !== agent.id && other.name.trim().toLowerCase() === name
+  );
+  return clash ? agent.id.replace(/^agt_/, "").slice(-6) : null;
+}
+/** A column trigger's template, by name; the id when it is gone. */
+export function templateName(
+  templates: ReadonlyArray<{ id: string; name: string }> | undefined,
+  templateId: string
+): string {
+  return templates?.find((t) => t.id === templateId)?.name ?? templateId;
+}
 /** Running agents first, then the rest; each group by name. */
 export function assigneeOptions(
   agents: Agent[],

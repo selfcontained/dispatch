@@ -165,7 +165,9 @@ it("cancel returns to the automation unchanged", async () => {
   );
   expect(addTemplate).not.toHaveBeenCalled();
   expect(templatePicker().textContent).toBe("Builder");
-  expect(screen.getByRole("heading", { name: /Automation/ })).toBeTruthy();
+  expect(
+    screen.getByRole("heading", { name: /Edit automation · Ready/ })
+  ).toBeTruthy();
   expect(onOpenChange).not.toHaveBeenCalled();
 });
 

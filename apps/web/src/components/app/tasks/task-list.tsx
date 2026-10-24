@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { TaskAgent } from "./task-agent";
-import { columnAccent, groupTasks, taskAge } from "./task-utils";
+import { columnAccent, groupTasks, taskAge, templateName } from "./task-utils";
+import { useTemplates } from "@/hooks/use-templates";
 import { ChevronDown, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 export function TaskList({
@@ -27,6 +28,7 @@ export function TaskList({
   moveTask: (task: Task, columnId: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const { data: templates } = useTemplates();
   const [sort, setSort] = useState<
     "position" | "age" | "assignee" | "activity"
   >("position");
@@ -107,10 +109,13 @@ export function TaskList({
               {group.length}
             </span>
             {column.trigger && (
-              <Zap
-                aria-label="Automation configured"
-                className="h-3.5 w-3.5 text-[hsl(var(--col))]"
-              />
+              <span
+                title={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
+                aria-label={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
+                className="inline-flex text-[hsl(var(--col))]"
+              >
+                <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
             )}
           </Button>
           {!collapsed.has(column.id) && (
@@ -139,6 +144,7 @@ export function TaskList({
                       agent={agents.find(
                         (agent) => agent.id === task.assignedAgentId
                       )}
+                      agents={agents}
                       projectId={task.projectId}
                       compact
                     />
@@ -171,6 +177,7 @@ export function TaskList({
                         agent={agents.find(
                           (agent) => agent.id === task.assignedAgentId
                         )}
+                        agents={agents}
                         projectId={task.projectId}
                         compact
                       />
