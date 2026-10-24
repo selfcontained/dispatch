@@ -27,6 +27,9 @@ let app: FastifyInstance;
 let prompts: Array<{ agentId: string; text: string }>;
 /** When set, prompts wait in `waiting` (behind a turn) instead of reaching the engine. */
 let holding: boolean;
+/** When set, the stream's agent lookups wait on it, pausing a write mid-way. */
+let agentGate: Promise<void> | null;
+let gateHits: number;
 let waiting: Array<{
   agentId: string;
   blockId?: string;
@@ -85,10 +88,18 @@ beforeEach(async () => {
   prompts = [];
   holding = false;
   waiting = [];
+  agentGate = null;
+  gateHits = 0;
   streams = new StreamService({
     pool,
     publishUiEvent: () => {},
-    getAgent: async (id) => AGENTS[id] ?? null,
+    getAgent: async (id) => {
+      if (agentGate) {
+        gateHits++;
+        await agentGate;
+      }
+      return AGENTS[id] ?? null;
+    },
     filesRoot: "/files-root",
     delivery: {
       access: async () => ({ mode: "live" as const }),
@@ -482,5 +493,76 @@ describe("task stream root", () => {
         agentId: STRANGER,
       })
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  describe("a write racing the task's deletion", () => {
+    function gate(): () => void {
+      let open!: () => void;
+      agentGate = new Promise<void>((resolve) => (open = resolve));
+      return () => {
+        agentGate = null;
+        open();
+      };
+    }
+
+    async function blocksLeft(taskId: string): Promise<number> {
+      const { rows } = await pool.query(
+        "SELECT count(*)::int AS n FROM blocks WHERE stream_id = $1",
+        [taskId]
+      );
+      return rows[0].n;
+    }
+
+    it("waits for an admitted send, then takes its prompt back", async () => {
+      const task = await newTask();
+      holding = true;
+      const release = gate();
+      const send = postBlock(task.id, { text: "paused mid-send" });
+      await vi.waitFor(() => expect(gateHits).toBeGreaterThan(0));
+      let deleted = false;
+      const deletion = tasks.deleteTask(task.id).then(() => (deleted = true));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // The delete is waiting for the send it admitted.
+      expect(deleted).toBe(false);
+      release();
+      expect((await send).statusCode).toBe(200);
+      await deletion;
+      holding = false;
+      await settle();
+      expect(waiting).toEqual([]);
+      expect(prompts).toEqual([]);
+      expect(await blocksLeft(task.id)).toBe(0);
+    });
+
+    it("refuses a send the delete overtook before it was admitted", async () => {
+      const task = await newTask();
+      // An agent's post paused before it found its place, so not admitted.
+      const release = gate();
+      const reply = streams.post(ASSIGNEE, { text: "late" }, { root: task.id });
+      await vi.waitFor(() => expect(gateHits).toBeGreaterThan(0));
+      await tasks.deleteTask(task.id);
+      release();
+      await expect(reply).rejects.toMatchObject({ statusCode: 404 });
+      // A person's post whose route check passed before the delete.
+      await expect(
+        streams.sendUserPost(task.id, { text: "late too", to: ASSIGNEE })
+      ).rejects.toMatchObject({ statusCode: 404 });
+      await settle();
+      expect(prompts).toEqual([]);
+      expect(await blocksLeft(task.id)).toBe(0);
+    });
+
+    it("refuses the delete when an admitted send outlasts the window", async () => {
+      const task = await newTask();
+      const release = gate();
+      const send = postBlock(task.id, { text: "stuck" });
+      await vi.waitFor(() => expect(gateHits).toBeGreaterThan(0));
+      await expect(
+        streams.closeStream(task.id, { settleMs: 100 })
+      ).rejects.toMatchObject({ statusCode: 409 });
+      release();
+      expect((await send).statusCode).toBe(200);
+      expect(await streams.rootExists(task.id)).toBe(true);
+    });
   });
 });
