@@ -1,5 +1,5 @@
 import type { PublishUiEvent } from "../server/ui-events.js";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -27,13 +27,16 @@ const appearance = z.object({
 });
 async function resolveProjectRoot(input: string): Promise<string> {
   const cwd = await realpath(resolveTilde(input));
+  if (!(await stat(cwd)).isDirectory()) throw new Error("Not a directory");
   const git = async (...args: string[]) =>
     (await promisify(execFile)("git", ["-C", cwd, ...args])).stdout.trim();
+  // A plain folder (no Git) is its own project root.
   const common = await git(
     "rev-parse",
     "--path-format=absolute",
     "--git-common-dir"
-  );
+  ).catch(() => null);
+  if (common === null) return cwd;
   const gitDir = await git("rev-parse", "--absolute-git-dir");
   // Normal discovery handles nested paths and separate Git metadata.
   // A linked worktree instead uses the primary checkout from Git's registry.
@@ -141,8 +144,8 @@ export async function registerProjectRoutes(
       return reply.code(code === "23505" ? 409 : 400).send({
         error:
           code === "23505"
-            ? "This repository already has a project."
-            : "Choose an existing Git repository.",
+            ? "This folder already has a project."
+            : "Choose an existing folder.",
       });
     }
   });

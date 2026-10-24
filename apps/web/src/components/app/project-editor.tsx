@@ -121,7 +121,7 @@ export function ProjectEditor({
               </label>
               {project ? (
                 <div className="space-y-1 text-sm">
-                  <span>Repository</span>
+                  <span>Folder</span>
                   <p
                     title={repoRoot}
                     className="truncate text-xs text-muted-foreground"
@@ -132,7 +132,7 @@ export function ProjectEditor({
               ) : (
                 <PathInput
                   id="project-repo"
-                  label="Repository"
+                  label="Folder"
                   value={repoRoot}
                   onChange={setRepoRoot}
                   history={history}

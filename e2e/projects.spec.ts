@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -279,5 +285,37 @@ test("canonicalizes nested and linked checkouts and separate Git metadata", asyn
     for (const id of ids)
       await request.delete(`/api/v1/projects/${id}`, { headers });
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("plain folders without Git can be projects", async ({ request }) => {
+  const folder = mkdtempSync(join(tmpdir(), "dispatch-project-plain-"));
+  let id: string | undefined;
+  try {
+    const created = await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Plain", repoRoot: folder, color: "#9575ed" },
+    });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    const project = await created.json();
+    id = project.id;
+    expect(project.repoRoot).toBe(realpathSync(folder));
+    const duplicate = await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Plain again", repoRoot: folder, color: "#9575ed" },
+    });
+    expect(duplicate.status()).toBe(409);
+    const missing = await request.post("/api/v1/projects", {
+      headers,
+      data: {
+        name: "Missing",
+        repoRoot: join(folder, "missing"),
+        color: "#9575ed",
+      },
+    });
+    expect(missing.status()).toBe(400);
+  } finally {
+    if (id) await request.delete(`/api/v1/projects/${id}`, { headers });
+    rmSync(folder, { recursive: true, force: true });
   }
 });
