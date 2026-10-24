@@ -22,28 +22,37 @@ export function TaskAgentChip({
   /** The agents it sits among, so a shared name says when it started. */
   agents?: readonly Agent[];
   compact?: boolean;
-  /** Fill the row while a step is showing, so it has the width. */
+  /** Fill the row, so a step has the width and cards line up. */
   fullWidth?: boolean;
   className?: string;
 }) {
   const turn = agent.currentTurn ?? null;
   const step = useAgentTurnLabel(agent.id, turn?.blockId ?? null);
-  const live = agent.activity === "working" || Boolean(turn);
-  const attention =
-    agent.activity === "waiting" || agent.activity === "blocked";
+  const live =
+    agent.activity === "working" ||
+    agent.activity === "starting" ||
+    Boolean(turn);
+  const waiting = agent.activity === "waiting";
+  const blocked = agent.activity === "blocked";
+  const stopped = agent.activity === "stopped" || !agent.activity;
   const qualifier = agentQualifier(agent, agents);
   return (
     <span
       className={cn(
         // Tinted by state, so colour on a card says something: green while
-        // the agent works, amber when it waits on someone, quiet otherwise.
+        // the agent starts or works, amber waiting on someone, red blocked,
+        // quiet when idle, faded and dashed once it has stopped.
         "inline-flex min-w-0 items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-xs text-foreground shadow-sm",
         live
           ? "border-status-working/40 bg-status-working/10"
-          : attention
+          : waiting
             ? "border-status-waiting/40 bg-status-waiting/10"
-            : "border-border bg-background/70",
-        fullWidth && live && !compact && step && "w-full",
+            : blocked
+              ? "border-status-blocked/40 bg-status-blocked/10"
+              : stopped
+                ? "border-dashed border-border bg-transparent text-muted-foreground"
+                : "border-border bg-background/70",
+        fullWidth && "w-full",
         className
       )}
       title={
