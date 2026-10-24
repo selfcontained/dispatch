@@ -118,6 +118,12 @@ it("creates a template from the picker and selects it", async () => {
   openNewTemplate();
   await screen.findByRole("heading", { name: "Create Template" });
   expect(templatePicker().textContent).toBe("Builder");
+  // Locked to the board's project: no project/folder switch, no path input.
+  expect(screen.queryByTestId("project-location")).toBeNull();
+  expect(screen.queryByPlaceholderText("/path/to/repo")).toBeNull();
+  expect(screen.getByTestId("locked-location").textContent).toBe(
+    "ProjectRepo/repo"
+  );
   fireEvent.change(screen.getByPlaceholderText(/name/i), {
     target: { value: "Reviewer" },
   });
@@ -134,6 +140,8 @@ it("creates a template from the picker and selects it", async () => {
       projectId: "p1",
     })
   );
+  // The created template is one of the board's project templates.
+  expect(templates.at(-1)).toMatchObject({ id: "tpl_new", projectId: "p1" });
   expect(templatePicker().textContent).toBe("Reviewer");
   expect(onOpenChange).not.toHaveBeenCalled();
   // The other fields kept their state; Save stores the new template.

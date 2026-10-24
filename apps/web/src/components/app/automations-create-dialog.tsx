@@ -25,8 +25,8 @@ import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 type CreateTemplateDialogProps = {
   onOpenChange: (open: boolean) => void;
   enabledAgentTypes: AgentType[];
-  /** Scopes the new template to this project instead of the current scope. */
-  project?: Pick<Project, "id" | "repoRoot">;
+  /** Creates the template in this project, with the location locked. */
+  project?: Pick<Project, "id" | "repoRoot"> & { name?: string };
   onCreated?: (template: Template) => void;
   onCloseAutoFocus?: (event: Event) => void;
 };
@@ -68,6 +68,10 @@ function CreateTemplateDialogContent({
         directory: draft.directory,
         model: draft.model,
         ...templateConfigFromDraft(draft),
+        ...(projectOverride && {
+          projectId: projectOverride.id,
+          directory: projectOverride.repoRoot,
+        }),
       })
       .then((template) => {
         addCwdHistory(draft.directory);
@@ -79,9 +83,18 @@ function CreateTemplateDialogContent({
         toast.error(`Failed to create template: ${err.message}`);
       })
       .finally(() => setCreating(false));
-  }, [addTemplate, draft, addCwdHistory, onCreated, onOpenChange]);
+  }, [
+    addTemplate,
+    draft,
+    projectOverride,
+    addCwdHistory,
+    onCreated,
+    onOpenChange,
+  ]);
 
-  const canCreate = draft.name.trim() && draft.directory.trim();
+  const canCreate =
+    draft.name.trim() &&
+    (projectOverride ? projectOverride.repoRoot : draft.directory).trim();
 
   return (
     <DialogContent
@@ -112,6 +125,7 @@ function CreateTemplateDialogContent({
         <TemplateConfigFields
           {...fieldProps}
           enabledAgentTypes={enabledAgentTypes}
+          lockedLocation={projectOverride}
           autoFocusName
         />
       </div>

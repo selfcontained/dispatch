@@ -129,6 +129,8 @@ export interface TemplateConfigFieldsProps {
   prompt: string;
   onPromptChange: (value: string) => void;
   autoFocusName?: boolean;
+  /** Shows this location read-only instead of the project/folder picker. */
+  lockedLocation?: { name?: string; repoRoot: string };
 }
 
 export function TemplateConfigFields({
@@ -164,6 +166,7 @@ export function TemplateConfigFields({
   prompt,
   onPromptChange,
   autoFocusName,
+  lockedLocation,
 }: TemplateConfigFieldsProps): JSX.Element {
   const { options: modelOptions, loading: modelCatalogLoading } =
     useAgentModelCatalog(agentType);
@@ -223,24 +226,38 @@ export function TemplateConfigFields({
         />
       </div>
 
-      <div className="space-y-1">
-        <ProjectLocation
-          projectId={projectId}
-          onChange={(p) =>
-            onProjectChange?.(p?.id ?? null, p?.repoRoot ?? directory)
-          }
-        >
-          <PathInput
-            value={directory}
-            onChange={onDirectoryChange}
-            placeholder="/path/to/repo"
-            history={cwdHistory}
-            removableHistory={removableCwdHistory}
-            historyMetadata={cwdHistoryMetadata}
-            onRemoveHistory={removeCwdHistory}
-          />
-        </ProjectLocation>
-      </div>
+      {lockedLocation ? (
+        <div className="space-y-1" data-testid="locked-location">
+          <label className="text-sm text-muted-foreground">Project</label>
+          <div className="rounded-md border border-white/[0.08] bg-black/20 px-3 py-2 text-sm">
+            {lockedLocation.name ? (
+              <div className="truncate">{lockedLocation.name}</div>
+            ) : null}
+            <div className="truncate text-xs text-muted-foreground">
+              {lockedLocation.repoRoot}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <ProjectLocation
+            projectId={projectId}
+            onChange={(p) =>
+              onProjectChange?.(p?.id ?? null, p?.repoRoot ?? directory)
+            }
+          >
+            <PathInput
+              value={directory}
+              onChange={onDirectoryChange}
+              placeholder="/path/to/repo"
+              history={cwdHistory}
+              removableHistory={removableCwdHistory}
+              historyMetadata={cwdHistoryMetadata}
+              onRemoveHistory={removeCwdHistory}
+            />
+          </ProjectLocation>
+        </div>
+      )}
 
       <AgentPersonaSelect
         cwd={directory}
