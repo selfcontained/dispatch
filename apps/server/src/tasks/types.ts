@@ -91,6 +91,7 @@ export type TaskEventKind =
   | "trigger_launched"
   | "trigger_failed"
   | "agent_launched"
+  | "agent_removed"
   | "link_added";
 
 export type TaskEvent = {
@@ -99,8 +100,9 @@ export type TaskEvent = {
   kind: TaskEventKind;
   actor: TaskActor;
   /**
-   * Per kind: moved {fromColumnId, toColumnId}; assigned/unassigned
-   * {agentId, role}; trigger_launched/agent_launched {agentId, templateId};
+   * Per kind: moved {fromColumnId, toColumnId}; assigned/unassigned/
+   * agent_removed {agentId, role}; trigger_launched/agent_launched
+   * {agentId, templateId};
    * trigger_failed {templateId, reason}; link_added {link}; updated {fields}.
    */
   data: Record<string, unknown>;

@@ -823,6 +823,33 @@ export class TaskService {
     }
   }
 
+  /**
+   * Takes an agent off the task: it stops being the assignee if it was,
+   * is no longer one of the task's agents (so it can no longer post in
+   * the task's conversation), and the task's history says so. What it
+   * already posted stays.
+   */
+  async removeAgent(
+    id: string,
+    agentId: string,
+    caller: TaskCaller
+  ): Promise<TaskDetail> {
+    return await this.withTaskLock(id, async () => {
+      const task = await this.requireTask(id);
+      const row = await this.store.getTaskAgent(id, agentId);
+      if (!row) throw invalid(`Agent ${agentId} is not on this task.`);
+      const actor = actorOf(caller);
+      if (task.assignedAgentId === agentId) await this.unassign(task, actor);
+      await this.store.deleteTaskAgent(id, agentId);
+      await this.store.insertEvent(id, "agent_removed", actor, {
+        agentId,
+        role: row.role,
+      });
+      this.publish(task.projectId, id);
+      return await this.getTaskDetail(id);
+    });
+  }
+
   /** A launch by hand from the task: briefed, and assigned as `manual`. */
   async launchAgent(
     id: string,

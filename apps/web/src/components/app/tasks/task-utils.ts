@@ -109,6 +109,20 @@ export function agentQualifier(
   if (minutes < 60) return `started ${minutes}m ago`;
   return `started ${taskAge(agent.createdAt)} ago`;
 }
+/**
+ * How an agent came to be on a task, in words: a column's automation
+ * launched it, a person assigned it, or it claimed the task itself.
+ */
+export function assignmentLabel(
+  assignment: { role: "trigger" | "manual" | "self"; columnId: string | null },
+  columns: readonly TaskColumn[]
+): string {
+  if (assignment.role === "trigger") {
+    const column = columns.find((c) => c.id === assignment.columnId);
+    return column ? `launched by ${column.name}` : "launched by an automation";
+  }
+  return assignment.role === "self" ? "picked it up" : "assigned by you";
+}
 /** A column trigger's template, by name; the id when it is gone. */
 export function templateName(
   templates: ReadonlyArray<{ id: string; name: string }> | undefined,

@@ -365,6 +365,26 @@ describe("triggers", () => {
     expect(launches[0]!.appendix).toContain("Acceptance: it ships.");
   });
 
+  it("removes an agent from the task, unassigning it if current", async () => {
+    await insertAgent("agt_a");
+    await insertAgent("agt_idle");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_a" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_idle" }, USER);
+    const afterPast = await service.removeAgent(task.id, "agt_a", USER);
+    expect(afterPast.assignedAgentId).toBe("agt_idle");
+    expect(afterPast.agents.map((a) => a.agentId)).toEqual(["agt_idle"]);
+    const afterCurrent = await service.removeAgent(task.id, "agt_idle", USER);
+    expect(afterCurrent.assignedAgentId).toBeNull();
+    expect(afterCurrent.agents).toEqual([]);
+    expect(afterCurrent.events.map((e) => e.kind)).toEqual(
+      expect.arrayContaining(["agent_removed", "unassigned"])
+    );
+    await expect(
+      service.removeAgent(task.id, "agt_a", USER)
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
   it("fires on create only with fireOnCreate", async () => {
     const ready = await withTrigger("ready");
     await service.createTask({ projectId, title: "t", columnId: ready }, USER);

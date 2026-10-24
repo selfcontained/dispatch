@@ -517,6 +517,14 @@ export class TaskStore {
     return rows.map(toTaskAgent);
   }
 
+  async deleteTaskAgent(taskId: string, agentId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM task_agents WHERE task_id = $1 AND agent_id = $2`,
+      [taskId, agentId]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
   // ── Events ───────────────────────────────────────────────────────
 
   /**

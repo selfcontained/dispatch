@@ -125,11 +125,20 @@ export function useTaskActions(projectId: string | null) {
       }),
     onSuccess: invalidate,
   });
+  const removeAgent = useMutation({
+    mutationFn: ({ id, agentId }: { id: string; agentId: string }) =>
+      api<TaskDetail>(
+        `/api/v1/tasks/${encodeURIComponent(id)}/agents/${encodeURIComponent(agentId)}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
   return {
     create,
     update,
     remove,
     launch,
+    removeAgent,
     createColumn,
     updateColumn,
     removeColumn,

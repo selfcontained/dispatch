@@ -5,8 +5,15 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  MoreHorizontal,
   Plus,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
@@ -32,7 +39,12 @@ import { AssigneeSelect } from "./task-assignee-select";
 import { cn } from "@/lib/utils";
 import { TaskConversation } from "./task-conversation";
 import { StatusSelect } from "./task-list";
-import { columnAccent, taskAge } from "./task-utils";
+import {
+  MENU_ITEM,
+  assignmentLabel,
+  columnAccent,
+  taskAge,
+} from "./task-utils";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
@@ -280,8 +292,8 @@ export function TaskDetailPanel({
                 className={PROPERTY_CONTROL}
               />
               <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
-                The assignee is told it owns this task and receives what you
-                post below.
+                The assignee owns the task: it is told so when assigned, and
+                your posts in the conversation below go to it.
               </p>
               <span className="text-xs text-muted-foreground">Created</span>
               <span className="text-xs">
@@ -399,29 +411,90 @@ export function TaskDetailPanel({
                 <p className="text-xs text-muted-foreground">No links</p>
               )}
             </DrawerSection>
-            <DrawerSection label="Agents on this task">
+            <DrawerSection label="Agents">
               {task.agents.length ? (
                 <div className="space-y-1">
-                  {task.agents.map((assignment) => (
-                    <div
-                      key={assignment.agentId}
-                      className="flex items-center justify-between gap-2 rounded-lg px-1 py-0.5 hover:bg-muted/30"
-                    >
-                      <TaskAgent
-                        agent={agents.find(
-                          (agent) => agent.id === assignment.agentId
-                        )}
-                        agents={agents}
-                        projectId={projectId}
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {assignment.role}
-                      </span>
-                    </div>
-                  ))}
+                  {task.agents.map((assignment) => {
+                    const current = assignment.agentId === task.assignedAgentId;
+                    return (
+                      <div
+                        key={assignment.agentId}
+                        data-testid={`task-agent-row-${assignment.agentId}`}
+                        className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-muted/30"
+                      >
+                        <TaskAgent
+                          agent={agents.find(
+                            (agent) => agent.id === assignment.agentId
+                          )}
+                          agents={agents}
+                          projectId={projectId}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                          {current ? "assignee · " : ""}
+                          {assignmentLabel(assignment, columns)} ·{" "}
+                          {ago(assignment.assignedAt)}
+                        </span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 shrink-0 text-muted-foreground"
+                              aria-label={`Options for ${agents.find((agent) => agent.id === assignment.agentId)?.name ?? assignment.agentId}`}
+                            >
+                              <MoreHorizontal
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {current ? (
+                              <DropdownMenuItem
+                                className={MENU_ITEM}
+                                onSelect={() =>
+                                  void actions.update.mutateAsync({
+                                    id,
+                                    assignedAgentId: null,
+                                  })
+                                }
+                              >
+                                Unassign
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                className={MENU_ITEM}
+                                onSelect={() =>
+                                  void actions.update.mutateAsync({
+                                    id,
+                                    assignedAgentId: assignment.agentId,
+                                  })
+                                }
+                              >
+                                Make assignee
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                              onSelect={() =>
+                                void actions.removeAgent.mutateAsync({
+                                  id,
+                                  agentId: assignment.agentId,
+                                })
+                              }
+                            >
+                              Remove from task
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">No agents yet</p>
+                <p className="text-xs text-muted-foreground">
+                  No agents yet. One joins when you assign it, when a column
+                  automation launches it, or when it picks the task up.
+                </p>
               )}
             </DrawerSection>
             <DrawerSection label="Activity">

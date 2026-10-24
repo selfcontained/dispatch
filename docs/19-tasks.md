@@ -8,12 +8,12 @@ Code: `apps/server/src/tasks/` (wire types, store, service), `apps/server/src/ro
 
 ## Data Model
 
-| Table          | Holds                                                                                                                                           |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task_columns` | A project's columns: `key` (slug, unique per project), `name`, `position`, `is_done`, `trigger`                                                 |
-| `tasks`        | Title, markdown body, column, `position`, current `assigned_agent_id`, `links`, creator                                                         |
-| `task_agents`  | Every agent assigned to a task and its `role` (`trigger`, `manual`, `self`); these agents may post in the task's conversation                   |
-| `task_events`  | The activity log: `created`, `updated`, `moved`, `assigned`, `unassigned`, `trigger_launched`, `trigger_failed`, `agent_launched`, `link_added` |
+| Table          | Holds                                                                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_columns` | A project's columns: `key` (slug, unique per project), `name`, `position`, `is_done`, `trigger`                                                                  |
+| `tasks`        | Title, markdown body, column, `position`, current `assigned_agent_id`, `links`, creator                                                                          |
+| `task_agents`  | Every agent assigned to a task and its `role` (`trigger`, `manual`, `self`); these agents may post in the task's conversation                                    |
+| `task_events`  | The activity log: `created`, `updated`, `moved`, `assigned`, `unassigned`, `trigger_launched`, `trigger_failed`, `agent_launched`, `agent_removed`, `link_added` |
 
 The first read of a project's board seeds the default columns: `backlog`, `ready`, `in_progress`, `in_review`, `done` (`isDone`). A project has at most one done column: setting `isDone` on one clears it on the others. Entering the done column sets `completedAt`; leaving it clears it. A column that holds tasks cannot be deleted (409 `column_not_empty`).
 
@@ -72,17 +72,18 @@ Every write publishes `{ type: "task.changed", projectId, taskId? }` on the SSE 
 
 ## API
 
-| Method | Path                                        | Description                                                          |
-| ------ | ------------------------------------------- | -------------------------------------------------------------------- |
-| GET    | `/api/v1/projects/:projectId/tasks/board`   | `TaskBoard`: columns and tasks; seeds defaults on first read         |
-| POST   | `/api/v1/projects/:projectId/task-columns`  | Create a column (`key` derived from `name` when omitted)             |
-| PATCH  | `/api/v1/task-columns/:id`                  | Update name, key, position, `isDone`, `trigger` (null removes)       |
-| DELETE | `/api/v1/task-columns/:id`                  | Delete an empty column; 409 `column_not_empty` otherwise             |
-| GET    | `/api/v1/tasks?projectId=&assignedAgentId=` | `Task[]`; either filter alone is allowed                             |
-| POST   | `/api/v1/tasks`                             | Create; defaults to the first column, top of the column              |
-| GET    | `/api/v1/tasks/:id`                         | `TaskDetail`: agents and the last 200 events, oldest first           |
-| PATCH  | `/api/v1/tasks/:id`                         | Update; a `columnId` change is a move (see Triggers)                 |
-| DELETE | `/api/v1/tasks/:id`                         | Delete                                                               |
-| POST   | `/api/v1/tasks/:id/launch`                  | Launch a template for the task (briefed, role `manual`); `{ agent }` |
+| Method | Path                                        | Description                                                                                                    |
+| ------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/v1/projects/:projectId/tasks/board`   | `TaskBoard`: columns and tasks; seeds defaults on first read                                                   |
+| POST   | `/api/v1/projects/:projectId/task-columns`  | Create a column (`key` derived from `name` when omitted)                                                       |
+| PATCH  | `/api/v1/task-columns/:id`                  | Update name, key, position, `isDone`, `trigger` (null removes)                                                 |
+| DELETE | `/api/v1/task-columns/:id`                  | Delete an empty column; 409 `column_not_empty` otherwise                                                       |
+| GET    | `/api/v1/tasks?projectId=&assignedAgentId=` | `Task[]`; either filter alone is allowed                                                                       |
+| POST   | `/api/v1/tasks`                             | Create; defaults to the first column, top of the column                                                        |
+| GET    | `/api/v1/tasks/:id`                         | `TaskDetail`: agents and the last 200 events, oldest first                                                     |
+| PATCH  | `/api/v1/tasks/:id`                         | Update; a `columnId` change is a move (see Triggers)                                                           |
+| DELETE | `/api/v1/tasks/:id`                         | Delete                                                                                                         |
+| POST   | `/api/v1/tasks/:id/launch`                  | Launch a template for the task (briefed, role `manual`); `{ agent }`                                           |
+| DELETE | `/api/v1/tasks/:id/agents/:agentId`         | Take an agent off the task: unassigned if current, out of the task's agents and its conversation; `TaskDetail` |
 
 Errors are `{ error, code? }`: 400 for invalid input, 404 for an unknown project/task/column, 409 for `agent_working`, `column_not_empty` and `column_key_taken`.

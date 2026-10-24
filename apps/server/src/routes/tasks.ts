@@ -180,6 +180,14 @@ export async function registerTaskRoutes(
       })
   );
 
+  app.delete<{ Params: { id: string; agentId: string } }>(
+    "/api/v1/tasks/:id/agents/:agentId",
+    async (request, reply) =>
+      mapTaskErrors(reply, () =>
+        taskService.removeAgent(request.params.id, request.params.agentId, USER)
+      )
+  );
+
   app.post<{ Params: { id: string } }>(
     "/api/v1/tasks/:id/launch",
     async (request, reply) => {
