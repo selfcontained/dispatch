@@ -170,7 +170,12 @@ function TaskCardDetails({ task, agents }: { task: Task; agents: Agent[] }) {
     <>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {task.assignedAgentId ? (
-          <TaskAgent agent={agent} agents={agents} projectId={task.projectId} />
+          <TaskAgent
+            agent={agent}
+            agents={agents}
+            projectId={task.projectId}
+            fullWidth
+          />
         ) : task.createdBy.kind === "agent" ? (
           <span>
             ⚙ by{" "}

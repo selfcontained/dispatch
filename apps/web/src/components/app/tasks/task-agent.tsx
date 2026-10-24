@@ -6,14 +6,6 @@ import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { agentQualifier } from "./task-utils";
 
-/** Each engine's tint, as the composer's provider cards wear it. */
-const ENGINE_CHIP: Record<string, string> = {
-  codex:
-    "border-engine-codex/35 bg-engine-codex/10 [&>span:first-child]:text-engine-codex",
-  claude:
-    "border-engine-claude/35 bg-engine-claude/10 [&>span:first-child]:text-engine-claude",
-};
-
 /**
  * An agent on a task. While the agent is in a turn the chip carries the
  * same live glyph the sidebar and its turns show, and (unless compact)
@@ -38,8 +30,7 @@ export function TaskAgentChip({
   return (
     <span
       className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 py-0.5 pl-0.5 pr-2 text-xs",
-        ENGINE_CHIP[agent.type ?? "claude"],
+        "inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 py-0.5 pl-0.5 pr-2 text-xs text-foreground",
         className
       )}
       title={
@@ -71,7 +62,7 @@ export function TaskAgentChip({
         </span>
       )}
       {live && !compact && step && (
-        <span className="max-w-24 truncate text-[10px] font-medium text-status-working">
+        <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-status-working">
           {step}
         </span>
       )}
@@ -84,11 +75,14 @@ export function TaskAgent({
   agents,
   projectId,
   compact = false,
+  fullWidth = false,
 }: {
   agent?: Agent;
   agents?: readonly Agent[];
   projectId: string;
   compact?: boolean;
+  /** Fill the row, so a running step has the whole card's width. */
+  fullWidth?: boolean;
 }) {
   if (!agent)
     return <span className="text-xs text-muted-foreground">Unassigned</span>;
@@ -96,9 +90,17 @@ export function TaskAgent({
     <Link
       to={`/agents/${agent.id}?project=${encodeURIComponent(projectId)}`}
       onClick={(event) => event.stopPropagation()}
-      className="inline-flex min-w-0 rounded-full hover:brightness-125"
+      className={cn(
+        "inline-flex min-w-0 rounded-full hover:brightness-125",
+        fullWidth && "w-full"
+      )}
     >
-      <TaskAgentChip agent={agent} agents={agents} compact={compact} />
+      <TaskAgentChip
+        agent={agent}
+        agents={agents}
+        compact={compact}
+        className={fullWidth ? "w-full" : undefined}
+      />
     </Link>
   );
 }
