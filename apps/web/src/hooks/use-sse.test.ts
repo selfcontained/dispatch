@@ -706,6 +706,7 @@ describe("useSSE message handling", () => {
       ["templates"],
       ["projects"],
       ["brain"],
+      ["tasks"],
       ["agent-models"],
       ["agent-identity"],
       CACHED_RELEASE_INFO_QUERY_KEY,
@@ -1156,6 +1157,7 @@ describe("useSSE message handling", () => {
     emit({ type: "job.changed" });
     emit({ type: "template.changed" });
     emit({ type: "brain.changed", repoRoot: "/repo" });
+    emit({ type: "task.changed", taskId: "task-1", projectId: "project-1" });
     emit({ type: "agent_models.changed", agentType: "codex" });
 
     // Ordered on purpose here, unlike the within-one-event assertions above:
@@ -1167,6 +1169,7 @@ describe("useSSE message handling", () => {
       ["jobs"],
       ["templates"],
       ["brain"],
+      ["tasks"],
       ["agent-models"],
     ]);
   });

@@ -53,6 +53,7 @@ describe("block_reactions uniqueness migration", () => {
     );
     // Remove the later migration too: the runner rejects replaying an older
     // migration beneath an already-applied successor.
+    await dropTasks();
     await pool.query("ALTER TABLE agents DROP COLUMN project_id");
     await pool.query("ALTER TABLE templates DROP COLUMN project_id");
     await pool.query("DROP TABLE projects");
@@ -72,8 +73,17 @@ describe("block_reactions uniqueness migration", () => {
   });
 });
 
+/** Rewinds 0023, which depends on projects and agents, so older eras can replay. */
+async function dropTasks(): Promise<void> {
+  await pool.query(
+    "DROP TABLE IF EXISTS task_events, task_agents, tasks, task_columns"
+  );
+  await pool.query("DELETE FROM pgmigrations WHERE name = '0023_tasks'");
+}
+
 describe("Project upgrade ordering", () => {
   it("upgrades an existing persona-era database", async () => {
+    await dropTasks();
     await pool.query("ALTER TABLE agents DROP COLUMN project_id");
     await pool.query("ALTER TABLE templates DROP COLUMN project_id");
     await pool.query("DROP TABLE projects");
@@ -87,6 +97,7 @@ describe("Project upgrade ordering", () => {
     await runTestMigrations();
     await pool.query("SELECT project_id FROM agents LIMIT 0");
     await pool.query("SELECT icon_data, icon_mime FROM projects LIMIT 0");
+    await pool.query("SELECT project_id FROM tasks LIMIT 0");
   });
 
   it("preserves preview projects while replaying at the new sequence", async () => {
@@ -96,6 +107,7 @@ describe("Project upgrade ordering", () => {
     await pool.query(
       "UPDATE pgmigrations SET name = CASE name WHEN '0021_projects' THEN '0019_projects' WHEN '0022_project_icons' THEN '0020_project_icons' ELSE name END"
     );
+    await dropTasks();
     await pool.query(
       "DELETE FROM pgmigrations WHERE name IN ('0019_launch_personas', '0020_persona_agent_roles')"
     );

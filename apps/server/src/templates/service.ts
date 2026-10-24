@@ -34,6 +34,13 @@ export type LaunchTemplateInput = {
   startupFiles?: SeedFileInput[];
   /** Raw startup links, recorded as link attachments on the launch post. */
   startupLinks?: string[];
+  /** Text appended after the rendered prompt, before any self-improve footer. */
+  appendix?: string;
+  /**
+   * The project the agent joins. A project template always launches into its
+   * own; a projectless one launches into this one when given.
+   */
+  projectId?: string | null;
 };
 
 export type LaunchResult = {
@@ -224,7 +231,8 @@ export class TemplateService {
     if (template.prompt) {
       finalPrompt = renderTemplatePrompt(
         { ...template, prompt: template.prompt },
-        input.args ?? {}
+        input.args ?? {},
+        input.appendix
       );
     }
 
@@ -249,6 +257,7 @@ export class TemplateService {
       ...templateWorktreeConfig(template),
       initialFiles: input.startupFiles ?? [],
       templateId: template.id,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
     });
 
     this.logger.info(

@@ -4046,7 +4046,7 @@ export class StreamService {
         const url = chatUrlSchema.safeParse(input.url);
         if (!url.success) {
           throw new StreamValidationError(
-            "url must be an absolute http or https URL."
+            "url must be an absolute http or https URL, or an app path starting with /."
           );
         }
         out.push({

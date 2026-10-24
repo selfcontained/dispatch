@@ -23,6 +23,7 @@ import {
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { StreamService } from "../chat/service.js";
+import type { TaskService } from "../tasks/service.js";
 
 /**
  * Resolves once the response has left the server — `finish` when it was
@@ -52,6 +53,7 @@ type McpRouteDeps = {
   templateService: TemplateService;
   brainStore: BrainStore;
   publishBrainChanged: (repoRoot: string) => void;
+  taskService?: TaskService;
   /** Fans `agent.tool_invoked` out to the SSE stream (presence strip). */
   publishUiEvent: (event: SharedUiEvent) => void;
   getBearerToken: (request: {
@@ -237,6 +239,9 @@ export async function registerMcpRoutes(
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
+        projectId: agent.projectId ?? null,
+        launchCwd: agent.cwd,
+        fullAccess: agent.fullAccess === true,
       },
       repoRoot,
       worktreeRoot,
@@ -266,6 +271,7 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      taskService: deps.taskService,
       publishUiEvent: deps.publishUiEvent,
       scheduledMessages: deps.scheduledMessages,
       chat: deps.chat,
@@ -322,6 +328,9 @@ export async function registerMcpRoutes(
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
+        projectId: agent.projectId ?? null,
+        launchCwd: agent.cwd,
+        fullAccess: agent.fullAccess === true,
       },
       repoRoot,
       worktreeRoot,
@@ -350,6 +359,7 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      taskService: deps.taskService,
       publishUiEvent: deps.publishUiEvent,
       scheduledMessages: deps.scheduledMessages,
       chat: deps.chat,

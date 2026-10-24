@@ -77,6 +77,8 @@ import { registerActivityRoutes } from "./routes/activity/index.js";
 import { createProviderPlansReporter } from "./agents/provider-plans.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
+import { registerTaskRoutes } from "./routes/tasks.js";
+import { TaskService } from "./tasks/service.js";
 import { registerBrowserExtensionRoutes } from "./routes/browser-extension.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -450,6 +452,16 @@ agentManager.onStreamWrite((agentId) => {
   void streamService.publishTurnEntry(agentId);
 });
 jobService.setBrainStore(brainStore);
+const taskService = new TaskService({
+  pool,
+  getAgent: (agentId) => agentManager.getAgent(agentId),
+  getTemplate: (templateId) => templateService.getTemplate(templateId),
+  launchTemplate: async (input) =>
+    (await templateService.launchTemplate(input)).agent,
+  chat: streamService,
+  publishUiEvent: (event) => uiEventBroker.publish(event),
+  log: app.log,
+});
 const mcpHandlers = createMcpHandlers({
   pool,
   filesRoot: config.filesRoot,
@@ -715,6 +727,7 @@ async function registerRoutes() {
     brainStore,
     publishBrainChanged: (repoRoot: string) =>
       uiEventBroker.publish({ type: "brain.changed", repoRoot }),
+    taskService,
     publishUiEvent: (event) => uiEventBroker.publish(event),
     getBearerToken,
     validateJobMcpToken,
@@ -785,6 +798,8 @@ async function registerRoutes() {
   await registerBrainRoutes(app, {
     brainStore,
   });
+
+  await registerTaskRoutes(app, { taskService, withStreamFlag });
 
   await registerActivityRoutes(app, {
     pool,
