@@ -31,6 +31,11 @@ import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
 
+const ago = (date: string) => {
+  const age = taskAge(date);
+  return age === "now" ? "just now" : `${age} ago`;
+};
+
 function TaskConversation({
   streamId,
   blockId,
@@ -215,7 +220,7 @@ export function TaskDrawer({
               {task.createdBy.kind === "agent"
                 ? `by ${agents.find((agent) => agent.id === (task.createdBy.kind === "agent" ? task.createdBy.agentId : ""))?.name ?? task.createdBy.agentId}`
                 : `by ${task.createdBy.kind}`}{" "}
-              · {taskAge(task.createdAt)} ago
+              · {ago(task.createdAt)}
             </span>
           </section>
           <section>
@@ -343,7 +348,7 @@ export function TaskDrawer({
                     {event.kind.replaceAll("_", " ")}
                   </span>
                   <span className="ml-2 text-muted-foreground">
-                    {taskAge(event.createdAt)} ago
+                    {ago(event.createdAt)}
                   </span>
                   {typeof event.data.reason === "string" && (
                     <p className="text-destructive">{event.data.reason}</p>
@@ -390,21 +395,6 @@ export function TaskDrawer({
               ))}
             </SelectContent>
           </Select>
-          <AgentTypeSelect
-            id="task-launch-runtime"
-            value={chosenLaunchType}
-            onChange={setLaunchType}
-            agentTypes={["claude", "codex", "opencode"]}
-            label="Runtime"
-          />
-          <AgentModelSelect
-            id="task-launch-model"
-            testId="task-launch-model"
-            value={launchModel}
-            options={models.options}
-            onChange={setLaunchModel}
-            loading={models.loading}
-          />
           <Button
             variant="destructive"
             className="ml-auto"
@@ -436,6 +426,21 @@ export function TaskDrawer({
                 ))}
             </SelectContent>
           </Select>
+          <AgentTypeSelect
+            id="task-launch-runtime"
+            value={chosenLaunchType}
+            onChange={setLaunchType}
+            agentTypes={["claude", "codex", "opencode"]}
+            label="Runtime"
+          />
+          <AgentModelSelect
+            id="task-launch-model"
+            testId="task-launch-model"
+            value={launchModel}
+            options={models.options}
+            onChange={setLaunchModel}
+            loading={models.loading}
+          />
           <Button
             disabled={!templateId}
             onClick={() => {

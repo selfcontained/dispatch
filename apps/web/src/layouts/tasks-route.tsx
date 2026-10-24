@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAtom } from "jotai";
 import { LayoutGrid, List, Plus } from "lucide-react";
@@ -6,7 +6,12 @@ import { SectionShell } from "./section-shell";
 import { ProjectSwitcher } from "@/components/app/project-switcher";
 import { useDashboardContext } from "@/components/app/dashboard-context";
 import { useProjectScope } from "@/hooks/use-projects";
-import { useTaskActions, useTaskBoard, type Task } from "@/hooks/use-tasks";
+import {
+  useTaskActions,
+  useTaskBoard,
+  useTaskDetail,
+  type Task,
+} from "@/hooks/use-tasks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,7 +39,8 @@ import {
 } from "@/components/app/tasks/task-utils";
 import { ApiError } from "@/lib/api";
 function TasksContent({ projectId }: { projectId: string }) {
-  const { project } = useProjectScope();
+  const { projects } = useProjectScope();
+  const project = projects.find((item) => item.id === projectId);
   const [params, setParams] = useSearchParams();
   const { agents, isMobile } = useDashboardContext();
   const { data: board, isLoading, error } = useTaskBoard(projectId);
@@ -344,8 +350,17 @@ function TasksContent({ projectId }: { projectId: string }) {
 }
 export function TasksRoute(): JSX.Element {
   const { projectId } = useProjectScope();
-  return projectId ? (
-    <TasksContent key={projectId} projectId={projectId} />
+  const [params, setParams] = useSearchParams();
+  const { data: linkedTask } = useTaskDetail(params.get("task"));
+  useEffect(() => {
+    if (!linkedTask || params.get("project") === linkedTask.projectId) return;
+    const next = new URLSearchParams(params);
+    next.set("project", linkedTask.projectId);
+    setParams(next, { replace: true });
+  }, [linkedTask, params, setParams]);
+  const boardProjectId = linkedTask?.projectId ?? projectId;
+  return boardProjectId ? (
+    <TasksContent key={boardProjectId} projectId={boardProjectId} />
   ) : (
     <SectionShell
       activeSection="tasks"

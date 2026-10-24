@@ -92,11 +92,24 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     });
     await page
       .getByTestId(`task-card-${task.id}`)
-      .getByRole("button", { name: task.title })
+      .getByRole("button", { name: task.title, exact: true })
       .click();
     await expect(page.getByTestId("task-drawer")).toBeVisible();
     await expect(
       page.getByTestId("task-drawer").getByText("trigger launched")
+    ).toBeVisible();
+    await page
+      .getByText("Conversation", { exact: true })
+      .scrollIntoViewIfNeeded();
+    await expect(page.getByTestId("chat-thread-panel")).toBeVisible();
+    await page
+      .getByRole("textbox", { name: "Message the agent" })
+      .fill("Progress from the task drawer");
+    await page.getByTestId("chat-composer-send").click();
+    await expect(
+      page
+        .getByTestId("chat-thread-panel")
+        .getByText("Progress from the task drawer")
     ).toBeVisible();
     await page.screenshot({
       path: "/tmp/dispatch-tasks-drawer.png",
