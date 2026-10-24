@@ -327,7 +327,6 @@ export class TaskService {
       agentType,
       model,
       assign: trigger.assign ?? true,
-      passContext: trigger.passContext ?? true,
       fireOnCreate: trigger.fireOnCreate ?? false,
     };
   }
@@ -747,7 +746,6 @@ export class TaskService {
       templateId: string;
       agentType: AgentType | null;
       model: string | null;
-      passContext: boolean;
     },
     caller: TaskCaller
   ): Promise<AgentRecord> {
@@ -766,9 +764,9 @@ export class TaskService {
         "task title": task.title,
         "task body": task.body,
       },
-      ...(launch.passContext
-        ? { appendix: buildTaskBriefing({ task, project, column }) }
-        : {}),
+      // The task always rides along in full: a template never has to
+      // place it, and an agent launched for a task always knows which.
+      appendix: buildTaskBriefing({ task, project, column }),
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
       ...(launch.model ? { model: launch.model } : {}),
     });
@@ -843,12 +841,7 @@ export class TaskService {
       const actor = actorOf(caller);
       let agent: AgentRecord;
       try {
-        agent = await this.launchFor(
-          task,
-          column,
-          { ...launch, passContext: true },
-          caller
-        );
+        agent = await this.launchFor(task, column, launch, caller);
       } catch (error) {
         throw invalid(errorMessage(error));
       }

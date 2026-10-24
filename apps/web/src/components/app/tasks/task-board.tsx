@@ -237,7 +237,9 @@ function BoardColumn({
         items={columnTasks.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
       >
-        <div className="min-h-16 flex-1 space-y-2 overflow-y-auto overscroll-contain px-2 pb-1 pt-2">
+        {/* Only the vertical axis is contained: a sideways wheel or swipe
+            over the cards still chains up to scroll the board. */}
+        <div className="min-h-16 flex-1 space-y-2 overflow-y-auto overscroll-y-contain px-2 pb-1 pt-2">
           {columnTasks.map((task) => (
             <TaskCard
               key={task.id}

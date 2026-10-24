@@ -80,7 +80,6 @@ const column = {
     agentType: null,
     model: null,
     assign: false,
-    passContext: true,
     fireOnCreate: false,
   },
 } as unknown as TaskColumn;

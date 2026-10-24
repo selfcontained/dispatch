@@ -19,7 +19,6 @@ const TriggerSchema = z.object({
   agentType: z.enum(AGENT_TYPES).nullable().optional(),
   model: z.string().nullable().optional(),
   assign: z.boolean().optional(),
-  passContext: z.boolean().optional(),
   fireOnCreate: z.boolean().optional(),
 });
 

@@ -14,24 +14,37 @@ import "./index.css";
 // preventDefault on touchmove so iOS does nothing.
 if (window.matchMedia("(pointer: coarse) and (min-width: 768px)").matches) {
   let touchStartTarget: Element | null = null;
+  let touchStart = { x: 0, y: 0 };
+  const scrolls = (value: string) => value === "auto" || value === "scroll";
   document.addEventListener(
     "touchstart",
     (e) => {
       touchStartTarget = (e.target as Element | null) ?? null;
+      const touch = e.touches[0];
+      touchStart = touch
+        ? { x: touch.clientX, y: touch.clientY }
+        : { x: 0, y: 0 };
     },
     { passive: true }
   );
   document.addEventListener(
     "touchmove",
     (e) => {
+      // The gesture's axis decides which scrollers count: a sideways swipe
+      // over a Tasks column must reach the board around it, a vertical one
+      // the list it is in.
+      const touch = e.touches[0];
+      const horizontal = touch
+        ? Math.abs(touch.clientX - touchStart.x) >
+          Math.abs(touch.clientY - touchStart.y)
+        : false;
       let el: Element | null = touchStartTarget;
       while (el && el !== document.body) {
         const style = window.getComputedStyle(el);
-        const overflowY = style.overflowY;
-        if (
-          (overflowY === "auto" || overflowY === "scroll") &&
-          el.scrollHeight > el.clientHeight
-        ) {
+        const scrollable = horizontal
+          ? scrolls(style.overflowX) && el.scrollWidth > el.clientWidth
+          : scrolls(style.overflowY) && el.scrollHeight > el.clientHeight;
+        if (scrollable) {
           return; // touch is in a real scroll container — let it scroll
         }
         el = el.parentElement;

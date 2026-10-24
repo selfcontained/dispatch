@@ -271,7 +271,6 @@ describe("columns", () => {
       agentType: null,
       model: null,
       assign: true,
-      passContext: true,
       fireOnCreate: false,
     });
   });
@@ -354,14 +353,16 @@ describe("triggers", () => {
     expect(detail.assignedAgentId).toBeNull();
   });
 
-  it("leaves the briefing off without passContext", async () => {
-    const ready = await withTrigger("ready", {
-      passContext: false,
-      assign: false,
-    });
-    const task = await service.createTask({ projectId, title: "t" }, USER);
+  it("always appends the task briefing, assigning or not", async () => {
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      { projectId, title: "Ship it", body: "Acceptance: it ships." },
+      USER
+    );
     await service.updateTask(task.id, { columnId: ready }, USER);
-    expect(launches[0]!.appendix).toBeUndefined();
+    expect(launches[0]!.appendix).toContain(task.id);
+    expect(launches[0]!.appendix).toContain("Ship it");
+    expect(launches[0]!.appendix).toContain("Acceptance: it ships.");
   });
 
   it("fires on create only with fireOnCreate", async () => {

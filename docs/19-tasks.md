@@ -27,7 +27,6 @@ A task's `latestFailure` is computed on read: the newest `trigger_failed` with n
   "agentType": null,
   "model": null,
   "assign": true,
-  "passContext": true,
   "fireOnCreate": false
 }
 ```
@@ -35,7 +34,7 @@ A task's `latestFailure` is computed on read: the newest `trigger_failed` with n
 Only `templateId` is required when setting one; the rest default as shown. The template must belong to the project, or have no project and the project's repo as its directory. `agentType`/`model` override the template's and are validated the way templates validate them.
 
 - A trigger fires only when a task **enters** its column: a `columnId` change, or a create in that column when `fireOnCreate` is set. Edits and reorders inside the column never fire.
-- The launch goes through `TemplateService.launchTemplate` as a top-level agent in the task's project. The template always receives the args `Task ID`, `Task Title` and `Task Body`. With `passContext`, the task briefing (task, project, column, links, body and how to use the task tools) is appended to the rendered prompt.
+- The launch goes through `TemplateService.launchTemplate` as a top-level agent in the task's project. The task briefing (task, project, column, links, body and how to use the task tools) is always appended to the rendered prompt, so any template works as-is; the args `Task ID`, `Task Title` and `Task Body` are also available to templates that want to place them.
 - If the task's assigned agent is still `running`/`creating`, the move is refused with 409 `{ code: "agent_working", agent: { id, name } }` and nothing changes. Retry with `confirmRelaunch: true` to launch anyway. An agent moving its own task is handing it off and is never refused.
 - Success records `trigger_launched`. With `assign`, the new agent becomes the task's agent (role `trigger`); the previous one stays in `task_agents`.
 - A failure (missing template, launch error) never undoes the move. It records `trigger_failed { templateId, reason }`, which the card shows through `latestFailure`.

@@ -55,7 +55,6 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
             agentType: null,
             model: null,
             assign: true,
-            passContext: true,
             fireOnCreate: false,
           },
         },
@@ -181,6 +180,25 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       "aria-hidden",
       "true"
     );
+    // A sideways wheel over a column's cards scrolls the board.
+    await page.setViewportSize({ width: 900, height: 700 });
+    const backlogBox = (await page
+      .getByTestId("task-column-backlog")
+      .boundingBox())!;
+    await page.mouse.move(
+      backlogBox.x + backlogBox.width / 2,
+      backlogBox.y + backlogBox.height / 2
+    );
+    await page.mouse.wheel(300, 0);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.querySelector('[data-testid="tasks-board"]')!.scrollLeft
+        )
+      )
+      .toBeGreaterThan(0);
+    await page.setViewportSize({ width: 1280, height: 720 });
     // The column wears its automation as a rule; clicking it edits.
     const strip = page.getByTestId("task-column-automation-ready");
     await expect(strip).toContainText("launches Tasks builder");

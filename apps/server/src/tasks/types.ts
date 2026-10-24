@@ -19,11 +19,6 @@ export type TaskColumnTrigger = {
   model: string | null;
   /** Assign the launched agent to the task and show it on the card. */
   assign: boolean;
-  /**
-   * Render the task into the template (`{{D:Task ID}}`, `{{D:Task Title}}`,
-   * `{{D:Task Body}}`) and append the task briefing to the launch prompt.
-   */
-  passContext: boolean;
   /** Also fire when a task is created directly in this column. */
   fireOnCreate: boolean;
 };

@@ -88,7 +88,6 @@ const empty = {
   agentType: null,
   model: null,
   assign: true,
-  passContext: true,
   fireOnCreate: false,
 } satisfies TaskColumnTrigger;
 export function TaskAutomationDialog({
@@ -130,7 +129,7 @@ export function TaskAutomationDialog({
     chosen?.agentType ??
     "claude") as AgentType;
   const models = useAgentModelCatalog(agentType);
-  const toggle = (key: "assign" | "passContext" | "fireOnCreate") =>
+  const toggle = (key: "assign" | "fireOnCreate") =>
     setTrigger((old) => ({ ...old, [key]: !old[key] }));
   const save = async () => {
     await actions.updateColumn.mutateAsync({
@@ -224,7 +223,6 @@ export function TaskAutomationDialog({
           {(
             [
               ["assign", "Assign the launched agent"],
-              ["passContext", "Pass task as context"],
               ["fireOnCreate", "Also fire when created here"],
             ] as const
           ).map(([key, label]) => (
@@ -238,7 +236,7 @@ export function TaskAutomationDialog({
           ))}
           <p className="rounded bg-muted/50 p-2 text-xs text-muted-foreground">
             {chosen
-              ? `Entering ${column.name} launches ${chosen.name}${trigger.assign ? " and assigns the agent" : ""}.`
+              ? `Entering ${column.name} launches ${chosen.name}${trigger.assign ? " and assigns the agent" : ""}. The agent gets the full task (title, body, links, column) with its prompt; the template needs no placeholders.`
               : "Choose a project template to configure this column."}
           </p>
           <div className="flex flex-wrap justify-between gap-2">
