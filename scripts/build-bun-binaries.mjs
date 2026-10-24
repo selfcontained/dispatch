@@ -20,6 +20,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const outDir = path.join(repoRoot, "dist", "bun");
+// Kept out of dist/bun so the server tarball and its checksums stay
+// Mac/Linux only; the release attaches the .exe as its own asset.
+const windowsOutDir = path.join(repoRoot, "dist", "bun-windows");
 const entrypoint = path.join(repoRoot, "apps", "server", "src", "main.ts");
 const version = JSON.parse(
   readFileSync(path.join(repoRoot, "package.json"), "utf8")
@@ -30,6 +33,7 @@ const defaultTargets = [
   "bun-darwin-arm64",
   "bun-linux-x64",
   "bun-linux-arm64",
+  "bun-windows-x64",
 ];
 const bundleIdentifier =
   process.env.DISPATCH_MACOS_BUNDLE_ID ?? "dev.bradharris.dispatch";
@@ -49,6 +53,10 @@ if (shouldNotarizeMacos && !process.env.DISPATCH_CODESIGN_IDENTITY) {
   );
   process.exit(1);
 }
+
+const isWindows = (target) => target.startsWith("bun-windows-");
+const artifactName = (target) =>
+  `dispatch-${version}-${target}${isWindows(target) ? ".exe" : ""}`;
 
 function parseTargets(rawTargets) {
   if (!rawTargets?.trim()) return defaultTargets;
@@ -153,7 +161,7 @@ function writeChecksums() {
     checksumLines
       .map((line) => line.split(/\s+/))
       .filter(([, name]) =>
-        targets.some((target) => name === `dispatch-${version}-${target}`)
+        targets.some((target) => name === artifactName(target))
       )
       .map(([sha256, name]) => [name, { protocol: 1, sha256 }])
   );
@@ -182,14 +190,19 @@ function run(command, args) {
   }
 }
 
-rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
+for (const dir of [outDir, windowsOutDir]) {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+}
 
 run("pnpm", ["run", "build:web"]);
 run("bun", ["scripts/generate-server-runtime-assets.mjs"]);
 
 for (const target of targets) {
-  const outfile = path.join(outDir, `dispatch-${version}-${target}`);
+  const outfile = path.join(
+    isWindows(target) ? windowsOutDir : outDir,
+    artifactName(target)
+  );
   run("bun", [
     "build",
     "--compile",
@@ -201,8 +214,22 @@ for (const target of targets) {
   if (target.startsWith("bun-darwin-")) {
     signAndMaybeNotarizeMacosBinary(outfile);
   }
+  if (isWindows(target)) {
+    const sha256 = createHash("sha256")
+      .update(readFileSync(outfile))
+      .digest("hex");
+    writeFileSync(
+      `${outfile}.sha256`,
+      `${sha256}  ${path.basename(outfile)}\n`,
+      "utf8"
+    );
+  }
 }
 
 writeChecksums();
 
-console.log(`Built Bun binaries in ${path.relative(repoRoot, outDir)}`);
+console.log(
+  `Built Bun binaries in ${[outDir, windowsOutDir]
+    .map((dir) => path.relative(repoRoot, dir))
+    .join(" and ")}`
+);

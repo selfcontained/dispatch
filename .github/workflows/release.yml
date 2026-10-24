@@ -354,6 +354,7 @@ jobs:
           if-no-files-found: error
           path: |
             dist/bun/
+            dist/bun-windows/
             dispatch-server.tar.gz
             release-notes/current.md
           retention-days: 7
@@ -726,7 +727,9 @@ jobs:
             --notes-file release-notes/current.md \
             --prerelease \
             dispatch-server.tar.gz \
-            macos/dispatch-macos-*-arm64.zip
+            macos/dispatch-macos-*-arm64.zip \
+            dist/bun-windows/dispatch-*-bun-windows-x64.exe \
+            dist/bun-windows/dispatch-*-bun-windows-x64.exe.sha256
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
