@@ -34,7 +34,7 @@ A task's `latestFailure` is computed on read: the newest `trigger_failed` with n
 Only `templateId` is required when setting one; the rest default as shown. The template must belong to the project, or have no project and the project's repo as its directory. `agentType`/`model` override the template's and are validated the way templates validate them.
 
 - A trigger fires only when a task **enters** its column: a `columnId` change, or a create in that column when `fireOnCreate` is set. Edits and reorders inside the column never fire.
-- The launch goes through `TemplateService.launchTemplate` as a top-level agent in the task's project. The task briefing (task, project, column, links, body and how to use the task tools) is always appended to the rendered prompt, so any template works as-is; the args `Task ID`, `Task Title` and `Task Body` are also available to templates that want to place them.
+- The launch goes through `TemplateService.launchTemplate` as a top-level agent in the task's project. The task briefing (task, project, column, links, body, the board's columns and how to use the task tools) is always appended to the rendered prompt, so any template works as-is. Its columns line lists the board's keys in order, marking the task's column, the done columns and each trigger's template, e.g. `Columns: backlog → ready (you are here) → in_progress → in_review (launches "Code review") → done (completes the task)`, so an agent can move the task without calling `task_list` first; the args `Task ID`, `Task Title` and `Task Body` are also available to templates that want to place them.
 - If the task's assigned agent is still `running`/`creating`, the move is refused with 409 `{ code: "agent_working", agent: { id, name } }` and nothing changes. Retry with `confirmRelaunch: true` to launch anyway. An agent moving its own task is handing it off and is never refused.
 - Success records `trigger_launched`. With `assign`, the new agent becomes the task's agent (role `trigger`); the previous one stays in `task_agents`.
 - A failure (missing template, launch error) never undoes the move. It records `trigger_failed { templateId, reason }`, which the card shows through `latestFailure`.
@@ -59,7 +59,7 @@ Available to agents and job agents. They act on the caller's project only: its o
 | Tool           | Does                                                                                                                  |
 | -------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `task_list`    | Thin rows `{ id, title, column, assignedAgentId, updatedAt }`; filter by `column` key or `assignedToMe`               |
-| `task_get`     | The task with its agents and its last 30 events                                                                       |
+| `task_get`     | The task with its column key, its agents and its last 30 events                                                       |
 | `task_create`  | Create in the first column or a named `column` key; returns `{ id, column }`                                          |
 | `task_update`  | Edit title/body, move with `column` (key), `assign: "self" \| "none"`, append `links` (deduped by url)                |
 | `task_comment` | Post at the top of the task's conversation; `to` delivers it to another agent on the task; caller must be on the task |
