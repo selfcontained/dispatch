@@ -424,6 +424,7 @@ export function TaskDetailPanel({
                           )}
                           agents={agents}
                           projectId={projectId}
+                          fullWidth
                         />
                         <span
                           className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground"

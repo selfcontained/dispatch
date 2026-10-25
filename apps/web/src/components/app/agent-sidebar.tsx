@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { partitionAgentsByLineage } from "@/lib/agent-lineage";
+import { cachedAgentLineage } from "@/lib/agent-lineage";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
@@ -110,7 +110,7 @@ export function AgentListContent({
       : (enabledAgentTypes[0] ?? "codex");
   const showCreateTypePicker = enabledAgentTypes.length > 1;
   const { topLevel: topLevelAgents, subAgentsByCardId } = useMemo(
-    () => partitionAgentsByLineage(agents),
+    () => cachedAgentLineage(agents),
     [agents]
   );
   const topLevelAgentIds = useMemo(

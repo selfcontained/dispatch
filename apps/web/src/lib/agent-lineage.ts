@@ -79,6 +79,26 @@ export function partitionAgentsByLineage<
   return { topLevel, subAgentsByCardId };
 }
 
+const lineageByAgents = new WeakMap<
+  readonly object[],
+  ReturnType<typeof partitionAgentsByLineage>
+>();
+
+/** Reuse one lineage projection across the sidebar and task surfaces for an agent-list snapshot. */
+export function cachedAgentLineage<
+  T extends { id: string; parentAgentId?: string | null },
+>(
+  agents: readonly T[]
+): { topLevel: T[]; subAgentsByCardId: Map<string, T[]> } {
+  const cached = lineageByAgents.get(agents) as
+    | ReturnType<typeof partitionAgentsByLineage<T>>
+    | undefined;
+  if (cached) return cached;
+  const partition = partitionAgentsByLineage([...agents]);
+  lineageByAgents.set(agents, partition);
+  return partition;
+}
+
 /**
  * Everything that would be archived with `rootId`, to any depth. Mirrors the
  * server cascade: `parentAgentId` only, so a `child: false` agent is left out.
