@@ -89,10 +89,6 @@ test("re-entering a trigger replaces an old failure with launch progress", async
       .getByRole("button", { name: "Ready" })
       .click();
     await expect(card.getByText(/launch failed/)).toBeVisible();
-    await page.screenshot({
-      path: "/tmp/dispatch-trigger-failed.png",
-      scale: "device",
-    });
     const valid = await makeTemplate();
     await configure(valid.id);
     expect(
@@ -105,11 +101,13 @@ test("re-entering a trigger replaces an old failure with launch progress", async
     ).toBeTruthy();
     await expect(card.getByText(/launch failed/)).toHaveCount(0);
 
-    // Hold the inert agent insert briefly so the published launch state is observable.
+    // Hold this project's agent insert briefly so the published launch state
+    // is observable; other workers' agents insert at full speed.
     await pool.query(`CREATE FUNCTION e2e_slow_task_launch() RETURNS trigger AS $$
       BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$ LANGUAGE plpgsql`);
     await pool.query(`CREATE TRIGGER e2e_slow_task_launch BEFORE INSERT ON agents
-      FOR EACH ROW EXECUTE FUNCTION e2e_slow_task_launch()`);
+      FOR EACH ROW WHEN (NEW.project_id = '${project.id}')
+      EXECUTE FUNCTION e2e_slow_task_launch()`);
     const moving = request.patch(`/api/v1/tasks/${task.id}`, {
       headers,
       data: { columnId: ready.id },
@@ -118,17 +116,9 @@ test("re-entering a trigger replaces an old failure with launch progress", async
       "Launching Lifecycle builder…"
     );
     await expect(card.getByText(/launch failed/)).toHaveCount(0);
-    await page.screenshot({
-      path: "/tmp/dispatch-trigger-launching.png",
-      scale: "device",
-    });
     expect((await moving).ok()).toBeTruthy();
     await expect(card.locator("a[href*='/agents/']")).toBeVisible();
     await expect(card.getByTestId(`task-launching-${task.id}`)).toHaveCount(0);
-    await page.screenshot({
-      path: "/tmp/dispatch-trigger-launched.png",
-      scale: "device",
-    });
   } finally {
     await pool.query("DROP TRIGGER IF EXISTS e2e_slow_task_launch ON agents");
     await pool.query("DROP FUNCTION IF EXISTS e2e_slow_task_launch()");
