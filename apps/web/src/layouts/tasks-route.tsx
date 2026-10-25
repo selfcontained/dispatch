@@ -253,9 +253,12 @@ function TasksContent({ projectId }: { projectId: string }) {
             <Button
               size="sm"
               variant={archived ? "default" : "ghost"}
+              // Ghost reserves the 1px border the selected variant draws, so
+              // toggling never changes the control's size.
               className={cn(
-                archived &&
-                  "bg-primary/20 text-primary ring-1 ring-primary/40 hover:bg-primary/25"
+                archived
+                  ? "bg-primary/20 text-primary ring-1 ring-primary/40 hover:bg-primary/25"
+                  : "border border-transparent"
               )}
               aria-pressed={archived}
               onClick={() => updateParam("view", archived ? null : "archived")}
@@ -269,7 +272,10 @@ function TasksContent({ projectId }: { projectId: string }) {
                 aria-pressed={layout === "board"}
                 onClick={() => setLayout("board")}
                 aria-label="Board layout"
-                className="h-7 px-2"
+                className={cn(
+                  "h-7 px-2",
+                  layout !== "board" && "border border-transparent"
+                )}
               >
                 <LayoutGrid className="h-4 w-4 md:mr-1" />
                 <span className="hidden md:inline">Board</span>
@@ -280,7 +286,10 @@ function TasksContent({ projectId }: { projectId: string }) {
                 aria-pressed={layout === "list"}
                 onClick={() => setLayout("list")}
                 aria-label="List layout"
-                className="h-7 px-2"
+                className={cn(
+                  "h-7 px-2",
+                  layout !== "list" && "border border-transparent"
+                )}
               >
                 <List className="h-4 w-4 md:mr-1" />
                 <span className="hidden md:inline">List</span>
