@@ -194,6 +194,20 @@ describe("TemplateService.launchTemplate without a saved prompt", () => {
     );
   });
 
+  it("still renders variables and appends the appendix when a prompt is saved", async () => {
+    const { service, createAgent } = serviceFor({
+      prompt: "Build {{D:Task ID}}",
+    });
+    await service.launchTemplate({
+      templateId: "tmpl_123",
+      args: { "task id": "tsk_1" },
+      appendix: "Brief",
+    });
+    expect(createAgent.mock.calls[0][0].initialPrompt).toBe(
+      "Build tsk_1\n\nBrief"
+    );
+  });
+
   it("treats a blank prompt as no prompt", async () => {
     const { service, createAgent } = serviceFor({ prompt: "  \n" });
     await service.launchTemplate({ templateId: "tmpl_123", appendix: "Brief" });

@@ -410,7 +410,7 @@ describe("triggers", () => {
     }
   );
 
-  it("fires a prompt-less persona template with the briefing as its prompt", async () => {
+  it("launches a prompt-less persona template with the briefing as its prompt", async () => {
     const prompted: Array<string | undefined> = [];
     const promptless = template({
       id: TEMPLATE_ID,
@@ -447,6 +447,12 @@ describe("triggers", () => {
     expect(prompted[0]).toContain("Acceptance: it ships.");
     const detail = await service.getTaskDetail(task.id);
     expect(detail.events.map((e) => e.kind)).not.toContain("trigger_failed");
+
+    // A manual launch takes the same path.
+    await service.launchAgent(task.id, { templateId: TEMPLATE_ID }, USER);
+    expect(prompted).toHaveLength(2);
+    expect(prompted[1]).toMatch(/^## Dispatch task/);
+    expect(prompted[1]).toContain(task.id);
   });
 
   it("always appends the task briefing, assigning or not", async () => {
