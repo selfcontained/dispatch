@@ -282,6 +282,7 @@ export function registerTaskTools(
             assignedAgentId: updated.assignedAgentId,
             links: updated.links,
             latestFailure: updated.latestFailure,
+            launching: updated.launching,
           });
         } catch (error) {
           return toTaskToolError(error);

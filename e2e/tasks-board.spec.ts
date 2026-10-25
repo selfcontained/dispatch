@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { Pool } from "pg";
 import { loadApp, seedBlockViaDB } from "./helpers";
 const headers = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -10,6 +11,121 @@ const headers = {
 const repo = mkdtempSync(join(tmpdir(), "dispatch-tasks-"));
 execFileSync("git", ["init", repo]);
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
+test("re-entering a trigger replaces an old failure with launch progress", async ({
+  page,
+  request,
+}) => {
+  const projectResponse = await request.post("/api/v1/projects", {
+    headers,
+    data: { name: "Trigger lifecycle", repoRoot: repo, color: "#7c6ee6" },
+  });
+  expect(projectResponse.ok()).toBeTruthy();
+  const project = await projectResponse.json();
+  const board = await (
+    await request.get(`/api/v1/projects/${project.id}/tasks/board`, { headers })
+  ).json();
+  const backlog = board.columns.find(
+    (column: { key: string }) => column.key === "backlog"
+  );
+  const ready = board.columns.find(
+    (column: { key: string }) => column.key === "ready"
+  );
+  const makeTemplate = async () => {
+    const response = await request.post("/api/v1/templates", {
+      headers,
+      data: {
+        name: "Lifecycle builder",
+        directory: repo,
+        projectId: project.id,
+        agentType: "codex",
+        prompt: "Work on {{D:Task Title}}",
+      },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return await response.json();
+  };
+  const missing = await makeTemplate();
+  const configure = async (templateId: string) => {
+    const response = await request.patch(`/api/v1/task-columns/${ready.id}`, {
+      headers,
+      data: {
+        trigger: {
+          templateId,
+          agentType: null,
+          model: null,
+          assign: true,
+          fireOnCreate: false,
+        },
+      },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+  };
+  await configure(missing.id);
+  expect(
+    (await request.delete(`/api/v1/templates/${missing.id}`, { headers })).ok()
+  ).toBeTruthy();
+  const taskResponse = await request.post("/api/v1/tasks", {
+    headers,
+    data: {
+      projectId: project.id,
+      columnId: backlog.id,
+      title: "Retry launch",
+    },
+  });
+  expect(taskResponse.ok()).toBeTruthy();
+  const task = await taskResponse.json();
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    await loadApp(page);
+    await page.goto(`/tasks?project=${project.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const card = page.getByTestId(`task-card-${task.id}`);
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: "Retry launch actions" }).click();
+    await page.getByRole("menuitem", { name: "Move to…" }).click();
+    await page
+      .getByTestId("task-move-sheet")
+      .getByRole("button", { name: "Ready" })
+      .click();
+    await expect(card.getByText(/launch failed/)).toBeVisible();
+    const valid = await makeTemplate();
+    await configure(valid.id);
+    expect(
+      (
+        await request.patch(`/api/v1/tasks/${task.id}`, {
+          headers,
+          data: { columnId: backlog.id },
+        })
+      ).ok()
+    ).toBeTruthy();
+    await expect(card.getByText(/launch failed/)).toHaveCount(0);
+
+    // Hold this project's agent insert briefly so the published launch state
+    // is observable; other workers' agents insert at full speed.
+    await pool.query(`CREATE FUNCTION e2e_slow_task_launch() RETURNS trigger AS $$
+      BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$ LANGUAGE plpgsql`);
+    await pool.query(`CREATE TRIGGER e2e_slow_task_launch BEFORE INSERT ON agents
+      FOR EACH ROW WHEN (NEW.project_id = '${project.id}')
+      EXECUTE FUNCTION e2e_slow_task_launch()`);
+    const moving = request.patch(`/api/v1/tasks/${task.id}`, {
+      headers,
+      data: { columnId: ready.id },
+    });
+    await expect(card.getByTestId(`task-launching-${task.id}`)).toContainText(
+      "Launching Lifecycle builder…"
+    );
+    await expect(card.getByText(/launch failed/)).toHaveCount(0);
+    expect((await moving).ok()).toBeTruthy();
+    await expect(card.locator("a[href*='/agents/']")).toBeVisible();
+    await expect(card.getByTestId(`task-launching-${task.id}`)).toHaveCount(0);
+  } finally {
+    await pool.query("DROP TRIGGER IF EXISTS e2e_slow_task_launch ON agents");
+    await pool.query("DROP FUNCTION IF EXISTS e2e_slow_task_launch()");
+    await pool.end();
+    await request.delete(`/api/v1/projects/${project.id}`, { headers });
+  }
+});
 test("task moves into automation, opens detail, and renders list on mobile", async ({
   page,
   request,

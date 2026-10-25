@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { TaskAgent } from "./task-agent";
+import { TaskLaunching } from "./task-launching";
 import { columnAccent, groupTasks, taskAge } from "./task-utils";
 import { ColumnAutomationStrip } from "./task-automation-dialog";
 import { ChevronDown } from "lucide-react";
@@ -136,20 +137,24 @@ export function TaskList({
                     />
                   </div>
                   <div className="hidden md:block">
-                    <TaskAgent
-                      agent={agents.find(
-                        (agent) => agent.id === task.assignedAgentId
-                      )}
-                      agents={agents}
-                      projectId={task.projectId}
-                      compact
-                    />
+                    {task.launching ? (
+                      <TaskLaunching task={task} columns={board.columns} />
+                    ) : (
+                      <TaskAgent
+                        agent={agents.find(
+                          (agent) => agent.id === task.assignedAgentId
+                        )}
+                        agents={agents}
+                        projectId={task.projectId}
+                        compact
+                      />
+                    )}
                   </div>
                   <span className="text-right text-xs text-muted-foreground">
                     {taskAge(task.createdAt)}
                   </span>
                   <div className="col-span-2 flex flex-wrap items-center gap-2 md:col-span-1">
-                    {task.latestFailure && (
+                    {task.latestFailure && !task.launching && (
                       <span
                         className="text-xs text-destructive"
                         title={task.latestFailure.reason}
@@ -169,14 +174,18 @@ export function TaskList({
                         </a>
                       ))}
                     <div className="flex min-w-0 items-center gap-2 md:hidden">
-                      <TaskAgent
-                        agent={agents.find(
-                          (agent) => agent.id === task.assignedAgentId
-                        )}
-                        agents={agents}
-                        projectId={task.projectId}
-                        compact
-                      />
+                      {task.launching ? (
+                        <TaskLaunching task={task} columns={board.columns} />
+                      ) : (
+                        <TaskAgent
+                          agent={agents.find(
+                            (agent) => agent.id === task.assignedAgentId
+                          )}
+                          agents={agents}
+                          projectId={task.projectId}
+                          compact
+                        />
+                      )}
                     </div>
                     <div className="ml-auto md:hidden">
                       <StatusSelect

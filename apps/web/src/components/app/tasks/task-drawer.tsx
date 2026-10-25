@@ -577,7 +577,9 @@ export function TaskDetailPanel({
                     {task.events.map((event) => (
                       <li key={event.id} className="text-xs">
                         <span className="font-medium">
-                          {event.kind.replaceAll("_", " ")}
+                          {event.kind === "trigger_launching"
+                            ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
+                            : event.kind.replaceAll("_", " ")}
                         </span>
                         <span className="ml-2 text-muted-foreground">
                           {ago(event.createdAt)}

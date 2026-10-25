@@ -76,21 +76,22 @@ function toColumn(row: ColumnRow): TaskColumn {
   };
 }
 
-/**
- * A task's latest failure is the newest `trigger_failed` with no launch at
- * or after it — computed here so every read carries it without a cache to
- * keep in step with the event log.
- */
+/** Derive transient trigger state from the ordered event log on every read. */
 const TASK_SELECT = `
   t.id, t.project_id, t.column_id, t.title, t.body, t.position,
   t.assigned_agent_id, t.links, t.created_by_kind, t.created_by_agent_id,
   t.completed_at, t.created_at, t.updated_at,
-  f.reason AS failure_reason, f.created_at AS failure_at
+  f.reason AS failure_reason, f.created_at AS failure_at,
+  l.template_id AS launching_template_id, l.created_at AS launching_at
   FROM tasks t
   LEFT JOIN LATERAL (
     SELECT e.data->>'reason' AS reason, e.created_at
     FROM task_events e
     WHERE e.task_id = t.id AND e.kind = 'trigger_failed'
+      AND e.created_at >= COALESCE((
+        SELECT max(entry.created_at) FROM task_events entry
+        WHERE entry.task_id = t.id AND entry.kind IN ('moved', 'created')
+      ), t.created_at)
       AND NOT EXISTS (
         SELECT 1 FROM task_events s
         WHERE s.task_id = t.id
@@ -99,7 +100,20 @@ const TASK_SELECT = `
       )
     ORDER BY e.created_at DESC
     LIMIT 1
-  ) f ON true`;
+  ) f ON true
+  LEFT JOIN LATERAL (
+    SELECT e.data->>'templateId' AS template_id, e.created_at
+    FROM task_events e
+    WHERE e.task_id = t.id AND e.kind = 'trigger_launching'
+      AND NOT EXISTS (
+        SELECT 1 FROM task_events s
+        WHERE s.task_id = t.id
+          AND s.kind IN ('trigger_launched', 'trigger_failed', 'moved')
+          AND s.created_at >= e.created_at
+      )
+    ORDER BY e.created_at DESC
+    LIMIT 1
+  ) l ON true`;
 
 type TaskRow = {
   id: string;
@@ -117,6 +131,8 @@ type TaskRow = {
   updated_at: Date;
   failure_reason: string | null;
   failure_at: Date | null;
+  launching_template_id: string | null;
+  launching_at: Date | null;
 };
 
 function toTask(row: TaskRow): Task {
@@ -133,6 +149,13 @@ function toTask(row: TaskRow): Task {
     latestFailure:
       row.failure_at !== null
         ? { reason: row.failure_reason ?? "", at: iso(row.failure_at)! }
+        : null,
+    launching:
+      row.launching_at !== null
+        ? {
+            templateId: row.launching_template_id ?? "",
+            at: iso(row.launching_at)!,
+          }
         : null,
     completedAt: iso(row.completed_at),
     createdAt: iso(row.created_at)!,
@@ -596,7 +619,7 @@ export class TaskStore {
 
   /**
    * `clock_timestamp()`, not `now()`: several events written in one request
-   * must keep their order, and `latestFailure` compares them by time.
+   * must keep their order; trigger projections compare them by time.
    */
   async insertEvent(
     taskId: string,

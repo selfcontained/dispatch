@@ -380,7 +380,11 @@ export function TaskBoard({
           to fly there, losing the column it was just dropped in. */}
       <DragOverlay dropAnimation={null}>
         {activeTask ? (
-          <TaskCardOverlay task={activeTask} agents={agents} />
+          <TaskCardOverlay
+            task={activeTask}
+            columns={columns}
+            agents={agents}
+          />
         ) : null}
       </DragOverlay>
     </DndContext>

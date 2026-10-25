@@ -4,6 +4,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { TaskAgent } from "./task-agent";
+import { TaskLaunching } from "./task-launching";
 import { MENU_ITEM, taskAge } from "./task-utils";
 import { TaskMoveSheet } from "./task-move-sheet";
 import { GripVertical, MoreHorizontal } from "lucide-react";
@@ -126,7 +127,7 @@ export function TaskCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <TaskCardDetails task={task} agents={agents} />
+      <TaskCardDetails task={task} columns={columns} agents={agents} />
       <TaskMoveSheet
         task={task}
         columns={columns}
@@ -145,9 +146,11 @@ export function TaskCard({
 /** The card as it rides under a finger or pointer while dragging. */
 export function TaskCardOverlay({
   task,
+  columns,
   agents,
 }: {
   task: Task;
+  columns: TaskColumn[];
   agents: Agent[];
 }) {
   return (
@@ -166,17 +169,27 @@ export function TaskCardOverlay({
           {task.title}
         </span>
       </div>
-      <TaskCardDetails task={task} agents={agents} />
+      <TaskCardDetails task={task} columns={columns} agents={agents} />
     </article>
   );
 }
 
-function TaskCardDetails({ task, agents }: { task: Task; agents: Agent[] }) {
+function TaskCardDetails({
+  task,
+  columns,
+  agents,
+}: {
+  task: Task;
+  columns: TaskColumn[];
+  agents: Agent[];
+}) {
   const agent = agents.find((item) => item.id === task.assignedAgentId);
   return (
     <>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        {task.assignedAgentId ? (
+        {task.launching ? (
+          <TaskLaunching task={task} columns={columns} />
+        ) : task.assignedAgentId ? (
           <TaskAgent
             agent={agent}
             agents={agents}
@@ -198,7 +211,7 @@ function TaskCardDetails({ task, agents }: { task: Task; agents: Agent[] }) {
         </time>
       </div>
       {(task.links.some((link) => link.kind === "pr") ||
-        task.latestFailure) && (
+        (task.latestFailure && !task.launching)) && (
         <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
           {task.links
             .filter((link) => link.kind === "pr")
@@ -214,7 +227,7 @@ function TaskCardDetails({ task, agents }: { task: Task; agents: Agent[] }) {
                 {link.label}
               </a>
             ))}
-          {task.latestFailure && (
+          {task.latestFailure && !task.launching && (
             <span
               className="max-w-full truncate rounded bg-destructive/15 px-1.5 py-0.5 text-destructive"
               title={task.latestFailure.reason}
