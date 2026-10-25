@@ -13,7 +13,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("closes the mobile sheet on every section tap, Tasks included", () => {
+it("closes the mobile sheet on section taps, Tasks included", () => {
   const setMobileLeftOpen = vi.fn();
   const { result } = renderHook(() =>
     useSectionNavigate({ isMobile: true, setMobileLeftOpen })
@@ -22,12 +22,22 @@ it("closes the mobile sheet on every section tap, Tasks included", () => {
   expect(setMobileLeftOpen).toHaveBeenCalledWith(false);
   expect(setMobileLeftOpen).not.toHaveBeenCalledWith(true);
   expect(navigate).toHaveBeenCalledWith("/tasks");
-  for (const section of ["agents", "automations", "activity", "settings"]) {
+  for (const section of ["agents", "activity", "settings"]) {
     result.current(section as Parameters<typeof result.current>[0]);
   }
-  expect(setMobileLeftOpen).toHaveBeenCalledTimes(5);
+  expect(setMobileLeftOpen).toHaveBeenCalledTimes(4);
   expect(setMobileLeftOpen).not.toHaveBeenCalledWith(true);
   expect(navigate).toHaveBeenLastCalledWith("/settings");
+});
+
+it("keeps the sheet for Automations, whose pane is a select prompt", () => {
+  const setMobileLeftOpen = vi.fn();
+  const { result } = renderHook(() =>
+    useSectionNavigate({ isMobile: true, setMobileLeftOpen })
+  );
+  result.current("automations");
+  expect(setMobileLeftOpen).not.toHaveBeenCalled();
+  expect(navigate).toHaveBeenCalledWith("/automations");
 });
 
 it("leaves the sidebar alone on desktop", () => {

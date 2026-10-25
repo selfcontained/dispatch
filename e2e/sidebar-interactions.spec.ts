@@ -86,7 +86,12 @@ test.describe("Sidebar interactions", () => {
     await page.getByTestId("automations-button").click();
     await expect(page).toHaveURL(/\/automations$/);
 
-    // A section tap lands on its content; the sheet is one toggle away.
+    // Automations lands on an empty "Select a template" pane; its list is
+    // the sheet, so the sheet stays.
+    await expectMobileSidebarOpen(page);
+    // Elsewhere a section tap lands on its content, sheet closed.
+    await page.getByTestId("tasks-button").click();
+    await expect(page).toHaveURL(/\/tasks/);
     await expectMobileSidebarClosed(page);
     await page.getByTitle("Open sidebar").click();
     await expectMobileSidebarOpen(page);

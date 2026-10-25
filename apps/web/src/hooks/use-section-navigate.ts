@@ -10,11 +10,16 @@ const SECTION_PATHS: Record<NavSection, string> = {
   settings: "/settings",
 };
 
+// Automations lands on its Templates tab with none selected: the pane is a
+// "Select a template" prompt and the list is the sheet, so the sheet stays.
+const KEEPS_SHEET = new Set<NavSection>(["automations"]);
+
 /**
  * The nav bar's section taps. On a phone the nav sits in the sidebar sheet,
  * and a tap is a request for the section's content, so the sheet closes on
- * the way; its toggle opens it again. Agents is the one section that brings
- * the sheet back itself, when no agent is selected and its pane is empty.
+ * the way; its toggle opens it again. The exceptions land on an empty pane
+ * whose list is the sheet: Automations keeps it, and Agents brings it back
+ * itself while no agent is selected.
  */
 export function useSectionNavigate({
   isMobile,
@@ -26,7 +31,7 @@ export function useSectionNavigate({
   const navigate = useProjectNavigate();
   return useCallback(
     (section: NavSection) => {
-      if (isMobile) setMobileLeftOpen(false);
+      if (isMobile && !KEEPS_SHEET.has(section)) setMobileLeftOpen(false);
       navigate(SECTION_PATHS[section]);
     },
     [isMobile, navigate, setMobileLeftOpen]
