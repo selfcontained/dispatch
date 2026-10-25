@@ -745,7 +745,9 @@ describe("mobile terminal input", () => {
   it("submits text followed by Enter and clears after sending", async () => {
     const socket = await connectedPanel();
     fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
-    expect(screen.getByRole("dialog").textContent).toContain("user@host");
+    expect(screen.getByRole("dialog").textContent).toContain(
+      "Sending to workspace on host"
+    );
     const input = screen.getByRole("textbox", { name: "Terminal input text" });
     expect(document.activeElement).toBe(input);
     fireEvent.change(input, { target: { value: "hello\nworld" } });
