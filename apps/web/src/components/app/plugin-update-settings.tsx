@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, Download, RefreshCw } from "lucide-react";
+import { ChevronDown, Download, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -156,15 +156,15 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
       ) : null}
       <Button
         type="button"
-        variant="ghost"
+        variant="default"
         size="sm"
-        className="-ml-2 mt-2 h-7 px-2 text-xs text-muted-foreground"
+        className="mt-2 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
         aria-expanded={manualOpen}
         aria-controls={manualPanelId}
         onClick={() => setManualOpen((open) => !open)}
       >
-        <ChevronRight
-          className={`mr-1 h-3 w-3 transition-transform ${manualOpen ? "rotate-90" : ""}`}
+        <ChevronDown
+          className={`mr-1 h-3.5 w-3.5 transition-transform ${manualOpen ? "rotate-180" : ""}`}
         />
         Manual commands
       </Button>
