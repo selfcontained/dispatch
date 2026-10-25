@@ -5,8 +5,9 @@ import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { StatusSelect, TaskList } from "./task-list";
 import type { TaskBoard } from "@/hooks/use-tasks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-vi.mock("./task-automation-dialog", () => ({
-  ColumnAutomationStrip: () => null,
+vi.mock("./task-trigger-dialog", () => ({
+  ColumnTriggerStrip: () => null,
+  TaskTriggerDialog: () => null,
 }));
 vi.mock("@/components/ui/select", () => ({
   Select: ({

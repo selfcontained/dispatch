@@ -11,8 +11,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
-import { columnAccent, groupTasks, taskAge } from "./task-utils";
-import { ColumnAutomationStrip } from "./task-automation-dialog";
+import {
+  columnAccent,
+  groupTasks,
+  orderedColumns,
+  taskAge,
+} from "./task-utils";
+import { ColumnTriggerStrip } from "./task-trigger-dialog";
+import { TaskColumnMenu } from "./task-column-menu";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 export function TaskList({
@@ -35,6 +41,7 @@ export function TaskList({
   const [sort, setSort] = useState<
     "position" | "age" | "assignee" | "activity"
   >("position");
+  const columns = orderedColumns(board);
   const grouped = groupTasks(tasks, board.columns).filter(
     ({ column }) => !onlyColumnId || column.id === onlyColumnId
   );
@@ -85,36 +92,45 @@ export function TaskList({
           }
           className="mb-3 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40"
         >
-          <Button
-            variant="ghost"
-            aria-expanded={!collapsed.has(column.id)}
-            className="h-10 w-full justify-start gap-2 rounded-none bg-[hsl(var(--col)/0.08)] px-3 text-sm font-semibold hover:bg-[hsl(var(--col)/0.14)]"
-            onClick={() =>
-              setCollapsed((old) => {
-                const next = new Set(old);
-                if (next.has(column.id)) next.delete(column.id);
-                else next.add(column.id);
-                return next;
-              })
-            }
-          >
-            <ChevronDown
-              aria-hidden="true"
-              className={cn(
-                "h-4 w-4 text-muted-foreground transition-transform",
-                collapsed.has(column.id) && "-rotate-90"
-              )}
+          <div className="flex items-center bg-[hsl(var(--col)/0.08)] pr-2">
+            <Button
+              variant="ghost"
+              aria-expanded={!collapsed.has(column.id)}
+              className="h-10 min-w-0 flex-1 justify-start gap-2 rounded-none px-3 text-sm font-semibold hover:bg-[hsl(var(--col)/0.14)]"
+              onClick={() =>
+                setCollapsed((old) => {
+                  const next = new Set(old);
+                  if (next.has(column.id)) next.delete(column.id);
+                  else next.add(column.id);
+                  return next;
+                })
+              }
+            >
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "h-4 w-4 text-muted-foreground transition-transform",
+                  collapsed.has(column.id) && "-rotate-90"
+                )}
+              />
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
+              />
+              {column.name}
+              <span className="rounded-full bg-background/50 px-1.5 text-xs font-normal tabular-nums text-muted-foreground">
+                {group.length}
+              </span>
+            </Button>
+            <TaskColumnMenu
+              column={column}
+              columns={columns}
+              projectId={board.projectId}
+              taskCount={group.length}
+              orientation="vertical"
             />
-            <span
-              aria-hidden="true"
-              className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
-            />
-            {column.name}
-            <span className="rounded-full bg-background/50 px-1.5 text-xs font-normal tabular-nums text-muted-foreground">
-              {group.length}
-            </span>
-          </Button>
-          <ColumnAutomationStrip column={column} projectId={board.projectId} />
+          </div>
+          <ColumnTriggerStrip column={column} projectId={board.projectId} />
           {!collapsed.has(column.id) && (
             <div className="divide-y divide-border/30">
               {sortTasks(group).map((task) => (

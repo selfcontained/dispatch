@@ -25,27 +25,12 @@ import type {
 } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { TaskCard, TaskCardOverlay } from "./task-card";
-import {
-  MENU_ITEM,
-  columnAccent,
-  orderedColumns,
-  tasksInColumn,
-} from "./task-utils";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { columnAccent, orderedColumns, tasksInColumn } from "./task-utils";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  ColumnAutomationStrip,
-  TaskAutomationDialog,
-} from "./task-automation-dialog";
-import { useTaskActions } from "@/hooks/use-tasks";
+import { ColumnTriggerStrip } from "./task-trigger-dialog";
+import { TaskColumnMenu } from "./task-column-menu";
 
 /**
  * What is under the pointer wins, read from the DOM. dnd-kit's rect-based
@@ -113,8 +98,6 @@ function BoardColumn({
   /** Filtered out: collapsed to nothing, so the kept column slides over. */
   hidden: boolean;
 }) {
-  const actions = useTaskActions(projectId);
-  const [automation, setAutomation] = useState(false);
   const drop = useDroppable({
     id: `${COLUMN_PREFIX}${column.id}`,
     data: { columnId: column.id },
@@ -153,86 +136,15 @@ function BoardColumn({
         <span className="rounded-full bg-background/50 px-1.5 text-xs tabular-nums text-muted-foreground">
           {columnTasks.length}
         </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label={`${column.name} menu`}
-              className="h-7 w-7 text-muted-foreground"
-            >
-              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className={MENU_ITEM}
-              onSelect={() => {
-                const name = window.prompt("Column name", column.name);
-                if (name?.trim())
-                  void actions.updateColumn.mutateAsync({
-                    id: column.id,
-                    name: name.trim(),
-                  });
-              }}
-            >
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={MENU_ITEM}
-              onSelect={() => setAutomation(true)}
-            >
-              {column.trigger ? "Edit automation…" : "Add automation…"}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={MENU_ITEM}
-              disabled={index === 0}
-              onSelect={() =>
-                void actions.updateColumn.mutateAsync({
-                  id: column.id,
-                  position:
-                    index > 1
-                      ? (columns[index - 2].position +
-                          columns[index - 1].position) /
-                        2
-                      : columns[0].position - 1,
-                })
-              }
-            >
-              Move left
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={MENU_ITEM}
-              disabled={index === columns.length - 1}
-              onSelect={() =>
-                void actions.updateColumn.mutateAsync({
-                  id: column.id,
-                  position:
-                    index < columns.length - 2
-                      ? (columns[index + 1].position +
-                          columns[index + 2].position) /
-                        2
-                      : columns[columns.length - 1].position + 1,
-                })
-              }
-            >
-              Move right
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className={cn(MENU_ITEM, "text-destructive")}
-              disabled={columnTasks.length > 0}
-              onSelect={() => {
-                if (window.confirm(`Delete ${column.name}?`))
-                  void actions.removeColumn.mutateAsync(column.id);
-              }}
-            >
-              {columnTasks.length > 0 ? "Delete (empty it first)" : "Delete"}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <TaskColumnMenu
+          column={column}
+          columns={columns}
+          projectId={projectId}
+          taskCount={columnTasks.length}
+          orientation="horizontal"
+        />
       </header>
-      <ColumnAutomationStrip column={column} projectId={projectId} />
+      <ColumnTriggerStrip column={column} projectId={projectId} />
       <SortableContext
         items={columnTasks.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
@@ -263,12 +175,6 @@ function BoardColumn({
           Add task
         </Button>
       </div>
-      <TaskAutomationDialog
-        column={column}
-        projectId={projectId}
-        open={automation}
-        onOpenChange={setAutomation}
-      />
     </section>
   );
 }

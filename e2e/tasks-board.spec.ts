@@ -126,7 +126,7 @@ test("re-entering a trigger replaces an old failure with launch progress", async
     await request.delete(`/api/v1/projects/${project.id}`, { headers });
   }
 });
-test("task moves into automation, opens detail, and renders list on mobile", async ({
+test("task moves into a triggered column, opens detail, and renders list on mobile", async ({
   page,
   request,
 }) => {
@@ -334,11 +334,28 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     ).toHaveAttribute("data-state", "active");
     await page.getByRole("button", { name: "Close task" }).click();
     await page.getByRole("button", { name: "List layout" }).click();
-    await expect(page.getByTestId("tasks-list")).toBeVisible();
+    const list = page.getByTestId("tasks-list");
+    await expect(list).toBeVisible();
     await page.screenshot({
       path: "/tmp/dispatch-tasks-list.png",
       scale: "device",
     });
+    // A list group carries the board's column menu, trigger included.
+    await list.getByRole("button", { name: "Ready menu" }).click();
+    await expect(page.getByRole("menuitem", { name: "Move up" })).toBeVisible();
+    await page.getByRole("menuitem", { name: "Edit trigger…" }).click();
+    await expect(page.getByRole("dialog")).toContainText(
+      "already launches Tasks builder"
+    );
+    await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(
+      0
+    );
+    // Escape before the dialog takes focus can land on the closing menu.
+    await expect(
+      page.getByRole("dialog").getByRole("combobox", { name: "Template" })
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("button", { name: "Board layout" }).click();
     // A sidebar column is a filter: the others fold away; again clears it.
     await page.getByTestId("task-nav-column-ready").click();
@@ -408,11 +425,11 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       )
       .toBeGreaterThan(0);
     await page.setViewportSize({ width: 1280, height: 720 });
-    // The column wears its automation as a rule; clicking it edits.
-    const strip = page.getByTestId("task-column-automation-ready");
+    // The column wears its trigger as a rule; clicking it edits.
+    const strip = page.getByTestId("task-column-trigger-ready");
     await expect(strip).toContainText("launches Tasks builder");
     await page.getByRole("button", { name: "Ready menu" }).click();
-    await page.getByRole("menuitem", { name: "Edit automation…" }).click();
+    await page.getByRole("menuitem", { name: "Edit trigger…" }).click();
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
@@ -427,7 +444,7 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       "already launches Tasks builder"
     );
     await page.screenshot({
-      path: "/tmp/dispatch-tasks-automation.png",
+      path: "/tmp/dispatch-tasks-trigger.png",
       scale: "device",
     });
     await page.keyboard.press("Escape");
