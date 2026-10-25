@@ -214,7 +214,8 @@ export async function registerAgentCrudRoutes(
       return reply.code(400).send({ error: "Invalid project." });
     // Created for a task: briefed on it in its prompt, placed in its
     // project unless a location was chosen, and assigned once it exists.
-    let taskBriefing: { projectId: string; text: string } | null = null;
+    let taskBriefing: { projectId: string; text: string; name: string } | null =
+      null;
     if (body.taskId !== undefined) {
       if (typeof body.taskId !== "string" || !body.taskId)
         return reply.code(400).send({ error: "Invalid taskId." });
@@ -386,7 +387,10 @@ export async function registerAgentCrudRoutes(
 
       const agent = await deps.agentManager.createAgent(
         {
-          name: typeof body.name === "string" ? body.name : undefined,
+          name:
+            (typeof body.name === "string" && body.name.trim()) ||
+            taskBriefing?.name ||
+            undefined,
           type: agentType,
           cwd: typeof body.cwd === "string" ? body.cwd : "",
           projectId:

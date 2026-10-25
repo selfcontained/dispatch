@@ -24,6 +24,7 @@ import { templateWorktreeConfig } from "./worktree-config.js";
 import { assertAccessCeiling } from "../shared/access-ceiling.js";
 
 export type LaunchTemplateInput = {
+  name?: string;
   templateId: string;
   args?: Record<string, string>;
   directory?: string;
@@ -244,7 +245,7 @@ export class TemplateService {
       throw new Error("Project template directory cannot be overridden.");
     const cwd = input.directory ?? template.directory;
     const agent = await this.agentManager.createAgent({
-      name: sanitizeAgentName(template.name),
+      name: input.name?.trim() || sanitizeAgentName(template.name),
       type: resolvedType,
       model: resolvedModel,
       persona: template.persona ?? undefined,

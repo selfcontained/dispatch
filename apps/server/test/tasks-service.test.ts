@@ -384,6 +384,27 @@ describe("triggers", () => {
     expect(detail.assignedAgentId).toBeNull();
   });
 
+  it.each(["trigger", "manual"])(
+    "uses a short task name for a %s launch",
+    async (mode) => {
+      const ready = await withTrigger("ready");
+      const task = await service.createTask(
+        { projectId, title: "Implement task agent names across launch paths" },
+        USER
+      );
+      if (mode === "trigger")
+        await service.updateTask(task.id, { columnId: ready }, USER);
+      else
+        await service.launchAgent(task.id, { templateId: TEMPLATE_ID }, USER);
+      expect(launches[0]!.name).toBe(
+        "Implement task agent names across launch…"
+      );
+      expect(launches[0]!.appendix).toContain(
+        "As your first act, please call the `rename_session` MCP tool"
+      );
+    }
+  );
+
   it("always appends the task briefing, assigning or not", async () => {
     const ready = await withTrigger("ready", { assign: false });
     const task = await service.createTask(
@@ -1283,6 +1304,7 @@ describe("agents created for a task", () => {
     await withTrigger("in_review");
     const briefing = await service.briefingFor(task.id);
     expect(briefing.projectId).toBe(projectId);
+    expect(briefing.name).toBe("Wire it");
     expect(briefing.text).toContain(task.id);
     expect(briefing.text).toContain(
       'Columns: backlog (you are here) → ready → in_progress → in_review (launches "Builder") → done (completes the task)'

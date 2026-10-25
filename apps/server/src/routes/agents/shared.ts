@@ -61,7 +61,7 @@ export type AgentRouteDeps = {
   tasks?: {
     briefingFor: (
       taskId: string
-    ) => Promise<{ projectId: string; text: string }>;
+    ) => Promise<{ projectId: string; text: string; name: string }>;
     assignCreated: (taskId: string, agentId: string) => Promise<void>;
   };
   /** Read per click: the flag is a cold path and must not be cached stale. */

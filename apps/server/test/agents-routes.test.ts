@@ -753,3 +753,45 @@ describe("agent permissions API", () => {
     }
   });
 });
+
+describe("task agent names", () => {
+  it.each([undefined, "", "  ", "My chosen name"])(
+    "uses the task title unless name %j is explicit",
+    async (name) => {
+      const { ProjectStore } = await import("../src/projects/store.js");
+      const project = await new ProjectStore(ctx.pool).create({
+        name: "Naming",
+        repoRoot: "/tmp",
+        color: "#123456",
+      });
+      const created = await authedInject("POST", "/api/v1/tasks", {
+        projectId: project.id,
+        title: "Implement task agent names across launch paths",
+      });
+      expect(created.statusCode).toBe(200);
+      const task = created.json();
+      const agent = await createAgent({
+        taskId: task.id,
+        ...(name === undefined ? {} : { name }),
+      });
+      expect(agent.name).toBe(
+        name?.trim() || "Implement task agent names across launch…"
+      );
+      // Task membership resolves through the existing agent lookup, so renames
+      // appear immediately without copying a stale name into task storage.
+      const renamed = await authedInject(
+        "PATCH",
+        `/api/v1/agents/${agent.id}/name`,
+        { name: "Clear session topic" }
+      );
+      expect(renamed.statusCode).toBe(200);
+      const detail = await authedInject("GET", `/api/v1/tasks/${task.id}`);
+      expect(detail.json().agents).toEqual(
+        expect.arrayContaining([expect.objectContaining({ agentId: agent.id })])
+      );
+      const lookup = await authedInject("GET", `/api/v1/agents/${agent.id}`);
+      expect(lookup.json().agent.name).toBe("Clear session topic");
+      await ctx.pool.query("DELETE FROM projects WHERE id = $1", [project.id]);
+    }
+  );
+});
