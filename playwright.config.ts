@@ -67,7 +67,7 @@ export default defineConfig({
   projects: [
     {
       name: "parallel",
-      testIgnore: serialTests,
+      testIgnore: [...serialTests, "e2e/mobile-terminal.spec.ts"],
       fullyParallel: false,
       workers: 4,
     },
@@ -77,6 +77,14 @@ export default defineConfig({
       fullyParallel: false,
       workers: 1,
       dependencies: ["parallel"],
+    },
+    {
+      // This exercises real password setup for the human terminal. Run last so
+      // global auth changes cannot affect tests that expect a fresh installation.
+      name: "terminal",
+      testMatch: "e2e/mobile-terminal.spec.ts",
+      workers: 1,
+      dependencies: ["serial"],
     },
   ],
 });

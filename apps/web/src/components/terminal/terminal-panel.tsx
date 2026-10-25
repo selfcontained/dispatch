@@ -6,6 +6,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@/components/ui/button";
 import { SetPasswordForm } from "@/components/app/set-password-form";
+import { MobileTerminalControls } from "./mobile-terminal-controls";
+import { applyCtrl } from "./terminal-input";
 import { createClientId } from "@/lib/client-id";
 
 type Info = {
@@ -100,10 +102,14 @@ async function request(path: string, method: string, body?: object) {
 function TerminalCanvas({
   stream,
   active,
+  onInput,
 }: {
   stream: Stream;
   active: boolean;
+  onInput: (data: string) => void;
 }) {
+  const onInputRef = useRef(onInput);
+  onInputRef.current = onInput;
   const instance = useRef<{ terminal: Terminal; fit: FitAddon } | null>(null);
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -125,7 +131,7 @@ function TerminalCanvas({
       if (stream.socket?.readyState === WebSocket.OPEN)
         stream.socket.send(JSON.stringify(message));
     };
-    const input = terminal.onData((data) => send({ type: "input", data }));
+    const input = terminal.onData((data) => onInputRef.current(data));
     const resize = terminal.onResize(({ cols, rows }) => {
       stream.cols = cols;
       stream.rows = rows;
@@ -193,6 +199,30 @@ export default function TerminalPanel({
     replay: new Uint8Array(),
     socket: null,
   }).current;
+  const [ctrlArmed, setCtrlArmed] = useState(false);
+  const ctrlPending = useRef(false);
+  const inputTarget = useRef({ id: info?.id, status });
+  inputTarget.current = { id: info?.id, status };
+  useEffect(() => {
+    ctrlPending.current = false;
+    setCtrlArmed(false);
+  }, [info?.id, status]);
+  const sendInput = useCallback(
+    (data: string, targetId: string, foldCtrl = true) => {
+      if (
+        inputTarget.current.status !== "connected" ||
+        inputTarget.current.id !== targetId ||
+        stream.socket?.readyState !== WebSocket.OPEN
+      )
+        return false;
+      const payload = foldCtrl && ctrlPending.current ? applyCtrl(data) : data;
+      ctrlPending.current = false;
+      setCtrlArmed(false);
+      stream.socket.send(JSON.stringify({ type: "input", data: payload }));
+      return true;
+    },
+    [stream]
+  );
   const ended = useRef(false);
   const stopConnection = useRef<() => void>(() => {});
 
@@ -488,7 +518,27 @@ export default function TerminalPanel({
           />
         </div>
       ) : ready ? (
-        <TerminalCanvas stream={stream} active={active} />
+        <>
+          <TerminalCanvas
+            stream={stream}
+            active={active}
+            onInput={(data) => {
+              if (info) sendInput(data, info.id);
+            }}
+          />
+          {info && (
+            <MobileTerminalControls
+              key={info.id}
+              target={info}
+              ctrlArmed={ctrlArmed}
+              onToggleCtrl={() => {
+                ctrlPending.current = !ctrlPending.current;
+                setCtrlArmed(ctrlPending.current);
+              }}
+              sendInput={sendInput}
+            />
+          )}
+        </>
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center rounded bg-[#101014] p-4 text-center text-xs text-muted-foreground">
           {finished

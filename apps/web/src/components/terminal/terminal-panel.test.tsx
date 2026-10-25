@@ -21,6 +21,8 @@ function render(ui: React.ReactElement) {
   });
 }
 
+const xterm = vi.hoisted(() => ({ input: (_data: string) => {} }));
+
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     loadAddon() {}
@@ -28,7 +30,8 @@ vi.mock("@xterm/xterm", () => ({
     write() {}
     focus() {}
     dispose() {}
-    onData() {
+    onData(callback: (data: string) => void) {
+      xterm.input = callback;
       return { dispose() {} };
     }
     onResize() {
@@ -676,5 +679,178 @@ describe("terminal panel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+async function connectedPanel() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => info })
+  );
+  render(<TerminalPanel agentId="agent" active />);
+  await waitFor(() => expect(Socket.instances).toHaveLength(1));
+  const socket = Socket.instances[0];
+  act(() => socket.onopen?.());
+  socket.send.mockClear();
+  return socket;
+}
+function inputPayloads(socket: Socket) {
+  return socket.send.mock.calls
+    .map(([raw]) => JSON.parse(raw))
+    .filter((message) => message.type === "input")
+    .map((message) => message.data);
+}
+
+describe("mobile terminal input", () => {
+  it.each([
+    ["Enter", "\r"],
+    ["Escape", "\x1b"],
+    ["Tab", "\t"],
+    ["Arrow Left", "\x1b[D"],
+    ["Arrow Up", "\x1b[A"],
+    ["Arrow Down", "\x1b[B"],
+    ["Arrow Right", "\x1b[C"],
+  ])("sends %s exactly once", async (label, data) => {
+    const socket = await connectedPanel();
+    const button = screen.getByRole("button", { name: `Send ${label}` });
+    fireEvent.pointerDown(button);
+    fireEvent.click(button);
+    expect(inputPayloads(socket)).toEqual([data]);
+  });
+  it("toggles Ctrl once per tap and consumes it for typed and toolbar input", async () => {
+    const socket = await connectedPanel();
+    const ctrl = screen.getByRole("button", {
+      name: "Toggle Control modifier",
+    });
+    const toggle = () => {
+      fireEvent.pointerDown(ctrl);
+      fireEvent.click(ctrl);
+    };
+    toggle();
+    expect(ctrl.getAttribute("aria-pressed")).toBe("true");
+    toggle();
+    expect(ctrl.getAttribute("aria-pressed")).toBe("false");
+    toggle();
+    act(() => xterm.input("c"));
+    expect(ctrl.getAttribute("aria-pressed")).toBe("false");
+    act(() => xterm.input("c"));
+    toggle();
+    fireEvent.click(screen.getByRole("button", { name: "Send Arrow Left" }));
+    expect(ctrl.getAttribute("aria-pressed")).toBe("false");
+    toggle();
+    fireEvent.click(screen.getByRole("button", { name: "Send Enter" }));
+    expect(ctrl.getAttribute("aria-pressed")).toBe("false");
+    expect(inputPayloads(socket)).toEqual(["\x03", "c", "\x1b[D", "\r"]);
+  });
+  it.each([
+    ["Send Raw", "hello\nworld"],
+    ["Send + Enter", "hello\nworld\r"],
+  ])(
+    "composes %s exactly and clears after sending",
+    async (button, expected) => {
+      const socket = await connectedPanel();
+      fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+      expect(screen.getByRole("dialog").textContent).toContain("user@host");
+      const input = screen.getByRole("textbox", {
+        name: "Terminal input text",
+      });
+      expect(document.activeElement).toBe(input);
+      fireEvent.change(input, { target: { value: "hello\nworld" } });
+      fireEvent.click(screen.getByRole("button", { name: button }));
+      expect(inputPayloads(socket)).toEqual([expected]);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+      expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+        ""
+      );
+    }
+  );
+  it("does not send empty text or Cancel and discards the cancelled draft", async () => {
+    const socket = await connectedPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send + Enter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send Raw" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "discard" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(inputPayloads(socket)).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+  });
+  it("refuses input when the socket is not OPEN", async () => {
+    const socket = await connectedPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "blocked" },
+    });
+    socket.readyState = 3;
+    fireEvent.click(screen.getByRole("button", { name: "Send Raw" }));
+    act(() => xterm.input("blocked"));
+    expect(inputPayloads(socket)).toEqual([]);
+  });
+  it.each(["disconnect", "exit", "end"])(
+    "dismisses and blocks stale input on %s",
+    async (reason) => {
+      const socket = await connectedPanel();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Toggle Control modifier" })
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: "never send" },
+      });
+      const oldSend = screen.getByRole("button", { name: "Send Raw" });
+      act(() => {
+        if (reason === "disconnect")
+          socket.onclose?.({ code: 1006 } as CloseEvent);
+        else if (reason === "exit")
+          socket.onmessage?.({
+            data: JSON.stringify({ type: "exit", code: 0 }),
+          } as MessageEvent);
+        else
+          fireEvent.click(
+            screen.getByRole("button", { name: "End terminal", hidden: true })
+          );
+      });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(oldSend);
+      act(() => xterm.input("c"));
+      expect(inputPayloads(socket)).toEqual([]);
+    }
+  );
+  it("discards the composer and modifier when a replacement terminal connects", async () => {
+    const socket = await connectedPanel();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle Control modifier" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "old draft" },
+    });
+    act(() =>
+      socket.onmessage?.({
+        data: JSON.stringify({ type: "exit", code: 0 }),
+      } as MessageEvent)
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ...info, id: "replacement" }),
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+    await waitFor(() => expect(Socket.instances).toHaveLength(2));
+    act(() => Socket.instances[1].onopen?.());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Toggle Control modifier" })
+        .getAttribute("aria-pressed")
+    ).toBe("false");
+    act(() => xterm.input("c"));
+    expect(inputPayloads(socket)).toEqual([]);
+    expect(inputPayloads(Socket.instances[1])).toEqual(["c"]);
   });
 });
