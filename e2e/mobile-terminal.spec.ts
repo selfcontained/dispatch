@@ -3,12 +3,22 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { authHeaders, createAgentViaAPI } from "./helpers";
 
+const TEST_PASSWORD = "mobile-terminal-e2e-password";
+
 test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
 test("mobile terminal pastes exact text and sends shortcuts over its socket", async ({
   page,
   request,
 }) => {
+  const auth = await request.get("/api/v1/auth/status");
+  if ((await auth.json()).passwordSet) {
+    // The standalone API fixture also starts fresh on retry.
+    const login = await request.post("/api/v1/auth/login", {
+      data: { password: TEST_PASSWORD },
+    });
+    expect(login.ok()).toBe(true);
+  }
   const agent = await createAgentViaAPI(request, { cwd: "/tmp" });
   const inputs: string[] = [];
   const screenshots =
@@ -24,7 +34,18 @@ test("mobile terminal pastes exact text and sends shortcuts over its socket", as
   });
   try {
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
-    await page.getByTestId("toggle-drawer").click();
+    const login = page.getByTestId("login-password");
+    const drawerToggle = page.getByTestId("toggle-drawer");
+    // Retries get a fresh browser context but retain the server's password.
+    // Wait for either authenticated UI or login before choosing the path.
+    await Promise.race([login.waitFor(), drawerToggle.waitFor()]);
+    if (await login.isVisible()) {
+      await login.fill(TEST_PASSWORD);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await expect(login).toBeHidden();
+      await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    }
+    await drawerToggle.click();
     await page.getByTestId("sidebar-tab-terminal").click();
     const panel = page.getByRole("region", { name: "Terminal", exact: true });
     // Production-like isolated E2E requires password setup; dev previews permit
@@ -41,12 +62,8 @@ test("mobile terminal pastes exact text and sends shortcuts over its socket", as
         .then(() => "ready"),
     ]);
     if (status === "setup") {
-      await panel
-        .getByLabel("Password", { exact: true })
-        .fill("mobile-terminal-e2e-password");
-      await panel
-        .getByLabel("Confirm password")
-        .fill("mobile-terminal-e2e-password");
+      await panel.getByLabel("Password", { exact: true }).fill(TEST_PASSWORD);
+      await panel.getByLabel("Confirm password").fill(TEST_PASSWORD);
       await panel
         .getByRole("button", { name: "Set password", exact: true })
         .click();

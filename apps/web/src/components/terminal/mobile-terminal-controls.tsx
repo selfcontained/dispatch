@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 
 const shortcuts = [
@@ -42,7 +43,13 @@ export function MobileTerminalControls({
       close();
   };
   return (
-    <>
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (value) setOpen(true);
+        else close();
+      }}
+    >
       <div
         className="grid grid-cols-4 gap-1 border-t border-border pt-2 md:hidden"
         aria-label="Terminal shortcuts"
@@ -71,59 +78,50 @@ export function MobileTerminalControls({
         >
           Ctrl
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="col-span-4"
-          onClick={() => setOpen(true)}
-        >
-          Paste / type
-        </Button>
+        <DialogTrigger asChild>
+          <Button type="button" size="sm" className="col-span-4">
+            Paste / type
+          </Button>
+        </DialogTrigger>
       </div>
-      <Dialog
-        open={open}
-        onOpenChange={(value) => {
-          if (!value) close();
+
+      <DialogContent
+        className="h-dvh max-h-dvh w-full rounded-none md:h-auto md:max-h-[80vh] md:w-[min(560px,calc(100vw-2rem))] md:rounded-xl"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          textarea.current?.focus();
         }}
       >
-        <DialogContent
-          className="h-dvh max-h-dvh w-full rounded-none md:h-auto md:max-h-[80vh] md:w-[min(560px,calc(100vw-2rem))] md:rounded-xl"
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            textarea.current?.focus();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Terminal input</DialogTitle>
-            <DialogDescription className="break-all">
-              {target.user}@{target.host} · {target.cwd} ·{" "}
-              {target.id.slice(0, 8)}
-            </DialogDescription>
-          </DialogHeader>
-          <Textarea
-            ref={textarea}
-            aria-label="Terminal input text"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            className="min-h-0 flex-1 resize-none font-mono text-base md:min-h-64"
-            autoFocus
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={close}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => submit(true)}>
-              Send + Enter
-            </Button>
-            <Button type="button" onClick={() => submit(false)}>
-              Send Raw
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
+        <DialogHeader>
+          <DialogTitle>Terminal input</DialogTitle>
+          <DialogDescription className="[overflow-wrap:anywhere]">
+            {target.user}@{target.host} · {target.cwd} ·{" "}
+            <span className="whitespace-nowrap">{target.id.slice(0, 8)}</span>
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          ref={textarea}
+          aria-label="Terminal input text"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          className="min-h-0 flex-1 resize-none font-mono text-base md:min-h-64"
+          autoFocus
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={close}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => submit(true)}>
+            Send + Enter
+          </Button>
+          <Button type="button" onClick={() => submit(false)}>
+            Send Raw
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

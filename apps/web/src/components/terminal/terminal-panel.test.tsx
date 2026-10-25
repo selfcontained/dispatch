@@ -778,6 +778,27 @@ describe("mobile terminal input", () => {
     fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
   });
+  it.each(["Escape", "Cancel", "Send Raw"])(
+    "restores composer opener focus after %s",
+    async (action) => {
+      await connectedPanel();
+      const opener = screen.getByRole("button", { name: "Paste / type" });
+      opener.focus();
+      fireEvent.click(opener);
+      const textbox = screen.getByRole("textbox", {
+        name: "Terminal input text",
+      });
+      expect(document.activeElement).toBe(textbox);
+      if (action === "Escape") fireEvent.keyDown(textbox, { key: "Escape" });
+      else {
+        if (action === "Send Raw")
+          fireEvent.change(textbox, { target: { value: "draft" } });
+        fireEvent.click(screen.getByRole("button", { name: action }));
+      }
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+      expect(screen.queryByRole("dialog")).toBeNull();
+    }
+  );
   it("refuses input when the socket is not OPEN", async () => {
     const socket = await connectedPanel();
     fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
