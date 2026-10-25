@@ -114,7 +114,6 @@ beforeEach(async () => {
   watches = new TaskWatchNotifier({
     pool,
     debounceMs: 100,
-    settleMs: 0,
     projectForAgent: async (id) => (id === STRANGER ? "elsewhere" : projectId),
     deliver: (id, text, options) => watchDeliver(id, text, options),
     warn: () => {},
@@ -829,6 +828,106 @@ describe("task watches", () => {
     await settle();
     await watches.flush(task.id, ASSIGNEE);
     expect(watchPrompts).toHaveLength(1);
+    expect(
+      (
+        await pool.query(
+          `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+          [task.id, ASSIGNEE]
+        )
+      ).rows
+    ).toHaveLength(0);
+  });
+
+  it("delivers an earlier insert committed after a later notice was accepted", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await streams.store.withClient(client).insert({
+        streamId: task.id,
+        author: { kind: "agent", agentId: HELPER },
+        text: "Earlier uncommitted block",
+      });
+      await tasks.store.insertEvent(task.id, "link_added", USER, {
+        link: { label: "Later committed event" },
+      });
+      watches.cancel(task.id);
+      // Also exceeds the old notifier's 1s settle lag: the later item must
+      // really advance its cursor before the earlier transaction commits.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await watches.flushTask(task.id);
+      expect(watchPrompts).toHaveLength(1);
+      expect(watchPrompts[0]).toContain("Later committed event");
+      expect(watchPrompts[0]).not.toContain("Earlier uncommitted block");
+      await client.query("COMMIT");
+      // The insert callback ran before commit. Recovery must find the inbox
+      // even if that wakeup was consumed while the transaction was open.
+      await watches.recover(PEER);
+      await expect.poll(() => watchPrompts.length).toBe(2);
+      expect(watchPrompts[1]).toContain("Earlier uncommitted block");
+      expect(watchPrompts[1]).not.toContain("Later committed event");
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
+
+  it("keeps items arriving while a notice awaits acceptance", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    await tasks.comment(task.id, HELPER, "First notice");
+    let accept!: () => void;
+    watchDeliver = async (_id, text) => {
+      watchPrompts.push(text);
+      await new Promise<void>((resolve) => {
+        accept = resolve;
+      });
+    };
+    const pending = watches.flushTask(task.id);
+    await expect.poll(() => typeof accept).toBe("function");
+    await tasks.comment(task.id, HELPER, "Arrived during delivery");
+    accept();
+    await pending;
+    watchDeliver = async (_id, text) => {
+      watchPrompts.push(text);
+    };
+    await watches.flushTask(task.id);
+    expect(watchPrompts).toHaveLength(2);
+    expect(watchPrompts[1]).toContain("Arrived during delivery");
+    expect(
+      (
+        await pool.query(`SELECT * FROM task_watch_items WHERE task_id = $1`, [
+          task.id,
+        ])
+      ).rows
+    ).toHaveLength(0);
+  });
+
+  it("suppresses delivery recipients recorded after insert during the debounce", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    const block = await streams.store.insert({
+      streamId: task.id,
+      author: { kind: "agent", agentId: HELPER },
+      text: "Delivered directly after insert",
+    });
+    await pool.query(
+      `UPDATE blocks SET deliveries = jsonb_build_object($2::text, true) WHERE id = $1`,
+      [block.id, PEER]
+    );
+    await expect
+      .poll(
+        async () =>
+          (
+            await pool.query(
+              `SELECT * FROM task_watch_items WHERE task_id = $1`,
+              [task.id]
+            )
+          ).rowCount
+      )
+      .toBe(0);
+    expect(watchPrompts).toHaveLength(0);
   });
 
   it("renders readable movement lines with column keys and actor names", async () => {
@@ -884,23 +983,21 @@ describe("task watches", () => {
     expect(watchPrompts).toHaveLength(1);
   });
 
-  it("retains cursor for offline/failed delivery and retries from persisted state", async () => {
+  it("retains inbox items for offline/failed delivery and retries from persisted state", async () => {
     const task = await newTask();
     await tasks.watch(task.id, PEER);
-    const cursor = async () =>
+    const pendingCount = async () =>
       (
-        await pool.query(
-          `SELECT notified_through::text AS value FROM task_watches WHERE task_id = $1`,
-          [task.id]
-        )
-      ).rows[0]?.value;
-    const before = await cursor();
+        await pool.query(`SELECT * FROM task_watch_items WHERE task_id = $1`, [
+          task.id,
+        ])
+      ).rowCount;
     await pool.query(`UPDATE agents SET status = 'stopped' WHERE id = $1`, [
       PEER,
     ]);
     await tasks.comment(task.id, HELPER, "While offline");
     await watches.flushTask(task.id);
-    expect(await cursor()).toBe(before);
+    expect(await pendingCount()).toBe(1);
     await pool.query(`UPDATE agents SET status = 'running' WHERE id = $1`, [
       PEER,
     ]);
@@ -908,25 +1005,19 @@ describe("task watches", () => {
       throw new Error("inert runtime");
     };
     await watches.flushTask(task.id);
-    expect(await cursor()).toBe(before);
+    expect(await pendingCount()).toBe(1);
     watchDeliver = async (_id, text) => {
       watchPrompts.push(text);
     };
     await watches.recover(PEER);
     await expect.poll(() => watchPrompts.length).toBe(1);
     expect(watchPrompts[0]).toContain("While offline");
-    expect(await cursor()).not.toBe(before);
+    await expect.poll(pendingCount).toBe(0);
   });
 
-  it("advances only on acceptance and aborts queued watches on unwatch/delete", async () => {
+  it("removes inbox items only on acceptance and aborts queued watches on unwatch/delete", async () => {
     const task = await newTask();
     await tasks.watch(task.id, PEER);
-    const before = (
-      await pool.query(
-        `SELECT notified_through::text AS value FROM task_watches WHERE task_id = $1`,
-        [task.id]
-      )
-    ).rows[0].value;
     let accept!: () => void;
     watchDeliver = async (_id, text, options) =>
       new Promise<void>((resolve, reject) => {
@@ -945,12 +1036,11 @@ describe("task watches", () => {
     await expect.poll(() => typeof accept).toBe("function");
     expect(
       (
-        await pool.query(
-          `SELECT notified_through::text AS value FROM task_watches WHERE task_id = $1`,
-          [task.id]
-        )
-      ).rows[0].value
-    ).toBe(before);
+        await pool.query(`SELECT * FROM task_watch_items WHERE task_id = $1`, [
+          task.id,
+        ])
+      ).rows
+    ).toHaveLength(1);
     await tasks.unwatch(task.id, PEER);
     await pending;
     expect(watchPrompts).toHaveLength(0);
@@ -964,6 +1054,13 @@ describe("task watches", () => {
     expect(
       (
         await pool.query(`SELECT * FROM task_watches WHERE task_id = $1`, [
+          task.id,
+        ])
+      ).rows
+    ).toHaveLength(0);
+    expect(
+      (
+        await pool.query(`SELECT * FROM task_watch_items WHERE task_id = $1`, [
           task.id,
         ])
       ).rows

@@ -1053,19 +1053,19 @@ describe("task tools", () => {
     expect(
       (await call("task_watch", { id: task.id })).structuredContent
     ).toEqual({ id: task.id, watching: true });
-    const cursor = (
+    const createdAt = (
       await pool.query(
-        `SELECT notified_through::text AS cursor FROM task_watches`
+        `SELECT created_at::text AS created_at FROM task_watches`
       )
-    ).rows[0].cursor;
+    ).rows[0].created_at;
     await call("task_watch", { id: task.id });
     expect(
       (
         await pool.query(
-          `SELECT notified_through::text AS cursor FROM task_watches`
+          `SELECT created_at::text AS created_at FROM task_watches`
         )
       ).rows
-    ).toEqual([{ cursor }]);
+    ).toEqual([{ created_at: createdAt }]);
     expect(await service.getTaskDetail(task.id)).toEqual(before);
     expect(
       (await call("task_get", { id: task.id })).structuredContent!.watching
