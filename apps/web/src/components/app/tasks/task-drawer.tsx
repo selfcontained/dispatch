@@ -1,5 +1,9 @@
 import { TaskAttachments } from "./task-attachments";
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useTaskChatUnread } from "@/hooks/use-chat-unread-summary";
+import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import {
   ArrowLeft,
   X,
@@ -32,6 +36,7 @@ import { TaskConversation } from "./task-conversation";
 import { StatusSelect } from "./task-list";
 import {
   MENU_ITEM,
+  TASK_PANE_PARAM,
   assignmentLabel,
   columnAccent,
   taskAge,
@@ -89,7 +94,7 @@ export function TaskDrawer(props: TaskDetailProps) {
     <aside
       data-testid="task-drawer"
       aria-label="Task"
-      className="fixed inset-0 z-40 flex flex-col bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(600px,100%)] md:border-l md:border-border md:shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.6)]"
+      className="fixed inset-0 z-40 flex h-dvh flex-col md:h-auto bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(600px,100%)] md:border-l md:border-border md:shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.6)]"
     >
       <TaskDetailPanel {...props} />
     </aside>
@@ -118,6 +123,41 @@ export function TaskDetailPanel({
 }) {
   const { data: task, isLoading } = useTaskDetail(id);
   const actions = useTaskActions(projectId);
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const unread = useTaskChatUnread(id);
+  const explicitPane = params.get(TASK_PANE_PARAM);
+  const linkedConversation =
+    params.has(BLOCK_PARAM) || params.has(THREAD_PARAM);
+  const resolvePane = () => ({
+    id,
+    value: linkedConversation || (unread ?? 0) > 0 ? "conversation" : "details",
+    resolved: linkedConversation || unread !== undefined,
+  });
+  const [defaultPane, setDefaultPane] = useState(resolvePane);
+  // Resolve once per task, allowing a late unread response until the reader
+  // interacts. Mark-read must never send the reader back to Details.
+  if (
+    defaultPane.id !== id ||
+    (!defaultPane.resolved && unread !== undefined)
+  ) {
+    setDefaultPane(resolvePane());
+  }
+  const pane =
+    explicitPane === "details" || explicitPane === "conversation"
+      ? explicitPane
+      : defaultPane.value;
+  const freezeDefaultPane = () => {
+    if (!defaultPane.resolved)
+      setDefaultPane({ id, value: pane, resolved: true });
+  };
+  const changePane = (value: string) => {
+    setDefaultPane({ id, value, resolved: true });
+    const next = new URLSearchParams(params);
+    next.set(TASK_PANE_PARAM, value);
+    setParams(next, { replace: true, state: location.state });
+  };
+
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState("");
   const [editingBody, setEditingBody] = useState(false);
@@ -230,328 +270,356 @@ export function TaskDetailPanel({
         <p className="p-5 text-sm text-muted-foreground">Loading task…</p>
       )}
       {task && (
-        <div
-          data-testid="task-drawer-body"
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain [container-type:size]"
+        <Tabs
+          value={pane}
+          onValueChange={changePane}
+          onPointerDownCapture={freezeDefaultPane}
+          onKeyDownCapture={freezeDefaultPane}
+          onWheelCapture={freezeDefaultPane}
+          className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="space-y-6 p-4 md:p-5">
-            {editingTitle ? (
-              <Input
-                autoFocus
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                onBlur={saveTitle}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") saveTitle();
-                  if (event.key === "Escape") setEditingTitle(false);
-                }}
-              />
-            ) : (
-              <button
-                className="-mx-1 w-full break-words rounded-md px-1 text-left text-xl font-semibold leading-7 hover:bg-muted/40"
-                onClick={() => setEditingTitle(true)}
-              >
-                {task.title}
-              </button>
-            )}
-            <section
-              className={cn(
-                DRAWER_SURFACE,
-                "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm"
-              )}
-            >
-              <span className="text-xs text-muted-foreground">Status</span>
-              <StatusSelect
-                task={task}
-                columns={columns}
-                moveTask={moveTask}
-                className={PROPERTY_CONTROL}
-              />
-              <span className="text-xs text-muted-foreground">Assignee</span>
-              <AssigneeSelect
-                value={task.assignedAgentId}
-                agents={agents}
-                projectId={projectId}
-                onChange={(assignedAgentId) =>
-                  void actions.update.mutateAsync({ id, assignedAgentId })
-                }
-                onNew={() => setLaunchOpen(true)}
-                templates={projectTemplates}
-                onLaunchTemplate={(templateId) =>
-                  void actions.launch.mutateAsync({ id, templateId })
-                }
-                className={PROPERTY_CONTROL}
-              />
-              <span className="text-xs text-muted-foreground">Created</span>
-              <span className="text-xs">
-                by {creator} · {ago(task.createdAt)}
-              </span>
-            </section>
-            <DrawerSection label="Description">
-              {editingBody ? (
-                <textarea
-                  autoFocus
-                  className="min-h-36 w-full rounded-lg bg-muted/40 p-3 text-sm outline-none ring-1 ring-border/60 focus:ring-ring"
-                  value={body}
-                  onChange={(event) => setBody(event.target.value)}
-                  onBlur={saveBody}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      (event.metaKey || event.ctrlKey)
-                    )
-                      saveBody();
-                  }}
-                />
-              ) : (
-                <button
-                  className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-sm text-foreground hover:bg-muted/40"
-                  onClick={() => setEditingBody(true)}
-                >
-                  {task.body ? (
-                    <Markdown headingAccents>{task.body}</Markdown>
-                  ) : (
-                    <span className="text-muted-foreground">
-                      Add a deliverable and acceptance criteria…
-                    </span>
-                  )}
-                </button>
-              )}
-            </DrawerSection>
-            {!!task.attachments?.length && (
-              <DrawerSection label="Attachments">
-                <TaskAttachments
-                  key={task.id}
-                  attachments={task.attachments}
-                  updatedAt={task.updatedAt}
-                />
-              </DrawerSection>
-            )}
-            <DrawerSection
-              label="Links"
-              action={
-                addingLink ? null : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setAddingLink(true)}
-                  >
-                    <Plus className="mr-1 h-3 w-3" />
-                    Add link
-                  </Button>
-                )
-              }
-            >
-              {task.links.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {task.links.map((link) => (
-                    <a
-                      key={link.url ?? link.label}
-                      href={link.url ?? undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-xs text-primary hover:bg-muted"
-                    >
-                      <span className="truncate">{link.label}</span>
-                      <ExternalLink className="h-3 w-3 shrink-0" />
-                    </a>
-                  ))}
-                </div>
-              )}
-              {addingLink && (
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    aria-label="Link label"
-                    placeholder="Label"
-                    value={linkLabel}
-                    onChange={(event) => setLinkLabel(event.target.value)}
-                  />
-                  <Input
-                    aria-label="Link URL"
-                    placeholder="URL"
-                    value={linkUrl}
-                    onChange={(event) => setLinkUrl(event.target.value)}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      onClick={() => setAddingLink(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        if (linkLabel && linkUrl)
-                          void actions.update
-                            .mutateAsync({
-                              id,
-                              links: [
-                                ...task.links,
-                                { kind: "url", label: linkLabel, url: linkUrl },
-                              ],
-                            })
-                            .then(() => {
-                              setAddingLink(false);
-                              setLinkLabel("");
-                              setLinkUrl("");
-                            });
-                      }}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {!task.links.length && !addingLink && (
-                <p className="text-xs text-muted-foreground">No links</p>
-              )}
-            </DrawerSection>
-            <DrawerSection label="Agents">
-              {task.agents.length ? (
-                <div className="space-y-1">
-                  {task.agents.map((assignment) => {
-                    const current = assignment.agentId === task.assignedAgentId;
-                    return (
-                      <div
-                        key={assignment.agentId}
-                        data-testid={`task-agent-row-${assignment.agentId}`}
-                        className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-muted/30"
-                      >
-                        <TaskAgent
-                          agent={agents.find(
-                            (agent) => agent.id === assignment.agentId
-                          )}
-                          agents={agents}
-                          projectId={projectId}
-                          fullWidth
-                        />
-                        <span
-                          className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
-                          title={`${assignmentLabel(assignment, columns)} · ${ago(assignment.assignedAt)}`}
-                        >
-                          {current && (
-                            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
-                              Assignee
-                            </span>
-                          )}
-                          {taskAge(assignment.assignedAt)}
-                        </span>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 shrink-0 text-muted-foreground"
-                              aria-label={`Options for ${agents.find((agent) => agent.id === assignment.agentId)?.name ?? assignment.agentId}`}
-                            >
-                              <MoreHorizontal
-                                className="h-4 w-4"
-                                aria-hidden="true"
-                              />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {current ? (
-                              <DropdownMenuItem
-                                className={MENU_ITEM}
-                                onSelect={() =>
-                                  void actions.update.mutateAsync({
-                                    id,
-                                    assignedAgentId: null,
-                                  })
-                                }
-                              >
-                                Unassign
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem
-                                className={MENU_ITEM}
-                                onSelect={() =>
-                                  void actions.update.mutateAsync({
-                                    id,
-                                    assignedAgentId: assignment.agentId,
-                                  })
-                                }
-                              >
-                                Make assignee
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                              onSelect={() =>
-                                void actions.removeAgent.mutateAsync({
-                                  id,
-                                  agentId: assignment.agentId,
-                                })
-                              }
-                            >
-                              Remove from task
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No agents yet</p>
-              )}
-            </DrawerSection>
-            <DrawerSection label="Activity">
-              <ol className="space-y-2 border-l-2 border-border/50 pl-3">
-                {task.events.map((event) => (
-                  <li key={event.id} className="text-xs">
-                    <span className="font-medium">
-                      {event.kind.replaceAll("_", " ")}
-                    </span>
-                    <span className="ml-2 text-muted-foreground">
-                      {ago(event.createdAt)}
-                    </span>
-                    {typeof event.data.reason === "string" && (
-                      <p className="text-destructive">{event.data.reason}</p>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            </DrawerSection>
-          </div>
-          {/* One drawer-height tall: scrolled to, the conversation has
-              the whole body and its feed scrolls on its own. */}
-          <section
-            aria-label="Conversation"
-            className="flex h-[100cqh] min-h-80 flex-col gap-2 px-2 pb-2 md:px-3 md:pb-3"
-          >
-            <h3 className="flex min-h-9 items-center px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <TabsList aria-label="Task panes" className="mx-3 my-2 shrink-0">
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="conversation">
               Conversation
-            </h3>
-            <div className="min-h-0 flex-1">
-              <TaskConversation
-                // Remount per task: the feed's scroll and open thread are
-                // the task's own.
-                key={task.id}
-                taskId={task.id}
-                assignee={assignee}
-                isMobile={isMobile}
-                memberIds={memberIds}
-              />
-            </div>
-          </section>
-        </div>
-      )}
-      {task && (
-        <footer className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => {
-              if (window.confirm(`Delete ${task.title}?`))
-                void actions.remove.mutateAsync(task.id).then(close);
-            }}
+              {!!unread && (
+                <span
+                  className="ml-2 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground"
+                  aria-label={`${unread} unread posts`}
+                >
+                  {unread}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent
+            value="details"
+            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
           >
-            Delete
-          </Button>
-        </footer>
+            <div
+              data-testid="task-drawer-body"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            >
+              <div className="space-y-6 p-4 md:p-5">
+                {editingTitle ? (
+                  <Input
+                    autoFocus
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    onBlur={saveTitle}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") saveTitle();
+                      if (event.key === "Escape") setEditingTitle(false);
+                    }}
+                  />
+                ) : (
+                  <button
+                    className="-mx-1 w-full break-words rounded-md px-1 text-left text-xl font-semibold leading-7 hover:bg-muted/40"
+                    onClick={() => setEditingTitle(true)}
+                  >
+                    {task.title}
+                  </button>
+                )}
+                <section
+                  className={cn(
+                    DRAWER_SURFACE,
+                    "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm"
+                  )}
+                >
+                  <span className="text-xs text-muted-foreground">Status</span>
+                  <StatusSelect
+                    task={task}
+                    columns={columns}
+                    moveTask={moveTask}
+                    className={PROPERTY_CONTROL}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Assignee
+                  </span>
+                  <AssigneeSelect
+                    value={task.assignedAgentId}
+                    agents={agents}
+                    projectId={projectId}
+                    onChange={(assignedAgentId) =>
+                      void actions.update.mutateAsync({ id, assignedAgentId })
+                    }
+                    onNew={() => setLaunchOpen(true)}
+                    templates={projectTemplates}
+                    onLaunchTemplate={(templateId) =>
+                      void actions.launch.mutateAsync({ id, templateId })
+                    }
+                    className={PROPERTY_CONTROL}
+                  />
+                  <span className="text-xs text-muted-foreground">Created</span>
+                  <span className="text-xs">
+                    by {creator} · {ago(task.createdAt)}
+                  </span>
+                </section>
+                <DrawerSection label="Description">
+                  {editingBody ? (
+                    <textarea
+                      autoFocus
+                      className="min-h-36 w-full rounded-lg bg-muted/40 p-3 text-sm outline-none ring-1 ring-border/60 focus:ring-ring"
+                      value={body}
+                      onChange={(event) => setBody(event.target.value)}
+                      onBlur={saveBody}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          (event.metaKey || event.ctrlKey)
+                        )
+                          saveBody();
+                      }}
+                    />
+                  ) : (
+                    <button
+                      className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-sm text-foreground hover:bg-muted/40"
+                      onClick={() => setEditingBody(true)}
+                    >
+                      {task.body ? (
+                        <Markdown headingAccents>{task.body}</Markdown>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Add a deliverable and acceptance criteria…
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </DrawerSection>
+                {!!task.attachments?.length && (
+                  <DrawerSection label="Attachments">
+                    <TaskAttachments
+                      key={task.id}
+                      attachments={task.attachments}
+                      updatedAt={task.updatedAt}
+                    />
+                  </DrawerSection>
+                )}
+                <DrawerSection
+                  label="Links"
+                  action={
+                    addingLink ? null : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setAddingLink(true)}
+                      >
+                        <Plus className="mr-1 h-3 w-3" />
+                        Add link
+                      </Button>
+                    )
+                  }
+                >
+                  {task.links.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {task.links.map((link) => (
+                        <a
+                          key={link.url ?? link.label}
+                          href={link.url ?? undefined}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-xs text-primary hover:bg-muted"
+                        >
+                          <span className="truncate">{link.label}</span>
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {addingLink && (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        aria-label="Link label"
+                        placeholder="Label"
+                        value={linkLabel}
+                        onChange={(event) => setLinkLabel(event.target.value)}
+                      />
+                      <Input
+                        aria-label="Link URL"
+                        placeholder="URL"
+                        value={linkUrl}
+                        onChange={(event) => setLinkUrl(event.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          onClick={() => setAddingLink(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            if (linkLabel && linkUrl)
+                              void actions.update
+                                .mutateAsync({
+                                  id,
+                                  links: [
+                                    ...task.links,
+                                    {
+                                      kind: "url",
+                                      label: linkLabel,
+                                      url: linkUrl,
+                                    },
+                                  ],
+                                })
+                                .then(() => {
+                                  setAddingLink(false);
+                                  setLinkLabel("");
+                                  setLinkUrl("");
+                                });
+                          }}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {!task.links.length && !addingLink && (
+                    <p className="text-xs text-muted-foreground">No links</p>
+                  )}
+                </DrawerSection>
+                <DrawerSection label="Agents">
+                  {task.agents.length ? (
+                    <div className="space-y-1">
+                      {task.agents.map((assignment) => {
+                        const current =
+                          assignment.agentId === task.assignedAgentId;
+                        return (
+                          <div
+                            key={assignment.agentId}
+                            data-testid={`task-agent-row-${assignment.agentId}`}
+                            className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-muted/30"
+                          >
+                            <TaskAgent
+                              agent={agents.find(
+                                (agent) => agent.id === assignment.agentId
+                              )}
+                              agents={agents}
+                              projectId={projectId}
+                              fullWidth
+                            />
+                            <span
+                              className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
+                              title={`${assignmentLabel(assignment, columns)} · ${ago(assignment.assignedAt)}`}
+                            >
+                              {current && (
+                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                                  Assignee
+                                </span>
+                              )}
+                              {taskAge(assignment.assignedAt)}
+                            </span>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 shrink-0 text-muted-foreground"
+                                  aria-label={`Options for ${agents.find((agent) => agent.id === assignment.agentId)?.name ?? assignment.agentId}`}
+                                >
+                                  <MoreHorizontal
+                                    className="h-4 w-4"
+                                    aria-hidden="true"
+                                  />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {current ? (
+                                  <DropdownMenuItem
+                                    className={MENU_ITEM}
+                                    onSelect={() =>
+                                      void actions.update.mutateAsync({
+                                        id,
+                                        assignedAgentId: null,
+                                      })
+                                    }
+                                  >
+                                    Unassign
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem
+                                    className={MENU_ITEM}
+                                    onSelect={() =>
+                                      void actions.update.mutateAsync({
+                                        id,
+                                        assignedAgentId: assignment.agentId,
+                                      })
+                                    }
+                                  >
+                                    Make assignee
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  onSelect={() =>
+                                    void actions.removeAgent.mutateAsync({
+                                      id,
+                                      agentId: assignment.agentId,
+                                    })
+                                  }
+                                >
+                                  Remove from task
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No agents yet
+                    </p>
+                  )}
+                </DrawerSection>
+                <DrawerSection label="Activity">
+                  <ol className="space-y-2 border-l-2 border-border/50 pl-3">
+                    {task.events.map((event) => (
+                      <li key={event.id} className="text-xs">
+                        <span className="font-medium">
+                          {event.kind.replaceAll("_", " ")}
+                        </span>
+                        <span className="ml-2 text-muted-foreground">
+                          {ago(event.createdAt)}
+                        </span>
+                        {typeof event.data.reason === "string" && (
+                          <p className="text-destructive">
+                            {event.data.reason}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </DrawerSection>
+              </div>
+            </div>
+            <footer className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => {
+                  if (window.confirm(`Delete ${task.title}?`))
+                    void actions.remove.mutateAsync(task.id).then(close);
+                }}
+              >
+                Delete
+              </Button>
+            </footer>
+          </TabsContent>
+          <TabsContent
+            value="conversation"
+            className="mt-0 min-h-0 flex-1 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-3 md:pb-3"
+          >
+            <TaskConversation
+              key={task.id}
+              taskId={task.id}
+              assignee={assignee}
+              isMobile={isMobile}
+              memberIds={memberIds}
+            />
+          </TabsContent>
+        </Tabs>
       )}
       {task && (
         <CreateAgentDialog

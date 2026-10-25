@@ -28,3 +28,9 @@ export function useAgentChatUnread(agentId: string | null): ChatAgentUnread {
   const summary = useChatUnreadSummary();
   return (agentId && summary?.agents[agentId]) || NONE;
 }
+
+/** Undefined until the shared summary arrives, so task defaults can resolve then. */
+export function useTaskChatUnread(taskId: string): number | undefined {
+  const summary = useChatUnreadSummary();
+  return summary ? (summary.tasks?.[taskId]?.unread ?? 0) : undefined;
+}

@@ -17,7 +17,11 @@ import {
 } from "@/components/ui/dialog";
 import { TaskDetailPanel } from "./task-drawer";
 import { TASK_DIALOG_MOBILE_SHEET } from "./task-create-dialog";
-import { TASK_MODAL_STATE, orderedColumns } from "./task-utils";
+import {
+  TASK_MODAL_STATE,
+  TASK_PANE_PARAM,
+  orderedColumns,
+} from "./task-utils";
 import { useMoveTask } from "./use-move-task";
 
 /**
@@ -50,6 +54,7 @@ export function TaskModal({
     const state = location.state as typeof TASK_MODAL_STATE | null;
     if (!next && state?.taskModal) return navigate(-1);
     const updated = new URLSearchParams(params);
+    updated.delete(TASK_PANE_PARAM);
     if (next) updated.set("task", next);
     else updated.delete("task");
     setParams(updated, { replace: true, state: location.state });
