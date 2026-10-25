@@ -1,6 +1,15 @@
 import Fastify from "fastify";
 import { registerProjectRoutes } from "../src/routes/projects.js";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startupFileUpload } from "../src/routes/agent-startup.js";
@@ -26,6 +35,7 @@ import {
 import type { TemplateRecord } from "../src/templates/store.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { registerTaskTools } from "../src/shared/mcp/task-tools.js";
+import { agentTaskProject, taskScopeInput } from "../src/tasks/agent-scope.js";
 import { chatUrlSchema } from "../src/chat/validation.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
@@ -1040,6 +1050,77 @@ describe("tool project scope", () => {
     expect(comment.isError).toBe(true);
     expect(comment.content[0]!.text).toMatch(/not in task .*'s project/);
     expect((await service.requireTask(theirs.id)).title).toBe("theirs");
+  });
+
+  it("places a moved projectless agent where its task tools do, by the workspace's repo", async () => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "scope-")));
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", cwd, ...args], { stdio: "ignore" });
+    const repo = async (dir: string) => {
+      await mkdir(dir, { recursive: true });
+      git(dir, "init", "-q");
+      git(
+        dir,
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "init"
+      );
+    };
+    const a = path.join(root, "a");
+    const b = path.join(root, "longer-b");
+    await repo(a);
+    await repo(b);
+    const ids: Record<string, string> = {};
+    for (const [name, repoRoot] of [
+      ["A", a],
+      ["B", b],
+    ] as const) {
+      ids[name] = (
+        await pool.query(
+          `INSERT INTO projects (id, name, repo_root, color) VALUES (gen_random_uuid(), $1, $2, '#336699') RETURNING id`,
+          [name, repoRoot]
+        )
+      ).rows[0].id;
+    }
+    const resolve = (agent: Parameters<typeof agentTaskProject>[0]) =>
+      agentTaskProject(agent, (input) => service.projectForAgent(input));
+    const base = {
+      projectId: null,
+      cwd: path.join(root, "elsewhere"),
+      worktreePath: null,
+      baseBranch: null,
+    };
+    try {
+      // A worktree of A that lives under B's directory is still A.
+      const nested = path.join(b, "worktrees", "a");
+      git(a, "worktree", "add", "-q", nested);
+      await expect(resolve({ ...base, workspacePath: nested })).resolves.toBe(
+        ids.A
+      );
+      // Moved to an external worktree of B, it is B, whatever stale git
+      // context it still carries for A.
+      const outside = path.join(root, "outside-b");
+      git(b, "worktree", "add", "-q", outside);
+      await expect(
+        resolve({
+          ...base,
+          workspacePath: outside,
+          gitContext: { worktreePath: a, isWorktree: false },
+        })
+      ).resolves.toBe(ids.B);
+      // The task tools build the same input from the same probe.
+      await expect(
+        service.projectForAgent(taskScopeInput(base, b))
+      ).resolves.toBe(ids.B);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("places a projectless agent by its workspace", async () => {

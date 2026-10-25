@@ -27,7 +27,7 @@ import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import type { AgentRecord } from "./agents/manager.js";
-import { agentWorkspaceDir } from "./agents/workspace-target.js";
+import { agentTaskProject } from "./tasks/agent-scope.js";
 import {
   validateSession,
   getOrCreateAuthToken,
@@ -432,15 +432,9 @@ const streamService = new StreamService({
   agentProject: async (agentId) => {
     const agent = await agentManager.getAgent(agentId);
     if (!agent) return null;
-    return taskService.projectForAgent({
-      projectId: agent.projectId,
-      paths: [
-        agent.gitContext?.repoRoot,
-        agentWorkspaceDir(agent),
-        agent.cwd,
-        agent.launchCwd,
-      ],
-    });
+    return agentTaskProject(agent, (input) =>
+      taskService.projectForAgent(input)
+    );
   },
   log: app.log,
 });
