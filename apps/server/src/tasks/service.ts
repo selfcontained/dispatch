@@ -152,13 +152,46 @@ export function slugifyColumnKey(name: string): string {
 
 const KEY_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
+/** A board column as the briefing describes it, in board order. */
+export type BriefingColumn = Pick<TaskColumn, "key" | "name" | "isDone"> & {
+  /**
+   * What entering it launches: the trigger's template name, or null when
+   * that template is gone (the trigger fails). Null when it has no trigger.
+   */
+  trigger: { templateName: string | null } | null;
+};
+
+/**
+ * `backlog → ready (you are here) → in_review (launches "Code review") →
+ * done (completes the task)`: the keys an agent moves the task with.
+ */
+function columnsLine(columns: BriefingColumn[], currentKey: string): string {
+  return columns
+    .map((column) => {
+      const notes = [
+        ...(column.key === currentKey ? ["you are here"] : []),
+        ...(column.trigger === null
+          ? []
+          : column.trigger.templateName === null
+            ? ["its trigger's template is missing, so nothing launches"]
+            : [`launches "${column.trigger.templateName}"`]),
+        ...(column.isDone ? ["completes the task"] : []),
+      ];
+      return notes.length > 0
+        ? `${column.key} (${notes.join("; ")})`
+        : column.key;
+    })
+    .join(" → ");
+}
+
 export function buildTaskBriefing(input: {
   task: Pick<Task, "id" | "title" | "body" | "links">;
   project: Pick<ProjectRecord, "name" | "repoRoot">;
-  column: Pick<TaskColumn, "name">;
+  column: Pick<TaskColumn, "key" | "name">;
+  columns: BriefingColumn[];
   attachments?: Array<{ name: string; mimeType: string; path: string }>;
 }): string {
-  const { task, project, column } = input;
+  const { task, project, column, columns } = input;
   const links =
     task.links.length > 0
       ? "\n" +
@@ -186,7 +219,8 @@ export function buildTaskBriefing(input: {
     "",
     task.body.trim() || "(no description)",
     "",
-    `Move the task with task_update({ id, column }) as the work changes state (for example to "in_review" when a PR is up). Add PR links with task_update({ id, links: [...] }). Posts from the task's conversation reach you as DISPATCH POSTs naming the task; answer in place, or with post({ replyTo }) on one of its ids. Post progress there with task_comment.`,
+    `Columns: ${columnsLine(columns, column.key)}`,
+    `Move it with task_update({ id, column: "<key>" }) as the work changes state; moving into a column with a trigger launches that agent. Add PR links with task_update({ id, links: [...] }). Posts from the task's conversation reach you as DISPATCH POSTs naming the task; answer in place, or with post({ replyTo }) on one of its ids. Post progress there with task_comment.`,
   ].join("\n");
 }
 
@@ -908,6 +942,7 @@ export class TaskService {
         task,
         project,
         column,
+        columns: await this.briefingColumns(task.projectId),
         attachments: await this.briefingAttachments(task.id),
       }),
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
@@ -1014,9 +1049,10 @@ export class TaskService {
    */
   async briefingFor(id: string): Promise<{ projectId: string; text: string }> {
     const task = await this.requireTask(id);
-    const [project, column] = await Promise.all([
+    const [project, column, columns] = await Promise.all([
       this.requireProject(task.projectId),
       this.requireColumn(task.columnId),
+      this.briefingColumns(task.projectId),
     ]);
     return {
       projectId: task.projectId,
@@ -1024,9 +1060,36 @@ export class TaskService {
         task,
         project,
         column,
+        columns,
         attachments: await this.briefingAttachments(task.id),
       }),
     };
+  }
+
+  /** The project's columns in order, each trigger named by its template. */
+  private async briefingColumns(projectId: string): Promise<BriefingColumn[]> {
+    const columns = await this.ensureColumns(projectId);
+    const templateIds = [
+      ...new Set(
+        columns.flatMap((c) => (c.trigger ? [c.trigger.templateId] : []))
+      ),
+    ];
+    const names = new Map(
+      await Promise.all(
+        templateIds.map(
+          async (id) =>
+            [id, (await this.deps.getTemplate(id))?.name ?? null] as const
+        )
+      )
+    );
+    return columns.map((c) => ({
+      key: c.key,
+      name: c.name,
+      isDone: c.isDone,
+      trigger: c.trigger
+        ? { templateName: names.get(c.trigger.templateId) ?? null }
+        : null,
+    }));
   }
 
   /**

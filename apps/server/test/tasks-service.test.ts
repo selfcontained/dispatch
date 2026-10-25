@@ -382,6 +382,9 @@ describe("triggers", () => {
     expect(launches[0]!.appendix).toContain(task.id);
     expect(launches[0]!.appendix).toContain("Ship it");
     expect(launches[0]!.appendix).toContain("Acceptance: it ships.");
+    expect(launches[0]!.appendix).toContain(
+      'Columns: backlog → ready (you are here; launches "Builder") → in_progress'
+    );
   });
 
   it("removes an agent from the task, unassigning it if current", async () => {
@@ -607,18 +610,50 @@ describe("helpers", () => {
         links: [{ kind: "pr", url: "https://x/pr/1", label: "PR #1" }],
       },
       project: { name: "P", repoRoot: "/r" },
-      column: { name: "Ready" },
+      column: { key: "ready", name: "Ready" },
+      columns: [
+        { key: "backlog", name: "Backlog", isDone: false, trigger: null },
+        { key: "ready", name: "Ready", isDone: false, trigger: null },
+        {
+          key: "in_review",
+          name: "In review",
+          isDone: false,
+          trigger: { templateName: "Code review" },
+        },
+        { key: "done", name: "Done", isDone: true, trigger: null },
+      ],
     });
     expect(text).toContain("Task: tsk_1 — T\nProject: P (/r)\nColumn: Ready");
+    expect(text).toContain(
+      'Columns: backlog → ready (you are here) → in_review (launches "Code review") → done (completes the task)\n' +
+        'Move it with task_update({ id, column: "<key>" }) as the work changes state; moving into a column with a trigger launches that agent.'
+    );
     expect(text).toContain("Links:\n- PR #1: https://x/pr/1");
     expect(text).toContain("Do it");
     expect(
       buildTaskBriefing({
         task: { id: "t", title: "T", body: "", links: [] },
         project: { name: "P", repoRoot: "/r" },
-        column: { name: "C" },
+        column: { key: "c", name: "C" },
+        columns: [
+          {
+            key: "c",
+            name: "C",
+            isDone: true,
+            trigger: { templateName: "X" },
+          },
+          {
+            key: "gone",
+            name: "Gone",
+            isDone: false,
+            trigger: { templateName: null },
+          },
+        ],
       })
-    ).toContain("Links: none");
+    ).toContain(
+      'Links: none\n\n(no description)\n\nColumns: c (you are here; launches "X"; completes the task) → ' +
+        "gone (its trigger's template is missing, so nothing launches)"
+    );
   });
 
   it("merges links by url", () => {
@@ -803,6 +838,7 @@ describe("task tools", () => {
     for (let i = 0; i < 35; i++)
       await service.updateTask(task.id, { title: `t${i}` }, USER);
     const result = await call("task_get", { id: task.id });
+    expect(result.structuredContent!.column).toBe("backlog");
     const events = result.structuredContent!.events as Array<{
       data: { fields: string[] };
     }>;
@@ -1057,9 +1093,21 @@ describe("agents created for a task", () => {
       { projectId, title: "Wire it", body: "Do the thing." },
       USER
     );
+    await withTrigger("in_review");
     const briefing = await service.briefingFor(task.id);
     expect(briefing.projectId).toBe(projectId);
     expect(briefing.text).toContain(task.id);
+    expect(briefing.text).toContain(
+      'Columns: backlog (you are here) → ready → in_progress → in_review (launches "Builder") → done (completes the task)'
+    );
+    // A deleted template leaves its id in the trigger; the move would fail.
+    await pool.query(
+      `UPDATE task_columns SET trigger = jsonb_set(trigger, '{templateId}', '"tpl_deleted"') WHERE id = $1`,
+      [await columnId("in_review")]
+    );
+    expect((await service.briefingFor(task.id)).text).toContain(
+      "in_review (its trigger's template is missing, so nothing launches)"
+    );
     expect(briefing.text).toContain("Do the thing.");
     posts = [];
     await service.assignCreated(task.id, "agt_new");

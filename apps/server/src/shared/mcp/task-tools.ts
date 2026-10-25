@@ -160,7 +160,7 @@ export function registerTaskTools(
       "task_get",
       {
         description:
-          "Get a task: body, links, agents that worked it, and its recent activity.",
+          "Get a task: its column key, body, links, agents that worked it, and its recent activity.",
         inputSchema: { id: z.string().min(1) },
       },
       async (args) => {
@@ -170,7 +170,10 @@ export function registerTaskTools(
             args.id,
             TOOL_EVENT_LIMIT
           );
-          return ok(detail);
+          const key = (await service.ensureColumns(detail.projectId)).find(
+            (c) => c.id === detail.columnId
+          )?.key;
+          return ok({ ...detail, column: key ?? null });
         } catch (error) {
           return toTaskToolError(error);
         }
@@ -226,7 +229,7 @@ export function registerTaskTools(
       "task_update",
       {
         description:
-          'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up; a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended.',
+          'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up (your task briefing lists this board\'s keys); a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended.',
         inputSchema: {
           id: z.string().min(1),
           title: z.string().min(1).max(500).optional(),
