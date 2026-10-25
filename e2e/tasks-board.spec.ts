@@ -253,6 +253,36 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     });
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 390, height: 844 });
+    // A layout picked on a phone sticks: away via the sidebar and back
+    // (no ?layout= left in the URL), Board is still shown.
+    await page.getByRole("button", { name: "Board layout" }).click();
+    const navSidebar = page.getByRole("dialog", { name: "Navigation sidebar" });
+    const navLeft = () =>
+      navSidebar.evaluate((el) => Math.round(el.getBoundingClientRect().left));
+    // Agents may open the sheet on its own as it lands; retry until open.
+    const openNavSidebar = () =>
+      expect(async () => {
+        if ((await navLeft()) !== 0)
+          await page.getByTitle("Open sidebar").click({ timeout: 1_000 });
+        await expect.poll(navLeft, { timeout: 1_000 }).toBe(0);
+      }).toPass({ timeout: 10_000 });
+    await openNavSidebar();
+    await navSidebar.getByTestId("agents-button").click();
+    await expect(page).toHaveURL(/\/agents/);
+    await openNavSidebar();
+    await navSidebar.getByTestId("tasks-button").click();
+    await expect(page).toHaveURL(/\/tasks/);
+    await expect(page).not.toHaveURL(/layout=/);
+    // The Tasks tap lands on the board with the sheet closed.
+    await expect.poll(navLeft).toBeLessThan(0);
+    await expect(
+      page.getByRole("button", { name: "Board layout" })
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("tasks-list")).toHaveCount(0);
+    await page.screenshot({
+      path: "/tmp/dispatch-tasks-mobile-board-sticks.png",
+      scale: "device",
+    });
     await page.getByRole("button", { name: "List layout" }).click();
     await expect(page.getByTestId("tasks-list")).toBeVisible();
     await page.screenshot({

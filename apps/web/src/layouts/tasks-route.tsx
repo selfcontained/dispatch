@@ -49,12 +49,12 @@ function TasksContent({ projectId }: { projectId: string }) {
   const [savedLayout, setSavedLayout] = useAtom(
     taskLayoutAtomFamily(projectId)
   );
+  // A ?layout= link is a one-off view; only the toggle saves a choice.
+  // Phones default to List until one is saved.
   const layout =
     params.get("layout") === "list" || params.get("layout") === "board"
       ? (params.get("layout") as "list" | "board")
-      : isMobile
-        ? "list"
-        : savedLayout;
+      : (savedLayout ?? (isMobile ? "list" : "board"));
   // The create dialog is open on a column (null: the first one).
   const [newTask, setNewTask] = useState<{ columnId: string | null } | null>(
     null
@@ -238,6 +238,7 @@ function TasksContent({ projectId }: { projectId: string }) {
               <Button
                 size="sm"
                 variant={layout === "board" ? "default" : "ghost"}
+                aria-pressed={layout === "board"}
                 onClick={() => setLayout("board")}
                 aria-label="Board layout"
                 className="h-7 px-2"
@@ -248,6 +249,7 @@ function TasksContent({ projectId }: { projectId: string }) {
               <Button
                 size="sm"
                 variant={layout === "list" ? "default" : "ghost"}
+                aria-pressed={layout === "list"}
                 onClick={() => setLayout("list")}
                 aria-label="List layout"
                 className="h-7 px-2"
