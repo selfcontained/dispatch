@@ -219,7 +219,9 @@
         "scripts/test_sparkle*",
         "scripts/fixtures/sparkle*",
         "scripts/write-bun-checksums.mjs",
-        "scripts/smoke-bun-binary.mjs"
+        "scripts/smoke-bun-binary.mjs",
+        "apps/server/src/windows-setup/**",
+        "apps/server/test/windows-setup-*.test.ts"
       ],
       "personas": ["release-update-owner"]
     },
