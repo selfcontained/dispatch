@@ -5,9 +5,10 @@ import { type Agent } from "@/components/app/types";
 import { agentProjectRoot } from "@/components/app/agents-view-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import {
-  useAgentTurnLabel,
-  useFirstAgentWithTurnLabel,
-} from "@/hooks/use-agent-turn-label";
+  agentPhaseStatus,
+  hasPhaseStatus,
+  useAgentActivity,
+} from "@/hooks/use-agent-activity";
 import { cn } from "@/lib/utils";
 import { useProjectScope } from "@/hooks/use-projects";
 
@@ -46,55 +47,23 @@ export function AgentCardPhaseStatus({
   agent: Agent;
   className?: string;
 }): JSX.Element | null {
-  if (agent.status === "creating" || agent.setupPhase) {
-    return (
-      <div
-        className={cn(
-          "mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working",
-          className
-        )}
-      >
-        <ActivityBars size={12} className="shrink-0" />
-        <span className="truncate font-medium">Starting…</span>
-      </div>
-    );
-  }
-
-  if (agent.status === "archiving") {
-    return (
-      <div
-        className={cn(
-          "mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400",
-          className
-        )}
-      >
-        <ActivityBars size={12} className="shrink-0" />
-        <span className="truncate font-medium">
-          {agent.archivePhase === "stopping"
-            ? "Stopping agent…"
-            : agent.archivePhase === "worktree-check"
-              ? "Checking worktree…"
-              : agent.archivePhase === "worktree-cleanup"
-                ? "Removing worktree…"
-                : agent.archivePhase === "finalizing"
-                  ? "Finalizing…"
-                  : "Archiving…"}
-        </span>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-/** Whether AgentCardPhaseStatus has a lifecycle line to show. */
-export function hasPhaseStatus(agent: Agent): boolean {
+  const phase = agentPhaseStatus(agent);
+  if (!phase) return null;
   return (
-    agent.status === "creating" ||
-    Boolean(agent.setupPhase) ||
-    agent.status === "archiving"
+    <div
+      className={cn(
+        "mt-1 flex min-w-0 items-center gap-1.5 text-xs",
+        phase.tone === "starting" ? "text-status-working" : "text-orange-400",
+        className
+      )}
+    >
+      <ActivityBars size={12} className="shrink-0" />
+      <span className="truncate font-medium">{phase.label}</span>
+    </div>
   );
 }
+
+export { hasPhaseStatus };
 
 /**
  * The agent's status line above the repo it works in: a lifecycle phase
@@ -118,17 +87,7 @@ export function AgentCardActivity({
 }): JSX.Element {
   const { projectId } = useProjectScope();
   const repoName = agentProjectRoot(agent)?.split("/").pop() ?? null;
-  const ownStep = useAgentTurnLabel(
-    agent.id,
-    agent.currentTurn?.blockId ?? null
-  );
-  const hasOwnActivity =
-    hasPhaseStatus(agent) ||
-    Boolean(agent.reconnect) ||
-    Boolean(agent.currentTurn && ownStep);
-  const activeChild = useFirstAgentWithTurnLabel(
-    hasOwnActivity ? [] : childAgents.filter((child) => child.currentTurn)
-  );
+  const activity = useAgentActivity(agent, childAgents);
 
   return (
     <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
@@ -136,13 +95,13 @@ export function AgentCardActivity({
         className="flex min-h-4 min-w-0 items-center"
         data-testid={`agent-status-line-${agent.id}`}
       >
-        {hasPhaseStatus(agent) ? (
+        {activity.kind === "phase" ? (
           <AgentCardPhaseStatus agent={agent} className="mt-0" />
         ) : (
           <AgentActivityLabel
-            agent={activeChild ?? agent}
+            agent={activity.sourceAgent}
             className="w-full"
-            scheduledFallback={!activeChild}
+            scheduledFallback={activity.sourceAgent === agent}
             linkToTurn
             onNavigate={onNavigate}
           />

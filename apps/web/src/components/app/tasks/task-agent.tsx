@@ -1,7 +1,10 @@
 import type { Agent } from "@/components/app/types";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { TurnGlyph } from "@/components/app/chat/turn/activity-block";
-import { useAgentTurnLabel } from "@/hooks/use-agent-turn-label";
+import { useAgentActivity } from "@/hooks/use-agent-activity";
+import { cachedAgentLineage } from "@/lib/agent-lineage";
+import { ActivityBars } from "@/components/ui/activity-bars";
+import { Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { agentQualifier } from "./task-utils";
@@ -26,15 +29,11 @@ export function TaskAgentChip({
   fullWidth?: boolean;
   className?: string;
 }) {
-  const turn = agent.currentTurn ?? null;
-  const step = useAgentTurnLabel(agent.id, turn?.blockId ?? null);
-  const live =
-    agent.activity === "working" ||
-    agent.activity === "starting" ||
-    Boolean(turn);
-  const waiting = agent.activity === "waiting";
-  const blocked = agent.activity === "blocked";
-  const stopped = agent.activity === "stopped" || !agent.activity;
+  const childAgents = agents
+    ? cachedAgentLineage(agents).subAgentsByCardId.get(agent.id)
+    : undefined;
+  const activity = useAgentActivity(agent, childAgents);
+  const live = activity.glyph !== "none";
   const qualifier = agentQualifier(agent, agents);
   return (
     <span
@@ -43,15 +42,17 @@ export function TaskAgentChip({
         // the agent starts or works, amber waiting on someone, red blocked,
         // quiet when idle, faded and dashed once it has stopped.
         "inline-flex min-w-0 items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-xs text-foreground shadow-sm",
-        live
+        activity.tone === "working" || activity.tone === "starting"
           ? "border-status-working/40 bg-status-working/10"
-          : waiting
+          : activity.tone === "waiting"
             ? "border-status-waiting/40 bg-status-waiting/10"
-            : blocked
+            : activity.tone === "blocked"
               ? "border-status-blocked/40 bg-status-blocked/10"
-              : stopped
-                ? "border-dashed border-border bg-transparent text-muted-foreground"
-                : "border-border bg-background/70",
+              : activity.tone === "archiving"
+                ? "border-orange-400/40 bg-orange-400/10 text-orange-400"
+                : activity.tone === "stopped"
+                  ? "border-dashed border-border bg-transparent text-muted-foreground"
+                  : "border-border bg-background/70",
         fullWidth && "w-full",
         className
       )}
@@ -75,17 +76,36 @@ export function TaskAgentChip({
         <span
           className="flex w-3 shrink-0 items-center justify-center leading-none"
           data-testid={`task-agent-live-${agent.id}`}
-          aria-label="Working"
+          aria-label={activity.label ?? activity.tone}
           role="img"
         >
-          <TurnGlyph
-            summary={{ done: false, failed: false, interrupted: false }}
-          />
+          {activity.glyph === "bars" ? (
+            <ActivityBars size={12} />
+          ) : activity.glyph === "clock" ? (
+            <Clock className="h-3 w-3" />
+          ) : (
+            <TurnGlyph
+              summary={{ done: false, failed: false, interrupted: false }}
+            />
+          )}
         </span>
       )}
-      {live && !compact && step && (
-        <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-status-working">
-          {step}
+      {!compact && activity.label && (
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[10px] font-medium",
+            activity.tone === "working" || activity.tone === "starting"
+              ? "text-status-working"
+              : activity.tone === "archiving"
+                ? "text-orange-400"
+                : activity.tone === "waiting"
+                  ? "text-status-waiting"
+                  : "text-muted-foreground"
+          )}
+        >
+          {activity.sourceAgent !== agent
+            ? `↳ ${activity.sourceAgent.name} · ${activity.label}`
+            : activity.label}
         </span>
       )}
     </span>
