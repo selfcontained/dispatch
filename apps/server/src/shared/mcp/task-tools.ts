@@ -175,7 +175,35 @@ export function registerTaskTools(
           const key = (await service.ensureColumns(detail.projectId)).find(
             (c) => c.id === detail.columnId
           )?.key;
-          return ok({ ...detail, column: key ?? null });
+          return ok({
+            ...detail,
+            column: key ?? null,
+            watching: await service.watching(args.id, agentId),
+          });
+        } catch (error) {
+          return toTaskToolError(error);
+        }
+      }
+    );
+  }
+
+  for (const name of ["task_watch", "task_unwatch"] as const) {
+    if (!allowed.has(name)) continue;
+    server.registerTool(
+      name,
+      {
+        description:
+          name === "task_watch"
+            ? "Watch task activity and new conversation posts without taking assignment."
+            : "Stop watching a task.",
+        inputSchema: { id: z.string().min(1) },
+      },
+      async ({ id }) => {
+        try {
+          await taskInScope(id);
+          if (name === "task_watch") await service.watch(id, agentId);
+          else await service.unwatch(id, agentId);
+          return ok({ id, watching: name === "task_watch" });
         } catch (error) {
           return toTaskToolError(error);
         }

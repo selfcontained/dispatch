@@ -13,6 +13,10 @@ import type { Pool } from "pg";
 import { StreamService, type StreamAgent } from "../src/chat/service.js";
 import { registerStreamRoutes } from "../src/routes/streams.js";
 import { handleAgentError } from "../src/server/http-helpers.js";
+import {
+  TaskWatchNotifier,
+  type WatchDelivery,
+} from "../src/tasks/watch-notifier.js";
 import { TaskService } from "../src/tasks/service.js";
 import type { Task } from "../src/tasks/types.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -37,6 +41,13 @@ let waiting: Array<{
   reject: (error: Error) => void;
 }>;
 let projectId: string;
+let watches: TaskWatchNotifier;
+let watchPrompts: string[];
+let watchDeliver: (
+  id: string,
+  text: string,
+  options: WatchDelivery
+) => Promise<void>;
 
 const ASSIGNEE = "agt_task_owner";
 const HELPER = "agt_task_helper";
@@ -68,11 +79,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  watches?.dispose();
   await app?.close();
   await teardownTestDb();
 });
 
 beforeEach(async () => {
+  watches?.dispose();
   await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM tasks");
   await pool.query("DELETE FROM task_columns");
@@ -89,6 +102,23 @@ beforeEach(async () => {
       `INSERT INTO projects (id, name, repo_root, color) VALUES (gen_random_uuid(), 'Tasks', '/repo/tasks', '#336699') RETURNING id`
     )
   ).rows[0].id;
+  await pool.query(`UPDATE agents SET project_id = $1 WHERE id <> $2`, [
+    projectId,
+    STRANGER,
+  ]);
+  watchPrompts = [];
+  watchDeliver = async (_id, text, options) => {
+    if (await options.beforeSubmit()) watchPrompts.push(text);
+    else throw new Error("withdrawn");
+  };
+  watches = new TaskWatchNotifier({
+    pool,
+    debounceMs: 100,
+    settleMs: 0,
+    projectForAgent: async (id) => (id === STRANGER ? "elsewhere" : projectId),
+    deliver: (id, text, options) => watchDeliver(id, text, options),
+    warn: () => {},
+  });
   prompts = [];
   holding = false;
   waiting = [];
@@ -96,6 +126,7 @@ beforeEach(async () => {
   gateHits = 0;
   streams = new StreamService({
     pool,
+    onTaskActivity: (id) => watches.schedule(id),
     publishUiEvent: () => {},
     getAgent: async (id) => {
       if (agentGate) {
@@ -146,7 +177,14 @@ beforeEach(async () => {
   });
   tasks = new TaskService({
     pool,
-    getAgent: async (id) => AGENTS[id] ?? null,
+    watches,
+    getAgent: async (id) =>
+      AGENTS[id]
+        ? {
+            ...AGENTS[id]!,
+            projectId: id === STRANGER ? "prj_elsewhere" : projectId,
+          }
+        : null,
     getTemplate: async () => null,
     launchTemplate: async () => {
       throw new Error("no launches here");
@@ -757,6 +795,204 @@ describe("task stream root", () => {
       release();
       expect((await send).statusCode).toBe(200);
       expect(await streams.rootExists(task.id)).toBe(true);
+    });
+  });
+});
+
+describe("task watches", () => {
+  it("coalesces events and threaded chat, suppresses self and addressed posts", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    await tasks.updateTask(task.id, { title: "New title" }, USER);
+    const post = await tasks.comment(task.id, HELPER, "Useful update");
+    await streams.post(HELPER, {
+      text: "Thread detail",
+      replyTo: post.blockId,
+    });
+    await tasks.comment(task.id, PEER, "Self post");
+    await tasks.updateTask(
+      task.id,
+      { body: "Self edit" },
+      { kind: "agent", agentId: PEER }
+    );
+    await expect.poll(() => watchPrompts.length).toBe(1);
+    expect(watchPrompts[0]).toContain("updated");
+    expect(watchPrompts[0]).toContain("Useful update");
+    expect(watchPrompts[0]).toContain("Thread detail");
+    expect(watchPrompts[0]).not.toContain("Self post");
+    expect(watchPrompts[0]).not.toContain("Self edit");
+    await watches.flushTask(task.id);
+    expect(watchPrompts).toHaveLength(1);
+    // The assignee already receives task posts directly.
+    await tasks.watch(task.id, ASSIGNEE);
+    await tasks.comment(task.id, HELPER, "Addressed", ASSIGNEE);
+    await settle();
+    await watches.flush(task.id, ASSIGNEE);
+    expect(watchPrompts).toHaveLength(1);
+  });
+
+  it("renders readable movement lines with column keys and actor names", async () => {
+    const task = await newTask(null);
+    const ready = await tasks.resolveColumnKey(projectId, "ready");
+    const working = await tasks.resolveColumnKey(projectId, "in_progress");
+    await tasks.updateTask(task.id, { columnId: ready.id }, USER);
+    await tasks.watch(task.id, PEER);
+    await tasks.updateTask(task.id, { columnId: working.id }, USER);
+    const event = (
+      await pool.query(
+        `SELECT id FROM task_events WHERE task_id = $1 AND kind = 'moved' ORDER BY created_at DESC LIMIT 1`,
+        [task.id]
+      )
+    ).rows[0];
+    await watches.flushTask(task.id);
+    expect(watchPrompts[0]!.split("\n")).toContain(
+      `[event ${event.id}] user: moved ready → in_progress`
+    );
+  });
+
+  it("notifies questions, forms and their new answer blocks but skips edits", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    const question = await streams.post(
+      HELPER,
+      {
+        text: "Which option?",
+        to: ASSIGNEE,
+        question: { options: [{ label: "Proceed" }] },
+      },
+      { root: task.id }
+    );
+    await streams.answerQuestion(task.id, question.id, { value: "Proceed" });
+    const form = await streams.post(
+      HELPER,
+      {
+        text: "Report details",
+        to: ASSIGNEE,
+        form: { fields: [{ id: "name", label: "Name", type: "text" }] },
+      },
+      { root: task.id }
+    );
+    await streams.submitForm(task.id, form.id, { values: { name: "Ada" } });
+    await watches.flushTask(task.id);
+    expect(watchPrompts).toHaveLength(1);
+    expect(watchPrompts[0]).toContain("Which option?");
+    expect(watchPrompts[0]).toContain("Proceed");
+    expect(watchPrompts[0]).toContain("Report details");
+    expect(watchPrompts[0]).toContain("Ada");
+    await streams.store.update(question.id, { text: "Edited question" });
+    await watches.flushTask(task.id);
+    expect(watchPrompts).toHaveLength(1);
+  });
+
+  it("retains cursor for offline/failed delivery and retries from persisted state", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    const cursor = async () =>
+      (
+        await pool.query(
+          `SELECT notified_through::text AS value FROM task_watches WHERE task_id = $1`,
+          [task.id]
+        )
+      ).rows[0]?.value;
+    const before = await cursor();
+    await pool.query(`UPDATE agents SET status = 'stopped' WHERE id = $1`, [
+      PEER,
+    ]);
+    await tasks.comment(task.id, HELPER, "While offline");
+    await watches.flushTask(task.id);
+    expect(await cursor()).toBe(before);
+    await pool.query(`UPDATE agents SET status = 'running' WHERE id = $1`, [
+      PEER,
+    ]);
+    watchDeliver = async () => {
+      throw new Error("inert runtime");
+    };
+    await watches.flushTask(task.id);
+    expect(await cursor()).toBe(before);
+    watchDeliver = async (_id, text) => {
+      watchPrompts.push(text);
+    };
+    await watches.recover(PEER);
+    await expect.poll(() => watchPrompts.length).toBe(1);
+    expect(watchPrompts[0]).toContain("While offline");
+    expect(await cursor()).not.toBe(before);
+  });
+
+  it("advances only on acceptance and aborts queued watches on unwatch/delete", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    const before = (
+      await pool.query(
+        `SELECT notified_through::text AS value FROM task_watches WHERE task_id = $1`,
+        [task.id]
+      )
+    ).rows[0].value;
+    let accept!: () => void;
+    watchDeliver = async (_id, text, options) =>
+      new Promise<void>((resolve, reject) => {
+        accept = () => {
+          watchPrompts.push(text);
+          resolve();
+        };
+        options.signal.addEventListener(
+          "abort",
+          () => reject(new Error("withdrawn")),
+          { once: true }
+        );
+      });
+    await tasks.comment(task.id, HELPER, "Pending");
+    const pending = watches.flushTask(task.id);
+    await expect.poll(() => typeof accept).toBe("function");
+    expect(
+      (
+        await pool.query(
+          `SELECT notified_through::text AS value FROM task_watches WHERE task_id = $1`,
+          [task.id]
+        )
+      ).rows[0].value
+    ).toBe(before);
+    await tasks.unwatch(task.id, PEER);
+    await pending;
+    expect(watchPrompts).toHaveLength(0);
+    await tasks.watch(task.id, PEER);
+    accept = undefined as never;
+    await tasks.comment(task.id, HELPER, "Pending delete");
+    const deleting = watches.flushTask(task.id);
+    await expect.poll(() => typeof accept).toBe("function");
+    await tasks.deleteTask(task.id);
+    await deleting;
+    expect(
+      (
+        await pool.query(`SELECT * FROM task_watches WHERE task_id = $1`, [
+          task.id,
+        ])
+      ).rows
+    ).toHaveLength(0);
+    expect(watchPrompts).toHaveLength(0);
+  });
+
+  it("caps burst notices, deletes archived watches and drops removed task agents", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, PEER);
+    for (let i = 0; i < 18; i++)
+      await tasks.store.insertEvent(task.id, "link_added", USER, {
+        label: `Link ${i}`,
+      });
+    await watches.flushTask(task.id);
+    expect(watchPrompts).toHaveLength(1);
+    expect(watchPrompts[0]).toContain("+3 more");
+    await watches.flushTask(task.id);
+    expect(watchPrompts).toHaveLength(1);
+    await pool.query(`UPDATE agents SET deleted_at = now() WHERE id = $1`, [
+      PEER,
+    ]);
+    await watches.recover();
+    expect(await tasks.watching(task.id, PEER)).toBe(false);
+    await tasks.watch(task.id, ASSIGNEE);
+    await tasks.removeAgent(task.id, ASSIGNEE, USER);
+    expect(await tasks.watching(task.id, ASSIGNEE)).toBe(false);
+    await expect(tasks.watch(task.id, ASSIGNEE)).rejects.toMatchObject({
+      status: 403,
     });
   });
 });

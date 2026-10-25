@@ -225,7 +225,10 @@ export type TaskPatch = {
 
 /** SQL for the tasks module; the rules live in `TaskService`. */
 export class TaskStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly onEvent?: (taskId: string) => void
+  ) {}
 
   async transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
@@ -672,6 +675,7 @@ export class TaskStore {
         JSON.stringify(data),
       ]
     );
+    this.onEvent?.(taskId);
   }
 
   /** The newest `limit` events, oldest first. */

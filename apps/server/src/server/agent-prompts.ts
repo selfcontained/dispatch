@@ -57,8 +57,14 @@ export function createPromptInjector(
             opts?.source ?? systemPromptSource(prompt)
           )
         : opts?.source,
-      opts?.alone || opts?.images?.length || opts?.delivery
+      opts?.alone ||
+        opts?.images?.length ||
+        opts?.delivery ||
+        opts?.signal ||
+        opts?.beforeSubmit
         ? {
+            ...(opts?.signal ? { signal: opts.signal } : {}),
+            ...(opts?.beforeSubmit ? { beforeSubmit: opts.beforeSubmit } : {}),
             ...(opts?.alone ? { alone: true } : {}),
             ...(opts.images?.length ? { images: opts.images } : {}),
             ...(opts?.delivery ? { delivery: opts.delivery } : {}),

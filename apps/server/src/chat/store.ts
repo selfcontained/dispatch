@@ -317,11 +317,14 @@ function insertParams(input: InsertBlockInput & { id: string }): unknown[] {
 }
 
 export class BlockStore {
-  constructor(readonly db: Queryable) {}
+  constructor(
+    readonly db: Queryable,
+    private readonly onInsert?: (streamId: string) => void
+  ) {}
 
   /** The same store bound to a transaction client. */
   withClient(client: PoolClient): BlockStore {
-    return new BlockStore(client);
+    return new BlockStore(client, this.onInsert);
   }
 
   async deleteQueuedMessage(blockId: string): Promise<void> {
@@ -339,6 +342,7 @@ export class BlockStore {
       `INSERT INTO blocks ${INSERT_COLUMNS} VALUES ${INSERT_VALUES} RETURNING *`,
       insertParams({ ...input, id: input.id ?? randomUUID() })
     );
+    this.onInsert?.(input.streamId);
     return toBlock(result.rows[0]);
   }
 
@@ -359,6 +363,7 @@ export class BlockStore {
       insertParams(input)
     );
     const row = result.rows[0];
+    if (row) this.onInsert?.(input.streamId);
     return row ? toBlock(row) : null;
   }
 

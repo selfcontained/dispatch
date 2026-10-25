@@ -89,6 +89,26 @@ describe("enqueueAgentPrompt", () => {
     );
   });
 
+  it("forwards cancellation and the final eligibility check for queued system prompts", async () => {
+    const ctx = build();
+    const controller = new AbortController();
+    const beforeSubmit = vi.fn(async () => true);
+    const source = { source: "system" as const, text: "Task watch activity" };
+    const { delivery } = await ctx.enqueueAgentPrompt("agt_1", "activity", {
+      source,
+      signal: controller.signal,
+      beforeSubmit,
+    });
+    expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith(
+      "agt_1",
+      "activity",
+      source,
+      { signal: controller.signal, beforeSubmit }
+    );
+    ctx.accepted.resolve();
+    await delivery;
+  });
+
   it("reports held when a turn is already running", async () => {
     const ctx = build({ held: true });
     const { held } = await ctx.enqueueAgentPrompt("agt_1", "two");
