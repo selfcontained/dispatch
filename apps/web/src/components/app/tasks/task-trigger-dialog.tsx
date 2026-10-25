@@ -31,11 +31,11 @@ import { templateName } from "./task-utils";
 const NEW_TEMPLATE = "__new_template__";
 
 /**
- * The column's automation, written out as the rule it is and sitting
+ * The column's trigger, written out as the rule it is and sitting
  * under the column header where a task would cross into it. Click to
  * edit. Nothing renders for a column without one; the menu adds it.
  */
-export function ColumnAutomationStrip({
+export function ColumnTriggerStrip({
   column,
   projectId,
   className,
@@ -52,9 +52,9 @@ export function ColumnAutomationStrip({
     <>
       <button
         type="button"
-        data-testid={`task-column-automation-${column.key}`}
+        data-testid={`task-column-trigger-${column.key}`}
         onClick={() => setOpen(true)}
-        title="Edit automation"
+        title="Edit trigger"
         className={cn(
           "flex w-full items-center gap-2 border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-left text-xs transition-colors hover:bg-[hsl(var(--col)/0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           className
@@ -73,7 +73,7 @@ export function ColumnAutomationStrip({
           aria-hidden="true"
         />
       </button>
-      <TaskAutomationDialog
+      <TaskTriggerDialog
         column={column}
         projectId={projectId}
         open={open}
@@ -90,7 +90,7 @@ const empty = {
   assign: true,
   fireOnCreate: false,
 } satisfies TaskColumnTrigger;
-export function TaskAutomationDialog({
+export function TaskTriggerDialog({
   column,
   projectId,
   open,
@@ -144,10 +144,7 @@ export function TaskAutomationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            {column.trigger ? "Edit automation" : "Add automation"} ·{" "}
-            {column.name}
-          </DialogTitle>
+          <DialogTitle>Trigger · {column.name}</DialogTitle>
           <DialogDescription>
             {column.trigger
               ? `This column already launches ${templateName(projectTemplates, column.trigger.templateId)} when a task enters it.`
@@ -249,7 +246,7 @@ export function TaskAutomationDialog({
                   .then(() => onOpenChange(false));
               }}
             >
-              Remove automation
+              Remove trigger
             </Button>
             <Button
               disabled={!trigger.templateId || actions.updateColumn.isPending}

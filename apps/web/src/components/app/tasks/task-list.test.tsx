@@ -5,8 +5,9 @@ import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { StatusSelect, TaskList } from "./task-list";
 import type { TaskBoard } from "@/hooks/use-tasks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-vi.mock("./task-automation-dialog", () => ({
-  ColumnAutomationStrip: () => null,
+vi.mock("./task-trigger-dialog", () => ({
+  ColumnTriggerStrip: () => null,
+  TaskTriggerDialog: () => null,
 }));
 vi.mock("@/components/ui/select", () => ({
   Select: ({
@@ -96,4 +97,36 @@ it("shows the launch instead of the agent and failure in a row", () => {
   expect(screen.getAllByText("Launching Builder…")).toHaveLength(2);
   expect(screen.queryByText(/launch failed/)).toBeNull();
   expect(screen.queryByTestId("task-agent-chip-agt_old")).toBeNull();
+});
+
+it("a search that hides a column's tasks does not make it deletable", async () => {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.scrollIntoView = () => {};
+  const task = { id: "task", projectId: "p", columnId: "backlog" } as Task;
+  const board = {
+    projectId: "p",
+    tasks: [task],
+    columns: [
+      { id: "backlog", key: "backlog", name: "Backlog", position: 0 },
+      { id: "ready", key: "ready", name: "Ready", position: 1 },
+    ],
+  } as TaskBoard;
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <TaskList
+        board={board}
+        tasks={[]}
+        agents={[]}
+        openTask={() => {}}
+        moveTask={() => {}}
+      />
+    </QueryClientProvider>
+  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Backlog menu" }), {
+    key: "Enter",
+  });
+  const remove = await screen.findByRole("menuitem", {
+    name: "Delete (empty it first)",
+  });
+  expect(remove.getAttribute("aria-disabled")).toBe("true");
 });

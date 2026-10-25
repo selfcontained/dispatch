@@ -111,7 +111,7 @@ export function agentQualifier(
   return taskAge(agent.createdAt);
 }
 /**
- * How an agent came to be on a task, in words: a column's automation
+ * How an agent came to be on a task, in words: a column's trigger
  * launched it, a person assigned it, or it claimed the task itself.
  */
 export function assignmentLabel(
@@ -120,7 +120,7 @@ export function assignmentLabel(
 ): string {
   if (assignment.role === "trigger") {
     const column = columns.find((c) => c.id === assignment.columnId);
-    return column ? `launched by ${column.name}` : "launched by an automation";
+    return column ? `launched by ${column.name}` : "launched by a trigger";
   }
   return assignment.role === "self" ? "picked it up" : "assigned by you";
 }

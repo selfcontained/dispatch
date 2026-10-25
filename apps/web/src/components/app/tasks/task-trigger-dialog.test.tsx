@@ -11,7 +11,7 @@ import {
 import { MemoryRouter } from "react-router-dom";
 import type { Template } from "@/hooks/use-templates";
 import type { TaskColumn } from "@/hooks/use-tasks";
-import { TaskAutomationDialog } from "./task-automation-dialog";
+import { TaskTriggerDialog } from "./task-trigger-dialog";
 
 const api = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ api }));
@@ -92,7 +92,7 @@ const renderDialog = () => {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <TaskAutomationDialog
+        <TaskTriggerDialog
           column={column}
           projectId="p1"
           open
@@ -103,7 +103,7 @@ const renderDialog = () => {
   );
   return { onOpenChange };
 };
-// The stacked create dialog aria-hides the automation dialog behind it.
+// The stacked create dialog aria-hides the trigger dialog behind it.
 const templatePicker = () =>
   screen.getByRole("combobox", { name: "Template", hidden: true });
 const openNewTemplate = () => {
@@ -153,7 +153,7 @@ it("creates a template from the picker and selects it", async () => {
   );
 });
 
-it("cancel returns to the automation unchanged", async () => {
+it("cancel returns to the trigger unchanged", async () => {
   const { onOpenChange } = renderDialog();
   openNewTemplate();
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
@@ -164,9 +164,7 @@ it("cancel returns to the automation unchanged", async () => {
   );
   expect(addTemplate).not.toHaveBeenCalled();
   expect(templatePicker().textContent).toBe("Builder");
-  expect(
-    screen.getByRole("heading", { name: /Edit automation · Ready/ })
-  ).toBeTruthy();
+  expect(screen.getByRole("heading", { name: /Trigger · Ready/ })).toBeTruthy();
   expect(onOpenChange).not.toHaveBeenCalled();
 });
 

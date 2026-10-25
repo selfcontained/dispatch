@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,16 @@ const headers = {
 const repo = mkdtempSync(join(tmpdir(), "dispatch-tasks-"));
 execFileSync("git", ["init", repo]);
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
+// Closes a dialog opened from a column menu. The menu's layer must be gone
+// before Escape, or it eats the key; even then the first Escape is
+// sometimes lost, so it retries until the dialog closes.
+async function escapeDialog(page: Page) {
+  await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(0);
+  await expect(async () => {
+    await page.getByRole("dialog").press("Escape", { timeout: 1_000 });
+    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+}
 test("re-entering a trigger replaces an old failure with launch progress", async ({
   page,
   request,
@@ -126,7 +136,7 @@ test("re-entering a trigger replaces an old failure with launch progress", async
     await request.delete(`/api/v1/projects/${project.id}`, { headers });
   }
 });
-test("task moves into automation, opens detail, and renders list on mobile", async ({
+test("task moves into a triggered column, opens detail, and renders list on mobile", async ({
   page,
   request,
 }) => {
@@ -334,11 +344,20 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     ).toHaveAttribute("data-state", "active");
     await page.getByRole("button", { name: "Close task" }).click();
     await page.getByRole("button", { name: "List layout" }).click();
-    await expect(page.getByTestId("tasks-list")).toBeVisible();
+    const list = page.getByTestId("tasks-list");
+    await expect(list).toBeVisible();
     await page.screenshot({
       path: "/tmp/dispatch-tasks-list.png",
       scale: "device",
     });
+    // A list group carries the board's column menu, trigger included.
+    await list.getByRole("button", { name: "Ready menu" }).click();
+    await expect(page.getByRole("menuitem", { name: "Move up" })).toBeVisible();
+    await page.getByRole("menuitem", { name: "Edit trigger…" }).click();
+    await expect(page.getByRole("dialog")).toContainText(
+      "already launches Tasks builder"
+    );
+    await escapeDialog(page);
     await page.getByRole("button", { name: "Board layout" }).click();
     // A sidebar column is a filter: the others fold away; again clears it.
     await page.getByTestId("task-nav-column-ready").click();
@@ -408,26 +427,21 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       )
       .toBeGreaterThan(0);
     await page.setViewportSize({ width: 1280, height: 720 });
-    // The column wears its automation as a rule; clicking it edits.
-    const strip = page.getByTestId("task-column-automation-ready");
+    // The column wears its trigger as a rule; clicking it edits.
+    const strip = page.getByTestId("task-column-trigger-ready");
     await expect(strip).toContainText("launches Tasks builder");
     await page.getByRole("button", { name: "Ready menu" }).click();
-    await page.getByRole("menuitem", { name: "Edit automation…" }).click();
+    await page.getByRole("menuitem", { name: "Edit trigger…" }).click();
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
-    // The menu's layer must be gone before Escape, or it eats the key.
-    await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(
-      0
-    );
-    await page.getByRole("dialog").press("Escape");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await escapeDialog(page);
     await strip.click();
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
     await page.screenshot({
-      path: "/tmp/dispatch-tasks-automation.png",
+      path: "/tmp/dispatch-tasks-trigger.png",
       scale: "device",
     });
     await page.keyboard.press("Escape");
