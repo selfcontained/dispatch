@@ -97,7 +97,12 @@ export function useAgentActivity(
   if (activeChild && childStep) {
     return {
       label: childStep,
-      tone: "working" as const,
+      // A parent waiting on someone or blocked still needs attention while
+      // its child works; otherwise the child's work makes it read as working.
+      tone:
+        agent.activity === "waiting" || agent.activity === "blocked"
+          ? agent.activity
+          : ("working" as const),
       glyph: "turn" as const,
       sourceAgent: activeChild,
       kind: "turn" as const,

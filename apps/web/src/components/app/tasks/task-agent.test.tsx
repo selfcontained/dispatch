@@ -152,6 +152,22 @@ describe("TaskAgentChip activity", () => {
     expect(screen.getByTestId(`agent-activity-${child.id}`)).toBeTruthy();
   });
 
+  it("keeps a waiting parent's tint while its child's step stands in", async () => {
+    const parent = agent({ activity: "waiting" });
+    const child = agent({
+      id: "agt_child",
+      name: "reviewer",
+      parentAgentId: parent.id,
+      currentTurn: { blockId: "blk_child", threadId: null },
+    });
+    const { client, chip } = renderActivity(parent, [child]);
+    setStep(client, child.id, "blk_child", "running tests");
+    await waitFor(() =>
+      expect(chip.textContent).toContain("↳ reviewer · running tests")
+    );
+    expect(chip.className).toContain("border-status-waiting/40");
+  });
+
   it("shares phase and schedule labels with the sidebar", async () => {
     const parent = agent({ status: "archiving", archivePhase: "finalizing" });
     const { chip } = renderActivity(parent);
