@@ -327,12 +327,18 @@ export function TaskDetailPanel({
                   )}
                 >
                   <span className="text-xs text-muted-foreground">Status</span>
-                  <StatusSelect
-                    task={task}
-                    columns={columns}
-                    moveTask={moveTask}
-                    className={PROPERTY_CONTROL}
-                  />
+                  {task.archivedAt ? (
+                    <span className="text-sm text-muted-foreground">
+                      Archived · {column?.name}
+                    </span>
+                  ) : (
+                    <StatusSelect
+                      task={task}
+                      columns={columns}
+                      moveTask={moveTask}
+                      className={PROPERTY_CONTROL}
+                    />
+                  )}
                   <span className="text-xs text-muted-foreground">
                     Assignee
                   </span>
@@ -595,7 +601,29 @@ export function TaskDetailPanel({
                 </DrawerSection>
               </div>
             </div>
+            {task.archivedAt && (
+              <div
+                className="border-t border-border/40 px-3 py-2 text-sm text-muted-foreground"
+                role="status"
+              >
+                Archived — restore this task to move it.
+              </div>
+            )}
             <footer className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+              <Button
+                size="sm"
+                variant="default"
+                disabled={
+                  actions.archive?.isPending || actions.restore?.isPending
+                }
+                onClick={() =>
+                  task.archivedAt
+                    ? actions.restore.mutate(task.id)
+                    : actions.archive.mutate(task.id)
+                }
+              >
+                {task.archivedAt ? "Restore" : "Archive"}
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"

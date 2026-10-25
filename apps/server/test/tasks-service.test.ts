@@ -995,6 +995,33 @@ describe("task tools", () => {
     });
   });
 
+  it("task_update archives and restores only when archived is sent alone", async () => {
+    await insertAgent("agt_tool");
+    await insertAgent("agt_busy");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_busy" }, USER);
+    await service.archiveTask(task.id, USER);
+    const call = tools("agt_tool", projectId);
+
+    const combined = await call("task_update", {
+      id: task.id,
+      archived: false,
+      assign: "self",
+    });
+    expect(combined.isError).toBe(true);
+    const unchanged = await service.getTaskDetail(task.id);
+    expect(unchanged.archivedAt).not.toBeNull();
+    expect(unchanged.assignedAgentId).toBe("agt_busy");
+    expect(unchanged.events.some((e) => e.kind === "restored")).toBe(false);
+
+    const restored = await call("task_update", {
+      id: task.id,
+      archived: false,
+    });
+    expect(restored.isError).toBeFalsy();
+    expect((await service.requireTask(task.id)).archivedAt).toBeNull();
+  });
+
   it("refuses a move that would relaunch over another running agent", async () => {
     await withTrigger("ready");
     await insertAgent("agt_tool");
@@ -1528,4 +1555,136 @@ it("deleting a project cleans up its task attachment directories after cascading
   } finally {
     await app.close();
   }
+});
+
+describe("task archive", () => {
+  it("archives and restores idempotently, preserving task context and completion history", async () => {
+    const done = await columnId("done");
+    await insertAgent("agt_archive", "stopped");
+    const task = await service.createTask(
+      { projectId, columnId: done, title: "Keep context" },
+      USER,
+      {
+        startupFiles: [
+          startupFileUpload("archive.md", "archive.md", Buffer.from("context")),
+        ],
+        startupLinks: ["https://example.com/archive"],
+      }
+    );
+    await service.updateTask(task.id, { assignedAgentId: "agt_archive" }, USER);
+    const before = await service.getTaskDetail(task.id);
+    published = [];
+    const archived = await service.archiveTask(task.id, USER);
+    expect(archived.archivedAt).toBeTruthy();
+    expect((await service.archiveTask(task.id, USER)).archivedAt).toBe(
+      archived.archivedAt
+    );
+    expect(published).toHaveLength(1);
+    expect((await service.getBoard(projectId)).tasks).toEqual([]);
+    expect(await service.listTasks({ projectId })).toEqual([]);
+    expect(
+      (await service.getBoard(projectId, { archived: true })).tasks.map(
+        (t) => t.id
+      )
+    ).toEqual([task.id]);
+    expect(
+      (await service.listTasks({ projectId, archived: true })).map((t) => t.id)
+    ).toEqual([task.id]);
+    expect(await service.listTasks({ assignedAgentId: "agt_archive" })).toEqual(
+      []
+    );
+    await expect(
+      service.updateTask(task.id, { columnId: await columnId("backlog") }, USER)
+    ).rejects.toMatchObject({ status: 409, code: "task_archived" });
+    await service.updateTask(task.id, { title: "Edited while archived" }, USER);
+    await service.restoreTask(task.id, USER);
+    await service.restoreTask(task.id, USER);
+    const after = await service.getTaskDetail(task.id);
+    expect(after.archivedAt).toBeNull();
+    for (const key of [
+      "columnId",
+      "completedAt",
+      "assignedAgentId",
+      "links",
+      "agents",
+      "attachments",
+    ] as const)
+      expect(after[key]).toEqual(before[key]);
+    expect(after.events.slice(0, before.events.length)).toEqual(before.events);
+    expect(after.events.filter((e) => e.kind === "archived")).toHaveLength(1);
+    expect(after.events.filter((e) => e.kind === "restored")).toHaveLength(1);
+    expect((await service.getBoard(projectId)).tasks.map((t) => t.id)).toEqual([
+      task.id,
+    ]);
+    expect(launches).toHaveLength(0);
+  });
+
+  it("restores in a trigger column without launching an agent", async () => {
+    const ready = await withTrigger("ready");
+    const task = await service.createTask(
+      { projectId, columnId: ready, title: "No launch" },
+      USER
+    );
+    await service.archiveTask(task.id, USER);
+    await service.restoreTask(task.id, USER);
+    expect(launches).toEqual([]);
+    expect((await service.requireTask(task.id)).columnId).toBe(ready);
+  });
+
+  it("archives only active tasks in the project's done column, emits events, and publishes once", async () => {
+    const done = await columnId("done");
+    const backlog = await columnId("backlog");
+    const otherDone = (await service.getBoard(otherProjectId)).columns.find(
+      (c) => c.isDone
+    )!.id;
+    const a = await service.createTask(
+      { projectId, columnId: done, title: "a" },
+      USER
+    );
+    const b = await service.createTask(
+      { projectId, columnId: done, title: "b" },
+      USER
+    );
+    const already = await service.createTask(
+      { projectId, columnId: done, title: "already" },
+      USER
+    );
+    const active = await service.createTask(
+      { projectId, columnId: backlog, title: "active" },
+      USER
+    );
+    const other = await service.createTask(
+      { projectId: otherProjectId, columnId: otherDone, title: "other" },
+      USER
+    );
+    await service.archiveTask(already.id, USER);
+    published = [];
+    await expect(
+      service.archiveColumn(projectId, backlog, USER)
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      service.archiveColumn(projectId, otherDone, USER)
+    ).rejects.toMatchObject({ status: 400 });
+    const result = await service.archiveColumn(projectId, done, USER);
+    expect(result.archived).toBe(2);
+    expect(result.taskIds.sort()).toEqual([a.id, b.id].sort());
+    expect(published).toHaveLength(1);
+    expect((await service.archiveColumn(projectId, done, USER)).archived).toBe(
+      0
+    );
+    expect(published).toHaveLength(1);
+    expect((await service.requireTask(active.id)).archivedAt).toBeNull();
+    expect((await service.requireTask(other.id)).archivedAt).toBeNull();
+    for (const id of [a.id, b.id]) {
+      expect((await service.getTaskDetail(id)).events.at(-1)).toMatchObject({
+        kind: "archived",
+        data: { bulk: true, columnId: done },
+      });
+    }
+    expect(
+      (await service.getTaskDetail(already.id)).events.filter(
+        (e) => e.kind === "archived"
+      )
+    ).toHaveLength(1);
+  });
 });

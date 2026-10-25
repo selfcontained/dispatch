@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { afterEach, beforeAll, expect, it } from "vitest";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -10,6 +10,9 @@ import {
 } from "@testing-library/react";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { TaskCard } from "./task-card";
+vi.mock("@/hooks/use-tasks", () => ({
+  useTaskActions: () => ({ archive: { mutate: vi.fn() } }),
+}));
 
 beforeAll(() => {
   Element.prototype.hasPointerCapture = () => false;

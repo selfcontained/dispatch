@@ -80,7 +80,7 @@ function toColumn(row: ColumnRow): TaskColumn {
 const TASK_SELECT = `
   t.id, t.project_id, t.column_id, t.title, t.body, t.position,
   t.assigned_agent_id, t.links, t.created_by_kind, t.created_by_agent_id,
-  t.completed_at, t.created_at, t.updated_at,
+  t.archived_at, t.completed_at, t.created_at, t.updated_at,
   f.reason AS failure_reason, f.created_at AS failure_at,
   l.template_id AS launching_template_id, l.created_at AS launching_at
   FROM tasks t
@@ -126,6 +126,7 @@ type TaskRow = {
   links: TaskLink[];
   created_by_kind: string;
   created_by_agent_id: string | null;
+  archived_at: Date | null;
   completed_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -157,6 +158,7 @@ function toTask(row: TaskRow): Task {
             at: iso(row.launching_at)!,
           }
         : null,
+    archivedAt: iso(row.archived_at),
     completedAt: iso(row.completed_at),
     createdAt: iso(row.created_at)!,
     updatedAt: iso(row.updated_at)!,
@@ -420,8 +422,11 @@ export class TaskStore {
   async listTasks(filter: {
     projectId?: string;
     assignedAgentId?: string;
+    archived?: boolean;
   }): Promise<Task[]> {
-    const where: string[] = [];
+    const where: string[] = [
+      filter.archived ? "t.archived_at IS NOT NULL" : "t.archived_at IS NULL",
+    ];
     const values: unknown[] = [];
     if (filter.projectId) {
       values.push(filter.projectId);
@@ -438,6 +443,32 @@ export class TaskStore {
       values
     );
     return rows.map(toTask);
+  }
+
+  async setArchived(
+    id: string,
+    archived: boolean,
+    db: Queryable
+  ): Promise<boolean> {
+    const result = await db.query(
+      `UPDATE tasks SET archived_at = ${archived ? "now()" : "NULL"}, updated_at = now()
+       WHERE id = $1 AND archived_at IS ${archived ? "" : "NOT "}NULL`,
+      [id]
+    );
+    return result.rowCount === 1;
+  }
+
+  async archiveColumn(
+    projectId: string,
+    columnId: string,
+    db: Queryable
+  ): Promise<string[]> {
+    const { rows } = await db.query<{ id: string }>(
+      `UPDATE tasks SET archived_at = now(), updated_at = now()
+       WHERE project_id = $1 AND column_id = $2 AND archived_at IS NULL RETURNING id`,
+      [projectId, columnId]
+    );
+    return rows.map((row) => row.id);
   }
 
   /** The position that puts a task above everything in the column. */
@@ -481,7 +512,7 @@ export class TaskStore {
     let where = "id = $1";
     if (opts.fromColumnId !== undefined) {
       values.push(opts.fromColumnId);
-      where += ` AND column_id = $${values.length}`;
+      where += ` AND archived_at IS NULL AND column_id = $${values.length}`;
     }
     const result = await (opts.db ?? this.pool).query(
       `UPDATE tasks SET ${sets.join(", ")} WHERE ${where}`,

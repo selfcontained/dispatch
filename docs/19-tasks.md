@@ -118,3 +118,11 @@ absolute disk paths alongside task links. Files live under
 removes that directory. MCP `task_create` does not upload files.
 
 Agents launched for a task start with its title as their name (shortened to 40 characters plus an ellipsis when needed). Their task briefing asks them to use `rename_session` as their first act to choose a short, descriptive session name. An explicit name in Create Agent takes precedence over the initial task name.
+
+## Archiving tasks
+
+Archive a task from its detail panel, or use **Archive N tasks** in the completion column's menu to archive every active task in that column. The confirmation count includes tasks hidden by search or filters.
+
+Archived tasks leave the normal board, list and assignee counts. Open **Archived** in the tasks header to browse them and restore individual tasks. Existing task links still open their details and conversations. Archiving preserves the column, completion timestamp, assignee, agents, links, attachments and activity. Restore returns the task to its existing column without launching a trigger. Restore an archived task before moving it.
+
+The API supports task archive/restore actions and `archived=1` on board/list reads. MCP callers can use `task_update` with `archived: true` or `false`, and `task_list` with `archived: true`.

@@ -1,4 +1,12 @@
 import { useRef, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { MoreHorizontal } from "lucide-react";
 import type { TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
@@ -35,6 +43,12 @@ export function TaskColumnMenu({
   const taskCount = board.tasks.filter(
     (task) => task.columnId === column.id
   ).length;
+  const archiveCount = board.tasks.filter(
+    (task) => task.columnId === column.id && !task.archivedAt
+  ).length;
+  const archiveLabel = `Archive ${archiveCount} ${archiveCount === 1 ? "task" : "tasks"}`;
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const actions = useTaskActions(projectId);
   const [triggerOpen, setTriggerOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -111,6 +125,18 @@ export function TaskColumnMenu({
           >
             {later}
           </DropdownMenuItem>
+          {column.isDone && (
+            <DropdownMenuItem
+              className={MENU_ITEM}
+              disabled={archiveCount === 0}
+              onSelect={() => {
+                setArchiveError(null);
+                setArchiveOpen(true);
+              }}
+            >
+              {archiveLabel}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className={cn(MENU_ITEM, "text-destructive")}
@@ -124,6 +150,43 @@ export function TaskColumnMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            menuButton.current?.focus();
+          }}
+        >
+          <AlertDialogTitle className="text-lg font-semibold">
+            {archiveLabel} from {column.name}?
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-sm text-muted-foreground">
+            Archived tasks leave the board. You can restore them from Archived.
+          </AlertDialogDescription>
+          {archiveError && (
+            <p role="alert" className="text-sm text-destructive">
+              {archiveError}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <AlertDialogCancel disabled={actions.archiveColumn?.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={actions.archiveColumn?.isPending || archiveCount === 0}
+              onClick={(event) => {
+                event.preventDefault();
+                void actions.archiveColumn
+                  .mutateAsync(column.id)
+                  .then(() => setArchiveOpen(false))
+                  .catch((error: Error) => setArchiveError(error.message));
+              }}
+            >
+              {archiveLabel}
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
       <TaskTriggerDialog
         column={column}
         projectId={projectId}

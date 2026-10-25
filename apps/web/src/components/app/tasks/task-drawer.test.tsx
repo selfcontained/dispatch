@@ -86,6 +86,7 @@ const detail: TaskDetail = {
   createdBy: { kind: "user" },
   latestFailure: null,
   launching: null,
+  archivedAt: null,
   completedAt: null,
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
@@ -333,4 +334,58 @@ it("keeps Details when the reader interacts before the unread query arrives", as
       screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
     ).toBe("active")
   );
+});
+
+it("archives and restores from the drawer and shows archived status", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  client.setQueryData(taskKeys.detail(detail.id), detail);
+  const fetchMock = vi.fn(
+    async (url: string) =>
+      new Response(
+        JSON.stringify({
+          ...detail,
+          archivedAt: url.endsWith("/restore") ? null : "2026-01-02T00:00:00Z",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <TaskDrawer
+            id={detail.id}
+            projectId={detail.projectId}
+            columns={[]}
+            boardTasks={[detail]}
+            agents={[]}
+            close={vi.fn()}
+            openTask={vi.fn()}
+            moveTask={vi.fn()}
+            isMobile={false}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/tasks/task-1/archive",
+        expect.objectContaining({ method: "POST" })
+      )
+    );
+    await screen.findByText("Archived — restore this task to move it.");
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/tasks/task-1/restore",
+        expect.objectContaining({ method: "POST" })
+      )
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

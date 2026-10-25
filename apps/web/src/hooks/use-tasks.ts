@@ -20,11 +20,15 @@ export const taskKeys = {
   detail: (id: string) => ["tasks", "detail", id] as const,
   assigned: (agentId: string) => ["tasks", "assigned", agentId] as const,
 };
-export function useTaskBoard(projectId: string | null) {
+export function useTaskBoard(projectId: string | null, archived = false) {
   return useQuery<TaskBoard>({
-    queryKey: taskKeys.board(projectId ?? ""),
+    queryKey: archived
+      ? [...taskKeys.board(projectId ?? ""), "archived"]
+      : taskKeys.board(projectId ?? ""),
     queryFn: () =>
-      api(`/api/v1/projects/${encodeURIComponent(projectId!)}/tasks/board`),
+      api(
+        `/api/v1/projects/${encodeURIComponent(projectId!)}/tasks/board${archived ? "?archived=1" : ""}`
+      ),
     enabled: !!projectId,
   });
 }
@@ -110,6 +114,28 @@ export function useTaskActions(projectId: string | null) {
     },
     onSettled: invalidate,
   });
+  const archive = useMutation({
+    mutationFn: (id: string) =>
+      api<Task>(`/api/v1/tasks/${encodeURIComponent(id)}/archive`, {
+        method: "POST",
+      }),
+    onSuccess: invalidate,
+  });
+  const restore = useMutation({
+    mutationFn: (id: string) =>
+      api<Task>(`/api/v1/tasks/${encodeURIComponent(id)}/restore`, {
+        method: "POST",
+      }),
+    onSuccess: invalidate,
+  });
+  const archiveColumn = useMutation({
+    mutationFn: (id: string) =>
+      api<{ archived: number }>(
+        `/api/v1/projects/${encodeURIComponent(projectId!)}/task-columns/${encodeURIComponent(id)}/archive-tasks`,
+        { method: "POST" }
+      ),
+    onSuccess: invalidate,
+  });
   const remove = useMutation({
     mutationFn: (id: string) =>
       api(`/api/v1/tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -155,6 +181,9 @@ export function useTaskActions(projectId: string | null) {
     onSuccess: invalidate,
   });
   return {
+    archive,
+    restore,
+    archiveColumn,
     create,
     update,
     remove,

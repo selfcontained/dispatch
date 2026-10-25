@@ -339,7 +339,10 @@ export class TaskService {
     return await this.store.listColumns(projectId);
   }
 
-  async getBoard(projectId: string): Promise<TaskBoard> {
+  async getBoard(
+    projectId: string,
+    filter: { archived?: boolean } = {}
+  ): Promise<TaskBoard> {
     await this.requireProject(projectId);
     const columns = await this.ensureColumns(projectId);
     const names = new Map(
@@ -356,7 +359,10 @@ export class TaskService {
         )
       )
     );
-    const tasks = await this.store.listTasks({ projectId });
+    const tasks = await this.store.listTasks({
+      projectId,
+      archived: filter.archived,
+    });
     return {
       projectId,
       columns: columns.map((column) => ({
@@ -561,10 +567,73 @@ export class TaskService {
   async listTasks(filter: {
     projectId?: string;
     assignedAgentId?: string;
+    archived?: boolean;
   }): Promise<Task[]> {
     if (!filter.projectId && !filter.assignedAgentId)
       throw invalid("projectId or assignedAgentId is required.");
     return await this.store.listTasks(filter);
+  }
+
+  async archiveTask(id: string, caller: TaskCaller): Promise<Task> {
+    return this.setArchived(id, true, caller);
+  }
+
+  async restoreTask(id: string, caller: TaskCaller): Promise<Task> {
+    return this.setArchived(id, false, caller);
+  }
+
+  private async setArchived(
+    id: string,
+    archived: boolean,
+    caller: TaskCaller
+  ): Promise<Task> {
+    return this.withTaskLock(id, async () => {
+      const task = await this.requireTask(id);
+      const changed = await this.store.transaction(async (db) => {
+        if (!(await this.store.setArchived(id, archived, db))) return false;
+        await this.store.insertEvent(
+          id,
+          archived ? "archived" : "restored",
+          actorOf(caller),
+          {},
+          db
+        );
+        return true;
+      });
+      if (changed) this.publish(task.projectId, id);
+      return this.requireTask(id);
+    });
+  }
+
+  async archiveColumn(
+    projectId: string,
+    columnId: string,
+    caller: TaskCaller
+  ): Promise<{ archived: number; taskIds: string[] }> {
+    await this.requireProject(projectId);
+    const taskIds = await this.store.transaction(async (db) => {
+      // Lock column configuration until the archive commits.
+      await db.query("SELECT id FROM task_columns WHERE id = $1 FOR UPDATE", [
+        columnId,
+      ]);
+      const column = await this.store.getColumn(columnId, db);
+      if (!column || column.projectId !== projectId)
+        throw invalid("Column is not in this project.");
+      if (!column.isDone)
+        throw invalid("Only the completion column can be archived.");
+      const ids = await this.store.archiveColumn(projectId, columnId, db);
+      for (const id of ids)
+        await this.store.insertEvent(
+          id,
+          "archived",
+          actorOf(caller),
+          { bulk: true, columnId },
+          db
+        );
+      return ids;
+    });
+    if (taskIds.length) this.publish(projectId);
+    return { archived: taskIds.length, taskIds };
   }
 
   async getTaskDetail(
@@ -720,6 +789,12 @@ export class TaskService {
     opts: { assignSelf?: boolean }
   ): Promise<Task> {
     const task = await this.requireTask(id);
+    if (task.archivedAt && input.columnId !== undefined)
+      throw new TaskError(
+        "Restore this task before moving it.",
+        409,
+        "task_archived"
+      );
     const actor = actorOf(caller);
     const patch: TaskPatch = {};
     const changed: string[] = [];
@@ -821,6 +896,13 @@ export class TaskService {
       return true;
     });
     if (!applied) {
+      const current = await this.requireTask(id);
+      if (current.archivedAt)
+        throw new TaskError(
+          "Restore this task before moving it.",
+          409,
+          "task_archived"
+        );
       // Another write moved the task first; what it did stands.
       this.deps.log.info(
         { taskId: id, toColumnId: destination?.id },

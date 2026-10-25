@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useTaskActions } from "@/hooks/use-tasks";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { TaskAgent } from "./task-agent";
@@ -68,6 +69,7 @@ export function TaskCard({
     if (Date.now() < focusOnMount.until) actionsRef.current?.focus();
     focusOnMount = null;
   }, [task.id]);
+  const actions = useTaskActions(task.projectId);
   return (
     <article
       ref={sortable.setNodeRef}
@@ -123,6 +125,12 @@ export function TaskCard({
               onSelect={() => setMoving(true)}
             >
               Move to…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className={MENU_ITEM}
+              onSelect={() => actions.archive.mutate(task.id)}
+            >
+              Archive
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
