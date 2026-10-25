@@ -3,6 +3,11 @@ import { ChevronDown, Download, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { CopyIconButton } from "@/components/ui/copy-button";
 import { useCopyText } from "@/hooks/use-copy";
 import {
@@ -63,7 +68,6 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
   const { mutate, isPending, error } = useUpdatePlugin(action);
   const label = AGENT_TYPE_LABELS[status.agentType];
   const manualCommands = MANUAL_COMMANDS[status.agentType][action];
-  const manualPanelId = `plugin-manual-${status.agentType}`;
   const canAct =
     !status.detectionError && (!status.installed || status.updateAvailable);
   const state = status.detectionError
@@ -148,28 +152,24 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             size="sm"
             className="h-auto p-0 text-xs text-destructive underline"
             onClick={() => setManualOpen(true)}
-            aria-controls={manualPanelId}
           >
             Run it manually
           </Button>
         </p>
       ) : null}
-      <Button
-        type="button"
-        variant="default"
-        size="sm"
-        className="mt-2 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-        aria-expanded={manualOpen}
-        aria-controls={manualPanelId}
-        onClick={() => setManualOpen((open) => !open)}
-      >
-        <ChevronDown
-          className={`mr-1 h-3.5 w-3.5 transition-transform ${manualOpen ? "rotate-180" : ""}`}
-        />
-        Manual commands
-      </Button>
-      {manualOpen ? (
-        <div id={manualPanelId} className="mt-1 min-w-0 space-y-2">
+      <Collapsible open={manualOpen} onOpenChange={setManualOpen}>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="group mt-2 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown className="mr-1 h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
+            Manual commands
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-1 min-w-0 space-y-2">
           <ol
             className="list-decimal space-y-1.5 pl-4 text-xs"
             aria-label={`${label} manual commands`}
@@ -186,8 +186,8 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
           <p className="text-xs text-muted-foreground">
             Then start a fresh agent session.
           </p>
-        </div>
-      ) : null}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
