@@ -97,6 +97,7 @@ const renderDialog = () => {
           projectId="p1"
           open
           onOpenChange={onOpenChange}
+          returnFocus={{ current: null }}
         />
       </MemoryRouter>
     </QueryClientProvider>
