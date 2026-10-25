@@ -18,11 +18,14 @@ CREATE TABLE task_watch_items (
   FOREIGN KEY (task_id, agent_id) REFERENCES task_watches ON DELETE CASCADE
 );
 
+-- Lock watches before inserting inbox rows. At READ COMMITTED, a concurrent
+-- watch deletion is waited out and then skipped, rather than failing the inbox
+-- foreign-key check and aborting the source insert. This also covers cascades.
 CREATE OR REPLACE FUNCTION task_watch_event_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   INSERT INTO task_watch_items (task_id, agent_id, source, item_id)
     SELECT task_id, agent_id, 'event', NEW.id::text
-    FROM task_watches WHERE task_id = NEW.task_id
+    FROM task_watches WHERE task_id = NEW.task_id FOR KEY SHARE
     ON CONFLICT DO NOTHING;
   RETURN NEW;
 END;
@@ -34,7 +37,7 @@ CREATE OR REPLACE FUNCTION task_watch_block_insert() RETURNS trigger LANGUAGE pl
 BEGIN
   INSERT INTO task_watch_items (task_id, agent_id, source, item_id)
     SELECT task_id, agent_id, 'block', NEW.id::text
-    FROM task_watches WHERE task_id = NEW.stream_id
+    FROM task_watches WHERE task_id = NEW.stream_id FOR KEY SHARE
     ON CONFLICT DO NOTHING;
   RETURN NEW;
 END;

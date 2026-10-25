@@ -838,6 +838,103 @@ describe("task watches", () => {
     ).toHaveLength(0);
   });
 
+  it.each([
+    ["event", "unwatch"],
+    ["block", "unwatch"],
+    ["event", "archive cleanup"],
+    ["block", "archive cleanup"],
+    ["event", "agent delete"],
+    ["block", "agent delete"],
+    // Events also reference the task directly, so deleting the task should
+    // reject a new event independently of the watch trigger. Blocks don't.
+    ["block", "task delete"],
+  ])(
+    "allows a concurrent %s insert when %s commits",
+    async (source, cleanup) => {
+      const task = await newTask(null);
+      await tasks.watch(task.id, PEER);
+      const remover = await pool.connect();
+      const writer = await pool.connect();
+      let pending: Promise<{ error: unknown }> | undefined;
+      try {
+        await remover.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+        expect(
+          (await writer.query("SHOW transaction_isolation")).rows[0]
+            .transaction_isolation
+        ).toBe("read committed");
+        const removerPid = (
+          await remover.query("SELECT pg_backend_pid() AS pid")
+        ).rows[0].pid;
+        const writerPid = (await writer.query("SELECT pg_backend_pid() AS pid"))
+          .rows[0].pid;
+        if (cleanup === "agent delete") {
+          await remover.query(`DELETE FROM agents WHERE id = $1`, [PEER]);
+        } else if (cleanup === "task delete") {
+          await remover.query(`DELETE FROM tasks WHERE id = $1`, [task.id]);
+        } else if (cleanup === "archive cleanup") {
+          await remover.query(
+            `UPDATE agents SET deleted_at = now() WHERE id = $1`,
+            [PEER]
+          );
+          // The same cleanup used by TaskWatchNotifier.recover.
+          await remover.query(
+            `DELETE FROM task_watches w USING agents a WHERE w.agent_id = a.id AND a.deleted_at IS NOT NULL`
+          );
+        } else {
+          await remover.query(
+            `DELETE FROM task_watches WHERE task_id = $1 AND agent_id = $2`,
+            [task.id, PEER]
+          );
+        }
+        const sql =
+          source === "event"
+            ? `INSERT INTO task_events (id, task_id, kind, actor_kind) VALUES (gen_random_uuid(), $1, 'updated', 'user')`
+            : `INSERT INTO blocks (id, stream_id, author_kind, kind, text) VALUES (gen_random_uuid(), $1, 'user', 'text', 'Concurrent comment')`;
+        // Attach the rejection handler before releasing the remover: on the
+        // old trigger this fails with a foreign-key violation after COMMIT.
+        pending = writer.query(sql, [task.id]).then(
+          () => ({ error: null }),
+          (error: unknown) => ({ error })
+        );
+        await expect
+          .poll(
+            async () =>
+              (
+                await pool.query(
+                  `SELECT $2::int = ANY(pg_blocking_pids($1::int)) AS blocked`,
+                  [writerPid, removerPid]
+                )
+              ).rows[0].blocked
+          )
+          .toBe(true);
+        await remover.query("COMMIT");
+        expect((await pending).error).toBeNull();
+        expect(
+          (
+            await pool.query(
+              `SELECT * FROM task_watch_items WHERE task_id = $1`,
+              [task.id]
+            )
+          ).rows
+        ).toHaveLength(0);
+        const table = source === "event" ? "task_events" : "blocks";
+        const column = source === "event" ? "task_id" : "stream_id";
+        expect(
+          (
+            await pool.query(`SELECT 1 FROM ${table} WHERE ${column} = $1`, [
+              task.id,
+            ])
+          ).rows.length
+        ).toBeGreaterThan(0);
+      } finally {
+        await remover.query("ROLLBACK");
+        await pending;
+        remover.release();
+        writer.release();
+      }
+    }
+  );
+
   it("delivers an earlier insert committed after a later notice was accepted", async () => {
     const task = await newTask();
     await tasks.watch(task.id, PEER);
@@ -902,6 +999,106 @@ describe("task watches", () => {
         ])
       ).rows
     ).toHaveLength(0);
+  });
+
+  it("suppresses busy watchers using recipients persisted before direct delivery settles", async () => {
+    const task = await newTask();
+    const thread = await streams.post(
+      PEER,
+      { text: "Watcher thread", to: HELPER },
+      { root: task.id }
+    );
+    const question = async () =>
+      streams.post(
+        PEER,
+        {
+          text: "Watcher question",
+          to: HELPER,
+          question: { options: [{ label: "Proceed" }] },
+        },
+        { root: task.id }
+      );
+    const userQuestion = await question();
+    const agentQuestion = await question();
+    const form = await streams.post(
+      PEER,
+      {
+        text: "Watcher form",
+        to: HELPER,
+        form: { fields: [{ id: "name", label: "Name", type: "text" }] },
+      },
+      { root: task.id }
+    );
+    await settle();
+    await tasks.watch(task.id, PEER);
+    holding = true;
+    try {
+      const agentReply = await streams.post(HELPER, {
+        text: "Agent thread reply",
+        replyTo: thread.id,
+      });
+      const userReply = await streams.sendUserPost(task.id, {
+        text: "User thread reply",
+        replyTo: thread.id,
+      });
+      const userAnswer = await streams.answerQuestion(
+        task.id,
+        userQuestion.id,
+        { value: "Proceed" }
+      );
+      const agentAnswer = await streams.post(HELPER, {
+        text: "Proceed",
+        replyTo: agentQuestion.id,
+      });
+      const submission = await streams.submitForm(
+        task.id,
+        form.id,
+        { values: { name: "Ada" } },
+        { kind: "agent", agentId: HELPER }
+      );
+      const ids = [
+        agentReply.id,
+        userReply.block.id,
+        userAnswer.reply.id,
+        agentAnswer.id,
+        submission.reply.id,
+      ];
+      const persisted = (
+        await pool.query(
+          `SELECT to_agent_id, data, deliveries FROM blocks WHERE id = ANY($1::uuid[])`,
+          [ids]
+        )
+      ).rows;
+      expect(persisted).toHaveLength(ids.length);
+      for (const row of persisted) {
+        expect(
+          row.to_agent_id === PEER ||
+            row.data?.recipients?.includes(PEER) ||
+            row.data?.mentions?.includes(PEER)
+        ).toBe(true);
+        expect(row.deliveries?.[PEER]).toBeUndefined();
+      }
+      // Stay queued longer than the production debounce. Suppression must
+      // depend on persisted addressing, without a completed delivery outcome.
+      await new Promise((resolve) => setTimeout(resolve, 3100));
+      expect(waiting.filter((entry) => entry.agentId === PEER)).toHaveLength(
+        ids.length
+      );
+      await watches.flushTask(task.id);
+      expect(watchPrompts).toHaveLength(0);
+      expect(
+        (
+          await pool.query(
+            `SELECT * FROM task_watch_items WHERE task_id = $1`,
+            [task.id]
+          )
+        ).rows
+      ).toHaveLength(0);
+    } finally {
+      holding = false;
+      for (const entry of waiting.splice(0)) entry.release();
+      await settle();
+    }
   });
 
   it("suppresses delivery recipients recorded after insert during the debounce", async () => {
