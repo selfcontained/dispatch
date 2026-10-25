@@ -40,7 +40,7 @@ type UseCreateAgentFormOptions = {
    * Creating for a task: the server briefs the agent on it and assigns it,
    * and the agent lives in the task's project whatever was last used.
    */
-  task?: { id: string; projectId: string } | null;
+  task?: { id: string; title: string; projectId: string } | null;
   onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
 };
 

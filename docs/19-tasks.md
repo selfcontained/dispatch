@@ -114,3 +114,5 @@ and open the shared lightbox. Agent briefings include names, MIME types and
 absolute disk paths alongside task links. Files live under
 `<filesRoot>/tasks/<taskId>/`; deleting a task cascades attachment rows and
 removes that directory. MCP `task_create` does not upload files.
+
+Agents launched for a task start with its title as their name (shortened to 40 characters plus an ellipsis when needed). Their task briefing asks them to use `rename_session` as their first act to choose a short, descriptive session name. An explicit name in Create Agent takes precedence over the initial task name.

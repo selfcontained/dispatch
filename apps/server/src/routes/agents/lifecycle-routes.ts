@@ -1,3 +1,4 @@
+import { SESSION_RENAME_ASK } from "../../shared/lib/agent-strings.js";
 import type { FastifyInstance } from "fastify";
 import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
@@ -19,8 +20,7 @@ import type { AgentRouteDeps } from "./shared.js";
  * saying it twice cost a turn and a line in the stream — so this is only
  * ever sent because someone asked for it.
  */
-const RENAME_PROMPT =
-  "Please call the `rename_session` MCP tool with a short, descriptive name for this session's topic. If the session already has a meaningful name, keep it. This request is only to name the session; it does not ask you to start or resume other work.";
+const RENAME_PROMPT = `Please ${SESSION_RENAME_ASK} for this session's topic. If the session already has a meaningful name, keep it. This request is only to name the session; it does not ask you to start or resume other work.`;
 
 export async function registerAgentLifecycleRoutes(
   app: FastifyInstance,

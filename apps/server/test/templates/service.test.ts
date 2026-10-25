@@ -66,6 +66,28 @@ function buildAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
 }
 
 describe("TemplateService.launchTemplate", () => {
+  it.each([
+    [undefined, "Template_Launch"],
+    ["  ", "Template_Launch"],
+    ["  Fix the task 😀  ", "Fix the task 😀"],
+  ])("resolves name override %j to %j", async (name, expected) => {
+    const createAgent = vi.fn(async () => buildAgent());
+    const service = new TemplateService(
+      {} as never,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(buildTemplate());
+    await service.launchTemplate({
+      templateId: "tmpl_123",
+      name,
+      args: { target: "src" },
+    });
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: expected })
+    );
+  });
+
   it("uses the requested agent type override when launching", async () => {
     const createAgent = vi.fn(async () => buildAgent());
     const service = new TemplateService(

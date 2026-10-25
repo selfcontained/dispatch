@@ -1,3 +1,5 @@
+import { taskAgentName } from "@dispatch/shared";
+import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
 import path from "node:path";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { timestampFileName } from "../agents/file-seed.js";
@@ -100,6 +102,7 @@ export type TaskAgentInfo = {
 };
 
 export type TaskLaunchRequest = {
+  name?: string;
   templateId: string;
   projectId: string;
   args: Record<string, string>;
@@ -203,6 +206,7 @@ export function buildTaskBriefing(input: {
       : " none";
   return [
     "## Dispatch task",
+    `As your first act, please ${SESSION_RENAME_ASK} for this task.`,
     `Task: ${task.id} — ${task.title}`,
     `Project: ${project.name} (${project.repoRoot})`,
     `Column: ${column.name}`,
@@ -955,6 +959,7 @@ export class TaskService {
     const project = await this.requireProject(task.projectId);
     return await this.deps.launchTemplate({
       templateId: template.id,
+      name: taskAgentName(task.title),
       projectId: task.projectId,
       // Placeholders resolve by lowercase key, so these satisfy
       // `{{D:Task Title}}`, `{{D:task title}}` and any other casing.
@@ -1078,7 +1083,9 @@ export class TaskService {
    * it belongs in; `POST /api/v1/agents` with `taskId` uses it, then
    * assigns the new agent with `assignCreated`.
    */
-  async briefingFor(id: string): Promise<{ projectId: string; text: string }> {
+  async briefingFor(
+    id: string
+  ): Promise<{ projectId: string; text: string; name: string }> {
     const task = await this.requireTask(id);
     const [project, column, columns] = await Promise.all([
       this.requireProject(task.projectId),
@@ -1087,6 +1094,7 @@ export class TaskService {
     ]);
     return {
       projectId: task.projectId,
+      name: taskAgentName(task.title),
       text: buildTaskBriefing({
         task,
         project,

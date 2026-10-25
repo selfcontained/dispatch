@@ -1,3 +1,4 @@
+import { taskAgentName } from "@dispatch/shared";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope, useProjects } from "@/hooks/use-projects";
 import { useQuery } from "@tanstack/react-query";
@@ -178,7 +179,11 @@ function CreateAgentDialogContent({
                     autoFocus
                     value={form.createName}
                     onChange={(event) => form.setCreateName(event.target.value)}
-                    placeholder="agent name"
+                    placeholder={
+                      task
+                        ? taskAgentName(task.title) || "agent name"
+                        : "agent name"
+                    }
                     data-testid="create-agent-name"
                   />
                 </div>

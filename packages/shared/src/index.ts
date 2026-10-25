@@ -214,3 +214,5 @@ export type {
   McpInventory,
   AgentMcpInventoryResponse,
 } from "./mcp-inventory-types.js";
+
+export { taskAgentName } from "./agent-names.js";
