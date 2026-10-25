@@ -86,10 +86,15 @@ test.describe("Sidebar interactions", () => {
     await page.getByTestId("automations-button").click();
     await expect(page).toHaveURL(/\/automations$/);
 
-    // Sidebar auto-opens on mobile when switching sections — wait for it
-    await expect(page.getByTestId("agents-button")).toBeVisible({
-      timeout: 3_000,
-    });
+    // Automations lands on an empty "Select a template" pane; its list is
+    // the sheet, so the sheet stays.
+    await expectMobileSidebarOpen(page);
+    // Elsewhere a section tap lands on its content, sheet closed.
+    await page.getByTestId("tasks-button").click();
+    await expect(page).toHaveURL(/\/tasks/);
+    await expectMobileSidebarClosed(page);
+    await page.getByTitle("Open sidebar").click();
+    await expectMobileSidebarOpen(page);
     await page.getByTestId("agents-button").click();
     await expect(page).toHaveURL(/\/agents$/);
     await expectMobileSidebarOpen(page);

@@ -373,3 +373,49 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await request.delete(`/api/v1/projects/${project.id}`, { headers });
   }
 });
+
+test("mobile Tasks nav lands on the list with the sidebar closed", async ({
+  page,
+  request,
+}) => {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-tasks-nav-"));
+  execFileSync("git", ["init", root]);
+  const projectResponse = await request.post("/api/v1/projects", {
+    headers,
+    data: { name: "Tasks Nav E2E", repoRoot: root, color: "#7c6ee6" },
+  });
+  expect(projectResponse.ok(), await projectResponse.text()).toBeTruthy();
+  const project = await projectResponse.json();
+  try {
+    await loadApp(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/settings/general?project=${project.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const sidebar = page.getByRole("dialog", { name: "Navigation sidebar" });
+    const sidebarLeft = () =>
+      sidebar.evaluate((el) => Math.round(el.getBoundingClientRect().left));
+    await page.getByTitle("Open sidebar").click();
+    await expect.poll(sidebarLeft).toBe(0);
+    // The nav sits in the sheet: a tap there is for the section's content.
+    await sidebar.getByTestId("tasks-button").click();
+    await expect(page).toHaveURL(new RegExp(`/tasks\\?project=${project.id}`));
+    await expect(page.getByTestId("tasks-list")).toBeVisible();
+    await expect.poll(sidebarLeft).toBeLessThan(0);
+    await page.screenshot({
+      path: "/tmp/dispatch-tasks-mobile-nav.png",
+      scale: "device",
+    });
+    // The sheet is one tap away, and a column picked there hands the
+    // screen back to the list.
+    await page.getByTitle("Open sidebar").click();
+    await expect.poll(sidebarLeft).toBe(0);
+    await sidebar.getByTestId("task-nav-column-ready").click();
+    await expect(page).toHaveURL(/column=ready/);
+    await expect.poll(sidebarLeft).toBeLessThan(0);
+    await expect(page.getByTestId("tasks-list")).toBeVisible();
+  } finally {
+    await request.delete(`/api/v1/projects/${project.id}`, { headers });
+    rmSync(root, { recursive: true, force: true });
+  }
+});

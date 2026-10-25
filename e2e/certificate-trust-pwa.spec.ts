@@ -74,6 +74,9 @@ test("in-app trust links reach the server with a controlling production service 
     const openSidebar = page.getByTitle("Open sidebar");
     if (await openSidebar.isVisible()) await openSidebar.click();
     await page.getByTestId("settings-button").click();
+    // On a phone the section tap lands on its content; its own nav is in
+    // the sheet.
+    if (await openSidebar.isVisible()) await openSidebar.click();
     await page
       .getByTestId("sidebar-shell")
       .getByRole("button", { name: "Security", exact: true })
