@@ -231,7 +231,7 @@ export function registerTaskTools(
       "task_update",
       {
         description:
-          'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up (your task briefing lists this board\'s keys); a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended; archived archives or restores it.',
+          'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up (your task briefing lists this board\'s keys); a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended; archived (sent alone) archives or restores it.',
         inputSchema: {
           id: z.string().min(1),
           title: z.string().min(1).max(500).optional(),
@@ -249,6 +249,20 @@ export function registerTaskTools(
       async (args) => {
         try {
           const task = await taskInScope(args.id);
+          // Archive/restore is its own operation so a refused edit, assignment
+          // or move can never leave a half-applied restore behind.
+          if (args.archived !== undefined) {
+            const { id: _id, archived, ...rest } = args;
+            if (Object.values(rest).some((value) => value !== undefined))
+              throw new TaskError(
+                "Send archived on its own; restore first, then update the task.",
+                400
+              );
+            const updated = archived
+              ? await service.archiveTask(task.id, caller)
+              : await service.restoreTask(task.id, caller);
+            return ok({ id: updated.id, archivedAt: updated.archivedAt });
+          }
           // Resolve everything first; the service then checks and applies
           // the edit, the assignment and the move as one operation.
           const column = args.column
@@ -264,9 +278,7 @@ export function registerTaskTools(
                 }))
               ).links
             : undefined;
-          if (args.archived === false)
-            await service.restoreTask(task.id, caller);
-          let updated = await service.updateTask(
+          const updated = await service.updateTask(
             task.id,
             {
               ...(args.title !== undefined ? { title: args.title } : {}),
@@ -278,8 +290,6 @@ export function registerTaskTools(
             caller,
             { assignSelf: args.assign === "self" }
           );
-          if (args.archived === true)
-            updated = await service.archiveTask(task.id, caller);
           const key = (await service.ensureColumns(updated.projectId)).find(
             (c) => c.id === updated.columnId
           )?.key;

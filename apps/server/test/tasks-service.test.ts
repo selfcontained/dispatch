@@ -995,6 +995,33 @@ describe("task tools", () => {
     });
   });
 
+  it("task_update archives and restores only when archived is sent alone", async () => {
+    await insertAgent("agt_tool");
+    await insertAgent("agt_busy");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_busy" }, USER);
+    await service.archiveTask(task.id, USER);
+    const call = tools("agt_tool", projectId);
+
+    const combined = await call("task_update", {
+      id: task.id,
+      archived: false,
+      assign: "self",
+    });
+    expect(combined.isError).toBe(true);
+    const unchanged = await service.getTaskDetail(task.id);
+    expect(unchanged.archivedAt).not.toBeNull();
+    expect(unchanged.assignedAgentId).toBe("agt_busy");
+    expect(unchanged.events.some((e) => e.kind === "restored")).toBe(false);
+
+    const restored = await call("task_update", {
+      id: task.id,
+      archived: false,
+    });
+    expect(restored.isError).toBeFalsy();
+    expect((await service.requireTask(task.id)).archivedAt).toBeNull();
+  });
+
   it("refuses a move that would relaunch over another running agent", async () => {
     await withTrigger("ready");
     await insertAgent("agt_tool");
