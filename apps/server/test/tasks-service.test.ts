@@ -772,13 +772,26 @@ describe("task tools", () => {
     expect((await service.requireTask(task.id)).links).toHaveLength(1);
   });
 
-  it("task_comment needs an assignment, then posts in the task's stream", async () => {
+  it("task_comment posts in the task's stream for any agent in its project", async () => {
     await insertAgent("agt_tool");
     const call = tools("agt_tool", projectId);
     const task = await service.createTask({ projectId, title: "t" }, USER);
-    const refused = await call("task_comment", { id: task.id, text: "hi" });
-    expect(refused.isError).toBe(true);
-    expect(refused.content[0]!.text).toMatch(/assign: "self"/);
+    const other = await call("task_comment", { id: task.id, text: "hi" });
+    expect(other.isError).toBeUndefined();
+    expect((await service.getTaskDetail(task.id)).agents).toEqual([]);
+    agentPosts.length = 0;
+
+    // From another project it is refused, without the old assign hint.
+    const outsider = await tools("agt_tool", otherProjectId)("task_comment", {
+      id: task.id,
+      text: "hi",
+    });
+    expect(outsider.isError).toBe(true);
+    expect(outsider.content[0]!.text).toBe(
+      `You are not in task ${task.id}'s project; only agents in its project post in its conversation.`
+    );
+    expect(outsider.content[0]!.text).not.toMatch(/assign/);
+    expect(agentPosts).toEqual([]);
 
     await call("task_update", { id: task.id, assign: "self" });
     const ok = await call("task_comment", { id: task.id, text: "progress" });
@@ -1017,13 +1030,15 @@ describe("tool project scope", () => {
       ["task_create", { title: "x", projectId: otherProjectId }],
       ["task_get", { id: theirs.id }],
       ["task_update", { id: theirs.id, title: "mine now" }],
-      ["task_comment", { id: theirs.id, text: "hi" }],
     ];
     for (const [name, args] of cases) {
       const result = await call(name, args);
       expect(result.isError, name).toBe(true);
       expect(result.content[0]!.text, name).toMatch(/own project/);
     }
+    const comment = await call("task_comment", { id: theirs.id, text: "hi" });
+    expect(comment.isError).toBe(true);
+    expect(comment.content[0]!.text).toMatch(/not in task .*'s project/);
     expect((await service.requireTask(theirs.id)).title).toBe("theirs");
   });
 

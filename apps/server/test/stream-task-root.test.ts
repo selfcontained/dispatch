@@ -40,7 +40,10 @@ let projectId: string;
 
 const ASSIGNEE = "agt_task_owner";
 const HELPER = "agt_task_helper";
+/** In another project. */
 const STRANGER = "agt_task_stranger";
+/** In the task's project, never on the task. */
+const PEER = "agt_task_peer";
 const AGENTS: Record<string, StreamAgent> = {
   [ASSIGNEE]: {
     id: ASSIGNEE,
@@ -55,6 +58,7 @@ const AGENTS: Record<string, StreamAgent> = {
     filesDir: null,
     status: "running",
   },
+  [PEER]: { id: PEER, name: "Peer", filesDir: null, status: "running" },
 };
 const USER = { kind: "user" } as const;
 
@@ -137,6 +141,8 @@ beforeEach(async () => {
       cancel: async () => {},
     },
     taskRoot: (id) => tasks.streamRoot(id),
+    agentProject: async (id) =>
+      id === STRANGER ? "prj_elsewhere" : AGENTS[id] ? projectId : null,
   });
   tasks = new TaskService({
     pool,
@@ -282,12 +288,77 @@ describe("task stream root", () => {
     ).rejects.toMatchObject({
       statusCode: 400,
       message: expect.stringMatching(
-        new RegExp(`You are not on task ${task.id}`)
+        new RegExp(`You are not in task ${task.id}'s project`)
       ),
     });
     await expect(
       streams.post(STRANGER, { text: "hi" }, { root: task.id })
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("lets an agent in the task's project comment, reply, react and read without joining it", async () => {
+    const task = await newTask();
+    const asked = (await postBlock(task.id, { text: "Status?" })).json().block;
+    await settle();
+    prompts = [];
+
+    const { blockId } = await tasks.comment(task.id, PEER, "I filed this");
+    const replied = await streams.post(PEER, {
+      text: "Context: see the login bug",
+      replyTo: asked.id,
+    });
+    expect(replied).toMatchObject({ streamId: task.id, threadId: asked.id });
+    await streams.addReaction(PEER, asked.id, "👀", {
+      kind: "agent",
+      agentId: PEER,
+    });
+    await expect(streams.getMessage(PEER, asked.id)).resolves.toBeTruthy();
+    await expect(streams.getThread(PEER, asked.id)).resolves.toBeTruthy();
+
+    // Commenting neither puts it on the task nor moves the assignment.
+    const detail = await tasks.getTaskDetail(task.id);
+    expect(detail.agents.map((a) => a.agentId)).toEqual([ASSIGNEE]);
+    expect(detail.assignedAgentId).toBe(ASSIGNEE);
+
+    // Like any author in the stream, a person's reply to it reaches it.
+    await settle();
+    prompts = [];
+    const answer = await postBlock(task.id, {
+      text: "Thanks",
+      replyTo: blockId,
+    });
+    expect(answer.statusCode).toBe(200);
+    await settle();
+    expect(prompts.map((p) => p.agentId)).toEqual([PEER]);
+    // A person's unaddressed post still reaches only the assignee.
+    prompts = [];
+    await postBlock(task.id, { text: "Anyone?" });
+    await settle();
+    expect(prompts.map((p) => p.agentId)).toEqual([ASSIGNEE]);
+  });
+
+  it("refuses an agent from another project everywhere in the conversation", async () => {
+    const task = await newTask();
+    const asked = (await postBlock(task.id, { text: "Status?" })).json().block;
+    await settle();
+    const notInProject = expect.objectContaining({
+      message: expect.stringMatching(/not in task .*'s project/),
+    });
+    await expect(tasks.comment(task.id, STRANGER, "hi")).rejects.toEqual(
+      notInProject
+    );
+    await expect(
+      streams.post(STRANGER, { text: "hi", replyTo: asked.id })
+    ).rejects.toEqual(notInProject);
+    await expect(
+      streams.addReaction(STRANGER, asked.id, "👍", {
+        kind: "agent",
+        agentId: STRANGER,
+      })
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(streams.getMessage(STRANGER, asked.id)).rejects.toMatchObject({
+      statusCode: 404,
+    });
   });
 
   it("task_comment posts at the top of the task's stream", async () => {
@@ -315,7 +386,7 @@ describe("task stream root", () => {
     expect(prompts.map((p) => p.agentId)).toEqual([HELPER]);
     expect(prompts[0]!.text).toContain(`Task ${task.id} — Fix login`);
     await expect(tasks.comment(task.id, STRANGER, "hi")).rejects.toMatchObject({
-      status: 400,
+      statusCode: 400,
     });
   });
 

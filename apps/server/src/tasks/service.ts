@@ -296,6 +296,7 @@ export class TaskService {
     return {
       id: task.id,
       title: task.title,
+      projectId: task.projectId,
       column: column?.name ?? "—",
       assignedAgentId: task.assignedAgentId,
       agentIds,
@@ -1230,7 +1231,8 @@ export class TaskService {
 
   /**
    * Posts into the task's conversation as the calling agent, which must be
-   * on the task; `to` addresses another of the task's agents.
+   * in the task's project (being on the task is not required, and posting
+   * does not put it there); `to` addresses another of the task's agents.
    */
   async comment(
     id: string,
@@ -1239,11 +1241,6 @@ export class TaskService {
     to?: string
   ): Promise<{ blockId: string }> {
     await this.requireTask(id);
-    if (!(await this.store.getTaskAgent(id, agentId))) {
-      throw invalid(
-        `You are not on task ${id}. Call task_update({ id: "${id}", assign: "self" }) first.`
-      );
-    }
     if (to !== undefined && !(await this.store.getTaskAgent(id, to)))
       throw invalid(`Agent ${to} is not on task ${id}.`);
     const block = await this.deps.chat.post(

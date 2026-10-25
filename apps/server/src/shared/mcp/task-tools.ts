@@ -295,7 +295,7 @@ export function registerTaskTools(
       "task_comment",
       {
         description:
-          'Post on a task\'s conversation (its own stream, shown on the board) for people; to addresses another agent on the task. You must be on the task (task_update with assign: "self").',
+          "Post on a task's conversation (its own stream, shown on the board) for people; to addresses another agent on the task. Any agent in the task's project may post; posting does not assign you or put you on the task.",
         inputSchema: {
           id: z.string().min(1),
           text: z.string().min(1).max(20_000),
@@ -308,7 +308,14 @@ export function registerTaskTools(
       },
       async (args) => {
         try {
-          await taskInScope(args.id);
+          const own = await projectFor();
+          const task = await service.requireTask(args.id);
+          if (task.projectId !== own) {
+            throw new TaskError(
+              `You are not in task ${args.id}'s project; only agents in its project post in its conversation.`,
+              403
+            );
+          }
           return ok(
             await service.comment(args.id, agentId, args.text, args.to)
           );

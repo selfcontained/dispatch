@@ -12,7 +12,7 @@ Code: `apps/server/src/tasks/` (wire types, store, service), `apps/server/src/ro
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `task_columns` | A project's columns: `key` (slug, unique per project), `name`, `position`, `is_done`, `trigger`                                                                  |
 | `tasks`        | Title, markdown body, column, `position`, current `assigned_agent_id`, `links`, creator                                                                          |
-| `task_agents`  | Every agent assigned to a task and its `role` (`trigger`, `manual`, `self`); these agents may post in the task's conversation                                    |
+| `task_agents`  | Every agent assigned to a task and its `role` (`trigger`, `manual`, `self`); the assignment history; removing an agent closes the conversation to it             |
 | `task_events`  | The activity log: `created`, `updated`, `moved`, `assigned`, `unassigned`, `trigger_launched`, `trigger_failed`, `agent_launched`, `agent_removed`, `link_added` |
 
 The first read of a project's board seeds the default columns: `backlog`, `ready`, `in_progress`, `in_review`, `done` (`isDone`). A project has at most one done column: setting `isDone` on one clears it on the others. Entering the done column sets `completedAt`; leaving it clears it. A column that holds tasks cannot be deleted (409 `column_not_empty`).
@@ -48,7 +48,7 @@ A task is a **stream root**: its conversation is the blocks with `stream_id = <t
 - **Assignment** posts a user block into the task's stream addressed to the new agent and delivers it as its prompt: "You're assigned to task tsk\_… — <title>. This stream is the task's conversation; reply here." A launch briefing also names the task's stream. If the post fails, the assignment stands.
 - **People** posting at the top of the task's stream reach the current assignee by default (400 "assign an agent first" when there is none), or the agents they `@mention` — the task's agents first, then running top-level agents. A thread reply follows the usual thread sides.
 - **Delivery**: the DISPATCH POST envelope says `Task tsk_… — <title> (<column>). This is the task's conversation.`; a turn it opens answers in the task's stream, and `post({ replyTo })` on its ids lands there.
-- **Agents** on the task (`task_agents`) may post into its stream with `replyTo` and read it with `get_message`/`get_thread`; any other agent is refused unless the block it replies to was addressed to it. They may react to its blocks the same way. `task_comment` posts at the top of the stream.
+- **Agents** in the task's project (the same `projectForAgent` scope the `task_*` tools use) or on the task (`task_agents`) may post into its stream with `replyTo` and read it with `get_message`/`get_thread`; an agent from another project is refused unless the block it replies to was addressed to it, and an agent removed from the task is refused even then. They may react to its blocks the same way. `task_comment` posts at the top of the stream. Posting does not put an agent on the task or change the assignee; like any author there, it can then be `@mention`ed and replied to.
 - **Files**: a person's attachment resolves against any agent on the task, so a file uploaded under an earlier assignee can still be sent to the current one.
 - **Deleting** a task deletes its conversation. Deliveries of its posts still queued at an agent are taken back first, and new posts into it are refused while it is being deleted; a delivery that cannot be taken back within a moment answers 409 `delivery_in_flight` and nothing is deleted.
 
@@ -56,13 +56,13 @@ A task is a **stream root**: its conversation is the blocks with `stream_id = <t
 
 Available to agents and job agents. They act on the caller's project only: its own, or for an agent outside any project, the project whose repo holds its workspace. Another project's board or tasks are refused.
 
-| Tool           | Does                                                                                                                  |
-| -------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `task_list`    | Thin rows `{ id, title, column, assignedAgentId, updatedAt }`; filter by `column` key or `assignedToMe`               |
-| `task_get`     | The task with its column key, its agents and its last 30 events                                                       |
-| `task_create`  | Create in the first column or a named `column` key; returns `{ id, column }`                                          |
-| `task_update`  | Edit title/body, move with `column` (key), `assign: "self" \| "none"`, append `links` (deduped by url)                |
-| `task_comment` | Post at the top of the task's conversation; `to` delivers it to another agent on the task; caller must be on the task |
+| Tool           | Does                                                                                                                                                     |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_list`    | Thin rows `{ id, title, column, assignedAgentId, updatedAt }`; filter by `column` key or `assignedToMe`                                                  |
+| `task_get`     | The task with its column key, its agents and its last 30 events                                                                                          |
+| `task_create`  | Create in the first column or a named `column` key; returns `{ id, column }`                                                                             |
+| `task_update`  | Edit title/body, move with `column` (key), `assign: "self" \| "none"`, append `links` (deduped by url)                                                   |
+| `task_comment` | Post at the top of the task's conversation; `to` delivers it to another agent on the task; caller must be in the task's project, and not removed from it |
 
 A tool move follows the trigger rules but cannot confirm a relaunch over another running agent; it returns the `agent_working` error instead. `assign: "self"` likewise refuses to take over a task whose agent is still running. `task_update` checks everything before it writes, so a refused call changes nothing.
 
