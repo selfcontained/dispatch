@@ -140,15 +140,18 @@ export function TaskAgentChip({
           <span
             className={cn(
               "flex min-h-4 min-w-0 items-center gap-1.5 text-[10px] font-medium",
-              live
-                ? "text-status-working"
-                : activity.tone === "archiving"
-                  ? "text-orange-400"
-                  : activity.tone === "waiting"
-                    ? "text-status-waiting"
-                    : activity.tone === "blocked"
-                      ? "text-status-blocked"
-                      : "text-muted-foreground"
+              activity.kind === "schedule"
+                ? // The sidebar's colour for the next scheduled message.
+                  "text-heading-accent-1"
+                : live
+                  ? "text-status-working"
+                  : activity.tone === "archiving"
+                    ? "text-orange-400"
+                    : activity.tone === "waiting"
+                      ? "text-status-waiting"
+                      : activity.tone === "blocked"
+                        ? "text-status-blocked"
+                        : "text-muted-foreground"
             )}
             data-testid={`task-agent-activity-${agent.id}`}
           >

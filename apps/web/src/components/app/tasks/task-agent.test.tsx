@@ -228,6 +228,77 @@ describe("TaskAgentChip activity", () => {
     }
   );
 
+  describe("schedule reminder", () => {
+    const schedule = { agt_parent: { nextDueAt: "2026-07-15T18:00:00.000Z" } };
+
+    it("shows a clock and the next reminder, stacked or compact, and clears with the schedule", async () => {
+      const parent = agent({ activity: "idle" });
+      const { client } = renderActivity(parent);
+      act(() => client.setQueryData(upcomingSchedulesKey, schedule));
+      const sidebar = () =>
+        screen.getByTestId(`agent-status-line-${parent.id}`).textContent;
+      await waitFor(() =>
+        expect(
+          screen.getByTestId(`task-agent-activity-${parent.id}`).textContent
+        ).toBe(sidebar())
+      );
+      expect(sidebar()).toMatch(/^Next /);
+      expect(
+        screen.getByTestId(`task-agent-live-${parent.id}`).querySelector("svg")
+      ).toBeTruthy();
+
+      act(() => client.setQueryData(upcomingSchedulesKey, {}));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId(`task-agent-activity-${parent.id}`).textContent
+        ).toBe("Idle")
+      );
+      expect(screen.queryByTestId(`task-agent-live-${parent.id}`)).toBeNull();
+
+      cleanup();
+      const compact = renderActivity(parent, [], true);
+      act(() => compact.client.setQueryData(upcomingSchedulesKey, schedule));
+      await waitFor(() =>
+        expect(
+          screen
+            .getByTestId(`task-agent-live-${parent.id}`)
+            .getAttribute("aria-label")
+        ).toMatch(/^Next /)
+      );
+      expect(compact.chip.textContent).not.toContain("Next");
+    });
+
+    it("gives way to the agent's own step and to a child's step", async () => {
+      const own = agent({
+        activity: "working",
+        currentTurn: { blockId: "blk_own", threadId: null },
+      });
+      const first = renderActivity(own);
+      act(() => first.client.setQueryData(upcomingSchedulesKey, schedule));
+      setStep(first.client, own.id, "blk_own", "editing files");
+      await waitFor(() =>
+        expect(first.chip.textContent).toContain("editing files")
+      );
+      expect(first.chip.textContent).not.toContain("Next");
+
+      cleanup();
+      const parent = agent({ activity: "idle" });
+      const child = agent({
+        id: "agt_child",
+        name: "reviewer",
+        parentAgentId: parent.id,
+        currentTurn: { blockId: "blk_child", threadId: null },
+      });
+      const second = renderActivity(parent, [child]);
+      act(() => second.client.setQueryData(upcomingSchedulesKey, schedule));
+      setStep(second.client, child.id, "blk_child", "running tests");
+      await waitFor(() =>
+        expect(second.chip.textContent).toContain("↳ reviewer · running tests")
+      );
+      expect(second.chip.textContent).not.toContain("Next");
+    });
+  });
+
   it("shares phase and schedule labels with the sidebar", async () => {
     const parent = agent({ status: "archiving", archivePhase: "finalizing" });
     const { chip } = renderActivity(parent);
