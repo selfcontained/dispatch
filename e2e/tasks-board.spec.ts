@@ -253,6 +253,23 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     });
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 390, height: 844 });
+    // A layout picked on a phone sticks: away via the sidebar and back
+    // (no ?layout= left in the URL), Board is still shown.
+    await page.getByRole("button", { name: "Board layout" }).click();
+    const navSidebar = page.getByRole("dialog", { name: "Navigation sidebar" });
+    await page.getByTitle("Open sidebar").click();
+    await navSidebar.getByTestId("agents-button").click();
+    await expect(page).toHaveURL(/\/agents/);
+    if (await page.getByTitle("Open sidebar").isVisible())
+      await page.getByTitle("Open sidebar").click();
+    await navSidebar.getByTestId("tasks-button").click();
+    await expect(page).toHaveURL(/\/tasks/);
+    await expect(page).not.toHaveURL(/layout=/);
+    await navSidebar.getByTitle("Close sidebar").click();
+    await expect(
+      page.getByRole("button", { name: "Board layout" })
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("tasks-list")).toHaveCount(0);
     await page.getByRole("button", { name: "List layout" }).click();
     await expect(page.getByTestId("tasks-list")).toBeVisible();
     await page.screenshot({

@@ -138,13 +138,15 @@ export const selectedProjectIdAtom = atomWithLocalStorage<string | null>(
   }
 );
 
+// null means no layout chosen for this project yet; the route picks a
+// width-based default without saving it.
 export const taskLayoutAtomFamily = atomFamily((projectId: string) =>
-  atomWithLocalStorage<"board" | "list">(
+  atomWithLocalStorage<"board" | "list" | null>(
     `dispatch:taskLayout:${projectId}`,
-    "board",
+    null,
     {
-      validate: (value): value is "board" | "list" =>
-        value === "board" || value === "list",
+      validate: (value): value is "board" | "list" | null =>
+        value === null || value === "board" || value === "list",
     }
   )
 );
