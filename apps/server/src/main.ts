@@ -54,13 +54,23 @@ if (process.argv[2]?.startsWith("recovery-")) {
       argv: process.argv,
     }) === "setup"
   ) {
-    const { runSetupMode } = await import("./windows-setup/run-setup-mode.js");
+    const { runSetupMode, waitForEnter } =
+      await import("./windows-setup/run-setup-mode.js");
     await runSetupMode();
+    await serve({
+      onStartFailure: () =>
+        waitForEnter(
+          "Dispatch failed to start. Press Enter to close this window."
+        ),
+    });
+  } else {
+    await serve();
   }
-  await serve();
 }
 
-async function serve(): Promise<void> {
+async function serve(
+  options: { onStartFailure?: () => Promise<void> } = {}
+): Promise<void> {
   const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
   const { app, shutdown, start } = await import("./server.js");
@@ -94,6 +104,7 @@ async function serve(): Promise<void> {
     })
     .catch(async (error) => {
       app.log.error(error);
+      await options.onStartFailure?.();
       await shutdown(1);
     });
 

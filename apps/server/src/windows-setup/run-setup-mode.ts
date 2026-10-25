@@ -6,6 +6,24 @@ import { startSetupServer as realStartSetupServer } from "./setup-server.js";
 // Long enough for the Done page to see the installed server and redirect.
 const DEFAULT_CLOSE_DELAY_MS = 10_000;
 
+// A double-clicked exe's console closes with the process, taking the error
+// with it; hold it open until the user has read the message.
+export function waitForEnter(
+  prompt: string,
+  deps: { log?: (line: string) => void; stdin?: NodeJS.ReadableStream } = {}
+): Promise<void> {
+  const log = deps.log ?? ((line: string) => console.log(line));
+  const stdin = deps.stdin ?? process.stdin;
+  log(prompt);
+  return new Promise((resolve) => {
+    const onData = () => {
+      stdin.off("data", onData);
+      resolve();
+    };
+    stdin.on("data", onData);
+  });
+}
+
 export async function runSetupMode(
   deps: {
     startSetupServer?: typeof realStartSetupServer;

@@ -53,11 +53,15 @@ export function buildSetupEnv(input: {
   };
 }
 
+// Bun's .env loader expands `$NAME` inside every quoting style and turns
+// `\n` into a newline inside double quotes; `\$` and single quotes survive
+// both Bun and dotenv unchanged.
 export function renderEnvFile(env: SetupEnv): string {
   const lines = KEY_ORDER.flatMap((key) => {
     const value = env[key];
     if (value === undefined) return [];
-    const quoted = /[\s#]/.test(value) ? `"${value}"` : value;
+    const escaped = value.replace(/\$/g, "\\$");
+    const quoted = /[\s#]/.test(escaped) ? `'${escaped}'` : escaped;
     return [`${key}=${quoted}`];
   });
   return `${lines.join("\n")}\n`;
@@ -72,9 +76,13 @@ export function parseEnvFile(text: string): Record<string, string> {
     if (separator === -1) continue;
     const key = line.slice(0, separator);
     let value = line.slice(separator + 1);
-    if (value.startsWith('"') && value.endsWith('"') && value.length >= 2)
+    if (
+      value.length >= 2 &&
+      ((value.startsWith("'") && value.endsWith("'")) ||
+        (value.startsWith('"') && value.endsWith('"')))
+    )
       value = value.slice(1, -1);
-    result[key] = value;
+    result[key] = value.replace(/\\\$/g, "$");
   }
   return result;
 }

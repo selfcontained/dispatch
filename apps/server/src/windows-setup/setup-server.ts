@@ -22,6 +22,7 @@ export type SetupDeps = {
   >;
   isPortFree?: (port: number) => Promise<boolean>;
   fetchHealth?: (url: string) => Promise<boolean>;
+  lanAddress?: () => string | undefined;
 };
 
 export function isPortFree(port: number): Promise<boolean> {
@@ -46,6 +47,12 @@ function primaryLanIPv4(): string | undefined {
     }
   }
   return undefined;
+}
+
+// DISPATCH_LISTEN_HOSTS replaces DISPATCH_HOST rather than adding to it,
+// so loopback has to be listed explicitly or the wizard's redirect fails.
+function lanListenHosts(lan: string | undefined): string | undefined {
+  return lan ? `127.0.0.1,${lan}` : undefined;
 }
 
 function fail(reply: FastifyReply, status: number, error: string) {
@@ -165,7 +172,11 @@ export function createSetupApp(deps: SetupDeps): {
       const env = buildSetupEnv({
         databaseUrl,
         port: body.port,
-        listenHosts: body.listenOnLan === true ? primaryLanIPv4() : undefined,
+        listenHosts: lanListenHosts(
+          body.listenOnLan === true
+            ? (deps.lanAddress ?? primaryLanIPv4)()
+            : undefined
+        ),
         installDir: deps.installDir,
       });
       writeEnvFile(deps.installDir, env);

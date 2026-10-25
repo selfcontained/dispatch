@@ -180,6 +180,20 @@ describe("setup server", () => {
     expect(fs.copyFileSync).not.toHaveBeenCalled();
   });
 
+  it("keeps 127.0.0.1 when also listening on the LAN", async () => {
+    const { app, installed } = makeApp({ lanAddress: () => "192.168.1.20" });
+    await provision(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/setup/install",
+      payload: { port: 6767, listenOnLan: true },
+    });
+    expect(response.statusCode).toBe(200);
+    expect((await installed).DISPATCH_LISTEN_HOSTS).toBe(
+      "127.0.0.1,192.168.1.20"
+    );
+  });
+
   it("copies the exe on Windows when running from elsewhere", async () => {
     const execPath = "D:\\Downloads\\dispatch-1.4.5-bun-windows-x64.exe";
     const { app } = makeApp({ platform: "win32", execPath });

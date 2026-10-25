@@ -404,9 +404,15 @@
                 location.href = url;
               }
             } catch {
-              // The setup server shuts down shortly after install; keep trying
-              // the installed URL directly in case it is already up.
-              location.href = url;
+              // The setup server shuts down shortly after install; from then
+              // on ask the installed server directly (opaque response is
+              // enough: a refused connection rejects, anything else resolves).
+              fetch(`${url}/api/v1/health`, { mode: "no-cors" })
+                .then(() => {
+                  clearInterval(timer);
+                  location.href = url;
+                })
+                .catch(() => {});
             }
           }, 1000);
         }

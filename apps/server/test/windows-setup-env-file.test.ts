@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
@@ -83,6 +86,42 @@ describe("env file", () => {
       installDir: "C:\\Users\\Nii Yeboah\\AppData\\Local\\Dispatch",
     });
     expect(parseEnvFile(renderEnvFile(spaced))).toEqual(spaced);
+  });
+
+  it("escapes dollar signs so Bun does not expand them", () => {
+    const dollar = buildSetupEnv({
+      ...input,
+      databaseUrl: "postgres://u:pa$$word@h:5432/d",
+    });
+    expect(renderEnvFile(dollar)).toContain(
+      "DATABASE_URL=postgres://u:pa\\$\\$word@h:5432/d\n"
+    );
+    expect(parseEnvFile(renderEnvFile(dollar))).toEqual(dollar);
+  });
+
+  it("round-trips through Bun's .env loader", () => {
+    const tricky = buildSetupEnv({
+      ...input,
+      databaseUrl: "postgres://u:pa$$w#rd@h:5432/d",
+      installDir: "C:\\Users\\nancy smith\\AppData\\Local\\Dispatch",
+    });
+    const dir = mkdtempSync(path.join(os.tmpdir(), "dispatch-env-bun-"));
+    try {
+      writeEnvFile(dir, tricky);
+      const loaded = JSON.parse(
+        execFileSync(
+          "bun",
+          [
+            "-e",
+            "console.log(JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([k]) => k === 'DATABASE_URL' || k.startsWith('DISPATCH_')))))",
+          ],
+          { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH } }
+        )
+      );
+      expect(loaded).toEqual(tricky);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("writes atomically via .env.tmp", () => {
