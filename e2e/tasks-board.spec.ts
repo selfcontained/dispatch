@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { loadApp } from "./helpers";
+import { loadApp, seedBlockViaDB } from "./helpers";
 const headers = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
 };
@@ -139,7 +139,26 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       page.getByTestId("task-drawer").getByText("trigger launched")
     ).toBeVisible();
     const conversation = page.getByTestId("task-conversation");
-    await conversation.scrollIntoViewIfNeeded();
+    await expect(
+      page.getByRole("tab", { name: "Details", exact: true })
+    ).toHaveAttribute("data-state", "active");
+    const assignedTask = await (
+      await request.get(`/api/v1/tasks/${task.id}`, { headers })
+    ).json();
+    const blockId = await seedBlockViaDB({
+      streamId: task.id,
+      authorKind: "agent",
+      authorAgentId: assignedTask.assignedAgentId,
+      text: "Unread task update",
+    });
+    await page.goto(
+      `/tasks?project=${project.id}&task=${task.id}&pane=details`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await expect(page.getByLabel("1 unread posts")).toBeVisible();
+    await page.getByRole("tab", { name: /^Conversation/ }).click();
+    await expect(page.getByLabel("1 unread posts")).toHaveCount(0);
+    await expect(page).toHaveURL(/pane=conversation/);
     await expect(conversation).toBeVisible();
     await expect(
       page.getByTestId("task-drawer").getByText("Open conversation →")
@@ -147,7 +166,42 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await conversation
       .getByRole("textbox", { name: "Message the agent" })
       .fill("Progress from the task drawer");
+    await conversation.getByTestId("chat-composer-file-input").setInputFiles({
+      name: "tab-switch.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Attachment retained across task tabs"),
+    });
+    await expect(
+      conversation.getByTestId("chat-composer-attachments")
+    ).toContainText("tab-switch.txt");
+    await page.getByRole("tab", { name: "Details", exact: true }).click();
+    await expect(conversation).toBeHidden();
+    await page.getByRole("tab", { name: /^Conversation/ }).click();
+    await expect(
+      conversation.getByTestId("chat-composer-attachments")
+    ).toContainText("tab-switch.txt");
+    await expect(conversation.getByText("Needs re-attaching")).toHaveCount(0);
+    await expect(conversation.getByTestId("chat-composer-send")).toBeEnabled();
+    const posted = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/v1/streams/${task.id}/blocks`) &&
+        response.request().method() === "POST"
+    );
     await conversation.getByTestId("chat-composer-send").click();
+    const postResponse = await posted;
+    expect(postResponse.ok(), await postResponse.text()).toBeTruthy();
+    expect((await postResponse.json()).block.attachments).toEqual([
+      expect.objectContaining({
+        type: "file",
+        fileName: expect.stringMatching(/^tab-switch.*\.txt$/),
+      }),
+    ]);
+    await expect(
+      conversation.getByTestId("chat-composer-attachments")
+    ).toHaveCount(0);
+    await expect(
+      conversation.getByText(/^tab-switch.*\.txt$/).first()
+    ).toBeVisible();
     await expect(
       conversation.getByText("Progress from the task drawer")
     ).toBeVisible();
@@ -155,6 +209,13 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       path: "/tmp/dispatch-tasks-drawer.png",
       scale: "device",
     });
+    await page.goto(
+      `/tasks?project=${project.id}&task=${task.id}&block=${blockId}`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await expect(
+      page.getByRole("tab", { name: /^Conversation/ })
+    ).toHaveAttribute("data-state", "active");
     await page.getByRole("button", { name: "Close task" }).click();
     await page.getByRole("button", { name: "List layout" }).click();
     await expect(page.getByTestId("tasks-list")).toBeVisible();
@@ -240,7 +301,9 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
       "already launches Tasks builder"
     );
     // The menu's layer must be gone before Escape, or it eats the key.
-    await expect(page.getByRole("menuitem")).toHaveCount(0);
+    await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(
+      0
+    );
     await page.getByRole("dialog").press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await strip.click();
@@ -359,10 +422,34 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await expect(page.getByTestId("agent-pane")).toBeVisible();
     await page.getByRole("button", { name: /^Task:/ }).click();
     const modal = page.getByTestId("task-modal");
-    await expect(modal.getByText("Renamed by an agent").first()).toBeVisible();
+    await expect(
+      modal.getByRole("tab", { name: /^Conversation/ })
+    ).toHaveAttribute("data-state", "active");
+    await expect(modal.getByTestId("task-conversation")).toBeVisible();
     await expect(page).toHaveURL(
       new RegExp(`/agents/${assigned.assignedAgentId}\\?.*task=${task.id}`)
     );
+    await modal
+      .getByRole("textbox", { name: "Message the agent" })
+      .fill("Phone draft");
+    const composerFits = async () => {
+      const send = await modal.getByTestId("chat-composer-send").boundingBox();
+      const recipients = await modal
+        .getByTestId("chat-composer-routing")
+        .boundingBox();
+      const sheet = await modal.boundingBox();
+      return !!(
+        send &&
+        recipients &&
+        sheet &&
+        send.y + send.height <= sheet.y + sheet.height &&
+        recipients.y + recipients.height <= sheet.y + sheet.height
+      );
+    };
+    await expect.poll(composerFits).toBe(true);
+    await page.setViewportSize({ width: 390, height: 500 });
+    await expect.poll(composerFits).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({
       path: "/tmp/dispatch-tasks-mobile-modal.png",
       scale: "device",

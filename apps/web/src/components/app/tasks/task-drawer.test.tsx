@@ -8,7 +8,12 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import {
+  MemoryRouter,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { taskKeys, type TaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
@@ -32,12 +37,27 @@ vi.mock("@/hooks/use-agent-model-catalog", () => ({
 }));
 
 vi.mock("./task-conversation", () => ({
-  TaskConversation: ({ taskId }: { taskId: string }) => (
-    <div data-testid="task-conversation">{taskId}</div>
+  TaskConversation: ({
+    taskId,
+    active,
+  }: {
+    taskId: string;
+    active: boolean;
+  }) => (
+    <div data-testid="task-conversation" data-active={active}>
+      {taskId}
+    </div>
   ),
 }));
 
-afterEach(cleanup);
+const summary = vi.hoisted(() => ({ unread: 0 as number | undefined }));
+vi.mock("@/hooks/use-chat-unread-summary", () => ({
+  useTaskChatUnread: () => summary.unread,
+}));
+afterEach(() => {
+  cleanup();
+  summary.unread = 0;
+});
 
 it("offers the project's agents for assignment, running first", () => {
   const agent = (id: string, status: string, projectId = "p1") =>
@@ -54,25 +74,26 @@ it("offers the project's agents for assignment, running first", () => {
   ).toEqual(["c-running", "a-stopped", "b-stopped", "current-elsewhere"]);
 });
 
+const detail: TaskDetail = {
+  id: "task-1",
+  projectId: "project-1",
+  columnId: "column-1",
+  title: "Original title",
+  body: "Original description",
+  position: 0,
+  assignedAgentId: null,
+  links: [],
+  createdBy: { kind: "user" },
+  latestFailure: null,
+  completedAt: null,
+  createdAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z",
+  agents: [],
+  events: [],
+  attachments: [],
+};
+
 it("keeps an unsaved description open when cached task fields change", async () => {
-  const detail: TaskDetail = {
-    id: "task-1",
-    projectId: "project-1",
-    columnId: "column-1",
-    title: "Original title",
-    body: "Original description",
-    position: 0,
-    assignedAgentId: null,
-    links: [],
-    createdBy: { kind: "user" },
-    latestFailure: null,
-    completedAt: null,
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
-    agents: [],
-    events: [],
-    attachments: [],
-  };
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
@@ -125,6 +146,190 @@ it("keeps an unsaved description open when cached task fields change", async () 
     ).toBeTruthy()
   );
   expect(screen.getByRole("textbox")).toBe(textarea);
-  expect(screen.getByTestId("task-conversation").textContent).toBe("task-1");
+  expect(
+    screen.getByTestId("task-conversation").getAttribute("data-active")
+  ).toBe("false");
   expect((textarea as HTMLTextAreaElement).value).toBe("My unsaved draft");
+});
+
+function Where() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="where">
+        {location.search}|{JSON.stringify(location.state)}
+      </output>
+      <button onClick={() => navigate("?task=task-2")}>Other task</button>
+      <button onClick={() => navigate(-1)}>Back</button>
+    </>
+  );
+}
+function RoutedDrawer() {
+  const [params] = useSearchParams();
+  return (
+    <TaskDrawer
+      id={params.get("task") ?? detail.id}
+      projectId={detail.projectId}
+      columns={[]}
+      boardTasks={[detail]}
+      agents={[]}
+      close={vi.fn()}
+      openTask={vi.fn()}
+      moveTask={vi.fn()}
+      isMobile={false}
+    />
+  );
+}
+function renderTask(search = "?task=task-1") {
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  client.setQueryData(taskKeys.detail(detail.id), detail);
+  client.setQueryData(taskKeys.detail("task-2"), { ...detail, id: "task-2" });
+  return {
+    client,
+    ...render(
+      <MemoryRouter
+        initialEntries={[
+          "/before",
+          { pathname: "/tasks", search, state: { taskModal: true } },
+        ]}
+        initialIndex={1}
+      >
+        <QueryClientProvider client={client}>
+          <RoutedDrawer />
+          <Where />
+        </QueryClientProvider>
+      </MemoryRouter>
+    ),
+  };
+}
+const selectTab = (name: string) =>
+  fireEvent.mouseDown(screen.getByRole("tab", { name }), {
+    button: 0,
+    ctrlKey: false,
+  });
+
+it.each([
+  ["?task=task-1", 0, "Details"],
+  ["?task=task-1&block=b1", 0, "Conversation"],
+  ["?task=task-1&thread=b1", 0, "Conversation"],
+  ["?task=task-1", 3, "Conversation"],
+  ["?task=task-1&pane=conversation", 0, "Conversation"],
+  ["?task=task-1&pane=details", 3, "Details"],
+])("resolves %s with %i unread to %s", (search, unread, tab) => {
+  summary.unread = unread;
+  renderTask(search);
+  expect(
+    screen
+      .getByRole("tab", { name: new RegExp(`^${tab}`) })
+      .getAttribute("data-state")
+  ).toBe("active");
+  expect(
+    screen.getByTestId("task-conversation").getAttribute("data-active")
+  ).toBe(String(tab === "Conversation"));
+});
+
+it("writes pane with replace and retains the modal opening state", () => {
+  renderTask("?task=task-1&project=p1");
+  selectTab("Conversation");
+  expect(screen.getByTestId("where").textContent).toBe(
+    '?task=task-1&project=p1&pane=conversation|{"taskModal":true}'
+  );
+  expect(screen.getByTestId("task-conversation")).toBeTruthy();
+  selectTab("Details");
+  expect(
+    screen.getByTestId("task-conversation").getAttribute("data-active")
+  ).toBe("false");
+  expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(screen.getByTestId("where").textContent).toBe("|null");
+});
+
+it("keeps Conversation selected when mark-read clears the badge", () => {
+  summary.unread = 3;
+  const { client } = renderTask();
+  expect(screen.getByLabelText("3 unread posts")).toBeTruthy();
+  summary.unread = 0;
+  act(() =>
+    client.setQueryData(taskKeys.detail(detail.id), {
+      ...detail,
+      title: "Updated",
+    })
+  );
+  return waitFor(() => {
+    expect(screen.queryByLabelText("3 unread posts")).toBeNull();
+    expect(
+      screen
+        .getByRole("tab", { name: "Conversation" })
+        .getAttribute("data-state")
+    ).toBe("active");
+  });
+});
+
+it("lets late unread data choose Conversation until the user chooses Details", async () => {
+  summary.unread = undefined;
+  const { client } = renderTask();
+  expect(
+    screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
+  ).toBe("active");
+  summary.unread = 2;
+  act(() =>
+    client.setQueryData(taskKeys.detail(detail.id), {
+      ...detail,
+      title: "Updated",
+    })
+  );
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("tab", { name: /^Conversation/ })
+        .getAttribute("data-state")
+    ).toBe("active")
+  );
+  selectTab("Details");
+  summary.unread = 4;
+  act(() =>
+    client.setQueryData(taskKeys.detail(detail.id), {
+      ...detail,
+      title: "Updated again",
+    })
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
+    ).toBe("active")
+  );
+});
+
+it("resolves a fresh default for another task after a reader chose Details", () => {
+  summary.unread = 3;
+  renderTask();
+  selectTab("Details");
+  fireEvent.click(screen.getByRole("button", { name: "Other task" }));
+  expect(
+    screen
+      .getByRole("tab", { name: /^Conversation/ })
+      .getAttribute("data-state")
+  ).toBe("active");
+  expect(screen.getByTestId("task-conversation").textContent).toBe("task-2");
+});
+
+it("keeps Details when the reader interacts before the unread query arrives", async () => {
+  summary.unread = undefined;
+  const { client } = renderTask();
+  fireEvent.pointerDown(screen.getByRole("tab", { name: "Details" }));
+  summary.unread = 2;
+  act(() =>
+    client.setQueryData(taskKeys.detail(detail.id), {
+      ...detail,
+      title: "Late summary",
+    })
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
+    ).toBe("active")
+  );
 });

@@ -49,11 +49,14 @@ const FOLLOW_PX = 80;
  */
 export function TaskConversation({
   taskId,
+  active,
   assignee,
   isMobile,
   memberIds,
 }: {
   taskId: string;
+  /** Hidden tabs retain the composer but must not read or follow the feed. */
+  active: boolean;
   assignee: Agent | null;
   isMobile: boolean;
   /** The task's agents: whom a post here can @mention. */
@@ -198,27 +201,30 @@ export function TaskConversation({
   ].join("|");
   const followBottom = useCallback(() => {
     const el = scrollRef.current;
-    if (el && followingRef.current) el.scrollTop = el.scrollHeight;
-  }, []);
+    if (active && el && el.clientHeight > 0 && followingRef.current)
+      el.scrollTop = el.scrollHeight;
+  }, [active]);
   useLayoutEffect(followBottom, [followBottom, growthKey, thread]);
   useEffect(() => {
     const el = contentRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!active || !el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(followBottom);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [followBottom, thread]);
+  }, [active, followBottom, thread]);
   const onScroll = () => {
     const el = scrollRef.current;
-    if (el)
+    // display:none can reset scrollTop and emit a scroll at zero height.
+    // Keep the reader's follow choice until the pane is visible again.
+    if (active && el && el.clientHeight > 0)
       followingRef.current =
         el.scrollHeight - el.clientHeight - el.scrollTop <= FOLLOW_PX;
   };
 
   const upTo = latestAgentBlockId(feed.entries);
   useEffect(() => {
-    if (!document.hidden) markRead(upTo ?? undefined);
-  }, [markRead, upTo]);
+    if (active && !document.hidden) markRead(upTo ?? undefined);
+  }, [active, markRead, upTo]);
 
   const { mutateAsync: sendAsync } = send;
   const onSend = useCallback(

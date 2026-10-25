@@ -8,6 +8,7 @@ import { TaskConversation } from "./task-conversation";
 const state = vi.hoisted(() => ({
   entries: [] as unknown[],
   agents: [] as unknown[],
+  markRead: vi.fn(),
 }));
 const review = {
   id: "review-1",
@@ -60,7 +61,7 @@ vi.mock("@/hooks/use-stream", () => ({
   useSetBlockState: () => mutation,
   useToggleReaction: () => mutation,
   useRetryDelivery: () => mutation,
-  useMarkStreamRead: () => vi.fn(),
+  useMarkStreamRead: () => state.markRead,
 }));
 vi.mock("@/hooks/use-agent-tree", () => ({
   useDeliveryAgents: () => state.agents,
@@ -131,12 +132,14 @@ afterEach(() => {
   cleanup();
   state.entries = [review];
   state.agents = [];
+  state.markRead.mockClear();
 });
 state.entries = [review];
 
-const conversation = (memberIds: string[] = []) => (
+const conversation = (memberIds: string[] = [], active = true) => (
   <TaskConversation
     taskId="tsk_1"
+    active={active}
     assignee={null}
     isMobile={false}
     memberIds={memberIds}
@@ -219,5 +222,48 @@ it("follows a turn as it grows under one id, until the reader scrolls up", () =>
   height += 150;
   state.entries = [turn("abcde")];
   view.rerender(conversation());
+  expect(top).toBe(0);
+});
+
+it("only marks read when the Conversation tab is active", () => {
+  const view = render(conversation([], false));
+  expect(state.markRead).not.toHaveBeenCalled();
+  view.rerender(conversation([], true));
+  expect(state.markRead).toHaveBeenCalledTimes(1);
+  view.rerender(conversation([], false));
+  state.entries = [turn("new hidden post")];
+  view.rerender(conversation([], false));
+  expect(state.markRead).toHaveBeenCalledTimes(1);
+  view.rerender(conversation([], true));
+  expect(state.markRead).toHaveBeenCalledTimes(2);
+});
+
+it("re-pins a following feed after hidden scroll resets without changing a reader's scroll-up choice", () => {
+  const view = render(conversation());
+  const scroller = screen.getByTestId("task-conversation-scroll");
+  let top = 400;
+  Object.defineProperties(scroller, {
+    scrollHeight: { configurable: true, get: () => 500 },
+    clientHeight: { configurable: true, get: () => 100 },
+    scrollTop: {
+      configurable: true,
+      get: () => top,
+      set: (value: number) => {
+        top = value;
+      },
+    },
+  });
+  view.rerender(conversation([], false));
+  top = 0;
+  fireEvent.scroll(scroller);
+  expect(top).toBe(0);
+  view.rerender(conversation([], true));
+  expect(top).toBe(500);
+  top = 10;
+  fireEvent.scroll(scroller);
+  view.rerender(conversation([], false));
+  top = 0;
+  fireEvent.scroll(scroller);
+  view.rerender(conversation([], true));
   expect(top).toBe(0);
 });

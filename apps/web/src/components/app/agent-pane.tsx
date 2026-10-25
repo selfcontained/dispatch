@@ -2,7 +2,7 @@ import { useProjects } from "@/hooks/use-projects";
 import { useAssignedTasks } from "@/hooks/use-tasks";
 import { useSearchParams } from "react-router-dom";
 import { TaskModal } from "./tasks/task-modal";
-import { TASK_MODAL_STATE } from "./tasks/task-utils";
+import { TASK_MODAL_STATE, TASK_PANE_PARAM } from "./tasks/task-utils";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { useAtom } from "jotai";
@@ -40,6 +40,7 @@ export function AssignedTaskChip({ agentId }: { agentId: string }) {
       onClick={() => {
         const next = new URLSearchParams(params);
         next.set("task", task.id);
+        next.set(TASK_PANE_PARAM, "conversation");
         setParams(next, { state: TASK_MODAL_STATE });
       }}
       title={task.title}

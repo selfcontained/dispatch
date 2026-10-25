@@ -41,15 +41,18 @@ vi.mock("./task-drawer", () => ({
     id,
     close,
     headerAction,
+    openTask,
   }: {
     id: string;
     close: () => void;
     headerAction: React.ReactNode;
+    openTask: (id: string) => void;
   }) => (
     <div data-testid="task-panel">
       {id}
       {headerAction}
       <button onClick={close}>Close task</button>
+      <button onClick={() => openTask("tsk_2")}>Next task</button>
       <Preview />
     </div>
   ),
@@ -121,7 +124,7 @@ it("opens the agent's task over the stream and closes back to it", () => {
   fireEvent.click(
     screen.getByRole("button", { name: "Task: Build the board" })
   );
-  expect(where()).toBe("/agents/a1?project=p1&task=tsk_1");
+  expect(where()).toBe("/agents/a1?project=p1&task=tsk_1&pane=conversation");
   expect(screen.getByRole("dialog").textContent).toContain("tsk_1");
   // The stream stays mounted under the modal: its scroll is untouched.
   expect(screen.getByTestId("stream")).toBe(stream);
@@ -193,4 +196,16 @@ it("closes an attachment preview on Escape, not the task", () => {
   // With the preview gone, Escape closes the task again.
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(where()).toBe("/agents/a1");
+});
+
+it("drops pane when paging and preserves the modal closing history", () => {
+  renderStream("/agents/a1");
+  fireEvent.click(screen.getByRole("button", { name: /^Task:/ }));
+  expect(where()).toContain("pane=conversation");
+  fireEvent.click(screen.getByRole("button", { name: "Next task" }));
+  expect(where()).toBe("/agents/a1?task=tsk_2");
+  fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+  expect(where()).toBe("/agents/a1");
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(where()).toBe("/agents/a1?from=before");
 });
