@@ -185,9 +185,15 @@ export function MobileTerminalControls({
             Submit
           </Button>
         </div>
-        <DialogDescription className="px-4 pt-3 text-xs [overflow-wrap:anywhere]">
-          {target.user}@{target.host} · {target.cwd} ·{" "}
-          <span className="whitespace-nowrap">{target.id.slice(0, 8)}</span>
+        <DialogDescription
+          className="truncate px-4 pt-3 text-xs"
+          title={`${target.user}@${target.host}:${target.cwd}`}
+        >
+          Sending to{" "}
+          <span className="text-foreground">
+            {target.cwd.split("/").filter(Boolean).pop() ?? target.cwd}
+          </span>{" "}
+          on {target.host}
         </DialogDescription>
         <div className="min-h-0 flex-1 p-4">
           <Textarea
