@@ -50,10 +50,11 @@ agent history.
 Move with the **column key** from `task_list` or your briefing, not the display
 name. Entering a column with a trigger launches its template as a new top-level
 agent; that agent may become the assignee. Edits and reorders inside the same
-column do not fire a trigger. Moving your own task is a handoff and is never
-refused for the running-agent rule. If another assigned agent is running, a
-move returns `agent_working`; these tools cannot override it. Leave the task
-where it is or ask the user to move it on the board.
+column do not fire a trigger. A move into a column with a trigger, while a
+different assigned agent is still running, returns `agent_working`; these tools
+cannot override it. Leave the task where it is or ask the user to move it on
+the board. Moves into columns without a trigger, and moving your own task (a
+handoff), are not refused for this.
 
 A failed launch does not undo the move. Check `latestFailure` and `launching`
 in the `task_update` result or a fresh `task_get` before saying the handoff
