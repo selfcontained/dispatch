@@ -1,6 +1,5 @@
-import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useLocation, useMatches } from "react-router-dom";
+import { Outlet, useMatches } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { type NavSection } from "@/components/app/sidebar-shell";
@@ -11,6 +10,7 @@ import { api } from "@/lib/api";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useHealth } from "@/hooks/use-health";
 import { useLayout } from "@/hooks/use-layout";
+import { useSectionNavigate } from "@/hooks/use-section-navigate";
 import { useSSE } from "@/hooks/use-sse";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
@@ -36,7 +36,6 @@ type RouteHandle = {
 };
 
 export function DashboardLayout(): JSX.Element {
-  const navigate = useProjectNavigate();
   const matches = useMatches() as Array<{ handle?: RouteHandle }>;
 
   const currentNavItem =
@@ -128,11 +127,6 @@ export function DashboardLayout(): JSX.Element {
   );
   const [pendingNavPulse, setPendingNavPulse] = useState<string | null>(null);
   const prevNavItemRef = useRef(currentNavItem);
-  const location = useLocation();
-  // A link straight to one task (an agent's Task chip) lands on that task,
-  // not on the section's sidebar sheet.
-  const opensTask = new URLSearchParams(location.search).has("task");
-
   useEffect(() => {
     const previousNavItem = prevNavItemRef.current;
     prevNavItemRef.current = currentNavItem;
@@ -142,13 +136,7 @@ export function DashboardLayout(): JSX.Element {
     if (currentNavItem === previousNavItem) return;
 
     setMobileDrawerOpen(false);
-    if (currentNavItem !== "activity" && !opensTask) {
-      setMobileLeftOpen(true);
-    }
-    // Read on the section change only; a later ?task= change is the
-    // section's own business.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileDrawerOpen]);
+  }, [currentNavItem, isMobile, setMobileDrawerOpen]);
 
   useEffect(() => {
     if (!pendingNavPulse || pendingNavPulse !== currentNavItem) return;
@@ -167,16 +155,10 @@ export function DashboardLayout(): JSX.Element {
     [currentNavItem, setPulsingNavItem]
   );
 
-  const handleSidebarNavigate = useCallback(
-    (section: NavSection) => {
-      if (section === "agents") navigate("/agents");
-      else if (section === "tasks") navigate("/tasks");
-      else if (section === "automations") navigate("/automations");
-      else if (section === "activity") navigate("/activity/metrics");
-      else if (section === "settings") navigate("/settings");
-    },
-    [navigate]
-  );
+  const handleSidebarNavigate = useSectionNavigate({
+    isMobile,
+    setMobileLeftOpen,
+  });
 
   const context: DashboardContextValue = {
     agents,
