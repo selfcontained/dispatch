@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -7,6 +8,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { TaskBoard } from "@/hooks/use-tasks";
 import { TasksRoute } from "./tasks-route";
@@ -101,6 +103,12 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuSeparator: () => null,
 }));
 
+// The project switcher reads the agents cache when the scope changes.
+function QueryWrapper({ children }: { children: React.ReactNode }) {
+  const [client] = useState(() => new QueryClient());
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.search}</output>;
@@ -122,7 +130,8 @@ it("resolves a task deep link, then clears it when the user changes projects", a
     <MemoryRouter initialEntries={["/tasks?task=t1&project=p2"]}>
       <TasksRoute />
       <LocationProbe />
-    </MemoryRouter>
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
   );
   await waitFor(() =>
     expect(screen.getByTestId("location").textContent).toContain("project=p1")
@@ -149,7 +158,8 @@ it("shows a ?layout= link without saving it over the saved choice", () => {
   render(
     <MemoryRouter initialEntries={["/tasks?project=p3&layout=board"]}>
       <TasksRoute />
-    </MemoryRouter>
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
   );
   expect(pressed("Board layout")).toBe("true");
   expect(window.localStorage.getItem("dispatch:taskLayout:p3")).toBe(
@@ -166,7 +176,8 @@ it("keeps the saved layout on a phone", () => {
   render(
     <MemoryRouter initialEntries={["/tasks?project=p4"]}>
       <TasksRoute />
-    </MemoryRouter>
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
   );
   expect(pressed("Board layout")).toBe("true");
 });
@@ -176,7 +187,8 @@ it("defaults by width until a layout is picked, then saves the pick", () => {
   const { unmount } = render(
     <MemoryRouter initialEntries={["/tasks?project=p5"]}>
       <TasksRoute />
-    </MemoryRouter>
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
   );
   expect(pressed("List layout")).toBe("true");
   unmount();
@@ -185,7 +197,8 @@ it("defaults by width until a layout is picked, then saves the pick", () => {
     <MemoryRouter initialEntries={["/tasks?project=p5"]}>
       <TasksRoute />
       <LocationProbe />
-    </MemoryRouter>
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
   );
   expect(pressed("Board layout")).toBe("true");
   expect(window.localStorage.getItem("dispatch:taskLayout:p5")).toBeNull();
@@ -201,7 +214,8 @@ it("keeps Archived in the URL and selects the archived board query", async () =>
     <MemoryRouter initialEntries={["/tasks?project=p1&view=archived"]}>
       <TasksRoute />
       <LocationProbe />
-    </MemoryRouter>
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
   );
   expect(pressed("Archived")).toBe("true");
   expect(boardQuery).toHaveBeenCalledWith("p1", true);
@@ -248,7 +262,8 @@ it("lists older archived tasks with column/time and filters them by search and a
   render(
     <MemoryRouter initialEntries={["/tasks?project=p1&view=archived"]}>
       <TasksRoute />
-    </MemoryRouter>
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
   );
   expect(
     screen.getByRole("button", { name: "Old completed work" })

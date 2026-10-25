@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { matchPath, useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   Layers,
@@ -9,6 +10,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { useProjectSelection, type Project } from "@/hooks/use-projects";
+import type { Agent } from "./types";
 import { ProjectIcon } from "./project-location";
 import { ProjectEditor } from "./project-editor";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
   const { project, projects } = useProjectSelection();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const trigger = useRef<HTMLButtonElement>(null);
   const [manage, setManage] = useState(false);
   const [edit, setEdit] = useState<Project | "new" | null>(null);
@@ -44,6 +47,18 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
     query.set("project", id ?? "");
     // A project choice is an explicit scope change, not a task deep link.
     if (location.pathname === "/tasks") query.delete("task");
+    // Likewise an open agent outside the new scope is deselected in the same
+    // navigation, so its chat never renders under the other project.
+    const agentId = matchPath("/agents/:agentId/*", location.pathname)?.params
+      .agentId;
+    const agent = queryClient
+      .getQueryData<Agent[]>(["agents"])
+      ?.find((a) => a.id === agentId);
+    if (agentId && id && agent?.projectId !== id) {
+      for (const key of ["thread", "file", "line"]) query.delete(key);
+      navigate({ pathname: "/agents", search: query.toString() });
+      return;
+    }
     navigate({
       pathname: location.pathname,
       search: query.toString(),
