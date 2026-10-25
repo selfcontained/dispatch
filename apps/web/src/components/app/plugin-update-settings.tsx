@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyIconButton } from "@/components/ui/copy-button";
+import { useCopyText } from "@/hooks/use-copy";
 import {
   AGENT_TYPE_LABELS,
   usePluginStatus,
@@ -10,10 +13,55 @@ import {
   type PluginStatus,
 } from "@/hooks/use-plugin-status";
 
+const MANUAL_COMMANDS = {
+  claude: {
+    install: [
+      "claude plugin marketplace add selfcontained/dispatch",
+      "claude plugin install dispatch@dispatch",
+    ],
+    update: [
+      "claude plugin marketplace update dispatch",
+      "claude plugin update dispatch@dispatch",
+    ],
+  },
+  codex: {
+    install: [
+      "codex plugin marketplace add selfcontained/dispatch",
+      "codex plugin add dispatch@dispatch",
+    ],
+    update: [
+      "codex plugin marketplace upgrade dispatch",
+      "codex plugin add dispatch@dispatch",
+    ],
+  },
+} as const;
+
+function ManualCommand({ command }: { command: string }): JSX.Element {
+  const [copied, copyText] = useCopyText();
+  return (
+    <li className="pl-1 marker:text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-1 rounded bg-muted/50 py-1 pl-2 pr-1">
+        <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">
+          {command}
+        </code>
+        <CopyIconButton
+          copied={copied}
+          onCopy={() => copyText(command)}
+          label={`Copy ${command}`}
+          className="shrink-0"
+        />
+      </div>
+    </li>
+  );
+}
+
 function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
+  const [manualOpen, setManualOpen] = useState(false);
   const action = status.installed ? "update" : "install";
   const { mutate, isPending, error } = useUpdatePlugin(action);
   const label = AGENT_TYPE_LABELS[status.agentType];
+  const manualCommands = MANUAL_COMMANDS[status.agentType][action];
+  const manualPanelId = `plugin-manual-${status.agentType}`;
   const canAct =
     !status.detectionError && (!status.installed || status.updateAvailable);
   const state = status.detectionError
@@ -91,8 +139,44 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
           role="alert"
           className="mt-2 whitespace-pre-line text-xs text-destructive"
         >
-          {error.message}
+          {error.message}{" "}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto p-0 text-xs text-destructive underline"
+            onClick={() => setManualOpen(true)}
+            aria-controls={manualPanelId}
+          >
+            Run it manually
+          </Button>
         </p>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="mt-2 h-7 px-2 text-xs text-muted-foreground"
+        aria-expanded={manualOpen}
+        aria-controls={manualPanelId}
+        onClick={() => setManualOpen((open) => !open)}
+      >
+        Manual commands
+      </Button>
+      {manualOpen ? (
+        <div id={manualPanelId} className="mt-1 min-w-0 space-y-2">
+          <ol
+            className="list-decimal space-y-1.5 pl-4 text-xs"
+            aria-label={`${label} manual commands`}
+          >
+            {manualCommands.map((command) => (
+              <ManualCommand key={command} command={command} />
+            ))}
+          </ol>
+          <p className="text-xs text-muted-foreground">
+            Then start a fresh agent session.
+          </p>
+        </div>
       ) : null}
     </div>
   );
