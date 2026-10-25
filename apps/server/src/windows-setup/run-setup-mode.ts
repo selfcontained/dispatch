@@ -41,7 +41,7 @@ export async function runSetupMode(
     platform: process.platform,
     version: packageVersion,
   });
-  log(`Dispatch setup — opening ${url} in your browser`);
+  log(`Dispatch setup: opening ${url} in your browser`);
   await (deps.openBrowser ?? realOpenBrowser)(url);
   const env = await installed;
   Object.assign(process.env, env);

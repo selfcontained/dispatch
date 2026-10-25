@@ -43,7 +43,7 @@ describe("runSetupMode", () => {
 
     expect(result).toEqual(env);
     expect(log).toEqual([
-      "Dispatch setup — opening http://127.0.0.1:4321/setup in your browser",
+      "Dispatch setup: opening http://127.0.0.1:4321/setup in your browser",
       "Dispatch is running at http://127.0.0.1:6767",
     ]);
     expect(events[0]).toBe("open http://127.0.0.1:4321/setup");
