@@ -129,16 +129,6 @@ waiting for the corrected launch.
   Use `archive_agent` with safe `auto` cleanup, or `keep` when work must remain;
   never force-delete unintegrated work to tidy the sidebar. Cancel your completed
   follow-up schedules. Do not archive unrelated agents.
-- After a merge, close out in one flow without asking for new permission when no
-  work remains: verify the PR merged on its base, move the task to Done, then
-  archive its finished builders and reviewers and the task's own agent. The
-  merge completes the task; its agent is not ongoing work. Archiving an agent
-  stops it and its record stays on the task; it is separate from archiving or
-  deleting the task itself. Archive only agents you may: ones you launched, or
-  yourself as the last step after reporting. A trigger-launched task agent you
-  did not launch must archive itself. An open preview does not keep an agent
-  active; keep it independently where supported, otherwise say the stop hook
-  will tear it down.
 - Report the actual outcome at home: PR ready for review or verified merge,
   checks performed, material limitations, and any remaining decision. Include
   required preview links and cleanup commands. Do not report completion while
@@ -152,3 +142,13 @@ waiting for the corrected launch.
   fix it or report the blocker before claiming delivery is complete. Local
   screenshot paths, prose claims, and links to the app do not replace attached
   screenshots.
+- After a merge, close out in one flow without asking for new permission when no
+  work remains: verify the PR merged on its base, move the task to Done, archive
+  its finished builders and reviewers, post the outcome report and evidence
+  above, then archive the task's own agent last. The merge completes the task;
+  its agent is not ongoing work. Archiving an agent stops it and its record stays
+  on the task; it is separate from archiving or deleting the task itself.
+  Archive only agents you may: ones you launched, or yourself. A
+  trigger-launched task agent you did not launch must archive itself. An open
+  preview does not keep an agent active; keep it independently where supported,
+  otherwise say the stop hook will tear it down.
