@@ -1,4 +1,6 @@
+import { Keyboard } from "lucide-react";
 import { useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -10,15 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-const shortcuts = [
-  ["Enter", "Enter", "\r"],
-  ["Esc", "Escape", "\x1b"],
-  ["Tab", "Tab", "\t"],
-  ["←", "Arrow Left", "\x1b[D"],
-  ["↑", "Arrow Up", "\x1b[A"],
-  ["↓", "Arrow Down", "\x1b[B"],
-  ["→", "Arrow Right", "\x1b[C"],
-] as const;
+const SUBMIT_SUFFIX = "\r";
 
 export function MobileTerminalControls({
   target,
@@ -38,9 +32,9 @@ export function MobileTerminalControls({
     setOpen(false);
     setDraft("");
   };
-  const submit = (enter: boolean) => {
-    if (draft && sendInput(draft + (enter ? "\r" : ""), target.id, false))
-      close();
+  const sendKey = (data: string) => sendInput(data, target.id);
+  const submit = () => {
+    if (draft && sendInput(draft + SUBMIT_SUFFIX, target.id, false)) close();
   };
   return (
     <Dialog
@@ -50,39 +44,120 @@ export function MobileTerminalControls({
         else close();
       }}
     >
-      <div
-        className="grid grid-cols-4 gap-1 border-t border-border pt-2 md:hidden"
-        aria-label="Terminal shortcuts"
-      >
-        {shortcuts.map(([text, label, data]) => (
-          <Button
-            key={label}
-            type="button"
-            size="sm"
-            aria-label={`Send ${label}`}
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={() => sendInput(data, target.id)}
-          >
-            {text}
-          </Button>
-        ))}
-        <Button
-          type="button"
-          size="sm"
-          aria-label="Toggle Control modifier"
-          aria-pressed={ctrlArmed}
-          variant={ctrlArmed ? "primary" : "default"}
-          className={ctrlArmed ? "ring-2 ring-primary" : undefined}
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={onToggleCtrl}
-        >
-          Ctrl
-        </Button>
-        <DialogTrigger asChild>
-          <Button type="button" size="sm" className="col-span-4">
-            Paste / type
-          </Button>
-        </DialogTrigger>
+      <div className="border-t-2 border-border bg-surface px-2 py-2 md:hidden">
+        <div className="flex min-h-[4.5rem] items-stretch gap-2">
+          <div className="min-w-0 flex-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              className="h-full w-full px-2 text-xs"
+              aria-label="Send Enter"
+              onClick={() => sendKey("\r")}
+            >
+              Enter
+            </Button>
+          </div>
+
+          <div className="flex shrink-0 flex-col items-center justify-center gap-2">
+            <div className="flex justify-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 shrink-0 px-3 text-xs"
+                aria-label="Send Escape"
+                onClick={() => sendKey("\u001b")}
+              >
+                Esc
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className={cn(
+                  "h-8 shrink-0 px-3 text-xs",
+                  ctrlArmed && "ring-2 ring-primary bg-primary/20 text-primary"
+                )}
+                aria-label="Toggle Control modifier"
+                aria-pressed={ctrlArmed}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                }}
+                onClick={onToggleCtrl}
+              >
+                Ctrl
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 shrink-0 px-3 text-xs"
+                aria-label="Send Tab"
+                onClick={() => sendKey("\t")}
+              >
+                Tab
+              </Button>
+            </div>
+
+            <div className="flex justify-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Left"
+                onClick={() => sendKey("\u001b[D")}
+              >
+                ←
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Up"
+                onClick={() => sendKey("\u001b[A")}
+              >
+                ↑
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Down"
+                onClick={() => sendKey("\u001b[B")}
+              >
+                ↓
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Right"
+                onClick={() => sendKey("\u001b[C")}
+              >
+                →
+              </Button>
+            </div>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-full w-full px-2 text-xs"
+                aria-label="Open text input"
+              >
+                <Keyboard className="h-5 w-5" strokeWidth={2} />
+              </Button>
+            </DialogTrigger>
+          </div>
+        </div>
       </div>
 
       <DialogContent
@@ -93,7 +168,26 @@ export function MobileTerminalControls({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Terminal input</DialogTitle>
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b border-border pb-3">
+            <Button
+              type="button"
+              className="h-11 min-w-[4.5rem]"
+              onClick={close}
+            >
+              Cancel
+            </Button>
+            <DialogTitle className="text-center text-sm font-medium">
+              Terminal input
+            </DialogTitle>
+            <Button
+              type="button"
+              variant="primary"
+              className="h-11 min-w-[4.5rem]"
+              onClick={submit}
+            >
+              Submit
+            </Button>
+          </div>
           <DialogDescription className="[overflow-wrap:anywhere]">
             {target.user}@{target.host} · {target.cwd} ·{" "}
             <span className="whitespace-nowrap">{target.id.slice(0, 8)}</span>
@@ -110,17 +204,6 @@ export function MobileTerminalControls({
           autoCorrect="off"
           spellCheck={false}
         />
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={close}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={() => submit(true)}>
-            Send + Enter
-          </Button>
-          <Button type="button" onClick={() => submit(false)}>
-            Send Raw
-          </Button>
-        </div>
       </DialogContent>
     </Dialog>
   );

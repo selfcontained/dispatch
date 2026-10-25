@@ -742,47 +742,36 @@ describe("mobile terminal input", () => {
     expect(ctrl.getAttribute("aria-pressed")).toBe("false");
     expect(inputPayloads(socket)).toEqual(["\x03", "c", "\x1b[D", "\r"]);
   });
-  it.each([
-    ["Send Raw", "hello\nworld"],
-    ["Send + Enter", "hello\nworld\r"],
-  ])(
-    "composes %s exactly and clears after sending",
-    async (button, expected) => {
-      const socket = await connectedPanel();
-      fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
-      expect(screen.getByRole("dialog").textContent).toContain("user@host");
-      const input = screen.getByRole("textbox", {
-        name: "Terminal input text",
-      });
-      expect(document.activeElement).toBe(input);
-      fireEvent.change(input, { target: { value: "hello\nworld" } });
-      fireEvent.click(screen.getByRole("button", { name: button }));
-      expect(inputPayloads(socket)).toEqual([expected]);
-      expect(screen.queryByRole("dialog")).toBeNull();
-      fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
-      expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
-        ""
-      );
-    }
-  );
+  it("submits text followed by Enter and clears after sending", async () => {
+    const socket = await connectedPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
+    expect(screen.getByRole("dialog").textContent).toContain("user@host");
+    const input = screen.getByRole("textbox", { name: "Terminal input text" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "hello\nworld" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(inputPayloads(socket)).toEqual(["hello\nworld\r"]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+  });
   it("does not send empty text or Cancel and discards the cancelled draft", async () => {
     const socket = await connectedPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
-    fireEvent.click(screen.getByRole("button", { name: "Send + Enter" }));
-    fireEvent.click(screen.getByRole("button", { name: "Send Raw" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "discard" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(inputPayloads(socket)).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
   });
-  it.each(["Escape", "Cancel", "Send Raw"])(
+  it.each(["Escape", "Cancel", "Submit"])(
     "restores composer opener focus after %s",
     async (action) => {
       await connectedPanel();
-      const opener = screen.getByRole("button", { name: "Paste / type" });
+      const opener = screen.getByRole("button", { name: "Open text input" });
       opener.focus();
       fireEvent.click(opener);
       const textbox = screen.getByRole("textbox", {
@@ -791,7 +780,7 @@ describe("mobile terminal input", () => {
       expect(document.activeElement).toBe(textbox);
       if (action === "Escape") fireEvent.keyDown(textbox, { key: "Escape" });
       else {
-        if (action === "Send Raw")
+        if (action === "Submit")
           fireEvent.change(textbox, { target: { value: "draft" } });
         fireEvent.click(screen.getByRole("button", { name: action }));
       }
@@ -801,12 +790,12 @@ describe("mobile terminal input", () => {
   );
   it("refuses input when the socket is not OPEN", async () => {
     const socket = await connectedPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "blocked" },
     });
     socket.readyState = 3;
-    fireEvent.click(screen.getByRole("button", { name: "Send Raw" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     act(() => xterm.input("blocked"));
     expect(inputPayloads(socket)).toEqual([]);
   });
@@ -817,11 +806,11 @@ describe("mobile terminal input", () => {
       fireEvent.click(
         screen.getByRole("button", { name: "Toggle Control modifier" })
       );
-      fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+      fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
       fireEvent.change(screen.getByRole("textbox"), {
         target: { value: "never send" },
       });
-      const oldSend = screen.getByRole("button", { name: "Send Raw" });
+      const oldSend = screen.getByRole("button", { name: "Submit" });
       act(() => {
         if (reason === "disconnect")
           socket.onclose?.({ code: 1006 } as CloseEvent);
@@ -845,7 +834,7 @@ describe("mobile terminal input", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Toggle Control modifier" })
     );
-    fireEvent.click(screen.getByRole("button", { name: "Paste / type" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "old draft" },
     });

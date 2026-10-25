@@ -72,46 +72,44 @@ test("mobile terminal pastes exact text and sends shortcuts over its socket", as
     await page.screenshot({
       path: join(screenshots, "mobile-terminal-toolbar.png"),
     });
-    await panel.getByRole("button", { name: "Paste / type" }).click();
+    await panel.getByRole("button", { name: "Open text input" }).click();
     const textarea = page.getByRole("textbox", { name: "Terminal input text" });
     await expect(textarea).toBeFocused();
-    const raw = `printf 'mobile-raw-marker'`;
+    const suffix = `submit-${Date.now()}`;
+    const marker = `mobile-${suffix}`;
+    const command = `printf 'mobile-%s\\n' '${suffix}'`;
     // Use a real clipboard paste on loopback; it exercises native textarea paste
     // without adding any app-level clipboard interception.
     await page
       .context()
       .grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.evaluate((text) => navigator.clipboard.writeText(text), raw);
+    await page.evaluate((text) => navigator.clipboard.writeText(text), command);
     await textarea.press(
       process.platform === "darwin" ? "Meta+V" : "Control+V"
     );
-    await expect(textarea).toHaveValue(raw);
+    await expect(textarea).toHaveValue(command);
     await page.screenshot({
       path: join(screenshots, "mobile-terminal-composer.png"),
     });
-    await page.getByRole("button", { name: "Send Raw", exact: true }).click();
-    await expect.poll(() => inputs).toEqual([raw]);
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect.poll(() => inputs).toEqual([command + "\r"]);
     await expect(
       page.getByRole("dialog", { name: "Terminal input" })
     ).toBeHidden();
+    await expect(panel.locator(".xterm-rows")).toContainText(marker);
     await panel
       .getByRole("button", { name: "Send Enter", exact: true })
       .click();
-    await expect.poll(() => inputs).toEqual([raw, "\r"]);
-    await panel.getByRole("button", { name: "Paste / type" }).click();
+    await expect.poll(() => inputs).toEqual([command + "\r", "\r"]);
+    await panel.getByRole("button", { name: "Open text input" }).click();
     await expect(textarea).toHaveValue("");
-    const command = "echo mobile-enter-marker";
-    await textarea.fill(command);
-    await page
-      .getByRole("button", { name: "Send + Enter", exact: true })
-      .click();
-    await expect.poll(() => inputs).toEqual([raw, "\r", command + "\r"]);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.screenshot({
       path: join(screenshots, "mobile-terminal-sent.png"),
     });
     await page.setViewportSize({ width: 1280, height: 900 });
     await expect(
-      panel.getByRole("button", { name: "Paste / type" })
+      panel.getByRole("button", { name: "Open text input" })
     ).toBeHidden();
     // Crossing the breakpoint remounts the drawer shell; reopen its terminal.
     if (await page.getByTestId("toggle-drawer").isVisible())
