@@ -1,3 +1,5 @@
+import Fastify from "fastify";
+import { registerProjectRoutes } from "../src/routes/projects.js";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -1179,4 +1181,44 @@ it("removes partially written attachments when attachment storage fails", async 
   expect(await service.listTasks({ projectId })).toEqual([]);
   expect(await readdir(path.join(filesRoot, "tasks"))).toEqual(before);
   expect((await pool.query("SELECT * FROM task_attachments")).rowCount).toBe(0);
+});
+
+it("deleting a project cleans up its task attachment directories after cascading the rows", async () => {
+  const task = await service.createTask(
+    { projectId, title: "Project context" },
+    { kind: "user" },
+    {
+      startupFiles: [
+        startupFileUpload("context.txt", "context.txt", Buffer.from("context")),
+      ],
+    }
+  );
+  const detail = await service.getTaskDetail(task.id);
+  const dir = path.join(filesRoot, "tasks", task.id);
+  expect(await readdir(dir)).toHaveLength(1);
+  const app = Fastify();
+  try {
+    await registerProjectRoutes(app, {
+      pool,
+      taskService: service,
+      publishUiEvent: () => {},
+    });
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/projects/${projectId}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    await expect(readdir(dir)).rejects.toThrow();
+    expect(await service.store.getTask(task.id)).toBeNull();
+    expect(
+      (
+        await pool.query("SELECT * FROM task_attachments WHERE id = $1", [
+          detail.attachments[0]!.id,
+        ])
+      ).rowCount
+    ).toBe(0);
+  } finally {
+    await app.close();
+  }
 });

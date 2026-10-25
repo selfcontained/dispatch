@@ -711,6 +711,7 @@ async function registerRoutes() {
 
   await registerProjectRoutes(app, {
     pool,
+    taskService,
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
   await registerTemplateRoutes(app, {

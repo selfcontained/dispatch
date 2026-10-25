@@ -1,3 +1,4 @@
+import type { TaskService } from "../tasks/service.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
@@ -80,7 +81,18 @@ async function readRepositoryIcon(repoRoot: string) {
 
 export async function registerProjectRoutes(
   app: FastifyInstance,
-  { pool, publishUiEvent }: { pool: Pool; publishUiEvent: PublishUiEvent }
+  {
+    pool,
+    publishUiEvent,
+    taskService,
+  }: {
+    pool: Pool;
+    publishUiEvent: PublishUiEvent;
+    taskService: Pick<
+      TaskService,
+      "taskIdsForProject" | "cleanupProjectAttachments"
+    >;
+  }
 ) {
   const store = new ProjectStore(pool);
   const snapshotRepositoryIcon = async (project: {
@@ -173,8 +185,10 @@ export async function registerProjectRoutes(
   app.delete<{ Params: { id: string } }>(
     "/api/v1/projects/:id",
     async (request, reply) => {
+      const taskIds = await taskService.taskIdsForProject(request.params.id);
       if (!(await store.delete(request.params.id)))
         return reply.code(404).send({ error: "Project not found." });
+      await taskService.cleanupProjectAttachments(taskIds);
       publishUiEvent({ type: "project.changed" });
       return { ok: true };
     }

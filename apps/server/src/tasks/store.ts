@@ -483,6 +483,14 @@ export class TaskStore {
     });
   }
 
+  async taskIdsForProject(projectId: string): Promise<string[]> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      "SELECT id FROM tasks WHERE project_id = $1",
+      [projectId]
+    );
+    return rows.map((row) => row.id);
+  }
+
   async insertAttachment(input: {
     taskId: string;
     fileName: string;

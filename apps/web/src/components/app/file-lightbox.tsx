@@ -68,7 +68,7 @@ export function FileLightbox({
   const totalItems = fileIds.length;
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
-  const fileNotFound = isNotFoundError(error);
+  const fileNotFound = files === undefined && isNotFoundError(error);
   const selectIndex = useCallback(
     (index: number) => {
       const id = fileIds[index] ?? null;
@@ -128,7 +128,7 @@ export function FileLightbox({
     }
   }, [file, fileId, fileNotFound]);
 
-  if (fileId === null || (!files && fileNotFound)) return null;
+  if (fileId === null || fileNotFound) return null;
 
   const src = file ? `${file.url}?t=${encodeURIComponent(file.updatedAt)}` : "";
   const displayName = file ? stripTimestamp(file.name) : "";
@@ -149,7 +149,7 @@ export function FileLightbox({
       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
       : `${Math.max(1, Math.round(file.size / 1024))} KB`
     : "";
-  const showLoadError = !file && !!error && !isFetching;
+  const showLoadError = files === undefined && !file && !!error && !isFetching;
 
   return (
     <div

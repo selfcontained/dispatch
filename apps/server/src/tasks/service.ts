@@ -813,6 +813,15 @@ export class TaskService {
     });
   }
 
+  async taskIdsForProject(projectId: string): Promise<string[]> {
+    return this.store.taskIdsForProject(projectId);
+  }
+
+  /** IDs captured before the project delete cascades away the task rows. */
+  async cleanupProjectAttachments(taskIds: string[]): Promise<void> {
+    await Promise.all(taskIds.map((id) => this.cleanupAttachments(id)));
+  }
+
   private attachmentDir(id: string): string {
     if (!this.deps.filesRoot)
       throw new Error("Task file storage is unavailable.");
