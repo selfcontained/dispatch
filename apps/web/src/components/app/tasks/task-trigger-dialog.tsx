@@ -18,15 +18,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AgentTypeSelect } from "@/components/app/agent-type-select";
-import { AgentModelSelect } from "@/components/app/agent-model-select";
+import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
+import { useDashboardContext } from "@/components/app/dashboard-context";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useProjects } from "@/hooks/use-projects";
 import { useTemplates } from "@/hooks/use-templates";
 import type { TaskColumn, TaskColumnTrigger } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import type { AgentType } from "@/lib/agent-types";
+import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { templateName } from "./task-utils";
 const NEW_TEMPLATE = "__new_template__";
 
@@ -85,7 +86,6 @@ export function ColumnTriggerStrip({
     </>
   );
 }
-const runtimes: AgentType[] = ["claude", "codex", "opencode"];
 const empty = {
   templateId: "",
   agentType: null,
@@ -119,6 +119,8 @@ export function TaskTriggerDialog({
   const openingCreate = useRef(false);
   const templateTrigger = useRef<HTMLButtonElement>(null);
   const actions = useTaskActions(projectId);
+  const { enabledAgentTypes } = useDashboardContext();
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const [trigger, setTrigger] = useState<TaskColumnTrigger>(
     column.trigger ?? empty
   );
@@ -131,9 +133,9 @@ export function TaskTriggerDialog({
   const chosen = projectTemplates.find(
     (template) => template.id === trigger.templateId
   );
-  const agentType = (trigger.agentType ??
-    chosen?.agentType ??
-    "claude") as AgentType;
+  // Null keeps the template's engine; the picker shows what that resolves to.
+  const templateType = (chosen?.agentType ?? "claude") as AgentType;
+  const agentType = (trigger.agentType ?? templateType) as AgentType;
   const models = useAgentModelCatalog(agentType);
   const toggle = (key: "assign" | "fireOnCreate") =>
     setTrigger((old) => ({ ...old, [key]: !old[key] }));
@@ -149,6 +151,10 @@ export function TaskTriggerDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        onEscapeKeyDown={(event) => {
+          swallowEscapeFromCombobox(event);
+          if (typeDropdownOpen) event.preventDefault();
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           returnFocus.current?.focus();
@@ -211,22 +217,22 @@ export function TaskTriggerDialog({
               </SelectContent>
             </Select>
           </div>
-          <AgentTypeSelect
-            id="task-trigger-runtime"
-            value={agentType}
-            onChange={(value) =>
-              setTrigger((old) => ({ ...old, agentType: value }))
+          <AgentEngineFields
+            idPrefix="task-trigger"
+            agentType={agentType}
+            onAgentTypeChange={(value) =>
+              setTrigger((old) => ({
+                ...old,
+                // Picking the template's own engine goes back to following it.
+                agentType: value === templateType ? null : value,
+              }))
             }
-            agentTypes={runtimes}
-            label="Runtime"
-          />
-          <AgentModelSelect
-            id="task-trigger-model"
-            testId="task-trigger-model"
-            value={trigger.model}
-            options={models.options}
-            onChange={(model) => setTrigger((old) => ({ ...old, model }))}
-            loading={models.loading}
+            agentTypes={enabledAgentTypes}
+            model={trigger.model}
+            onModelChange={(model) => setTrigger((old) => ({ ...old, model }))}
+            modelOptions={models.options}
+            modelLoading={models.loading}
+            onTypeOpenChange={setTypeDropdownOpen}
           />
           {(
             [
@@ -271,7 +277,7 @@ export function TaskTriggerDialog({
       <CreateTemplateDialog
         open={creating}
         onOpenChange={setCreating}
-        enabledAgentTypes={runtimes}
+        enabledAgentTypes={enabledAgentTypes}
         project={project}
         onCreated={(template) =>
           setTrigger((old) => ({ ...old, templateId: template.id }))
