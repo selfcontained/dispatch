@@ -199,6 +199,12 @@ describe("TaskAgentChip activity", () => {
         screen.getByTestId(`task-agent-activity-${parent.id}`).textContent
       ).toContain("↳ reviewer · running tests")
     );
+    // Beside the text that says it, the glyph is decorative.
+    expect(
+      screen
+        .getByTestId(`task-agent-live-${parent.id}`)
+        .getAttribute("aria-hidden")
+    ).toBe("true");
     cleanup();
     const compact = renderActivity(parent, [child], true);
     setStep(compact.client, child.id, "blk_child", "running tests");
@@ -206,6 +212,13 @@ describe("TaskAgentChip activity", () => {
       expect(screen.getByTestId(`task-agent-live-${parent.id}`)).toBeTruthy()
     );
     expect(compact.chip.dataset.layout).toBe("compact");
+    // Alone, the glyph names the child doing the work; the name is capped.
+    expect(
+      screen
+        .getByTestId(`task-agent-live-${parent.id}`)
+        .getAttribute("aria-label")
+    ).toBe("↳ reviewer · running tests");
+    expect(screen.getByText(parent.name).className).toContain("max-w-28");
     expect(screen.queryByTestId(`task-agent-activity-${parent.id}`)).toBeNull();
     expect(compact.chip.textContent).not.toContain("running tests");
   });

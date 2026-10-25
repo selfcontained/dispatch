@@ -23,20 +23,28 @@ const STATE_LABELS: Record<AgentActivityTone, string> = {
   archiving: "Archiving…",
 };
 
+/**
+ * The activity's glyph. Alone (compact) it carries the activity as its
+ * accessible name, child included; beside the activity text it is decorative.
+ */
 function ActivityGlyph({
   agent,
   activity,
+  label,
 }: {
   agent: Agent;
   activity: AgentActivity;
+  /** The accessible name, or null when adjacent text already says it. */
+  label: string | null;
 }) {
   if (activity.glyph === "none") return null;
   return (
     <span
       className="flex w-3 shrink-0 items-center justify-center leading-none"
       data-testid={`task-agent-live-${agent.id}`}
-      aria-label={activity.label ?? activity.tone}
-      role="img"
+      {...(label
+        ? { role: "img", "aria-label": label }
+        : { "aria-hidden": true })}
     >
       {activity.glyph === "bars" ? (
         <ActivityBars size={12} />
@@ -93,7 +101,9 @@ export function TaskAgentChip({
         type={agent.type ?? "claude"}
         className="h-4.5 w-4.5 shrink-0 rounded-full border-0 bg-transparent"
       />
-      <span className="min-w-0 truncate">{agent.name}</span>
+      <span className={cn("min-w-0 truncate", compact && "max-w-28")}>
+        {agent.name}
+      </span>
       {qualifier && (
         <span className="shrink-0 text-[10px] text-muted-foreground">
           · {qualifier}
@@ -132,7 +142,11 @@ export function TaskAgentChip({
       {compact ? (
         <>
           {nameRow}
-          <ActivityGlyph agent={agent} activity={activity} />
+          <ActivityGlyph
+            agent={agent}
+            activity={activity}
+            label={activityText ?? STATE_LABELS[activity.tone]}
+          />
         </>
       ) : (
         <>
@@ -155,7 +169,7 @@ export function TaskAgentChip({
             )}
             data-testid={`task-agent-activity-${agent.id}`}
           >
-            <ActivityGlyph agent={agent} activity={activity} />
+            <ActivityGlyph agent={agent} activity={activity} label={null} />
             <span className="min-w-0 truncate">
               {activityText ?? STATE_LABELS[activity.tone]}
             </span>
