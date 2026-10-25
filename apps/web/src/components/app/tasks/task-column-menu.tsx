@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
-import type { TaskColumn } from "@/hooks/use-tasks";
+import type { TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,28 +11,30 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { MENU_ITEM } from "./task-utils";
+import { MENU_ITEM, orderedColumns } from "./task-utils";
 import { TaskTriggerDialog } from "./task-trigger-dialog";
 
 /**
  * A column's `…` menu, shared by the board's column header and the list's
  * group header: rename, trigger, reorder, delete. The board lays columns
  * out sideways and the list stacks them, so only the move labels differ.
+ * Order and emptiness come from the whole board, not the filtered view: a
+ * search that hides a column's tasks does not make it deletable.
  */
 export function TaskColumnMenu({
   column,
-  columns,
-  projectId,
-  taskCount,
+  board,
   orientation,
 }: {
   column: TaskColumn;
-  /** Every column of the board, in order. */
-  columns: TaskColumn[];
-  projectId: string;
-  taskCount: number;
+  board: TaskBoard;
   orientation: "horizontal" | "vertical";
 }) {
+  const { projectId } = board;
+  const columns = orderedColumns(board);
+  const taskCount = board.tasks.filter(
+    (task) => task.columnId === column.id
+  ).length;
   const actions = useTaskActions(projectId);
   const [triggerOpen, setTriggerOpen] = useState(false);
   const index = columns.findIndex((item) => item.id === column.id);

@@ -74,6 +74,7 @@ const underPointer: CollisionDetection = (args) => {
 };
 const COLUMN_PREFIX = "column:";
 function BoardColumn({
+  board,
   column,
   columns,
   tasks,
@@ -85,6 +86,7 @@ function BoardColumn({
   dropTarget,
   hidden,
 }: {
+  board: TaskBoardData;
   column: TaskColumn;
   columns: TaskColumn[];
   tasks: Task[];
@@ -138,9 +140,7 @@ function BoardColumn({
         </span>
         <TaskColumnMenu
           column={column}
-          columns={columns}
-          projectId={projectId}
-          taskCount={columnTasks.length}
+          board={board}
           orientation="horizontal"
         />
       </header>
@@ -269,6 +269,7 @@ export function TaskBoard({
         {columns.map((column) => (
           <BoardColumn
             key={column.id}
+            board={board}
             column={column}
             columns={columns}
             tasks={tasks}

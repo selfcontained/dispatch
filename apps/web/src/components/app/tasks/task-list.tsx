@@ -11,12 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
-import {
-  columnAccent,
-  groupTasks,
-  orderedColumns,
-  taskAge,
-} from "./task-utils";
+import { columnAccent, groupTasks, taskAge } from "./task-utils";
 import { ColumnTriggerStrip } from "./task-trigger-dialog";
 import { TaskColumnMenu } from "./task-column-menu";
 import { ChevronDown } from "lucide-react";
@@ -41,7 +36,6 @@ export function TaskList({
   const [sort, setSort] = useState<
     "position" | "age" | "assignee" | "activity"
   >("position");
-  const columns = orderedColumns(board);
   const grouped = groupTasks(tasks, board.columns).filter(
     ({ column }) => !onlyColumnId || column.id === onlyColumnId
   );
@@ -124,9 +118,7 @@ export function TaskList({
             </Button>
             <TaskColumnMenu
               column={column}
-              columns={columns}
-              projectId={board.projectId}
-              taskCount={group.length}
+              board={board}
               orientation="vertical"
             />
           </div>

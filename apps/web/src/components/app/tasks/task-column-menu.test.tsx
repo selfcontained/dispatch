@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { TaskColumn } from "@/hooks/use-tasks";
+import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { TaskColumnMenu } from "./task-column-menu";
 
 const updateColumn = vi.fn(async () => {});
@@ -38,16 +38,16 @@ const columns = ["Backlog", "Ready", "Doing", "Done"].map(
 const openMenu = async (
   column: TaskColumn,
   orientation: "horizontal" | "vertical",
-  taskCount = 0
+  tasks: Task[] = []
 ) => {
+  // Shuffled: the menu orders the board's columns itself.
+  const board = {
+    projectId: "p1",
+    columns: [...columns].reverse(),
+    tasks,
+  } as TaskBoard;
   render(
-    <TaskColumnMenu
-      column={column}
-      columns={columns}
-      projectId="p1"
-      taskCount={taskCount}
-      orientation={orientation}
-    />
+    <TaskColumnMenu column={column} board={board} orientation={orientation} />
   );
   fireEvent.keyDown(
     screen.getByRole("button", { name: `${column.name} menu` }),
@@ -76,7 +76,11 @@ it("board columns move left and right; the ends cannot move past", async () => {
 });
 
 it("opens the trigger dialog and only deletes an empty column", async () => {
-  await openMenu(columns[1], "vertical", 2);
+  // Counted on the whole board, so a search hiding the tasks cannot
+  // offer a delete the server refuses.
+  await openMenu(columns[1], "vertical", [
+    { id: "t1", columnId: "Ready" } as Task,
+  ]);
   expect(item("Delete (empty it first)").getAttribute("aria-disabled")).toBe(
     "true"
   );
