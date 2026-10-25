@@ -96,6 +96,11 @@ const releaseNotesMarkdown = existsSync(releaseNotesSource)
   ? readFileSync(releaseNotesSource, "utf8")
   : "";
 
+const windowsSetupPageHtml = readFileSync(
+  path.join(serverSrcDir, "windows-setup", "setup-page.html"),
+  "utf8"
+);
+
 const packageVersion = (() => {
   const parsed = JSON.parse(readFileSync(rootPackageJson, "utf8"));
   if (typeof parsed.version !== "string" || !parsed.version.trim()) {
@@ -153,6 +158,9 @@ lines.push("];");
 lines.push("");
 lines.push(
   `export const releaseNotesMarkdown = ${JSON.stringify(releaseNotesMarkdown)};`
+);
+lines.push(
+  `export const windowsSetupPageHtml = ${JSON.stringify(windowsSetupPageHtml)};`
 );
 lines.push("");
 lines.push(`export const packageVersion = ${JSON.stringify(packageVersion)};`);

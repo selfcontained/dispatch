@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dispatch Setup</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f6f7;
+        --card: #ffffff;
+        --text: #1b1b1f;
+        --muted: #5f6368;
+        --border: #dcdde1;
+        --accent: #2f5bea;
+        --accent-text: #ffffff;
+        --danger-bg: #fdecec;
+        --danger-text: #8a1c1c;
+        --warn-bg: #fff5d6;
+        --warn-text: #6b4d00;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #121316;
+          --card: #1c1d21;
+          --text: #ececf0;
+          --muted: #9a9ca3;
+          --border: #2d2f35;
+          --accent: #6b8cff;
+          --accent-text: #0b1020;
+          --danger-bg: #3a1717;
+          --danger-text: #ffb3b3;
+          --warn-bg: #3a2e0c;
+          --warn-text: #ffd66b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.5 -apple-system,
+          "Segoe UI",
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        display: flex;
+        min-height: 100vh;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 48px 16px;
+      }
+      main {
+        width: 100%;
+        max-width: 560px;
+      }
+      .brand {
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      section[data-step] {
+        display: none;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 28px;
+      }
+      section[data-step].active {
+        display: block;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 8px;
+      }
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+      }
+      label {
+        display: block;
+        font-size: 14px;
+        margin: 14px 0 4px;
+      }
+      input[type="text"],
+      input[type="password"],
+      input[type="number"] {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+      }
+      .row > div {
+        flex: 1;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 22px;
+      }
+      button {
+        font: inherit;
+        padding: 9px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--text);
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-text);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .link {
+        background: none;
+        border: none;
+        padding: 0;
+        color: var(--accent);
+        text-decoration: underline;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 14px;
+        font-size: 14px;
+      }
+      .notice {
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+        margin-top: 14px;
+      }
+      .notice.warn {
+        background: var(--warn-bg);
+        color: var(--warn-text);
+      }
+      #error {
+        background: var(--danger-bg);
+        color: var(--danger-text);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #error button {
+        margin-top: 8px;
+        font-size: 13px;
+        padding: 4px 10px;
+      }
+      code {
+        font-size: 14px;
+      }
+      .hidden {
+        display: none !important;
+      }
+      a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main id="wizard">
+      <div class="brand">Dispatch setup</div>
+
+      <section data-step="welcome" class="active">
+        <h1>Welcome to Dispatch</h1>
+        <p>
+          Dispatch is a local control plane for AI coding agents. This setup
+          checks that PostgreSQL is available, installs Dispatch to
+          <code id="welcome-install-dir">%LOCALAPPDATA%\Dispatch</code>, and
+          starts it.
+        </p>
+        <p>Nothing here needs administrator rights.</p>
+        <div class="actions">
+          <button id="next" class="primary">Next</button>
+        </div>
+      </section>
+
+      <section data-step="postgres">
+        <div id="pg-missing" class="hidden">
+          <h1>PostgreSQL isn't running on this machine</h1>
+          <p>
+            Dispatch stores its data in PostgreSQL. Install it from the
+            <a
+              href="https://www.enterprisedb.com/downloads/postgres-postgresql-downloads"
+              target="_blank"
+              rel="noreferrer"
+              >official Windows installer</a
+            >, keep the default port, and come back here.
+          </p>
+          <p>Remember the password you choose for the postgres user.</p>
+          <div class="actions">
+            <button id="pg-back-1">Back</button>
+            <button id="pg-check-again" class="primary">Check again</button>
+          </div>
+        </div>
+
+        <div id="pg-found" class="hidden">
+          <h1>Connect to PostgreSQL</h1>
+          <p>
+            PostgreSQL is running. Enter the password you chose for the
+            <code>postgres</code> user. Dispatch creates its own
+            <code>dispatch</code> user and database; this password is used
+            once and never stored.
+          </p>
+          <label for="pg-admin-password">postgres password</label>
+          <input id="pg-admin-password" type="password" autocomplete="off" />
+          <div class="actions">
+            <button id="pg-back-2">Back</button>
+            <button id="pg-connect" class="primary">Connect</button>
+          </div>
+        </div>
+
+        <button id="pg-advanced-toggle" class="link" type="button">
+          Advanced options
+        </button>
+        <div id="pg-advanced" class="hidden">
+          <div class="row">
+            <div>
+              <label for="pg-host">Host</label>
+              <input id="pg-host" type="text" value="127.0.0.1" />
+            </div>
+            <div>
+              <label for="pg-port">Port</label>
+              <input id="pg-port" type="number" value="5432" />
+            </div>
+          </div>
+          <label for="pg-connection-url">
+            Or use an existing connection URL
+          </label>
+          <input
+            id="pg-connection-url"
+            type="text"
+            placeholder="postgres://user:password@host:5432/database"
+            autocomplete="off"
+          />
+          <div class="actions">
+            <button id="pg-use-url">Use this URL</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-step="install">
+        <h1>Install Dispatch</h1>
+        <p>
+          Database: <code id="install-db"></code>
+        </p>
+        <p>
+          Dispatch will be copied to <code id="install-dir"></code> with its
+          settings, then started.
+        </p>
+        <label for="install-port">Port</label>
+        <input id="install-port" type="number" value="6767" min="1" max="65535" />
+        <label class="check">
+          <input id="install-lan" type="checkbox" />
+          Also listen on my network address
+        </label>
+        <div id="install-lan-warning" class="notice warn hidden">
+          Anyone on your network can reach Dispatch. Set a password right
+          after signing in.
+        </div>
+        <div class="actions">
+          <button id="install-back">Back</button>
+          <button id="install" class="primary">Install</button>
+        </div>
+      </section>
+
+      <section data-step="done">
+        <h1>Dispatch is running</h1>
+        <p>
+          Starting at <a id="done-url" href="#"></a>. This page will open it
+          as soon as it answers.
+        </p>
+      </section>
+
+      <div id="error" class="notice hidden">
+        <span id="error-text"></span>
+        <div><button id="error-copy" type="button">Copy details</button></div>
+      </div>
+    </main>
+
+    <script>
+      (() => {
+        const $ = (id) => document.getElementById(id);
+        const state = { installDir: "", masked: "", pgHost: "127.0.0.1", pgPort: 5432 };
+
+        function show(step) {
+          document.querySelectorAll("section[data-step]").forEach((el) => {
+            el.classList.toggle("active", el.dataset.step === step);
+          });
+          clearError();
+          const card = document.querySelector("section[data-step].active");
+          if (card) card.appendChild($("error"));
+        }
+
+        function showError(message) {
+          $("error-text").textContent = message;
+          $("error").classList.remove("hidden");
+        }
+
+        function clearError() {
+          $("error").classList.add("hidden");
+          $("error-text").textContent = "";
+        }
+
+        async function api(method, url, body) {
+          const response = await fetch(url, {
+            method,
+            headers: body ? { "content-type": "application/json" } : {},
+            body: body ? JSON.stringify(body) : undefined,
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || `${response.status} ${response.statusText}`);
+          return data;
+        }
+
+        function busy(button, on) {
+          button.disabled = on;
+        }
+
+        function readPgTarget() {
+          state.pgHost = $("pg-host").value.trim() || "127.0.0.1";
+          state.pgPort = Number($("pg-port").value) || 5432;
+        }
+
+        async function checkPostgres(button) {
+          readPgTarget();
+          if (button) busy(button, true);
+          try {
+            const { reachable } = await api("POST", "/api/setup/postgres/probe", {
+              host: state.pgHost,
+              port: state.pgPort,
+            });
+            $("pg-missing").classList.toggle("hidden", reachable);
+            $("pg-found").classList.toggle("hidden", !reachable);
+            if (reachable) $("pg-admin-password").focus();
+          } catch (error) {
+            showError(error.message);
+          } finally {
+            if (button) busy(button, false);
+          }
+        }
+
+        async function provision(payload, button) {
+          busy(button, true);
+          clearError();
+          try {
+            const { masked } = await api("POST", "/api/setup/postgres/provision", payload);
+            state.masked = masked;
+            $("install-db").textContent = masked;
+            $("install-dir").textContent = state.installDir;
+            show("install");
+          } catch (error) {
+            showError(error.message);
+          } finally {
+            busy(button, false);
+          }
+        }
+
+        async function install() {
+          const port = Number($("install-port").value);
+          busy($("install"), true);
+          clearError();
+          try {
+            const { url } = await api("POST", "/api/setup/install", {
+              port,
+              listenOnLan: $("install-lan").checked,
+            });
+            $("done-url").textContent = url;
+            $("done-url").href = url;
+            show("done");
+            waitForInstalled(port, url);
+          } catch (error) {
+            showError(error.message);
+          } finally {
+            busy($("install"), false);
+          }
+        }
+
+        function waitForInstalled(port, url) {
+          const timer = setInterval(async () => {
+            try {
+              const { ok } = await api("GET", `/api/setup/health?port=${port}`);
+              if (ok) {
+                clearInterval(timer);
+                location.href = url;
+              }
+            } catch {
+              // The setup server shuts down shortly after install; keep trying
+              // the installed URL directly in case it is already up.
+              location.href = url;
+            }
+          }, 1000);
+        }
+
+        $("next").addEventListener("click", async () => {
+          show("postgres");
+          await checkPostgres($("next"));
+        });
+        $("pg-check-again").addEventListener("click", () => checkPostgres($("pg-check-again")));
+        $("pg-back-1").addEventListener("click", () => show("welcome"));
+        $("pg-back-2").addEventListener("click", () => show("welcome"));
+        $("pg-advanced-toggle").addEventListener("click", () => {
+          $("pg-advanced").classList.toggle("hidden");
+        });
+        $("pg-connect").addEventListener("click", () => {
+          readPgTarget();
+          provision(
+            { host: state.pgHost, port: state.pgPort, adminPassword: $("pg-admin-password").value },
+            $("pg-connect")
+          );
+        });
+        $("pg-admin-password").addEventListener("keydown", (event) => {
+          if (event.key === "Enter") $("pg-connect").click();
+        });
+        $("pg-use-url").addEventListener("click", () => {
+          provision({ connectionUrl: $("pg-connection-url").value.trim() }, $("pg-use-url"));
+        });
+        $("install-back").addEventListener("click", () => show("postgres"));
+        $("install-lan").addEventListener("change", (event) => {
+          $("install-lan-warning").classList.toggle("hidden", !event.target.checked);
+        });
+        $("install").addEventListener("click", install);
+        $("error-copy").addEventListener("click", () => {
+          navigator.clipboard?.writeText($("error-text").textContent);
+        });
+
+        api("GET", "/api/setup/state")
+          .then((data) => {
+            state.installDir = data.installDir;
+            $("welcome-install-dir").textContent = data.installDir;
+            $("pg-host").value = data.postgres.host;
+            $("pg-port").value = data.postgres.port;
+          })
+          .catch((error) => showError(error.message));
+      })();
+    </script>
+  </body>
+</html>
