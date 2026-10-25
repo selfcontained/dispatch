@@ -329,6 +329,12 @@ export function TemplateConfigFields({
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             )}
           />
+          {prompt.trim() ? null : (
+            <p className="text-xs text-muted-foreground">
+              Launched from a task it gets the task as its prompt; otherwise it
+              needs context or a persona.
+            </p>
+          )}
           {detectedArgs.length > 0 ? (
             <div className="mt-1.5 text-xs text-muted-foreground">
               Detected arguments:{" "}

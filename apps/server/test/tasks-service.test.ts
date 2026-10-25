@@ -33,6 +33,7 @@ import {
   type TaskLaunchRequest,
 } from "../src/tasks/service.js";
 import type { TemplateRecord } from "../src/templates/store.js";
+import { TemplateService } from "../src/templates/service.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { registerTaskTools } from "../src/shared/mcp/task-tools.js";
 import { agentTaskProject, taskScopeInput } from "../src/tasks/agent-scope.js";
@@ -94,7 +95,10 @@ async function insertAgent(
   agents.set(id, { id, name, status, projectId });
 }
 
-function build(storageRoot = filesRoot): TaskService {
+function build(
+  storageRoot = filesRoot,
+  overrides: Partial<ConstructorParameters<typeof TaskService>[0]> = {}
+): TaskService {
   return new TaskService({
     pool,
     filesRoot: storageRoot,
@@ -148,6 +152,7 @@ function build(storageRoot = filesRoot): TaskService {
     },
     publishUiEvent: (event) => published.push(event),
     log: { warn: vi.fn(), info: vi.fn() },
+    ...overrides,
   });
 }
 
@@ -404,6 +409,45 @@ describe("triggers", () => {
       );
     }
   );
+
+  it("fires a prompt-less persona template with the briefing as its prompt", async () => {
+    const prompted: Array<string | undefined> = [];
+    const promptless = template({
+      id: TEMPLATE_ID,
+      prompt: null,
+      persona: "builder",
+    });
+    const templates = new TemplateService(
+      {} as never,
+      {
+        createAgent: async (input: { initialPrompt?: string }) => {
+          prompted.push(input.initialPrompt);
+          const id = `agt_launch_${++agentSeq}`;
+          await insertAgent(id, "running", "Builder");
+          return { id } as AgentRecord;
+        },
+      } as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(templates.store, "getTemplate").mockResolvedValue(promptless);
+    service = build(filesRoot, {
+      getTemplate: async (id) => (id === TEMPLATE_ID ? promptless : null),
+      launchTemplate: async (input) =>
+        (await templates.launchTemplate(input)).agent,
+    });
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      { projectId, title: "Ship it", body: "Acceptance: it ships." },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(prompted).toHaveLength(1);
+    expect(prompted[0]).toMatch(/^## Dispatch task/);
+    expect(prompted[0]).toContain(task.id);
+    expect(prompted[0]).toContain("Acceptance: it ships.");
+    const detail = await service.getTaskDetail(task.id);
+    expect(detail.events.map((e) => e.kind)).not.toContain("trigger_failed");
+  });
 
   it("always appends the task briefing, assigning or not", async () => {
     const ready = await withTrigger("ready", { assign: false });

@@ -169,6 +169,59 @@ describe("TemplateService.launchTemplate", () => {
   });
 });
 
+describe("TemplateService.launchTemplate without a saved prompt", () => {
+  function serviceFor(overrides: Partial<TemplateRecord>) {
+    const createAgent = vi.fn(async () => buildAgent());
+    const service = new TemplateService(
+      {} as never,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(
+      buildTemplate(overrides)
+    );
+    return { service, createAgent };
+  }
+
+  it("launches with the appendix as its prompt", async () => {
+    const { service, createAgent } = serviceFor({ prompt: null });
+    await service.launchTemplate({
+      templateId: "tmpl_123",
+      appendix: "## Dispatch task\nShip it",
+    });
+    expect(createAgent.mock.calls[0][0].initialPrompt).toBe(
+      "## Dispatch task\nShip it"
+    );
+  });
+
+  it("treats a blank prompt as no prompt", async () => {
+    const { service, createAgent } = serviceFor({ prompt: "  \n" });
+    await service.launchTemplate({ templateId: "tmpl_123", appendix: "Brief" });
+    expect(createAgent.mock.calls[0][0].initialPrompt).toBe("Brief");
+  });
+
+  it("launches a persona template with no initial prompt", async () => {
+    const { service, createAgent } = serviceFor({
+      prompt: null,
+      persona: "builder",
+    });
+    await service.launchTemplate({ templateId: "tmpl_123" });
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ persona: "builder", initialPrompt: undefined })
+    );
+  });
+
+  it("refuses with nothing to send and says what would fix it", async () => {
+    const { service, createAgent } = serviceFor({ prompt: null });
+    await expect(
+      service.launchTemplate({ templateId: "tmpl_123", appendix: " " })
+    ).rejects.toThrow(
+      /has no prompt, persona, or task to launch with\. Add a prompt or a persona, or launch it from a task/
+    );
+    expect(createAgent).not.toHaveBeenCalled();
+  });
+});
+
 describe("TemplateService.launchTemplate model resolution", () => {
   function setup(template: TemplateRecord) {
     const createAgent = vi.fn(async () => buildAgent());

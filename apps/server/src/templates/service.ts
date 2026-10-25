@@ -212,9 +212,13 @@ export class TemplateService {
           ? (template.model ?? undefined)
           : undefined;
 
-    if (!template.prompt) {
+    // A launch needs something to send or stand on: the saved prompt, the
+    // caller's appendix (a task's briefing), or a persona's instructions.
+    const hasPrompt = !!template.prompt?.trim();
+    const hasAppendix = !!input.appendix?.trim();
+    if (!hasPrompt && !hasAppendix && !template.persona) {
       throw new Error(
-        `Template "${template.name}" has no prompt configured. Add a prompt before launching.`
+        `Template "${template.name}" has no prompt, persona, or task to launch with. Add a prompt or a persona, or launch it from a task (the task becomes its prompt).`
       );
     }
     if (
@@ -227,15 +231,17 @@ export class TemplateService {
       );
     }
 
-    let finalPrompt: string | undefined;
-
-    if (template.prompt) {
-      finalPrompt = renderTemplatePrompt(
-        { ...template, prompt: template.prompt },
-        input.args ?? {},
-        input.appendix
-      );
-    }
+    // Without a saved prompt the appendix (a task's briefing) is the whole
+    // prompt; with neither, the persona's instructions stand on their own.
+    const finalPrompt = hasPrompt
+      ? renderTemplatePrompt(
+          { ...template, prompt: template.prompt ?? "" },
+          input.args ?? {},
+          input.appendix
+        )
+      : hasAppendix
+        ? input.appendix
+        : undefined;
 
     if (
       template.projectId &&
