@@ -55,6 +55,7 @@ describe("PluginUpdateSettings", () => {
       installed: false,
       commands: [
         "claude plugin marketplace add selfcontained/dispatch",
+        "claude plugin marketplace update dispatch",
         "claude plugin install dispatch@dispatch",
       ],
     },
@@ -71,6 +72,7 @@ describe("PluginUpdateSettings", () => {
       installed: false,
       commands: [
         "codex plugin marketplace add selfcontained/dispatch",
+        "codex plugin marketplace upgrade dispatch",
         "codex plugin add dispatch@dispatch",
       ],
     },
@@ -104,6 +106,14 @@ describe("PluginUpdateSettings", () => {
           screen.getByRole("button", { name: `Copy ${command}` })
         ).toBeTruthy();
       }
+      expect(
+        screen.getAllByRole("listitem").map((item) => item.textContent)
+      ).toEqual(commands);
+      expect(
+        screen.queryByText(
+          "Skip step 1 if the dispatch marketplace is already added."
+        ) !== null
+      ).toBe(!installed);
       expect(
         screen.getByText("Then start a fresh agent session.")
       ).toBeTruthy();

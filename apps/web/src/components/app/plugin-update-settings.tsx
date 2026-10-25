@@ -17,6 +17,7 @@ const MANUAL_COMMANDS = {
   claude: {
     install: [
       "claude plugin marketplace add selfcontained/dispatch",
+      "claude plugin marketplace update dispatch",
       "claude plugin install dispatch@dispatch",
     ],
     update: [
@@ -27,6 +28,7 @@ const MANUAL_COMMANDS = {
   codex: {
     install: [
       "codex plugin marketplace add selfcontained/dispatch",
+      "codex plugin marketplace upgrade dispatch",
       "codex plugin add dispatch@dispatch",
     ],
     update: [
@@ -176,6 +178,11 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
               <ManualCommand key={command} command={command} />
             ))}
           </ol>
+          {action === "install" ? (
+            <p className="text-xs text-muted-foreground">
+              Skip step 1 if the dispatch marketplace is already added.
+            </p>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             Then start a fresh agent session.
           </p>
