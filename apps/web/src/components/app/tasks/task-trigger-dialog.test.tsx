@@ -37,9 +37,13 @@ vi.mock("@/hooks/use-tasks", () => ({
   }),
 }));
 
+vi.mock("@/components/app/dashboard-context", () => ({
+  useDashboardContext: () => ({ enabledAgentTypes: ["claude", "codex"] }),
+}));
+
 vi.mock("@/hooks/use-agent-model-catalog", () => ({
   useAgentModelCatalog: () => ({
-    options: [],
+    options: [{ id: "m1", label: "Model One" }],
     loading: false,
     loaded: true,
     normalizeModel: (model: string | null) => model,
@@ -48,6 +52,11 @@ vi.mock("@/hooks/use-agent-model-catalog", () => ({
 
 beforeAll(() => {
   // Radix Select measures and captures pointers jsdom doesn't implement.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
   Element.prototype.hasPointerCapture = () => false;
   Element.prototype.releasePointerCapture = () => {};
   Element.prototype.scrollIntoView = () => {};
@@ -176,4 +185,42 @@ it("tells same-named templates apart by directory", () => {
   expect(
     screen.getAllByRole("option").map((option) => option.textContent)
   ).toEqual(["None", "Builderrepo", "Builderweb", "New template…"]);
+});
+
+it("keeps the template's engine until another is picked", async () => {
+  renderDialog();
+  const type = screen.getByRole("combobox", { name: "Type" });
+  // Null resolves to the template's engine, shown beside the model.
+  expect(type.textContent).toBe("Claude");
+  expect(screen.getByRole("combobox", { name: "Model" })).toBeTruthy();
+  fireEvent.click(type);
+  // The app's enabled engines, not a fixed list.
+  expect(
+    screen.getAllByRole("option").map((option) => option.textContent)
+  ).toEqual(["Claude", "Codex"]);
+  fireEvent.click(screen.getByRole("option", { name: "Codex" }));
+  expect(type.textContent).toBe("Codex");
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith({
+      id: "ready",
+      trigger: { ...column.trigger, agentType: "codex" },
+    })
+  );
+});
+
+it("picking the template's engine again goes back to following it", async () => {
+  renderDialog();
+  const type = screen.getByRole("combobox", { name: "Type" });
+  fireEvent.click(type);
+  fireEvent.click(screen.getByRole("option", { name: "Codex" }));
+  fireEvent.click(type);
+  fireEvent.click(screen.getByRole("option", { name: "Claude" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith({
+      id: "ready",
+      trigger: column.trigger,
+    })
+  );
 });

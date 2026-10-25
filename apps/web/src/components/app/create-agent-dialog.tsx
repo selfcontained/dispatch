@@ -3,13 +3,11 @@ import { ProjectLocation } from "./project-location";
 import { useProjectScope, useProjects } from "@/hooks/use-projects";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
 import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
-import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { engineSummary, useEngines } from "@/hooks/use-engines";
-import { AgentTypeSelect } from "@/components/app/agent-type-select";
+import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
 import { WorktreeSection } from "@/components/app/create-agent-worktree-section";
@@ -78,21 +76,6 @@ function CreateAgentDialogContent({
 }: Omit<CreateAgentDialogProps, "open">): JSX.Element {
   const { project, projectId } = useProjectScope();
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
-  // Engines whose CLI this machine does not have: pickable, but the picker
-  // says what to install rather than letting the launch fail.
-  const { engines } = useEngines();
-  const missingEngines = useMemo(
-    () =>
-      Object.fromEntries(
-        engines
-          .filter((engine) => !engine.installed)
-          .map((engine) => [
-            engine.id,
-            { label: engine.label, install: engine.install },
-          ])
-      ),
-    [engines]
-  );
   const form = useCreateAgentForm({
     enabledAgentTypes,
     initialAgentType,
@@ -103,9 +86,6 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
-  const engineLine = engineSummary(engines, form.createType);
-  const showModelSelect =
-    form.modelCatalogLoading || form.modelOptions.length > 0;
 
   return (
     <DialogContent
@@ -137,38 +117,16 @@ function CreateAgentDialogContent({
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-1">
               <div className="space-y-3">
-                <div
-                  className={cn(
-                    "grid gap-3",
-                    showModelSelect && "min-[420px]:grid-cols-2"
-                  )}
-                >
-                  <AgentTypeSelect
-                    value={form.createType}
-                    onChange={form.setCreateType}
-                    agentTypes={enabledAgentTypes}
-                    onOpenChange={setTypeDropdownOpen}
-                    missing={missingEngines}
-                  />
-
-                  {showModelSelect ? (
-                    <AgentModelSelect
-                      value={form.createModel}
-                      options={form.modelOptions}
-                      onChange={form.setCreateModel}
-                      loading={form.modelCatalogLoading}
-                    />
-                  ) : null}
-                </div>
-                {engineLine ? (
-                  <p
-                    className="-mt-1 truncate text-xs text-muted-foreground/70"
-                    title={engineLine}
-                    data-testid="create-agent-engine"
-                  >
-                    {engineLine}
-                  </p>
-                ) : null}
+                <AgentEngineFields
+                  agentType={form.createType}
+                  onAgentTypeChange={form.setCreateType}
+                  agentTypes={enabledAgentTypes}
+                  model={form.createModel}
+                  onModelChange={form.setCreateModel}
+                  modelOptions={form.modelOptions}
+                  modelLoading={form.modelCatalogLoading}
+                  onTypeOpenChange={setTypeDropdownOpen}
+                />
 
                 <div className="space-y-1">
                   <label className="text-sm text-muted-foreground">
