@@ -8,16 +8,16 @@ Code: `apps/server/src/tasks/` (wire types, store, service), `apps/server/src/ro
 
 ## Data Model
 
-| Table          | Holds                                                                                                                                                            |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task_columns` | A project's columns: `key` (slug, unique per project), `name`, `position`, `is_done`, `trigger`                                                                  |
-| `tasks`        | Title, markdown body, column, `position`, current `assigned_agent_id`, `links`, creator                                                                          |
-| `task_agents`  | Every agent assigned to a task and its `role` (`trigger`, `manual`, `self`); the assignment history; removing an agent closes the conversation to it             |
-| `task_events`  | The activity log: `created`, `updated`, `moved`, `assigned`, `unassigned`, `trigger_launched`, `trigger_failed`, `agent_launched`, `agent_removed`, `link_added` |
+| Table          | Holds                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_columns` | A project's columns: `key` (slug, unique per project), `name`, `position`, `is_done`, `trigger`                                                                                       |
+| `tasks`        | Title, markdown body, column, `position`, current `assigned_agent_id`, `links`, creator                                                                                               |
+| `task_agents`  | Every agent assigned to a task and its `role` (`trigger`, `manual`, `self`); the assignment history; removing an agent closes the conversation to it                                  |
+| `task_events`  | The activity log: `created`, `updated`, `moved`, `assigned`, `unassigned`, `trigger_launching`, `trigger_launched`, `trigger_failed`, `agent_launched`, `agent_removed`, `link_added` |
 
 The first read of a project's board seeds the default columns: `backlog`, `ready`, `in_progress`, `in_review`, `done` (`isDone`). A project has at most one done column: setting `isDone` on one clears it on the others. Entering the done column sets `completedAt`; leaving it clears it. A column that holds tasks cannot be deleted (409 `column_not_empty`).
 
-A task's `latestFailure` is computed on read: the newest `trigger_failed` with no `trigger_launched`/`agent_launched` at or after it.
+A task's `latestFailure` is computed on read: the newest `trigger_failed` since the latest `moved` or `created` event, with no `trigger_launched`/`agent_launched` at or after it. Re-entering a column clears an older failure. `launching` is the newest `trigger_launching { templateId }` with no `trigger_launched`, `trigger_failed`, or `moved` at or after it. A later move clears a launch left in progress by a crashed server.
 
 ## Triggers
 
@@ -36,7 +36,7 @@ Only `templateId` is required when setting one; the rest default as shown. The t
 - A trigger fires only when a task **enters** its column: a `columnId` change, or a create in that column when `fireOnCreate` is set. Edits and reorders inside the column never fire.
 - The launch goes through `TemplateService.launchTemplate` as a top-level agent in the task's project. The task briefing (task, project, column, links, body, the board's columns and how to use the task tools) is always appended to the rendered prompt, so any template works as-is. Its columns line lists the board's keys in order, marking the task's column, the done columns and each trigger's template, e.g. `Columns: backlog → ready (you are here) → in_progress → in_review (launches "Code review") → done (completes the task)`, so an agent can move the task without calling `task_list` first; the args `Task ID`, `Task Title` and `Task Body` are also available to templates that want to place them.
 - If the task's assigned agent is still `running`/`creating`, the move is refused with 409 `{ code: "agent_working", agent: { id, name } }` and nothing changes. Retry with `confirmRelaunch: true` to launch anyway. An agent moving its own task is handing it off and is never refused.
-- Success records `trigger_launched`. With `assign`, the new agent becomes the task's agent (role `trigger`); the previous one stays in `task_agents`.
+- Before launch, `trigger_launching` is recorded and published so the board can show progress. Success records `trigger_launched`. With `assign`, the new agent becomes the task's agent (role `trigger`); the previous one stays in `task_agents`.
 - A failure (missing template, launch error) never undoes the move. It records `trigger_failed { templateId, reason }`, which the card shows through `latestFailure`.
 - An agent without full access cannot start a full-access template this way, whether by a move, a create with `fireOnCreate`, or a manual launch: the move stands and the trigger fails with "restricted agent cannot launch a full-access template". People (HTTP) are trusted.
 - Transitions of one task run one at a time (move, launch, assignment), and the move itself only applies while the task is still in the column it left, so overlapping moves fire the trigger once. A launch that finds the task already moved elsewhere does not assign itself.

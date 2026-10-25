@@ -40,8 +40,9 @@ export function visibleTasks(tasks: Task[], columns: TaskColumn[]): Task[] {
 /** A failed launch, or an assignee blocked or waiting on someone. */
 export function needsAttention(task: Task, attentionIds: Set<string>): boolean {
   return (
-    !!task.latestFailure ||
-    (!!task.assignedAgentId && attentionIds.has(task.assignedAgentId))
+    !task.launching &&
+    (!!task.latestFailure ||
+      (!!task.assignedAgentId && attentionIds.has(task.assignedAgentId)))
   );
 }
 /** Accent token per column: known keys keep their colour, others cycle. */

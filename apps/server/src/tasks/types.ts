@@ -13,6 +13,8 @@ export type TaskAgentType = "claude" | "codex" | "opencode";
 /** What a column does when a task enters it: launch a template for it. */
 export type TaskColumnTrigger = {
   templateId: string;
+  /** Resolved for board reads; absent from the stored trigger. */
+  templateName?: string | null;
   /** Override the template's agent type; null keeps the template's. */
   agentType: TaskAgentType | null;
   /** Override the template's model; null keeps the template's. */
@@ -61,10 +63,12 @@ export type Task = {
   links: TaskLink[];
   createdBy: TaskActor;
   /**
-   * The last trigger failure not followed by a successful launch, so the
-   * card can badge it; null once a launch succeeds or nothing failed.
+   * The current column entry's last trigger failure not followed by a
+   * successful launch; a move or successful launch clears the badge.
    */
   latestFailure: { reason: string; at: string } | null;
+  /** The current column trigger is starting an agent. */
+  launching: { templateId: string; at: string } | null;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -88,6 +92,7 @@ export type TaskEventKind =
   | "moved"
   | "assigned"
   | "unassigned"
+  | "trigger_launching"
   | "trigger_launched"
   | "trigger_failed"
   | "agent_launched"
@@ -101,7 +106,8 @@ export type TaskEvent = {
   actor: TaskActor;
   /**
    * Per kind: moved {fromColumnId, toColumnId}; assigned/unassigned/
-   * agent_removed {agentId, role}; trigger_launched/agent_launched
+   * agent_removed {agentId, role}; trigger_launching {templateId};
+   * trigger_launched/agent_launched
    * {agentId, templateId};
    * trigger_failed {templateId, reason}; link_added {link}; updated {fields}.
    */

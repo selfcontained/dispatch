@@ -89,7 +89,15 @@ export function useTaskActions(projectId: string | null) {
           ? {
               ...board,
               tasks: board.tasks.map((task) =>
-                task.id === id ? { ...task, ...input } : task
+                task.id === id
+                  ? {
+                      ...task,
+                      ...input,
+                      ...(input.columnId && input.columnId !== task.columnId
+                        ? { latestFailure: null, launching: null }
+                        : {}),
+                    }
+                  : task
               ),
             }
           : board

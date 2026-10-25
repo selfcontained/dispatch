@@ -70,3 +70,33 @@ it("puts focus on the moved card's actions after a Move to… move", async () =>
   expect(screen.getByTestId("done").contains(actions)).toBe(true);
   expect(document.activeElement).toBe(actions);
 });
+
+it("shows the live launch instead of the prior agent and failure", () => {
+  const launchingTask = {
+    ...task("Done"),
+    assignedAgentId: "agt_old",
+    latestFailure: { reason: "old failure", at: new Date().toISOString() },
+    launching: { templateId: "tpl_builder", at: new Date().toISOString() },
+  };
+  const triggeredColumns = columns.map((column) =>
+    column.id === "Done"
+      ? {
+          ...column,
+          trigger: { templateId: "tpl_builder", templateName: "Builder" },
+        }
+      : column
+  ) as TaskColumn[];
+  render(
+    <TaskCard
+      task={launchingTask}
+      columns={triggeredColumns}
+      agents={[]}
+      onOpen={() => {}}
+      onMove={() => {}}
+    />
+  );
+  expect(screen.getByText("Launching Builder…")).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
+  expect(screen.queryByText(/launch failed/)).toBeNull();
+  expect(screen.queryByTestId("task-agent-chip-agt_old")).toBeNull();
+});

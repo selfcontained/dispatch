@@ -377,6 +377,7 @@ describe("triggers", () => {
     expect(detail.events.map((e) => e.kind)).toEqual([
       "created",
       "moved",
+      "trigger_launching",
       "trigger_launched",
       "updated",
     ]);
@@ -447,6 +448,58 @@ describe("triggers", () => {
     );
     expect(launches).toHaveLength(1);
     expect(task.assignedAgentId).toMatch(/^agt_launch_/);
+    expect(task.launching).toBeNull();
+    expect(
+      (await service.getTaskDetail(task.id)).events.map((e) => e.kind)
+    ).toEqual(
+      expect.arrayContaining([
+        "created",
+        "trigger_launching",
+        "trigger_launched",
+      ])
+    );
+  });
+
+  it("shows a launch while it runs and clears it on success", async () => {
+    const ready = await withTrigger("ready");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    let release!: () => void;
+    launchGate = new Promise((resolve) => (release = resolve));
+    const moving = service.updateTask(task.id, { columnId: ready }, USER);
+    await vi.waitFor(async () => {
+      expect(launches).toHaveLength(1);
+    });
+    const during = await service.getTaskDetail(task.id);
+    expect(during.launching).toMatchObject({ templateId: TEMPLATE_ID });
+    expect(during.latestFailure).toBeNull();
+    expect(
+      (await service.getBoard(projectId)).tasks.find((t) => t.id === task.id)
+        ?.launching
+    ).toMatchObject({ templateId: TEMPLATE_ID });
+    expect(published.filter((event) => event.taskId === task.id)).toHaveLength(
+      2
+    );
+    release();
+    expect((await moving).launching).toBeNull();
+  });
+
+  it("publishes launch progress for a task created in a trigger column", async () => {
+    const ready = await withTrigger("ready", { fireOnCreate: true });
+    let release!: () => void;
+    launchGate = new Promise((resolve) => (release = resolve));
+    const creating = service.createTask(
+      { projectId, title: "new", columnId: ready },
+      USER
+    );
+    await vi.waitFor(async () => {
+      expect(launches).toHaveLength(1);
+    });
+    const during = (await service.getBoard(projectId)).tasks.find(
+      (task) => task.title === "new"
+    );
+    expect(during?.launching).toMatchObject({ templateId: TEMPLATE_ID });
+    release();
+    expect((await creating).launching).toBeNull();
   });
 
   it("records a failure without undoing the move", async () => {
@@ -459,6 +512,7 @@ describe("triggers", () => {
       reason: "Template x not found.",
     });
     const detail = await service.getTaskDetail(task.id);
+    expect(detail.launching).toBeNull();
     expect(detail.events.at(-1)).toMatchObject({
       kind: "trigger_failed",
       data: { templateId: TEMPLATE_ID, reason: "Template x not found." },
@@ -471,8 +525,36 @@ describe("triggers", () => {
       { columnId: await columnId("backlog") },
       USER
     );
+    expect((await service.requireTask(task.id)).latestFailure).toBeNull();
     const again = await service.updateTask(task.id, { columnId: ready }, USER);
     expect(again.latestFailure).toBeNull();
+  });
+
+  it("shows only a new failure after re-entry", async () => {
+    const ready = await withTrigger("ready");
+    const backlog = await columnId("backlog");
+    const task = await service.createTask({ projectId, title: "t" }, USER);
+    launchFails = "first failure";
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect((await service.requireTask(task.id)).latestFailure?.reason).toBe(
+      "first failure"
+    );
+    await service.updateTask(task.id, { columnId: backlog }, USER);
+    expect((await service.requireTask(task.id)).latestFailure).toBeNull();
+    launchFails = "second failure";
+    let release!: () => void;
+    launchGate = new Promise((resolve) => (release = resolve));
+    const moving = service.updateTask(task.id, { columnId: ready }, USER);
+    await vi.waitFor(async () => {
+      expect(launches).toHaveLength(2);
+    });
+    const during = await service.requireTask(task.id);
+    expect(during.latestFailure).toBeNull();
+    expect(during.launching).toMatchObject({ templateId: TEMPLATE_ID });
+    release();
+    const again = await moving;
+    expect(again.latestFailure?.reason).toBe("second failure");
+    expect(again.launching).toBeNull();
   });
 
   it("refuses to relaunch over a working agent unless confirmed", async () => {
@@ -491,6 +573,11 @@ describe("triggers", () => {
       extra: { agent: { id: first, name: "Builder" } },
     });
     expect((await service.requireTask(task.id)).columnId).toBe(backlog);
+    expect(
+      (await service.getTaskDetail(task.id)).events.filter(
+        (e) => e.kind === "trigger_launching"
+      )
+    ).toHaveLength(1);
 
     const relaunched = await service.updateTask(
       task.id,

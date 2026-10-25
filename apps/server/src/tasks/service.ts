@@ -338,8 +338,34 @@ export class TaskService {
   async getBoard(projectId: string): Promise<TaskBoard> {
     await this.requireProject(projectId);
     const columns = await this.ensureColumns(projectId);
+    const names = new Map(
+      await Promise.all(
+        [
+          ...new Set(
+            columns.flatMap((column) =>
+              column.trigger ? [column.trigger.templateId] : []
+            )
+          ),
+        ].map(
+          async (id) =>
+            [id, (await this.deps.getTemplate(id))?.name ?? null] as const
+        )
+      )
+    );
     const tasks = await this.store.listTasks({ projectId });
-    return { projectId, columns, tasks };
+    return {
+      projectId,
+      columns: columns.map((column) => ({
+        ...column,
+        trigger: column.trigger
+          ? {
+              ...column.trigger,
+              templateName: names.get(column.trigger.templateId) ?? null,
+            }
+          : null,
+      })),
+      tasks,
+    };
   }
 
   async resolveColumnKey(projectId: string, key: string): Promise<TaskColumn> {
@@ -964,6 +990,10 @@ export class TaskService {
     const trigger = column.trigger;
     if (!trigger) return;
     const system: TaskActor = { kind: "system" };
+    await this.store.insertEvent(task.id, "trigger_launching", system, {
+      templateId: trigger.templateId,
+    });
+    this.publish(task.projectId, task.id);
     let agent: { id: string };
     try {
       agent = await this.launchFor(task, column, trigger, caller);
