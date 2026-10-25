@@ -104,6 +104,7 @@ export function useCreateAgentForm({
   const validatedCwdRef = useRef<ValidatedCwd | null>(null);
   const [initialPrompt, setInitialPrompt] = useState("");
   const {
+    attachmentError,
     startupFiles,
     startupLinks,
     draggingFiles,
@@ -381,6 +382,7 @@ export function useCreateAgentForm({
     setCreateWorktreeBranch,
     initialPrompt,
     setInitialPrompt,
+    attachmentError,
     startupFiles,
     startupLinks,
     draggingFiles,

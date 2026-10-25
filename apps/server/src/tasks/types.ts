@@ -109,7 +109,16 @@ export type TaskEvent = {
   createdAt: string;
 };
 
+export type TaskAttachment = {
+  id: number;
+  name: string;
+  mimeType: string;
+  size: number;
+  url: string;
+};
+
 export type TaskDetail = Task & {
+  attachments: TaskAttachment[];
   agents: TaskAgent[];
   events: TaskEvent[];
 };

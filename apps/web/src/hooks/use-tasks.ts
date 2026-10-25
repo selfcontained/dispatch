@@ -49,11 +49,24 @@ export function useTaskActions(projectId: string | null) {
     await client.invalidateQueries({ queryKey: taskKeys.all });
   };
   const create = useMutation({
-    mutationFn: (input: CreateTaskInput) =>
-      api<Task>("/api/v1/tasks", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+    mutationFn: (
+      input: CreateTaskInput & {
+        startupFiles?: File[];
+        startupLinks?: string[];
+      }
+    ) => {
+      const { startupFiles = [], startupLinks = [], ...fields } = input;
+      let body: string | FormData = JSON.stringify(fields);
+      if (startupFiles.length || startupLinks.length) {
+        const form = new FormData();
+        for (const [key, value] of Object.entries(fields))
+          if (value !== undefined) form.append(key, String(value));
+        for (const file of startupFiles) form.append("startupFiles", file);
+        form.append("startupLinks", JSON.stringify(startupLinks));
+        body = form;
+      }
+      return api<Task>("/api/v1/tasks", { method: "POST", body });
+    },
     onSuccess: invalidate,
   });
   const update = useMutation({

@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient } from "pg";
+import type { FileMetadata } from "../files/metadata.js";
 
 import type {
   Task,
@@ -15,6 +16,14 @@ import type {
 } from "./types.js";
 
 type Queryable = Pool | PoolClient;
+
+export type TaskAttachmentRow = {
+  id: number;
+  file_name: string;
+  display_name: string;
+  mime_type: string;
+  size_bytes: number;
+};
 
 export function newTaskId(): string {
   return `tsk_${randomBytes(6).toString("hex")}`;
@@ -472,6 +481,54 @@ export class TaskStore {
       const result = await db.query(`DELETE FROM tasks WHERE id = $1`, [id]);
       return result.rowCount === 1;
     });
+  }
+
+  async taskIdsForProject(projectId: string): Promise<string[]> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      "SELECT id FROM tasks WHERE project_id = $1",
+      [projectId]
+    );
+    return rows.map((row) => row.id);
+  }
+
+  async insertAttachment(input: {
+    taskId: string;
+    fileName: string;
+    displayName: string;
+    mimeType: string;
+    size: number;
+    metadata: FileMetadata;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO task_attachments (task_id, file_name, display_name, mime_type, size_bytes, metadata) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        input.taskId,
+        input.fileName,
+        input.displayName,
+        input.mimeType,
+        input.size,
+        JSON.stringify(input.metadata),
+      ]
+    );
+  }
+
+  async listAttachments(taskId: string): Promise<TaskAttachmentRow[]> {
+    const { rows } = await this.pool.query<TaskAttachmentRow>(
+      `SELECT id, file_name, display_name, mime_type, size_bytes FROM task_attachments WHERE task_id = $1 ORDER BY id`,
+      [taskId]
+    );
+    return rows;
+  }
+
+  async getAttachment(
+    taskId: string,
+    attachmentId: number
+  ): Promise<TaskAttachmentRow | null> {
+    const { rows } = await this.pool.query<TaskAttachmentRow>(
+      `SELECT id, file_name, display_name, mime_type, size_bytes FROM task_attachments WHERE task_id = $1 AND id = $2`,
+      [taskId, attachmentId]
+    );
+    return rows[0] ?? null;
   }
 
   // ── Assignments ──────────────────────────────────────────────────

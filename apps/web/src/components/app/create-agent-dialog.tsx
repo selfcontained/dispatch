@@ -346,6 +346,7 @@ function CreateAgentDialogContent({
                 </div>
 
                 <ContextPicker
+                  error={form.attachmentError}
                   files={form.startupFiles}
                   links={form.startupLinks}
                   draggingFiles={form.draggingFiles}

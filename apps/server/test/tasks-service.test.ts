@@ -1,3 +1,9 @@
+import Fastify from "fastify";
+import { registerProjectRoutes } from "../src/routes/projects.js";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { startupFileUpload } from "../src/routes/agent-startup.js";
 import {
   afterAll,
   beforeAll,
@@ -24,6 +30,7 @@ import { chatUrlSchema } from "../src/chat/validation.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
+let filesRoot: string;
 
 const REPO = "/repo/tasks";
 const TEMPLATE_ID = "tpl_tasks";
@@ -76,9 +83,10 @@ async function insertAgent(
   agents.set(id, { id, name, status, projectId });
 }
 
-function build(): TaskService {
+function build(storageRoot = filesRoot): TaskService {
   return new TaskService({
     pool,
+    filesRoot: storageRoot,
     getAgent: async (id) => agents.get(id) ?? null,
     getTemplate: async (id) =>
       id === TEMPLATE_ID
@@ -133,12 +141,14 @@ function build(): TaskService {
 }
 
 beforeAll(async () => {
+  filesRoot = await mkdtemp(path.join(tmpdir(), "task-attachments-test-"));
   pool = await setupTestDb();
   await runTestMigrations();
 });
 
 afterAll(async () => {
   await teardownTestDb();
+  await rm(filesRoot, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
@@ -1063,4 +1073,152 @@ describe("agents created for a task", () => {
       status: 404,
     });
   });
+});
+
+it("stores task attachments and links, briefs agents, and cleans up on deletion", async () => {
+  const buffer = Buffer.from("# Task context\nRead me");
+  const task = await service.createTask(
+    { projectId, title: "With context" },
+    { kind: "user" },
+    {
+      startupFiles: [startupFileUpload("context.md", "context.md", buffer)],
+      startupLinks: [
+        "https://example.com/context",
+        "https://example.com/context",
+      ],
+    }
+  );
+  const detail = await service.getTaskDetail(task.id);
+  expect(detail.attachments).toEqual([
+    expect.objectContaining({
+      name: "context.md",
+      mimeType: "text/markdown",
+      size: buffer.length,
+    }),
+  ]);
+  expect(task.links).toEqual([
+    {
+      kind: "url",
+      url: "https://example.com/context",
+      label: "https://example.com/context",
+    },
+  ]);
+  const attachment = await service.attachmentFile(
+    task.id,
+    detail.attachments[0]!.id
+  );
+  expect(await readFile(attachment.path)).toEqual(buffer);
+  expect((await service.briefingFor(task.id)).text).toContain(
+    `context.md (text/markdown) — ${attachment.path}`
+  );
+  await service.launchAgent(
+    task.id,
+    { templateId: TEMPLATE_ID },
+    { kind: "user" }
+  );
+  expect(launches[0]!.appendix).toContain(attachment.path);
+  await service.deleteTask(task.id);
+  await expect(
+    readdir(path.join(filesRoot, "tasks", task.id))
+  ).rejects.toThrow();
+  expect(
+    (
+      await pool.query("SELECT * FROM task_attachments WHERE task_id = $1", [
+        task.id,
+      ])
+    ).rowCount
+  ).toBe(0);
+});
+
+it("validates context before creating a task and rolls back a failed disk write", async () => {
+  await expect(
+    service.createTask(
+      { projectId, title: "Invalid" },
+      { kind: "user" },
+      { startupLinks: ["file:///tmp/private"] }
+    )
+  ).rejects.toThrow("http or https");
+  const blockedRoot = path.join(filesRoot, "blocked");
+  await writeFile(blockedRoot, "not a directory");
+  const failing = build(blockedRoot);
+  await expect(
+    failing.createTask(
+      { projectId, title: "Disk failure" },
+      { kind: "user" },
+      {
+        startupFiles: [
+          startupFileUpload(
+            "context.txt",
+            "context.txt",
+            Buffer.from("context")
+          ),
+        ],
+      }
+    )
+  ).rejects.toThrow();
+  expect(await service.listTasks({ projectId })).toEqual([]);
+});
+
+it("removes partially written attachments when attachment storage fails", async () => {
+  const insert = service.store.insertAttachment.bind(service.store);
+  const write = vi
+    .spyOn(service.store, "insertAttachment")
+    .mockImplementationOnce(insert)
+    .mockRejectedValueOnce(new Error("attachment row unavailable"));
+  const before = await readdir(path.join(filesRoot, "tasks")).catch(() => []);
+  await expect(
+    service.createTask(
+      { projectId, title: "Partial" },
+      { kind: "user" },
+      {
+        startupFiles: ["first.txt", "second.txt"].map((name) =>
+          startupFileUpload(name, name, Buffer.from("context"))
+        ),
+      }
+    )
+  ).rejects.toThrow("attachment row unavailable");
+  write.mockRestore();
+  expect(await service.listTasks({ projectId })).toEqual([]);
+  expect(await readdir(path.join(filesRoot, "tasks"))).toEqual(before);
+  expect((await pool.query("SELECT * FROM task_attachments")).rowCount).toBe(0);
+});
+
+it("deleting a project cleans up its task attachment directories after cascading the rows", async () => {
+  const task = await service.createTask(
+    { projectId, title: "Project context" },
+    { kind: "user" },
+    {
+      startupFiles: [
+        startupFileUpload("context.txt", "context.txt", Buffer.from("context")),
+      ],
+    }
+  );
+  const detail = await service.getTaskDetail(task.id);
+  const dir = path.join(filesRoot, "tasks", task.id);
+  expect(await readdir(dir)).toHaveLength(1);
+  const app = Fastify();
+  try {
+    await registerProjectRoutes(app, {
+      pool,
+      taskService: service,
+      publishUiEvent: () => {},
+    });
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/projects/${projectId}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    await expect(readdir(dir)).rejects.toThrow();
+    expect(await service.store.getTask(task.id)).toBeNull();
+    expect(
+      (
+        await pool.query("SELECT * FROM task_attachments WHERE id = $1", [
+          detail.attachments[0]!.id,
+        ])
+      ).rowCount
+    ).toBe(0);
+  } finally {
+    await app.close();
+  }
 });

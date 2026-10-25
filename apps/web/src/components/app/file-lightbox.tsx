@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 type FileLightboxProps = {
   fileId: number | null;
+  /** Task-owned files supply their metadata directly, outside the agent file registry. */
+  files?: FileItem[];
   /** Post-specific image caption; empty means use its filename, not registry metadata. */
   attachmentCaption?: string;
   fileIds: number[];
@@ -42,6 +44,7 @@ export { FileActions } from "@/components/app/file-lightbox-actions";
 
 export function FileLightbox({
   fileId,
+  files,
   attachmentCaption,
   fileIds,
   fileIndex,
@@ -49,22 +52,23 @@ export function FileLightbox({
 }: FileLightboxProps): JSX.Element | null {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const {
-    data: file,
+    data: queriedFile,
     error,
     isFetching,
     refetch,
   } = useQuery({
     queryKey: fileItemQueryKey(fileId ?? 0),
     queryFn: () => fetchFileItem(fileId as number),
-    enabled: fileId !== null,
+    enabled: fileId !== null && files === undefined,
     staleTime: 0,
   });
+  const file = files ? files.find((item) => item.id === fileId) : queriedFile;
   const currentIndex =
     fileId === null ? -1 : (fileIndex ?? fileIds.indexOf(fileId));
   const totalItems = fileIds.length;
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
-  const fileNotFound = isNotFoundError(error);
+  const fileNotFound = files === undefined && isNotFoundError(error);
   const selectIndex = useCallback(
     (index: number) => {
       const id = fileIds[index] ?? null;
@@ -145,7 +149,7 @@ export function FileLightbox({
       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
       : `${Math.max(1, Math.round(file.size / 1024))} KB`
     : "";
-  const showLoadError = !file && !!error && !isFetching;
+  const showLoadError = files === undefined && !file && !!error && !isFetching;
 
   return (
     <div

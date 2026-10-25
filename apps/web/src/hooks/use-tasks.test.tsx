@@ -41,3 +41,38 @@ describe("task hooks", () => {
     });
   });
 });
+
+it("sends multipart for task context and JSON for a plain task", async () => {
+  api.mockResolvedValue({ id: "tsk_new" });
+  const client = new QueryClient();
+  const { result } = renderHook(() => useTaskActions("p1"), {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  const file = new File(["context"], "context.txt", { type: "text/plain" });
+  await act(async () => {
+    await result.current.create.mutateAsync({
+      projectId: "p1",
+      title: "Context",
+      startupFiles: [file],
+      startupLinks: ["https://example.com/context"],
+    });
+  });
+  const body = api.mock.calls[0]![1]!.body as FormData;
+  expect(body).toBeInstanceOf(FormData);
+  expect(body.get("title")).toBe("Context");
+  expect(body.get("startupFiles")).toBe(file);
+  expect(JSON.parse(body.get("startupLinks") as string)).toEqual([
+    "https://example.com/context",
+  ]);
+  await act(async () => {
+    await result.current.create.mutateAsync({
+      projectId: "p1",
+      title: "Plain",
+    });
+  });
+  expect(api.mock.calls[1]![1]!.body).toBe(
+    JSON.stringify({ projectId: "p1", title: "Plain" })
+  );
+});

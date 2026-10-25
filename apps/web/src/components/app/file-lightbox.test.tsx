@@ -57,6 +57,51 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("FileLightbox", () => {
+  it("keeps a task attachment open when the registry has a cached 404 for the same id", async () => {
+    const client = queryClient();
+    await client
+      .fetchQuery({
+        queryKey: fileItemQueryKey(7),
+        queryFn: () => Promise.reject(new ApiError(404, "File not found.")),
+      })
+      .catch(() => {});
+    const taskFile = {
+      ...file("2026-08-31T00:00:00Z"),
+      name: "task-shot.png",
+      url: "/api/v1/tasks/tsk_context/attachments/7",
+    };
+    const closed = vi.fn();
+    function Viewer() {
+      const [id, setId] = useState<number | null>(7);
+      return (
+        <FileLightbox
+          files={[taskFile]}
+          fileId={id}
+          fileIds={[7]}
+          setFileId={(next) => {
+            closed(next);
+            setId(next);
+          }}
+        />
+      );
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <Viewer />
+      </QueryClientProvider>
+    );
+    await act(async () => {});
+    expect(screen.getByTestId("file-lightbox")).toBeTruthy();
+    expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe(
+      "Current shot"
+    );
+    expect(closed).not.toHaveBeenCalled();
+    expect(apiMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(closed).toHaveBeenCalledWith(null);
+    expect(screen.queryByTestId("file-lightbox")).toBeNull();
+  });
+
   it.each([0, 1])(
     "navigates repeated file IDs by occurrence starting at %s",
     (initialIndex) => {

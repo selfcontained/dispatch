@@ -457,6 +457,7 @@ agentManager.onStreamWrite((agentId) => {
 jobService.setBrainStore(brainStore);
 const taskService: TaskService = new TaskService({
   pool,
+  filesRoot: config.filesRoot,
   getAgent: (agentId) => agentManager.getAgent(agentId),
   getTemplate: (templateId) => templateService.getTemplate(templateId),
   launchTemplate: async (input) =>
@@ -710,6 +711,7 @@ async function registerRoutes() {
 
   await registerProjectRoutes(app, {
     pool,
+    taskService,
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
   await registerTemplateRoutes(app, {

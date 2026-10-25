@@ -1,3 +1,14 @@
+import path from "node:path";
+import { mkdir, writeFile, rm } from "node:fs/promises";
+import { timestampFileName } from "../agents/file-seed.js";
+import { fileMetadataFromBuffer } from "../files/metadata.js";
+import {
+  MAX_STARTUP_FILE_COUNT,
+  startupFileUpload,
+  validateStartupLinks,
+  type StartupFileUpload,
+} from "../routes/agent-startup.js";
+import type { TaskAttachment } from "./types.js";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
@@ -100,6 +111,7 @@ export type TaskLaunchRequest = {
 
 export type TaskServiceDeps = {
   pool: Pool;
+  filesRoot?: string;
   getAgent: (agentId: string) => Promise<TaskAgentInfo | null>;
   getTemplate: (templateId: string) => Promise<TemplateRecord | null>;
   /** Launches a top-level agent from a template; resolves to the new agent. */
@@ -144,6 +156,7 @@ export function buildTaskBriefing(input: {
   task: Pick<Task, "id" | "title" | "body" | "links">;
   project: Pick<ProjectRecord, "name" | "repoRoot">;
   column: Pick<TaskColumn, "name">;
+  attachments?: Array<{ name: string; mimeType: string; path: string }>;
 }): string {
   const { task, project, column } = input;
   const links =
@@ -162,6 +175,14 @@ export function buildTaskBriefing(input: {
     `Column: ${column.name}`,
     `Conversation: stream ${task.id} (the task's own stream; people and the task's agents post there)`,
     `Links:${links}`,
+    ...(input.attachments?.length
+      ? [
+          "Attachments:",
+          ...input.attachments.map(
+            (file) => `- ${file.name} (${file.mimeType}) — ${file.path}`
+          ),
+        ]
+      : []),
     "",
     task.body.trim() || "(no description)",
     "",
@@ -490,10 +511,37 @@ export class TaskService {
       this.store.listTaskAgents(id),
       this.store.listEvents(id, eventLimit),
     ]);
-    return { ...task, agents, events };
+    return {
+      ...task,
+      agents,
+      events,
+      attachments: await this.listAttachments(id),
+    };
   }
 
-  async createTask(input: CreateTaskInput, caller: TaskCaller): Promise<Task> {
+  async createTask(
+    input: CreateTaskInput,
+    caller: TaskCaller,
+    context: {
+      startupFiles?: StartupFileUpload[];
+      startupLinks?: string[];
+    } = {}
+  ): Promise<Task> {
+    const files = context.startupFiles ?? [];
+    if (files.length > MAX_STARTUP_FILE_COUNT)
+      throw invalid(
+        `A maximum of ${MAX_STARTUP_FILE_COUNT} startup files is allowed.`
+      );
+    let links: string[];
+    try {
+      links = [...new Set(validateStartupLinks(context.startupLinks ?? []))];
+      for (const file of files)
+        startupFileUpload(file.fileName, file.originalName, file.buffer);
+    } catch (error) {
+      throw invalid(errorMessage(error));
+    }
+    if (files.length && !this.deps.filesRoot)
+      throw new Error("Task file storage is unavailable.");
     await this.requireProject(input.projectId);
     const title = input.title.trim();
     if (!title) throw invalid("title is required.");
@@ -514,6 +562,31 @@ export class TaskService {
       createdBy: actor,
       completed: column.isDone,
     });
+    try {
+      if (links.length)
+        await this.store.updateTask(id, {
+          links: links.map((url) => ({ kind: "url", url, label: url })),
+        });
+      if (files.length)
+        await mkdir(this.attachmentDir(id), { recursive: true });
+      const now = new Date();
+      for (const [index, file] of files.entries()) {
+        const name = timestampFileName(file.fileName, now, index);
+        await writeFile(path.join(this.attachmentDir(id), name), file.buffer);
+        await this.store.insertAttachment({
+          taskId: id,
+          fileName: name,
+          displayName: file.originalName,
+          mimeType: file.mimeType,
+          size: file.buffer.length,
+          metadata: fileMetadataFromBuffer(file.buffer),
+        });
+      }
+    } catch (error) {
+      await this.store.deleteTask(id);
+      await this.cleanupAttachments(id);
+      throw error;
+    }
     await this.store.insertEvent(id, "created", actor, {
       columnId: column.id,
     });
@@ -735,8 +808,66 @@ export class TaskService {
       } finally {
         this.deps.chat.releaseStream(id);
       }
+      await this.cleanupAttachments(id);
       this.publish(task.projectId, id);
     });
+  }
+
+  async taskIdsForProject(projectId: string): Promise<string[]> {
+    return this.store.taskIdsForProject(projectId);
+  }
+
+  /** IDs captured before the project delete cascades away the task rows. */
+  async cleanupProjectAttachments(taskIds: string[]): Promise<void> {
+    await Promise.all(taskIds.map((id) => this.cleanupAttachments(id)));
+  }
+
+  private attachmentDir(id: string): string {
+    if (!this.deps.filesRoot)
+      throw new Error("Task file storage is unavailable.");
+    return path.resolve(this.deps.filesRoot, "tasks", id);
+  }
+
+  private async cleanupAttachments(id: string): Promise<void> {
+    if (!this.deps.filesRoot) return;
+    try {
+      await rm(this.attachmentDir(id), { recursive: true, force: true });
+    } catch (err) {
+      this.deps.log.warn(
+        { err, taskId: id },
+        "Could not remove task attachments"
+      );
+    }
+  }
+
+  async listAttachments(id: string): Promise<TaskAttachment[]> {
+    return (await this.store.listAttachments(id)).map((row) => ({
+      id: row.id,
+      name: row.display_name,
+      mimeType: row.mime_type,
+      size: row.size_bytes,
+      url: `/api/v1/tasks/${encodeURIComponent(id)}/attachments/${row.id}`,
+    }));
+  }
+
+  async attachmentFile(
+    id: string,
+    attachmentId: number
+  ): Promise<{ path: string; mimeType: string }> {
+    const row = await this.store.getAttachment(id, attachmentId);
+    if (!row) throw notFound("Attachment");
+    return {
+      path: path.join(this.attachmentDir(id), row.file_name),
+      mimeType: row.mime_type,
+    };
+  }
+
+  private async briefingAttachments(id: string) {
+    return (await this.store.listAttachments(id)).map((row) => ({
+      name: row.display_name,
+      mimeType: row.mime_type,
+      path: path.join(this.attachmentDir(id), row.file_name),
+    }));
   }
 
   // ── Launching ────────────────────────────────────────────────────
@@ -773,7 +904,12 @@ export class TaskService {
       },
       // The task always rides along in full: a template never has to
       // place it, and an agent launched for a task always knows which.
-      appendix: buildTaskBriefing({ task, project, column }),
+      appendix: buildTaskBriefing({
+        task,
+        project,
+        column,
+        attachments: await this.briefingAttachments(task.id),
+      }),
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
       ...(launch.model ? { model: launch.model } : {}),
     });
@@ -884,7 +1020,12 @@ export class TaskService {
     ]);
     return {
       projectId: task.projectId,
-      text: buildTaskBriefing({ task, project, column }),
+      text: buildTaskBriefing({
+        task,
+        project,
+        column,
+        attachments: await this.briefingAttachments(task.id),
+      }),
     };
   }
 
