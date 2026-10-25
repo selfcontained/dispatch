@@ -46,6 +46,17 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "codex-acp") {
   await import("@agentclientprotocol/codex-acp/dist/index.js");
 } else {
+  const { decideStartupMode } = await import("./windows-setup/startup-mode.js");
+  if (
+    decideStartupMode({
+      platform: process.platform,
+      env: process.env,
+      argv: process.argv,
+    }) === "setup"
+  ) {
+    const { runSetupMode } = await import("./windows-setup/run-setup-mode.js");
+    await runSetupMode();
+  }
   await serve();
 }
 
