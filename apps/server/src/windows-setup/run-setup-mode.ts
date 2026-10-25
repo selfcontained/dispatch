@@ -16,12 +16,30 @@ export function waitForEnter(
   const stdin = deps.stdin ?? process.stdin;
   log(prompt);
   return new Promise((resolve) => {
-    const onData = () => {
-      stdin.off("data", onData);
+    const done = () => {
+      for (const event of ["data", "end", "close"]) stdin.off(event, done);
       resolve();
     };
-    stdin.on("data", onData);
+    // A closed or redirected stdin never emits data; do not hang on it.
+    for (const event of ["data", "end", "close"]) stdin.on(event, done);
   });
+}
+
+export async function holdConsoleOnFailure<T>(
+  work: () => Promise<T>,
+  deps: { log?: (line: string) => void; hold: () => Promise<void> }
+): Promise<T | undefined> {
+  const log = deps.log ?? ((line: string) => console.error(line));
+  try {
+    return await work();
+  } catch (error) {
+    log(
+      `Dispatch failed to start: ${error instanceof Error ? error.message : String(error)}`
+    );
+    await deps.hold();
+    process.exitCode = 1;
+    return undefined;
+  }
 }
 
 export async function runSetupMode(

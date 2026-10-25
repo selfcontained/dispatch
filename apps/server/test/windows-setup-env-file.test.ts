@@ -99,11 +99,25 @@ describe("env file", () => {
     expect(parseEnvFile(renderEnvFile(dollar))).toEqual(dollar);
   });
 
+  it("backtick-quotes values that contain an apostrophe", () => {
+    const quoted = buildSetupEnv({
+      ...input,
+      installDir: "C:\\Users\\O'Brien Smith\\AppData\\Local\\Dispatch",
+    });
+    expect(renderEnvFile(quoted)).toContain(
+      "DISPATCH_SERVER_DIR=`C:\\Users\\O'Brien Smith\\AppData\\Local\\Dispatch`\n"
+    );
+    expect(parseEnvFile(renderEnvFile(quoted))).toEqual(quoted);
+    expect(() =>
+      renderEnvFile(buildSetupEnv({ ...input, installDir: "C:\\O'B `x` y" }))
+    ).toThrow(/backtick/);
+  });
+
   it("round-trips through Bun's .env loader", () => {
     const tricky = buildSetupEnv({
       ...input,
       databaseUrl: "postgres://u:pa$$w#rd@h:5432/d",
-      installDir: "C:\\Users\\nancy smith\\AppData\\Local\\Dispatch",
+      installDir: "C:\\Users\\O'Brien nancy smith\\AppData\\Local\\Dispatch",
     });
     const dir = mkdtempSync(path.join(os.tmpdir(), "dispatch-env-bun-"));
     try {

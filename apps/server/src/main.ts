@@ -46,7 +46,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "codex-acp") {
   await import("@agentclientprotocol/codex-acp/dist/index.js");
 } else {
-  const { decideStartupMode } = await import("./windows-setup/startup-mode.js");
+  const { decideStartupMode, loadInstalledEnv } =
+    await import("./windows-setup/startup-mode.js");
+  if (process.platform === "win32" && !process.env.DATABASE_URL)
+    loadInstalledEnv({ execPath: process.execPath, env: process.env });
   if (
     decideStartupMode({
       platform: process.platform,
@@ -54,15 +57,16 @@ if (process.argv[2]?.startsWith("recovery-")) {
       argv: process.argv,
     }) === "setup"
   ) {
-    const { runSetupMode, waitForEnter } =
+    const { holdConsoleOnFailure, runSetupMode, waitForEnter } =
       await import("./windows-setup/run-setup-mode.js");
-    await runSetupMode();
-    await serve({
-      onStartFailure: () =>
-        waitForEnter(
-          "Dispatch failed to start. Press Enter to close this window."
-        ),
-    });
+    const hold = () => waitForEnter("Press Enter to close this window.");
+    await holdConsoleOnFailure(
+      async () => {
+        await runSetupMode();
+        await serve({ onStartFailure: hold });
+      },
+      { hold }
+    );
   } else {
     await serve();
   }
@@ -85,8 +89,10 @@ async function serve(
   });
 
   process.on("uncaughtException", async (err) => {
-    setTimeout(() => process.exit(1), 5_000).unref();
+    if (!options.onStartFailure)
+      setTimeout(() => process.exit(1), 5_000).unref();
     app.log.error({ err }, "Uncaught exception — shutting down");
+    await options.onStartFailure?.();
     await shutdown(1);
   });
 

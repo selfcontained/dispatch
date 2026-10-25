@@ -396,7 +396,13 @@
         }
 
         function waitForInstalled(port, url) {
+          const startedAt = Date.now();
           const timer = setInterval(async () => {
+            if (Date.now() - startedAt > 30_000 && $("error").classList.contains("hidden")) {
+              showError(
+                "Dispatch did not start. Check the Dispatch console window for the error, fix it, and run the installer again."
+              );
+            }
             try {
               const { ok } = await api("GET", `/api/setup/health?port=${port}`);
               if (ok) {

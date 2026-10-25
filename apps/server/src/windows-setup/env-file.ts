@@ -61,10 +61,19 @@ export function renderEnvFile(env: SetupEnv): string {
     const value = env[key];
     if (value === undefined) return [];
     const escaped = value.replace(/\$/g, "\\$");
-    const quoted = /[\s#]/.test(escaped) ? `'${escaped}'` : escaped;
-    return [`${key}=${quoted}`];
+    return [`${key}=${quoteEnvValue(escaped)}`];
   });
   return `${lines.join("\n")}\n`;
+}
+
+function quoteEnvValue(value: string): string {
+  if (!/[\s#]/.test(value)) return value;
+  if (!value.includes("'")) return `'${value}'`;
+  if (value.includes("`"))
+    throw new Error(
+      "The install path contains both an apostrophe and a backtick, which the .env format cannot hold. Set DISPATCH_SETUP_INSTALL_DIR to a different folder."
+    );
+  return `\`${value}\``;
 }
 
 export function parseEnvFile(text: string): Record<string, string> {
@@ -79,7 +88,8 @@ export function parseEnvFile(text: string): Record<string, string> {
     if (
       value.length >= 2 &&
       ((value.startsWith("'") && value.endsWith("'")) ||
-        (value.startsWith('"') && value.endsWith('"')))
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("`") && value.endsWith("`")))
     )
       value = value.slice(1, -1);
     result[key] = value.replace(/\\\$/g, "$");
