@@ -332,7 +332,7 @@ export function TemplateConfigFields({
           {prompt.trim() ? null : (
             <p className="text-xs text-muted-foreground">
               Launched from a task it gets the task as its prompt; otherwise it
-              needs context or a persona.
+              needs a prompt or a persona.
             </p>
           )}
           {detectedArgs.length > 0 ? (
