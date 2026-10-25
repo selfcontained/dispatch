@@ -151,7 +151,12 @@ export function TaskColumnMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            menuButton.current?.focus();
+          }}
+        >
           <AlertDialogTitle className="text-lg font-semibold">
             {archiveLabel} from {column.name}?
           </AlertDialogTitle>
