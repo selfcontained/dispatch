@@ -37,8 +37,16 @@ vi.mock("@/hooks/use-agent-model-catalog", () => ({
 }));
 
 vi.mock("./task-conversation", () => ({
-  TaskConversation: ({ taskId }: { taskId: string }) => (
-    <div data-testid="task-conversation">{taskId}</div>
+  TaskConversation: ({
+    taskId,
+    active,
+  }: {
+    taskId: string;
+    active: boolean;
+  }) => (
+    <div data-testid="task-conversation" data-active={active}>
+      {taskId}
+    </div>
   ),
 }));
 
@@ -138,7 +146,9 @@ it("keeps an unsaved description open when cached task fields change", async () 
     ).toBeTruthy()
   );
   expect(screen.getByRole("textbox")).toBe(textarea);
-  expect(screen.queryByTestId("task-conversation")).toBeNull();
+  expect(
+    screen.getByTestId("task-conversation").getAttribute("data-active")
+  ).toBe("false");
   expect((textarea as HTMLTextAreaElement).value).toBe("My unsaved draft");
 });
 
@@ -216,9 +226,9 @@ it.each([
       .getByRole("tab", { name: new RegExp(`^${tab}`) })
       .getAttribute("data-state")
   ).toBe("active");
-  expect(!!screen.queryByTestId("task-conversation")).toBe(
-    tab === "Conversation"
-  );
+  expect(
+    screen.getByTestId("task-conversation").getAttribute("data-active")
+  ).toBe(String(tab === "Conversation"));
 });
 
 it("writes pane with replace and retains the modal opening state", () => {
@@ -229,7 +239,9 @@ it("writes pane with replace and retains the modal opening state", () => {
   );
   expect(screen.getByTestId("task-conversation")).toBeTruthy();
   selectTab("Details");
-  expect(screen.queryByTestId("task-conversation")).toBeNull();
+  expect(
+    screen.getByTestId("task-conversation").getAttribute("data-active")
+  ).toBe("false");
   expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(screen.getByTestId("where").textContent).toBe("|null");

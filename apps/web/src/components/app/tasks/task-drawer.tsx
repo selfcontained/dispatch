@@ -609,11 +609,13 @@ export function TaskDetailPanel({
           </TabsContent>
           <TabsContent
             value="conversation"
-            className="mt-0 min-h-0 flex-1 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-3 md:pb-3"
+            forceMount
+            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-3 md:pb-3"
           >
             <TaskConversation
               key={task.id}
               taskId={task.id}
+              active={pane === "conversation"}
               assignee={assignee}
               isMobile={isMobile}
               memberIds={memberIds}

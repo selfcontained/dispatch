@@ -166,7 +166,42 @@ test("task moves into automation, opens detail, and renders list on mobile", asy
     await conversation
       .getByRole("textbox", { name: "Message the agent" })
       .fill("Progress from the task drawer");
+    await conversation.getByTestId("chat-composer-file-input").setInputFiles({
+      name: "tab-switch.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Attachment retained across task tabs"),
+    });
+    await expect(
+      conversation.getByTestId("chat-composer-attachments")
+    ).toContainText("tab-switch.txt");
+    await page.getByRole("tab", { name: "Details", exact: true }).click();
+    await expect(conversation).toBeHidden();
+    await page.getByRole("tab", { name: /^Conversation/ }).click();
+    await expect(
+      conversation.getByTestId("chat-composer-attachments")
+    ).toContainText("tab-switch.txt");
+    await expect(conversation.getByText("Needs re-attaching")).toHaveCount(0);
+    await expect(conversation.getByTestId("chat-composer-send")).toBeEnabled();
+    const posted = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/v1/streams/${task.id}/blocks`) &&
+        response.request().method() === "POST"
+    );
     await conversation.getByTestId("chat-composer-send").click();
+    const postResponse = await posted;
+    expect(postResponse.ok(), await postResponse.text()).toBeTruthy();
+    expect((await postResponse.json()).block.attachments).toEqual([
+      expect.objectContaining({
+        type: "file",
+        fileName: expect.stringMatching(/^tab-switch.*\.txt$/),
+      }),
+    ]);
+    await expect(
+      conversation.getByTestId("chat-composer-attachments")
+    ).toHaveCount(0);
+    await expect(
+      conversation.getByText(/^tab-switch.*\.txt$/).first()
+    ).toBeVisible();
     await expect(
       conversation.getByText("Progress from the task drawer")
     ).toBeVisible();
