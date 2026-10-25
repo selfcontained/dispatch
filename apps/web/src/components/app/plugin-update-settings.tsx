@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { ChevronRight, Download, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ function ManualCommand({ command }: { command: string }): JSX.Element {
   return (
     <li className="pl-1 marker:text-muted-foreground">
       <div className="flex min-w-0 items-center gap-1 rounded bg-muted/50 py-1 pl-2 pr-1">
-        <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">
+        <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
           {command}
         </code>
         <CopyIconButton
@@ -156,11 +156,14 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
         type="button"
         variant="ghost"
         size="sm"
-        className="mt-2 h-7 px-2 text-xs text-muted-foreground"
+        className="-ml-2 mt-2 h-7 px-2 text-xs text-muted-foreground"
         aria-expanded={manualOpen}
         aria-controls={manualPanelId}
         onClick={() => setManualOpen((open) => !open)}
       >
+        <ChevronRight
+          className={`mr-1 h-3 w-3 transition-transform ${manualOpen ? "rotate-90" : ""}`}
+        />
         Manual commands
       </Button>
       {manualOpen ? (
