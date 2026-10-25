@@ -231,7 +231,7 @@ export function registerTaskTools(
       "task_update",
       {
         description:
-          "Update fields, move with a column key, append links, or archive/restore. Trigger columns may launch agents; assign self joins the conversation.",
+          'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up (your task briefing lists this board\'s keys); a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended; archived archives or restores it.',
         inputSchema: {
           id: z.string().min(1),
           title: z.string().min(1).max(500).optional(),
