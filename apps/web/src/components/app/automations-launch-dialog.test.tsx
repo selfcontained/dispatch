@@ -602,3 +602,39 @@ describe("file attachments", () => {
     expect((body as FormData).get("args")).toBeNull();
   });
 });
+
+describe("layout", () => {
+  // jsdom has no layout, so pin the structure that keeps the actions reachable
+  // in a height-capped dialog: fields and Context scroll inside the body while
+  // the header and Launch/Cancel stay outside it.
+  it("scrolls fields and Context in the body and keeps actions outside it", async () => {
+    await renderDialog(
+      makeTemplate({
+        description: "A long description. ".repeat(80),
+        prompt: "Review {{D:Branch|required}} with {{D:Note}}",
+        allowFiles: true,
+      })
+    );
+
+    const form = screen.getByTestId("launch-template-form");
+    const body = screen.getByTestId("launch-template-body");
+    const actions = screen.getByTestId("launch-template-actions");
+    const description = screen.getByTestId("launch-template-description");
+
+    expect(form.className).toMatch(/\bmin-h-0\b/);
+    expect(form.className).toMatch(/\bflex-col\b/);
+    expect(body.className).toMatch(/\boverflow-y-auto\b/);
+    expect(body.className).toMatch(/\bmin-h-0\b/);
+    expect(actions.className).toMatch(/\bshrink-0\b/);
+    expect(description.className).toMatch(/\boverflow-y-auto\b/);
+
+    expect(body.contains(screen.getByLabelText(/Branch/))).toBe(true);
+    expect(body.contains(screen.getByText("Context"))).toBe(true);
+    expect(body.contains(launchButton())).toBe(false);
+    expect(actions.contains(launchButton())).toBe(true);
+    expect(
+      actions.contains(screen.getByRole("button", { name: "Cancel" }))
+    ).toBe(true);
+    expect(body.contains(description)).toBe(false);
+  });
+});

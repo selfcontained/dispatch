@@ -182,14 +182,23 @@ function LaunchTemplateDialogContent({
 
   return (
     <DialogContent
+      // dvh tracks mobile browser chrome so the actions stay on screen.
+      className="max-h-[min(80vh,calc(100dvh-2rem))]"
       onEscapeKeyDown={(e) => {
         swallowEscapeFromCombobox(e);
       }}
     >
-      <DialogHeader className="space-y-2">
+      <DialogHeader className="shrink-0 space-y-2">
         <DialogTitle>{template.name}</DialogTitle>
         {template.description ? (
-          <DialogDescription>{template.description}</DialogDescription>
+          // A long description scrolls on its own so it cannot push the form
+          // body and actions out of the capped dialog.
+          <DialogDescription
+            data-testid="launch-template-description"
+            className="max-h-[min(8rem,20dvh)] overflow-y-auto overscroll-contain"
+          >
+            {template.description}
+          </DialogDescription>
         ) : (
           <DialogDescription>
             This will create a new agent from this template.
@@ -198,6 +207,8 @@ function LaunchTemplateDialogContent({
       </DialogHeader>
 
       <form
+        data-testid="launch-template-form"
+        className="flex min-h-0 flex-1 flex-col"
         onSubmit={(e) => {
           e.preventDefault();
           if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
@@ -229,60 +240,68 @@ function LaunchTemplateDialogContent({
         onDrop={showFiles ? handleStartupDrop : undefined}
       >
         <div
-          className={cn(
-            "grid gap-3",
-            showModelSelect && "min-[420px]:grid-cols-2"
-          )}
+          data-testid="launch-template-body"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-1"
         >
-          <AgentTypeSelect
-            label="Agent type"
-            id="launch-template-agent-type"
-            value={agentType}
-            onChange={handleAgentTypeChange}
-            agentTypes={agentTypes}
-          />
-          {showModelSelect ? (
-            <AgentModelSelect
-              value={model}
-              options={modelOptions}
-              onChange={handleModelChange}
-              loading={modelCatalogLoading}
-              id="launch-template-model"
-              testId="launch-template-model"
+          <div
+            className={cn(
+              "grid gap-3",
+              showModelSelect && "min-[420px]:grid-cols-2"
+            )}
+          >
+            <AgentTypeSelect
+              label="Agent type"
+              id="launch-template-agent-type"
+              value={agentType}
+              onChange={handleAgentTypeChange}
+              agentTypes={agentTypes}
+            />
+            {showModelSelect ? (
+              <AgentModelSelect
+                value={model}
+                options={modelOptions}
+                onChange={handleModelChange}
+                loading={modelCatalogLoading}
+                id="launch-template-model"
+                testId="launch-template-model"
+              />
+            ) : null}
+          </div>
+
+          {args.length > 0 ? (
+            <div className="mt-3 flex flex-col gap-3">
+              {args.map((arg) => (
+                <ArgInput
+                  key={arg.key}
+                  arg={arg}
+                  value={argValues[arg.key] ?? ""}
+                  onChange={(value) =>
+                    setArgValues((prev) => ({ ...prev, [arg.key]: value }))
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {showFiles ? (
+            <ContextPicker
+              className="mt-3"
+              files={startupFiles}
+              links={startupLinks}
+              draggingFiles={draggingFiles}
+              filePreviewsRef={startupFilePreviewsRef}
+              onAppendFiles={appendStartupFiles}
+              onRemoveFile={handleRemoveStartupFile}
+              onAddLink={handleAddLink}
+              onRemoveLink={handleRemoveStartupLink}
             />
           ) : null}
         </div>
 
-        {args.length > 0 ? (
-          <div className="mt-3 flex flex-col gap-3">
-            {args.map((arg) => (
-              <ArgInput
-                key={arg.key}
-                arg={arg}
-                value={argValues[arg.key] ?? ""}
-                onChange={(value) =>
-                  setArgValues((prev) => ({ ...prev, [arg.key]: value }))
-                }
-              />
-            ))}
-          </div>
-        ) : null}
-
-        {showFiles ? (
-          <ContextPicker
-            className="mt-3"
-            files={startupFiles}
-            links={startupLinks}
-            draggingFiles={draggingFiles}
-            filePreviewsRef={startupFilePreviewsRef}
-            onAppendFiles={appendStartupFiles}
-            onRemoveFile={handleRemoveStartupFile}
-            onAddLink={handleAddLink}
-            onRemoveLink={handleRemoveStartupLink}
-          />
-        ) : null}
-
-        <div className="flex flex-row-reverse justify-start gap-2 pt-3">
+        <div
+          data-testid="launch-template-actions"
+          className="flex shrink-0 flex-row-reverse justify-start gap-2 pt-3"
+        >
           <Button
             type="submit"
             variant="primary"
