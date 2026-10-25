@@ -35,6 +35,14 @@ export function TaskAgentChip({
   const activity = useAgentActivity(agent, childAgents);
   const live = activity.glyph !== "none";
   const qualifier = agentQualifier(agent, agents);
+  const activityText = !activity.label
+    ? null
+    : activity.sourceAgent !== agent
+      ? `↳ ${activity.sourceAgent.name} · ${activity.label}`
+      : activity.label;
+  const name = qualifier
+    ? `${agent.name} · started ${qualifier === "now" ? "just now" : `${qualifier} ago`}`
+    : agent.name;
   return (
     <span
       className={cn(
@@ -56,11 +64,8 @@ export function TaskAgentChip({
         fullWidth && "w-full",
         className
       )}
-      title={
-        qualifier
-          ? `${agent.name} · started ${qualifier === "now" ? "just now" : `${qualifier} ago`}`
-          : agent.name
-      }
+      // The card clips a long step; the tooltip keeps all of it.
+      title={activityText ? `${name}\n${activityText}` : name}
     >
       <AgentTypeIcon
         type={agent.type ?? "claude"}
@@ -90,10 +95,12 @@ export function TaskAgentChip({
           )}
         </span>
       )}
-      {!compact && activity.label && (
+      {!compact && activityText && (
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-[10px] font-medium",
+            // Shrinks alongside the name rather than taking only what the
+            // name leaves, so a child's step stays readable on a card.
+            "min-w-0 flex-auto truncate text-[10px] font-medium",
             activity.tone === "working" || activity.tone === "starting"
               ? "text-status-working"
               : activity.tone === "archiving"
@@ -103,9 +110,7 @@ export function TaskAgentChip({
                   : "text-muted-foreground"
           )}
         >
-          {activity.sourceAgent !== agent
-            ? `↳ ${activity.sourceAgent.name} · ${activity.label}`
-            : activity.label}
+          {activityText}
         </span>
       )}
     </span>
