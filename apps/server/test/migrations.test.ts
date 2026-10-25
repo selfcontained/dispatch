@@ -73,13 +73,13 @@ describe("block_reactions uniqueness migration", () => {
   });
 });
 
-/** Rewinds 0024 and 0023, which depends on projects and agents, so older eras can replay. */
+/** Rewinds 0025, 0024 and 0023, which depends on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
   await pool.query(
     "DROP TABLE IF EXISTS task_attachments, task_events, task_agents, tasks, task_columns"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments')"
+    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments', '0025_task_archive')"
   );
 }
 

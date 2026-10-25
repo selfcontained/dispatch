@@ -69,6 +69,7 @@ export type Task = {
   latestFailure: { reason: string; at: string } | null;
   /** The current column trigger is starting an agent. */
   launching: { templateId: string; at: string } | null;
+  archivedAt: string | null;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -87,6 +88,8 @@ export type TaskAgent = {
 };
 
 export type TaskEventKind =
+  | "archived"
+  | "restored"
   | "created"
   | "updated"
   | "moved"

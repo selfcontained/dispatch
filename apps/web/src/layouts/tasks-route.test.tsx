@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
+import type { TaskBoard } from "@/hooks/use-tasks";
 import { TasksRoute } from "./tasks-route";
 
 const projects = [
@@ -17,6 +18,13 @@ const projects = [
   { id: "p4", name: "Fourth", repoRoot: "/fourth", color: "#000" },
   { id: "p5", name: "Fifth", repoRoot: "/fifth", color: "#000" },
 ];
+const boardQuery = vi.hoisted(() =>
+  vi.fn(() => ({
+    data: undefined as TaskBoard | undefined,
+    isLoading: true,
+    error: null,
+  }))
+);
 const viewport = vi.hoisted(() => ({ isMobile: false }));
 vi.mock("@/hooks/use-projects", () => ({
   useProjectScope: () => {
@@ -38,8 +46,11 @@ vi.mock("@/hooks/use-tasks", () => ({
   useTaskDetail: (id: string | null) => ({
     data: id ? { id, projectId: "p1" } : undefined,
   }),
-  useTaskBoard: () => ({ data: undefined, isLoading: true, error: null }),
-  useTaskActions: () => ({ createColumn: { mutateAsync: vi.fn() } }),
+  useTaskBoard: boardQuery,
+  useTaskActions: () => ({
+    createColumn: { mutateAsync: vi.fn() },
+    restore: { mutate: vi.fn(), isPending: false },
+  }),
 }));
 // Column automations are named by template; this route test has no
 // QueryClient to fetch them with.
@@ -95,9 +106,15 @@ function LocationProbe() {
   return <output data-testid="location">{location.search}</output>;
 }
 
+beforeAll(() => {
+  Element.prototype.scrollIntoView = () => {};
+  Element.prototype.hasPointerCapture = () => false;
+});
 afterEach(() => {
   cleanup();
   viewport.isMobile = false;
+  boardQuery.mockReset();
+  boardQuery.mockReturnValue({ data: undefined, isLoading: true, error: null });
 });
 
 it("resolves a task deep link, then clears it when the user changes projects", async () => {
@@ -177,4 +194,80 @@ it("defaults by width until a layout is picked, then saves the pick", () => {
     JSON.stringify("list")
   );
   expect(screen.getByTestId("location").textContent).toContain("layout=list");
+});
+
+it("keeps Archived in the URL and selects the archived board query", async () => {
+  render(
+    <MemoryRouter initialEntries={["/tasks?project=p1&view=archived"]}>
+      <TasksRoute />
+      <LocationProbe />
+    </MemoryRouter>
+  );
+  expect(pressed("Archived")).toBe("true");
+  expect(boardQuery).toHaveBeenCalledWith("p1", true);
+  fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+  expect(screen.getByTestId("location").textContent).not.toContain(
+    "view=archived"
+  );
+  expect(pressed("Archived")).toBe("false");
+});
+
+it("lists older archived tasks with column/time and filters them by search and assignee", async () => {
+  const board = {
+    projectId: "p1",
+    columns: [
+      {
+        id: "done",
+        key: "done",
+        name: "Done",
+        isDone: true,
+        position: 0,
+        trigger: null,
+      },
+    ],
+    tasks: [
+      {
+        id: "old",
+        title: "Old completed work",
+        columnId: "done",
+        completedAt: "2020-01-01T00:00:00Z",
+        archivedAt: "2020-01-02T00:00:00Z",
+        assignedAgentId: null,
+      },
+      {
+        id: "other",
+        title: "Other archived work",
+        columnId: "done",
+        completedAt: null,
+        archivedAt: "2020-01-03T00:00:00Z",
+        assignedAgentId: null,
+      },
+    ],
+  } as TaskBoard;
+  boardQuery.mockReturnValue({ data: board, isLoading: false, error: null });
+  render(
+    <MemoryRouter initialEntries={["/tasks?project=p1&view=archived"]}>
+      <TasksRoute />
+    </MemoryRouter>
+  );
+  expect(
+    screen.getByRole("button", { name: "Old completed work" })
+  ).toBeTruthy();
+  expect(screen.getAllByText("Done").length).toBeGreaterThan(0);
+  expect(
+    document.querySelector('time[datetime="2020-01-02T00:00:00Z"]')
+  ).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "Search tasks" }), {
+    target: { value: "Old completed" },
+  });
+  expect(
+    screen.queryByRole("button", { name: "Other archived work" })
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("combobox", { name: "Filter by assignee" }));
+  fireEvent.click(
+    await screen.findByRole("option", { name: /Needs attention/ })
+  );
+  expect(
+    screen.queryByRole("button", { name: "Old completed work" })
+  ).toBeNull();
 });

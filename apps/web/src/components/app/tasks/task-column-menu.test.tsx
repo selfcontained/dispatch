@@ -4,9 +4,11 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { TaskColumnMenu } from "./task-column-menu";
 
+const archiveColumn = vi.fn(async () => ({}));
 const updateColumn = vi.fn(async () => {});
 vi.mock("@/hooks/use-tasks", () => ({
   useTaskActions: () => ({
+    archiveColumn: { mutateAsync: archiveColumn },
     updateColumn: { mutateAsync: updateColumn },
     removeColumn: { mutateAsync: vi.fn() },
   }),
@@ -23,6 +25,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   updateColumn.mockClear();
+  archiveColumn.mockClear();
 });
 
 const columns = ["Backlog", "Ready", "Doing", "Done"].map(
@@ -86,4 +89,35 @@ it("opens the trigger dialog and only deletes an empty column", async () => {
   );
   fireEvent.click(item("Add trigger…"));
   expect(await screen.findByRole("dialog")).toBeTruthy();
+});
+
+it("offers archive only for completion columns and confirms the whole board count", async () => {
+  await openMenu({ ...columns[3], isDone: true }, "horizontal", [
+    { id: "t1", columnId: "Done", archivedAt: null } as Task,
+    { id: "t2", columnId: "Done", archivedAt: null } as Task,
+    { id: "old", columnId: "Done", archivedAt: "2026-01-01" } as Task,
+    { id: "other", columnId: "Ready", archivedAt: null } as Task,
+  ]);
+  fireEvent.click(item("Archive 2 tasks"));
+  expect(await screen.findByRole("alertdialog")).toBeTruthy();
+  expect(screen.getByText("Archive 2 tasks from Done?")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Archive 2 tasks" }));
+  expect(archiveColumn).toHaveBeenCalledWith("Done");
+});
+
+it("disables empty completion archive and hides archive on other columns", async () => {
+  await openMenu({ ...columns[3], isDone: true }, "vertical");
+  expect(item("Archive 0 tasks").getAttribute("aria-disabled")).toBe("true");
+  cleanup();
+  await openMenu({ ...columns[1], isDone: false }, "vertical");
+  expect(screen.queryByRole("menuitem", { name: /Archive/ })).toBeNull();
+});
+
+it("uses singular wording for one task", async () => {
+  await openMenu({ ...columns[3], isDone: true }, "horizontal", [
+    { id: "one", columnId: "Done", archivedAt: null } as Task,
+  ]);
+  fireEvent.click(item("Archive 1 task"));
+  expect(await screen.findByText("Archive 1 task from Done?")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Archive 1 task" })).toBeTruthy();
 });

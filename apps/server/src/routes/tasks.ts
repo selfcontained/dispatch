@@ -96,10 +96,15 @@ export async function registerTaskRoutes(
 ): Promise<void> {
   const { taskService } = deps;
 
-  app.get<{ Params: { projectId: string } }>(
-    "/api/v1/projects/:projectId/tasks/board",
-    async (request, reply) =>
-      mapTaskErrors(reply, () => taskService.getBoard(request.params.projectId))
+  app.get<{
+    Params: { projectId: string };
+    Querystring: { archived?: string };
+  }>("/api/v1/projects/:projectId/tasks/board", async (request, reply) =>
+    mapTaskErrors(reply, () =>
+      taskService.getBoard(request.params.projectId, {
+        archived: request.query.archived === "1",
+      })
+    )
   );
 
   app.post<{ Params: { projectId: string } }>(
@@ -133,26 +138,30 @@ export async function registerTaskRoutes(
       })
   );
 
-  app.get<{ Querystring: { projectId?: string; assignedAgentId?: string } }>(
-    "/api/v1/tasks",
-    async (request, reply) => {
-      const { projectId, assignedAgentId } = request.query;
-      if (
-        (projectId !== undefined && typeof projectId !== "string") ||
-        (assignedAgentId !== undefined && typeof assignedAgentId !== "string")
-      ) {
-        return reply
-          .code(400)
-          .send({ error: "projectId and assignedAgentId take one value." });
-      }
-      return mapTaskErrors(reply, () =>
-        taskService.listTasks({
-          projectId: projectId || undefined,
-          assignedAgentId: assignedAgentId || undefined,
-        })
-      );
+  app.get<{
+    Querystring: {
+      projectId?: string;
+      assignedAgentId?: string;
+      archived?: string;
+    };
+  }>("/api/v1/tasks", async (request, reply) => {
+    const { projectId, assignedAgentId } = request.query;
+    if (
+      (projectId !== undefined && typeof projectId !== "string") ||
+      (assignedAgentId !== undefined && typeof assignedAgentId !== "string")
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "projectId and assignedAgentId take one value." });
     }
-  );
+    return mapTaskErrors(reply, () =>
+      taskService.listTasks({
+        archived: request.query.archived === "1",
+        projectId: projectId || undefined,
+        assignedAgentId: assignedAgentId || undefined,
+      })
+    );
+  });
 
   app.post("/api/v1/tasks", async (request, reply) => {
     let parsed;
@@ -202,6 +211,29 @@ export async function registerTaskRoutes(
         );
         return sendStoredFile(request, reply, file.path, file.mimeType);
       })
+  );
+
+  for (const action of ["archive", "restore"] as const) {
+    app.post<{ Params: { id: string } }>(
+      `/api/v1/tasks/:id/${action}`,
+      async (request, reply) =>
+        mapTaskErrors(reply, () =>
+          action === "archive"
+            ? taskService.archiveTask(request.params.id, USER)
+            : taskService.restoreTask(request.params.id, USER)
+        )
+    );
+  }
+  app.post<{ Params: { projectId: string; id: string } }>(
+    "/api/v1/projects/:projectId/task-columns/:id/archive-tasks",
+    async (request, reply) =>
+      mapTaskErrors(reply, () =>
+        taskService.archiveColumn(
+          request.params.projectId,
+          request.params.id,
+          USER
+        )
+      )
   );
 
   app.patch<{ Params: { id: string } }>(

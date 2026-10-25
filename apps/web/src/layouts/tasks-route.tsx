@@ -35,6 +35,7 @@ import {
   TASK_PANE_PARAM,
   orderedColumns,
   templateName,
+  taskAge,
   visibleTasks,
 } from "@/components/app/tasks/task-utils";
 import { useTemplates } from "@/hooks/use-templates";
@@ -45,7 +46,20 @@ function TasksContent({ projectId }: { projectId: string }) {
   const project = projects.find((item) => item.id === projectId);
   const [params, setParams] = useSearchParams();
   const { agents, isMobile, setMobileLeftOpen } = useDashboardContext();
-  const { data: board, isLoading, error } = useTaskBoard(projectId);
+  const archived = params.get("view") === "archived";
+  const {
+    data: activeBoard,
+    isLoading: activeLoading,
+    error: activeError,
+  } = useTaskBoard(projectId);
+  const {
+    data: archivedBoard,
+    isLoading: archivedLoading,
+    error: archivedError,
+  } = useTaskBoard(archived ? projectId : null, true);
+  const board = archived ? archivedBoard : activeBoard;
+  const isLoading = archived ? archivedLoading : activeLoading;
+  const error = archived ? archivedError : activeError;
   const actions = useTaskActions(projectId);
   const [savedLayout, setSavedLayout] = useAtom(
     taskLayoutAtomFamily(projectId)
@@ -78,7 +92,7 @@ function TasksContent({ projectId }: { projectId: string }) {
       ? needsAttention(task, attention)
       : task.assignedAgentId === assignee);
   const tasks = board
-    ? visibleTasks(board.tasks, columns).filter(
+    ? (archived ? board.tasks : visibleTasks(board.tasks, columns)).filter(
         (task) =>
           task.title.toLowerCase().includes(search.toLowerCase()) &&
           matchesAssignee(task)
@@ -174,7 +188,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             )}
             <span className="tabular-nums text-muted-foreground">
               {
-                board?.tasks.filter((task) => task.columnId === column.id)
+                activeBoard?.tasks.filter((task) => task.columnId === column.id)
                   .length
               }
             </span>
@@ -235,6 +249,18 @@ function TasksContent({ projectId }: { projectId: string }) {
               onClick={() => startNewTask()}
             >
               <Plus className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant={archived ? "default" : "ghost"}
+              className={cn(
+                archived &&
+                  "bg-primary/20 text-primary ring-1 ring-primary/40 hover:bg-primary/25"
+              )}
+              aria-pressed={archived}
+              onClick={() => updateParam("view", archived ? null : "archived")}
+            >
+              Archived
             </Button>
             <div className="flex shrink-0 rounded-lg bg-muted/50 p-0.5 md:order-last">
               <Button
@@ -303,7 +329,56 @@ function TasksContent({ projectId }: { projectId: string }) {
         )}
         {board && (
           <div className="min-h-0 flex-1">
-            {layout === "board" ? (
+            {archived ? (
+              <div className="h-full overflow-auto p-4">
+                <h2 className="mb-3 font-semibold">Archived tasks</h2>
+                {tasks.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No archived tasks.
+                  </p>
+                )}
+                {tasks
+                  .filter(
+                    (task) => !onlyColumn || task.columnId === onlyColumn.id
+                  )
+                  .map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center gap-3 border-b border-border/40 py-3"
+                    >
+                      <button
+                        className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+                        onClick={() => openTask(task.id)}
+                      >
+                        {task.title}
+                      </button>
+                      <span className="text-xs text-muted-foreground">
+                        {
+                          columns.find((column) => column.id === task.columnId)
+                            ?.name
+                        }
+                      </span>
+                      {task.archivedAt && (
+                        <time
+                          className="text-xs text-muted-foreground"
+                          dateTime={task.archivedAt}
+                          title={new Date(task.archivedAt).toLocaleString()}
+                        >
+                          Archived {taskAge(task.archivedAt)}
+                        </time>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="default"
+                        disabled={actions.restore.isPending}
+                        onClick={() => actions.restore.mutate(task.id)}
+                      >
+                        Restore
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            ) : layout === "board" ? (
               <TaskBoard
                 board={board}
                 tasks={tasks}
