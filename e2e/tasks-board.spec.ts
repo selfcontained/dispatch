@@ -687,3 +687,72 @@ test("mobile Tasks nav lands on the list with the sidebar closed", async ({
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Tasks header controls keep their geometry across view toggles", async ({
+  page,
+  request,
+}) => {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-tasks-header-"));
+  execFileSync("git", ["init", root]);
+  const projectResponse = await request.post("/api/v1/projects", {
+    headers,
+    data: {
+      name: "Tasks Header Geometry With A Rather Long Project Name E2E",
+      repoRoot: root,
+      color: "#7c6ee6",
+    },
+  });
+  expect(projectResponse.ok(), await projectResponse.text()).toBeTruthy();
+  const project = await projectResponse.json();
+  const controls = [
+    page.getByRole("button", { name: "Archived" }),
+    page.getByRole("button", { name: "Board layout" }),
+    page.getByRole("button", { name: "List layout" }),
+    page.getByRole("textbox", { name: "Search tasks" }),
+  ];
+  const boxes = () =>
+    Promise.all(
+      controls.map((control) =>
+        control.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return [r.x, r.y, r.width, r.height].map(Math.round);
+        })
+      )
+    );
+  try {
+    await loadApp(page);
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/tasks?project=${project.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await page.getByRole("button", { name: "Board layout" }).click();
+      await expect(
+        page.getByRole("button", { name: "Board layout" })
+      ).toHaveAttribute("aria-pressed", "true");
+      const baseline = await boxes();
+      await page.getByRole("button", { name: "List layout" }).click();
+      await expect(
+        page.getByRole("button", { name: "List layout" })
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(await boxes()).toEqual(baseline);
+      await page.getByRole("button", { name: "Archived" }).click();
+      await expect(page).toHaveURL(/view=archived/);
+      expect(await boxes()).toEqual(baseline);
+      await page.getByRole("button", { name: "Archived" }).click();
+      await expect(page).not.toHaveURL(/view=archived/);
+      expect(await boxes()).toEqual(baseline);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth
+        )
+      ).toBe(true);
+    }
+  } finally {
+    await request.delete(`/api/v1/projects/${project.id}`, { headers });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
