@@ -154,8 +154,11 @@ const KEY_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
 /** A board column as the briefing describes it, in board order. */
 export type BriefingColumn = Pick<TaskColumn, "key" | "name" | "isDone"> & {
-  /** The trigger's template name; null when entering it launches nothing. */
-  triggerName: string | null;
+  /**
+   * What entering it launches: the trigger's template name, or null when
+   * that template is gone (the trigger fails). Null when it has no trigger.
+   */
+  trigger: { templateName: string | null } | null;
 };
 
 /**
@@ -167,9 +170,11 @@ function columnsLine(columns: BriefingColumn[], currentKey: string): string {
     .map((column) => {
       const notes = [
         ...(column.key === currentKey ? ["you are here"] : []),
-        ...(column.triggerName !== null
-          ? [`launches "${column.triggerName}"`]
-          : []),
+        ...(column.trigger === null
+          ? []
+          : column.trigger.templateName === null
+            ? ["its trigger's template is missing, so nothing launches"]
+            : [`launches "${column.trigger.templateName}"`]),
         ...(column.isDone ? ["completes the task"] : []),
       ];
       return notes.length > 0
@@ -1073,7 +1078,7 @@ export class TaskService {
       await Promise.all(
         templateIds.map(
           async (id) =>
-            [id, (await this.deps.getTemplate(id))?.name ?? "an agent"] as const
+            [id, (await this.deps.getTemplate(id))?.name ?? null] as const
         )
       )
     );
@@ -1081,7 +1086,9 @@ export class TaskService {
       key: c.key,
       name: c.name,
       isDone: c.isDone,
-      triggerName: c.trigger ? (names.get(c.trigger.templateId) ?? null) : null,
+      trigger: c.trigger
+        ? { templateName: names.get(c.trigger.templateId) ?? null }
+        : null,
     }));
   }
 

@@ -612,15 +612,15 @@ describe("helpers", () => {
       project: { name: "P", repoRoot: "/r" },
       column: { key: "ready", name: "Ready" },
       columns: [
-        { key: "backlog", name: "Backlog", isDone: false, triggerName: null },
-        { key: "ready", name: "Ready", isDone: false, triggerName: null },
+        { key: "backlog", name: "Backlog", isDone: false, trigger: null },
+        { key: "ready", name: "Ready", isDone: false, trigger: null },
         {
           key: "in_review",
           name: "In review",
           isDone: false,
-          triggerName: "Code review",
+          trigger: { templateName: "Code review" },
         },
-        { key: "done", name: "Done", isDone: true, triggerName: null },
+        { key: "done", name: "Done", isDone: true, trigger: null },
       ],
     });
     expect(text).toContain("Task: tsk_1 — T\nProject: P (/r)\nColumn: Ready");
@@ -635,10 +635,24 @@ describe("helpers", () => {
         task: { id: "t", title: "T", body: "", links: [] },
         project: { name: "P", repoRoot: "/r" },
         column: { key: "c", name: "C" },
-        columns: [{ key: "c", name: "C", isDone: true, triggerName: "X" }],
+        columns: [
+          {
+            key: "c",
+            name: "C",
+            isDone: true,
+            trigger: { templateName: "X" },
+          },
+          {
+            key: "gone",
+            name: "Gone",
+            isDone: false,
+            trigger: { templateName: null },
+          },
+        ],
       })
     ).toContain(
-      'Links: none\n\n(no description)\n\nColumns: c (you are here; launches "X"; completes the task)'
+      'Links: none\n\n(no description)\n\nColumns: c (you are here; launches "X"; completes the task) → ' +
+        "gone (its trigger's template is missing, so nothing launches)"
     );
   });
 
@@ -1085,6 +1099,14 @@ describe("agents created for a task", () => {
     expect(briefing.text).toContain(task.id);
     expect(briefing.text).toContain(
       'Columns: backlog (you are here) → ready → in_progress → in_review (launches "Builder") → done (completes the task)'
+    );
+    // A deleted template leaves its id in the trigger; the move would fail.
+    await pool.query(
+      `UPDATE task_columns SET trigger = jsonb_set(trigger, '{templateId}', '"tpl_deleted"') WHERE id = $1`,
+      [await columnId("in_review")]
+    );
+    expect((await service.briefingFor(task.id)).text).toContain(
+      "in_review (its trigger's template is missing, so nothing launches)"
     );
     expect(briefing.text).toContain("Do the thing.");
     posts = [];
