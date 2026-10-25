@@ -94,29 +94,8 @@ export function useAgentActivity(
       kind: "turn" as const,
     };
   }
-  if (activeChild && childStep) {
-    return {
-      label: childStep,
-      // A parent waiting on someone or blocked still needs attention while
-      // its child works; otherwise the child's work makes it read as working.
-      tone:
-        agent.activity === "waiting" || agent.activity === "blocked"
-          ? agent.activity
-          : ("working" as const),
-      glyph: "turn" as const,
-      sourceAgent: activeChild,
-      kind: "turn" as const,
-    };
-  }
-  if (schedule) {
-    return {
-      label: `Next ${sidebarScheduleTime(schedule.nextDueAt, today)}`,
-      tone: "idle" as const,
-      glyph: "clock" as const,
-      sourceAgent: agent,
-      kind: "schedule" as const,
-    };
-  }
+  // The agent's own state, which a stand-in line (a child's step, the next
+  // schedule) does not override when it needs attention or has stopped.
   const tone: AgentActivityTone = agent.currentTurn
     ? "working"
     : agent.activity === "starting"
@@ -130,6 +109,25 @@ export function useAgentActivity(
             : agent.activity === "idle"
               ? "idle"
               : "stopped";
+  const needsAttention = tone === "waiting" || tone === "blocked";
+  if (activeChild && childStep) {
+    return {
+      label: childStep,
+      tone: needsAttention ? tone : ("working" as const),
+      glyph: "turn" as const,
+      sourceAgent: activeChild,
+      kind: "turn" as const,
+    };
+  }
+  if (schedule) {
+    return {
+      label: `Next ${sidebarScheduleTime(schedule.nextDueAt, today)}`,
+      tone: needsAttention || tone === "stopped" ? tone : ("idle" as const),
+      glyph: "clock" as const,
+      sourceAgent: agent,
+      kind: "schedule" as const,
+    };
+  }
   return {
     label: null,
     tone,
@@ -141,3 +139,5 @@ export function useAgentActivity(
     kind: "state" as const,
   };
 }
+
+export type AgentActivity = ReturnType<typeof useAgentActivity>;
