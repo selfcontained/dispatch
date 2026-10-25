@@ -71,6 +71,7 @@ it("keeps an unsaved description open when cached task fields change", async () 
     updatedAt: "2026-01-01T00:00:00Z",
     agents: [],
     events: [],
+    attachments: [],
   };
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },

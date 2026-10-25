@@ -1,3 +1,6 @@
+import { ContextPicker } from "../context-picker";
+import { useStartupAttachments } from "../use-startup-attachments";
+import { getClipboardFilesFromEvent } from "../create-agent-dialog-clipboard";
 import { useEffect, useRef, useState } from "react";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
@@ -52,6 +55,7 @@ export function TaskCreateDialog({
   onCreated: (task: Task) => void;
 }) {
   const actions = useTaskActions(projectId);
+  const context = useStartupAttachments();
   const formRef = useRef<HTMLFormElement>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -63,6 +67,7 @@ export function TaskCreateDialog({
   const [created, setCreated] = useState<Task | null>(null);
   useEffect(() => {
     if (!open) return;
+    context.resetAttachments();
     setTitle("");
     setBody("");
     setColumn(columnId ?? columns[0]?.id ?? "");
@@ -84,6 +89,12 @@ export function TaskCreateDialog({
       task ??= await actions.create.mutateAsync({
         projectId,
         title: title.trim(),
+        ...(context.startupFiles.length
+          ? { startupFiles: context.startupFiles }
+          : {}),
+        ...(context.startupLinks.length
+          ? { startupLinks: context.startupLinks }
+          : {}),
         ...(body.trim() ? { body } : {}),
         ...(column ? { columnId: column } : {}),
       });
@@ -117,6 +128,17 @@ export function TaskCreateDialog({
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            context.setDraggingFiles(true);
+          }
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node))
+            context.setDraggingFiles(false);
+        }}
+        onDrop={context.handleStartupDrop}
         data-testid="task-create-dialog"
         className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-[max(1rem,env(safe-area-inset-top))]`}
       >
@@ -129,6 +151,20 @@ export function TaskCreateDialog({
         <form
           ref={formRef}
           className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+          onPaste={(event) => {
+            // ContextPicker owns paste inside its own subtree.
+            if (
+              (event.target as HTMLElement).closest(
+                '[data-testid="task-context"]'
+              )
+            )
+              return;
+            const files = getClipboardFilesFromEvent(event);
+            if (files.length) {
+              event.preventDefault();
+              context.appendStartupFiles(files);
+            }
+          }}
           onSubmit={(event) => {
             event.preventDefault();
             void save();
@@ -165,6 +201,18 @@ export function TaskCreateDialog({
               }}
             />
           </div>
+          <ContextPicker
+            error={context.attachmentError}
+            files={context.startupFiles}
+            links={context.startupLinks}
+            draggingFiles={context.draggingFiles}
+            filePreviewsRef={context.startupFilePreviewsRef}
+            onAppendFiles={context.appendStartupFiles}
+            onRemoveFile={context.handleRemoveStartupFile}
+            onAddLink={context.handleAddLink}
+            onRemoveLink={context.handleRemoveStartupLink}
+            testIdPrefix="task-context"
+          />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label className={LABEL} htmlFor="task-create-column">

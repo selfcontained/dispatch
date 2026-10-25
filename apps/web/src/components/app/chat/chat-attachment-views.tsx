@@ -162,16 +162,18 @@ function extensionOf(fileName: string): string | null {
   return match ? match[1]!.toLowerCase() : null;
 }
 
-function FileAttachment({
+export function FileAttachment({
   attachment,
   ownerAgentId,
+  url: contentUrl,
   ctx,
 }: {
   attachment: ChatFileAttachment;
   ownerAgentId: string;
   ctx: AttachmentCtx;
+  url?: string;
 }): JSX.Element {
-  const url = fileUrl(ownerAgentId, attachment.fileName);
+  const url = contentUrl ?? fileUrl(ownerAgentId, attachment.fileName);
   const open = () => {
     if (attachment.media === "image") {
       ctx.onOpenFile(attachment.fileId, undefined, {

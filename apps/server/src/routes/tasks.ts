@@ -1,3 +1,9 @@
+import {
+  parseCreateAgentRequest,
+  parseOptionalStringArrayField,
+  validateStartupLinks,
+} from "./agent-startup.js";
+import { sendStoredFile } from "../files/send-file.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import * as z from "zod/v4";
 
@@ -149,15 +155,53 @@ export async function registerTaskRoutes(
   );
 
   app.post("/api/v1/tasks", async (request, reply) => {
-    const input = parseInput(CreateTaskSchema, request.body, reply);
+    let parsed;
+    let links: string[];
+    try {
+      parsed = await parseCreateAgentRequest<Record<string, unknown>>(request);
+      links = validateStartupLinks(
+        parseOptionalStringArrayField(
+          parsed.body.startupLinks,
+          "startupLinks",
+          parsed.isMultipart
+        ) ?? []
+      );
+      if (parsed.isMultipart && parsed.body.position !== undefined)
+        parsed.body.position = Number(parsed.body.position);
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    const input = parseInput(CreateTaskSchema, parsed.body, reply);
     if (!input) return reply;
-    return mapTaskErrors(reply, () => taskService.createTask(input, USER));
+    return mapTaskErrors(reply, () =>
+      taskService.createTask(input, USER, {
+        startupFiles: parsed.startupFiles,
+        startupLinks: links,
+      })
+    );
   });
 
   app.get<{ Params: { id: string } }>(
     "/api/v1/tasks/:id",
     async (request, reply) =>
       mapTaskErrors(reply, () => taskService.getTaskDetail(request.params.id))
+  );
+
+  app.get<{ Params: { id: string; attachmentId: string } }>(
+    "/api/v1/tasks/:id/attachments/:attachmentId",
+    async (request, reply) =>
+      mapTaskErrors(reply, async () => {
+        const attachmentId = Number(request.params.attachmentId);
+        if (!Number.isSafeInteger(attachmentId) || attachmentId <= 0)
+          return reply.code(400).send({ error: "Invalid attachment id." });
+        const file = await taskService.attachmentFile(
+          request.params.id,
+          attachmentId
+        );
+        return sendStoredFile(request, reply, file.path, file.mimeType);
+      })
   );
 
   app.patch<{ Params: { id: string } }>(

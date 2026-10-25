@@ -89,3 +89,28 @@ Every write publishes `{ type: "task.changed", projectId, taskId? }` on the SSE 
 | DELETE | `/api/v1/tasks/:id/agents/:agentId`         | Take an agent off the task: the task's posts still queued at it are taken back first (409 `delivery_in_flight` if one is mid-handover), it is unassigned if current, leaves `task_agents`, and can no longer post in the conversation — not even in reply to blocks addressed to it; `TaskDetail` |
 
 Errors are `{ error, code? }`: 400 for invalid input, 404 for an unknown project/task/column, 409 for `agent_working`, `column_not_empty` and `column_key_taken`.
+
+### Context at creation
+
+The task create dialog accepts files by drag and drop, paste, or file picker, and
+HTTP(S) links through its shared context picker. Remove a thumbnail or link chip
+before submitting to leave it out. Context cannot be uploaded after creation.
+
+`POST /api/v1/tasks` accepts the existing JSON body or `multipart/form-data` with
+plain `projectId`, `title`, optional `body`, `columnId`, and `position` fields.
+Each file uses a repeated `startupFiles` part; `startupLinks` is a JSON string
+array, for example `["https://example.com/spec"]`. Limits match agent creation:
+10 files, 20 MiB per file, 20 links, and 2,000 characters per link. File types are
+validated from their bytes. Links must be absolute HTTP(S) URLs and are deduped
+into `task.links` as `{ kind: "url", url, label: url }`. Validation precedes task
+creation; attachment storage failure removes the new task and its files.
+
+Task detail (`GET /api/v1/tasks/:id` and MCP `task_get`) includes `attachments`:
+`{ id: number, name: string, mimeType: string, size: number, url: string }[]`.
+Board/list rows stay thin. Attachment URLs use
+`GET /api/v1/tasks/:id/attachments/:attachmentId`, with byte ranges and the same
+sandbox headers as agent files. The drawer and modal show attachment previews
+and open the shared lightbox. Agent briefings include names, MIME types and
+absolute disk paths alongside task links. Files live under
+`<filesRoot>/tasks/<taskId>/`; deleting a task cascades attachment rows and
+removes that directory. MCP `task_create` does not upload files.

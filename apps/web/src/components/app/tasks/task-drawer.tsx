@@ -1,3 +1,4 @@
+import { TaskAttachments } from "./task-attachments";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -317,6 +318,15 @@ export function TaskDetailPanel({
                 </button>
               )}
             </DrawerSection>
+            {!!task.attachments?.length && (
+              <DrawerSection label="Attachments">
+                <TaskAttachments
+                  key={task.id}
+                  attachments={task.attachments}
+                  updatedAt={task.updatedAt}
+                />
+              </DrawerSection>
+            )}
             <DrawerSection
               label="Links"
               action={

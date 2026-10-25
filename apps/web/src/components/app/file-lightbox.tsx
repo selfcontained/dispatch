@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 type FileLightboxProps = {
   fileId: number | null;
+  /** Task-owned files supply their metadata directly, outside the agent file registry. */
+  files?: FileItem[];
   /** Post-specific image caption; empty means use its filename, not registry metadata. */
   attachmentCaption?: string;
   fileIds: number[];
@@ -42,6 +44,7 @@ export { FileActions } from "@/components/app/file-lightbox-actions";
 
 export function FileLightbox({
   fileId,
+  files,
   attachmentCaption,
   fileIds,
   fileIndex,
@@ -49,16 +52,17 @@ export function FileLightbox({
 }: FileLightboxProps): JSX.Element | null {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const {
-    data: file,
+    data: queriedFile,
     error,
     isFetching,
     refetch,
   } = useQuery({
     queryKey: fileItemQueryKey(fileId ?? 0),
     queryFn: () => fetchFileItem(fileId as number),
-    enabled: fileId !== null,
+    enabled: fileId !== null && files === undefined,
     staleTime: 0,
   });
+  const file = files ? files.find((item) => item.id === fileId) : queriedFile;
   const currentIndex =
     fileId === null ? -1 : (fileIndex ?? fileIds.indexOf(fileId));
   const totalItems = fileIds.length;
@@ -124,7 +128,7 @@ export function FileLightbox({
     }
   }, [file, fileId, fileNotFound]);
 
-  if (fileId === null || fileNotFound) return null;
+  if (fileId === null || (!files && fileNotFound)) return null;
 
   const src = file ? `${file.url}?t=${encodeURIComponent(file.updatedAt)}` : "";
   const displayName = file ? stripTimestamp(file.name) : "";

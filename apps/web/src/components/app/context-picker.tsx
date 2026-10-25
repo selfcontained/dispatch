@@ -142,6 +142,7 @@ function AddContextLinkForm({
 }
 
 export type ContextPickerProps = {
+  error?: string | null;
   files: File[];
   links: string[];
   draggingFiles: boolean;
@@ -158,6 +159,7 @@ export type ContextPickerProps = {
 };
 
 export function ContextPicker({
+  error,
   files,
   links,
   draggingFiles,
@@ -333,6 +335,11 @@ export function ContextPicker({
           </Button>
         )}
       </div>
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
       {clipboard.readFeedback ? (
         <p
           className="text-xs text-muted-foreground"

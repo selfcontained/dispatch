@@ -9,6 +9,7 @@ import {
 import { startupFileKey } from "@/components/app/create-agent-dialog-clipboard";
 
 export function useStartupAttachments() {
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [startupFiles, setStartupFiles] = useState<File[]>([]);
   const [startupLinks, setStartupLinks] = useState<string[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
@@ -22,6 +23,10 @@ export function useStartupAttachments() {
       for (const file of files) {
         const key = startupFileKey(file);
         if (seen.has(key)) continue;
+        if (next.length >= 10) {
+          setAttachmentError("A maximum of 10 startup files is allowed.");
+          break;
+        }
         seen.add(key);
         next.push(file);
         if (
@@ -48,6 +53,7 @@ export function useStartupAttachments() {
       URL.revokeObjectURL(url);
       startupFilePreviewsRef.current.delete(key);
     }
+    setAttachmentError(null);
     setStartupFiles((current) =>
       current.filter((file) => startupFileKey(file) !== key)
     );
@@ -80,7 +86,19 @@ export function useStartupAttachments() {
     };
   }, []);
 
+  const resetAttachments = useCallback(() => {
+    for (const url of startupFilePreviewsRef.current.values())
+      URL.revokeObjectURL(url);
+    startupFilePreviewsRef.current.clear();
+    setStartupFiles([]);
+    setStartupLinks([]);
+    setDraggingFiles(false);
+    setAttachmentError(null);
+  }, []);
+
   return {
+    attachmentError,
+    resetAttachments,
     startupFiles,
     startupLinks,
     draggingFiles,

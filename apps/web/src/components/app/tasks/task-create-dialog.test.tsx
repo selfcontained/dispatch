@@ -189,3 +189,69 @@ it("lands on the created task when closed after a failed assignment", async () =
   expect(onCreated).toHaveBeenCalledWith({ id: "tsk_new" });
   expect(create).toHaveBeenCalledTimes(1);
 });
+
+it("adds and removes files and links before creating with context", async () => {
+  renderDialog();
+  const file = new File(["context"], "context.txt", { type: "text/plain" });
+  const input = screen.getByTestId("task-context-files-input");
+  fireEvent.change(input, { target: { files: [file] } });
+  expect(screen.getByTestId("context-file-item")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Remove context.txt" }));
+  expect(screen.queryByTestId("context-file-item")).toBeNull();
+  fireEvent.change(input, { target: { files: [file] } });
+  const addLink = async () => {
+    fireEvent.click(screen.getByTestId("task-context-files-button"));
+    fireEvent.click(screen.getByRole("button", { name: "Add link" }));
+    fireEvent.change(screen.getByLabelText("Link URL"), {
+      target: { value: "https://example.com/context" },
+    });
+    fireEvent.click(screen.getByTestId("task-context-link-add"));
+  };
+  await addLink();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove https://example.com/context" })
+  );
+  expect(
+    screen.queryByRole("button", { name: "Remove https://example.com/context" })
+  ).toBeNull();
+  await addLink();
+  fireEvent.change(screen.getByLabelText("Title"), {
+    target: { value: "Context task" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+  await waitFor(() =>
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startupFiles: [file],
+        startupLinks: ["https://example.com/context"],
+      })
+    )
+  );
+});
+
+it("accepts pasted and dropped files and reports the shared file limit", () => {
+  renderDialog();
+  const pasted = new File(["pasted"], "pasted.txt", { type: "text/plain" });
+  fireEvent.paste(screen.getByLabelText("Title"), {
+    clipboardData: {
+      files: [pasted],
+      items: [{ kind: "file", getAsFile: () => pasted }],
+      getData: () => "",
+    },
+  });
+  expect(
+    screen.getByRole("button", { name: "Remove pasted.txt" })
+  ).toBeTruthy();
+  const files = Array.from(
+    { length: 10 },
+    (_, index) =>
+      new File([String(index)], `dropped-${index}.txt`, { type: "text/plain" })
+  );
+  fireEvent.drop(screen.getByTestId("task-create-dialog"), {
+    dataTransfer: { files },
+  });
+  expect(screen.getAllByTestId("context-file-item")).toHaveLength(10);
+  expect(screen.getByRole("alert").textContent).toContain("maximum of 10");
+  fireEvent.click(screen.getByRole("button", { name: "Remove pasted.txt" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+});

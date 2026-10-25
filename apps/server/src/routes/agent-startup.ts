@@ -145,25 +145,25 @@ function sanitizeStartupDisplayName(
   return normalized.slice(0, MAX_STARTUP_FILE_NAME_LENGTH);
 }
 
-export async function parseCreateAgentRequest(request: {
+export async function parseCreateAgentRequest<T = CreateAgentBody>(request: {
   body?: unknown;
   isMultipart: () => boolean;
   parts: () => AsyncIterable<unknown>;
 }): Promise<{
-  body: CreateAgentBody;
+  body: T;
   startupFiles: StartupFileUpload[];
   isMultipart: boolean;
 }> {
   const multipart = request.isMultipart();
   if (!multipart) {
     return {
-      body: (request.body as CreateAgentBody | undefined) ?? {},
+      body: (request.body ?? {}) as T,
       startupFiles: [],
       isMultipart: false,
     };
   }
 
-  const body: CreateAgentBody = {};
+  const body = {} as T;
   const startupFiles: StartupFileUpload[] = [];
 
   for await (const rawPart of request.parts()) {
@@ -202,7 +202,7 @@ export async function parseCreateAgentRequest(request: {
       continue;
     }
 
-    body[part.fieldname as keyof CreateAgentBody] = part.value;
+    body[part.fieldname as keyof T] = part.value as T[keyof T];
   }
 
   return { body, startupFiles, isMultipart: true };
