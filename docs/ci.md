@@ -82,3 +82,5 @@ Docs-only runs hold a runner for about a minute instead of about nine (macOS)
 or thirteen (Linux). Cancelling superseded runs frees the runner as soon as a
 pull request moves on. Both reduce the queue that causes the long waits; neither
 changes what a code change runs.
+
+The docs fast path is verified by a PR that changes only this file.
