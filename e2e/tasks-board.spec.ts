@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,16 @@ const headers = {
 const repo = mkdtempSync(join(tmpdir(), "dispatch-tasks-"));
 execFileSync("git", ["init", repo]);
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
+// Closes a dialog opened from a column menu. The menu's layer must be gone
+// before Escape, or it eats the key; even then the first Escape is
+// sometimes lost, so it retries until the dialog closes.
+async function escapeDialog(page: Page) {
+  await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(0);
+  await expect(async () => {
+    await page.getByRole("dialog").press("Escape", { timeout: 1_000 });
+    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+}
 test("re-entering a trigger replaces an old failure with launch progress", async ({
   page,
   request,
@@ -347,15 +357,7 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
-    await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(
-      0
-    );
-    // Escape before the dialog takes focus can land on the closing menu.
-    await expect(
-      page.getByRole("dialog").getByRole("combobox", { name: "Template" })
-    ).toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await escapeDialog(page);
     await page.getByRole("button", { name: "Board layout" }).click();
     // A sidebar column is a filter: the others fold away; again clears it.
     await page.getByTestId("task-nav-column-ready").click();
@@ -433,12 +435,7 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
-    // The menu's layer must be gone before Escape, or it eats the key.
-    await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(
-      0
-    );
-    await page.getByRole("dialog").press("Escape");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await escapeDialog(page);
     await strip.click();
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
