@@ -49,6 +49,79 @@ function setup() {
   );
 }
 describe("PluginUpdateSettings", () => {
+  it.each([
+    {
+      agentType: "claude" as const,
+      installed: false,
+      commands: [
+        "claude plugin marketplace add selfcontained/dispatch",
+        "claude plugin marketplace update dispatch",
+        "claude plugin install dispatch@dispatch",
+      ],
+    },
+    {
+      agentType: "claude" as const,
+      installed: true,
+      commands: [
+        "claude plugin marketplace update dispatch",
+        "claude plugin update dispatch@dispatch",
+      ],
+    },
+    {
+      agentType: "codex" as const,
+      installed: false,
+      commands: [
+        "codex plugin marketplace add selfcontained/dispatch",
+        "codex plugin marketplace upgrade dispatch",
+        "codex plugin add dispatch@dispatch",
+      ],
+    },
+    {
+      agentType: "codex" as const,
+      installed: true,
+      commands: [
+        "codex plugin marketplace upgrade dispatch",
+        "codex plugin add dispatch@dispatch",
+      ],
+    },
+  ])(
+    "reveals $agentType commands when installed=$installed",
+    async ({ agentType, installed, commands }) => {
+      apiMock.mockResolvedValueOnce({
+        statuses: [fixture({ agentType, installed })],
+      });
+      setup();
+      const toggle = await screen.findByRole("button", {
+        name: "Manual commands",
+      });
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      for (const command of commands) {
+        expect(screen.queryByText(command)).toBeNull();
+      }
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      for (const command of commands) {
+        expect(screen.getByText(command)).toBeTruthy();
+        expect(
+          screen.getByRole("button", { name: `Copy ${command}` })
+        ).toBeTruthy();
+      }
+      expect(
+        screen.getAllByRole("listitem").map((item) => item.textContent)
+      ).toEqual(commands);
+      expect(
+        screen.queryByText(
+          "Skip step 1 if the dispatch marketplace is already added."
+        ) !== null
+      ).toBe(!installed);
+      expect(
+        screen.getByText("Then start a fresh agent session.")
+      ).toBeTruthy();
+      fireEvent.click(toggle);
+      expect(screen.queryByText(commands[0])).toBeNull();
+    }
+  );
+
   it("keeps installed versions visible when current or disabled", async () => {
     apiMock.mockResolvedValueOnce({
       statuses: [fixture(), fixture({ agentType: "codex", enabled: false })],
@@ -107,6 +180,10 @@ describe("PluginUpdateSettings", () => {
     expect(
       screen.queryByRole("button", { name: "Install Claude Code plugin" })
     ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Manual commands" }));
+    expect(
+      screen.getByText("claude plugin marketplace add selfcontained/dispatch")
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     expect(await screen.findByText("Up to date")).toBeTruthy();
     expect(apiMock).toHaveBeenCalledWith("/api/v1/plugin/status?refresh=true");
@@ -128,5 +205,12 @@ describe("PluginUpdateSettings", () => {
         "Failed to register"
       )
     );
+    expect(
+      screen.queryByText("claude plugin marketplace add selfcontained/dispatch")
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run it manually" }));
+    expect(
+      screen.getByText("claude plugin marketplace add selfcontained/dispatch")
+    ).toBeTruthy();
   });
 });

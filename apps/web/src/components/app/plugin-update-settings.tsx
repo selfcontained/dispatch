@@ -1,7 +1,15 @@
-import { Download, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Download, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { CopyIconButton } from "@/components/ui/copy-button";
+import { useCopyText } from "@/hooks/use-copy";
 import {
   AGENT_TYPE_LABELS,
   usePluginStatus,
@@ -10,10 +18,56 @@ import {
   type PluginStatus,
 } from "@/hooks/use-plugin-status";
 
+const MANUAL_COMMANDS = {
+  claude: {
+    install: [
+      "claude plugin marketplace add selfcontained/dispatch",
+      "claude plugin marketplace update dispatch",
+      "claude plugin install dispatch@dispatch",
+    ],
+    update: [
+      "claude plugin marketplace update dispatch",
+      "claude plugin update dispatch@dispatch",
+    ],
+  },
+  codex: {
+    install: [
+      "codex plugin marketplace add selfcontained/dispatch",
+      "codex plugin marketplace upgrade dispatch",
+      "codex plugin add dispatch@dispatch",
+    ],
+    update: [
+      "codex plugin marketplace upgrade dispatch",
+      "codex plugin add dispatch@dispatch",
+    ],
+  },
+} as const;
+
+function ManualCommand({ command }: { command: string }): JSX.Element {
+  const [copied, copyText] = useCopyText();
+  return (
+    <li className="pl-1 marker:text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-1 rounded bg-muted/50 py-1 pl-2 pr-1">
+        <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+          {command}
+        </code>
+        <CopyIconButton
+          copied={copied}
+          onCopy={() => copyText(command)}
+          label={`Copy ${command}`}
+          className="shrink-0"
+        />
+      </div>
+    </li>
+  );
+}
+
 function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
+  const [manualOpen, setManualOpen] = useState(false);
   const action = status.installed ? "update" : "install";
   const { mutate, isPending, error } = useUpdatePlugin(action);
   const label = AGENT_TYPE_LABELS[status.agentType];
+  const manualCommands = MANUAL_COMMANDS[status.agentType][action];
   const canAct =
     !status.detectionError && (!status.installed || status.updateAvailable);
   const state = status.detectionError
@@ -91,9 +145,49 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
           role="alert"
           className="mt-2 whitespace-pre-line text-xs text-destructive"
         >
-          {error.message}
+          {error.message}{" "}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto p-0 text-xs text-destructive underline"
+            onClick={() => setManualOpen(true)}
+          >
+            Run it manually
+          </Button>
         </p>
       ) : null}
+      <Collapsible open={manualOpen} onOpenChange={setManualOpen}>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="group mt-2 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown className="mr-1 h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
+            Manual commands
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-1 min-w-0 space-y-2">
+          <ol
+            className="list-decimal space-y-1.5 pl-4 text-xs"
+            aria-label={`${label} manual commands`}
+          >
+            {manualCommands.map((command) => (
+              <ManualCommand key={command} command={command} />
+            ))}
+          </ol>
+          {action === "install" ? (
+            <p className="text-xs text-muted-foreground">
+              Skip step 1 if the dispatch marketplace is already added.
+            </p>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Then start a fresh agent session.
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
