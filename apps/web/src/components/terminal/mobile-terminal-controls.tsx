@@ -7,7 +7,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -34,7 +33,7 @@ export function MobileTerminalControls({
   };
   const sendKey = (data: string) => sendInput(data, target.id);
   const submit = () => {
-    if (draft && sendInput(draft + SUBMIT_SUFFIX, target.id, false)) close();
+    if (!draft || sendInput(draft + SUBMIT_SUFFIX, target.id, false)) close();
   };
   return (
     <Dialog
@@ -44,23 +43,24 @@ export function MobileTerminalControls({
         else close();
       }}
     >
-      <div className="border-t-2 border-border bg-surface px-2 py-2 md:hidden">
+      <div className="relative border-t-2 border-border bg-surface px-2 py-2 md:hidden">
         <div className="flex min-h-[4.5rem] items-stretch gap-2">
           <div className="min-w-0 flex-1">
-            <Button
-              type="button"
-              size="sm"
-              variant="default"
-              className="h-full w-full px-2 text-xs"
-              aria-label="Send Enter"
-              onClick={() => sendKey("\r")}
-            >
-              Enter
-            </Button>
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-full w-full rounded-bl-[28px] px-2 text-xs"
+                aria-label="Open text input"
+              >
+                <Keyboard className="h-5 w-5" strokeWidth={2} />
+              </Button>
+            </DialogTrigger>
           </div>
 
-          <div className="flex shrink-0 flex-col items-center justify-center gap-2">
-            <div className="flex justify-center gap-2">
+          <div className="flex shrink-0 flex-col items-stretch justify-center gap-2">
+            <div className="flex w-full justify-between">
               <Button
                 type="button"
                 size="sm"
@@ -145,65 +145,64 @@ export function MobileTerminalControls({
           </div>
 
           <div className="min-w-0 flex-1">
-            <DialogTrigger asChild>
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                className="h-full w-full px-2 text-xs"
-                aria-label="Open text input"
-              >
-                <Keyboard className="h-5 w-5" strokeWidth={2} />
-              </Button>
-            </DialogTrigger>
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              className="h-full w-full rounded-br-[28px] px-2 text-xs"
+              aria-label="Send Enter"
+              onClick={() => sendKey("\r")}
+            >
+              Enter
+            </Button>
           </div>
         </div>
       </div>
 
       <DialogContent
-        className="h-dvh max-h-dvh w-full rounded-none md:h-auto md:max-h-[80vh] md:w-[min(560px,calc(100vw-2rem))] md:rounded-xl"
+        className="fixed inset-0 left-0 top-0 h-dvh max-h-none w-full translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-background/95 p-0 shadow-none backdrop-blur-sm"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           textarea.current?.focus();
         }}
       >
-        <DialogHeader>
-          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b border-border pb-3">
-            <Button
-              type="button"
-              className="h-11 min-w-[4.5rem]"
-              onClick={close}
-            >
-              Cancel
-            </Button>
-            <DialogTitle className="text-center text-sm font-medium">
-              Terminal input
-            </DialogTitle>
-            <Button
-              type="button"
-              variant="primary"
-              className="h-11 min-w-[4.5rem]"
-              onClick={submit}
-            >
-              Submit
-            </Button>
-          </div>
-          <DialogDescription className="[overflow-wrap:anywhere]">
-            {target.user}@{target.host} · {target.cwd} ·{" "}
-            <span className="whitespace-nowrap">{target.id.slice(0, 8)}</span>
-          </DialogDescription>
-        </DialogHeader>
-        <Textarea
-          ref={textarea}
-          aria-label="Terminal input text"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          className="min-h-0 flex-1 resize-none font-mono text-base md:min-h-64"
-          autoFocus
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-        />
+        <DialogTitle className="sr-only">Terminal input</DialogTitle>
+        <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-11 shrink-0 px-3 text-sm"
+            onClick={close}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className="h-11 px-4 text-sm font-medium"
+            onClick={submit}
+          >
+            Submit
+          </Button>
+        </div>
+        <DialogDescription className="px-4 pt-3 text-xs [overflow-wrap:anywhere]">
+          {target.user}@{target.host} · {target.cwd} ·{" "}
+          <span className="whitespace-nowrap">{target.id.slice(0, 8)}</span>
+        </DialogDescription>
+        <div className="min-h-0 flex-1 p-4">
+          <Textarea
+            ref={textarea}
+            aria-label="Terminal input text"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            className="h-full min-h-0 w-full resize-none rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] p-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus-visible:ring-1 focus-visible:ring-primary"
+            placeholder="Type command here..."
+            autoFocus
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+        </div>
       </DialogContent>
     </Dialog>
   );

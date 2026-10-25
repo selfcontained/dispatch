@@ -759,6 +759,9 @@ describe("mobile terminal input", () => {
     const socket = await connectedPanel();
     fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(inputPayloads(socket)).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Open text input" }));
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "discard" },
     });

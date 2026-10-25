@@ -103,7 +103,11 @@ test("mobile terminal pastes exact text and sends shortcuts over its socket", as
     await expect.poll(() => inputs).toEqual([command + "\r", "\r"]);
     await panel.getByRole("button", { name: "Open text input" }).click();
     await expect(textarea).toHaveValue("");
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Terminal input" })
+    ).toBeHidden();
+    await expect.poll(() => inputs).toEqual([command + "\r", "\r"]);
     await page.screenshot({
       path: join(screenshots, "mobile-terminal-sent.png"),
     });
