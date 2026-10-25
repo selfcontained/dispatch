@@ -2,9 +2,9 @@
 
 Skills that teach agents how to use Dispatch's own capabilities. Install it in
 Claude Code or Codex and agents get shared memory, subagent orchestration, repo
-tools, artifact sharing, the review workflow, UI validation, personas, jobs,
-templates, personalities, and how to reach the user as discoverable skills
-instead of tribal knowledge.
+tools, task boards, artifact sharing, the review workflow, UI validation,
+personas, jobs, templates, personalities, and how to reach the user as
+discoverable skills instead of tribal knowledge.
 
 ## Install
 
@@ -43,22 +43,32 @@ opens the same thing as a browser.
 
 ## Updating
 
-**Claude Code** — `claude plugin update dispatch@dispatch` (or
-`/plugin marketplace update dispatch` to refresh the catalog first).
+**Claude Code** — refresh the catalog with
+`claude plugin marketplace update dispatch`, then run
+`claude plugin update dispatch@dispatch` (or use the equivalent `/plugin`
+commands in a session).
 
 Auto-update is **off by default** for third-party marketplaces like this one.
 Turn it on per-marketplace in `/plugin` → Marketplaces if you want updates
 picked up in the background.
 
-**Codex** — there is no update subcommand. Re-run
-`codex plugin add dispatch@dispatch` to upgrade; it replaces the cached copy.
-`codex plugin marketplace upgrade` only refreshes the catalog snapshot, not the
-installed plugin, and `codex plugin list` will not tell you a newer version
-exists.
+**Codex** — there is no update subcommand. Run
+`codex plugin marketplace upgrade` first, then re-run
+`codex plugin add dispatch@dispatch`. The upgrade refreshes the catalog
+snapshot; `plugin add` installs from it. `codex plugin list` will not tell you
+a newer version exists.
 
 The plugin carries an explicit `version` in its manifests, so updates only ship
 when that version is bumped — routine commits to `main` do not register as a
 plugin update.
+
+## Publishing a new version
+
+Bump both plugin manifests to the same semver. The Claude Code and Codex
+marketplaces source the GitHub repo's default branch (`selfcontained/dispatch`,
+`./plugins/dispatch`), so the version is published when it merges to `main`.
+Users pick it up with the Updating commands above. The Dispatch app version is
+separate and is not bumped for a plugin release.
 
 ## Source and installed guidance
 
@@ -104,6 +114,7 @@ The rest of the tree is documentation: `skills/` (the skill bodies agents load),
 | Skill             | Fires when                                                    |
 | ----------------- | ------------------------------------------------------------- |
 | `brain`           | Something needs to outlive the session or reach another agent |
+| `tasks`           | A project's task board needs creating, moving, or updating    |
 | `subagents`       | Work should be delegated, or another agent needs coordinating |
 | `repo-tools`      | A repo script should become a first-class tool                |
 | `communicate`     | Something needs to reach the user and the channel is unchosen |
@@ -125,7 +136,7 @@ labels ("artifact sharing API"): an agent that does not know a capability exists
 will never match its name, but will match a description of the situation it is
 currently in.
 
-**Narrow skills, not mega-skills.** Eleven narrow skills cost eleven short
+**Narrow skills, not mega-skills.** Twelve narrow skills cost twelve short
 descriptions always-on and load exactly one body on a match. Folding them into
 three broad skills would load four unrelated bodies every time one of them fired.
 The binding budget is total description bytes, not skill count.
