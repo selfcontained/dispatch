@@ -10,7 +10,17 @@ on:
     # extra full runs are cheap.
     types: [opened, synchronize, reopened, edited]
 
+# One run per PR: a push or description edit cancels the run it supersedes,
+# so stale heads stop holding one of the two self-hosted runners. The newest
+# run still reports `ci` for the current head.
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
+  # `ci` is the required status check. It stays one job and gates steps
+  # rather than jobs: a skipped job reports success to branch protection,
+  # whereas a step that is skipped here still leaves `ci` as the one result.
   ci:
     runs-on: self-hosted
 
@@ -42,6 +52,8 @@ jobs:
           # `git submodule foreach --recursive` cleanup loop, which is unnecessary
           # with no submodules and slow on self-hosted macOS.
           persist-credentials: false
+          # The PR merge commit plus its parents, for the change-scope diff.
+          fetch-depth: 2
 
       # pnpm setup needs npm. Install Node first so self-hosted runners do not
       # fall back to the runner's bundled, incomplete npm launcher.
@@ -49,15 +61,30 @@ jobs:
         with:
           node-version: "22"
 
+      # `docs` only when every change is an edit or addition to allowlisted
+      # prose (see scripts/ci-change-scope.mjs); anything else, including a
+      # classification error, is `full`. Later steps run unless scope is
+      # exactly `docs`, so a missing output also means the full suite.
+      - name: Classify changes
+        id: scope
+        run: node scripts/ci-change-scope.mjs
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+      - name: Test change classifier
+        run: node --test scripts/ci-change-scope.test.mjs
+
       - uses: pnpm/action-setup@v6
         with:
           version: 9.15.9
 
       - uses: oven-sh/setup-bun@v2
+        if: steps.scope.outputs.scope != 'docs'
         with:
           bun-version: "1.3.13"
 
       - name: Start Postgres
+        if: steps.scope.outputs.scope != 'docs'
         id: postgres
         run: |
           CONTAINER="dispatch-ci-$GITHUB_RUN_ID"
@@ -79,6 +106,7 @@ jobs:
       # The oldest PostgreSQL the README and installer support. The main suite
       # runs on 17; this catches newer-only SQL (e.g. NULLS NOT DISTINCT).
       - name: Start Postgres 14
+        if: steps.scope.outputs.scope != 'docs'
         id: postgres14
         run: |
           CONTAINER="dispatch-ci-pg14-$GITHUB_RUN_ID"
@@ -101,27 +129,39 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
+        if: steps.scope.outputs.scope != 'docs'
         run: pnpm exec playwright install chromium
 
+      # The docs fast path's validation: the same Prettier check the full
+      # suite starts with.
+      - name: Check formatting (docs-only change)
+        if: steps.scope.outputs.scope == 'docs'
+        run: pnpm run format
+
       - name: Test macOS appcast publisher
+        if: steps.scope.outputs.scope != 'docs'
         run: python3 scripts/test_macos_appcast.py
 
       - name: CI checks
+        if: steps.scope.outputs.scope != 'docs'
         run: pnpm run ci
         env:
           DISPATCH_TEST_POSTGRES_CONTAINER: ${{ steps.postgres.outputs.container }}
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
       - name: Server tests on PostgreSQL 14
+        if: steps.scope.outputs.scope != 'docs'
         run: pnpm --filter @dispatch/server test
         env:
           DISPATCH_TEST_POSTGRES_CONTAINER: ${{ steps.postgres14.outputs.container }}
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres14.outputs.port }}/postgres
 
       - name: Build Bun binaries
+        if: steps.scope.outputs.scope != 'docs'
         run: pnpm run build:bun
 
       - name: Smoke test compiled binary for host platform
+        if: steps.scope.outputs.scope != 'docs'
         run: |
           case "$(uname -s)" in
             Darwin) PLATFORM="darwin" ;;
