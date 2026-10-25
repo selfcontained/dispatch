@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Plus, Settings2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -45,12 +45,14 @@ export function ColumnTriggerStrip({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const strip = useRef<HTMLButtonElement>(null);
   const { data: templates } = useTemplates();
   if (!column.trigger) return null;
   const name = templateName(templates, column.trigger.templateId);
   return (
     <>
       <button
+        ref={strip}
         type="button"
         data-testid={`task-column-trigger-${column.key}`}
         onClick={() => setOpen(true)}
@@ -78,6 +80,7 @@ export function ColumnTriggerStrip({
         projectId={projectId}
         open={open}
         onOpenChange={setOpen}
+        returnFocus={strip}
       />
     </>
   );
@@ -95,11 +98,14 @@ export function TaskTriggerDialog({
   projectId,
   open,
   onOpenChange,
+  returnFocus,
 }: {
   column: TaskColumn;
   projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Opened without a DialogTrigger, so closing has nowhere to go but this. */
+  returnFocus: RefObject<HTMLElement | null>;
 }) {
   const { data: templates = [] } = useTemplates(open);
   const { data: projects = [] } = useProjects();
@@ -142,7 +148,12 @@ export function TaskTriggerDialog({
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocus.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Trigger · {column.name}</DialogTitle>
           <DialogDescription>

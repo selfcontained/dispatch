@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,15 +11,26 @@ const headers = {
 const repo = mkdtempSync(join(tmpdir(), "dispatch-tasks-"));
 execFileSync("git", ["init", repo]);
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
-// Closes a dialog opened from a column menu. The menu's layer must be gone
-// before Escape, or it eats the key; even then the first Escape is
-// sometimes lost, so it retries until the dialog closes.
-async function escapeDialog(page: Page) {
-  await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(0);
-  await expect(async () => {
-    await page.getByRole("dialog").press("Escape", { timeout: 1_000 });
-    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 1_000 });
-  }).toPass({ timeout: 10_000 });
+// One Escape closes the trigger dialog as soon as focus reaches it, and
+// focus goes back to whatever opened it.
+async function escapeTriggerDialog(page: Page, opener: Locator) {
+  const dialog = page.getByRole("dialog", { name: /^Trigger ·/ });
+  await expect(
+    dialog.getByRole("combobox", { name: "Template" })
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+}
+// The menu-to-dialog hand-off, repeated: a freshly mounted dialog layer
+// must take the first Escape every time, not only once it has settled.
+async function cycleTriggerDialogFromMenu(page: Page, scope: Locator) {
+  const menuButton = scope.getByRole("button", { name: "Ready menu" });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await menuButton.click();
+    await page.getByRole("menuitem", { name: "Edit trigger…" }).click();
+    await escapeTriggerDialog(page, menuButton);
+  }
 }
 test("re-entering a trigger replaces an old failure with launch progress", async ({
   page,
@@ -357,7 +368,11 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
-    await escapeDialog(page);
+    await escapeTriggerDialog(
+      page,
+      list.getByRole("button", { name: "Ready menu" })
+    );
+    await cycleTriggerDialogFromMenu(page, list);
     await page.getByRole("button", { name: "Board layout" }).click();
     // A sidebar column is a filter: the others fold away; again clears it.
     await page.getByTestId("task-nav-column-ready").click();
@@ -435,7 +450,11 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
     );
-    await escapeDialog(page);
+    await escapeTriggerDialog(
+      page,
+      page.getByRole("button", { name: "Ready menu" })
+    );
+    await cycleTriggerDialogFromMenu(page, page.getByTestId("tasks-board"));
     await strip.click();
     await expect(page.getByRole("dialog")).toContainText(
       "already launches Tasks builder"
@@ -444,7 +463,7 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
       path: "/tmp/dispatch-tasks-trigger.png",
       scale: "device",
     });
-    await page.keyboard.press("Escape");
+    await escapeTriggerDialog(page, strip);
     await page.setViewportSize({ width: 390, height: 844 });
     // A layout picked on a phone sticks: away via the sidebar and back
     // (no ?layout= left in the URL), Board is still shown.
@@ -476,12 +495,14 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
       path: "/tmp/dispatch-tasks-mobile-board-sticks.png",
       scale: "device",
     });
+    await cycleTriggerDialogFromMenu(page, page.getByTestId("tasks-board"));
     await page.getByRole("button", { name: "List layout" }).click();
     await expect(page.getByTestId("tasks-list")).toBeVisible();
     await page.screenshot({
       path: "/tmp/dispatch-tasks-mobile-list.png",
       scale: "device",
     });
+    await cycleTriggerDialogFromMenu(page, page.getByTestId("tasks-list"));
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(`/tasks?task=${task.id}`, {
       waitUntil: "domcontentloaded",

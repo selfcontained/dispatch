@@ -1,3 +1,18 @@
+# Dependency patches
+
+## Radix DismissableLayer: Escape on a fresh layer
+
+`@radix-ui/react-dismissable-layer@1.1.11` decides whether a layer is the top
+one from an `index` computed during render. A layer registers itself in a
+passive effect and learns its real index only from the re-render that
+registration triggers, which React schedules at default priority. Browsers
+deliver input ahead of that render, so an Escape pressed just after a dialog
+opens and takes focus reaches no layer: the keydown goes unhandled and the
+dialog stays open. A heavy dialog (the task trigger dialog) widens the window
+to tens of milliseconds. The patch reads the live layer stack when the key
+arrives. Upstream 1.2.x still uses the render-time index; drop the patch once a
+release checks the stack at event time.
+
 # ACP adapter patches
 
 ## Codex steering fallback

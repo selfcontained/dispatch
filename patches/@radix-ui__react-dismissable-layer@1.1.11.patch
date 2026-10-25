@@ -1,0 +1,32 @@
+diff --git a/dist/index.js b/dist/index.js
+index 16c48898e85048392a31e654c9c072c0d8d7ad18..e9a12ef717952b415309ad5614b8ca4fecb25b3f 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -95,7 +95,10 @@ var DismissableLayer = React.forwardRef(
+       if (!event.defaultPrevented) onDismiss?.();
+     }, ownerDocument);
+     (0, import_react_use_escape_keydown.useEscapeKeydown)((event) => {
+-      const isHighestLayer = index === context.layers.size - 1;
++      // Read the live layer stack, not the render-time index: a layer that just
++      // mounted only learns its index on a deferred re-render, and an Escape
++      // arriving before that would reach no layer at all.
++      const isHighestLayer = node !== null && Array.from(context.layers).pop() === node;
+       if (!isHighestLayer) return;
+       onEscapeKeyDown?.(event);
+       if (!event.defaultPrevented && onDismiss) {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index d668167e42ed3bacb20bf72ae6bbb78e411c378e..d1c395d72e91b971819d523792b157f7a4fc4e93 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -57,7 +57,10 @@ var DismissableLayer = React.forwardRef(
+       if (!event.defaultPrevented) onDismiss?.();
+     }, ownerDocument);
+     useEscapeKeydown((event) => {
+-      const isHighestLayer = index === context.layers.size - 1;
++      // Read the live layer stack, not the render-time index: a layer that just
++      // mounted only learns its index on a deferred re-render, and an Escape
++      // arriving before that would reach no layer at all.
++      const isHighestLayer = node !== null && Array.from(context.layers).pop() === node;
+       if (!isHighestLayer) return;
+       onEscapeKeyDown?.(event);
+       if (!event.defaultPrevented && onDismiss) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import type { TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
@@ -37,6 +37,7 @@ export function TaskColumnMenu({
   ).length;
   const actions = useTaskActions(projectId);
   const [triggerOpen, setTriggerOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const index = columns.findIndex((item) => item.id === column.id);
   const [earlier, later] =
     orientation === "horizontal"
@@ -47,6 +48,7 @@ export function TaskColumnMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
+            ref={menuButton}
             size="icon"
             variant="ghost"
             aria-label={`${column.name} menu`}
@@ -127,6 +129,7 @@ export function TaskColumnMenu({
         projectId={projectId}
         open={triggerOpen}
         onOpenChange={setTriggerOpen}
+        returnFocus={menuButton}
       />
     </>
   );
