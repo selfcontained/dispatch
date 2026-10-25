@@ -221,7 +221,8 @@
         "scripts/write-bun-checksums.mjs",
         "scripts/smoke-bun-binary.mjs",
         "apps/server/src/windows-setup/**",
-        "apps/server/test/windows-setup-*.test.ts"
+        "apps/server/test/windows-setup-*.test.ts",
+        "scripts/generate-server-runtime-assets.mjs"
       ],
       "personas": ["release-update-owner"]
     },
