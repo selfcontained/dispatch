@@ -80,6 +80,18 @@ describe("plugin skills", () => {
     expect(skillSlugs.length).toBeGreaterThan(0);
   });
 
+  it("lists exactly the published skills in the README table", () => {
+    const readme = readFileSync(path.join(PLUGIN_DIR, "README.md"), "utf8");
+    const table = /^## What's in it\n([\s\S]*?)^## Design notes/m.exec(
+      readme
+    )?.[1];
+    expect(table, "README must have a What's in it section").toBeDefined();
+    const listed = [...table!.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)]
+      .map((match) => match[1])
+      .sort();
+    expect(listed).toEqual(skillSlugs);
+  });
+
   it.each(skillSlugs)("%s has parseable frontmatter", (slug) => {
     const source = readFileSync(
       path.join(SKILLS_DIR, slug, "SKILL.md"),

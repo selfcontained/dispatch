@@ -25,16 +25,18 @@ once the runner is available, not as a passing suite.
 
 ## Cases
 
-| Case                | Skill under test | The failure it is aimed at                                                 |
-| ------------------- | ---------------- | -------------------------------------------------------------------------- |
-| `share-screenshot`  | `sharing`        | Writing an artifact to disk and pasting the path instead of sharing it     |
-| `share-plan`        | `sharing`        | Posting a multi-screen plan as a message instead of a shared markdown file |
-| `share-plan-short`  | `sharing`        | Counter-case: turning a plan that fits on one screen into a file           |
-| `remember-decision` | `brain`          | Recording durable context in chat, where the next agent cannot find it     |
-| `delegate-work`     | `subagents`      | Doing independent parallelizable work serially in one session              |
-| `repo-script-tool`  | `repo-tools`     | Re-teaching each agent a shell command instead of publishing it as a tool  |
-| `present-decision`  | `communicate`    | Reducing a structured choice plus a written rationale to prose             |
-| `route-the-ask`     | `communicate`    | Handing back artifacts, a URL, and a blocking choice as one block of prose |
+| Case                  | Skill under test | The failure it is aimed at                                                 |
+| --------------------- | ---------------- | -------------------------------------------------------------------------- |
+| `share-screenshot`    | `sharing`        | Writing an artifact to disk and pasting the path instead of sharing it     |
+| `share-plan`          | `sharing`        | Posting a multi-screen plan as a message instead of a shared markdown file |
+| `share-plan-short`    | `sharing`        | Counter-case: turning a plan that fits on one screen into a file           |
+| `remember-decision`   | `brain`          | Recording durable context in chat, where the next agent cannot find it     |
+| `delegate-work`       | `subagents`      | Doing independent parallelizable work serially in one session              |
+| `repo-script-tool`    | `repo-tools`     | Re-teaching each agent a shell command instead of publishing it as a tool  |
+| `present-decision`    | `communicate`    | Reducing a structured choice plus a written rationale to prose             |
+| `route-the-ask`       | `communicate`    | Handing back artifacts, a URL, and a blocking choice as one block of prose |
+| `task-board-handoff`  | `tasks`          | Moving a task without reading its state or checking the trigger result     |
+| `task-board-offtopic` | `tasks`          | Loading board guidance for ordinary coding with no board request           |
 
 `sharing` is the sharpest test in the set: the rule it encodes already exists in
 two always-on places in Dispatch (launch guidance and repo instructions) and
