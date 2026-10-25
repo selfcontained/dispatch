@@ -560,6 +560,8 @@ Launches an agent from a template. Accepts either JSON or `multipart/form-data` 
 
 All fields are optional. `args` fills `{{placeholder}}` values in the template prompt. `directory` overrides the template's default directory. `agentType` overrides the template's configured agent type.
 
+The template's prompt may be empty. A launch needs at least one of: the template's prompt, an appendix (a task launch appends the task briefing, which then becomes the whole prompt), or a persona (the agent starts with no initial prompt and the persona's instructions stand). With none of the three the launch returns `400`.
+
 `model` overrides the template's saved model for this launch only, and is three-state: omit it to keep the template's saved model, send `null` to force the CLI default, or send a model id from the catalog for the launched agent type. An id the launched agent type cannot run returns `400`.
 
 **Multipart body (for startup files):**
