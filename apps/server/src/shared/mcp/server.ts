@@ -542,7 +542,10 @@ export async function createDispatchMcpServer(
         fullAccess: agent.fullAccess === true,
       },
       resolveProject: () =>
-        taskService.projectForAgent(taskScopeInput(agent, context.repoRoot)),
+        taskService.projectForAgent(
+          // The routes set the agent's cwd to its current workspace.
+          taskScopeInput(agent.projectId, agent.cwd, context.repoRoot)
+        ),
       service: taskService,
     });
   }

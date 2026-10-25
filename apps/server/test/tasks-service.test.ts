@@ -37,6 +37,7 @@ import type { AgentRecord } from "../src/agents/types.js";
 import { registerTaskTools } from "../src/shared/mcp/task-tools.js";
 import { agentTaskProject, taskScopeInput } from "../src/tasks/agent-scope.js";
 import { chatUrlSchema } from "../src/chat/validation.js";
+import { resolveRepoRoot } from "../src/shared/git/git-context.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -1088,8 +1089,16 @@ describe("tool project scope", () => {
         )
       ).rows[0].id;
     }
-    const resolve = (agent: Parameters<typeof agentTaskProject>[0]) =>
+    const chat = (agent: Parameters<typeof agentTaskProject>[0]) =>
       agentTaskProject(agent, (input) => service.projectForAgent(input));
+    // What routes/mcp.ts hands the task tools: cwd is the workspace, and
+    // repoRoot is probed from it.
+    const mcp = async (agent: { workspacePath: string; cwd: string }) => {
+      const workspaceDir = agent.workspacePath ?? agent.cwd;
+      return service.projectForAgent(
+        taskScopeInput(null, workspaceDir, await resolveRepoRoot(workspaceDir))
+      );
+    };
     const base = {
       projectId: null,
       cwd: path.join(root, "elsewhere"),
@@ -1097,27 +1106,22 @@ describe("tool project scope", () => {
       baseBranch: null,
     };
     try {
-      // A worktree of A that lives under B's directory is still A.
+      // A worktree of A that lives under B's directory.
       const nested = path.join(b, "worktrees", "a");
       git(a, "worktree", "add", "-q", nested);
-      await expect(resolve({ ...base, workspacePath: nested })).resolves.toBe(
-        ids.A
-      );
-      // Moved to an external worktree of B, it is B, whatever stale git
-      // context it still carries for A.
+      const inNested = { ...base, workspacePath: nested };
+      await expect(chat(inNested)).resolves.toBe(await mcp(inNested));
+      // Moved to an external worktree of B, it is B for both, whatever
+      // stale git context it still carries for A.
       const outside = path.join(root, "outside-b");
       git(b, "worktree", "add", "-q", outside);
-      await expect(
-        resolve({
-          ...base,
-          workspacePath: outside,
-          gitContext: { worktreePath: a, isWorktree: false },
-        })
-      ).resolves.toBe(ids.B);
-      // The task tools build the same input from the same probe.
-      await expect(
-        service.projectForAgent(taskScopeInput(base, b))
-      ).resolves.toBe(ids.B);
+      const moved = {
+        ...base,
+        workspacePath: outside,
+        gitContext: { worktreePath: a, isWorktree: false },
+      };
+      await expect(chat(moved)).resolves.toBe(ids.B);
+      await expect(mcp(moved)).resolves.toBe(ids.B);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
