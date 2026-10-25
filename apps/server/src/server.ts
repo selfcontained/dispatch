@@ -27,6 +27,7 @@ import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import type { AgentRecord } from "./agents/manager.js";
+import { agentTaskProject } from "./tasks/agent-scope.js";
 import {
   validateSession,
   getOrCreateAuthToken,
@@ -427,6 +428,14 @@ const streamService = new StreamService({
   // Created below; only called once requests arrive.
   taskRoot: (taskId): Promise<TaskStreamRoot | null> =>
     taskService.streamRoot(taskId),
+  // The same scope the agent's task tools use.
+  agentProject: async (agentId) => {
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) return null;
+    return agentTaskProject(agent, (input) =>
+      taskService.projectForAgent(input)
+    );
+  },
   log: app.log,
 });
 const scheduledMessages = new ScheduledMessageService(

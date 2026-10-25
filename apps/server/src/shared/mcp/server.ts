@@ -39,6 +39,7 @@ import { toToolError } from "./tool-error.js";
 import { registerStreamTools } from "./stream-tools.js";
 import { registerTaskTools } from "./task-tools.js";
 import type { TaskService } from "../../tasks/service.js";
+import { taskScopeInput } from "../../tasks/agent-scope.js";
 import type { StreamService } from "../../chat/service.js";
 
 export type McpAgent = {
@@ -51,8 +52,6 @@ export type McpAgent = {
   baseBranch?: string | null;
   /** The agent's project: the board the task tools act on. */
   projectId?: string | null;
-  /** The agent's launch directory; places a projectless agent's board. */
-  launchCwd?: string | null;
   /** The agent's access ceiling, for launches it triggers through tasks. */
   fullAccess?: boolean;
 };
@@ -543,10 +542,10 @@ export async function createDispatchMcpServer(
         fullAccess: agent.fullAccess === true,
       },
       resolveProject: () =>
-        taskService.projectForAgent({
-          projectId: agent.projectId,
-          paths: [context.repoRoot, agent.cwd, agent.launchCwd],
-        }),
+        taskService.projectForAgent(
+          // The routes set the agent's cwd to its current workspace.
+          taskScopeInput(agent.projectId, agent.cwd, context.repoRoot)
+        ),
       service: taskService,
     });
   }

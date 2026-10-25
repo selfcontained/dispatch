@@ -236,6 +236,8 @@ export type StreamServiceDeps = {
    * `stream_id = task.id`. Absent means no stream is a task's.
    */
   taskRoot?: (taskId: string) => Promise<TaskStreamRoot | null>;
+  /** The project an agent's task tools act on (`projectForAgent`). */
+  agentProject?: (agentId: string) => Promise<string | null>;
   log?: {
     warn: (obj: object, msg: string) => void;
     error: (obj: object, msg: string) => void;
@@ -265,6 +267,8 @@ export type UserPostInput = {
 export type TaskStreamRoot = {
   id: string;
   title: string;
+  /** Agents in this project may write in the task's conversation. */
+  projectId: string;
   /** The column's name, for the envelope. */
   column: string;
   assignedAgentId: string | null;
@@ -2106,18 +2110,32 @@ export class StreamService {
 
   /**
    * Whether an agent may write beside `block` in a task's conversation: it
-   * is on the task, or the block was addressed to it.
+   * may write there at all, or the block was addressed to it.
    */
   private async mayWriteTaskStream(
     block: Block,
     agentId: string
   ): Promise<boolean> {
     const task = await this.taskRoot(block.streamId);
+    if (!task || task.removedAgentIds.includes(agentId)) return false;
     return (
-      !!task &&
-      !task.removedAgentIds.includes(agentId) &&
-      (task.agentIds.includes(agentId) || addressedTo(block).includes(agentId))
+      addressedTo(block).includes(agentId) ||
+      (await this.inTaskConversation(task, agentId))
     );
+  }
+
+  /**
+   * Whether an agent may write in, and read, a task's conversation: it is
+   * on the task, or in the task's project. Removal closes it either way.
+   */
+  private async inTaskConversation(
+    task: TaskStreamRoot,
+    agentId: string
+  ): Promise<boolean> {
+    if (task.removedAgentIds.includes(agentId)) return false;
+    if (task.agentIds.includes(agentId)) return true;
+    const project = await this.deps.agentProject?.(agentId);
+    return !!project && project === task.projectId;
   }
 
   /** A block addressed to an agent is no write authority once it was removed. */
@@ -2141,11 +2159,11 @@ export class StreamService {
     const block = await this.store.getById(id);
     if (!block) throw new StreamNotFoundError("Message not found.");
     const host = await this.threadHostFor(block);
-    // A task's conversation is readable by every agent on the task.
+    // A task's conversation is readable by every agent that may write there.
     const task = await this.taskRoot(block.streamId);
     if (
       block.streamId !== (await this.streamOf(agentId)) &&
-      !task?.agentIds.includes(agentId) &&
+      !(task && (await this.inTaskConversation(task, agentId))) &&
       !(await this.store.hasContextAddress(host, agentId))
     ) {
       const container =
@@ -2413,7 +2431,7 @@ export class StreamService {
   /**
    * An agent's `post`. `opts.root` puts it at the top of that stream
    * instead — a task's conversation, for `task_comment` — which the agent
-   * must be on.
+   * must be in the task's project (or on the task) to write to.
    */
   async post(
     agentId: string,
@@ -2451,7 +2469,7 @@ export class StreamService {
         throw new StreamValidationError(
           "A post at a stream's root takes no replyTo or placement."
         );
-      await this.requireTaskMember(opts.root, agentId);
+      await this.requireTaskWriter(opts.root, agentId);
     }
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
@@ -2570,8 +2588,8 @@ export class StreamService {
       const task = target ? await this.taskRoot(target.streamId) : null;
       if (task) this.requireNotRemoved(task, agentId);
       if (target && task && !addressedTo(target).includes(agentId)) {
-        // A task's conversation is open to every agent on the task.
-        await this.requireTaskMember(task, agentId);
+        // A task's conversation is open to every agent in its project.
+        await this.requireTaskWriter(task, agentId);
         streamId = target.streamId;
       } else if (target && addressedTo(target).includes(agentId)) {
         if (parentRequest && target.streamId !== streamId) {
@@ -4397,16 +4415,20 @@ export class StreamService {
     };
   }
 
-  /** Refuses an agent that is not on the task whose stream it writes to. */
-  private async requireTaskMember(
+  /**
+   * Refuses an agent that may not write in the task's conversation: one
+   * removed from the task, or outside its project and not on it.
+   */
+  private async requireTaskWriter(
     task: string | TaskStreamRoot,
     agentId: string
   ): Promise<TaskStreamRoot> {
     const root = typeof task === "string" ? await this.taskRoot(task) : task;
     if (!root) throw new StreamNotFoundError(`Task ${String(task)} not found.`);
-    if (!root.agentIds.includes(agentId))
+    this.requireNotRemoved(root, agentId);
+    if (!(await this.inTaskConversation(root, agentId)))
       throw new StreamValidationError(
-        `You are not on task ${root.id}; only its agents post in its conversation. Take it with task_update({ id: "${root.id}", assign: "self" }) first.`
+        `You are not in task ${root.id}'s project; only agents in its project post in its conversation.`
       );
     return root;
   }
