@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { Pool } from "pg";
-import { loadApp, seedBlockViaDB } from "./helpers";
+import { deleteAgentViaAPI, loadApp, seedBlockViaDB } from "./helpers";
 const headers = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
 };
@@ -157,7 +157,24 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
   });
   expect(projectResponse.ok(), await projectResponse.text()).toBeTruthy();
   const project = await projectResponse.json();
+  let distractorId: string | undefined;
   try {
+    // Keep a competing option ahead of the launched task agent even in an
+    // isolated run. Selecting by list position must never restore assignment.
+    const distractorResponse = await request.post("/api/v1/agents", {
+      headers,
+      data: {
+        name: "AAA unrelated assignee",
+        type: "codex",
+        projectId: project.id,
+        useWorktree: false,
+      },
+    });
+    expect(
+      distractorResponse.ok(),
+      await distractorResponse.text()
+    ).toBeTruthy();
+    distractorId = (await distractorResponse.json()).agent.id;
     const boardResponse = await request.get(
       `/api/v1/projects/${project.id}/tasks/board`,
       { headers }
@@ -548,12 +565,19 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
       )
       .toBeNull();
     await drawer.getByRole("combobox", { name: "Assignee" }).click();
-    // The first real agent: the launch entries carry a data-testid, agents
-    // do not, and "Unassigned" is text.
+    await expect(
+      page.getByRole("option").filter({
+        has: page.getByTestId(`task-agent-chip-${distractorId}`),
+      })
+    ).toBeVisible();
+    expect(distractorId).not.toBe(assigned.assignedAgentId);
+    // Multiple task launches can leave several agents in this project.
+    // Restore the original identity regardless of option ordering or names.
     await page
-      .locator('[role="option"]:not([data-testid])')
-      .filter({ hasNotText: "Unassigned" })
-      .first()
+      .getByRole("option")
+      .filter({
+        has: page.getByTestId(`task-agent-chip-${assigned.assignedAgentId}`),
+      })
       .click();
     await expect
       .poll(
@@ -638,6 +662,7 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
       scale: "device",
     });
   } finally {
+    if (distractorId) await deleteAgentViaAPI(request, distractorId);
     await request.delete(`/api/v1/projects/${project.id}`, { headers });
   }
 });

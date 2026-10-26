@@ -8,7 +8,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { test, expect } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Page,
+  type APIRequestContext,
+} from "@playwright/test";
 import {
   cleanupE2EAgents,
   createAgentViaAPI,
@@ -79,6 +84,31 @@ function cleanupTestRepo(repoPath: string): void {
   rmSync(barePath, { recursive: true, force: true });
 }
 
+/** Unmount query owners, then drain the server's nonblocking catalog refresh. */
+async function closeRepoConsumers(
+  page: Page,
+  request: APIRequestContext,
+  repoPath: string
+): Promise<void> {
+  await page.goto("about:blank");
+  await expect
+    .poll(async () => {
+      const response = await request.get(
+        `/api/v1/personas?${new URLSearchParams({ cwd: repoPath, type: "task" })}`,
+        { headers: authHeader }
+      );
+      expect(response.ok(), await response.text()).toBeTruthy();
+      const catalog = await response.json();
+      expect(typeof catalog.refreshing).toBe("boolean");
+      if (!catalog.refreshing) {
+        // The local origin must have published its catalog before removal.
+        expect(catalog.updatedAt).toEqual(expect.any(Number));
+      }
+      return catalog.refreshing;
+    })
+    .toBe(false);
+}
+
 test.describe("Worktree", () => {
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request);
@@ -86,6 +116,7 @@ test.describe("Worktree", () => {
 
   test("create dialog shows worktree checkbox defaulting to checked", async ({
     page,
+    request,
   }) => {
     // The worktree section is gated on the cwd being a git repository (CRU-139),
     // so point the dialog at one before checking the default state.
@@ -116,12 +147,19 @@ test.describe("Worktree", () => {
 
       // "Create managed git worktree" label text should be visible
       await expect(form.getByText("Create managed git worktree")).toBeVisible();
+      await page.screenshot({
+        path: test.info().outputPath("worktree-default.png"),
+      });
     } finally {
+      await closeRepoConsumers(page, request, repoPath);
       cleanupTestRepo(repoPath);
     }
   });
 
-  test("worktree checkbox can be toggled off and on", async ({ page }) => {
+  test("worktree checkbox can be toggled off and on", async ({
+    page,
+    request,
+  }) => {
     const repoPath = createTestRepo(`toggle-${Date.now()}`);
     try {
       await loadApp(page);
@@ -152,7 +190,11 @@ test.describe("Worktree", () => {
       // Toggle it back on
       await form.getByText("Create managed git worktree").click();
       await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
+      await page.screenshot({
+        path: test.info().outputPath("worktree-toggle.png"),
+      });
     } finally {
+      await closeRepoConsumers(page, request, repoPath);
       cleanupTestRepo(repoPath);
     }
   });

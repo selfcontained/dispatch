@@ -59,6 +59,7 @@ let launches: TaskLaunchRequest[];
 let launchFails: string | null;
 /** When set, launches wait for it before creating their agent. */
 let launchGate: Promise<void> | null;
+let launchEntered: (() => void) | null;
 let posts: Array<{ streamId: string; input: Record<string, unknown> }>;
 let agentPosts: Array<{
   agentId: string;
@@ -116,6 +117,7 @@ function build(
             : null,
     launchTemplate: async (input) => {
       launches.push(input);
+      launchEntered?.();
       if (launchGate) await launchGate;
       if (launchFails) throw new Error(launchFails);
       const id = `agt_launch_${++agentSeq}`;
@@ -190,6 +192,7 @@ beforeEach(async () => {
   launches = [];
   launchFails = null;
   launchGate = null;
+  launchEntered = null;
   posts = [];
   agentPosts = [];
   postFails = false;
@@ -1468,6 +1471,147 @@ function tools(
 }
 
 describe("task tools", () => {
+  it("lists ordered column configuration without changing existing task rows", async () => {
+    const ready = await columnId("ready");
+    const progress = await withTrigger("in_progress");
+    const review = await withTrigger("in_review", {
+      agentType: "claude",
+      model: "sonnet",
+      assign: false,
+      fireOnCreate: true,
+    });
+    for (const [id, capacity] of [
+      [ready, 2],
+      [progress, 2],
+      [review, 4],
+    ] as const) {
+      await service.updateColumn(id, { capacity });
+    }
+    const task = await service.createTask(
+      { projectId, title: "Queued", columnId: ready },
+      USER
+    );
+    const expectedColumns = (await service.getBoard(projectId)).columns;
+    const result = await tools("agt_reader", projectId)("task_list", {});
+    expect(result.isError).toBeUndefined();
+    const data = result.structuredContent!;
+    expect(data.columns).toEqual(expectedColumns.map((c) => c.key));
+    expect(data.columnCapacity).toEqual(
+      expectedColumns.map((c) => ({
+        id: c.id,
+        key: c.key,
+        name: c.name,
+        capacity: c.capacity,
+        activeTaskCount: c.activeTaskCount,
+        isDone: c.isDone,
+        trigger: c.trigger,
+      }))
+    );
+    expect(data.columnCapacity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready",
+          capacity: 2,
+          trigger: null,
+          isDone: false,
+        }),
+        expect.objectContaining({
+          key: "in_progress",
+          capacity: 2,
+          trigger: {
+            templateId: TEMPLATE_ID,
+            templateName: "Builder",
+            agentType: null,
+            model: null,
+            assign: true,
+            fireOnCreate: false,
+          },
+        }),
+        expect.objectContaining({
+          key: "in_review",
+          capacity: 4,
+          trigger: {
+            templateId: TEMPLATE_ID,
+            templateName: "Builder",
+            agentType: "claude",
+            model: "sonnet",
+            assign: false,
+            fireOnCreate: true,
+          },
+        }),
+        expect.objectContaining({
+          key: "done",
+          capacity: null,
+          trigger: null,
+          isDone: true,
+        }),
+      ])
+    );
+    expect(data.tasks).toEqual([
+      {
+        id: task.id,
+        title: task.title,
+        column: "ready",
+        assignedAgentId: null,
+        updatedAt: task.updatedAt,
+      },
+    ]);
+    expect(JSON.parse(result.content[0]!.text)).toEqual(data);
+    expect(launches).toHaveLength(0);
+  });
+
+  it("keeps column metadata and global active counts across filtered MCP reads", async () => {
+    await insertAgent("agt_reader", "idle");
+    const ready = await columnId("ready");
+    const progress = await withTrigger("in_progress");
+    await service.updateColumn(ready, { capacity: 2 });
+    await service.updateColumn(progress, { capacity: 2 });
+    const active = await service.createTask(
+      { projectId, title: "Active", columnId: ready },
+      USER
+    );
+    const archived = await service.createTask(
+      { projectId, title: "Archived", columnId: ready },
+      USER
+    );
+    await service.archiveTask(archived.id, USER);
+    const call = tools("agt_reader", projectId);
+    const all = (await call("task_list", {})).structuredContent!;
+    for (const filter of [
+      { column: "in_progress" },
+      { assignedToMe: true },
+      { archived: true },
+      { archived: true, column: "in_progress", assignedToMe: true },
+    ]) {
+      const filtered = (await call("task_list", filter)).structuredContent!;
+      expect(filtered.columns).toEqual(all.columns);
+      expect(filtered.columnCapacity).toEqual(all.columnCapacity);
+      expect(filtered.tasks).toEqual(
+        filter.archived && !filter.column
+          ? [expect.objectContaining({ id: archived.id })]
+          : []
+      );
+    }
+    expect(all.tasks).toEqual([expect.objectContaining({ id: active.id })]);
+    expect(all.columnCapacity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready",
+          capacity: 2,
+          activeTaskCount: 1,
+          trigger: null,
+        }),
+        expect.objectContaining({
+          key: "in_progress",
+          capacity: 2,
+          activeTaskCount: 0,
+          trigger: expect.objectContaining({ templateId: TEMPLATE_ID }),
+        }),
+      ])
+    );
+    expect(launches).toHaveLength(0);
+  });
+
   it("defaults to the caller's project and errors without one", async () => {
     await insertAgent("agt_tool");
     const call = tools("agt_tool", projectId);
@@ -1690,56 +1834,117 @@ describe("concurrent transitions", () => {
     expect(kinds.filter((k) => k === "moved")).toHaveLength(1);
   });
 
-  it("serializes a newer move behind a slow launch", async () => {
-    const ready = await withTrigger("ready");
-    const backlog = await columnId("backlog");
-    const task = await service.createTask({ projectId, title: "t" }, USER);
+  // Hold an actual initial database read to exercise slow CI scheduling
+  // deterministically, while leaving later observations of persisted state free.
+  function holdInitialRead() {
+    let entered!: () => void;
     let open!: () => void;
-    launchGate = new Promise((resolve) => (open = resolve));
-    const first = service.updateTask(task.id, { columnId: ready }, USER);
-    const second = service.updateTask(
-      task.id,
-      { columnId: backlog, confirmRelaunch: true },
-      USER
-    );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    // The newer move is waiting on the launch, not racing it.
-    expect((await service.requireTask(task.id)).columnId).toBe(ready);
-    open();
-    await Promise.all([first, second]);
-    const final = await service.requireTask(task.id);
-    expect(final.columnId).toBe(backlog);
-    const kinds = (await service.getTaskDetail(task.id)).events.map(
-      (e) => e.kind
-    );
-    expect(kinds.slice(-2)).toEqual(["assigned", "moved"]);
-  });
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    const released = new Promise<void>((resolve) => (open = resolve));
+    const getTask = service.store.getTask.bind(service.store);
+    const spy = vi
+      .spyOn(service.store, "getTask")
+      .mockImplementationOnce(async (...args) => {
+        entered();
+        await released;
+        return getTask(...args);
+      });
+    return { entered: started, open, restore: () => spy.mockRestore() };
+  }
 
-  it("a launch that finds the task moved away does not assign", async () => {
-    await withTrigger("ready");
-    const ready = await columnId("ready");
-    const backlog = await columnId("backlog");
-    const task = await service.createTask({ projectId, title: "t" }, USER);
-    let open!: () => void;
-    launchGate = new Promise((resolve) => (open = resolve));
-    const move = service.updateTask(task.id, { columnId: ready }, USER);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    // A write from outside this process's lock moves it on mid-launch.
-    await pool.query("UPDATE tasks SET column_id = $2 WHERE id = $1", [
-      task.id,
-      backlog,
-    ]);
-    open();
-    const after = await move;
-    expect(launches).toHaveLength(1);
-    expect(after.assignedAgentId).toBeNull();
-    expect(posts).toHaveLength(0);
-    const kinds = (await service.getTaskDetail(task.id)).events.map(
-      (e) => e.kind
-    );
-    expect(kinds).toContain("trigger_launched");
-    expect(kinds).not.toContain("assigned");
-  });
+  it.each([false, true])(
+    "serializes a newer move behind a slow launch (held initial read: %s)",
+    async (holdRead) => {
+      const ready = await withTrigger("ready");
+      const backlog = await columnId("backlog");
+      const task = await service.createTask({ projectId, title: "t" }, USER);
+      let open!: () => void;
+      launchGate = new Promise((resolve) => (open = resolve));
+      const entered = new Promise<void>((resolve) => (launchEntered = resolve));
+      const initialRead = holdRead ? holdInitialRead() : null;
+      const first = service.updateTask(task.id, { columnId: ready }, USER);
+      const second = service.updateTask(
+        task.id,
+        { columnId: backlog, confirmRelaunch: true },
+        USER
+      );
+      // Observe rejection immediately even if a setup/assertion fails first.
+      const settled = Promise.allSettled([first, second]);
+      try {
+        if (initialRead) {
+          await initialRead.entered;
+          expect((await service.requireTask(task.id)).columnId).toBe(backlog);
+          expect(launches).toHaveLength(0);
+          initialRead.open();
+        }
+        await Promise.race([entered, first]);
+        expect(launches).toHaveLength(1);
+        // The newer move is waiting on the entered launch, not racing it.
+        expect((await service.requireTask(task.id)).columnId).toBe(ready);
+        open();
+        await Promise.all([first, second]);
+        const final = await service.requireTask(task.id);
+        expect(final.columnId).toBe(backlog);
+        const kinds = (await service.getTaskDetail(task.id)).events.map(
+          (e) => e.kind
+        );
+        expect(kinds.slice(-2)).toEqual(["assigned", "moved"]);
+      } finally {
+        initialRead?.open();
+        open();
+        await settled;
+        initialRead?.restore();
+      }
+    }
+  );
+
+  it.each([false, true])(
+    "a launch that finds the task moved away does not assign (held initial read: %s)",
+    async (holdRead) => {
+      await withTrigger("ready");
+      const ready = await columnId("ready");
+      const backlog = await columnId("backlog");
+      const task = await service.createTask({ projectId, title: "t" }, USER);
+      let open!: () => void;
+      launchGate = new Promise((resolve) => (open = resolve));
+      const entered = new Promise<void>((resolve) => (launchEntered = resolve));
+      const initialRead = holdRead ? holdInitialRead() : null;
+      const move = service.updateTask(task.id, { columnId: ready }, USER);
+      const settled = Promise.allSettled([move]);
+      try {
+        if (initialRead) {
+          await initialRead.entered;
+          expect((await service.requireTask(task.id)).columnId).toBe(backlog);
+          expect(launches).toHaveLength(0);
+          initialRead.open();
+        }
+        await Promise.race([entered, move]);
+        expect((await service.requireTask(task.id)).columnId).toBe(ready);
+        // A write from outside this process's lock moves it on mid-launch.
+        await pool.query("UPDATE tasks SET column_id = $2 WHERE id = $1", [
+          task.id,
+          backlog,
+        ]);
+        open();
+        const after = await move;
+        expect(launches).toHaveLength(1);
+        expect(after.columnId).toBe(backlog);
+        expect(after.assignedAgentId).toBeNull();
+        expect((await service.requireTask(task.id)).assignedAgentId).toBeNull();
+        expect(posts).toHaveLength(0);
+        const kinds = (await service.getTaskDetail(task.id)).events.map(
+          (e) => e.kind
+        );
+        expect(kinds).toContain("trigger_launched");
+        expect(kinds).not.toContain("assigned");
+      } finally {
+        initialRead?.open();
+        open();
+        await settled;
+        initialRead?.restore();
+      }
+    }
+  );
 
   it("skips a move whose source column changed underneath it", async () => {
     const ready = await withTrigger("ready");
