@@ -166,7 +166,6 @@ test("task moves into a triggered column, opens detail, and renders list on mobi
       data: {
         name: "AAA unrelated assignee",
         type: "codex",
-        cwd: repo,
         projectId: project.id,
         useWorktree: false,
       },
