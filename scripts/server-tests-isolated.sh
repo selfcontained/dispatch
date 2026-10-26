@@ -85,9 +85,39 @@ cleanup() {
     echo "Warning: failed to tear down Postgres project ${PROJECT}:" >&2
     echo "$down_output" >&2
     echo "Clean it up manually with: $COMPOSE -p ${PROJECT} -f ${REPO_ROOT}/docker-compose.yml down -v" >&2
+    # A passing suite must not report success when it leaked a container;
+    # a failing suite keeps its own exit code rather than being masked by
+    # this secondary failure.
+    if [ "$exit_code" -eq 0 ]; then
+      echo "Marking this run as failed: the suite passed, but teardown did not." >&2
+      exit 1
+    fi
   fi
 }
 trap cleanup EXIT
+
+# Forwards a caught signal to the running vitest process and waits for it to
+# actually exit before this script does. Without this, bash only runs the
+# EXIT trap above once a *foreground* command returns on its own — a signal
+# sent to this script's own PID while vitest is still running would sit
+# pending until vitest finishes by itself, leaving it to keep running
+# un-interrupted in the meantime. Backgrounding vitest below and `wait`-ing
+# on it (rather than running it as a plain foreground command) is what
+# makes this script's own wait interruptible in the first place.
+TEST_PID=""
+forward_and_wait() {
+  local sig="$1"
+  local code="$2"
+  echo "" >&2
+  echo "Interrupted (SIG${sig}); forwarding to the running test process..." >&2
+  if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
+    kill -"$sig" "$TEST_PID" 2>/dev/null || true
+    wait "$TEST_PID" 2>/dev/null || true
+  fi
+  exit "$code"
+}
+trap 'forward_and_wait INT 130' INT
+trap 'forward_and_wait TERM 143' TERM
 
 echo "==> Starting isolated Postgres for the server suite (project: ${PROJECT}, port: ${DB_PORT})"
 $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" up -d --wait
@@ -96,4 +126,11 @@ $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" up -d --wait
 # helpers create and drop their own per-suite databases from there.
 export TEST_DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DB_PORT}/postgres"
 
-bun x vitest "$@"
+bun x vitest "$@" &
+TEST_PID=$!
+set +e
+wait "$TEST_PID"
+TEST_EXIT=$?
+set -e
+trap - INT TERM
+exit "$TEST_EXIT"

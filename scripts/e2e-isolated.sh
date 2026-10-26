@@ -93,11 +93,42 @@ cleanup() {
     echo "Warning: failed to tear down Postgres project ${PROJECT}:" >&2
     echo "$down_output" >&2
     echo "Clean it up manually with: $COMPOSE -p ${PROJECT} -f ${ROOT_DIR}/docker-compose.yml down -v" >&2
+    # A passing suite must not report success when it leaked a container;
+    # a failing suite keeps its own exit code rather than being masked by
+    # this secondary failure.
+    if [ "$exit_code" -eq 0 ]; then
+      echo "Marking this run as failed: the suite passed, but teardown did not." >&2
+      exit_code=1
+    fi
   fi
   rm -rf "$DISPATCH_FILES_ROOT"
   rm -f "$DISPATCH_RELEASE_STORE_PATH" "$DISPATCH_RELEASE_CANDIDATE_STORE_PATH"
+  [ "$exit_code" -eq 0 ] || exit "$exit_code"
 }
 trap cleanup EXIT
+
+# Forwards a caught signal to the running Playwright process and waits for
+# it to actually exit before this script does. Without this, bash only
+# runs the EXIT trap above once a *foreground* command returns on its own —
+# a signal sent to this script's own PID while Playwright is still running
+# would sit pending until it finishes by itself, leaving it to keep running
+# un-interrupted in the meantime. Backgrounding the test run below and
+# `wait`-ing on it (rather than running it as a plain foreground command)
+# is what makes this script's own wait interruptible in the first place.
+TEST_PID=""
+forward_and_wait() {
+  local sig="$1"
+  local code="$2"
+  echo "" >&2
+  echo "Interrupted (SIG${sig}); forwarding to the running test process..." >&2
+  if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
+    kill -"$sig" "$TEST_PID" 2>/dev/null || true
+    wait "$TEST_PID" 2>/dev/null || true
+  fi
+  exit "$code"
+}
+trap 'forward_and_wait INT 130' INT
+trap 'forward_and_wait TERM 143' TERM
 
 echo "==> Starting isolated Postgres (project: ${PROJECT}, port: ${DB_PORT})"
 $COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" up -d --wait
@@ -106,4 +137,11 @@ echo "==> Building web bundle"
 pnpm run build:web
 
 echo "==> Running Playwright tests (API port: ${API_PORT})"
-E2E_SKIP_WEB_BUILD=1 pnpm exec playwright test "$@"
+E2E_SKIP_WEB_BUILD=1 pnpm exec playwright test "$@" &
+TEST_PID=$!
+set +e
+wait "$TEST_PID"
+TEST_EXIT=$?
+set -e
+trap - INT TERM
+exit "$TEST_EXIT"
