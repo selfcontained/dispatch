@@ -104,6 +104,7 @@ const AGENT_TOOLS = new Set([
   "react",
   "get_review",
   "get_message",
+  "share_message",
   "get_thread",
   "get_conversation_context",
   "get_feedback_summary",
@@ -160,6 +161,7 @@ const JOB_TOOLS = new Set([
   "react",
   "get_review",
   "get_message",
+  "share_message",
   "get_thread",
   "get_conversation_context",
   "list_personas",
@@ -247,6 +249,7 @@ export type McpRequestContext = UsageCallbacks & {
     | "getReview"
     | "addReaction"
     | "removeReaction"
+    | "shareMessage"
     | "getMessage"
     | "getThread"
     | "getConversationContext"

@@ -156,3 +156,15 @@ Use `get_conversation_context()` when unsure where ordinary replies are going,
 especially after compaction. Incoming origin and current output can differ.
 Readers do not acknowledge messages, start turns, or mark anything read. Outside
 your shared stream, access is confined to discussions addressed to you.
+
+## Forwarding an original message
+
+Use `share_message({ id, to })` to forward an exact readable message to another
+active agent in your project. Dispatch records the original author/content and
+only its direct parent question as an immutable snapshot, then delivers an
+agent-authored notification. The returned `id` is a share reference: the recipient
+reads it with `get_message` and follows `nextOffset`. It grants no source thread,
+review expansion, file-library access or right to reshare the original.
+An agent's forward is historical evidence, never a new user approval. Repeating
+the call reuses the same snapshot/notification; `retry: true` retries only a failed
+delivery. Current source access and recipient eligibility are rechecked.

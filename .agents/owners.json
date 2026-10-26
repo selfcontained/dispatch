@@ -107,6 +107,7 @@
       "paths": [
         "apps/server/src/agents/acp/stream-*.ts",
         "apps/server/src/chat/**",
+        "packages/shared/src/index.ts",
         "apps/server/src/routes/streams.ts",
         "apps/server/src/routes/agents/streaming-routes.ts",
         "apps/server/src/server/ui-events.ts",
@@ -221,6 +222,7 @@
         "apps/server/src/routes/update-recovery.ts",
         "apps/server/src/db/migrate.ts",
         "apps/server/test/db/*migrat*",
+        "apps/server/test/migrations.test.ts",
         "apps/web/src/components/app/updates-*",
         "apps/web/src/components/app/update-*",
         "apps/web/src/components/app/mac-app-updates-card*",
@@ -307,6 +309,14 @@
         "scripts/sync-browser-extension*"
       ],
       "personas": ["browser-feedback-owner"]
+    },
+    {
+      "paths": ["docs/03-api-spec.md"],
+      "personas": ["mcp-contract-owner", "stream-delivery-owner"]
+    },
+    {
+      "paths": ["e2e/message-sharing.spec.ts"],
+      "personas": ["stream-delivery-owner", "mcp-contract-owner"]
     }
   ],
   "fallback": ["code-review"]

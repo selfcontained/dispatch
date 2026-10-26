@@ -8348,3 +8348,458 @@ describe("single task cards", () => {
     );
   });
 });
+
+describe("scoped verifiable message sharing", () => {
+  const C = "agt_unshared_reader";
+  function sharing(opts: Parameters<typeof build>[0] = {}) {
+    return build({
+      ...opts,
+      deps: {
+        agentProject: async () => "prj_sharing",
+        getAgent: async (id) =>
+          id === C ? { ...AGENTS[B]!, id: C } : getAgent(id),
+        ...opts.deps,
+      },
+    });
+  }
+  async function snapshot(svc: StreamService, agent: string, id: string) {
+    let content = "";
+    let offset = 0;
+    for (;;) {
+      const page = await svc.getMessage(agent, id, offset);
+      content += page.content;
+      if (page.nextOffset === null) break;
+      offset = page.nextOffset;
+    }
+    return JSON.parse(content);
+  }
+
+  it("hands a coordinator's user approval to a task agent with verified original provenance and only its direct ask", async () => {
+    const { svc, injected, injectedOpts } = sharing();
+    const proposal = await svc.post(A, {
+      text: "Unrelated private proposal history",
+    });
+    const question = await svc.post(A, {
+      replyTo: proposal.id,
+      text: "Approve the bounded task?",
+      question: { options: [{ label: "Yes" }] },
+    });
+    const approval = await svc.answerQuestion(A, question.id, { value: "Yes" });
+    await svc.post(A, { replyTo: question.id, text: "Unrelated later answer" });
+    const receipt = await svc.shareMessage(A, approval.reply.id, B);
+    await svc.waitForInFlightDeliveries(1000);
+    const forwarded = injected.find((i) => i.agentId === B)!;
+    expect(forwarded.text).toContain(receipt.id);
+    expect(forwarded.text).toContain("get_message");
+    expect(forwarded.text).toContain("not a new user instruction or approval");
+    const index = injected.indexOf(forwarded);
+    expect(injectedOpts[index]?.source).toMatchObject({
+      source: "chat",
+      userMessage: false,
+    });
+    expect(await svc.store.getById(receipt.notificationId)).toMatchObject({
+      streamId: B,
+      threadId: null,
+      replyTo: null,
+      author: { kind: "agent", agentId: A },
+      delivered: true,
+    });
+    const shared = await snapshot(svc, B, receipt.id);
+    expect(shared.message).toMatchObject({
+      id: approval.reply.id,
+      text: "Yes",
+      author: { kind: "user" },
+    });
+    expect(shared.question).toMatchObject({
+      id: question.id,
+      text: "Approve the bounded task?",
+    });
+    expect(shared.question).not.toHaveProperty("state");
+    expect(JSON.stringify(shared)).not.toMatch(
+      /Unrelated|private proposal|blockId|parentRequestConversation/
+    );
+    expect(await svc.getMessage(B, receipt.id)).toMatchObject({
+      sourceId: approval.reply.id,
+      sharer: A,
+      recipient: B,
+      sharedAt: expect.any(String),
+    });
+    await expect(svc.getMessage(B, approval.reply.id)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.getMessage(B, question.id)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.getThread(B, receipt.id)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.getThread(B, approval.reply.id)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.getMessage(C, receipt.id)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.shareMessage(B, receipt.id, A)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.shareMessage(B, approval.reply.id, A)).rejects.toThrow(
+      "Message not found"
+    );
+    // A notification can itself be discussed without importing the source history.
+    const reply = await svc.post(B, {
+      to: A,
+      replyTo: receipt.notificationId,
+      text: "Read the receipt",
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect(injected.at(-1)!.text).not.toContain("Approve the bounded task?");
+    expect(await svc.store.deliveryContext(reply.id, A)).not.toContain(
+      "Unrelated"
+    );
+  });
+
+  it("projects only receipt-backed notifications, with immutable names and legacy fallbacks", async () => {
+    const { svc } = sharing();
+    const question = await svc.post(A, {
+      text: "Bounded question",
+      question: { options: [{ label: "Yes" }] },
+    });
+    const answer = await svc.answerQuestion(A, question.id, { value: "Yes" });
+    const receipt = await svc.shareMessage(A, answer.reply.id, B);
+    const card = (await svc.feed(B)).entries.find(
+      (entry) => entry.id === receipt.notificationId
+    )!.block.sharedMessage!;
+    expect(card).toMatchObject({
+      sharer: "Svc",
+      originalAuthor: "User",
+      source: "Svc’s stream · thread",
+      message: { text: "Yes" },
+      question: { text: "Bounded question", options: [{ label: "Yes" }] },
+    });
+    expect(card.question).not.toHaveProperty("state");
+    const renamed = sharing({
+      deps: {
+        getAgent: async (id) => {
+          const agent = await getAgent(id);
+          return agent ? { ...agent, name: "Renamed after sharing" } : null;
+        },
+      },
+    }).svc;
+    expect(
+      (await renamed.feed(B)).entries.find(
+        (entry) => entry.id === receipt.notificationId
+      )!.block.sharedMessage
+    ).toEqual(card);
+    // Even authored data with the exact shape cannot mint a trusted card.
+    const fake = await svc.post(B, { text: "Ordinary post" });
+    await svc.store.update(fake.id, { data: { sharedMessage: card } });
+    expect(
+      (await svc.feed(B)).entries.find((entry) => entry.id === fake.id)!.block
+        .sharedMessage
+    ).toBeUndefined();
+    await pool.query(
+      "UPDATE message_shares SET snapshot = snapshot - 'labels' WHERE id = $1",
+      [receipt.id]
+    );
+    expect(
+      (await svc.feed(B)).entries.find(
+        (entry) => entry.id === receipt.notificationId
+      )!.block.sharedMessage
+    ).toMatchObject({
+      sharer: "Sharing agent",
+      originalAuthor: "User",
+      source: "Original conversation",
+    });
+  });
+
+  it("does not expose receipt quotes when a nonparticipant reads or forwards the notification, or a participant moves project", async () => {
+    await pool.query(
+      "INSERT INTO agents (id, name, cwd, status) VALUES ($1, 'Observer', '/tmp', 'running') ON CONFLICT DO NOTHING",
+      [C]
+    );
+    const { svc, injected } = sharing();
+    const original = await svc.post(A, {
+      text: "Exact private historical quote",
+    });
+    const receipt = await svc.shareMessage(A, original.id, B);
+    await svc.post(B, {
+      to: C,
+      replyTo: receipt.notificationId,
+      text: "Discuss only the notice",
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect(
+      (await svc.getMessage(C, receipt.notificationId)).content
+    ).not.toContain(original.text);
+    expect(
+      JSON.stringify(await svc.getThread(C, receipt.notificationId))
+    ).not.toContain(original.text);
+    expect(
+      injected
+        .filter((entry) => entry.agentId === C)
+        .map((entry) => entry.text)
+        .join(" ")
+    ).not.toContain(original.text);
+    await expect(svc.getMessage(C, receipt.id)).rejects.toThrow(
+      "Message not found"
+    );
+    const forwarded = await svc.shareMessage(C, receipt.notificationId, A);
+    expect(JSON.stringify(await snapshot(svc, A, forwarded.id))).not.toContain(
+      original.text
+    );
+    const moved = sharing({
+      deps: { agentProject: async () => "prj_moved" },
+    }).svc;
+    await expect(moved.getMessage(B, receipt.id)).rejects.toThrow(
+      "Message not found"
+    );
+    expect(
+      (await moved.getMessage(B, receipt.notificationId)).content
+    ).not.toContain(original.text);
+  });
+
+  it("checks current source access and recipient project, status and archive boundaries before persisting", async () => {
+    const { svc } = sharing();
+    const source = await svc.post(A, { text: "Private source" });
+    const secret = await svc.post(B, { text: "Other private source" });
+    await expect(svc.shareMessage(A, secret.id, B)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.shareMessage(A, NIL, B)).rejects.toThrow(
+      "Message not found"
+    );
+    await expect(svc.shareMessage(A, source.id, "missing")).rejects.toThrow(
+      "not found"
+    );
+    await expect(svc.shareMessage(A, source.id, A)).rejects.toThrow(
+      "Recipient"
+    );
+    for (const project of [null, "prj_other"]) {
+      const { svc: other } = sharing({
+        deps: {
+          agentProject: async (id) => (id === A ? "prj_sharing" : project),
+        },
+      });
+      await expect(other.shareMessage(A, source.id, B)).rejects.toThrow(
+        "Recipient"
+      );
+    }
+    const { svc: noProject } = sharing({
+      deps: { agentProject: async () => null },
+    });
+    await expect(noProject.shareMessage(A, source.id, B)).rejects.toThrow(
+      "Recipient"
+    );
+    for (const patch of ["status = 'stopped'", "deleted_at = NOW()"]) {
+      try {
+        await pool.query(`UPDATE agents SET ${patch} WHERE id = $1`, [B]);
+        await expect(svc.shareMessage(A, source.id, B)).rejects.toThrow(
+          "Recipient"
+        );
+      } finally {
+        await pool.query(
+          "UPDATE agents SET status = 'running', deleted_at = NULL WHERE id = $1",
+          [B]
+        );
+      }
+    }
+    expect(
+      (await pool.query("SELECT * FROM message_shares")).rows
+    ).toHaveLength(0);
+  });
+
+  it("preserves exact attachment metadata and immutable content, paginates and survives source deletion", async () => {
+    const { svc } = sharing();
+    const fileId = await seedFiles(A, "exact.png", 456);
+    await seedFiles(A, "private-library.txt");
+    const source = await svc.post(A, {
+      text: "Original " + "x".repeat(9000),
+      attachments: [
+        { type: "file", fileId, caption: "Exact caption" },
+        {
+          type: "code",
+          code: "original()",
+          language: "ts",
+          path: "example.ts",
+        },
+      ],
+    });
+    const receipt = await svc.shareMessage(A, source.id, B);
+    expect((await svc.getMessage(B, receipt.id)).nextOffset).not.toBeNull();
+    const original = await snapshot(svc, B, receipt.id);
+    expect(original.message.attachments).toEqual(source.attachments);
+    expect(JSON.stringify(original)).not.toContain("private-library");
+    await svc.update(A, source.id, {
+      text: "Edited original",
+      attachments: [],
+    });
+    expect(await snapshot(svc, B, receipt.id)).toEqual(original);
+    await pool.query("DELETE FROM blocks WHERE id = $1", [source.id]);
+    expect(await snapshot(svc, B, receipt.id)).toEqual(original);
+  });
+
+  it("does not grant review expansion or copy question state containing unrelated answers", async () => {
+    const { svc } = sharing();
+    const question = await svc.post(A, {
+      text: "Choose",
+      question: { options: [{ label: "Yes" }] },
+    });
+    await svc.answerQuestion(A, question.id, { value: "Yes" });
+    const qShare = await svc.shareMessage(A, question.id, B);
+    expect(JSON.stringify(await snapshot(svc, B, qShare.id))).not.toContain(
+      '"state"'
+    );
+    const review = await svc.post(A, {
+      review: {
+        summary: "Only this summary",
+        findings: [
+          {
+            severity: "major",
+            title: "Private finding",
+            body: "Unshared details",
+          },
+        ],
+      },
+    });
+    const receipt = await svc.shareMessage(A, review.id, B);
+    expect(JSON.stringify(await snapshot(svc, B, receipt.id))).not.toMatch(
+      /Private finding|Unshared details|blocks/
+    );
+    await expect(svc.getReview(B, review.id)).rejects.toThrow(
+      "Review not found"
+    );
+    await expect(svc.getReview(B, receipt.id)).rejects.toThrow(
+      "Review not found"
+    );
+    await expect(svc.getMessage(B, review.blocks![0]!.id)).rejects.toThrow(
+      "Message not found"
+    );
+  });
+
+  it("preserves a task-only card reference without copying task details or granting source access", async () => {
+    const taskId = "tsk_012345abcdef";
+    const { svc } = sharing({
+      deps: {
+        taskRoot: async () => ({
+          id: taskId,
+          title: "Unshared task title",
+          column: "Ready",
+          projectId: "prj_sharing",
+          assignedAgentId: null,
+          agentIds: [],
+        }),
+      },
+    });
+    const source = await svc.post(A, { task: { id: taskId } });
+    const receipt = await svc.shareMessage(A, source.id, B);
+    const shared = await snapshot(svc, B, receipt.id);
+    expect(shared.message).toMatchObject({
+      kind: "task",
+      text: "",
+      data: { taskId },
+    });
+    expect(JSON.stringify(shared)).not.toContain("Unshared task title");
+    await expect(svc.getMessage(B, source.id)).rejects.toThrow(
+      "Message not found"
+    );
+  });
+
+  it("deduplicates concurrent shares and pending/accepted retries", async () => {
+    let accept!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      accept = resolve;
+    });
+    const { svc, injected } = sharing({ gate });
+    const source = await svc.post(A, { text: "Share once" });
+    const receipts = await Promise.all(
+      Array.from({ length: 4 }, () => svc.shareMessage(A, source.id, B))
+    );
+    expect(new Set(receipts.map((r) => r.id)).size).toBe(1);
+    await svc.shareMessage(A, source.id, B, true);
+    accept();
+    await svc.waitForInFlightDeliveries(1000);
+    await svc.shareMessage(A, source.id, B, true);
+    expect(injected.filter((i) => i.agentId === B)).toHaveLength(1);
+    expect(
+      (await pool.query("SELECT * FROM message_shares")).rows
+    ).toHaveLength(1);
+  });
+
+  it("explicitly retries failed delivery with the same snapshot and notification", async () => {
+    const { svc, injected } = sharing({ fail: true });
+    const source = await svc.post(A, { text: "Original share" });
+    const receipt = await svc.shareMessage(A, source.id, B);
+    await svc.waitForInFlightDeliveries(1000);
+    await svc.update(A, source.id, { text: "Updated after failure" });
+    await svc.shareMessage(A, source.id, B);
+    expect(injected).toHaveLength(1);
+    const recovered = sharing();
+    const retried = await recovered.svc.shareMessage(A, source.id, B, true);
+    await recovered.svc.waitForInFlightDeliveries(1000);
+    expect(retried.id).toBe(receipt.id);
+    expect(retried.notificationId).toBe(receipt.notificationId);
+    expect(recovered.injected[0]!.text).toBe(injected[0]!.text);
+    expect((await snapshot(recovered.svc, B, receipt.id)).message.text).toBe(
+      "Original share"
+    );
+    expect(
+      await recovered.svc.store.getById(receipt.notificationId)
+    ).toMatchObject({ delivered: true });
+  });
+
+  it("freezes only the exact running response's text without replaying its prompt, tools or shown blocks", async () => {
+    const { svc } = sharing();
+    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+      A,
+    ]);
+    const event = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 1, 'turn', '{"state":"started","prompt":{"source":"system","text":"Private turn prompt"}}') RETURNING id`,
+        [A]
+      )
+    ).rows[0]!;
+    const response = await svc.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      origin: "turn",
+      text: "",
+      data: { turnEventId: Number(event.id) },
+    });
+    await pool.query(
+      "UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1",
+      [event.id, JSON.stringify({ blockId: response.id })]
+    );
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload) VALUES ($1, 2, 'assistant', '{"text":"Current response only","streaming":false}')`,
+      [A]
+    );
+    const shown = await svc.post(A, {
+      text: "Private shown card",
+      tasks: { items: [{ id: "x", text: "Unshared checklist" }] },
+    });
+    await svc.store.update(response.id, { state: { blocks: [shown.id] } });
+    const receipt = await svc.shareMessage(A, response.id, B);
+    expect(await snapshot(svc, B, receipt.id)).toMatchObject({
+      message: { text: "Current response only", data: null, attachments: [] },
+    });
+    expect(JSON.stringify(await snapshot(svc, B, receipt.id))).not.toMatch(
+      /Private|Unshared|turnEventId|blocks/
+    );
+    await expect(svc.getMessage(B, shown.id)).rejects.toThrow(
+      "Message not found"
+    );
+  });
+
+  it("revokes reference reads when the recipient leaves the share project", async () => {
+    const { svc } = sharing();
+    const source = await svc.post(A, { text: "Original share" });
+    const receipt = await svc.shareMessage(A, source.id, B);
+    const moved = sharing({
+      deps: { agentProject: async () => "prj_elsewhere" },
+    });
+    await expect(moved.svc.getMessage(B, receipt.id)).rejects.toThrow(
+      "Message not found"
+    );
+  });
+});

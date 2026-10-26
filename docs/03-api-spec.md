@@ -653,6 +653,76 @@ and cannot combine with placement. Questions, forms, and reviews reject explicit
 placement to preserve their existing workflow routing. The receipt includes
 `streamId`, `threadId`, and `replyTo` alongside the block ID, kind, and timestamp.
 
+### Scoped verifiable message sharing
+
+`share_message({ id, to, retry? })` forwards a currently readable source message
+(UUID `id`) to the named agent (`to`). Both agents must belong to the same
+non-null project; the recipient must be another running, non-archived agent with
+live runtime delivery. Missing/unauthorized sources and recipients are refused.
+The caller cannot provide author, content, context or provenance fields.
+
+The server atomically stores an immutable snapshot and an agent-authored
+notification in the recipient's own conversation. The receipt returns `id`
+(the **share reference**, distinct from the source ID), `sourceId`, `notificationId`,
+`sharer`, `recipient`, `sharedAt`, and `delivered` (null means pending, not pickup).
+The notification tells the recipient to inspect `get_message({ id: <share reference> })`
+and follow `nextOffset` before acting. It explicitly identifies an agent's forward
+of historical content, never a new user instruction or approval.
+
+The web stream renders a distinct **Shared message** callout from a server-only
+receipt projection, with the sharing agent, original author, source conversation,
+and inert quotes of the exact message and direct question. Agent-to-agent notices
+follow the existing **Show coordination** filter. Provenance IDs are available in
+a disclosure; they do not link to or grant source history. Attachment names are
+metadata only, with no file actions. New receipts snapshot display labels;
+older receipts use generic identity labels without fetching source history.
+Ordinary post/update data cannot create this presentation. Agent MCP readers and
+automatic context continue to see only the actionable notification, never the web
+projection; receipt content still requires the participant/project checks above.
+
+A share reference returns server-owned provenance and a paginated `content` JSON
+document containing `message` and optional `question`. Concatenate the content
+pages before parsing. The exact message's author, kind, timestamps, text, public
+structured data and attachment metadata are frozen. Only a readable **direct
+parent question** (a structured question block; plain-text asks are not inferred)
+is captured to interpret a short answer; its choices and text
+are included, but question/form state is omitted because it can contain other
+answers. No thread root, other replies, review findings, launch instructions,
+turn prompt/tool traces, or file-library entries are copied. For a running turn,
+only that response's current text is hydrated; attachments come from the exact
+source block. Snapshot attachment metadata grants no file-library or filesystem
+access. Later source edits/deletion and later answers do not change the snapshot.
+
+Only the sharer and named recipient can read the reference, while still in its
+recorded project. The reference grants **no access to the original source ID**,
+`get_thread`, `get_review`, reply routing, automatic context expansion, or
+resharing. Resharing requires independent current access to the original message.
+There is no cross-stream search or stream/thread grant.
+
+The tuple `(sourceId, sharer, recipient)` is idempotent: repeated calls reuse the
+first snapshot and notification even after source edits. Current source access
+and recipient eligibility are rechecked on each call. Set `retry: true` on the
+same call to resend a failed notification; accepted or pending notifications are
+not resent. Delivery uses the ordinary block/runtime queue, failure tracking and
+restart recovery (abandoned pending deliveries become failed). A successful
+receipt is not proof of pickup. As with normal delivery, recovery after an
+uncertain runtime acknowledgement can be at least once. Removing the notification
+or an involved agent removes its share receipt; source deletion alone does not.
+
+Reproduce a coordinator → task-agent approval handoff with two independently
+launched agents in one project: have the coordinator post a question; answer it
+as the user, retain the answer's message ID, then call
+`share_message({ id: <answer ID>, to: <task-agent ID> })` as the coordinator.
+The task agent receives an agent-authored prompt with the share reference. Its
+`get_message` read verifies the answer's original user author and the direct ask;
+reading either original ID or its thread still fails. The service regression
+`scoped verifiable message sharing` exercises this flow with real storage and a
+fake delivery adapter; `share_message contract` exercises the real MCP transport
+and strict argument schema. `e2e/message-sharing.spec.ts`, run with
+`E2E_AGENT_RUNTIME=acp pnpm run test:e2e --no-deps --project=parallel e2e/message-sharing.spec.ts`,
+uses the actual MCP route and supervisor/host queue with the deterministic fake
+ACP engine, including an echoed prompt proving runtime pickup.
+
 ### Agent message context readers
 
 `get_message({ id, offset? })` returns conversational content in chunks of at
