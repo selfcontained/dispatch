@@ -57,6 +57,7 @@ import {
   QuestionOptions,
   ReviewBlockBody,
   TasksBlockBody,
+  TaskBlockBody,
 } from "./block-bodies";
 import { AttachmentList } from "./chat-attachment-views";
 import {
@@ -1058,6 +1059,13 @@ function BlockBody({
       );
     case "launch":
       return <LaunchCard block={block} ctx={ctx} inThread={inThread} />;
+    case "task":
+      return (
+        <TaskBlockBody
+          block={block}
+          agentName={(id) => agentDisplayName(id, ctx)}
+        />
+      );
     case "tasks":
       return <TasksBlockBody block={block} />;
     case "link":

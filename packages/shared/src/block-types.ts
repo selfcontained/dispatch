@@ -26,6 +26,7 @@ export const BLOCK_KINDS = [
   "review",
   "finding",
   "tasks",
+  "task",
   "launch",
 ] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
@@ -218,6 +219,8 @@ export function reviewFindings(
   );
 }
 
+export type BlockTaskData = { taskId: string };
+
 export type BlockTasksData = { items: Array<{ id: string; text: string }> };
 export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
@@ -277,6 +280,7 @@ export type BlockBody =
       state: null;
     }
   | { kind: "file"; data: BlockDeliveryIntent | null; state: null }
+  | { kind: "task"; data: BlockTaskData & BlockDeliveryIntent; state: null }
   | { kind: "link"; data: BlockLinkData & BlockDeliveryIntent; state: null }
   | {
       kind: "question";
@@ -528,8 +532,8 @@ export type StreamPostRequest = {
   id?: string;
   /** The agent to deliver to; defaults to the stream's root agent. */
   to?: string;
-  /** May be blank when at least one attachment is present. */
-  text: string;
+  /** Optional caption when an attachment or structured block carries the content. */
+  text?: string;
   /** Reply in this block's thread (or to a reply inside one). */
   replyTo?: string;
   attachments?: ChatUserAttachmentInput[];
@@ -541,6 +545,7 @@ export type StreamPostRequest = {
   delivery?: "auto" | "queue" | "interrupt";
   /** A review left by hand (the Changes tab): the block becomes a `review`. */
   review?: BlockReviewInput;
+  task?: { id: string };
 };
 
 /** Body of `POST /streams/:rootId/blocks/:id/answer` (question blocks). */

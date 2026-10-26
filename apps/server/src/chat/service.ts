@@ -131,6 +131,7 @@ export type PostInput = {
   link?: BlockLinkData | null;
   review?: BlockReviewInput | null;
   tasks?: BlockTasksData | null;
+  task?: { id: string } | null;
   attachments?: BlockAttachmentInput[];
   /** Also send the browser/Slack notification. */
   notify?: boolean;
@@ -258,6 +259,7 @@ export type UserPostInput = {
   resolveMentions?: boolean;
   /** A review left by hand: the block is a `review` with these findings. */
   review?: BlockReviewInput | null;
+  task?: { id: string } | null;
   allowInert?: boolean;
   delivery?: "auto" | "queue" | "interrupt";
   /** Legacy clients: sending no longer cancels the running turn. */
@@ -491,10 +493,11 @@ export function resolveKindAndData(input: PostInput): {
     input.link ? "link" : null,
     input.review ? "review" : null,
     input.tasks ? "tasks" : null,
+    input.task ? "task" : null,
   ].filter((k): k is BlockKind => k !== null);
   if (given.length > 1) {
     throw new StreamValidationError(
-      `A post carries one of question, form, link, review or tasks, not ${given.join(" and ")}.`
+      `A post carries one of question, form, link, review, tasks or task, not ${given.join(" and ")}.`
     );
   }
   // A post that carries nothing but text and files is a file post.
@@ -510,6 +513,14 @@ export function resolveKindAndData(input: PostInput): {
     );
   }
   switch (kind) {
+    case "task": {
+      const id = input.task?.id;
+      if (typeof id !== "string" || !/^tsk_[a-f0-9]{12}$/.test(id.trim()))
+        throw new StreamValidationError(
+          "task.id must be a task ID (tsk_ followed by 12 lowercase hex characters)."
+        );
+      return { kind, data: { taskId: id.trim() } };
+    }
     case "text":
       return { kind, data: null };
     case "file":
@@ -649,6 +660,10 @@ function validateFinding(value: unknown, label: string): BlockFindingData {
 /** New `data` for a block its author is editing, checked against its kind. */
 function validUpdateData(block: Block, value: unknown): unknown {
   switch (block.kind) {
+    case "task":
+      throw new StreamValidationError(
+        "A task reference cannot be edited. Post another task card instead."
+      );
     case "review": {
       const summary = (value as { summary?: unknown } | null)?.summary;
       if (typeof summary !== "string") {
@@ -1126,10 +1141,15 @@ export class StreamService {
   ): Promise<StreamPostResponse> {
     const attachments = input.attachments ?? [];
     const text = requireText(input.text);
+    const taskData = input.task
+      ? (resolveKindAndData({ task: input.task, review: input.review })
+          .data as { taskId: string })
+      : null;
+    if (taskData) await this.requireTaskReference(taskData.taskId);
     const review = input.review
       ? (resolveKindAndData({ review: input.review }).data as BlockReviewInput)
       : null;
-    if (!text.trim() && attachments.length === 0 && !review) {
+    if (!text.trim() && attachments.length === 0 && !review && !taskData) {
       throw new StreamValidationError("text is required.");
     }
     if (attachments.length > BLOCK_ATTACHMENTS_MAX) {
@@ -1189,6 +1209,7 @@ export class StreamService {
     const rawCommand =
       !!commandName &&
       !review &&
+      !taskData &&
       // Only an explicit reply is a conversation; a command typed in
       // the main composer is a standalone ACP prompt.
       !thread &&
@@ -1243,11 +1264,20 @@ export class StreamService {
       streamId,
       author: USER,
       toAgentId,
-      kind: "text" as const,
+      kind: taskData ? ("task" as const) : ("text" as const),
       threadId: thread?.threadId ?? null,
       replyTo: thread?.replyTo ?? null,
       text,
-      ...(Object.keys(textData).length > 0 ? { data: textData } : {}),
+      ...(taskData
+        ? {
+            data: {
+              ...taskData,
+              ...(input.delivery ? { delivery: input.delivery } : {}),
+            },
+          }
+        : Object.keys(textData).length > 0
+          ? { data: textData }
+          : {}),
       attachments: resolved,
       delivered: live ? null : false,
     };
@@ -2186,7 +2216,35 @@ export class StreamService {
     return block;
   }
 
-  private async contextBlock(block: Block): Promise<Block> {
+  private async requireTaskReference(
+    id: string,
+    agentId?: string
+  ): Promise<TaskStreamRoot> {
+    const task = await this.taskRoot(id);
+    if (
+      !task ||
+      (agentId && (await this.deps.agentProject?.(agentId)) !== task.projectId)
+    )
+      throw new StreamValidationError("Task unavailable.");
+    return task;
+  }
+
+  private async taskReferenceText(
+    block: Extract<Block, { kind: "task" }>,
+    agentId?: string
+  ): Promise<string> {
+    let description = `Task ${block.data.taskId} (unavailable)`;
+    if (agentId) {
+      const task = await this.taskRoot(block.data.taskId);
+      if (task && (await this.deps.agentProject?.(agentId)) === task.projectId)
+        description = `Task ${task.id}: ${task.title} (${task.column})`;
+    }
+    return [block.text, description].filter(Boolean).join("\n\n");
+  }
+
+  private async contextBlock(block: Block, agentId?: string): Promise<Block> {
+    if (block.kind === "task")
+      return { ...block, text: await this.taskReferenceText(block, agentId) };
     if (block.origin !== "turn") return block;
     return (
       (await loadBlockEntry(this.store.db, block.streamId, block.id))?.block ??
@@ -2198,7 +2256,7 @@ export class StreamService {
     if (!Number.isInteger(offset) || offset < 0)
       throw new StreamValidationError("Invalid offset.");
     const block = await this.readableMessage(agentId, id, true);
-    return messageExcerpt(await this.contextBlock(block), offset);
+    return messageExcerpt(await this.contextBlock(block, agentId), offset);
   }
 
   async getThread(agentId: string, id: string, before?: string, limit = 5) {
@@ -2219,11 +2277,11 @@ export class StreamService {
     const page = rows.slice(0, limit);
     const messages = await Promise.all(
       page.map(async (row) =>
-        messageExcerpt(await this.contextBlock(row), 0, 1000)
+        messageExcerpt(await this.contextBlock(row, agentId), 0, 1000)
       )
     );
     return {
-      root: messageExcerpt(await this.contextBlock(root), 0, 2000),
+      root: messageExcerpt(await this.contextBlock(root, agentId), 0, 2000),
       messages: messages.reverse(),
       before: rows.length > limit ? page[page.length - 1].id : null,
       note: "Latest replies first by page; messages within each page are chronological. Use get_message with nextOffset for truncated content. Reads do not deliver prompts or mark anything read.",
@@ -2255,8 +2313,6 @@ export class StreamService {
     agentId: string
   ): Promise<string> {
     if (!block.replyTo && !block.threadId) return "";
-    const stored = await this.store.deliveryContext(block.id, agentId);
-    if (stored !== null) return stored;
     const sections: string[] = [];
     // Parent first. No recent-reply history is automatically replayed.
     const ids = [
@@ -2266,6 +2322,15 @@ export class StreamService {
         )
       ),
     ];
+    // Task references are resolved against current access on every delivery.
+    // Never replay a cached title after a project change or task deletion.
+    const taskContext = (
+      await Promise.all(ids.map((id) => this.store.getById(id)))
+    ).some((candidate) => candidate?.kind === "task");
+    if (!taskContext) {
+      const stored = await this.store.deliveryContext(block.id, agentId);
+      if (stored !== null) return stored;
+    }
     let remaining = AUTO_CONTEXT_CHARS;
     for (const id of ids) {
       let candidate: Block;
@@ -2281,7 +2346,7 @@ export class StreamService {
         candidate.author.agentId === agentId
       )
         continue;
-      const hydrated = await this.contextBlock(candidate);
+      const hydrated = await this.contextBlock(candidate, agentId);
       const budget = Math.min(2000, remaining);
       const relation =
         id === block.replyTo
@@ -2294,6 +2359,7 @@ export class StreamService {
       sections.push(serialized);
       remaining -= serialized.length + 1;
     }
+    if (taskContext) return sections.join("\n");
     return this.store.saveDeliveryContext(
       block.id,
       agentId,
@@ -2477,6 +2543,11 @@ export class StreamService {
     }
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
+    if (kind === "task")
+      await this.requireTaskReference(
+        (resolved.data as { taskId: string }).taskId,
+        agentId
+      );
     let data = resolved.data;
     const text = requireText(input.text);
     const attachmentInputs = input.attachments ?? [];
@@ -2487,7 +2558,7 @@ export class StreamService {
     }
     if (!text.trim() && data === null && attachmentInputs.length === 0) {
       throw new StreamValidationError(
-        "A post needs text, an attachment, or one of question, form, link, review or tasks."
+        "A post needs text, an attachment, or one of question, form, link, review, tasks or task."
       );
     }
     let replyTo = input.replyTo ?? null;
@@ -2502,7 +2573,7 @@ export class StreamService {
           "placement and replyTo cannot be combined."
         );
       }
-      if (!["text", "file", "link", "tasks"].includes(kind)) {
+      if (!["text", "file", "link", "tasks", "task"].includes(kind)) {
         throw new StreamValidationError(
           "placement is supported only for text, attachments, links, and tasks. Questions, forms, and reviews use their existing routing."
         );
@@ -3767,7 +3838,10 @@ export class StreamService {
         buildPostEnvelope({
           blockId: block.id,
           from,
-          text: envelopeText(block),
+          text:
+            block.kind === "task"
+              ? await this.taskReferenceText(block, agentId)
+              : envelopeText(block),
           quotedContext: closes
             ? undefined
             : await this.automaticContext(block, agentId),

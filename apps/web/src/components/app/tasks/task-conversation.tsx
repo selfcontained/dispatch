@@ -231,7 +231,10 @@ export function TaskConversation({
     async (
       text: string,
       attachments: ChatUserAttachmentInput[],
-      options?: { delivery?: "auto" | "queue" | "interrupt" }
+      options?: {
+        delivery?: "auto" | "queue" | "interrupt";
+        task?: { id: string };
+      }
     ) => {
       setError(null);
       followingRef.current = true;
@@ -239,6 +242,7 @@ export function TaskConversation({
         text,
         attachments,
         ...(options?.delivery ? { delivery: options.delivery } : {}),
+        ...(options?.task ? { task: options.task } : {}),
       });
     },
     [sendAsync]

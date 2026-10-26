@@ -80,7 +80,7 @@ async function dropTasks(): Promise<void> {
     "DROP TABLE IF EXISTS task_watch_items, task_watches, task_attachments, task_events, task_agents, tasks, task_columns"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments', '0025_task_archive', '0026_task_watches')"
+    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments', '0025_task_archive', '0026_task_watches', '0027_task_blocks')"
   );
 }
 

@@ -672,7 +672,8 @@ export function optimisticUserBlock(
   /** The agent it is for; the stream's root when not given. */
   to?: string,
   /** A review left by hand: the block is a `review`; its findings arrive with the stored row. */
-  review?: BlockReviewInput
+  review?: BlockReviewInput,
+  task?: { id: string }
 ): Block {
   const now = new Date().toISOString();
   const base = {
@@ -692,6 +693,8 @@ export function optimisticUserBlock(
     createdAt: now,
     updatedAt: now,
   };
+  if (task)
+    return { ...base, kind: "task", data: { taskId: task.id }, state: null };
   if (review) {
     return {
       ...base,
@@ -1007,7 +1010,7 @@ export function removeBlock(
 // ---------------------------------------------------------------------------
 
 /** Files here are already uploaded (`POST /agents/:id/files`). */
-export type StreamPostInput = StreamPostRequest;
+export type StreamPostInput = StreamPostRequest & { text: string };
 
 /**
  * A person's post: to the root agent (a prompt), to another agent in its
@@ -1032,6 +1035,7 @@ export function usePostBlock(rootId: string | null) {
       replyTo,
       attachments,
       review,
+      task,
       delivery,
     }) => {
       const body: StreamPostRequest = { id, text };
@@ -1040,12 +1044,13 @@ export function usePostBlock(rootId: string | null) {
       if (replyTo) body.replyTo = replyTo;
       if (attachments && attachments.length > 0) body.attachments = attachments;
       if (review) body.review = review;
+      if (task) body.task = task;
       return api<StreamPostResponse>(`${streamPath(rootId)}/blocks`, {
         method: "POST",
         body: JSON.stringify(body),
       });
     },
-    onMutate: async ({ id, to, text, replyTo, attachments, review }) => {
+    onMutate: async ({ id, to, text, replyTo, attachments, review, task }) => {
       const placeholder = optimisticUserBlock(
         id,
         rootId ?? "",
@@ -1053,7 +1058,8 @@ export function usePostBlock(rootId: string | null) {
         optimisticAttachments(attachments ?? []),
         replyTo ? { threadId: replyTo, replyTo } : null,
         to,
-        review
+        review,
+        task
       );
       if (replyTo) {
         const threadKey = threadQueryKey(rootId, replyTo);

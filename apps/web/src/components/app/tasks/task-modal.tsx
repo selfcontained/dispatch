@@ -43,6 +43,7 @@ export function TaskModal({
   const boardQuery = useTaskBoard(projectId);
   const board = boardQuery.data;
   const contentRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const columns = useMemo(() => (board ? orderedColumns(board) : []), [board]);
   const { moveTask, dialog } = useMoveTask(projectId ?? "", board);
   const location = useLocation();
@@ -85,6 +86,18 @@ export function TaskModal({
         <DialogContent
           ref={contentRef}
           data-testid="task-modal"
+          onOpenAutoFocus={() => {
+            openerRef.current =
+              document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
+          }}
+          onCloseAutoFocus={(event) => {
+            if (openerRef.current?.isConnected) {
+              event.preventDefault();
+              openerRef.current.focus({ preventScroll: true });
+            }
+          }}
           // An attachment preview inside the conversation closes on Escape
           // itself; Radix sees the key first and would close the task.
           onEscapeKeyDown={(event) => {
