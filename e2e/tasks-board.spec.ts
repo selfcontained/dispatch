@@ -909,7 +909,7 @@ for (const touch of [false, true]) {
         headers,
         data: { name: "Stable reorder", repoRoot: repo, color: "#7c6ee6" },
       });
-      expect(response.ok()).toBeTruthy();
+      expect(response.ok(), await response.text()).toBeTruthy();
       const project = await response.json();
       try {
         const ids: string[] = [];
@@ -1081,6 +1081,12 @@ for (const touch of [false, true]) {
             .focus();
           await page.keyboard.press("Space");
           await expect(page.getByTestId("task-card-overlay")).toBeVisible();
+          // KeyboardSensor starts the overlay synchronously but installs its
+          // document keydown handler in setTimeout(0). Cross one timer task
+          // before sending the first direction key, even if the render is fast.
+          await page.evaluate(
+            () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+          );
           await page.keyboard.press("ArrowDown");
           await expect
             .poll(async () => {
