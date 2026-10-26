@@ -17,7 +17,10 @@ import {
   TaskWatchNotifier,
   type WatchDelivery,
 } from "../src/tasks/watch-notifier.js";
-import { TaskService } from "../src/tasks/service.js";
+import { TaskService, type TaskServiceDeps } from "../src/tasks/service.js";
+import { TemplateService } from "../src/templates/service.js";
+import type { TemplateRecord } from "../src/templates/store.js";
+import type { AgentRecord } from "../src/agents/types.js";
 import type { Task } from "../src/tasks/types.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
@@ -41,6 +44,8 @@ let waiting: Array<{
   reject: (error: Error) => void;
 }>;
 let projectId: string;
+let taskTemplate: TemplateRecord | null;
+let launchTemplate: TaskServiceDeps["launchTemplate"];
 let watches: TaskWatchNotifier;
 let watchPrompts: string[];
 let watchDeliver: (
@@ -155,7 +160,7 @@ beforeEach(async () => {
         );
       },
       held: () => waiting.length > 0,
-      activeTurn: () => waiting.length > 0,
+      activeTurn: () => holding,
       // The runtime's claim: an unsent prompt is taken out of the queue.
       controlQueuedPrompt: (ids, blockId, action) => {
         const index = waiting.findIndex(
@@ -174,6 +179,10 @@ beforeEach(async () => {
     agentProject: async (id) =>
       id === STRANGER ? "prj_elsewhere" : AGENTS[id] ? projectId : null,
   });
+  taskTemplate = null;
+  launchTemplate = async () => {
+    throw new Error("no launches here");
+  };
   tasks = new TaskService({
     pool,
     watches,
@@ -184,10 +193,8 @@ beforeEach(async () => {
             projectId: id === STRANGER ? "prj_elsewhere" : projectId,
           }
         : null,
-    getTemplate: async () => null,
-    launchTemplate: async () => {
-      throw new Error("no launches here");
-    },
+    getTemplate: async (id) => (taskTemplate?.id === id ? taskTemplate : null),
+    launchTemplate: (input) => launchTemplate(input),
     chat: streams,
     publishUiEvent: () => {},
     log: { warn: vi.fn(), info: vi.fn() },
@@ -220,6 +227,129 @@ function postBlock(rootId: string, payload: Record<string, unknown>) {
 }
 
 describe("task stream root", () => {
+  it.each(["trigger", "manual", "fireOnCreate"])(
+    "%s launch briefs the active first turn without a queued or late assignment prompt",
+    async (mode) => {
+      taskTemplate = {
+        id: "tpl_task_builder",
+        name: "Builder",
+        projectId,
+        directory: "/repo/tasks",
+        agentType: "claude",
+        model: null,
+        prompt: "Build {{D:Task ID}}",
+      } as TemplateRecord;
+      let startupPrompt = "";
+      const templates = new TemplateService(
+        {} as never,
+        {
+          createAgent: async (input: { initialPrompt?: string }) => {
+            startupPrompt = input.initialPrompt ?? "";
+            // The engine's startup turn is already active when launch resolves.
+            holding = true;
+            return { id: ASSIGNEE } as AgentRecord;
+          },
+        } as never,
+        { info: vi.fn() } as never
+      );
+      vi.spyOn(templates.store, "getTemplate").mockResolvedValue(taskTemplate);
+      launchTemplate = async (input) =>
+        (await templates.launchTemplate(input)).agent;
+      const ready = await tasks.resolveColumnKey(projectId, "ready");
+      await tasks.updateColumn(ready.id, {
+        trigger: {
+          templateId: taskTemplate.id,
+          fireOnCreate: mode === "fireOnCreate",
+        },
+      });
+      const task = await tasks.createTask(
+        {
+          projectId,
+          title: "Ship the complete task",
+          body: "Acceptance: keep the full task description in the startup prompt.",
+          ...(mode === "fireOnCreate" ? { columnId: ready.id } : {}),
+        },
+        USER,
+        { startupLinks: ["https://example.com/design"] }
+      );
+      await tasks.watch(task.id, PEER);
+      if (mode === "trigger")
+        await tasks.updateTask(task.id, { columnId: ready.id }, USER);
+      else if (mode === "manual")
+        await tasks.launchAgent(task.id, { templateId: taskTemplate.id }, USER);
+
+      expect(holding).toBe(true);
+      expect(startupPrompt).toContain(`Build ${task.id}`);
+      expect(startupPrompt).toContain(`Task: ${task.id} — ${task.title}`);
+      expect(startupPrompt).toContain(task.body);
+      expect(startupPrompt).toContain("Project: Tasks (/repo/tasks)");
+      expect(startupPrompt).toContain("https://example.com/design");
+      expect(startupPrompt).toContain(`Conversation: stream ${task.id}`);
+      expect(startupPrompt).toContain("Post progress there with task_comment.");
+      const detail = await tasks.getTaskDetail(task.id);
+      expect(detail.assignedAgentId).toBe(ASSIGNEE);
+      expect(detail.agents).toEqual([
+        expect.objectContaining({
+          agentId: ASSIGNEE,
+          role: mode === "manual" ? "manual" : "trigger",
+          columnId: mode === "manual" ? null : ready.id,
+        }),
+      ]);
+      expect(
+        detail.events.filter((event) => event.kind === "assigned")
+      ).toEqual([
+        expect.objectContaining({
+          data: {
+            agentId: ASSIGNEE,
+            role: mode === "manual" ? "manual" : "trigger",
+          },
+        }),
+      ]);
+      expect(detail.events.map((event) => event.kind)).toContain(
+        mode === "manual" ? "agent_launched" : "trigger_launched"
+      );
+      expect(
+        (
+          await pool.query("SELECT id FROM blocks WHERE stream_id = $1", [
+            task.id,
+          ])
+        ).rows
+      ).toEqual([]);
+      expect(waiting).toEqual([]);
+      expect(prompts).toEqual([]);
+      if (mode !== "fireOnCreate") {
+        await watches.flushTask(task.id);
+        expect(watchPrompts).toHaveLength(1);
+        expect(watchPrompts[0]).toContain("assigned");
+      }
+
+      // Exercise the same real stream/delivery path while the first turn is
+      // active: a person's message must still queue and run after it settles.
+      const response = await postBlock(task.id, {
+        text: "Please report the checks.",
+      });
+      expect(response.statusCode).toBe(200);
+      await expect.poll(() => waiting.length).toBe(1);
+      expect(prompts).toEqual([]);
+      holding = false;
+      for (const pending of waiting.splice(0)) pending.release();
+      await settle();
+      expect(waiting).toEqual([]);
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]!.text).toContain("Please report the checks.");
+      expect(prompts[0]!.text).not.toContain("You're assigned to task");
+      const blocks = (
+        await pool.query(
+          "SELECT text, delivered FROM blocks WHERE stream_id = $1",
+          [task.id]
+        )
+      ).rows;
+      expect(blocks).toEqual([
+        { text: "Please report the checks.", delivered: true },
+      ]);
+    }
+  );
+
   it("posts the assignment into the task's stream, delivered to the agent", async () => {
     const task = await tasks.createTask(
       { projectId, title: "Ship it with @Helper" },
@@ -247,6 +377,11 @@ describe("task stream root", () => {
     expect(prompts[0]!.text).toContain(
       "Your reply appears in the task's conversation"
     );
+    await tasks.updateTask(task.id, { assignedAgentId: HELPER }, USER);
+    await settle();
+    expect(prompts.map((prompt) => prompt.agentId)).toEqual([ASSIGNEE, HELPER]);
+    expect(prompts[1]!.text).toContain(`You're assigned to task ${task.id}`);
+    expect((await tasks.getTaskDetail(task.id)).assignedAgentId).toBe(HELPER);
   });
 
   it("delivers a person's post to the current assignee", async () => {

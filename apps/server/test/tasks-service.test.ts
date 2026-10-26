@@ -1261,18 +1261,20 @@ describe("triggers", () => {
 });
 
 describe("assignment", () => {
-  it("posts the assignment into the task's stream", async () => {
-    const ready = await withTrigger("ready");
+  it("posts manual assignment and reassignment into the task's stream", async () => {
+    await insertAgent("agt_a");
+    await insertAgent("agt_b");
     // The title names another agent: the block must still go to the assignee.
     const task = await service.createTask(
       { projectId, title: "Ship it with @Reviewer" },
       USER
     );
-    await service.updateTask(task.id, { columnId: ready }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_a" }, USER);
+    await service.updateTask(task.id, { assignedAgentId: "agt_b" }, USER);
     const detail = await service.getTaskDetail(task.id);
     const agentId = detail.assignedAgentId!;
-    expect(posts).toHaveLength(1);
-    expect(posts[0]).toEqual({
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toEqual({
       streamId: task.id,
       input: {
         to: agentId,
@@ -1281,12 +1283,19 @@ describe("assignment", () => {
         resolveMentions: false,
       },
     });
-    expect(detail.agents).toEqual([
-      expect.objectContaining({ agentId, role: "trigger", columnId: ready }),
-    ]);
+    expect(detail.agents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentId: "agt_a",
+          role: "manual",
+          columnId: null,
+        }),
+        expect.objectContaining({ agentId, role: "manual", columnId: null }),
+      ])
+    );
     expect(detail.agents[0]).not.toHaveProperty("conversation");
-    // The launch briefing names the task's stream.
-    expect(launches[0]!.appendix).toContain(`Conversation: stream ${task.id}`);
+    expect(posts[0]!.input.to).toBe("agt_a");
+    expect(launches).toHaveLength(0);
   });
 
   it("keeps the assignment when the post fails", async () => {

@@ -1237,7 +1237,10 @@ export class TaskService {
       return;
     }
     try {
-      await this.assign(current, agent.id, "trigger", system, column.id);
+      await this.assign(current, agent.id, "trigger", system, {
+        columnId: column.id,
+        startupBriefed: true,
+      });
     } catch (error) {
       this.deps.log.warn(
         { taskId: task.id, agentId: agent.id, err: error },
@@ -1395,7 +1398,9 @@ export class TaskService {
         agentId: agent.id,
         templateId: launch.templateId,
       });
-      await this.assign(task, agent.id, "manual", actor);
+      await this.assign(task, agent.id, "manual", actor, {
+        startupBriefed: true,
+      });
       this.publish(task.projectId, task.id);
       return { agent };
     });
@@ -1406,14 +1411,16 @@ export class TaskService {
   /**
    * Makes `agentId` the task's agent and tells it so in the task's stream:
    * a block from the user addressed to it, delivered as its prompt. Runs
-   * inside the task's lock. A failed post keeps the assignment.
+   * inside the task's lock. A failed post keeps the assignment. Agents
+   * launched with the task briefing already received these instructions
+   * in their first prompt, so only their assignment records are needed.
    */
   private async assign(
     task: Task,
     agentId: string,
     role: TaskAgentRole,
     actor: TaskActor,
-    columnId: string | null = null
+    options: { columnId?: string; startupBriefed?: boolean } = {}
   ): Promise<void> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent) throw invalid(`Agent ${agentId} not found.`);
@@ -1421,13 +1428,14 @@ export class TaskService {
       taskId: task.id,
       agentId,
       role,
-      columnId,
+      columnId: options.columnId ?? null,
     });
     await this.store.setAssignedAgent(task.id, agentId);
     await this.store.insertEvent(task.id, "assigned", actor, {
       agentId,
       role,
     });
+    if (options.startupBriefed) return;
     try {
       await this.deps.chat.sendUserPost(task.id, {
         to: agentId,
