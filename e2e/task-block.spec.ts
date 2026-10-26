@@ -2,12 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  authHeaders,
-  createAgentViaAPI,
-  loadApp,
-  cleanupE2EAgents,
-} from "./helpers";
+import { authHeaders, trackAgent, loadApp, cleanupE2EAgents } from "./helpers";
 
 const repo = mkdtempSync(join(tmpdir(), "dispatch-task-card-"));
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
@@ -24,10 +19,18 @@ for (const width of [1280, 390]) {
     });
     expect(response.ok(), await response.text()).toBeTruthy();
     const project = await response.json();
-    const agent = await createAgentViaAPI(request, {
-      name: `Task card reader ${width}`,
-      cwd: repo,
+    const agentResponse = await request.post("/api/v1/agents", {
+      headers,
+      data: {
+        name: `Task card reader ${width}`,
+        type: "codex",
+        projectId: project.id,
+        useWorktree: false,
+      },
     });
+    expect(agentResponse.ok(), await agentResponse.text()).toBeTruthy();
+    const { agent } = await agentResponse.json();
+    trackAgent(agent.id);
     try {
       const makeTask = async (title: string) => {
         const result = await request.post("/api/v1/tasks", {
