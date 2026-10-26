@@ -180,11 +180,11 @@ test("a coordinator forwards verified user approval to an independent task agent
     await expect(notice).toContainText(receipt.id);
     await page.setViewportSize({ width: 375, height: 812 });
     await expect(notice).toBeVisible();
-    expect(
-      await notice.evaluate(
-        (element) => element.scrollWidth <= element.clientWidth
+    await expect
+      .poll(() =>
+        notice.evaluate((element) => element.scrollWidth <= element.clientWidth)
       )
-    ).toBe(true);
+      .toBe(true);
     await notice.getByRole("button", { name: "Provenance details" }).click();
     await notice.scrollIntoViewIfNeeded();
     await page.screenshot({
