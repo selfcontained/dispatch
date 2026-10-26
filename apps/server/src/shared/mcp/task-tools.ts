@@ -110,7 +110,7 @@ export function registerTaskTools(
       "task_list",
       {
         description:
-          "List tasks on your project's board. Thin rows; task_get has the body, agents and activity.",
+          "List tasks on your project's board. Thin rows plus ordered column capacities and triggers; task_get has the body, agents and activity.",
         inputSchema: {
           projectId: z.string().min(1).optional(),
           column: z
@@ -153,12 +153,22 @@ export function registerTaskTools(
             projectId: board.projectId,
             columns: board.columns.map((c) => c.key),
             columnCapacity: board.columns.map(
-              ({ id, key, name, capacity, activeTaskCount }) => ({
+              ({
                 id,
                 key,
                 name,
                 capacity,
                 activeTaskCount,
+                isDone,
+                trigger,
+              }) => ({
+                id,
+                key,
+                name,
+                capacity,
+                activeTaskCount,
+                isDone,
+                trigger,
               })
             ),
             tasks,

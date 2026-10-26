@@ -1468,6 +1468,147 @@ function tools(
 }
 
 describe("task tools", () => {
+  it("lists ordered column configuration without changing existing task rows", async () => {
+    const ready = await columnId("ready");
+    const progress = await withTrigger("in_progress");
+    const review = await withTrigger("in_review", {
+      agentType: "claude",
+      model: "sonnet",
+      assign: false,
+      fireOnCreate: true,
+    });
+    for (const [id, capacity] of [
+      [ready, 2],
+      [progress, 2],
+      [review, 4],
+    ] as const) {
+      await service.updateColumn(id, { capacity });
+    }
+    const task = await service.createTask(
+      { projectId, title: "Queued", columnId: ready },
+      USER
+    );
+    const expectedColumns = (await service.getBoard(projectId)).columns;
+    const result = await tools("agt_reader", projectId)("task_list", {});
+    expect(result.isError).toBeUndefined();
+    const data = result.structuredContent!;
+    expect(data.columns).toEqual(expectedColumns.map((c) => c.key));
+    expect(data.columnCapacity).toEqual(
+      expectedColumns.map((c) => ({
+        id: c.id,
+        key: c.key,
+        name: c.name,
+        capacity: c.capacity,
+        activeTaskCount: c.activeTaskCount,
+        isDone: c.isDone,
+        trigger: c.trigger,
+      }))
+    );
+    expect(data.columnCapacity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready",
+          capacity: 2,
+          trigger: null,
+          isDone: false,
+        }),
+        expect.objectContaining({
+          key: "in_progress",
+          capacity: 2,
+          trigger: {
+            templateId: TEMPLATE_ID,
+            templateName: "Builder",
+            agentType: null,
+            model: null,
+            assign: true,
+            fireOnCreate: false,
+          },
+        }),
+        expect.objectContaining({
+          key: "in_review",
+          capacity: 4,
+          trigger: {
+            templateId: TEMPLATE_ID,
+            templateName: "Builder",
+            agentType: "claude",
+            model: "sonnet",
+            assign: false,
+            fireOnCreate: true,
+          },
+        }),
+        expect.objectContaining({
+          key: "done",
+          capacity: null,
+          trigger: null,
+          isDone: true,
+        }),
+      ])
+    );
+    expect(data.tasks).toEqual([
+      {
+        id: task.id,
+        title: task.title,
+        column: "ready",
+        assignedAgentId: null,
+        updatedAt: task.updatedAt,
+      },
+    ]);
+    expect(JSON.parse(result.content[0]!.text)).toEqual(data);
+    expect(launches).toHaveLength(0);
+  });
+
+  it("keeps column metadata and global active counts across filtered MCP reads", async () => {
+    await insertAgent("agt_reader", "idle");
+    const ready = await columnId("ready");
+    const progress = await withTrigger("in_progress");
+    await service.updateColumn(ready, { capacity: 2 });
+    await service.updateColumn(progress, { capacity: 2 });
+    const active = await service.createTask(
+      { projectId, title: "Active", columnId: ready },
+      USER
+    );
+    const archived = await service.createTask(
+      { projectId, title: "Archived", columnId: ready },
+      USER
+    );
+    await service.archiveTask(archived.id, USER);
+    const call = tools("agt_reader", projectId);
+    const all = (await call("task_list", {})).structuredContent!;
+    for (const filter of [
+      { column: "in_progress" },
+      { assignedToMe: true },
+      { archived: true },
+      { archived: true, column: "in_progress", assignedToMe: true },
+    ]) {
+      const filtered = (await call("task_list", filter)).structuredContent!;
+      expect(filtered.columns).toEqual(all.columns);
+      expect(filtered.columnCapacity).toEqual(all.columnCapacity);
+      expect(filtered.tasks).toEqual(
+        filter.archived && !filter.column
+          ? [expect.objectContaining({ id: archived.id })]
+          : []
+      );
+    }
+    expect(all.tasks).toEqual([expect.objectContaining({ id: active.id })]);
+    expect(all.columnCapacity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready",
+          capacity: 2,
+          activeTaskCount: 1,
+          trigger: null,
+        }),
+        expect.objectContaining({
+          key: "in_progress",
+          capacity: 2,
+          activeTaskCount: 0,
+          trigger: expect.objectContaining({ templateId: TEMPLATE_ID }),
+        }),
+      ])
+    );
+    expect(launches).toHaveLength(0);
+  });
+
   it("defaults to the caller's project and errors without one", async () => {
     await insertAgent("agt_tool");
     const call = tools("agt_tool", projectId);
