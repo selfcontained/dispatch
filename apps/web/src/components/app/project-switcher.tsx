@@ -43,6 +43,9 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
   const [manage, setManage] = useState(false);
   const [edit, setEdit] = useState<Project | "new" | null>(null);
   const select = (id?: string) => {
+    // A retained, in-scope URL is incidental to this scope choice. Do not
+    // overwrite the target scope's last explicit agent selection with it.
+    const navigationOptions = { state: { dispatchProjectSwitch: true } };
     const query = new URLSearchParams(location.search);
     query.set("project", id ?? "");
     // A project choice is an explicit scope change, not a task deep link.
@@ -56,14 +59,20 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
       ?.find((a) => a.id === agentId);
     if (agentId && id && agent?.projectId !== id) {
       for (const key of ["thread", "file", "line"]) query.delete(key);
-      navigate({ pathname: "/agents", search: query.toString() });
+      navigate(
+        { pathname: "/agents", search: query.toString() },
+        navigationOptions
+      );
       return;
     }
-    navigate({
-      pathname: location.pathname,
-      search: query.toString(),
-      hash: location.hash,
-    });
+    navigate(
+      {
+        pathname: location.pathname,
+        search: query.toString(),
+        hash: location.hash,
+      },
+      navigationOptions
+    );
   };
   return (
     <>

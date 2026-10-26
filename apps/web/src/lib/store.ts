@@ -138,6 +138,19 @@ export const selectedProjectIdAtom = atomWithLocalStorage<string | null>(
   }
 );
 
+// A scope remembers only an ID. The URL still owns the active agent/tab/thread.
+export const lastAgentIdAtomFamily = atomFamily((projectId: string | null) =>
+  atomWithLocalStorage<string | null>(
+    `dispatch:lastAgentId:${projectId === null ? "all" : `project:${projectId}`}`,
+    null,
+    {
+      validate: (value): value is string | null =>
+        value === null ||
+        (typeof value === "string" && value.trim().length > 0),
+    }
+  )
+);
+
 // null means no layout chosen for this project yet; the route picks a
 // width-based default without saving it.
 export const taskLayoutAtomFamily = atomFamily((projectId: string) =>

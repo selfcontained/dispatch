@@ -4,8 +4,15 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { useSectionNavigate } from "./use-section-navigate";
 
 const navigate = vi.fn();
+vi.mock("jotai", async (original) => ({
+  ...(await original<typeof import("jotai")>()),
+  useAtom: () => [null, vi.fn()],
+}));
+vi.mock("react-router-dom", () => ({ useLocation: () => ({ key: "test" }) }));
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }));
 vi.mock("@/hooks/use-projects", () => ({
   useProjectNavigate: () => navigate,
+  useProjectScope: () => ({ projectId: null }),
 }));
 
 afterEach(() => {

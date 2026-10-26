@@ -1,4 +1,6 @@
-import { useProjectNavigate } from "@/hooks/use-projects";
+import { useSetAtom } from "jotai";
+import { lastAgentIdAtomFamily } from "@/lib/store";
+import { useProjectNavigate, useProjectScope } from "@/hooks/use-projects";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Agent } from "@/components/app/types";
@@ -25,6 +27,8 @@ export function useAgentActions({
   refreshFiles,
 }: UseAgentActionsParams) {
   const navigate = useProjectNavigate();
+  const { projectId } = useProjectScope();
+  const remember = useSetAtom(lastAgentIdAtomFamily(projectId));
   const queryClient = useQueryClient();
 
   const ensureAuxExpanded = useCallback(
@@ -57,8 +61,9 @@ export function useAgentActions({
   );
 
   const closeAgentAndClearSelection = useCallback(() => {
+    remember(null);
     navigate("/agents");
-  }, [navigate]);
+  }, [navigate, remember]);
 
   // A stopped agent's Chat stays readable, so stopping never leaves the
   // route.
