@@ -112,6 +112,8 @@ it("keeps an unsaved description open when cached task fields change", async () 
         position: 0,
         isDone: false,
         trigger: null,
+        capacity: null,
+        activeTaskCount: 1,
         createdAt: detail.createdAt,
         updatedAt: detail.updatedAt,
       },

@@ -13,6 +13,7 @@ import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
 import { columnAccent, groupTasks, taskAge } from "./task-utils";
 import { ColumnTriggerStrip } from "./task-trigger-dialog";
+import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -111,10 +112,8 @@ export function TaskList({
                 aria-hidden="true"
                 className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
               />
-              {column.name}
-              <span className="rounded-full bg-background/50 px-1.5 text-xs font-normal tabular-nums text-muted-foreground">
-                {group.length}
-              </span>
+              <span className="min-w-0 truncate">{column.name}</span>
+              <ColumnCapacity column={column} />
             </Button>
             <TaskColumnMenu
               column={column}
