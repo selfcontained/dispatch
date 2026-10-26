@@ -75,7 +75,12 @@ PROJECT="dispatch-${RUN_ID}"
 mkdir -p "$DISPATCH_FILES_ROOT"
 
 cleanup() {
+  local exit_code=$?
   echo "==> Tearing down isolated environment"
+  if [ "$exit_code" -ne 0 ]; then
+    echo "==> Run failed (exit ${exit_code}); capturing Postgres diagnostics before teardown" >&2
+    $COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" logs --tail 100 >&2 2>&1 || true
+  fi
   # Agent hosts outlive the server by design; stop the ones this run made.
   for pidfile in "$DISPATCH_AGENT_STATE_ROOT"/*/host.pid; do
     [ -f "$pidfile" ] || continue
@@ -83,14 +88,19 @@ cleanup() {
     [ -n "$pid" ] && kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   done
   rm -rf "$DISPATCH_AGENT_STATE_ROOT"
-  $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
+  local down_output
+  if ! down_output="$($COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" down -v 2>&1)"; then
+    echo "Warning: failed to tear down Postgres project ${PROJECT}:" >&2
+    echo "$down_output" >&2
+    echo "Clean it up manually with: $COMPOSE -p ${PROJECT} -f ${ROOT_DIR}/docker-compose.yml down -v" >&2
+  fi
   rm -rf "$DISPATCH_FILES_ROOT"
   rm -f "$DISPATCH_RELEASE_STORE_PATH" "$DISPATCH_RELEASE_CANDIDATE_STORE_PATH"
 }
 trap cleanup EXIT
 
 echo "==> Starting isolated Postgres (project: ${PROJECT}, port: ${DB_PORT})"
-$COMPOSE -p "$PROJECT" up -d --wait
+$COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" up -d --wait
 
 echo "==> Building web bundle"
 pnpm run build:web

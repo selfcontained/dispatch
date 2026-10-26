@@ -74,26 +74,20 @@ PROJECT="dispatch-${RUN_ID}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cleanup() {
+  local exit_code=$?
   echo "==> Tearing down isolated Postgres"
-  $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" down -v 2>/dev/null || true
+  if [ "$exit_code" -ne 0 ]; then
+    echo "==> Run failed (exit ${exit_code}); capturing Postgres diagnostics before teardown" >&2
+    $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" logs --tail 100 >&2 2>&1 || true
+  fi
+  local down_output
+  if ! down_output="$($COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" down -v 2>&1)"; then
+    echo "Warning: failed to tear down Postgres project ${PROJECT}:" >&2
+    echo "$down_output" >&2
+    echo "Clean it up manually with: $COMPOSE -p ${PROJECT} -f ${REPO_ROOT}/docker-compose.yml down -v" >&2
+  fi
 }
 trap cleanup EXIT
-
-# Sweep survivors of earlier SIGKILL'd runs. The run's start time is already
-# encoded in the container name, so the age check needs no docker metadata.
-# Scoped to this script's own prefix and to runs more than a day old, so it can
-# never touch a dev database, an e2e run, or a concurrent server-suite run.
-NOW="$(date +%s)"
-docker ps -a --filter "name=^dispatch-postgres-servertest-" --format '{{.Names}}' 2>/dev/null |
-  while read -r stale; do
-    started="${stale##*-}"
-    case "$started" in
-      '' | *[!0-9]*) continue ;;
-    esac
-    if [ "$((NOW - started))" -gt 86400 ]; then
-      docker rm -f "$stale" >/dev/null 2>&1 || true
-    fi
-  done
 
 echo "==> Starting isolated Postgres for the server suite (project: ${PROJECT}, port: ${DB_PORT})"
 $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" up -d --wait

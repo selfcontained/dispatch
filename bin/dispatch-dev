@@ -237,6 +237,145 @@ detect_compose() {
   fi
 }
 
+# Tear down only the Compose container + network this invocation itself just
+# created (never the named volume, so a failed startup never discards data).
+# Gated by UP_OWNS_DB_CREATE, which is only set for a brand-new `up` with no
+# prior state file: a `cmd_restart`-driven cmd_up reuses an existing project
+# and relies on its own state-file backup for recovery, so this must never
+# run there — a restart failure's Compose resources stay exactly as they
+# were, and the restored state file is still how `down` finds them.
+cleanup_fresh_compose() {
+  [ "${UP_OWNS_DB_CREATE:-0}" = "1" ] || return 0
+  [ -n "${DEV_COMPOSE_PROJECT:-}" ] || return 0
+  local compose
+  compose="$(detect_compose)"
+  [ -n "$compose" ] || return 0
+  echo "Cleaning up Compose resources this run created for '${SUFFIX}'..." >&2
+  if ! $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down >/dev/null 2>&1; then
+    echo "Warning: could not remove the container/network it started; saved state so 'dispatch-dev down --suffix ${SUFFIX}' can retry it:" >&2
+    echo "  $compose -f ${SCRIPT_DIR}/docker-compose.yml -p ${DEV_COMPOSE_PROJECT} down" >&2
+    # Mirrors cmd_down's own retain-on-failure behavior: a fresh create had
+    # no state file yet, so without this, the only trace of the leftover
+    # container is the message above — there'd be nothing for a normal
+    # `down` to find and retry against.
+    save_state
+  fi
+}
+
+# Swaps in `$1` as the EXIT handler for the live fresh-create window and
+# remembers whatever EXIT trap was already installed (e.g. cmd_restart's own
+# state-file backup/restore handler around its nested cmd_up call).
+PREVIOUS_EXIT_TRAP=""
+install_exit_trap() {
+  PREVIOUS_EXIT_TRAP="$(trap -p EXIT)"
+  trap "$1" EXIT
+}
+
+# Puts back whatever EXIT trap install_exit_trap displaced, for the rest of
+# this process's life. Used on a clean finish, where the shell isn't
+# currently exiting — `trap -p`'s own output re-installs a trap verbatim
+# when eval'd.
+reinstall_previous_exit_trap() {
+  if [ -n "$PREVIOUS_EXIT_TRAP" ]; then
+    eval "$PREVIOUS_EXIT_TRAP"
+  else
+    trap - EXIT
+  fi
+  PREVIOUS_EXIT_TRAP=""
+}
+
+# Runs whatever EXIT trap install_exit_trap displaced, right now, in place.
+# Used from inside cmd_up_exit_handler itself: that handler is already
+# running as a result of this same exit, so re-installing the trap and
+# exiting again would NOT make it fire a second time — a trap never refires
+# from inside its own invocation — so the previous handler's command has
+# to be extracted from `trap -p`'s output and run directly instead.
+run_previous_exit_trap() {
+  [ -n "$PREVIOUS_EXIT_TRAP" ] || return 0
+  local cmd
+  eval "set -- $(printf '%s\n' "$PREVIOUS_EXIT_TRAP" | sed -e 's/^trap -- //' -e 's/ EXIT$//')"
+  cmd="$1"
+  PREVIOUS_EXIT_TRAP=""
+  eval "$cmd"
+}
+
+# The one place that decides whether this invocation's own API/Vite
+# processes and fresh Compose resources get released — covers every way
+# cmd_up can end: an explicit `exit 1`, `set -e` aborting on any other
+# failing command in between (e.g. the browser-extension packaging step,
+# which runs after the API is already up), or on_up_interrupt above.
+# Stopping API/Vite is unconditional on UP_OWNS_DB_CREATE — whichever
+# cmd_up call most recently spawned them (fresh or restart-driven) is
+# always the one that owns them — unlike cleanup_fresh_compose, which
+# must stay gated so a restart failure never touches the reused DB.
+# Chains to whatever EXIT trap was previously installed so nesting under
+# cmd_restart never loses its backup-restore handler.
+cmd_up_exit_handler() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    stop_service "${DEV_API_PID:-}" "API server"
+    stop_service "${DEV_VITE_PID:-}" "Vite server"
+    cleanup_fresh_compose
+  fi
+  release_create_lock
+  trap - EXIT
+  run_previous_exit_trap
+  exit "$status"
+}
+
+# Runs on INT/TERM while cmd_up owns a fresh stack creation. Stopping
+# processes and releasing Compose resources both happen uniformly in
+# cmd_up_exit_handler once this exits non-zero, so all this does is report
+# the signal and pick the matching exit code (130 for INT, 143 for TERM,
+# the usual 128+signum convention) for that handler to act on.
+on_up_interrupt() {
+  local sig="$1"
+  local code=1
+  [ "$sig" = "INT" ] && code=130
+  [ "$sig" = "TERM" ] && code=143
+  echo "" >&2
+  echo "Interrupted (SIG${sig}); cleaning up partially started stack '${SUFFIX}'..." >&2
+  exit "$code"
+}
+
+# Serializes fresh creation for one suffix. Two `up` invocations racing on
+# the same deterministic Compose project name could otherwise interleave
+# their creates, or one's failure cleanup could tear down a sibling's
+# still-starting container. Only guards the UP_OWNS_DB_CREATE path — a
+# plain `restart` or `down` on the same suffix is NOT currently serialized
+# against this (or against each other); that's a pre-existing gap this
+# change does not close, left for a follow-up rather than widening this
+# lock onto commands that can call each other (cmd_restart calls both
+# cmd_down and cmd_up) without risking deadlock or an abandoned directory.
+#
+# Deliberately fails fast rather than auto-reclaiming a lock whose holder
+# looks dead: a lock directory's own presence is the only state here, and a
+# holder PID recorded inside it for diagnostics is written after the
+# `mkdir` — reading it is open to a race no safer than just waiting. If a
+# run was SIGKILLed before releasing, remove the printed directory by hand.
+CREATE_LOCK_DIR=""
+acquire_create_lock() {
+  local lock_dir="/tmp/dispatch-dev-${SUFFIX}.create-lock"
+  local waited=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    waited=$((waited + 1))
+    if [ "$waited" -ge 300 ]; then
+      echo "Error: another 'up' appears to be creating the stack for '${SUFFIX}' (lock: ${lock_dir})." >&2
+      echo "If that run was killed and the lock is stale, remove it manually: rm -rf ${lock_dir}" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  echo $$ >"$lock_dir/pid" 2>/dev/null || true
+  CREATE_LOCK_DIR="$lock_dir"
+}
+
+release_create_lock() {
+  [ -n "$CREATE_LOCK_DIR" ] && rm -rf "$CREATE_LOCK_DIR" 2>/dev/null
+  CREATE_LOCK_DIR=""
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -268,6 +407,28 @@ cmd_up() {
   mkdir -p "$(log_dir)"
   DEV_CWD="$cwd"
   DEV_RELEASE_CACHE_DIR="$(release_cache_dir)"
+
+  # A restart reuses an existing project/port (RESTART_DB_PORT is set) and is
+  # recovered through cmd_restart's own state-file backup; only a genuinely
+  # fresh create — no prior state, no restart in progress — owns its Compose
+  # resources closely enough to safely tear them down on failure/interrupt.
+  UP_OWNS_DB_CREATE="0"
+  [ "$OPT_NO_DB" != "1" ] && [ -z "${RESTART_DB_PORT:-}" ] && UP_OWNS_DB_CREATE="1"
+  install_exit_trap cmd_up_exit_handler
+  trap 'on_up_interrupt INT' INT
+  trap 'on_up_interrupt TERM' TERM
+  if [ "$UP_OWNS_DB_CREATE" = "1" ]; then
+    acquire_create_lock
+    # A sibling `up` for this same suffix can have started — and finished —
+    # entirely while this one waited for the lock (the earlier "is a stack
+    # already running" check above ran before the wait, not after it).
+    # Recheck now that the lock makes this check race-free, so this run
+    # does not recreate (and silently orphan) what the sibling just built.
+    if [ -f "$(state_file)" ]; then
+      echo "Stack '${SUFFIX}' was created by a concurrent 'up' while this one waited for its lock; not creating a duplicate." >&2
+      exit 1
+    fi
+  fi
 
   # --- Database ---
   DEV_NO_DB="$OPT_NO_DB"
@@ -483,6 +644,9 @@ cmd_up() {
   fi
 
   save_state
+  trap - INT TERM
+  release_create_lock
+  reinstall_previous_exit_trap
 
   echo ""
   echo "Dev environment ready (suffix: ${SUFFIX}):"
