@@ -43,7 +43,7 @@ Columns are `task_list`'s `columns` in order; Backlog and Ready are queue states
 ## Talking to task agents
 
 - Send instructions, answers and handoff requests to a running task agent addressed to it: `post({ to: agentId })`. An unaddressed `task_comment` does not reach the agent, and a posting receipt is not proof it was read or acted on.
-- Ask builders to put their final status, tests run, screenshots or other proof, and the PR link in the task's conversation addressed to you (`task_comment` with `to` your agent id), so it reaches you as a prompt. `task_get` shows task events, not conversation posts, so an unaddressed handoff can be missed.
+- Ask builders to put their final status, tests run, screenshots or other proof, and the PR link in the task's conversation (`task_comment`) for the board, and to send the same handoff to you with `post({ to: <your agent id> })` when ready for acceptance — you are usually not on the task, so `task_comment` with `to` you is refused. `task_get` shows task events, not conversation posts, so a handoff that wasn't sent to you can be missed.
 - Before deciding anything about a task, read the handoffs addressed to you and `task_get` for its column, links and events. If a task looks finished but nothing reached you, ask its builder directly.
 - When a handoff or blocker needs action, check that builder directly; don't wait for the next tick.
 
