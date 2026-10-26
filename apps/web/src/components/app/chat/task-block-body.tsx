@@ -67,17 +67,21 @@ export function TaskBlockBody({
         <span className="block break-words text-sm font-medium">
           {task.title}
         </span>
-        <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span>
-            {projects.find((project) => project.id === task.projectId)?.name ??
-              task.projectId}
+            {[
+              projects.find((project) => project.id === task.projectId)?.name ??
+                task.projectId,
+              column?.name,
+              task.assignedAgentId
+                ? agentName(task.assignedAgentId)
+                : "Unassigned",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
-          {column && <span>{column.name}</span>}
-          {task.assignedAgentId && (
-            <span>{agentName(task.assignedAgentId)}</span>
-          )}
           {done && <Badge variant="default">Done</Badge>}
-          {task.archivedAt && <Badge variant="default">Archived</Badge>}
+          {task.archivedAt && <Badge variant="stopped">Archived</Badge>}
         </span>
       </span>
     </button>
