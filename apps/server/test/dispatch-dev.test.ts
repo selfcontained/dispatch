@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -7,8 +7,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
+
+import { firstTurnIdentity } from "./helpers/preserved-restart-driver.mjs";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { RestartEvidence } from "./helpers/restart-evidence.js";
+
+const execFileAsync = promisify(execFile);
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const BIN = path.join(REPO_ROOT, "bin", "dispatch-dev");
@@ -43,34 +50,132 @@ async function until(check: () => boolean | Promise<boolean>): Promise<void> {
   throw new Error("condition did not become true within 20s");
 }
 
+let restartEvidence: RestartEvidence | undefined;
+
 function run(
   args: string,
   options?: { expectFail?: boolean; env?: Record<string, string> }
 ): string {
+  const startedAt = new Date().toISOString();
   try {
-    return execSync(`${BIN} ${args}${args ? " " : ""}--suffix ${SUFFIX}`, {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      timeout: 60_000,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ...options?.env,
-        // Clear agent ID so it doesn't leak into suffix
-        DISPATCH_AGENT_ID: "",
-        // A parent dev stack can export its restart ports. Each test stack must
-        // allocate its own ports instead of probing or connecting to that stack.
-        RESTART_API_PORT: "",
-        RESTART_DB_PORT: "",
-        RESTART_VITE_PORT: "",
-      },
-    }).trim();
+    const output = execSync(
+      `${BIN} ${args}${args ? " " : ""}--suffix ${SUFFIX}`,
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        timeout: 60_000,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ...options?.env,
+          // Clear agent ID so it doesn't leak into suffix
+          DISPATCH_AGENT_ID: "",
+          // A parent dev stack can export its restart ports. Each test stack must
+          // allocate its own ports instead of probing or connecting to that stack.
+          RESTART_API_PORT: "",
+          RESTART_DB_PORT: "",
+          RESTART_VITE_PORT: "",
+        },
+      }
+    ).trim();
+    restartEvidence?.command({ args, startedAt, stdout: output });
+    return output;
   } catch (error) {
+    restartEvidence?.command({ args, startedAt, error });
     if (options?.expectFail) {
       const err = error as { stderr?: string; stdout?: string };
       // Combine stdout + stderr since the script writes to both
       return `${err.stdout ?? ""}\n${err.stderr ?? ""}`.trim();
     }
+    throw error;
+  }
+}
+
+// Lifecycle commands must yield while the API is replaced, allowing this
+// fixture's HTTP client to process closure of pooled connections from that API.
+async function runAsync(
+  args: string,
+  options?: { env?: Record<string, string> }
+): Promise<string> {
+  const startedAt = new Date().toISOString();
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      BIN,
+      [...args.split(" "), "--suffix", SUFFIX],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        timeout: 60_000,
+        env: {
+          ...process.env,
+          ...options?.env,
+          DISPATCH_AGENT_ID: "",
+          RESTART_API_PORT: "",
+          RESTART_DB_PORT: "",
+          RESTART_VITE_PORT: "",
+        },
+      }
+    );
+    restartEvidence?.command({ args, startedAt, stdout, stderr });
+    return stdout.trim();
+  } catch (error) {
+    restartEvidence?.command({ args, startedAt, error });
+    throw error;
+  }
+}
+
+async function restartAfterFirstTurn(
+  journal: string,
+  agentId: string,
+  hostPid: number
+): Promise<string> {
+  const identity = firstTurnIdentity(journal, agentId);
+  const driver = path.join(
+    REPO_ROOT,
+    "apps/server/test/helpers/preserved-restart-driver.mjs"
+  );
+  const args = [
+    driver,
+    JSON.stringify({
+      bin: BIN,
+      cwd: REPO_ROOT,
+      suffix: SUFFIX,
+      journal,
+      identity,
+      hostPid,
+      deadline: Date.now() + 60_000,
+    }),
+  ];
+  const options = {
+    cwd: REPO_ROOT,
+    encoding: "utf8" as const,
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      DISPATCH_AGENT_ID: "",
+      RESTART_API_PORT: "",
+      RESTART_DB_PORT: "",
+      RESTART_VITE_PORT: "",
+    },
+  };
+  const startedAt = new Date().toISOString();
+  try {
+    // Settle the preserved turn inside the child so the first blocks read is
+    // immediate after return, while the parent can process old socket closures.
+    const result = await execFileAsync(process.execPath, args, options);
+    restartEvidence?.command({
+      args: `restart after first-turn barrier ${JSON.stringify(identity)}`,
+      startedAt,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+    return result.stdout.trim();
+  } catch (error) {
+    restartEvidence?.command({
+      args: `restart after first-turn barrier ${JSON.stringify(identity)}`,
+      startedAt,
+      error,
+    });
     throw error;
   }
 }
@@ -227,8 +332,15 @@ describe("dispatch-dev", () => {
       chmodSync(HOST_WRAPPER, 0o700);
 
       let hostPid = 0;
+      restartEvidence = new RestartEvidence({
+        repoRoot: REPO_ROOT,
+        suffix: SUFFIX,
+        stateFile: STATE_FILE,
+        logDir: LOG_DIR,
+        preserveHosts,
+      });
       try {
-        run(upArgs, {
+        await runAsync(upArgs, {
           env: {
             DISPATCH_AGENT_HOST_COMMAND: JSON.stringify([HOST_WRAPPER]),
             DISPATCH_HOST: "127.0.0.1",
@@ -249,6 +361,7 @@ describe("dispatch-dev", () => {
         expect(created.status).toBe(201);
         const agentId = ((await created.json()) as { agent: { id: string } })
           .agent.id;
+        restartEvidence.agentId = agentId;
         await until(async () => {
           const response = await fetch(`${api}/agents/${agentId}`);
           const body = (await response.json()) as { agent: { status: string } };
@@ -273,7 +386,12 @@ describe("dispatch-dev", () => {
         expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
           preserveHosts ? "1" : "0"
         );
-        const restart = run("restart");
+        expect(processAlive(hostPid)).toBe(true);
+        restartEvidence.snapshot("before-restart");
+        const restart = preserveHosts
+          ? await restartAfterFirstTurn(journal, agentId, hostPid)
+          : await runAsync("restart");
+        restartEvidence.snapshot("after-restart");
         expect(restart).toContain("Stopped API server");
         expect(restart).toContain("Dev environment ready");
         expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
@@ -286,21 +404,8 @@ describe("dispatch-dev", () => {
           ).toBe(hostPid);
           expect(processAlive(hostPid)).toBe(true);
 
-          await until(() => {
-            const events = readFileSync(journal, "utf8")
-              .trim()
-              .split("\n")
-              .map(
-                (line) =>
-                  JSON.parse(line) as { event?: Record<string, unknown> }
-              );
-            return events.some(
-              ({ event }) =>
-                event?.type === "turn" &&
-                event.state === "settled" &&
-                event.error === undefined
-            );
-          });
+          // The child already verified successful journal settlement using
+          // the original 20s condition deadline; do not grant another wait.
           let turn:
             | {
                 settled: boolean;
@@ -308,19 +413,27 @@ describe("dispatch-dev", () => {
                 result?: { text: string } | null;
               }
             | undefined;
-          await until(async () => {
-            const feed = (await (
-              await fetch(`${api}/streams/${agentId}/blocks`)
-            ).json()) as {
-              entries: Array<{ block?: { turn?: typeof turn } }>;
-            };
-            turn = feed.entries.find((entry) => entry.block?.turn)?.block?.turn;
-            return (
-              turn?.settled === true &&
-              turn.error === undefined &&
-              turn.result?.text.includes("sleep:10000") === true
-            );
-          });
+          await until(() =>
+            restartEvidence!.observeRequest(
+              "first-blocks-read-after-preserved-restart",
+              "GET",
+              `${api}/streams/${agentId}/blocks`,
+              async () => {
+                const feed = (await (
+                  await fetch(`${api}/streams/${agentId}/blocks`)
+                ).json()) as {
+                  entries: Array<{ block?: { turn?: typeof turn } }>;
+                };
+                turn = feed.entries.find((entry) => entry.block?.turn)?.block
+                  ?.turn;
+                return (
+                  turn?.settled === true &&
+                  turn.error === undefined &&
+                  turn.result?.text.includes("sleep:10000") === true
+                );
+              }
+            )
+          );
           expect(turn?.settled).toBe(true);
           expect(turn?.error).toBeUndefined();
           expect(turn?.result?.text).toContain("sleep:10000");
@@ -340,7 +453,9 @@ describe("dispatch-dev", () => {
             encoding: "utf8",
             timeout: 20_000,
           });
-          const recovered = run("restart");
+          restartEvidence.snapshot("before-database-recreation");
+          const recovered = await runAsync("restart");
+          restartEvidence.snapshot("after-database-recreation");
           expect(recovered).toContain(
             "recreating it without stopping agent hosts"
           );
@@ -349,36 +464,49 @@ describe("dispatch-dev", () => {
             Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"))
           ).toBe(hostPid);
           expect(processAlive(hostPid)).toBe(true);
-          await until(async () => {
-            try {
-              const response = await fetch(`${api}/streams/${agentId}/blocks`);
-              if (!response.ok) return false;
-              const feed = (await response.json()) as {
-                entries: Array<{ block?: { turn?: typeof turn } }>;
-              };
-              return feed.entries.some(
-                (entry) =>
-                  entry.block?.turn?.settled === true &&
-                  entry.block.turn.error === undefined &&
-                  entry.block.turn.result?.text.includes("sleep:15000") === true
-              );
-            } catch {
-              // The API socket may reset while the restarted server takes
-              // ownership of the preserved host's journal.
-              return false;
-            }
-          });
+          const readRecovered = () =>
+            restartEvidence!.observeRequest(
+              "blocks-read-after-database-recreation",
+              "GET",
+              `${api}/streams/${agentId}/blocks`,
+              async () => {
+                const response = await fetch(
+                  `${api}/streams/${agentId}/blocks`
+                );
+                if (!response.ok) return false;
+                const feed = (await response.json()) as {
+                  entries: Array<{ block?: { turn?: typeof turn } }>;
+                };
+                return feed.entries.some(
+                  (entry) =>
+                    entry.block?.turn?.settled === true &&
+                    entry.block.turn.error === undefined &&
+                    entry.block.turn.result?.text.includes("sleep:15000") ===
+                      true
+                );
+              }
+            );
+          await until(readRecovered);
         } else {
           await until(() => !processAlive(hostPid));
         }
 
-        run("down --wipe");
+        if (process.env.DISPATCH_RESTART_EVIDENCE === "1") {
+          restartEvidence.captureSuccess();
+        }
+        await runAsync("down --wipe");
         if (preserveHosts) {
           await until(() => !processAlive(hostPid));
         }
+      } catch (error) {
+        // Capture before finally wipes logs; diagnostic failures must never
+        // replace the original assertion or transport error. No retry here.
+        restartEvidence.captureFailure(error);
+        throw error;
       } finally {
+        restartEvidence = undefined;
         try {
-          run("down --wipe");
+          await runAsync("down --wipe");
         } catch {
           // already down
         }
