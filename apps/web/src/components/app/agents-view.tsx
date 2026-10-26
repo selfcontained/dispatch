@@ -47,6 +47,7 @@ import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
+import { useAgentSelectionMemory } from "@/hooks/use-agent-selection-memory";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { useFiles } from "@/hooks/use-files";
@@ -110,7 +111,14 @@ export function AgentsView({
     overflowAgentId,
     setOverflowAgentId,
     agentVisualState,
-  } = useAgents(true, routeAgentId ?? null);
+  } = useAgents(true, routeAgentId ?? null, projectId);
+
+  useAgentSelectionMemory({
+    projectId,
+    agents,
+    agentsLoaded,
+    selectedAgentId: validatedSelectedAgentId,
+  });
 
   const { changesMatch, filesMatch, centerTabResolved, onTabChange } =
     useAgentsViewRouting({

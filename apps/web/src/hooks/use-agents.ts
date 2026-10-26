@@ -2,19 +2,28 @@ import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
+import { isAgentInScope } from "@/lib/agent-selection";
 import { api } from "@/lib/api";
 
-export function useAgents(enabled: boolean, selectedAgentId: string | null) {
+export const agentListQuery = {
+  queryKey: ["agents"],
+  queryFn: async () => {
+    const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
+    return payload.agents;
+  },
+};
+
+export function useAgents(
+  enabled: boolean,
+  selectedAgentId: string | null,
+  projectId: string | null = null
+) {
   const queryClient = useQueryClient();
 
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
 
   const { data: agents = [], isSuccess: agentsLoaded } = useQuery<Agent[]>({
-    queryKey: ["agents"],
-    queryFn: async () => {
-      const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
-      return payload.agents;
-    },
+    ...agentListQuery,
     select: (data) => sortAgentsByCreatedAtDesc(data),
     enabled,
     refetchOnWindowFocus: false,
@@ -29,11 +38,16 @@ export function useAgents(enabled: boolean, selectedAgentId: string | null) {
 
   // Validate selectedAgentId against current agent list.
   const validatedSelectedAgentId = useMemo(() => {
-    if (selectedAgentId && agents.some((a) => a.id === selectedAgentId)) {
+    if (
+      selectedAgentId &&
+      agents.some(
+        (a) => a.id === selectedAgentId && isAgentInScope(a, projectId)
+      )
+    ) {
       return selectedAgentId;
     }
     return null;
-  }, [agents, selectedAgentId]);
+  }, [agents, projectId, selectedAgentId]);
 
   const selectedAgent = useMemo(
     () => agents.find((a) => a.id === validatedSelectedAgentId) ?? null,
