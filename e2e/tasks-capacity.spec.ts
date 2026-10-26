@@ -26,6 +26,7 @@ for (const mobile of [false, true]) {
         headers,
         data: {
           name: `Capacity ${mobile ? "mobile" : "desktop"}`,
+          color: "#7c6ee6",
           repoRoot: repo,
         },
       });
