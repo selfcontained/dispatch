@@ -768,3 +768,70 @@ describe("context reader tools", () => {
     });
   });
 });
+
+describe("share_message contract", () => {
+  it("registers only when allowed and binds identity without accepting forged provenance", async () => {
+    const shareMessage = vi.fn(async () => ({
+      id: OTHER,
+      sourceId: BLOCK,
+      sharer: AGENT_ID,
+      recipient: "agt_peer",
+    }));
+    const server = new McpServer({ name: "test-shares", version: "1.0" });
+    registerStreamTools(server, new Set(["share_message"]), {
+      agentId: AGENT_ID,
+      streams: { shareMessage } as never,
+    });
+    const client = new Client({ name: "test-client", version: "1.0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      expect((await client.listTools()).tools.map((t) => t.name)).toEqual([
+        "share_message",
+      ]);
+      const result = await client.callTool({
+        name: "share_message",
+        arguments: { id: BLOCK, to: "agt_peer", retry: true },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(shareMessage).toHaveBeenCalledWith(
+        AGENT_ID,
+        BLOCK,
+        "agt_peer",
+        true
+      );
+      for (const forged of [
+        { author: { kind: "user" } },
+        { text: "Approved" },
+        { context: "Secret" },
+        { agentId: "agt_other" },
+      ]) {
+        expect(
+          await client.callTool({
+            name: "share_message",
+            arguments: { id: BLOCK, to: "agt_peer", ...forged },
+          })
+        ).toMatchObject({ isError: true });
+      }
+      expect(shareMessage).toHaveBeenCalledTimes(1);
+      shareMessage.mockRejectedValueOnce(new Error("Message not found."));
+      expect(
+        await client.callTool({
+          name: "share_message",
+          arguments: { id: BLOCK, to: "agt_peer" },
+        })
+      ).toMatchObject({ isError: true });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+    const excluded = createMockServer();
+    registerStreamTools(excluded as never, new Set(["get_message"]), {
+      agentId: AGENT_ID,
+      streams: { shareMessage } as never,
+    });
+    expect(excluded.tools.map((t) => t.name)).not.toContain("share_message");
+  });
+});

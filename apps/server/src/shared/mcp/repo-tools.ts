@@ -15,6 +15,7 @@ const BUILTIN_TOOL_NAMES = new Set([
   "react",
   "get_review",
   "get_message",
+  "share_message",
   "get_thread",
   "get_conversation_context",
 ]);

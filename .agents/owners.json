@@ -289,6 +289,14 @@
         "scripts/sync-browser-extension*"
       ],
       "personas": ["browser-feedback-owner"]
+    },
+    {
+      "paths": ["docs/03-api-spec.md"],
+      "personas": ["mcp-contract-owner", "stream-delivery-owner"]
+    },
+    {
+      "paths": ["e2e/message-sharing.spec.ts"],
+      "personas": ["stream-delivery-owner", "mcp-contract-owner"]
     }
   ],
   "fallback": ["code-review"]
