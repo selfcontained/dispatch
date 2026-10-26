@@ -10,6 +10,8 @@ import {
   createAgentViaAPI,
 } from "./helpers";
 
+test.use({ deviceScaleFactor: 2 });
+
 // Real MCP route + supervisor/host + deterministic fake ACP engine; no provider calls.
 test.skip(
   process.env.DISPATCH_AGENT_RUNTIME !== "acp",
@@ -153,6 +155,14 @@ test("a coordinator forwards verified user approval to an independent task agent
     await expect(notice.locator("blockquote").last()).toHaveText("Yes");
     await expect(notice).not.toContainText("Unrelated coordinator-only");
     await expect(notice).not.toContainText("get_message");
+    await notice.scrollIntoViewIfNeeded();
+    await notice.evaluate((element) =>
+      element.scrollIntoView({ block: "center" })
+    );
+    await page.screenshot({
+      path: "/tmp/dispatch-message-sharing-desktop.png",
+      animations: "disabled",
+    });
     await notice.getByRole("button", { name: "Provenance details" }).click();
     await expect(notice).toContainText(receipt.id);
     await page.setViewportSize({ width: 375, height: 812 });
@@ -162,6 +172,8 @@ test("a coordinator forwards verified user approval to an independent task agent
         (element) => element.scrollWidth <= element.clientWidth
       )
     ).toBe(true);
+    await notice.getByRole("button", { name: "Provenance details" }).click();
+    await notice.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: "/tmp/dispatch-message-sharing-handoff.png",
       animations: "disabled",
