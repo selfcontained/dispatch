@@ -254,6 +254,7 @@ describe("dispatch-dev", () => {
         });
         const port = Number(stateValue("DEV_API_PORT"));
         const api = `http://127.0.0.1:${port}/api/v1`;
+        restartEvidence.traceOrigin(new URL(api).origin);
         const created = await fetch(`${api}/agents`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -426,6 +427,7 @@ describe("dispatch-dev", () => {
         restartEvidence.captureFailure(error);
         throw error;
       } finally {
+        restartEvidence?.dispose();
         restartEvidence = undefined;
         try {
           run("down --wipe");
