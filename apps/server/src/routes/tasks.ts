@@ -33,6 +33,7 @@ const CreateColumnSchema = z.object({
   key: z.string().min(1).optional(),
   position: z.number().int().optional(),
   isDone: z.boolean().optional(),
+  capacity: z.number().int().min(1).max(2147483647).nullable().optional(),
   trigger: TriggerSchema.nullable().optional(),
 });
 

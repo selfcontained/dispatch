@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { MENU_ITEM, orderedColumns } from "./task-utils";
+import { TaskCapacityDialog } from "./task-column-capacity";
 import { TaskTriggerDialog } from "./task-trigger-dialog";
 
 /**
@@ -50,6 +51,7 @@ export function TaskColumnMenu({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const actions = useTaskActions(projectId);
+  const [capacityOpen, setCapacityOpen] = useState(false);
   const [triggerOpen, setTriggerOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const index = columns.findIndex((item) => item.id === column.id);
@@ -90,6 +92,12 @@ export function TaskColumnMenu({
             onSelect={() => setTriggerOpen(true)}
           >
             {column.trigger ? "Edit trigger…" : "Add trigger…"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className={MENU_ITEM}
+            onSelect={() => setCapacityOpen(true)}
+          >
+            {column.capacity != null ? "Edit capacity…" : "Set capacity…"}
           </DropdownMenuItem>
           <DropdownMenuItem
             className={MENU_ITEM}
@@ -187,6 +195,14 @@ export function TaskColumnMenu({
           </div>
         </AlertDialogContent>
       </AlertDialog>
+      {capacityOpen && (
+        <TaskCapacityDialog
+          column={column}
+          projectId={projectId}
+          onClose={() => setCapacityOpen(false)}
+          returnFocus={menuButton}
+        />
+      )}
       <TaskTriggerDialog
         column={column}
         projectId={projectId}

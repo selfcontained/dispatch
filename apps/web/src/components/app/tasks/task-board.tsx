@@ -30,6 +30,7 @@ import { columnAccent, orderedColumns, tasksInColumn } from "./task-utils";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ColumnTriggerStrip } from "./task-trigger-dialog";
+import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
 
 /**
@@ -135,9 +136,7 @@ function BoardColumn({
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {column.name}
         </h2>
-        <span className="rounded-full bg-background/50 px-1.5 text-xs tabular-nums text-muted-foreground">
-          {columnTasks.length}
-        </span>
+        <ColumnCapacity column={column} />
         <TaskColumnMenu
           column={column}
           board={board}

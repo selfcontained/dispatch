@@ -161,3 +161,47 @@ it("uses singular wording for one task", async () => {
   expect(await screen.findByText("Archive 1 task from Done?")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Archive 1 task" })).toBeTruthy();
 });
+
+it("validates and saves a column limit, then returns focus to its menu", async () => {
+  await openMenu(
+    { ...columns[1], capacity: null, activeTaskCount: 2 },
+    "horizontal"
+  );
+  fireEvent.click(item("Set capacity…"));
+  await screen.findByRole("dialog", { name: "Capacity · Ready" });
+  const input = screen.getByRole("spinbutton", { name: "Active task limit" });
+  fireEvent.change(input, { target: { value: "1.5" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(updateColumn).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: "1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(updateColumn).toHaveBeenCalledWith({ id: "Ready", capacity: 1 });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Ready menu" })
+    )
+  );
+});
+
+it("removes capacity explicitly and retains a failed edit for correction", async () => {
+  await openMenu(
+    { ...columns[1], capacity: 2, activeTaskCount: 2 },
+    "vertical"
+  );
+  fireEvent.click(item("Edit capacity…"));
+  await screen.findByRole("dialog");
+  updateColumn.mockRejectedValueOnce(new Error("Could not update column."));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "Could not update column."
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Remove limit" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(updateColumn).toHaveBeenLastCalledWith({
+    id: "Ready",
+    capacity: null,
+  });
+});

@@ -609,6 +609,12 @@ export function TaskDetailPanel({
                 Archived — restore this task to move it.
               </div>
             )}
+            {actions.restore?.error &&
+              actions.restore.variables === task.id && (
+                <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                  {actions.restore.error.message}
+                </p>
+              )}
             <footer className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
               <Button
                 size="sm"

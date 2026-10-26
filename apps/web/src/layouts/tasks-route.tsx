@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { taskLayoutAtomFamily } from "@/lib/store";
+import { ColumnCapacity } from "@/components/app/tasks/task-column-capacity";
 import { TaskBoard } from "@/components/app/tasks/task-board";
 import { TaskList } from "@/components/app/tasks/task-list";
 import { TaskDrawer } from "@/components/app/tasks/task-drawer";
@@ -186,12 +187,7 @@ function TasksContent({ projectId }: { projectId: string }) {
                 <Zap className="h-3.5 w-3.5" aria-hidden="true" />
               </span>
             )}
-            <span className="tabular-nums text-muted-foreground">
-              {
-                activeBoard?.tasks.filter((task) => task.columnId === column.id)
-                  .length
-              }
-            </span>
+            <ColumnCapacity column={column} />
           </button>
         ))}
         <Button
@@ -341,6 +337,25 @@ function TasksContent({ projectId }: { projectId: string }) {
             {archived ? (
               <div className="h-full overflow-auto p-4">
                 <h2 className="mb-3 font-semibold">Archived tasks</h2>
+                {actions.restore.error && (
+                  <p role="alert" className="mb-3 text-sm text-destructive">
+                    {actions.restore.error.message}
+                  </p>
+                )}
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {columns
+                    .filter(
+                      (column) => !onlyColumn || column.id === onlyColumn.id
+                    )
+                    .map((column) => (
+                      <span
+                        key={column.id}
+                        className="inline-flex items-center gap-1 text-xs"
+                      >
+                        {column.name} <ColumnCapacity column={column} />
+                      </span>
+                    ))}
+                </div>
                 {tasks.length === 0 && (
                   <p className="text-sm text-muted-foreground">
                     No archived tasks.

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -17,6 +18,7 @@ import { nextPosition } from "./task-utils";
  */
 export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
   const actions = useTaskActions(projectId);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const [relaunch, setRelaunch] = useState<{
     task: Task;
     columnId: string;
@@ -24,48 +26,68 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
   } | null>(null);
   const moveTask = async (task: Task, columnId: string, beforeId?: string) => {
     if (!board || task.id === beforeId) return;
+    setMoveError(null);
     const position = nextPosition(board.tasks, columnId, beforeId);
     try {
       await actions.update.mutateAsync({ id: task.id, columnId, position });
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409)
+      if (error instanceof ApiError && error.code === "agent_working")
         setRelaunch({ task, columnId, position });
+      else
+        setMoveError(
+          error instanceof Error ? error.message : "Could not move task."
+        );
     }
   };
   const dialog = (
     <Dialog
-      open={!!relaunch}
+      open={!!relaunch || !!moveError}
       onOpenChange={(open) => {
-        if (!open) setRelaunch(null);
+        if (!open) {
+          setRelaunch(null);
+          setMoveError(null);
+        }
       }}
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Launch another agent?</DialogTitle>
+          <DialogTitle>
+            {moveError ? "Could not move task" : "Launch another agent?"}
+          </DialogTitle>
+          <DialogDescription>
+            {moveError ??
+              "The assigned agent is still working on this task. Moving it here will launch another agent."}
+          </DialogDescription>
         </DialogHeader>
-        <p className="text-sm">
-          The assigned agent is still working on this task. Moving it here will
-          launch another agent.
-        </p>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setRelaunch(null)}>
-            Cancel
-          </Button>
           <Button
+            variant="ghost"
             onClick={() => {
-              if (relaunch)
-                void actions.update
-                  .mutateAsync({
-                    id: relaunch.task.id,
-                    columnId: relaunch.columnId,
-                    position: relaunch.position,
-                    confirmRelaunch: true,
-                  })
-                  .finally(() => setRelaunch(null));
+              setRelaunch(null);
+              setMoveError(null);
             }}
           >
-            Move and launch
+            {moveError ? "Close" : "Cancel"}
           </Button>
+          {relaunch && !moveError && (
+            <Button
+              disabled={actions.update.isPending}
+              onClick={() => {
+                if (relaunch)
+                  void actions.update
+                    .mutateAsync({
+                      id: relaunch.task.id,
+                      columnId: relaunch.columnId,
+                      position: relaunch.position,
+                      confirmRelaunch: true,
+                    })
+                    .catch((error: Error) => setMoveError(error.message))
+                    .finally(() => setRelaunch(null));
+              }}
+            >
+              Move and launch
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
