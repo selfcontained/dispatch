@@ -1,4 +1,6 @@
 import Fastify from "fastify";
+import fastifyMultipart from "@fastify/multipart";
+import { registerTaskRoutes } from "../src/routes/tasks.js";
 import { registerProjectRoutes } from "../src/routes/projects.js";
 import { execFileSync } from "node:child_process";
 import {
@@ -23,6 +25,7 @@ import {
   vi,
 } from "vitest";
 import type { Pool } from "pg";
+import { TaskStore } from "../src/tasks/store.js";
 
 import {
   buildTaskBriefing,
@@ -213,6 +216,490 @@ async function withTrigger(
 }
 
 const USER = { kind: "user" } as const;
+
+describe("column capacity", () => {
+  it("defaults to unlimited, validates limits, and allows lowering/removing them", async () => {
+    const id = await columnId("ready");
+    expect(
+      (await service.getBoard(projectId)).columns.find((c) => c.id === id)
+    ).toMatchObject({ capacity: null, activeTaskCount: 0 });
+    for (const capacity of [0, -1, 1.5, NaN, Infinity, 2147483648]) {
+      await expect(
+        service.updateColumn(id, { capacity })
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        service.createColumn(projectId, { name: "Invalid", capacity })
+      ).rejects.toMatchObject({ status: 400 });
+    }
+    const custom = await service.createColumn(projectId, {
+      name: "Limited",
+      capacity: 2147483647,
+    });
+    expect(custom).toMatchObject({ capacity: 2147483647, activeTaskCount: 0 });
+    await service.createTask({ projectId, title: "one", columnId: id }, USER);
+    await service.createTask({ projectId, title: "two", columnId: id }, USER);
+    expect(await service.updateColumn(id, { capacity: 1 })).toMatchObject({
+      capacity: 1,
+      activeTaskCount: 2,
+    });
+    await expect(
+      service.createTask({ projectId, title: "three", columnId: id }, USER)
+    ).rejects.toMatchObject({
+      code: "column_capacity_exceeded",
+      extra: { count: 2, limit: 1 },
+    });
+    expect(await service.updateColumn(id, { capacity: null })).toMatchObject({
+      capacity: null,
+      activeTaskCount: 2,
+    });
+    await service.createTask({ projectId, title: "three", columnId: id }, USER);
+  });
+
+  it.each(["create", "move", "restore"] as const)(
+    "serializes the last slot for %s across separate service instances",
+    async (entry) => {
+      const id = await columnId("ready");
+      const tasks =
+        entry === "create"
+          ? []
+          : await Promise.all(
+              Array.from({ length: 8 }, (_, i) =>
+                service.createTask(
+                  {
+                    projectId,
+                    title: `task ${i}`,
+                    ...(entry === "restore" ? { columnId: id } : {}),
+                  },
+                  USER
+                )
+              )
+            );
+      if (entry === "restore")
+        for (const task of tasks) await service.archiveTask(task.id, USER);
+      await service.updateColumn(id, { capacity: 1 });
+      const results = await Promise.allSettled(
+        Array.from({ length: 8 }, (_, i) => {
+          const instance = build();
+          return entry === "create"
+            ? instance.createTask(
+                { projectId, title: `task ${i}`, columnId: id },
+                USER
+              )
+            : entry === "move"
+              ? instance.updateTask(tasks[i]!.id, { columnId: id }, USER)
+              : instance.restoreTask(tasks[i]!.id, USER);
+        })
+      );
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      const failures = results.filter((r) => r.status === "rejected");
+      expect(failures).toHaveLength(7);
+      for (const result of failures)
+        if (result.status === "rejected")
+          expect(result.reason).toMatchObject({
+            status: 409,
+            code: "column_capacity_exceeded",
+            extra: {
+              column: { id, key: "ready", name: "Ready" },
+              count: 1,
+              limit: 1,
+            },
+          });
+      expect(
+        (await service.getBoard(projectId)).columns.find((c) => c.id === id)
+          ?.activeTaskCount
+      ).toBe(1);
+    }
+  );
+
+  it.each([1, null] as const)(
+    "serializes a queued limit change to %s before admission",
+    async (capacity) => {
+      const id = await columnId("ready");
+      await service.createTask(
+        { projectId, title: "occupied", columnId: id },
+        USER
+      );
+      await service.updateColumn(id, {
+        capacity: capacity === null ? 1 : null,
+      });
+      const blocker = await pool.connect();
+      await blocker.query("BEGIN");
+      await blocker.query(
+        "SELECT id FROM task_columns WHERE id = $1 FOR NO KEY UPDATE",
+        [id]
+      );
+      const waitForBlocked = async (count: number) => {
+        await vi.waitFor(async () => {
+          const result = await pool.query(
+            "SELECT count(*)::integer AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%task_columns%'"
+          );
+          expect(result.rows[0].n).toBeGreaterThanOrEqual(count);
+        });
+      };
+      let updated: Promise<unknown> | undefined;
+      let entrant: Promise<unknown> | undefined;
+      try {
+        updated = build().updateColumn(id, { capacity });
+        await waitForBlocked(1);
+        entrant = build()
+          .createTask({ projectId, title: "entrant", columnId: id }, USER)
+          .catch((error) => error);
+        await waitForBlocked(2);
+      } finally {
+        await blocker.query("ROLLBACK");
+        blocker.release();
+      }
+      await updated;
+      const result = await entrant;
+      if (capacity === 1)
+        expect(result).toMatchObject({
+          code: "column_capacity_exceeded",
+          extra: { count: 1, limit: 1 },
+        });
+      else expect(result).toMatchObject({ title: "entrant", columnId: id });
+      expect(
+        (await service.getBoard(projectId)).columns.find((c) => c.id === id)
+      ).toMatchObject({ capacity, activeTaskCount: capacity === 1 ? 1 : 2 });
+    }
+  );
+
+  it("HTTP validates capacities and returns the stable conflict payload", async () => {
+    const app = Fastify();
+    await app.register(fastifyMultipart);
+    await registerTaskRoutes(app, {
+      taskService: service,
+      withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
+    });
+    try {
+      for (const capacity of [0, -1, 1.5, "1", 2147483648, true]) {
+        const result = await app.inject({
+          method: "POST",
+          url: `/api/v1/projects/${projectId}/task-columns`,
+          payload: { name: "Invalid", capacity },
+        });
+        expect(result.statusCode).toBe(400);
+      }
+      const created = await app.inject({
+        method: "POST",
+        url: `/api/v1/projects/${projectId}/task-columns`,
+        payload: { name: "HTTP limited", capacity: 1 },
+      });
+      expect(created.statusCode).toBe(200);
+      const column = created.json();
+      expect(column).toMatchObject({ capacity: 1, activeTaskCount: 0 });
+      const first = await app.inject({
+        method: "POST",
+        url: "/api/v1/tasks",
+        payload: { projectId, title: "first", columnId: column.id },
+      });
+      expect(first.statusCode).toBe(200);
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/v1/tasks",
+        payload: { projectId, title: "second", columnId: column.id },
+      });
+      expect(rejected.statusCode).toBe(409);
+      expect(rejected.json()).toMatchObject({
+        code: "column_capacity_exceeded",
+        column: { id: column.id, key: column.key, name: column.name },
+        count: 1,
+        limit: 1,
+      });
+      const invalidUpdate = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/task-columns/${column.id}`,
+        payload: { capacity: 0 },
+      });
+      expect(invalidUpdate.statusCode).toBe(400);
+      const removed = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/task-columns/${column.id}`,
+        payload: { capacity: null },
+      });
+      expect(removed.json()).toMatchObject({
+        capacity: null,
+        activeTaskCount: 1,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("MCP exposes unfiltered counts and preserves conflict details", async () => {
+    await insertAgent("agt_capacity_tool", "idle");
+    const call = tools("agt_capacity_tool", projectId);
+    const id = await columnId("ready");
+    await service.updateColumn(id, { capacity: 1 });
+    await service.createTask(
+      { projectId, title: "occupied", columnId: id },
+      USER
+    );
+    const listed = await call("task_list", { assignedToMe: true });
+    expect(listed.structuredContent).toMatchObject({
+      tasks: [],
+      columnCapacity: expect.arrayContaining([
+        expect.objectContaining({ id, capacity: 1, activeTaskCount: 1 }),
+      ]),
+    });
+    const rejected = await call("task_create", {
+      title: "refused",
+      column: "ready",
+    });
+    expect(rejected.isError).toBe(true);
+    expect(rejected.structuredContent).toMatchObject({
+      error: {
+        code: "column_capacity_exceeded",
+        column: { id, key: "ready", name: "Ready" },
+        count: 1,
+        limit: 1,
+      },
+    });
+  });
+
+  it("counts active tasks regardless of archived view and isolates columns/projects", async () => {
+    const id = await columnId("ready");
+    const archived = await service.createTask(
+      { projectId, title: "archived", columnId: id },
+      USER
+    );
+    await service.archiveTask(archived.id, USER);
+    await service.updateColumn(id, { capacity: 1 });
+    await service.createTask(
+      { projectId, title: "active", columnId: id },
+      USER
+    );
+    expect(
+      (await service.getBoard(projectId, { archived: true })).columns.find(
+        (c) => c.id === id
+      )
+    ).toMatchObject({ activeTaskCount: 1, capacity: 1 });
+    await service.createTask({ projectId, title: "another column" }, USER);
+    const other = await service.resolveColumnKey(otherProjectId, "ready");
+    await service.updateColumn(other.id, { capacity: 1 });
+    await service.createTask(
+      {
+        projectId: otherProjectId,
+        title: "another project",
+        columnId: other.id,
+      },
+      USER
+    );
+  });
+
+  it("permits edits, reorders, exits, archive, and repeated restore while full", async () => {
+    const id = await columnId("ready");
+    const task = await service.createTask(
+      { projectId, title: "one", columnId: id },
+      USER
+    );
+    await service.updateColumn(id, { capacity: 1 });
+    expect(
+      await service.updateTask(
+        task.id,
+        { title: "edited", columnId: id, position: -10 },
+        USER
+      )
+    ).toMatchObject({ title: "edited", position: -10 });
+    await service.restoreTask(task.id, USER);
+    await service.archiveTask(task.id, USER);
+    await service.restoreTask(task.id, USER);
+    await service.updateTask(
+      task.id,
+      { columnId: await columnId("backlog") },
+      USER
+    );
+    expect(
+      (await service.getBoard(projectId)).columns.find((c) => c.id === id)
+        ?.activeTaskCount
+    ).toBe(0);
+  });
+
+  it("rejects before edits, assignment, events, files or triggers; admitted Ready to In progress fires once", async () => {
+    const ready = await columnId("ready");
+    const progress = await withTrigger("in_progress", { fireOnCreate: true });
+    const occupant = await service.createTask(
+      { projectId, title: "occupied", columnId: progress },
+      USER
+    );
+    const task = await service.createTask(
+      { projectId, title: "queued", columnId: ready },
+      USER
+    );
+    await service.updateColumn(progress, { capacity: 1 });
+    await insertAgent("agt_capacity", "idle");
+    const before = await service.getTaskDetail(task.id);
+    const launchesBefore = launches.length;
+    const postsBefore = posts.length;
+    const publishedBefore = published.length;
+    const refusal = { status: 409, code: "column_capacity_exceeded" };
+    await expect(
+      service.updateTask(
+        task.id,
+        {
+          columnId: progress,
+          title: "mutated",
+          assignedAgentId: "agt_capacity",
+          links: [{ kind: "url", url: "https://example.com", label: "link" }],
+        },
+        USER
+      )
+    ).rejects.toMatchObject(refusal);
+    await expect(
+      service.createTask(
+        { projectId, title: "rejected", columnId: progress },
+        USER,
+        {
+          startupFiles: [
+            startupFileUpload(
+              "capacity.txt",
+              "capacity.txt",
+              Buffer.from("file")
+            ),
+          ],
+        }
+      )
+    ).rejects.toMatchObject(refusal);
+    expect(await service.getTaskDetail(task.id)).toEqual(before);
+    expect(launches).toHaveLength(launchesBefore);
+    expect(posts).toHaveLength(postsBefore);
+    expect(published).toHaveLength(publishedBefore);
+    expect(
+      await readdir(path.join(filesRoot, "tasks")).catch(() => [])
+    ).toEqual([]);
+    await service.archiveTask(occupant.id, USER);
+    await Promise.all([
+      build().updateTask(task.id, { columnId: progress }, USER),
+      build().updateTask(task.id, { columnId: progress }, USER),
+    ]);
+    expect(launches).toHaveLength(launchesBefore + 1);
+    expect(
+      (await service.getTaskDetail(task.id)).events.filter(
+        (e) => e.kind === "moved"
+      )
+    ).toHaveLength(1);
+    expect((await service.requireTask(task.id)).assignedAgentId).toBeTruthy();
+  });
+
+  it("concurrent restores of one task consume one slot and emit one event", async () => {
+    const id = await columnId("ready");
+    const task = await service.createTask(
+      { projectId, title: "archived", columnId: id },
+      USER
+    );
+    await service.archiveTask(task.id, USER);
+    await service.updateColumn(id, { capacity: 1 });
+    await Promise.all(
+      Array.from({ length: 8 }, () => build().restoreTask(task.id, USER))
+    );
+    expect(
+      (await service.getTaskDetail(task.id)).events.filter(
+        (e) => e.kind === "restored"
+      )
+    ).toHaveLength(1);
+    expect(
+      (await service.getBoard(projectId)).columns.find((c) => c.id === id)
+        ?.activeTaskCount
+    ).toBe(1);
+  });
+
+  it("rechecks a restore whose task was concurrently restored and moved elsewhere", async () => {
+    const source = await columnId("ready");
+    const destination = await columnId("in_progress");
+    const task = await service.createTask(
+      { projectId, title: "restore race", columnId: source },
+      USER
+    );
+    await service.archiveTask(task.id, USER);
+    await service.updateColumn(destination, { capacity: 1 });
+    let entered!: () => void;
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => (entered = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const original = TaskStore.prototype.lockColumn;
+    // Pause one instance after its initial task read. All reads, locks and
+    // mutations still run on real PostgreSQL; another instance wins the race.
+    const spy = vi
+      .spyOn(TaskStore.prototype, "lockColumn")
+      .mockImplementationOnce(async function (this: TaskStore, id, db) {
+        entered();
+        await gate;
+        return original.call(this, id, db);
+      });
+    const restoring = build().restoreTask(task.id, USER);
+    try {
+      await paused;
+      await build().restoreTask(task.id, USER);
+      await build().updateTask(task.id, { columnId: destination }, USER);
+    } finally {
+      release();
+      spy.mockRestore();
+    }
+    expect(await restoring).toMatchObject({
+      columnId: destination,
+      archivedAt: null,
+    });
+    expect(
+      (await service.getTaskDetail(task.id)).events.filter(
+        (e) => e.kind === "restored"
+      )
+    ).toHaveLength(1);
+    expect(
+      (await service.getBoard(projectId)).columns.find(
+        (c) => c.id === destination
+      )?.activeTaskCount
+    ).toBe(1);
+  });
+
+  it("opposing moves and completion-column updates use compatible lock order", async () => {
+    const a = await columnId("ready");
+    const b = await columnId("in_progress");
+    await service.updateColumn(a, { capacity: 2 });
+    await service.updateColumn(b, { capacity: 2 });
+    const first = await service.createTask(
+      { projectId, title: "a", columnId: a },
+      USER
+    );
+    const second = await service.createTask(
+      { projectId, title: "b", columnId: b },
+      USER
+    );
+    await Promise.all([
+      build().updateTask(first.id, { columnId: b }, USER),
+      build().updateTask(second.id, { columnId: a }, USER),
+      build().updateColumn(a, { isDone: true }),
+      build().updateColumn(b, { isDone: true }),
+    ]);
+    const board = await service.getBoard(projectId);
+    expect(board.columns.filter((c) => c.isDone)).toHaveLength(1);
+    expect(board.columns.find((c) => c.id === a)?.activeTaskCount).toBe(1);
+    expect(board.columns.find((c) => c.id === b)?.activeTaskCount).toBe(1);
+  });
+
+  it("completion bulk archive frees capacity and preserves completion timestamps", async () => {
+    const id = await columnId("done");
+    await service.updateColumn(id, { capacity: 1 });
+    const task = await service.createTask(
+      { projectId, title: "done", columnId: id },
+      USER
+    );
+    expect(task.completedAt).toBeTruthy();
+    await service.archiveColumn(projectId, id, USER);
+    const next = await service.createTask(
+      { projectId, title: "next", columnId: id },
+      USER
+    );
+    await expect(service.restoreTask(task.id, USER)).rejects.toMatchObject({
+      code: "column_capacity_exceeded",
+    });
+    expect((await service.requireTask(task.id)).completedAt).toBe(
+      task.completedAt
+    );
+    await service.archiveTask(next.id, USER);
+    expect((await service.restoreTask(task.id, USER)).completedAt).toBe(
+      task.completedAt
+    );
+  });
+});
 
 describe("columns", () => {
   it("seeds the default columns once", async () => {

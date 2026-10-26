@@ -48,7 +48,11 @@ function toTaskToolError(error: unknown): ToolResult {
       content: [{ type: "text", text: message }],
       isError: true,
       structuredContent: {
-        error: { ...(error.code ? { code: error.code } : {}), message },
+        error: {
+          ...(error.code ? { code: error.code } : {}),
+          message,
+          ...error.extra,
+        },
       },
     };
   }
@@ -148,6 +152,15 @@ export function registerTaskTools(
           return ok({
             projectId: board.projectId,
             columns: board.columns.map((c) => c.key),
+            columnCapacity: board.columns.map(
+              ({ id, key, name, capacity, activeTaskCount }) => ({
+                id,
+                key,
+                name,
+                capacity,
+                activeTaskCount,
+              })
+            ),
             tasks,
           });
         } catch (error) {

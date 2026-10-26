@@ -48,7 +48,8 @@ function actorColumns(actor: TaskActor): [string, string | null] {
   return [actor.kind, actor.kind === "agent" ? actor.agentId : null];
 }
 
-const COLUMN_SELECT = `id, project_id, key, name, position, is_done, trigger, created_at, updated_at`;
+const COLUMN_SELECT = `id, project_id, key, name, position, is_done, trigger, capacity, created_at, updated_at,
+  (SELECT count(*)::integer FROM tasks WHERE column_id = task_columns.id AND archived_at IS NULL) AS active_task_count`;
 
 type ColumnRow = {
   id: string;
@@ -58,6 +59,8 @@ type ColumnRow = {
   position: number;
   is_done: boolean;
   trigger: TaskColumnTrigger | null;
+  capacity: number | null;
+  active_task_count: number;
   created_at: Date;
   updated_at: Date;
 };
@@ -71,6 +74,8 @@ function toColumn(row: ColumnRow): TaskColumn {
     position: row.position,
     isDone: row.is_done,
     trigger: row.trigger,
+    capacity: row.capacity,
+    activeTaskCount: row.active_task_count,
     createdAt: iso(row.created_at)!,
     updatedAt: iso(row.updated_at)!,
   };
@@ -211,6 +216,7 @@ export type InsertColumn = {
   position: number;
   isDone: boolean;
   trigger: TaskColumnTrigger | null;
+  capacity?: number | null;
 };
 
 export type TaskPatch = {
@@ -267,6 +273,31 @@ export class TaskStore {
     return rows[0] ? toColumn(rows[0]) : null;
   }
 
+  /**
+   * Serialize admission/configuration without blocking the foreign-key key-share
+   * locks of tasks leaving other columns. Read occupancy in a new statement
+   * after acquiring the lock so READ COMMITTED sees the preceding entrant.
+   */
+  async lockColumn(id: string, db: PoolClient): Promise<TaskColumn | null> {
+    await db.query(
+      "SELECT id FROM task_columns WHERE id = $1 FOR NO KEY UPDATE",
+      [id]
+    );
+    return this.getColumn(id, db);
+  }
+
+  async lockProjectColumns(projectId: string, db: PoolClient): Promise<void> {
+    await db.query(
+      "SELECT id FROM task_columns WHERE project_id = $1 ORDER BY id FOR NO KEY UPDATE",
+      [projectId]
+    );
+  }
+
+  async lockTask(id: string, db: PoolClient): Promise<Task | null> {
+    await db.query("SELECT id FROM tasks WHERE id = $1 FOR UPDATE", [id]);
+    return this.getTask(id, db);
+  }
+
   async getColumnByKey(
     projectId: string,
     key: string
@@ -288,8 +319,8 @@ export class TaskStore {
   ): Promise<void> {
     for (const column of columns) {
       await db.query(
-        `INSERT INTO task_columns (id, project_id, key, name, position, is_done, trigger)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO task_columns (id, project_id, key, name, position, is_done, trigger, capacity)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (project_id, key) DO NOTHING`,
         [
           newColumnId(),
@@ -299,6 +330,7 @@ export class TaskStore {
           column.position,
           column.isDone,
           column.trigger === null ? null : JSON.stringify(column.trigger),
+          column.capacity ?? null,
         ]
       );
     }
@@ -309,8 +341,8 @@ export class TaskStore {
     db: Queryable = this.pool
   ): Promise<TaskColumn> {
     const { rows } = await db.query<ColumnRow>(
-      `INSERT INTO task_columns (id, project_id, key, name, position, is_done, trigger)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO task_columns (id, project_id, key, name, position, is_done, trigger, capacity)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING ${COLUMN_SELECT}`,
       [
         newColumnId(),
@@ -320,6 +352,7 @@ export class TaskStore {
         column.position,
         column.isDone,
         column.trigger === null ? null : JSON.stringify(column.trigger),
+        column.capacity ?? null,
       ]
     );
     return toColumn(rows[0]!);
@@ -339,6 +372,7 @@ export class TaskStore {
     if (patch.key !== undefined) set("key", patch.key);
     if (patch.name !== undefined) set("name", patch.name);
     if (patch.position !== undefined) set("position", patch.position);
+    if (patch.capacity !== undefined) set("capacity", patch.capacity);
     if (patch.isDone !== undefined) set("is_done", patch.isDone);
     if (patch.trigger !== undefined)
       set(
@@ -385,18 +419,21 @@ export class TaskStore {
 
   // ── Tasks ────────────────────────────────────────────────────────
 
-  async insertTask(input: {
-    id: string;
-    projectId: string;
-    columnId: string;
-    title: string;
-    body: string;
-    position: number;
-    createdBy: TaskActor;
-    completed: boolean;
-  }): Promise<void> {
+  async insertTask(
+    input: {
+      id: string;
+      projectId: string;
+      columnId: string;
+      title: string;
+      body: string;
+      position: number;
+      createdBy: TaskActor;
+      completed: boolean;
+    },
+    db: Queryable = this.pool
+  ): Promise<void> {
     const [kind, agentId] = actorColumns(input.createdBy);
-    await this.pool.query(
+    await db.query(
       `INSERT INTO tasks (id, project_id, column_id, title, body, position,
                           created_by_kind, created_by_agent_id, completed_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $9 THEN now() END)`,
@@ -414,8 +451,8 @@ export class TaskStore {
     );
   }
 
-  async getTask(id: string): Promise<Task | null> {
-    const { rows } = await this.pool.query<TaskRow>(
+  async getTask(id: string, db: Queryable = this.pool): Promise<Task | null> {
+    const { rows } = await db.query<TaskRow>(
       `SELECT ${TASK_SELECT} WHERE t.id = $1`,
       [id]
     );
@@ -475,8 +512,11 @@ export class TaskStore {
   }
 
   /** The position that puts a task above everything in the column. */
-  async topPosition(columnId: string): Promise<number> {
-    const { rows } = await this.pool.query<{ min: number | null }>(
+  async topPosition(
+    columnId: string,
+    db: Queryable = this.pool
+  ): Promise<number> {
+    const { rows } = await db.query<{ min: number | null }>(
       `SELECT min(position) AS min FROM tasks WHERE column_id = $1`,
       [columnId]
     );

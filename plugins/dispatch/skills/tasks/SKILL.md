@@ -20,6 +20,8 @@ task_unwatch id
 
 `task_watch({ id })` subscribes you to task activity and new posts without taking assignment. Notices are coalesced and include IDs to read with `task_get`, `get_message`, or `get_thread`. `task_unwatch({ id })` stops them; `task_get` includes your `watching` flag.
 
+Columns may have optional capacity limits. `task_list` includes `columnCapacity` entries with each column's `capacity` (null means unlimited) and `activeTaskCount` (all non-archived tasks, regardless of filters). Creating, moving, or restoring into a full column returns `column_capacity_exceeded` with the column, count, and limit. Leave the refused task where it is and explain the blockage; edits, moves out, and archiving remain possible. Capacity gates entry into its own column only: a trigger in an earlier queue does not reserve a later work slot. Do not change limits or project configuration unless asked.
+
 `task_list` returns thin rows and the board's `columns` **keys**. Filter by
 `column`, `assignedToMe`, or `archived: true` when useful. Read the relevant
 task with `task_get` before changing it: it includes the body, column key,

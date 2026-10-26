@@ -35,6 +35,9 @@ export type TaskColumn = {
   /** Entering this column sets `completedAt`; leaving it clears it. */
   isDone: boolean;
   trigger: TaskColumnTrigger | null;
+  capacity: number | null;
+  /** All non-archived tasks, independent of board filters. */
+  activeTaskCount: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -174,6 +177,7 @@ export type CreateTaskColumnInput = {
   key?: string;
   position?: number;
   isDone?: boolean;
+  capacity?: number | null;
   trigger?: TaskColumnTrigger | null;
 };
 

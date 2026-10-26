@@ -493,6 +493,31 @@ export class TaskService {
     }
   }
 
+  private validateCapacity(capacity: number | null): number | null {
+    if (
+      capacity !== null &&
+      (!Number.isInteger(capacity) || capacity < 1 || capacity > 2147483647)
+    )
+      throw invalid(
+        "capacity must be null or a positive integer no greater than 2147483647."
+      );
+    return capacity;
+  }
+
+  private checkCapacity(column: TaskColumn): void {
+    if (column.capacity !== null && column.activeTaskCount >= column.capacity)
+      throw new TaskError(
+        `Column "${column.name}" is full (${column.activeTaskCount}/${column.capacity}). Move or archive a task, raise the limit, or choose another column.`,
+        409,
+        "column_capacity_exceeded",
+        {
+          column: { id: column.id, key: column.key, name: column.name },
+          count: column.activeTaskCount,
+          limit: column.capacity,
+        }
+      );
+  }
+
   async createColumn(
     projectId: string,
     input: ColumnInput
@@ -526,6 +551,7 @@ export class TaskService {
         ? Math.max(...existing.map((c) => c.position)) + 1
         : 0);
     const column = await this.store.transaction(async (db) => {
+      if (input.isDone) await this.store.lockProjectColumns(projectId, db);
       const created = await this.store.insertColumn(
         {
           projectId,
@@ -533,6 +559,7 @@ export class TaskService {
           name,
           position,
           isDone: input.isDone ?? false,
+          capacity: this.validateCapacity(input.capacity ?? null),
           trigger,
         },
         db
@@ -572,6 +599,8 @@ export class TaskService {
         );
       patch.key = key;
     }
+    if (input.capacity !== undefined)
+      patch.capacity = this.validateCapacity(input.capacity);
     if (input.position !== undefined) patch.position = input.position;
     if (input.isDone !== undefined) patch.isDone = input.isDone;
     if (input.trigger !== undefined)
@@ -580,11 +609,14 @@ export class TaskService {
           ? null
           : await this.validateTrigger(project, input.trigger);
     const updated = await this.store.transaction(async (db) => {
+      if (input.isDone)
+        await this.store.lockProjectColumns(column.projectId, db);
+      else await this.store.lockColumn(id, db);
       const next = await this.store.updateColumn(id, patch, db);
       if (!next) throw notFound("Column");
       if (input.isDone === true)
         await this.store.clearDoneExcept(column.projectId, id, db);
-      return next;
+      return (await this.store.getColumn(id, db))!;
     });
     this.publish(column.projectId);
     return updated;
@@ -641,20 +673,33 @@ export class TaskService {
     caller: TaskCaller
   ): Promise<Task> {
     return this.withTaskLock(id, async () => {
-      const task = await this.requireTask(id);
-      const changed = await this.store.transaction(async (db) => {
-        if (!(await this.store.setArchived(id, archived, db))) return false;
-        await this.store.insertEvent(
-          id,
-          archived ? "archived" : "restored",
-          actorOf(caller),
-          {},
-          db
-        );
-        return true;
-      });
-      if (changed) this.publish(task.projectId, id);
-      return this.requireTask(id);
+      for (;;) {
+        const task = await this.requireTask(id);
+        const changed = await this.store.transaction(async (db) => {
+          // Column before task matches bulk archive's lock order. Archived tasks
+          // cannot move; recheck after waiting for a concurrent restore/move.
+          const column = await this.store.lockColumn(task.columnId, db);
+          const current = await this.store.lockTask(id, db);
+          if (!current) throw notFound("Task");
+          if (current.columnId !== task.columnId) return null;
+          if (!archived && current.archivedAt) {
+            if (!column) throw notFound("Column");
+            this.checkCapacity(column);
+          }
+          if (!(await this.store.setArchived(id, archived, db))) return false;
+          await this.store.insertEvent(
+            id,
+            archived ? "archived" : "restored",
+            actorOf(caller),
+            {},
+            db
+          );
+          return true;
+        });
+        if (changed === null) continue;
+        if (changed) this.publish(task.projectId, id);
+        return this.requireTask(id);
+      }
     });
   }
 
@@ -733,21 +778,33 @@ export class TaskService {
     const title = input.title.trim();
     if (!title) throw invalid("title is required.");
     const columns = await this.ensureColumns(input.projectId);
-    const column = input.columnId
+    const initialColumn = input.columnId
       ? columns.find((c) => c.id === input.columnId)
       : columns[0];
-    if (!column) throw invalid("columnId is not a column of this project.");
+    if (!initialColumn)
+      throw invalid("columnId is not a column of this project.");
     const actor = actorOf(caller);
     const id = newTaskId();
-    await this.store.insertTask({
-      id,
-      projectId: input.projectId,
-      columnId: column.id,
-      title,
-      body: input.body ?? "",
-      position: input.position ?? (await this.store.topPosition(column.id)),
-      createdBy: actor,
-      completed: column.isDone,
+    const column = await this.store.transaction(async (db) => {
+      const currentColumn = await this.store.lockColumn(initialColumn.id, db);
+      if (!currentColumn) throw notFound("Column");
+      this.checkCapacity(currentColumn);
+      await this.store.insertTask(
+        {
+          id,
+          projectId: input.projectId,
+          columnId: currentColumn.id,
+          title,
+          body: input.body ?? "",
+          position:
+            input.position ??
+            (await this.store.topPosition(currentColumn.id, db)),
+          createdBy: actor,
+          completed: currentColumn.isDone,
+        },
+        db
+      );
+      return currentColumn;
     });
     try {
       if (links.length)
@@ -921,6 +978,20 @@ export class TaskService {
     }
 
     const applied = await this.store.transaction(async (db) => {
+      if (destination) {
+        const currentColumn = await this.store.lockColumn(destination.id, db);
+        if (!currentColumn) throw notFound("Column");
+        const current = await this.store.lockTask(id, db);
+        if (
+          !current ||
+          current.columnId !== task.columnId ||
+          current.archivedAt
+        )
+          return false;
+        this.checkCapacity(currentColumn);
+        destination = currentColumn;
+        patch.completed = currentColumn.isDone;
+      }
       if (Object.keys(patch).length > 0) {
         const updated = await this.store.updateTask(id, patch, {
           ...(destination ? { fromColumnId: task.columnId } : {}),
