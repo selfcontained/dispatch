@@ -208,6 +208,9 @@ test.describe("Changes viewport rendering", () => {
     );
     const target = page.getByTestId(`changes-file-section:${path}`);
     const finding = target.getByTestId("diff-finding");
+    // domcontentloaded precedes the mocked diff response and its cold render.
+    // Start the focus assertion once the target viewport contents exist.
+    await expect(target.locator("table.diff")).toBeVisible();
     await expect(finding).toHaveAttribute("data-expanded", "true");
     await expect(finding).toBeInViewport();
     await page.screenshot({
