@@ -904,6 +904,7 @@ for (const touch of [false, true]) {
       page,
       request,
     }) => {
+      test.setTimeout(60_000);
       const response = await request.post("/api/v1/projects", {
         headers,
         data: { name: "Stable reorder", repoRoot: repo, color: "#7c6ee6" },
@@ -1100,6 +1101,78 @@ for (const touch of [false, true]) {
         }
         await page.screenshot({
           path: `/tmp/dispatch-reorder-${touch ? "touch" : "desktop"}-persisted.png`,
+          scale: "device",
+        });
+        // Whitespace in a populated destination column still appends.
+        const boardData = await (
+          await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+            headers,
+          })
+        ).json();
+        const readyId = boardData.columns.find(
+          (item: { key: string }) => item.key === "ready"
+        ).id;
+        const readyIds: string[] = [];
+        for (const [position, title] of [
+          "Ready first",
+          "Ready last",
+        ].entries()) {
+          const task = await request.post("/api/v1/tasks", {
+            headers,
+            data: { projectId: project.id, columnId: readyId, title, position },
+          });
+          expect(task.ok()).toBeTruthy();
+          readyIds.push((await task.json()).id);
+        }
+        await page.reload({ waitUntil: "domcontentloaded" });
+        const ready = page.getByTestId("task-column-ready");
+        await expect(ready.locator("[data-task-id]")).toHaveCount(2);
+        const grip = (await page
+          .getByRole("button", { name: "Drag Alpha", exact: true })
+          .boundingBox())!;
+        const last = (await page
+          .getByTestId(`task-card-${readyIds[1]}`)
+          .boundingBox())!;
+        const start = {
+          x: grip.x + grip.width / 2,
+          y: grip.y + grip.height / 2,
+        };
+        const end = { x: last.x + 30, y: last.y + last.height + 60 };
+        if (cdp) {
+          await cdp.send("Input.dispatchTouchEvent", {
+            type: "touchStart",
+            touchPoints: [start],
+          });
+          await page.waitForTimeout(250);
+        } else {
+          await page.mouse.move(start.x, start.y);
+          await page.mouse.down();
+          await page.mouse.move(start.x + 10, start.y);
+        }
+        await expect(page.getByTestId("task-card-overlay")).toBeVisible();
+        for (let step = 1; step <= 30; step++)
+          await move(
+            start.x + ((end.x - start.x) * step) / 30,
+            start.y + ((end.y - start.y) * step) / 30
+          );
+        await expect(ready).toHaveAttribute("data-drop-target", "true");
+        if (cdp)
+          await cdp.send("Input.dispatchTouchEvent", {
+            type: "touchEnd",
+            touchPoints: [],
+          });
+        else await page.mouse.up();
+        const readyOrder = () =>
+          ready
+            .locator("[data-task-id]")
+            .evaluateAll((els) =>
+              els.map((el) => el.getAttribute("data-task-id"))
+            );
+        await expect.poll(readyOrder).toEqual([...readyIds, ids[0]]);
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect.poll(readyOrder).toEqual([...readyIds, ids[0]]);
+        await page.screenshot({
+          path: `/tmp/dispatch-reorder-${touch ? "touch" : "desktop"}-cross-column.png`,
           scale: "device",
         });
         await cdp?.detach();

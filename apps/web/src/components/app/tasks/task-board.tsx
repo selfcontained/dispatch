@@ -55,9 +55,21 @@ const underPointer: CollisionDetection = (args) => {
       for (const card of cards) {
         const rect = card.getBoundingClientRect();
         const transform = getComputedStyle(card).transform;
-        const offset =
-          transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
-        const next = Math.abs(point.y - (rect.top - offset + rect.height / 2));
+        const matrix =
+          transform === "none" ? null : new DOMMatrixReadOnly(transform);
+        const top = rect.top - (matrix?.m42 ?? 0);
+        const left = rect.left - (matrix?.m41 ?? 0);
+        // Across columns, only a card's layout bounds insert before it.
+        // Dropping on column whitespace keeps the existing append behavior.
+        if (
+          args.active.data.current?.columnId !== column.dataset.columnId &&
+          (point.y < top ||
+            point.y > top + rect.height ||
+            point.x < left ||
+            point.x > left + rect.width)
+        )
+          continue;
+        const next = Math.abs(point.y - (top + rect.height / 2));
         if (next < distance) {
           distance = next;
           id = card.dataset.taskId!;
