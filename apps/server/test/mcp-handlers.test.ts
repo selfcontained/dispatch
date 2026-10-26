@@ -83,7 +83,7 @@ import {
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { resolveFilesDir } from "../src/shared/files.js";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
@@ -2169,6 +2169,52 @@ describe("createMcpHandlers", () => {
   });
 
   describe("shareFile", () => {
+    it.each([230, 231])(
+      "imports a %i-byte name with a bounded timestamp suffix",
+      async (length) => {
+        vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+        const result = await handlers.shareFile("agt_test1", {
+          filePath: "/tmp/source.png",
+          name: `${"a".repeat(length - 4)}.png`,
+          description: "long image",
+        });
+        expect(result.fileName).toHaveLength(length + 24);
+        expect(writeFile).toHaveBeenCalledWith(
+          expect.stringContaining(result.fileName),
+          PNG_BYTES
+        );
+        expect(result.url).toContain(encodeURIComponent(result.fileName));
+      }
+    );
+
+    it("rejects an oversized import before writing or registering", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      await expect(
+        handlers.shareFile("agt_test1", {
+          filePath: "/tmp/source.png",
+          name: `${"a".repeat(228)}.png`,
+          description: "too long",
+        })
+      ).rejects.toThrow(/255 bytes.*suffix/);
+      expect(writeFile).not.toHaveBeenCalled();
+      expect(deps.pool.query).not.toHaveBeenCalled();
+    });
+
+    it.each(["../source.png", "a".repeat(256)])(
+      "rejects unsafe update target %s before writing",
+      async (update) => {
+        await expect(
+          handlers.shareFile("agt_test1", {
+            filePath: "/tmp/source.png",
+            update,
+            description: "invalid",
+          })
+        ).rejects.toThrow(/Invalid file name/);
+        expect(writeFile).not.toHaveBeenCalled();
+        expect(deps.pool.query).not.toHaveBeenCalled();
+      }
+    );
+
     it("rejects contents that are no type Dispatch stores", async () => {
       vi.mocked(readFile).mockResolvedValueOnce(BINARY_BYTES);
       await expect(

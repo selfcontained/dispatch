@@ -1,4 +1,4 @@
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -234,6 +234,87 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
     const res = await authedInject(
       "GET",
       `/api/v1/agents/${agentId}/files/no-such-file.png`
+    );
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("serves an existing registered 111-character PNG name URL", async () => {
+    const name = `${"a".repeat(107)}.png`;
+    expect(name).toHaveLength(111);
+    await storeFile(name, PNG_BYTES, "image/png");
+    const listed = await authedInject("GET", `/api/v1/agents/${agentId}/files`);
+    const res = await authedInject("GET", listed.json().files[0].url);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/png");
+    expect(res.rawPayload).toEqual(PNG_BYTES);
+  });
+
+  it.each([254, 255])(
+    "serves a %i-byte stored name even when every byte is URL encoded",
+    async (length) => {
+      const name = `${"a".repeat(length - 4)}.png`;
+      await storeFile(name, PNG_BYTES, "image/png");
+      const encoded = [...name]
+        .map((c) => `%${c.charCodeAt(0).toString(16)}`)
+        .join("");
+      const res = await authedInject(
+        "GET",
+        `/api/v1/agents/${agentId}/files/${encoded}`
+      );
+      expect(res.statusCode).toBe(200);
+      expect(res.rawPayload).toEqual(PNG_BYTES);
+      expect(res.headers["content-type"]).toContain("image/png");
+    }
+  );
+
+  it("serves encoded spaces and parentheses without a second decode", async () => {
+    const name = "image (1).png";
+    await storeFile(name, PNG_BYTES, "image/png");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/image%20%281%29.png`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload).toEqual(PNG_BYTES);
+  });
+
+  it.each([
+    "a".repeat(252) + ".png",
+    "%61".repeat(256),
+    "%2e",
+    "..%2Fsecret.png",
+    "..%5Csecret.png",
+    "bad%00.png",
+    "bad%1f.png",
+    "bad%7f.png",
+    "%252e%252e%252fsecret.png",
+    "bad%ZZ.png",
+    "bad%.png",
+    "%C0%AF.png",
+    "%E0%A4.png",
+    "caf%C3%A9.png",
+  ])("rejects unsafe or oversized route component %s", async (component) => {
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/${component}`
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects an encoded parent path normalized out of the file route", async () => {
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/%2e%2e`
+    );
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("does not serve another agent's registered file through this agent's name route", async () => {
+    await storeFile("owned.png", PNG_BYTES, "image/png");
+    const other = await createAgent("other-owner");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${other.id}/files/owned.png`
     );
     expect(res.statusCode).toBe(404);
   });
@@ -557,6 +638,64 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
     expect(file.mimeType).toBe("image/png");
     expect(file.media).toBe("image");
     expect(file.url).toContain(agentId);
+  });
+
+  it.each([87, 230, 231])(
+    "uploads a %i-byte PNG name and retrieves original bytes through emitted and ID URLs",
+    async (length) => {
+      // Parentheses are preserved by the upload sanitizer and accepted by GET.
+      const filename = `${"a".repeat(length - 7)}(1).png`;
+      const { body, boundary } = buildMultipartPayload(
+        {},
+        { fieldname: "file", filename, content: PNG_BYTES }
+      );
+      const uploaded = await authedInject(
+        "POST",
+        `/api/v1/agents/${agentId}/files`,
+        {
+          payload: body,
+          headers: {
+            "content-type": `multipart/form-data; boundary=${boundary}`,
+          },
+        }
+      );
+      expect(uploaded.statusCode).toBe(201);
+      const { file } = uploaded.json();
+      expect(Buffer.byteLength(file.fileName)).toBe(length + 24);
+      for (const url of [
+        file.url,
+        (await authedInject("GET", `/api/v1/files/${file.id}`)).json().file.url,
+      ]) {
+        const content = await authedInject("GET", url);
+        expect(content.statusCode).toBe(200);
+        expect(content.headers["content-type"]).toContain("image/png");
+        expect(content.rawPayload).toEqual(PNG_BYTES);
+      }
+    }
+  );
+
+  it("rejects an upload exceeding 255 bytes after the timestamp before writing or registering", async () => {
+    const filename = `${"a".repeat(228)}.png`; // 232 + 24 = 256.
+    const { body, boundary } = buildMultipartPayload(
+      {},
+      { fieldname: "file", filename, content: PNG_BYTES }
+    );
+    const res = await authedInject("POST", `/api/v1/agents/${agentId}/files`, {
+      payload: body,
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/255 bytes.*suffix.*Shorten/);
+    expect(
+      (
+        await ctx.pool.query("SELECT 1 FROM files WHERE agent_id = $1", [
+          agentId,
+        ])
+      ).rows
+    ).toHaveLength(0);
+    expect(
+      await readdir(path.join(filesRoot, agentId)).catch(() => [])
+    ).toEqual([]);
   });
 
   it("defaults source to text for text files", async () => {

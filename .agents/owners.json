@@ -262,6 +262,7 @@
     },
     {
       "paths": [
+        "docs/file-attachments.md",
         "apps/server/src/files/**",
         "apps/server/src/routes/files.ts",
         "apps/server/src/shared/files.ts",

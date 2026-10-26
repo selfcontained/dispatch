@@ -929,6 +929,34 @@ describe("StreamService.post", () => {
     expect(blank.attachments[0]).not.toHaveProperty("caption");
   });
 
+  it("resolves maximum-length files by name and ID only within allowed owners", async () => {
+    const name = `${"a".repeat(248)}(1).png`;
+    const fileId = await seedFiles(A, name);
+    for (const ref of [{ fileName: name }, { fileId }]) {
+      const block = await service.post(A, {
+        text: "long file",
+        attachments: [{ type: "file", ...ref }],
+      });
+      expect(block.attachments[0]).toMatchObject({
+        fileId,
+        fileName: name,
+        ownerAgentId: A,
+      });
+      await expect(
+        service.post(B, {
+          text: "not mine",
+          attachments: [{ type: "file", ...ref }],
+        })
+      ).rejects.toThrow(/Unknown file/);
+    }
+    await expect(
+      service.post(A, {
+        text: "too long",
+        attachments: [{ type: "file", fileName: "a".repeat(256) }],
+      })
+    ).rejects.toThrow(/255 bytes/);
+  });
+
   it("resolves file attachments by stored fileName or fileId", async () => {
     await pool.query(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
@@ -983,7 +1011,7 @@ describe("StreamService.post", () => {
           text: "see",
           attachments: [{ type: "file", fileName }],
         })
-      ).rejects.toThrow(/Unknown file/);
+      ).rejects.toThrow(/Unknown file|Invalid attachment file name/);
     }
     await expect(
       service.post(A, { text: "see", attachments: [{ type: "file" }] })

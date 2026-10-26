@@ -31,6 +31,15 @@ describe("timestampFileName", () => {
     expect(timestampFileName("a.png", FIXED_DATE, 9)).toContain("-10.png");
   });
 
+  it("counts the startup index and timestamp in the 255-byte limit", () => {
+    expect(
+      timestampFileName("a".repeat(224) + ".png", FIXED_DATE, 9)
+    ).toHaveLength(255);
+    expect(() =>
+      timestampFileName("a".repeat(225) + ".png", FIXED_DATE, 9)
+    ).toThrow(/255 bytes.*suffix/);
+  });
+
   it("preserves multi-character extensions", () => {
     expect(timestampFileName("note.md", FIXED_DATE, 0)).toMatch(/\.md$/);
     expect(timestampFileName("data.tar.gz", FIXED_DATE, 0)).toMatch(/\.gz$/);

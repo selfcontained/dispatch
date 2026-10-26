@@ -16,6 +16,9 @@ import {
 } from "../files/store.js";
 import {
   isValidFileKey,
+  isValidStoredFileName,
+  MAX_ENCODED_FILE_NAME_LENGTH,
+  timestampedFileName,
   resolveFilesDir,
   sanitizeUploadedFileName,
   toFileKey,
@@ -123,7 +126,11 @@ export async function registerFileRoutes(
     const params = request.params as { id?: string; file?: string };
     const id = params.id ?? "";
     const file = params.file ?? "";
-    if (!/^[A-Za-z0-9._-]+$/.test(file)) {
+    const rawFile = request.raw.url?.split("?")[0].split("/").at(-1) ?? "";
+    if (
+      rawFile.length > MAX_ENCODED_FILE_NAME_LENGTH ||
+      !isValidStoredFileName(file)
+    ) {
       return reply.code(400).send({ error: "Invalid file name." });
     }
     const agentRow = await deps.pool.query<{
@@ -167,8 +174,11 @@ export async function registerFileRoutes(
     }
 
     const fileName = sanitizeUploadedFileName(path.basename(data.filename));
-    if (!fileName) {
-      return reply.code(400).send({ error: "Invalid file name." });
+    let timestampedName: string;
+    try {
+      timestampedName = timestampedFileName(fileName);
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
     }
     const buffer = await data.toBuffer();
     const type = detectFileType(buffer, fileName);
@@ -193,16 +203,7 @@ export async function registerFileRoutes(
     const filesDir = resolveFilesDir(agent.id, agent.filesDir, deps.filesRoot);
     await mkdir(filesDir, { recursive: true });
 
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "-")
-      .replace("Z", "");
-    const ext = path.extname(fileName);
-    const base = path.basename(fileName, ext);
-    const timestampedFileName = `${base}-${timestamp}${ext}`;
-
-    await writeFile(path.join(filesDir, timestampedFileName), buffer);
+    await writeFile(path.join(filesDir, timestampedName), buffer);
 
     const result = await deps.pool.query<{ id: number; created_at: Date }>(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
@@ -211,7 +212,7 @@ export async function registerFileRoutes(
        RETURNING id, created_at`,
       [
         id,
-        timestampedFileName,
+        timestampedName,
         source,
         buffer.length,
         description,
@@ -230,14 +231,14 @@ export async function registerFileRoutes(
       ok: true,
       file: {
         id: result.rows[0].id,
-        fileName: timestampedFileName,
+        fileName: timestampedName,
         source,
         sizeBytes: buffer.length,
         mimeType: type.mimeType,
         media: type.media,
         createdAt: result.rows[0].created_at.toISOString(),
-        url: `/api/v1/agents/${id}/files/${encodeURIComponent(timestampedFileName)}`,
-        path: path.join(filesDir, timestampedFileName),
+        url: fileContentUrl(id, timestampedName),
+        path: path.join(filesDir, timestampedName),
         delivery,
       },
     });
