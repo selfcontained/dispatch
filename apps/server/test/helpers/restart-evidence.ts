@@ -31,6 +31,7 @@ export class RestartEvidence {
   agentId?: string;
   private readonly commands: unknown[] = [];
   private readonly snapshots: unknown[] = [];
+  private readonly requests: unknown[] = [];
 
   constructor(private readonly options: Options) {}
 
@@ -59,9 +60,47 @@ export class RestartEvidence {
     }
   }
 
-  captureFailure(error: unknown): void {
+  async observeRequest<T>(
+    phase: string,
+    method: string,
+    url: string,
+    request: () => Promise<T>
+  ): Promise<T> {
+    const startedAt = new Date().toISOString();
     try {
-      this.writeFailure(error);
+      const result = await request();
+      this.requests.push({
+        phase,
+        method,
+        url,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+      });
+      return result;
+    } catch (error) {
+      this.requests.push({
+        phase,
+        method,
+        url,
+        startedAt,
+        failedAt: new Date().toISOString(),
+        error: serialize(error),
+      });
+      throw error;
+    }
+  }
+
+  captureSuccess(): void {
+    this.capture("success");
+  }
+
+  captureFailure(error: unknown): void {
+    this.capture("failure", error);
+  }
+
+  private capture(outcome: "success" | "failure", error?: unknown): void {
+    try {
+      this.writeEvidence(outcome, error);
     } catch (captureError) {
       console.error(
         "Unable to preserve restart evidence",
@@ -70,7 +109,7 @@ export class RestartEvidence {
     }
   }
 
-  private writeFailure(error: unknown): void {
+  private writeEvidence(outcome: "success" | "failure", error?: unknown): void {
     const { repoRoot, suffix, stateFile, logDir, preserveHosts } = this.options;
     const destination = path.join(
       "/tmp",
@@ -92,7 +131,7 @@ export class RestartEvidence {
         timeout: 3_000,
         maxBuffer: 4 * 1024 * 1024,
       });
-    this.snapshot("failure-before-teardown");
+    this.snapshot(`${outcome}-before-teardown`);
     // Allowlist only this stack's logs and this agent's journal. Do not copy
     // files, credentials, database contents, or other agents' state trees.
     const files = [
@@ -113,9 +152,6 @@ export class RestartEvidence {
         copyFileSync(file, path.join(destination, path.basename(file)));
         return "copied";
       });
-    collect("gitHead", () => command("git", ["rev-parse", "HEAD"]).trim());
-    collect("bunVersion", () => command("bun", ["--version"]).trim());
-    collect("pnpmVersion", () => command("pnpm", ["--version"]).trim());
     collect("processes", () => {
       const state = readFileSync(stateFile, "utf8");
       const owned = new Set<number>([process.pid]);
@@ -156,11 +192,34 @@ export class RestartEvidence {
       if (!port) throw new Error("No scoped API port in state");
       return command("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]);
     });
+    const container = `dispatch-postgres-${suffix}`;
+    collect("databaseLogs", () =>
+      // Postgres writes logs to stderr; retain both streams on success too.
+      command("bash", [
+        "-c",
+        'exec docker logs --tail 200 "$1" 2>&1',
+        "restart-evidence",
+        container,
+      ])
+    );
+    // Restrict inspect to identity/state/ports; full inspect would include env.
+    collect("databaseInspect", () =>
+      command("docker", [
+        "inspect",
+        "--format",
+        "{{json .Id}} {{json .State}} {{json .NetworkSettings.Ports}}",
+        container,
+      ])
+    );
+    collect("gitHead", () => command("git", ["rev-parse", "HEAD"]).trim());
+    collect("bunVersion", () => command("bun", ["--version"]).trim());
+    collect("pnpmVersion", () => command("pnpm", ["--version"]).trim());
     writeFileSync(
-      path.join(destination, "failure.json"),
+      path.join(destination, `${outcome}.json`),
       JSON.stringify(
         {
           capturedAt: new Date().toISOString(),
+          outcome,
           suffix,
           preserveHosts,
           agentId: this.agentId,
@@ -172,6 +231,7 @@ export class RestartEvidence {
           },
           error: serialize(error),
           commands: this.commands,
+          requests: this.requests,
           snapshots: this.snapshots,
           diagnostics,
         },
@@ -181,7 +241,7 @@ export class RestartEvidence {
       { mode: 0o600 }
     );
     console.error(
-      `Restart failure evidence preserved before teardown: ${destination}`
+      `Restart ${outcome} evidence preserved before teardown: ${destination}`
     );
   }
 }

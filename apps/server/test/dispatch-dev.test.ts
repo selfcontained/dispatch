@@ -267,13 +267,13 @@ describe("dispatch-dev", () => {
         expect(created.status).toBe(201);
         const agentId = ((await created.json()) as { agent: { id: string } })
           .agent.id;
+        restartEvidence.agentId = agentId;
         await until(async () => {
           const response = await fetch(`${api}/agents/${agentId}`);
           const body = (await response.json()) as { agent: { status: string } };
           return body.agent.status === "running";
         });
 
-        restartEvidence.agentId = agentId;
         const agentDir = path.join(LOG_DIR, "agents", agentId);
         hostPid = Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"));
         expect(processAlive(hostPid)).toBe(true);
@@ -329,19 +329,27 @@ describe("dispatch-dev", () => {
                 result?: { text: string } | null;
               }
             | undefined;
-          await until(async () => {
-            const feed = (await (
-              await fetch(`${api}/streams/${agentId}/blocks`)
-            ).json()) as {
-              entries: Array<{ block?: { turn?: typeof turn } }>;
-            };
-            turn = feed.entries.find((entry) => entry.block?.turn)?.block?.turn;
-            return (
-              turn?.settled === true &&
-              turn.error === undefined &&
-              turn.result?.text.includes("sleep:10000") === true
-            );
-          });
+          await until(() =>
+            restartEvidence!.observeRequest(
+              "first-blocks-read-after-preserved-restart",
+              "GET",
+              `${api}/streams/${agentId}/blocks`,
+              async () => {
+                const feed = (await (
+                  await fetch(`${api}/streams/${agentId}/blocks`)
+                ).json()) as {
+                  entries: Array<{ block?: { turn?: typeof turn } }>;
+                };
+                turn = feed.entries.find((entry) => entry.block?.turn)?.block
+                  ?.turn;
+                return (
+                  turn?.settled === true &&
+                  turn.error === undefined &&
+                  turn.result?.text.includes("sleep:10000") === true
+                );
+              }
+            )
+          );
           expect(turn?.settled).toBe(true);
           expect(turn?.error).toBeUndefined();
           expect(turn?.result?.text).toContain("sleep:10000");
@@ -374,16 +382,26 @@ describe("dispatch-dev", () => {
           expect(processAlive(hostPid)).toBe(true);
           await until(async () => {
             try {
-              const response = await fetch(`${api}/streams/${agentId}/blocks`);
-              if (!response.ok) return false;
-              const feed = (await response.json()) as {
-                entries: Array<{ block?: { turn?: typeof turn } }>;
-              };
-              return feed.entries.some(
-                (entry) =>
-                  entry.block?.turn?.settled === true &&
-                  entry.block.turn.error === undefined &&
-                  entry.block.turn.result?.text.includes("sleep:15000") === true
+              return await restartEvidence!.observeRequest(
+                "blocks-read-after-database-recreation",
+                "GET",
+                `${api}/streams/${agentId}/blocks`,
+                async () => {
+                  const response = await fetch(
+                    `${api}/streams/${agentId}/blocks`
+                  );
+                  if (!response.ok) return false;
+                  const feed = (await response.json()) as {
+                    entries: Array<{ block?: { turn?: typeof turn } }>;
+                  };
+                  return feed.entries.some(
+                    (entry) =>
+                      entry.block?.turn?.settled === true &&
+                      entry.block.turn.error === undefined &&
+                      entry.block.turn.result?.text.includes("sleep:15000") ===
+                        true
+                  );
+                }
               );
             } catch {
               // The API socket may reset while the restarted server takes
@@ -395,6 +413,9 @@ describe("dispatch-dev", () => {
           await until(() => !processAlive(hostPid));
         }
 
+        if (process.env.DISPATCH_RESTART_EVIDENCE === "1") {
+          restartEvidence.captureSuccess();
+        }
         run("down --wipe");
         if (preserveHosts) {
           await until(() => !processAlive(hostPid));
