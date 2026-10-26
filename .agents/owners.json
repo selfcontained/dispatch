@@ -210,6 +210,7 @@
         "apps/server/src/routes/update-recovery.ts",
         "apps/server/src/db/migrate.ts",
         "apps/server/test/db/*migrat*",
+        "apps/server/test/migrations.test.ts",
         "apps/web/src/components/app/updates-*",
         "apps/web/src/components/app/update-*",
         "apps/web/src/components/app/mac-app-updates-card*",
