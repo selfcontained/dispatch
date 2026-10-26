@@ -96,14 +96,58 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Forwards a caught signal to the running vitest process and waits for it to
-# actually exit before this script does. Without this, bash only runs the
-# EXIT trap above once a *foreground* command returns on its own — a signal
-# sent to this script's own PID while vitest is still running would sit
-# pending until vitest finishes by itself, leaving it to keep running
-# un-interrupted in the meantime. Backgrounding vitest below and `wait`-ing
-# on it (rather than running it as a plain foreground command) is what
-# makes this script's own wait interruptible in the first place.
+# Collects a PID and every current descendant into a flat list, walking
+# depth-first. `vitest` (via bun's launcher) forks its own worker
+# processes; a launcher that dies on TERM without itself forwarding
+# anything to a child it forked would otherwise leave that worker running,
+# now re-parented and no longer discoverable through it. Collecting the
+# whole tree up front — before anything in it has been signaled — and
+# killing from that fixed list (rather than re-querying pgrep as things
+# die) is what still finds it.
+collect_tree() {
+  local pid="${1:-}"
+  [ -n "$pid" ] || return 0
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  local child
+  for child in $children; do
+    collect_tree "$child"
+  done
+  echo "$pid"
+}
+
+# Never signals a process group: a backgrounded job in a non-interactive
+# script can share this script's own pgid (job control is off here), so a
+# group-wide kill could just as easily hit this wrapper or an unrelated
+# sibling process as the owned tree. PIDs only.
+kill_pids() {
+  local sig="$1"
+  shift
+  local pid
+  for pid in "$@"; do
+    kill -"$sig" "$pid" 2>/dev/null || true
+  done
+}
+
+any_alive() {
+  local pid
+  for pid in "$@"; do
+    kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Forwards a caught signal to the running vitest process *and its owned
+# descendants*, waits (bounded) for the whole tree to actually exit, and
+# escalates to SIGKILL for anything still alive — e.g. a worker that
+# ignored the forwarded signal — before this script itself does. Without
+# this, bash only runs the EXIT trap above once a *foreground* command
+# returns on its own — a signal sent to this script's own PID while vitest
+# is still running would sit pending until vitest finishes by itself,
+# leaving it (and anything it forked) to keep running un-interrupted in the
+# meantime. Backgrounding vitest below and `wait`-ing on it (rather than
+# running it as a plain foreground command) is what makes this script's
+# own wait interruptible in the first place.
 TEST_PID=""
 forward_and_wait() {
   local sig="$1"
@@ -111,7 +155,18 @@ forward_and_wait() {
   echo "" >&2
   echo "Interrupted (SIG${sig}); forwarding to the running test process..." >&2
   if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
-    kill -"$sig" "$TEST_PID" 2>/dev/null || true
+    local tree
+    tree="$(collect_tree "$TEST_PID")"
+    # shellcheck disable=SC2086
+    kill_pids "$sig" $tree
+    local i=0
+    # shellcheck disable=SC2086
+    while [ $i -lt 10 ] && any_alive $tree; do
+      sleep 0.5
+      i=$((i + 1))
+    done
+    # shellcheck disable=SC2086
+    any_alive $tree && kill_pids 9 $tree
     wait "$TEST_PID" 2>/dev/null || true
   fi
   exit "$code"

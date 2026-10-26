@@ -207,6 +207,7 @@
         "apps/server/test/dispatch-dev*",
         "apps/server/test/e2e-isolated-cleanup.test.ts",
         "apps/server/test/server-tests-isolated.test.ts",
+        "apps/server/test/helpers/process-tree-fixture.ts",
         "e2e/*release*",
         "apps/macos/**",
         "apps/server/src/update-recovery/**",

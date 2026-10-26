@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeProcessTreeFixture } from "./helpers/process-tree-fixture.js";
 
 // Regression coverage for scripts/e2e-isolated.sh's teardown:
 //  - compose up/down both now target this project's docker-compose.yml
@@ -17,9 +18,11 @@ import { afterEach, describe, expect, it } from "vitest";
 //    `2>/dev/null || true`, and forces a run that otherwise passed to fail
 //    (while a run that was already failing keeps its own exit code);
 //  - a failing run captures Postgres diagnostics before teardown;
-//  - a SIGTERM/SIGINT sent to the script is forwarded to the running
-//    Playwright process (and waited on) instead of sitting pending until
-//    that process finishes on its own.
+//  - a SIGTERM/SIGINT sent to the script is forwarded to the *whole* tree
+//    the running Playwright process owns — including a forked worker the
+//    launcher itself never signals — waited on with a bounded escalation
+//    to SIGKILL for a stubborn survivor, without ever touching an
+//    unrelated process that happens to share the same pgid.
 // A fake `docker` on PATH stands in for the daemon; a fake `pnpm` makes the
 // `playwright install chromium` step and `build:web` no-ops and lets the
 // final Playwright invocation be controlled directly.
@@ -95,6 +98,29 @@ function isCall(line: string, subcommand: string): boolean {
   return ` ${line} `.includes(` ${subcommand} `);
 }
 
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// By the time the wrapper script itself exits, its own bounded wait/kill
+// loop has already confirmed the tree is gone — but this test process has
+// no wait() relationship with that worker, so a just-killed PID can look
+// briefly alive as an unreaped zombie. A short poll absorbs that without
+// masking an actual survivor (the deadline still throws).
+async function waitForPidDeath(pid: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (!isPidAlive(pid)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`pid ${pid} is still alive`);
+}
+
 async function waitForCallLine(
   file: string,
   subcommand: string
@@ -163,30 +189,28 @@ describe("e2e-isolated.sh teardown", () => {
   });
 
   it.each(["SIGINT", "SIGTERM"] as const)(
-    "forwards %s to the running Playwright process and still tears down",
+    "forwards %s through to a worker the launcher forked but never itself signals, and still tears down",
     async (signal) => {
-      const signalDir = mkdtempSync("/tmp/dispatch-e2e-isolated-signal-");
-      const signalLog = path.join(signalDir, "got-signal");
-      const readyFile = path.join(signalDir, "ready");
-      cleanups.push(() => rmSync(signalDir, { recursive: true, force: true }));
+      // The launcher (standing in for Playwright's own CLI) has no signal
+      // handler at all — it dies immediately on the forwarded signal via
+      // Node's default disposition, exactly like a real launcher that
+      // exits on TERM while a worker it forked keeps running. Reaching
+      // the worker therefore requires signaling the whole tree, not just
+      // the launcher's PID.
+      const { launcherScript, markerFile, workerReadyFile, dir } =
+        writeProcessTreeFixture({});
+      cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
       const { runAsync, calls } = fixture({
         up: "exit 0",
-        // A real Node process with its own signal handler, standing in for
-        // Playwright — unlike a bash `sleep`, it reacts to a forwarded
-        // signal immediately instead of only after some blocking command
-        // returns (bash defers a pending trap until its current foreground
-        // command exits on its own). It marks itself ready synchronously so
-        // the test can wait for the handler to actually be registered
-        // rather than guessing a delay, which would be flaky under load.
-        playwrightTest: `exec node -e '
-process.on(${JSON.stringify(signal)}, () => {
-  require("fs").appendFileSync(${JSON.stringify(signalLog)}, "got-${signal}\\n");
-  process.exit(1);
-});
-require("fs").writeFileSync(${JSON.stringify(readyFile)}, "ready");
-setTimeout(() => {}, 30000);
-'`,
+        playwrightTest: `exec node ${launcherScript}`,
       });
+
+      // An independent process, unrelated to the launcher/worker tree,
+      // started directly by the test — proves the fix walks the owned
+      // descendant tree rather than something broader (e.g. a pgid) that
+      // could also catch a sibling process by accident.
+      const sentinel = spawn("sleep", ["30"]);
+      cleanups.push(() => sentinel.kill("SIGKILL"));
 
       const child = runAsync();
       let stderr = "";
@@ -195,24 +219,65 @@ setTimeout(() => {}, 30000);
       });
 
       await waitForCallLine(calls, "up");
-      await waitForFile(readyFile);
+      await waitForFile(workerReadyFile);
+      const workerPid = Number(readFileSync(workerReadyFile, "utf8"));
       child.kill(signal);
 
       const exitCode = await new Promise<number | null>((resolve) => {
         child.on("exit", (code) => resolve(code));
       });
 
-      expect(existsSync(signalLog)).toBe(true);
-      expect(readFileSync(signalLog, "utf8")).toContain(`got-${signal}`);
+      // The worker — never signaled by the launcher itself — still got the
+      // forwarded signal and reacted to it gracefully, rather than being
+      // left running or only reached via the slower SIGKILL escalation.
+      expect(existsSync(markerFile)).toBe(true);
+      expect(readFileSync(markerFile, "utf8")).toContain(`worker-${signal}`);
+      await waitForPidDeath(workerPid);
       expect(exitCode).toBe(signal === "SIGINT" ? 130 : 143);
       expect(stderr).toContain(
         `Interrupted (${signal}); forwarding to the running test process`
       );
       const lines = readCalls(calls);
       expect(lines.some((l) => isCall(l, "down"))).toBe(true);
+
+      // Unrelated to this run's own tree; must survive untouched.
+      expect(isPidAlive(sentinel.pid!)).toBe(true);
     },
     20_000
   );
+
+  it("escalates to SIGKILL for a worker that ignores the forwarded signal, without touching an unrelated process", async () => {
+    const { launcherScript, markerFile, workerReadyFile, dir } =
+      writeProcessTreeFixture({ stubbornWorker: true });
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { runAsync, calls } = fixture({
+      up: "exit 0",
+      playwrightTest: `exec node ${launcherScript}`,
+    });
+
+    const sentinel = spawn("sleep", ["30"]);
+    cleanups.push(() => sentinel.kill("SIGKILL"));
+
+    const child = runAsync();
+    await waitForCallLine(calls, "up");
+    await waitForFile(workerReadyFile);
+    const workerPid = Number(readFileSync(workerReadyFile, "utf8"));
+    child.kill("SIGTERM");
+
+    const exitCode = await new Promise<number | null>((resolve) => {
+      child.on("exit", (code) => resolve(code));
+    });
+
+    // The worker ignored SIGTERM (no marker written), so only the bounded
+    // escalation to SIGKILL could have ended it.
+    expect(existsSync(markerFile)).toBe(false);
+    await waitForPidDeath(workerPid);
+    expect(exitCode).toBe(143);
+    const lines = readCalls(calls);
+    expect(lines.some((l) => isCall(l, "down"))).toBe(true);
+
+    expect(isPidAlive(sentinel.pid!)).toBe(true);
+  }, 20_000);
 
   it("captures Postgres diagnostics before teardown when the run fails", () => {
     const { run } = fixture();
