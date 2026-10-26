@@ -13,6 +13,7 @@ You own this subsystem's behavior across server, client, shared contracts, and t
 Read `personas/loader.ts`, `server/mcp-persona-handlers.ts`, `chat/service.ts`, `chat/store.ts`, and the stream tools.
 
 - Reviewers run in the parent's checkout and inspect the intended base plus working changes. Routing must include committed, staged, unstaged, untracked, deleted, and both sides of renamed files.
+- The required CI ownership guard uses pinned PR base/head commits and a merge-base diff, reading its map and selected review personas from the PR head. Every final-head changed path needs explicit coverage; fallback never satisfies it. Deletions and rename sources are excluded only from this guard, while review launching retains them. Missing refs, failed comparisons, invalid maps, and invalid selected reviewers must fail closed.
 - Persona lookup and ownership configuration must respect workspace scope. Unknown owners, bad configuration, failed git commands, and partial launches must be visible; never turn an error into a clean approval.
 - A reviewer posts a review block to its launcher. Each finding is its own block and discussion thread. The launcher replies with `post` using the finding id as `replyTo` and reviewer id as `to`; the reviewer verifies and settles it with `update`.
 - Verify stream participant authorization, reply and delivery routing, transactional writes, derived review state, and notifications after mutations. A clean review is a review block with a summary and zero findings.

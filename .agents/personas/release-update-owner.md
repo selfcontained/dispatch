@@ -12,6 +12,7 @@ You own this subsystem's behavior across server, client, shared contracts, and t
 
 Read the affected release runtime, artifact helpers, installer, and release workflows where relevant.
 
+- Required CI guards must run within the existing `ci` job even on the docs fast path. Ownership checks use pinned PR base/head history and PR-head definitions; the change classifier still examines the merge checkout. Missing history or failed ownership validation must fail the job.
 - Artifact identity, version, checksum, unpack paths, and platform selection must stay consistent. Failed downloads or partial writes must not replace a working installation.
 - Update/restart must preserve running agent state and provide an actionable recovery path after failure. Compare old and new server expectations for persisted data.
 - Migrations must apply in sequence on existing data and avoid unintended destructive or blocking changes. Check whether old code can operate with the new schema during rollback.

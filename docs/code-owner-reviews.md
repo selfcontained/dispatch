@@ -97,3 +97,28 @@ shared-contract, and nested-test paths, including intentional overlap.
 When changing a subsystem, update its owner instructions for newly established
 invariants and update routing when files move. Keep instructions focused on
 checkable behavior and known failures rather than generic engineering advice.
+
+## Required PR coverage
+
+The required `ci` job checks explicit ownership on every PR, including docs-only
+changes. It compares the pinned PR base and head using their merge base, and checks
+every added, modified, copied, or renamed destination path. Deleted files and
+rename sources are excluded because they no longer exist at head; owner review
+launching still includes them so removals receive their original owners.
+
+Coverage uses `.agents/owners.json` and selected persona definitions from the
+**PR head**, even though CI tests a merge checkout. Fallback reviewers do not
+satisfy coverage. All matching explicit owners must resolve to review personas
+with non-empty instructions (checkout-local definitions, legacy persona locations,
+or built-ins with the normal precedence). A missing or invalid head map, selected
+persona, pinned commit, or Git comparison fails the check. No reviewers are
+launched and no GitHub approval requirements are added by this guard.
+
+For an uncovered path, add a bounded subsystem rule to `.agents/owners.json`,
+or extend an appropriate existing rule. Define a focused review persona in
+`.agents/personas/` when needed; avoid blanket catch-all rules. Errors quote the
+repo-relative paths that need attention. To reproduce locally after installing
+dependencies, run `PR_BASE_SHA=<full-base-sha> PR_HEAD_SHA=<full-head-sha> bun
+scripts/ci-owner-coverage.ts` from the repository root. Both commits and their
+merge base must be available locally; the check reads committed head definitions,
+so commit routing changes before retrying.

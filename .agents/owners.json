@@ -86,7 +86,9 @@
         "apps/server/test/codeowners-routing.test.ts",
         "apps/web/src/components/app/chat/block-bodies*",
         "apps/web/src/hooks/use-agent-review-summary.ts",
-        "packages/shared/src/block-types.ts"
+        "packages/shared/src/block-types.ts",
+        "apps/server/test/owner-coverage.test.ts",
+        "scripts/ci-owner-coverage.ts"
       ],
       "personas": ["review-lifecycle-owner"]
     },
@@ -219,7 +221,8 @@
         "scripts/test_sparkle*",
         "scripts/fixtures/sparkle*",
         "scripts/write-bun-checksums.mjs",
-        "scripts/smoke-bun-binary.mjs"
+        "scripts/smoke-bun-binary.mjs",
+        ".github/workflows/ci.yml"
       ],
       "personas": ["release-update-owner"]
     },
