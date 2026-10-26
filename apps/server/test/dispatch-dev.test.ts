@@ -10,6 +10,8 @@ import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { RestartEvidence } from "./helpers/restart-evidence.js";
+
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const BIN = path.join(REPO_ROOT, "bin", "dispatch-dev");
 const SUFFIX = `test-${process.pid}-${Date.now()}`;
@@ -43,29 +45,38 @@ async function until(check: () => boolean | Promise<boolean>): Promise<void> {
   throw new Error("condition did not become true within 20s");
 }
 
+let restartEvidence: RestartEvidence | undefined;
+
 function run(
   args: string,
   options?: { expectFail?: boolean; env?: Record<string, string> }
 ): string {
+  const startedAt = new Date().toISOString();
   try {
-    return execSync(`${BIN} ${args}${args ? " " : ""}--suffix ${SUFFIX}`, {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      timeout: 60_000,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ...options?.env,
-        // Clear agent ID so it doesn't leak into suffix
-        DISPATCH_AGENT_ID: "",
-        // A parent dev stack can export its restart ports. Each test stack must
-        // allocate its own ports instead of probing or connecting to that stack.
-        RESTART_API_PORT: "",
-        RESTART_DB_PORT: "",
-        RESTART_VITE_PORT: "",
-      },
-    }).trim();
+    const output = execSync(
+      `${BIN} ${args}${args ? " " : ""}--suffix ${SUFFIX}`,
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        timeout: 60_000,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ...options?.env,
+          // Clear agent ID so it doesn't leak into suffix
+          DISPATCH_AGENT_ID: "",
+          // A parent dev stack can export its restart ports. Each test stack must
+          // allocate its own ports instead of probing or connecting to that stack.
+          RESTART_API_PORT: "",
+          RESTART_DB_PORT: "",
+          RESTART_VITE_PORT: "",
+        },
+      }
+    ).trim();
+    restartEvidence?.command({ args, startedAt, stdout: output });
+    return output;
   } catch (error) {
+    restartEvidence?.command({ args, startedAt, error });
     if (options?.expectFail) {
       const err = error as { stderr?: string; stdout?: string };
       // Combine stdout + stderr since the script writes to both
@@ -227,6 +238,13 @@ describe("dispatch-dev", () => {
       chmodSync(HOST_WRAPPER, 0o700);
 
       let hostPid = 0;
+      restartEvidence = new RestartEvidence({
+        repoRoot: REPO_ROOT,
+        suffix: SUFFIX,
+        stateFile: STATE_FILE,
+        logDir: LOG_DIR,
+        preserveHosts,
+      });
       try {
         run(upArgs, {
           env: {
@@ -255,6 +273,7 @@ describe("dispatch-dev", () => {
           return body.agent.status === "running";
         });
 
+        restartEvidence.agentId = agentId;
         const agentDir = path.join(LOG_DIR, "agents", agentId);
         hostPid = Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"));
         expect(processAlive(hostPid)).toBe(true);
@@ -273,7 +292,9 @@ describe("dispatch-dev", () => {
         expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
           preserveHosts ? "1" : "0"
         );
+        restartEvidence.snapshot("before-restart");
         const restart = run("restart");
+        restartEvidence.snapshot("after-restart");
         expect(restart).toContain("Stopped API server");
         expect(restart).toContain("Dev environment ready");
         expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
@@ -340,7 +361,9 @@ describe("dispatch-dev", () => {
             encoding: "utf8",
             timeout: 20_000,
           });
+          restartEvidence.snapshot("before-database-recreation");
           const recovered = run("restart");
+          restartEvidence.snapshot("after-database-recreation");
           expect(recovered).toContain(
             "recreating it without stopping agent hosts"
           );
@@ -376,7 +399,13 @@ describe("dispatch-dev", () => {
         if (preserveHosts) {
           await until(() => !processAlive(hostPid));
         }
+      } catch (error) {
+        // Capture before finally wipes logs; diagnostic failures must never
+        // replace the original assertion or transport error. No retry here.
+        restartEvidence.captureFailure(error);
+        throw error;
       } finally {
+        restartEvidence = undefined;
         try {
           run("down --wipe");
         } catch {
