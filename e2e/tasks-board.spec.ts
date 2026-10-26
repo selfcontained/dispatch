@@ -889,3 +889,223 @@ test.describe("iPad touch lock on the Tasks board", () => {
     }
   });
 });
+
+for (const touch of [false, true]) {
+  test.describe(touch ? "touch reorder" : "desktop reorder", () => {
+    test.use({
+      hasTouch: touch,
+      isMobile: touch,
+      viewport: touch
+        ? { width: 820, height: 1180 }
+        : { width: 1280, height: 800 },
+      deviceScaleFactor: 2,
+    });
+    test("same-column preview stays stable and persists the chosen order", async ({
+      page,
+      request,
+    }) => {
+      const response = await request.post("/api/v1/projects", {
+        headers,
+        data: { name: "Stable reorder", repoRoot: repo, color: "#7c6ee6" },
+      });
+      expect(response.ok()).toBeTruthy();
+      const project = await response.json();
+      try {
+        const ids: string[] = [];
+        for (const [position, title] of [
+          "Alpha",
+          "Bravo",
+          "Charlie",
+          "Delta",
+          "Echo",
+        ].entries()) {
+          const task = await request.post("/api/v1/tasks", {
+            headers,
+            data: { projectId: project.id, title, position },
+          });
+          expect(task.ok()).toBeTruthy();
+          ids.push((await task.json()).id);
+        }
+        await page.goto(`/tasks?project=${project.id}&layout=board`, {
+          waitUntil: "domcontentloaded",
+        });
+        const column = page.getByTestId("task-column-backlog");
+        const order = () =>
+          column
+            .locator("[data-task-id]")
+            .evaluateAll((els) =>
+              els.map((el) => el.getAttribute("data-task-id"))
+            );
+        await expect.poll(order).toEqual(ids);
+        const cdp = touch ? await page.context().newCDPSession(page) : null;
+        const move = async (x: number, y: number) => {
+          if (cdp)
+            await cdp.send("Input.dispatchTouchEvent", {
+              type: "touchMove",
+              touchPoints: [{ x, y }],
+            });
+          else await page.mouse.move(x, y);
+        };
+        const drag = async (
+          from: string,
+          to: string,
+          downward: boolean,
+          expected: string[]
+        ) => {
+          const grip = (await page
+            .getByRole("button", { name: `Drag ${from}`, exact: true })
+            .boundingBox())!;
+          const target = (await column
+            .locator("[data-task-id]")
+            .filter({
+              has: page.getByRole("button", { name: to, exact: true }),
+            })
+            .boundingBox())!;
+          const start = {
+            x: grip.x + grip.width / 2,
+            y: grip.y + grip.height / 2,
+          };
+          const end = {
+            x: target.x + target.width / 2,
+            y: target.y + target.height * (downward ? 0.75 : 0.25),
+          };
+          if (cdp) {
+            await cdp.send("Input.dispatchTouchEvent", {
+              type: "touchStart",
+              touchPoints: [start],
+            });
+            await page.waitForTimeout(250);
+          } else {
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(start.x + 10, start.y);
+          }
+          await expect(page.getByTestId("task-card-overlay")).toBeVisible();
+          for (let step = 1; step <= 30; step++)
+            await move(
+              start.x + ((end.x - start.x) * step) / 30,
+              start.y + ((end.y - start.y) * step) / 30
+            );
+          await page.waitForTimeout(300);
+          const geometry = () =>
+            column
+              .locator("[data-task-id]")
+              .evaluateAll((els) =>
+                els.map((el) => Math.round(el.getBoundingClientRect().y))
+              );
+          const preview = await geometry();
+          for (let sample = 0; sample < 8; sample++) {
+            await move(end.x + (sample % 2), end.y);
+            await page.waitForTimeout(100);
+            expect(await geometry()).toEqual(preview);
+          }
+          const previewOrder = await column
+            .locator("[data-task-id]")
+            .evaluateAll((els) =>
+              els
+                .map((el) => ({
+                  id: el.getAttribute("data-task-id"),
+                  y: el.getBoundingClientRect().y,
+                }))
+                .sort((a, b) => a.y - b.y)
+                .map((item) => item.id)
+            );
+          expect(previewOrder).toEqual(expected);
+          await page.screenshot({
+            path: `/tmp/dispatch-reorder-${touch ? "touch" : "desktop"}-${from}-to-${to}-preview.png`,
+            scale: "device",
+          });
+          if (cdp)
+            await cdp.send("Input.dispatchTouchEvent", {
+              type: "touchEnd",
+              touchPoints: [],
+            });
+          else await page.mouse.up();
+          await expect.poll(order).toEqual(expected);
+          await expect
+            .poll(async () => {
+              const board = await (
+                await request.get(
+                  `/api/v1/projects/${project.id}/tasks/board`,
+                  { headers }
+                )
+              ).json();
+              return board.tasks.map((task: { id: string }) => task.id);
+            })
+            .toEqual(expected);
+          await page.reload({ waitUntil: "domcontentloaded" });
+          await expect.poll(order).toEqual(expected);
+        };
+        await drag("Alpha", "Delta", true, [
+          ids[1]!,
+          ids[2]!,
+          ids[3]!,
+          ids[0]!,
+          ids[4]!,
+        ]);
+        await drag("Alpha", "Bravo", false, ids);
+        // Tied positions and adjacent IEEE doubles must not lose the insertion.
+        for (const id of ids)
+          await request.patch(`/api/v1/tasks/${id}`, {
+            headers,
+            data: { position: 1 },
+          });
+        await request.patch(`/api/v1/tasks/${ids[4]}`, {
+          headers,
+          data: { position: 1 + Number.EPSILON },
+        });
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect.poll(order).toEqual(ids);
+        await drag("Echo", "Charlie", false, [
+          ids[0]!,
+          ids[1]!,
+          ids[4]!,
+          ids[2]!,
+          ids[3]!,
+        ]);
+        let patches = 0;
+        page.on("request", (request) => {
+          if (
+            request.method() === "PATCH" &&
+            request.url().includes("/api/v1/tasks/")
+          )
+            patches++;
+        });
+        const reordered = [ids[0]!, ids[1]!, ids[4]!, ids[2]!, ids[3]!];
+        await drag("Alpha", "Alpha", false, reordered);
+        expect(patches).toBe(0);
+        if (!touch) {
+          await page
+            .getByRole("button", { name: "Drag Alpha", exact: true })
+            .focus();
+          await page.keyboard.press("Space");
+          await expect(page.getByTestId("task-card-overlay")).toBeVisible();
+          await page.keyboard.press("ArrowDown");
+          await expect
+            .poll(async () => {
+              const alpha = await page
+                .getByTestId(`task-card-${ids[0]}`)
+                .boundingBox();
+              const bravo = await page
+                .getByTestId(`task-card-${ids[1]}`)
+                .boundingBox();
+              return alpha!.y > bravo!.y;
+            })
+            .toBe(true);
+          await page.keyboard.press("Space");
+          const keyboardOrder = [ids[1]!, ids[0]!, ids[4]!, ids[2]!, ids[3]!];
+          await expect.poll(order).toEqual(keyboardOrder);
+          await page.reload({ waitUntil: "domcontentloaded" });
+          await expect.poll(order).toEqual(keyboardOrder);
+        }
+        await page.screenshot({
+          path: `/tmp/dispatch-reorder-${touch ? "touch" : "desktop"}-persisted.png`,
+          scale: "device",
+        });
+        await cdp?.detach();
+      } finally {
+        await request.delete(`/api/v1/projects/${project.id}`, { headers });
+      }
+    });
+  });
+}

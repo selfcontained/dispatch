@@ -6,9 +6,12 @@ export function orderedColumns(board: TaskBoard): TaskColumn[] {
   return [...board.columns].sort((a, b) => a.position - b.position);
 }
 export function tasksInColumn(tasks: Task[], columnId: string): Task[] {
-  return tasks
-    .filter((task) => task.columnId === columnId)
-    .sort((a, b) => a.position - b.position);
+  return (
+    tasks
+      .filter((task) => task.columnId === columnId)
+      // Stable sort retains the server's created_at/id order for tied ranks.
+      .sort((a, b) => a.position - b.position)
+  );
 }
 export function nextPosition(
   tasks: Task[],

@@ -54,6 +54,7 @@ const CreateTaskSchema = z.object({
 });
 
 const UpdateTaskSchema = z.object({
+  beforeId: z.string().min(1).nullable().optional(),
   title: z.string().min(1).optional(),
   body: z.string().optional(),
   columnId: z.string().min(1).optional(),

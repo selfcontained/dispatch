@@ -905,6 +905,8 @@ export class TaskService {
         409,
         "task_archived"
       );
+    if (input.beforeId === id)
+      throw invalid("beforeId cannot be the moving task.");
     const actor = actorOf(caller);
     const patch: TaskPatch = {};
     const changed: string[] = [];
@@ -967,6 +969,17 @@ export class TaskService {
     }
 
     const applied = await this.store.transaction(async (db) => {
+      // Relative reorders can update siblings as well as the moving task.
+      // Lock both involved columns in a consistent order before any task rows,
+      // including for opposing moves and same-column reorders.
+      if (input.beforeId !== undefined) {
+        for (const columnId of [
+          ...new Set([task.columnId, destination?.id ?? task.columnId]),
+        ].sort()) {
+          if (!(await this.store.lockColumn(columnId, db)))
+            throw notFound("Column");
+        }
+      }
       if (destination) {
         const currentColumn = await this.store.lockColumn(destination.id, db);
         if (!currentColumn) throw notFound("Column");
@@ -993,6 +1006,31 @@ export class TaskService {
         this.checkCapacity(currentColumn);
         destination = currentColumn;
         patch.completed = currentColumn.isDone;
+      }
+      if (input.beforeId !== undefined) {
+        const targetId = destination?.id ?? task.columnId;
+        if (!destination) {
+          if (!(await this.store.lockColumn(targetId, db)))
+            throw notFound("Column");
+          const current = await this.store.lockTask(id, db);
+          if (
+            !current ||
+            current.columnId !== task.columnId ||
+            current.archivedAt
+          )
+            return false;
+        }
+        const position = await this.store.reorderTask(
+          id,
+          targetId,
+          input.beforeId,
+          db
+        );
+        if (position === null)
+          throw invalid(
+            "beforeId is not an active task in the destination column."
+          );
+        patch.position = position;
       }
       if (Object.keys(patch).length > 0) {
         const updated = await this.store.updateTask(id, patch, {
