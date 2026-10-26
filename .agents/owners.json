@@ -64,6 +64,7 @@
         "apps/server/test/codex-adapter-*.test.ts",
         "apps/server/test/helpers/fake-acp-agent.ts",
         "apps/server/test/helpers/preserved-restart-driver.mjs",
+        "apps/server/test/preserved-restart-driver.test.ts",
         "apps/server/src/projects/**",
         "apps/server/src/routes/projects.ts",
         "apps/server/test/*project*",
