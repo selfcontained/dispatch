@@ -16,6 +16,7 @@
         "apps/server/test/*worktree*",
         "apps/server/test/tasks-service.test.ts",
         "apps/server/test/*acp*",
+        "e2e/worktree.spec.ts",
         "e2e/*agent-live*",
         "e2e/*agent*",
         "apps/web/src/components/app/create-agent-*",
@@ -228,7 +229,12 @@
       "personas": ["release-update-owner"]
     },
     {
-      "paths": ["apps/web/src/**", "apps/web/eslint.config.js"],
+      "paths": [
+        "apps/web/src/**",
+        "apps/web/eslint.config.js",
+        "e2e/changes-virtualization.spec.ts",
+        "e2e/tasks-board.spec.ts"
+      ],
       "personas": ["frontend-react-review"]
     },
     {
