@@ -74,26 +74,105 @@ PROJECT="dispatch-${RUN_ID}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cleanup() {
+  local exit_code=$?
   echo "==> Tearing down isolated Postgres"
-  $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" down -v 2>/dev/null || true
+  if [ "$exit_code" -ne 0 ]; then
+    echo "==> Run failed (exit ${exit_code}); capturing Postgres diagnostics before teardown" >&2
+    $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" logs --tail 100 >&2 2>&1 || true
+  fi
+  local down_output
+  if ! down_output="$($COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" down -v 2>&1)"; then
+    echo "Warning: failed to tear down Postgres project ${PROJECT}:" >&2
+    echo "$down_output" >&2
+    echo "Clean it up manually with: $COMPOSE -p ${PROJECT} -f ${REPO_ROOT}/docker-compose.yml down -v" >&2
+    # A passing suite must not report success when it leaked a container;
+    # a failing suite keeps its own exit code rather than being masked by
+    # this secondary failure.
+    if [ "$exit_code" -eq 0 ]; then
+      echo "Marking this run as failed: the suite passed, but teardown did not." >&2
+      exit 1
+    fi
+  fi
 }
 trap cleanup EXIT
 
-# Sweep survivors of earlier SIGKILL'd runs. The run's start time is already
-# encoded in the container name, so the age check needs no docker metadata.
-# Scoped to this script's own prefix and to runs more than a day old, so it can
-# never touch a dev database, an e2e run, or a concurrent server-suite run.
-NOW="$(date +%s)"
-docker ps -a --filter "name=^dispatch-postgres-servertest-" --format '{{.Names}}' 2>/dev/null |
-  while read -r stale; do
-    started="${stale##*-}"
-    case "$started" in
-      '' | *[!0-9]*) continue ;;
-    esac
-    if [ "$((NOW - started))" -gt 86400 ]; then
-      docker rm -f "$stale" >/dev/null 2>&1 || true
-    fi
+# Collects a PID and every current descendant into a flat list, walking
+# depth-first. `vitest` (via bun's launcher) forks its own worker
+# processes; a launcher that dies on TERM without itself forwarding
+# anything to a child it forked would otherwise leave that worker running,
+# now re-parented and no longer discoverable through it. Collecting the
+# whole tree up front — before anything in it has been signaled — and
+# killing from that fixed list (rather than re-querying pgrep as things
+# die) is what still finds it.
+collect_tree() {
+  local pid="${1:-}"
+  [ -n "$pid" ] || return 0
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  local child
+  for child in $children; do
+    collect_tree "$child"
   done
+  echo "$pid"
+}
+
+# Never signals a process group: a backgrounded job in a non-interactive
+# script can share this script's own pgid (job control is off here), so a
+# group-wide kill could just as easily hit this wrapper or an unrelated
+# sibling process as the owned tree. PIDs only.
+kill_pids() {
+  local sig="$1"
+  shift
+  local pid
+  for pid in "$@"; do
+    kill -"$sig" "$pid" 2>/dev/null || true
+  done
+}
+
+any_alive() {
+  local pid
+  for pid in "$@"; do
+    kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Forwards a caught signal to the running vitest process *and its owned
+# descendants*, waits (bounded) for the whole tree to actually exit, and
+# escalates to SIGKILL for anything still alive — e.g. a worker that
+# ignored the forwarded signal — before this script itself does. Without
+# this, bash only runs the EXIT trap above once a *foreground* command
+# returns on its own — a signal sent to this script's own PID while vitest
+# is still running would sit pending until vitest finishes by itself,
+# leaving it (and anything it forked) to keep running un-interrupted in the
+# meantime. Backgrounding vitest below and `wait`-ing on it (rather than
+# running it as a plain foreground command) is what makes this script's
+# own wait interruptible in the first place.
+TEST_PID=""
+forward_and_wait() {
+  local sig="$1"
+  local code="$2"
+  echo "" >&2
+  echo "Interrupted (SIG${sig}); forwarding to the running test process..." >&2
+  if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
+    local tree
+    tree="$(collect_tree "$TEST_PID")"
+    # shellcheck disable=SC2086
+    kill_pids "$sig" $tree
+    local i=0
+    # shellcheck disable=SC2086
+    while [ $i -lt 10 ] && any_alive $tree; do
+      sleep 0.5
+      i=$((i + 1))
+    done
+    # shellcheck disable=SC2086
+    any_alive $tree && kill_pids 9 $tree
+    wait "$TEST_PID" 2>/dev/null || true
+  fi
+  exit "$code"
+}
+trap 'forward_and_wait INT 130' INT
+trap 'forward_and_wait TERM 143' TERM
 
 echo "==> Starting isolated Postgres for the server suite (project: ${PROJECT}, port: ${DB_PORT})"
 $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" up -d --wait
@@ -102,4 +181,11 @@ $COMPOSE -p "$PROJECT" -f "${REPO_ROOT}/docker-compose.yml" up -d --wait
 # helpers create and drop their own per-suite databases from there.
 export TEST_DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DB_PORT}/postgres"
 
-bun x vitest "$@"
+bun x vitest "$@" &
+TEST_PID=$!
+set +e
+wait "$TEST_PID"
+TEST_EXIT=$?
+set -e
+trap - INT TERM
+exit "$TEST_EXIT"

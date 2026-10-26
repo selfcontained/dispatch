@@ -75,7 +75,12 @@ PROJECT="dispatch-${RUN_ID}"
 mkdir -p "$DISPATCH_FILES_ROOT"
 
 cleanup() {
+  local exit_code=$?
   echo "==> Tearing down isolated environment"
+  if [ "$exit_code" -ne 0 ]; then
+    echo "==> Run failed (exit ${exit_code}); capturing Postgres diagnostics before teardown" >&2
+    $COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" logs --tail 100 >&2 2>&1 || true
+  fi
   # Agent hosts outlive the server by design; stop the ones this run made.
   for pidfile in "$DISPATCH_AGENT_STATE_ROOT"/*/host.pid; do
     [ -f "$pidfile" ] || continue
@@ -83,17 +88,115 @@ cleanup() {
     [ -n "$pid" ] && kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   done
   rm -rf "$DISPATCH_AGENT_STATE_ROOT"
-  $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
+  local down_output
+  if ! down_output="$($COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" down -v 2>&1)"; then
+    echo "Warning: failed to tear down Postgres project ${PROJECT}:" >&2
+    echo "$down_output" >&2
+    echo "Clean it up manually with: $COMPOSE -p ${PROJECT} -f ${ROOT_DIR}/docker-compose.yml down -v" >&2
+    # A passing suite must not report success when it leaked a container;
+    # a failing suite keeps its own exit code rather than being masked by
+    # this secondary failure.
+    if [ "$exit_code" -eq 0 ]; then
+      echo "Marking this run as failed: the suite passed, but teardown did not." >&2
+      exit_code=1
+    fi
+  fi
   rm -rf "$DISPATCH_FILES_ROOT"
   rm -f "$DISPATCH_RELEASE_STORE_PATH" "$DISPATCH_RELEASE_CANDIDATE_STORE_PATH"
+  [ "$exit_code" -eq 0 ] || exit "$exit_code"
 }
 trap cleanup EXIT
 
+# Collects a PID and every current descendant into a flat list, walking
+# depth-first. Playwright (via its own CLI launcher) forks worker
+# processes; a launcher that dies on TERM without itself forwarding
+# anything to a child it forked would otherwise leave that worker running,
+# now re-parented and no longer discoverable through it. Collecting the
+# whole tree up front — before anything in it has been signaled — and
+# killing from that fixed list (rather than re-querying pgrep as things
+# die) is what still finds it.
+collect_tree() {
+  local pid="${1:-}"
+  [ -n "$pid" ] || return 0
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  local child
+  for child in $children; do
+    collect_tree "$child"
+  done
+  echo "$pid"
+}
+
+# Never signals a process group: a backgrounded job in a non-interactive
+# script can share this script's own pgid (job control is off here), so a
+# group-wide kill could just as easily hit this wrapper or an unrelated
+# sibling process as the owned tree. PIDs only.
+kill_pids() {
+  local sig="$1"
+  shift
+  local pid
+  for pid in "$@"; do
+    kill -"$sig" "$pid" 2>/dev/null || true
+  done
+}
+
+any_alive() {
+  local pid
+  for pid in "$@"; do
+    kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Forwards a caught signal to the running Playwright process *and its owned
+# descendants*, waits (bounded) for the whole tree to actually exit, and
+# escalates to SIGKILL for anything still alive — e.g. a worker that
+# ignored the forwarded signal — before this script itself does. Without
+# this, bash only runs the EXIT trap above once a *foreground* command
+# returns on its own — a signal sent to this script's own PID while
+# Playwright is still running would sit pending until it finishes by
+# itself, leaving it (and anything it forked) to keep running
+# un-interrupted in the meantime. Backgrounding the test run below and
+# `wait`-ing on it (rather than running it as a plain foreground command)
+# is what makes this script's own wait interruptible in the first place.
+TEST_PID=""
+forward_and_wait() {
+  local sig="$1"
+  local code="$2"
+  echo "" >&2
+  echo "Interrupted (SIG${sig}); forwarding to the running test process..." >&2
+  if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
+    local tree
+    tree="$(collect_tree "$TEST_PID")"
+    # shellcheck disable=SC2086
+    kill_pids "$sig" $tree
+    local i=0
+    # shellcheck disable=SC2086
+    while [ $i -lt 10 ] && any_alive $tree; do
+      sleep 0.5
+      i=$((i + 1))
+    done
+    # shellcheck disable=SC2086
+    any_alive $tree && kill_pids 9 $tree
+    wait "$TEST_PID" 2>/dev/null || true
+  fi
+  exit "$code"
+}
+trap 'forward_and_wait INT 130' INT
+trap 'forward_and_wait TERM 143' TERM
+
 echo "==> Starting isolated Postgres (project: ${PROJECT}, port: ${DB_PORT})"
-$COMPOSE -p "$PROJECT" up -d --wait
+$COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" up -d --wait
 
 echo "==> Building web bundle"
 pnpm run build:web
 
 echo "==> Running Playwright tests (API port: ${API_PORT})"
-E2E_SKIP_WEB_BUILD=1 pnpm exec playwright test "$@"
+E2E_SKIP_WEB_BUILD=1 pnpm exec playwright test "$@" &
+TEST_PID=$!
+set +e
+wait "$TEST_PID"
+TEST_EXIT=$?
+set -e
+trap - INT TERM
+exit "$TEST_EXIT"
