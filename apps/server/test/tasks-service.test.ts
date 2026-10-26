@@ -650,6 +650,88 @@ describe("column capacity", () => {
     ).toBe(1);
   });
 
+  it.each([false, true])(
+    "guards a trigger installed during paused admission (assignee changed: %s)",
+    async (assignDuringAdmission) => {
+      const source = await columnId("ready");
+      const destination = await columnId("in_progress");
+      await service.updateColumn(destination, { capacity: 1 });
+      const task = await service.createTask(
+        { projectId, title: "protected", columnId: source },
+        USER
+      );
+      await insertAgent("agt_working_capacity", "running", "Working builder");
+      if (!assignDuringAdmission)
+        await service.updateTask(
+          task.id,
+          { assignedAgentId: "agt_working_capacity" },
+          USER
+        );
+      let entered!: () => void;
+      let release!: () => void;
+      const paused = new Promise<void>((resolve) => (entered = resolve));
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const original = TaskStore.prototype.lockColumn;
+      const spy = vi
+        .spyOn(TaskStore.prototype, "lockColumn")
+        .mockImplementationOnce(async function (this: TaskStore, id, db) {
+          entered();
+          await gate;
+          return original.call(this, id, db);
+        });
+      const moving = build()
+        .updateTask(
+          task.id,
+          { columnId: destination, title: "refused edit" },
+          USER
+        )
+        .catch((error) => error);
+      try {
+        await paused;
+        await build().updateColumn(destination, {
+          trigger: { templateId: TEMPLATE_ID },
+        });
+        if (assignDuringAdmission)
+          await build().updateTask(
+            task.id,
+            { assignedAgentId: "agt_working_capacity" },
+            USER
+          );
+        const before = await service.getTaskDetail(task.id);
+        const publishedBefore = published.length;
+        const postsBefore = posts.length;
+        release();
+        expect(await moving).toMatchObject({
+          status: 409,
+          code: "agent_working",
+          extra: {
+            agent: { id: "agt_working_capacity", name: "Working builder" },
+          },
+        });
+        expect(await service.getTaskDetail(task.id)).toEqual(before);
+        expect(launches).toHaveLength(0);
+        expect(published).toHaveLength(publishedBefore);
+        expect(posts).toHaveLength(postsBefore);
+        expect(
+          await build().updateTask(
+            task.id,
+            { columnId: destination, confirmRelaunch: true },
+            USER
+          )
+        ).toMatchObject({ columnId: destination });
+        expect(launches).toHaveLength(1);
+        expect(
+          (await service.getTaskDetail(task.id)).events.filter(
+            (event) => event.kind === "moved"
+          )
+        ).toHaveLength(1);
+      } finally {
+        release();
+        spy.mockRestore();
+      }
+    }
+  );
+
   it("opposing moves and completion-column updates use compatible lock order", async () => {
     const a = await columnId("ready");
     const b = await columnId("in_progress");

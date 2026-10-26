@@ -950,17 +950,6 @@ export class TaskService {
       destination = await this.store.getColumn(input.columnId);
       if (!destination || destination.projectId !== task.projectId)
         throw invalid("columnId is not a column of this task's project.");
-      if (destination.trigger && !input.confirmRelaunch) {
-        const working = await this.workingAgent(task, caller);
-        if (working) {
-          throw new TaskError(
-            `${working.name} is still working this task.`,
-            409,
-            "agent_working",
-            { agent: { id: working.id, name: working.name } }
-          );
-        }
-      }
       patch.columnId = destination.id;
       patch.completed = destination.isDone;
       patch.position =
@@ -988,6 +977,19 @@ export class TaskService {
           current.archivedAt
         )
           return false;
+        // Column automation and the task's assignee can change after the
+        // initial read. Apply the relaunch guard to the locked admission state.
+        if (currentColumn.trigger && !input.confirmRelaunch) {
+          const working = await this.workingAgent(current, caller);
+          if (working) {
+            throw new TaskError(
+              `${working.name} is still working this task.`,
+              409,
+              "agent_working",
+              { agent: { id: working.id, name: working.name } }
+            );
+          }
+        }
         this.checkCapacity(currentColumn);
         destination = currentColumn;
         patch.completed = currentColumn.isDone;
