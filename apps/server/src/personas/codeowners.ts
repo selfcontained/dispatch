@@ -90,6 +90,14 @@ export async function loadCodeowners(root: string): Promise<CodeownersConfig> {
     );
   }
   const content = await readFile(path.join(root, ownersPath), "utf8");
+  return parseCodeowners(content, ownersPath);
+}
+
+/** Shared parser for checkout and pinned Git-tree ownership maps. */
+export function parseCodeowners(
+  content: string,
+  ownersPath: string = OWNERS_PATH
+): CodeownersConfig {
   try {
     return configSchema.parse(JSON.parse(content));
   } catch (error) {
@@ -106,9 +114,9 @@ export function matchesOwnerPattern(file: string, pattern: string): boolean {
     if (char === "*" && pattern[i + 1] === "*") {
       i++;
       if (pattern[i + 1] === "/") {
-        expression += "(?:.*/)?";
+        expression += "(?:[\\s\\S]*/)?";
         i++;
-      } else expression += ".*";
+      } else expression += "[\\s\\S]*";
     } else if (char === "*") expression += "[^/]*";
     else if (char === "?") expression += "[^/]";
     else expression += char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
