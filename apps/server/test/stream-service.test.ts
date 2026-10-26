@@ -8224,4 +8224,99 @@ describe("single task cards", () => {
     await svc.waitForInFlightDeliveries(1000);
     expect(injected.at(-1)?.text).not.toContain(task.title);
   });
+  it("preserves thread recipients and retries only the failed task-card delivery", async () => {
+    const deps = {
+      taskRoot: async () => task,
+      agentProject: async () => task.projectId,
+    };
+    const { svc: failing } = build({ failFor: [B], deps });
+    const root = await failing.post(A, { to: B, text: "Please review" });
+    await settled(failing, root.id);
+    const { block } = await failing.sendUserPost(A, {
+      text: "",
+      replyTo: root.id,
+      task: { id: taskId },
+    });
+    const failed = await settled(failing, block.id);
+    expect(failed.data).toMatchObject({ taskId, recipients: [A, B] });
+    expect(failed.delivery).toEqual([
+      { agentId: A, state: "delivered" },
+      { agentId: B, state: "failed" },
+    ]);
+    expect(failed.delivered).toBe(false);
+    const { svc, injected } = build({ deps });
+    await svc.retryDelivery(A, block.id);
+    const retried = await settled(svc, block.id);
+    expect(injected.map((entry) => entry.agentId)).toEqual([B]);
+    expect(retried.delivery).toEqual([
+      { agentId: A, state: "delivered" },
+      { agentId: B, state: "delivered" },
+    ]);
+    expect(retried.delivered).toBe(true);
+  });
+  it("deletes a queued task card by cancelling every thread recipient", async () => {
+    const deps = {
+      taskRoot: async () => task,
+      agentProject: async () => task.projectId,
+    };
+    const { svc: setup } = build({ deps });
+    const root = await setup.post(A, { to: B, text: "Please review" });
+    await settled(setup, root.id);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const control = vi.fn(() => true);
+    const { svc } = build({
+      deps,
+      gate,
+      held: true,
+      controlQueuedPrompt: control,
+    });
+    try {
+      const { block } = await svc.sendUserPost(A, {
+        text: "",
+        replyTo: root.id,
+        task: { id: taskId },
+        delivery: "queue",
+      });
+      expect((await svc.store.getById(block.id))?.delivery).toEqual([
+        { agentId: A, state: "pending" },
+        { agentId: B, state: "pending" },
+      ]);
+      await svc.controlQueuedMessage(A, block.id, "delete");
+      expect(control).toHaveBeenCalledWith([A, B], block.id, "delete");
+      expect(await svc.store.getById(block.id)).toBeNull();
+    } finally {
+      release();
+      await svc.waitForInFlightDeliveries(1000);
+    }
+  });
+  it("preserves mention routing and mention envelopes for initial and retried task shares", async () => {
+    const deps = {
+      taskRoot: async () => task,
+      agentProject: async () => task.projectId,
+    };
+    const { svc: failing, injected: first } = build({ failFor: [B], deps });
+    const { block } = await failing.sendUserPost(A, {
+      text: "@Svc and @Peer, please look",
+      task: { id: taskId },
+    });
+    const failed = await settled(failing, block.id);
+    expect(failed.data).toMatchObject({ taskId, mentions: [A, B] });
+    expect(failed.delivery).toEqual([
+      { agentId: A, state: "delivered" },
+      { agentId: B, state: "failed" },
+    ]);
+    expect(first.find((entry) => entry.agentId === B)?.text).toContain(
+      "Addressed to you by @mention, and also to Svc."
+    );
+    const { svc, injected } = build({ deps });
+    await svc.retryDelivery(A, block.id);
+    await settled(svc, block.id);
+    expect(injected.map((entry) => entry.agentId)).toEqual([B]);
+    expect(injected[0].text).toContain(
+      "Addressed to you by @mention, and also to Svc."
+    );
+  });
 });

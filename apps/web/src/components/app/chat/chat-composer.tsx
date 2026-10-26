@@ -1297,8 +1297,25 @@ export function ChatComposer({
                   <Plus className="h-5 w-5" />
                 </Button>
                 <ShareTaskPicker
-                  disabled={disabled || Boolean(sending) || inFlight}
-                  onShare={(id) => onSend("", [], { task: { id } })}
+                  disabled={
+                    disabled ||
+                    Boolean(sending) ||
+                    inFlight ||
+                    Boolean(deliveryBlockedReason)
+                  }
+                  onShare={async (id) => {
+                    if (
+                      deliveryMode === "interrupt" &&
+                      interruptUnavailableReason
+                    )
+                      return;
+                    await onSend("", [], {
+                      task: { id },
+                      ...(canQueue && deliveryMode !== "auto"
+                        ? { delivery: deliveryMode }
+                        : {}),
+                    });
+                  }}
                 />
                 <Button
                   type="button"

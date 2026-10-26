@@ -393,7 +393,8 @@ export function blockSide(
 
 /** Everyone a post was delivered to: its `@mentions` or recipients, or its one recipient. */
 export function blockRecipients(block: Block): string[] {
-  const data = block.kind === "text" ? block.data : undefined;
+  const data =
+    block.kind === "text" || block.kind === "task" ? block.data : undefined;
   const named = data?.mentions?.length ? data.mentions : data?.recipients;
   if (named && named.length > 0) return named;
   return block.toAgentId ? [block.toAgentId] : [];
@@ -432,7 +433,8 @@ export function historicalMentionablesOf(
   ctx: FeedContext
 ): Mentionable[] {
   const ids =
-    block.author.kind === "user" && block.kind === "text"
+    block.author.kind === "user" &&
+    (block.kind === "text" || block.kind === "task")
       ? block.data?.mentions
       : undefined;
   if (ids?.length) {

@@ -755,7 +755,8 @@ function envelopeText(block: Block): string {
  * meant for people.
  */
 export function addressedTo(block: Block): string[] {
-  const data = block.kind === "text" ? block.data : undefined;
+  const data =
+    block.kind === "text" || block.kind === "task" ? block.data : undefined;
   const named = data?.mentions?.length ? data.mentions : data?.recipients;
   if (named && named.length > 0) return named;
   return block.toAgentId ? [block.toAgentId] : [];
@@ -1272,7 +1273,7 @@ export class StreamService {
         ? {
             data: {
               ...taskData,
-              ...(input.delivery ? { delivery: input.delivery } : {}),
+              ...textData,
             },
           }
         : Object.keys(textData).length > 0
@@ -3779,7 +3780,8 @@ export class StreamService {
         : []
     );
     const mentioned =
-      block.kind === "text" && (block.data?.mentions?.length ?? 0) > 0;
+      (block.kind === "text" || block.kind === "task") &&
+      (block.data?.mentions?.length ?? 0) > 0;
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
@@ -4271,7 +4273,9 @@ export class StreamService {
   ): Promise<{ block: Block; held: boolean }> {
     const streamId = block.streamId;
     const mentioned =
-      block.kind === "text" ? (block.data?.mentions ?? []) : undefined;
+      block.kind === "text" || block.kind === "task"
+        ? (block.data?.mentions ?? [])
+        : undefined;
     const named = addressedTo(block);
     // The first send persisted this intent. Retrying must not reclassify it
     // against the host's current command list: it may be unavailable while

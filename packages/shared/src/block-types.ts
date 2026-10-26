@@ -219,13 +219,27 @@ export function reviewFindings(
   );
 }
 
-export type BlockTaskData = { taskId: string };
+export type BlockRecipientData = {
+  /**
+   * A person's post that named its recipients with `@name`: every agent it
+   * was delivered to, in order of mention. `toAgentId` is the first.
+   */
+  mentions?: string[];
+  /**
+   * A reply delivered to more than one agent without naming them (a
+   * person's comment reaches both sides of the thread): every agent it went
+   * to. `toAgentId` is the first.
+   */
+  recipients?: string[];
+};
+
+export type BlockTaskData = BlockRecipientData & { taskId: string };
 
 export type BlockTasksData = { items: Array<{ id: string; text: string }> };
 export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
-export type BlockTextData = {
+export type BlockTextData = BlockRecipientData & {
   /** Server-authored scheduler provenance; ordinary post/update cannot set it. */
   scheduledMessageId?: string;
   scheduledMessage?: import("./scheduled-messages.js").ScheduledMessagePresentation;
@@ -242,17 +256,6 @@ export type BlockTextData = {
   responseTo?: string[];
   /** Stored location of the referenced message, including structured answers. */
   responseToThreadId?: string | null;
-  /**
-   * A person's post that named its recipients with `@name`: every agent it
-   * was delivered to, in order of mention. `toAgentId` is the first.
-   */
-  mentions?: string[];
-  /**
-   * A reply delivered to more than one agent without naming them (a
-   * person's comment reaches both sides of the thread): every agent it went
-   * to. `toAgentId` is the first.
-   */
-  recipients?: string[];
 };
 
 /**
