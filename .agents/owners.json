@@ -107,6 +107,7 @@
       "paths": [
         "apps/server/src/agents/acp/stream-*.ts",
         "apps/server/src/chat/**",
+        "packages/shared/src/index.ts",
         "apps/server/src/routes/streams.ts",
         "apps/server/src/routes/agents/streaming-routes.ts",
         "apps/server/src/server/ui-events.ts",
