@@ -139,6 +139,9 @@ for (const mobile of [false, true]) {
       await page.reload({ waitUntil: "domcontentloaded" });
       await selected(a.id);
       await section("tasks");
+      // A browser history command can run before React commits the click's
+      // navigation. Observe the entry we intend to go back from first.
+      await expect(page).toHaveURL(/\/tasks\?/);
       await page.goBack();
       await selected(a.id);
       await page.goForward();
