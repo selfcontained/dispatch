@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -93,24 +94,35 @@ const column = {
   },
 } as unknown as TaskColumn;
 
-const renderDialog = () => {
+const renderDialog = (targetColumn = column) => {
   const onOpenChange = vi.fn();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <TaskTriggerDialog
-          column={column}
-          projectId="p1"
-          open
-          onOpenChange={onOpenChange}
-          returnFocus={{ current: null }}
-        />
-      </MemoryRouter>
-    </QueryClientProvider>
-  );
+  const Harness = () => {
+    const [open, setOpen] = useState(true);
+    const returnFocus = useRef<HTMLButtonElement>(null);
+    return (
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <button ref={returnFocus} onClick={() => setOpen(true)}>
+            Open trigger
+          </button>
+          <TaskTriggerDialog
+            column={targetColumn}
+            projectId="p1"
+            open={open}
+            onOpenChange={(next) => {
+              onOpenChange(next);
+              setOpen(next);
+            }}
+            returnFocus={returnFocus}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  };
+  render(<Harness />);
   return { onOpenChange };
 };
 // The stacked create dialog aria-hides the trigger dialog behind it.
@@ -224,3 +236,74 @@ it("picking the template's engine again goes back to following it", async () => 
     })
   );
 });
+
+it.each(["add", "edit"] as const)(
+  "cancel discards all %s drafts and restores persisted values on reopen",
+  async (mode) => {
+    const persisted =
+      mode === "edit"
+        ? { ...column.trigger!, agentType: "codex" as const, model: "m1" }
+        : undefined;
+    // Keep this exact object across close/reopen to catch identity-only resets.
+    const targetColumn = { ...column, trigger: persisted } as TaskColumn;
+    templates.push(template("tpl_2", "Reviewer"));
+    const { onOpenChange } = renderDialog(targetColumn);
+    const pick = (name: string, option: string) => {
+      fireEvent.keyDown(screen.getByRole("combobox", { name }), {
+        key: "Enter",
+      });
+      fireEvent.click(screen.getByRole("option", { name: option }));
+    };
+    const assign = () =>
+      screen.getByRole("checkbox", { name: "Assign the launched agent" });
+    const fireOnCreate = () =>
+      screen.getByRole("checkbox", { name: "Also fire when created here" });
+
+    pick("Template", "Reviewer");
+    pick("Type", mode === "edit" ? "Claude" : "Codex");
+    pick("Model", mode === "edit" ? "Default" : "Model One");
+    fireEvent.click(assign());
+    fireEvent.click(fireOnCreate());
+    expect(templatePicker().textContent).toBe("Reviewer");
+    expect(screen.getByRole("combobox", { name: "Type" }).textContent).toBe(
+      mode === "edit" ? "Claude" : "Codex"
+    );
+    expect(screen.getByRole("combobox", { name: "Model" }).textContent).toBe(
+      mode === "edit" ? "Default" : "Model One"
+    );
+    expect(assign().getAttribute("aria-checked")).toBe(
+      mode === "edit" ? "true" : "false"
+    );
+    expect(fireOnCreate().getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(updateColumn).not.toHaveBeenCalled();
+    expect(addTemplate).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Open trigger" })
+      )
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open trigger" }));
+    expect(templatePicker().textContent).toBe(
+      mode === "edit" ? "Builder" : "None"
+    );
+    expect(screen.getByRole("combobox", { name: "Type" }).textContent).toBe(
+      mode === "edit" ? "Codex" : "Claude"
+    );
+    expect(screen.getByRole("combobox", { name: "Model" }).textContent).toBe(
+      mode === "edit" ? "Model One" : "Default"
+    );
+    expect(assign().getAttribute("aria-checked")).toBe(
+      mode === "edit" ? "false" : "true"
+    );
+    expect(fireOnCreate().getAttribute("aria-checked")).toBe("false");
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")
+    ).toBe(mode === "add");
+    expect(updateColumn).not.toHaveBeenCalled();
+  }
+);

@@ -3,6 +3,7 @@ import { Plus, Settings2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -124,7 +125,10 @@ export function TaskTriggerDialog({
   const [trigger, setTrigger] = useState<TaskColumnTrigger>(
     column.trigger ?? empty
   );
-  useEffect(() => setTrigger(column.trigger ?? empty), [column]);
+  // A canceled draft must not survive reopening the same column object.
+  useEffect(() => {
+    if (open) setTrigger(column.trigger ?? empty);
+  }, [column, open]);
   const projectTemplates = templates.filter(
     (template) => template.projectId === projectId
   );
@@ -160,7 +164,7 @@ export function TaskTriggerDialog({
           returnFocus.current?.focus();
         }}
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0">
           <DialogTitle>Trigger · {column.name}</DialogTitle>
           <DialogDescription>
             {column.trigger
@@ -253,18 +257,23 @@ export function TaskTriggerDialog({
               ? `Entering ${column.name} launches ${chosen.name}${chosen.prompt?.trim() ? "" : " with the task as its prompt"}${trigger.assign ? " and assigns the agent" : ""}.`
               : "Choose a project template to configure this column."}
           </p>
-          <div className="flex flex-wrap justify-between gap-2">
-            <Button
-              variant="ghost"
-              disabled={!column.trigger}
-              onClick={() => {
-                void actions.updateColumn
-                  .mutateAsync({ id: column.id, trigger: null })
-                  .then(() => onOpenChange(false));
-              }}
-            >
-              Remove trigger
-            </Button>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <Button
+            variant="ghost"
+            disabled={!column.trigger}
+            onClick={() => {
+              void actions.updateColumn
+                .mutateAsync({ id: column.id, trigger: null })
+                .then(() => onOpenChange(false));
+            }}
+          >
+            Remove trigger
+          </Button>
+          <div className="ml-auto flex gap-2">
+            <DialogClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DialogClose>
             <Button
               disabled={!trigger.templateId || actions.updateColumn.isPending}
               onClick={() => void save()}
