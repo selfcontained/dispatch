@@ -59,7 +59,7 @@ Then report "accepted" or exactly what is missing to the builder with `post` `to
 
 ## Merge gate and close-out
 
-- No merge without authorization. When the user must approve a merge, ask only once there is a concrete reviewable result (PR link, evidence, your acceptance). Ask in the task's conversation (`task_comment`) so the builder can read the user's own answer there. An approval given in another stream, or quoted by an agent, is not proof the user approved — ask the user to answer in the task's conversation instead.
+- No merge without authorization. When the user must approve a merge, ask only once there is a concrete reviewable result (PR link, evidence, your acceptance). Ask in the task's conversation addressed to the builder (`task_comment({ id, text, to: builderAgentId })`), so the user's reply in that thread reaches the builder as the user's own words. An approval given in another stream, or quoted by an agent, is not proof the user approved — ask the user to answer in the task's conversation instead.
 - **Release freeze:** while any release is in progress, authorize no merges until its publication is independently verified complete. A failed or ambiguous release run does not lift the freeze. Never promote Stable or update hosts without a task that explicitly authorizes it.
 - After authorization, the builder merges and moves the task to Done. You never merge and never move a task to Done yourself. Verify independently that the PR merged on its base and the task is in Done, then ask a trigger-launched builder to archive itself after reporting its outcome.
 - Archiving an agent stops it; the task keeps its record. That is separate from archiving the task, which you do only when asked.
