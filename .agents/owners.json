@@ -3,6 +3,15 @@
   "rules": [
     {
       "paths": [
+        "apps/server/src/tasks/**",
+        "apps/server/src/routes/tasks.ts",
+        "apps/server/test/tasks-service.test.ts",
+        "e2e/tasks-board.spec.ts"
+      ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": [
         "apps/server/src/agents/**",
         "apps/server/src/server/agent-*.ts",
         "apps/server/src/shared/git/**",
