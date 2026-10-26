@@ -6,6 +6,7 @@ import { STREAM_ID, block, turnBlock } from "@/test-utils/blocks";
 
 import {
   historicalMentionablesOf,
+  blockRecipients,
   blockAuthor,
   type FeedContext,
 } from "./chat-entries";
@@ -73,5 +74,37 @@ describe("historical mentions", () => {
         })
       )
     ).toEqual([{ kind: "text", text: unaddressed.text }]);
+  });
+});
+
+describe("task card recipients", () => {
+  it("reads task card thread recipients and recorded mentions", () => {
+    const card = block({
+      author: { kind: "user" },
+      body: {
+        kind: "task",
+        data: {
+          taskId: "tsk_012345abcdef",
+          recipients: ["builder", "reviewer"],
+        },
+        state: null,
+      },
+    });
+    expect(blockRecipients(card)).toEqual(["builder", "reviewer"]);
+    const mentioned = block({
+      author: { kind: "user" },
+      body: {
+        kind: "task",
+        data: { taskId: "tsk_012345abcdef", mentions: ["external"] },
+        state: null,
+      },
+    });
+    expect(blockRecipients(mentioned)).toEqual(["external"]);
+    expect(
+      historicalMentionablesOf(mentioned, {
+        ...ctx,
+        names: { external: "Former reviewer" },
+      })[0]
+    ).toMatchObject({ id: "external", name: "Former reviewer" });
   });
 });

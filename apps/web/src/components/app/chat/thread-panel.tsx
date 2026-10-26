@@ -78,6 +78,7 @@ function threadSubject(root: Block): string {
       link: "a link",
       review: "a review",
       finding: "a finding",
+      task: "Task",
       tasks: "a task list",
       launch: "",
     }[root.kind] ?? ""
@@ -261,7 +262,10 @@ export function ThreadPanel({
     async (
       text: string,
       attachments: ChatUserAttachmentInput[],
-      options?: { delivery?: "auto" | "queue" | "interrupt" }
+      options?: {
+        delivery?: "auto" | "queue" | "interrupt";
+        task?: { id: string };
+      }
     ): Promise<void> => {
       setStopError(null);
       await postAsync({

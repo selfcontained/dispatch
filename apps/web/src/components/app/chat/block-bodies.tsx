@@ -1660,3 +1660,5 @@ export function LinkBlockBody({
     </div>
   );
 }
+
+export { TaskBlockBody } from "./task-block-body";

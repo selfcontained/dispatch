@@ -164,7 +164,7 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
     recipients?: string[];
   } | null;
   const named =
-    row.kind !== "text"
+    row.kind !== "text" && row.kind !== "task"
       ? undefined
       : data?.mentions?.length
         ? data.mentions

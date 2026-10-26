@@ -91,6 +91,8 @@ import {
 } from "./chat-post-recovery";
 import { cn } from "@/lib/utils";
 
+import { ShareTaskPicker } from "./share-task-picker";
+
 export type ChatComposerProps = {
   /**
    * Keys the persisted draft. With no agent the draft lives in memory only
@@ -111,7 +113,10 @@ export type ChatComposerProps = {
   onSend: (
     text: string,
     attachments: ChatUserAttachmentInput[],
-    options?: { delivery?: "auto" | "queue" | "interrupt" }
+    options?: {
+      delivery?: "auto" | "queue" | "interrupt";
+      task?: { id: string };
+    }
   ) => Promise<void>;
   /** Offer an explicit alternative to delivery during the current turn. */
   canQueue?: boolean;
@@ -1291,6 +1296,27 @@ export function ChatComposer({
                 >
                   <Plus className="h-5 w-5" />
                 </Button>
+                <ShareTaskPicker
+                  disabled={
+                    disabled ||
+                    Boolean(sending) ||
+                    inFlight ||
+                    Boolean(deliveryBlockedReason)
+                  }
+                  onShare={async (id) => {
+                    if (
+                      deliveryMode === "interrupt" &&
+                      interruptUnavailableReason
+                    )
+                      return;
+                    await onSend("", [], {
+                      task: { id },
+                      ...(canQueue && deliveryMode !== "auto"
+                        ? { delivery: deliveryMode }
+                        : {}),
+                    });
+                  }}
+                />
                 <Button
                   type="button"
                   size="icon"
