@@ -9,6 +9,8 @@ import {
   isDocumentFile,
   isTextFile,
   isValidFileKey,
+  isValidStoredFileName,
+  timestampedFileName,
   resolveFilesDir,
   sanitizeUploadedFileName,
   toFileKey,
@@ -197,5 +199,32 @@ describe("extensionForMime", () => {
   });
   it("returns .bin for unknown MIME types", () => {
     expect(extensionForMime("application/octet-stream")).toBe(".bin");
+  });
+});
+
+describe("stored filename policy", () => {
+  it.each([254, 255])("accepts %i decoded bytes", (length) => {
+    expect(isValidStoredFileName("a".repeat(length))).toBe(true);
+  });
+  it.each([
+    "",
+    ".",
+    "..",
+    "a".repeat(256),
+    "../a.png",
+    "a/b.png",
+    "a\\b.png",
+    "a%2fb.png",
+    "café.png",
+    "a\u0000.png",
+    "a\n.png",
+  ])("rejects unsafe name %s", (name) => {
+    expect(isValidStoredFileName(name)).toBe(false);
+  });
+  it("counts the entire timestamp and extension, without truncation", () => {
+    expect(timestampedFileName("a".repeat(227) + ".png")).toHaveLength(255);
+    expect(() => timestampedFileName("a".repeat(228) + ".png")).toThrow(
+      /255 bytes.*suffix/
+    );
   });
 });

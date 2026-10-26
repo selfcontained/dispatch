@@ -50,7 +50,10 @@ import { detectFileType } from "./files/file-type.js";
 import { fileMetadataFromBuffer } from "./files/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
-import { resolveFilesDir } from "./shared/files.js";
+import {
+  MAX_ENCODED_FILE_NAME_LENGTH,
+  resolveFilesDir,
+} from "./shared/files.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";
@@ -148,6 +151,7 @@ import { registerUpdateRecoveryRoutes } from "./routes/update-recovery.js";
 
 const config = loadConfig();
 const app = Fastify({
+  routerOptions: { maxParamLength: MAX_ENCODED_FILE_NAME_LENGTH },
   logger: true,
   ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
 });

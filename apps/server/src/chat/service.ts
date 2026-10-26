@@ -53,7 +53,7 @@ import {
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import type { QueuedPromptAction } from "../agents/runtime.js";
-import { resolveFilesDir } from "../shared/files.js";
+import { isValidStoredFileName, resolveFilesDir } from "../shared/files.js";
 import { agentTree, parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
@@ -4673,6 +4673,11 @@ export class StreamService {
     }
     const caption = parsedCaption.data || undefined;
     const fileName = input.fileName?.trim();
+    if (fileName && !isValidStoredFileName(fileName)) {
+      throw new StreamValidationError(
+        "Invalid attachment file name (maximum 255 bytes)."
+      );
+    }
     const fileId =
       typeof input.fileId === "number" && Number.isInteger(input.fileId)
         ? input.fileId
@@ -4705,6 +4710,11 @@ export class StreamService {
     if (!match) {
       throw new StreamValidationError(
         `Unknown file ${fileName ? `"${fileName}"` : `#${fileId}`} — attach it by path to upload it first.`
+      );
+    }
+    if (!isValidStoredFileName(match.file_name)) {
+      throw new StreamValidationError(
+        "Invalid stored attachment file name (maximum 255 bytes)."
       );
     }
     return {
