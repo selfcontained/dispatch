@@ -20,8 +20,10 @@ import { cn } from "@/lib/utils";
 
 const CARD =
   "group rounded-lg bg-muted/70 p-3 shadow-sm ring-1 ring-foreground/[0.05] pointer-coarse:select-none [-webkit-touch-callout:none]";
+// TouchSensor cancels quick swipes and prevents scrolling only after its hold delay.
+// Keep native panning available on the grip until then (dnd-kit Touch recommendations).
 const GRIP =
-  "-ml-1 self-start rounded text-muted-foreground/50 touch-none pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
+  "-ml-1 self-start rounded text-muted-foreground/50 touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
 /**
  * A card moved from its Move to… sheet remounts in its new column; that
  * mount takes focus back, as the sheet can't reach the new card.

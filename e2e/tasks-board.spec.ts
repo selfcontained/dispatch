@@ -760,8 +760,129 @@ test("Tasks header controls keep their geometry across view toggles", async ({
 test.describe("iPad touch lock on the Tasks board", () => {
   test.use({
     viewport: { width: 820, height: 1180 },
+    deviceScaleFactor: 2,
     hasTouch: true,
     isMobile: true,
+  });
+
+  test("fast swipes from the grip and card surfaces scroll without dragging", async ({
+    page,
+    request,
+  }) => {
+    const response = await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Native grip scrolling", repoRoot: repo, color: "#7c6ee6" },
+    });
+    expect(response.ok()).toBeTruthy();
+    const project = await response.json();
+    try {
+      const ids: string[] = [];
+      for (let position = 0; position < 20; position++) {
+        const task = await request.post("/api/v1/tasks", {
+          headers,
+          data: {
+            projectId: project.id,
+            title: `Scroll card ${position}`,
+            position,
+          },
+        });
+        expect(task.ok()).toBeTruthy();
+        ids.push((await task.json()).id);
+      }
+      await page.goto(`/tasks?project=${project.id}&layout=board`, {
+        waitUntil: "domcontentloaded",
+      });
+      const board = page.getByTestId("tasks-board");
+      const column = page.getByTestId("task-column-backlog");
+      const grip = page.getByRole("button", {
+        name: "Drag Scroll card 0",
+        exact: true,
+      });
+      await expect(grip).toBeVisible();
+      const cdp = await page.context().newCDPSession(page);
+      let lifted = false;
+      page.on("console", (message) => {
+        if (message.text() === "unexpected-scroll-drag") lifted = true;
+      });
+      // Observe even a transient activation, rather than only checking after release.
+      await page.evaluate(() => {
+        new MutationObserver(() => {
+          if (document.querySelector('[data-testid="task-card-overlay"]'))
+            console.log("unexpected-scroll-drag");
+        }).observe(document.body, { childList: true, subtree: true });
+      });
+      const swipe = async (x: number, y: number, dx: number, dy: number) => {
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchStart",
+          touchPoints: [{ x, y }],
+        });
+        for (let step = 1; step <= 10; step++) {
+          await cdp.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [{ x: x + (dx * step) / 10, y: y + (dy * step) / 10 }],
+          });
+        }
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
+      };
+      const surfaces = [
+        grip,
+        page.getByRole("button", { name: "Scroll card 0", exact: true }),
+        column.locator("header"),
+        page.getByTestId("task-column-ready").locator(".overflow-y-auto"),
+      ];
+      for (const [index, surface] of surfaces.entries()) {
+        await board.evaluate((el) => {
+          el.scrollLeft = 0;
+        });
+        const box = (await surface.boundingBox())!;
+        await swipe(
+          box.x + box.width / 2,
+          box.y + Math.min(box.height / 2, 100),
+          -250,
+          8
+        );
+        await expect
+          .poll(() => board.evaluate((el) => el.scrollLeft))
+          .toBeGreaterThan(150);
+        expect(lifted).toBe(false);
+        await expect(page.getByTestId("task-card-overlay")).toHaveCount(0);
+        await page.screenshot({
+          path: `/tmp/grip-scroll-${index}.png`,
+          scale: "device",
+        });
+        // Let native momentum finish before resetting for the next surface.
+        await page.waitForTimeout(500);
+      }
+      await board.evaluate((el) => {
+        el.scrollLeft = 0;
+      });
+      const scroller = column.locator(".overflow-y-auto");
+      const box = (await scroller.boundingBox())!;
+      await swipe(box.x + box.width / 2, box.y + box.height - 60, 0, -250);
+      await expect
+        .poll(() => scroller.evaluate((el) => el.scrollTop))
+        .toBeGreaterThan(100);
+      expect(lifted).toBe(false);
+      await page.screenshot({
+        path: "/tmp/grip-vertical.png",
+        scale: "device",
+      });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect
+        .poll(() =>
+          column
+            .locator("[data-task-id]")
+            .evaluateAll((els) =>
+              els.map((el) => el.getAttribute("data-task-id"))
+            )
+        )
+        .toEqual(ids);
+    } finally {
+      await request.delete(`/api/v1/projects/${project.id}`, { headers });
+    }
   });
 
   test("a sideways swipe that lands slightly vertical still scrolls the board", async ({
