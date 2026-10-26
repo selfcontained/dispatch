@@ -52,6 +52,7 @@ export class RestartEvidence {
     args: string;
     startedAt: string;
     stdout?: string;
+    stderr?: string;
     error?: unknown;
   }): void {
     this.commands.push(
@@ -235,6 +236,7 @@ export class RestartEvidence {
           outcome,
           suffix,
           preserveHosts,
+          controlledArm: process.env.DISPATCH_RESTART_CONTROLLED_ARM,
           agentId: this.agentId,
           runtime: {
             executable: process.execPath,
