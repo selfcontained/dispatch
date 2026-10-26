@@ -65,12 +65,14 @@ export function checkOwnerCoverage(input: {
   const files = raw.split("\0").filter(Boolean);
   // Read metadata from the head tree, never from the merge checkout or worktree.
   const tree = run(
-    ["ls-tree", "-r", "-z", "--full-tree", input.headSha],
+    ["ls-tree", "-r", "-t", "-z", "--full-tree", input.headSha],
     "read the PR head tree"
   );
   const entries = new Map<string, string>();
   for (const entry of tree.split("\0").filter(Boolean)) {
-    const match = /^(\d{6}) (?:blob|commit) [a-f0-9]+\t([\s\S]+)$/.exec(entry);
+    const match = /^(\d{6}) (?:blob|commit|tree) [a-f0-9]+\t([\s\S]+)$/.exec(
+      entry
+    );
     if (!match) fail("Invalid Git head tree record.");
     entries.set(match![2], match![1]);
   }

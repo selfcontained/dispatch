@@ -183,6 +183,13 @@ describe("explicit PR head owner coverage", () => {
     }
   );
 
+  it("rejects a directory shadowing a built-in reviewer", () => {
+    const f = fixture([rule(["src/**"], ["code-review"])]);
+    f.write("src/new.ts");
+    f.write(".agents/personas/code-review.md/instructions.txt", reviewer);
+    expect(() => f.check()).toThrow('Invalid review persona "code-review"');
+  });
+
   it("uses head map/personas despite conflicting merge checkout and uncommitted edits", () => {
     const f = fixture([]);
     f.git("branch", "base");
