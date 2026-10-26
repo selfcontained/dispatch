@@ -218,6 +218,92 @@ async function withTrigger(
 const USER = { kind: "user" } as const;
 
 describe("relative task ordering", () => {
+  it("serializes numeric rank writes with a relative reorder paused after reading siblings", async () => {
+    const tasks = [];
+    for (const [position, title] of ["a", "b", "c", "d"].entries())
+      tasks.push(
+        await service.createTask({ projectId, title, position }, USER)
+      );
+    let reached!: () => void;
+    let release!: () => void;
+    const selected = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const originalReorder = TaskStore.prototype.reorderTask;
+    const originalLock = TaskStore.prototype.lockColumn;
+    let watchingNumeric = false;
+    let numericLockRequested = false;
+    const lockSpy = vi
+      .spyOn(TaskStore.prototype, "lockColumn")
+      .mockImplementation(function (this: TaskStore, ...args) {
+        if (watchingNumeric) numericLockRequested = true;
+        return originalLock.apply(this, args);
+      });
+    const reorderSpy = vi
+      .spyOn(TaskStore.prototype, "reorderTask")
+      .mockImplementation(function (
+        this: TaskStore,
+        id,
+        columnId,
+        beforeId,
+        db
+      ) {
+        const gatedDb = new Proxy(db, {
+          get(target, key) {
+            if (key === "query")
+              return async (...args: unknown[]) => {
+                const result = await Reflect.apply(target.query, target, args);
+                if (
+                  typeof args[0] === "string" &&
+                  args[0].includes("SELECT id FROM tasks WHERE column_id")
+                ) {
+                  reached();
+                  await gate;
+                }
+                return result;
+              };
+            return Reflect.get(target, key);
+          },
+        });
+        return originalReorder.call(this, id, columnId, beforeId, gatedDb);
+      });
+    let numericDone = false;
+    const relative = build().updateTask(
+      tasks[3]!.id,
+      { beforeId: tasks[2]!.id },
+      USER
+    );
+    let numeric: ReturnType<TaskService["updateTask"]> | undefined;
+    try {
+      await selected;
+      watchingNumeric = true;
+      numeric = build()
+        .updateTask(tasks[0]!.id, { position: 10 }, USER)
+        .then((task) => {
+          numericDone = true;
+          return task;
+        });
+      await vi.waitFor(() =>
+        expect(numericDone || numericLockRequested).toBe(true)
+      );
+      expect(numericDone).toBe(false);
+      release();
+      await Promise.all([relative, numeric]);
+      expect(
+        (await service.getBoard(projectId)).tasks.map((task) => task.id)
+      ).toEqual([tasks[1]!.id, tasks[3]!.id, tasks[2]!.id, tasks[0]!.id]);
+      expect((await service.requireTask(tasks[0]!.id)).position).toBe(10);
+    } finally {
+      release();
+      await Promise.allSettled([relative, ...(numeric ? [numeric] : [])]);
+      reorderSpy.mockRestore();
+      lockSpy.mockRestore();
+    }
+  });
+
   it("rejects self/foreign anchors atomically and gives relative order precedence over numeric positions", async () => {
     const a = await service.createTask(
       { projectId, title: "a", position: 0 },

@@ -969,10 +969,14 @@ export class TaskService {
     }
 
     const applied = await this.store.transaction(async (db) => {
-      // Relative reorders can update siblings as well as the moving task.
-      // Lock both involved columns in a consistent order before any task rows,
-      // including for opposing moves and same-column reorders.
-      if (input.beforeId !== undefined) {
+      // Every rank write participates in the same column locks: a relative
+      // reorder may rewrite sibling ranks, including numeric API updates.
+      // Acquire both columns in order before task rows for opposing moves.
+      const writesOrder =
+        !!destination ||
+        input.beforeId !== undefined ||
+        input.position !== undefined;
+      if (writesOrder) {
         for (const columnId of [
           ...new Set([task.columnId, destination?.id ?? task.columnId]),
         ].sort()) {
@@ -1007,19 +1011,17 @@ export class TaskService {
         destination = currentColumn;
         patch.completed = currentColumn.isDone;
       }
+      if (writesOrder && !destination) {
+        const current = await this.store.lockTask(id, db);
+        if (
+          !current ||
+          current.columnId !== task.columnId ||
+          current.archivedAt
+        )
+          return false;
+      }
       if (input.beforeId !== undefined) {
         const targetId = destination?.id ?? task.columnId;
-        if (!destination) {
-          if (!(await this.store.lockColumn(targetId, db)))
-            throw notFound("Column");
-          const current = await this.store.lockTask(id, db);
-          if (
-            !current ||
-            current.columnId !== task.columnId ||
-            current.archivedAt
-          )
-            return false;
-        }
         const position = await this.store.reorderTask(
           id,
           targetId,
