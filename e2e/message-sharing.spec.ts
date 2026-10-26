@@ -119,9 +119,6 @@ test("a coordinator forwards verified user approval to an independent task agent
     expect(again.id).toBe(receipt.id);
     expect(again.notificationId).toBe(receipt.notificationId);
     // Engine echo proves the actionable prompt crossed the real host boundary.
-    await page.addInitScript(() =>
-      localStorage.setItem("dispatch:chatShowChildAgents", "true")
-    );
     await page.goto(`/agents/${taskAgent.id}`, {
       waitUntil: "domcontentloaded",
     });
@@ -144,8 +141,24 @@ test("a coordinator forwards verified user approval to an independent task agent
         .locator(`[data-block-id="${ordinary.id}"]`)
         .getByTestId("shared-message")
     ).toHaveCount(0);
+    // Reveal coordination through the real control. The long fake-engine
+    // response leaves the older notice above the virtualized feed window.
+    const filters = page.getByTestId("chat-filters-trigger");
+    await filters.click();
+    const coordination = page.getByRole("switch", {
+      name: "Show child messages",
+    });
+    if ((await coordination.getAttribute("aria-checked")) !== "true")
+      await coordination.click();
+    await expect(coordination).toHaveAttribute("aria-checked", "true");
+    await filters.click();
+    await page.getByTestId("chat-scroll").evaluate((element) => {
+      element.scrollTop = 0;
+    });
     const notice = page.getByTestId("shared-message");
+
     await expect(notice).toBeVisible();
+    await notice.scrollIntoViewIfNeeded();
     await expect(notice).toContainText("Shared by e2e-share-coordinator");
     await expect(notice).toContainText("Originally written by User");
     await expect(notice).toContainText("e2e-share-coordinator’s stream");
