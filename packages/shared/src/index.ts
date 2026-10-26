@@ -122,6 +122,7 @@ export type {
   BlockTaskStatus,
   BlockTasksData,
   BlockTextData,
+  SharedMessagePresentation,
   BlockTasksState,
   StreamAnswerRequest,
   StreamAnswerResponse,

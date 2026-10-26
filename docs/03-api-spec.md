@@ -669,6 +669,17 @@ The notification tells the recipient to inspect `get_message({ id: <share refere
 and follow `nextOffset` before acting. It explicitly identifies an agent's forward
 of historical content, never a new user instruction or approval.
 
+The web stream renders a distinct **Shared message** callout from a server-only
+receipt projection, with the sharing agent, original author, source conversation,
+and inert quotes of the exact message and direct question. Agent-to-agent notices
+follow the existing **Show coordination** filter. Provenance IDs are available in
+a disclosure; they do not link to or grant source history. Attachment names are
+metadata only, with no file actions. New receipts snapshot display labels;
+older receipts use generic identity labels without fetching source history.
+Ordinary post/update data cannot create this presentation. Agent MCP readers and
+automatic context continue to see only the actionable notification, never the web
+projection; receipt content still requires the participant/project checks above.
+
 A share reference returns server-owned provenance and a paginated `content` JSON
 document containing `message` and optional `question`. Concatenate the content
 pages before parsing. The exact message's author, kind, timestamps, text, public

@@ -1,3 +1,4 @@
+import { SharedMessageEntry } from "./shared-message-entry";
 import { ScheduledMessageEntry } from "./scheduled-message-entry";
 import {
   isUserInputBlock,
@@ -1807,7 +1808,9 @@ export const BlockView = memo(function BlockView({
       ) : null}
       {failureNotice}
       <InputSurface block={block}>
-        {block.turn ? (
+        {block.sharedMessage ? (
+          <SharedMessageEntry share={block.sharedMessage} />
+        ) : block.turn ? (
           <TurnAnswer
             block={block}
             turn={block.turn}

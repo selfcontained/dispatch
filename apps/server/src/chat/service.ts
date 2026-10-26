@@ -2307,6 +2307,20 @@ export class StreamService {
         if (!(error instanceof StreamNotFoundError)) throw error;
       }
     }
+    const sourceOwner = await this.deps.getAgent(source.streamId);
+    const sourceTask = await this.taskRoot(source.streamId);
+    const originalAuthor =
+      source.author.kind === "user"
+        ? "User"
+        : (await this.deps.getAgent(source.author.agentId))?.name ||
+          "Original agent";
+    const labels = {
+      sharer: sharer.name || "Sharing agent",
+      originalAuthor,
+      source: sourceTask
+        ? `${sourceTask.title} · task conversation${source.threadId ? " · thread" : ""}`
+        : `${sourceOwner?.name || "Original agent"}’s stream${source.threadId ? " · thread" : " · main conversation"}`,
+    };
     const streamId = await this.streamOf(to);
     return this.withWrite(streamId, async () => {
       const client = await this.deps.pool.connect();
@@ -2366,6 +2380,11 @@ export class StreamService {
                 JSON.stringify({
                   message: sharedMessageSnapshot(snapshotSource),
                   question,
+                  labels,
+                  sourceLocation: {
+                    streamId: source.streamId,
+                    threadId: source.threadId,
+                  },
                 }),
               ]
             )

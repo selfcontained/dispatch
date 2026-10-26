@@ -380,7 +380,27 @@ export type BlockDelivery = {
   receipt?: { pickedUpAt: string | null; deliveredAt?: string };
 };
 
+/** Receipt-backed display only. Never accepted from post/update data. */
+export type SharedMessagePresentation = {
+  sourceLocation?: { streamId: string; threadId: string | null };
+  id: string;
+  sourceId: string;
+  sharedAt: string;
+  sharer: string;
+  originalAuthor: string;
+  source: string;
+  message: {
+    text: string;
+    kind: BlockKind;
+    data: unknown;
+    attachments: ChatAttachment[];
+  };
+  question: { text: string; options: BlockOption[] } | null;
+};
+
 export type Block = {
+  /** Server projection from the immutable share receipt; absent on ordinary posts. */
+  sharedMessage?: SharedMessagePresentation;
   id: string;
   /** The root agent whose stream this is. */
   streamId: string;

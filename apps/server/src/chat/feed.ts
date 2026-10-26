@@ -1,3 +1,4 @@
+import { attachMessageShares } from "./message-shares.js";
 import type {
   Block,
   ChatTurnStep,
@@ -345,6 +346,7 @@ export async function attachShown(
   isHeld?: (agentId: string) => boolean,
   depth = 0
 ): Promise<void> {
+  await attachMessageShares(db, blocks);
   // Answers are rendered on their ask, including delivery failures and attachments.
   const answered = blocks.flatMap((block) => {
     const id =

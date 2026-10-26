@@ -8430,6 +8430,106 @@ describe("scoped verifiable message sharing", () => {
     );
   });
 
+  it("projects only receipt-backed notifications, with immutable names and legacy fallbacks", async () => {
+    const { svc } = sharing();
+    const question = await svc.post(A, {
+      text: "Bounded question",
+      question: { options: [{ label: "Yes" }] },
+    });
+    const answer = await svc.answerQuestion(A, question.id, { value: "Yes" });
+    const receipt = await svc.shareMessage(A, answer.reply.id, B);
+    const card = (await svc.feed(B)).entries.find(
+      (entry) => entry.id === receipt.notificationId
+    )!.block.sharedMessage!;
+    expect(card).toMatchObject({
+      sharer: "Svc",
+      originalAuthor: "User",
+      source: "Svc’s stream · thread",
+      message: { text: "Yes" },
+      question: { text: "Bounded question", options: [{ label: "Yes" }] },
+    });
+    expect(card.question).not.toHaveProperty("state");
+    const renamed = sharing({
+      deps: {
+        getAgent: async (id) => {
+          const agent = await getAgent(id);
+          return agent ? { ...agent, name: "Renamed after sharing" } : null;
+        },
+      },
+    }).svc;
+    expect(
+      (await renamed.feed(B)).entries.find(
+        (entry) => entry.id === receipt.notificationId
+      )!.block.sharedMessage
+    ).toEqual(card);
+    // Even authored data with the exact shape cannot mint a trusted card.
+    const fake = await svc.post(B, { text: "Ordinary post" });
+    await svc.store.update(fake.id, { data: { sharedMessage: card } });
+    expect(
+      (await svc.feed(B)).entries.find((entry) => entry.id === fake.id)!.block
+        .sharedMessage
+    ).toBeUndefined();
+    await pool.query(
+      "UPDATE message_shares SET snapshot = snapshot - 'labels' WHERE id = $1",
+      [receipt.id]
+    );
+    expect(
+      (await svc.feed(B)).entries.find(
+        (entry) => entry.id === receipt.notificationId
+      )!.block.sharedMessage
+    ).toMatchObject({
+      sharer: "Sharing agent",
+      originalAuthor: "User",
+      source: "Original conversation",
+    });
+  });
+
+  it("does not expose receipt quotes when a nonparticipant reads or forwards the notification, or a participant moves project", async () => {
+    await pool.query(
+      "INSERT INTO agents (id, name, cwd, status) VALUES ($1, 'Observer', '/tmp', 'running') ON CONFLICT DO NOTHING",
+      [C]
+    );
+    const { svc, injected } = sharing();
+    const original = await svc.post(A, {
+      text: "Exact private historical quote",
+    });
+    const receipt = await svc.shareMessage(A, original.id, B);
+    await svc.post(B, {
+      to: C,
+      replyTo: receipt.notificationId,
+      text: "Discuss only the notice",
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect(
+      (await svc.getMessage(C, receipt.notificationId)).content
+    ).not.toContain(original.text);
+    expect(
+      JSON.stringify(await svc.getThread(C, receipt.notificationId))
+    ).not.toContain(original.text);
+    expect(
+      injected
+        .filter((entry) => entry.agentId === C)
+        .map((entry) => entry.text)
+        .join(" ")
+    ).not.toContain(original.text);
+    await expect(svc.getMessage(C, receipt.id)).rejects.toThrow(
+      "Message not found"
+    );
+    const forwarded = await svc.shareMessage(C, receipt.notificationId, A);
+    expect(JSON.stringify(await snapshot(svc, A, forwarded.id))).not.toContain(
+      original.text
+    );
+    const moved = sharing({
+      deps: { agentProject: async () => "prj_moved" },
+    }).svc;
+    await expect(moved.getMessage(B, receipt.id)).rejects.toThrow(
+      "Message not found"
+    );
+    expect(
+      (await moved.getMessage(B, receipt.notificationId)).content
+    ).not.toContain(original.text);
+  });
+
   it("checks current source access and recipient project, status and archive boundaries before persisting", async () => {
     const { svc } = sharing();
     const source = await svc.post(A, { text: "Private source" });

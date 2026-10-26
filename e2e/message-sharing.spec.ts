@@ -117,6 +117,9 @@ test("a coordinator forwards verified user approval to an independent task agent
     expect(again.id).toBe(receipt.id);
     expect(again.notificationId).toBe(receipt.notificationId);
     // Engine echo proves the actionable prompt crossed the real host boundary.
+    await page.addInitScript(() =>
+      localStorage.setItem("dispatch:chatShowChildAgents", "true")
+    );
     await page.goto(`/agents/${taskAgent.id}`, {
       waitUntil: "domcontentloaded",
     });
@@ -128,6 +131,37 @@ test("a coordinator forwards verified user approval to an independent task agent
       "not a new user instruction or approval"
     );
     await expect(result).not.toContainText("Unrelated coordinator-only");
+    const ordinary = await call(taskAgent.id, "post", {
+      text: "Ordinary recipient post",
+    });
+    await expect(
+      page.locator(`[data-block-id="${ordinary.id}"]`)
+    ).toContainText("Ordinary recipient post");
+    await expect(
+      page
+        .locator(`[data-block-id="${ordinary.id}"]`)
+        .getByTestId("shared-message")
+    ).toHaveCount(0);
+    const notice = page.getByTestId("shared-message");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("Shared by e2e-share-coordinator");
+    await expect(notice).toContainText("Originally written by User");
+    await expect(notice).toContainText("e2e-share-coordinator’s stream");
+    await expect(notice.getByTestId("shared-message-question")).toContainText(
+      "Approve the bounded task handoff?"
+    );
+    await expect(notice.locator("blockquote").last()).toHaveText("Yes");
+    await expect(notice).not.toContainText("Unrelated coordinator-only");
+    await expect(notice).not.toContainText("get_message");
+    await notice.getByRole("button", { name: "Provenance details" }).click();
+    await expect(notice).toContainText(receipt.id);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(notice).toBeVisible();
+    expect(
+      await notice.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth
+      )
+    ).toBe(true);
     await page.screenshot({
       path: "/tmp/dispatch-message-sharing-handoff.png",
       animations: "disabled",
