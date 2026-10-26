@@ -123,6 +123,10 @@ beforeEach(async () => {
     deliver: (id, text, options) => watchDeliver(id, text, options),
     warn: () => {},
   });
+  // Semantic integration tests choose their flush boundaries explicitly. Separate
+  // DB writes need not finish inside the real trailing-edge inactivity window.
+  // Keep real timers for Postgres; scheduler behavior has its own unit suite.
+  vi.spyOn(watches, "schedule").mockImplementation(() => {});
   prompts = [];
   holding = false;
   waiting = [];
@@ -203,6 +207,16 @@ beforeEach(async () => {
   app = Fastify();
   await registerStreamRoutes(app, { pool, streams, handleAgentError });
 });
+
+async function pastWatchDebounce(): Promise<void> {
+  // Deliberately exceed the fixture's 100ms debounce between persisted writes.
+  // These semantic batches are defined by manual flush, not write latency.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+}
+
+function enableAutomaticWatchScheduling(): void {
+  vi.mocked(watches.schedule).mockRestore();
+}
 
 async function settle(): Promise<void> {
   await streams.waitForInFlightDeliveries(1_000);
@@ -934,22 +948,89 @@ describe("task stream root", () => {
 });
 
 describe("task watches", () => {
+  it("waits for the owning automatic flush before asserting addressed inbox cleanup", async () => {
+    const task = await newTask();
+    await tasks.watch(task.id, ASSIGNEE);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached!: () => void;
+    const cleanupReached = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const query = pool.query.bind(pool);
+    const querySpy = vi.spyOn(pool, "query").mockImplementation((async (
+      sql: string,
+      values?: unknown[]
+    ) => {
+      if (
+        sql.includes("DELETE FROM task_watch_items i USING") &&
+        values?.[0] === task.id &&
+        values?.[1] === ASSIGNEE
+      ) {
+        reached();
+        await gate;
+      }
+      return query(sql, values);
+    }) as typeof pool.query);
+    enableAutomaticWatchScheduling();
+    const automatic = vi.spyOn(watches, "flushTask");
+    const pendingCount = async () =>
+      (
+        await pool.query(
+          `SELECT 1 FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+          [task.id, ASSIGNEE]
+        )
+      ).rowCount;
+    try {
+      await tasks.comment(
+        task.id,
+        HELPER,
+        "Addressed during automatic flush",
+        ASSIGNEE
+      );
+      await settle();
+      await cleanupReached;
+      // flush deliberately skips a recipient already owned by another flush.
+      // Its return is not a barrier for that automatic flush's inbox cleanup.
+      await watches.flush(task.id, ASSIGNEE);
+      expect(await pendingCount()).toBe(1);
+      expect(watchPrompts).toHaveLength(0);
+    } finally {
+      release();
+      await automatic.mock.results[0]?.value;
+      automatic.mockRestore();
+      querySpy.mockRestore();
+    }
+    expect(await pendingCount()).toBe(0);
+    expect(watchPrompts).toHaveLength(0);
+  });
+
   it("coalesces events and threaded chat, suppresses self and addressed posts", async () => {
     const task = await newTask();
     await tasks.watch(task.id, PEER);
     await tasks.updateTask(task.id, { title: "New title" }, USER);
+    await pastWatchDebounce();
     const post = await tasks.comment(task.id, HELPER, "Useful update");
+    await pastWatchDebounce();
     await streams.post(HELPER, {
       text: "Thread detail",
       replyTo: post.blockId,
     });
+    await pastWatchDebounce();
     await tasks.comment(task.id, PEER, "Self post");
+    await pastWatchDebounce();
     await tasks.updateTask(
       task.id,
       { body: "Self edit" },
       { kind: "agent", agentId: PEER }
     );
-    await expect.poll(() => watchPrompts.length).toBe(1);
+    await pastWatchDebounce();
+    expect(watchPrompts).toHaveLength(0);
+    expect(watches.schedule).toHaveBeenCalledWith(task.id);
+    await watches.flushTask(task.id);
+    expect(watchPrompts).toHaveLength(1);
     expect(watchPrompts[0]).toContain("updated");
     expect(watchPrompts[0]).toContain("Useful update");
     expect(watchPrompts[0]).toContain("Thread detail");
@@ -961,6 +1042,7 @@ describe("task watches", () => {
     await tasks.watch(task.id, ASSIGNEE);
     await tasks.comment(task.id, HELPER, "Addressed", ASSIGNEE);
     await settle();
+    await pastWatchDebounce();
     await watches.flush(task.id, ASSIGNEE);
     expect(watchPrompts).toHaveLength(1);
     expect(
@@ -1093,12 +1175,24 @@ describe("task watches", () => {
       expect(watchPrompts[0]).toContain("Later committed event");
       expect(watchPrompts[0]).not.toContain("Earlier uncommitted block");
       await client.query("COMMIT");
-      // The insert callback ran before commit. Recovery must find the inbox
-      // even if that wakeup was consumed while the transaction was open.
+      // No insert wakeup remains in manual mode. Restore automatic scheduling
+      // only for recovery: the durable inbox must drive delivery after commit.
+      enableAutomaticWatchScheduling();
       await watches.recover(PEER);
       await expect.poll(() => watchPrompts.length).toBe(2);
       expect(watchPrompts[1]).toContain("Earlier uncommitted block");
       expect(watchPrompts[1]).not.toContain("Later committed event");
+      await expect
+        .poll(
+          async () =>
+            (
+              await pool.query(
+                `SELECT 1 FROM task_watch_items WHERE task_id = $1`,
+                [task.id]
+              )
+            ).rowCount
+        )
+        .toBe(0);
     } finally {
       await client.query("ROLLBACK");
       client.release();
@@ -1248,6 +1342,7 @@ describe("task watches", () => {
       `UPDATE blocks SET deliveries = jsonb_build_object($2::text, true) WHERE id = $1`,
       [block.id, PEER]
     );
+    await watches.flushTask(task.id);
     await expect
       .poll(
         async () =>
@@ -1293,7 +1388,9 @@ describe("task watches", () => {
       },
       { root: task.id }
     );
+    await pastWatchDebounce();
     await streams.answerQuestion(task.id, question.id, { value: "Proceed" });
+    await pastWatchDebounce();
     const form = await streams.post(
       HELPER,
       {
@@ -1303,7 +1400,10 @@ describe("task watches", () => {
       },
       { root: task.id }
     );
+    await pastWatchDebounce();
     await streams.submitForm(task.id, form.id, { values: { name: "Ada" } });
+    await pastWatchDebounce();
+    expect(watchPrompts).toHaveLength(0);
     await watches.flushTask(task.id);
     expect(watchPrompts).toHaveLength(1);
     expect(watchPrompts[0]).toContain("Which option?");
@@ -1311,6 +1411,7 @@ describe("task watches", () => {
     expect(watchPrompts[0]).toContain("Report details");
     expect(watchPrompts[0]).toContain("Ada");
     await streams.store.update(question.id, { text: "Edited question" });
+    await pastWatchDebounce();
     await watches.flushTask(task.id);
     expect(watchPrompts).toHaveLength(1);
   });
@@ -1341,6 +1442,7 @@ describe("task watches", () => {
     watchDeliver = async (_id, text) => {
       watchPrompts.push(text);
     };
+    enableAutomaticWatchScheduling();
     await watches.recover(PEER);
     await expect.poll(() => watchPrompts.length).toBe(1);
     expect(watchPrompts[0]).toContain("While offline");
