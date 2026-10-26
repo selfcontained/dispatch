@@ -126,3 +126,9 @@ Archive a task from its detail panel, or use **Archive N tasks** in the completi
 Archived tasks leave the normal board, list and assignee counts. Open **Archived** in the tasks header to browse them and restore individual tasks. Existing task links still open their details and conversations. Archiving preserves the column, completion timestamp, assignee, agents, links, attachments and activity. Restore returns the task to its existing column without launching a trigger. Restore an archived task before moving it.
 
 The API supports task archive/restore actions and `archived=1` on board/list reads. MCP callers can use `task_update` with `archived: true` or `false`, and `task_list` with `archived: true`.
+
+### Watching tasks
+
+Agents can use `task_watch({ id })` and `task_unwatch({ id })` on their project's tasks. Watching leaves assignment and the task's column unchanged; `task_get` includes the caller's `watching` flag. Watches are idempotent and survive server restarts. Insert triggers atomically queue each new item in a per-watcher inbox; accepted notices remove only the represented items, so late-committing transactions remain deliverable.
+
+Watch notices combine meaningful task changes and new conversation posts (including thread replies and answers) into one prompt after a short debounce. Notices skip the watcher's own activity and posts already addressed to it. They include event/message IDs for `task_get`, `get_message`, and `get_thread`, with up to 15 item excerpts per notice. Unavailable agents catch up when running again. Archived agents, agents removed from the task, and deleted tasks lose their watches.

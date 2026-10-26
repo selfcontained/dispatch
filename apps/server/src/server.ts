@@ -1,3 +1,4 @@
+import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { ScheduledMessageService } from "./scheduled-messages/service.js";
@@ -385,6 +386,7 @@ const authRuntime = createAuthRuntime({
 });
 const brainStore = new BrainStore(pool);
 const streamService = new StreamService({
+  onTaskActivity: (id) => taskWatches.schedule(id),
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   hasUiClient: () => uiEventBroker.hasConnectedClient(),
@@ -465,6 +467,10 @@ agentManager.onStreamWrite((agentId) => {
 });
 jobService.setBrainStore(brainStore);
 const taskService: TaskService = new TaskService({
+  watches: {
+    schedule: (id) => taskWatches.schedule(id),
+    cancel: (id, agentId) => taskWatches.cancel(id, agentId),
+  },
   pool,
   filesRoot: config.filesRoot,
   getAgent: (agentId) => agentManager.getAgent(agentId),
@@ -474,6 +480,42 @@ const taskService: TaskService = new TaskService({
   chat: streamService,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   log: app.log,
+});
+const taskWatches = new TaskWatchNotifier({
+  pool,
+  projectForAgent: async (id) => {
+    const agent = await agentManager.getAgent(id);
+    return agent
+      ? agentTaskProject(agent, (input) => taskService.projectForAgent(input))
+      : null;
+  },
+  deliver: async (agentId, text, options) => {
+    await (
+      await enqueueAgentPrompt(agentId, text, {
+        source: { source: "system", text: "Task watch activity" },
+        signal: options.signal,
+        beforeSubmit: options.beforeSubmit,
+      })
+    ).delivery;
+  },
+  warn: (err) => app.log.warn({ err }, "task watch delivery deferred"),
+});
+agentManager.onAgentUpdated((agent) => {
+  if (agent.status === "running" || agent.status === "archiving")
+    void taskWatches
+      .recover(agent.id)
+      .catch((err) => app.log.warn({ err }, "task watch recovery failed"));
+});
+// Retry unavailable hosts and activity that was still inside the settle window.
+const taskWatchRetry = setInterval(() => {
+  void taskWatches
+    .recover()
+    .catch((err) => app.log.warn({ err }, "task watch retry failed"));
+}, 30_000);
+taskWatchRetry.unref();
+app.addHook("onClose", async () => {
+  clearInterval(taskWatchRetry);
+  taskWatches.dispose();
 });
 const mcpHandlers = createMcpHandlers({
   pool,
@@ -993,6 +1035,7 @@ export async function initializeApp(options?: {
         "Marked chat deliveries abandoned by the previous process as not delivered"
       );
     }
+    await taskWatches.recover();
     await agentLifecycleRuntime.restorePendingContinuations(jobService);
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();

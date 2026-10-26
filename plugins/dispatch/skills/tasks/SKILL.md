@@ -14,7 +14,11 @@ does not imply that a task needs creating or moving.
 ```
 task_list  projectId?, column?, assignedToMe?, archived?
 task_get   id
+task_watch id
+task_unwatch id
 ```
+
+`task_watch({ id })` subscribes you to task activity and new posts without taking assignment. Notices are coalesced and include IDs to read with `task_get`, `get_message`, or `get_thread`. `task_unwatch({ id })` stops them; `task_get` includes your `watching` flag.
 
 `task_list` returns thin rows and the board's `columns` **keys**. Filter by
 `column`, `assignedToMe`, or `archived: true` when useful. Read the relevant

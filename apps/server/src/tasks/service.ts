@@ -21,6 +21,7 @@ import { ProjectStore, type ProjectRecord } from "../projects/store.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import type { TemplateRecord } from "../templates/store.js";
+import { agentTaskProject } from "./agent-scope.js";
 import { newTaskId, TaskStore, type TaskPatch } from "./store.js";
 import type {
   CreateTaskColumnInput,
@@ -99,6 +100,10 @@ export type TaskAgentInfo = {
   name: string;
   status: string;
   projectId?: string | null;
+  cwd?: string | null;
+  worktreePath?: string | null;
+  workspacePath?: string | null;
+  baseBranch?: string | null;
 };
 
 export type TaskLaunchRequest = {
@@ -114,6 +119,10 @@ export type TaskLaunchRequest = {
 
 export type TaskServiceDeps = {
   pool: Pool;
+  watches?: {
+    schedule(taskId: string): void;
+    cancel(taskId: string, agentId?: string): void;
+  };
   filesRoot?: string;
   getAgent: (agentId: string) => Promise<TaskAgentInfo | null>;
   getTemplate: (templateId: string) => Promise<TemplateRecord | null>;
@@ -265,8 +274,52 @@ export class TaskService {
   private readonly locks = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: TaskServiceDeps) {
-    this.store = new TaskStore(deps.pool);
+    this.store = new TaskStore(deps.pool, (id) => deps.watches?.schedule(id));
     this.projects = new ProjectStore(deps.pool);
+  }
+
+  async watch(id: string, agentId: string): Promise<void> {
+    const task = await this.requireTask(id);
+    const agent = await this.deps.getAgent(agentId);
+    if (!agent) throw new TaskError("Agent is archived or unavailable.", 403);
+    const archived = await this.deps.pool.query(
+      `SELECT 1 FROM agents WHERE id = $1 AND deleted_at IS NOT NULL`,
+      [agentId]
+    );
+    if (archived.rows.length) throw new TaskError("Agent is archived.", 403);
+    const projectId = await agentTaskProject(
+      {
+        ...agent,
+        cwd: agent.cwd ?? null,
+        worktreePath: agent.worktreePath ?? null,
+        baseBranch: agent.baseBranch ?? null,
+      },
+      (input) => this.projectForAgent(input)
+    );
+    if (projectId !== task.projectId)
+      throw new TaskError("Task belongs to another project.", 403);
+    if ((await this.store.removedAgentIds(id)).includes(agentId))
+      throw new TaskError("Agent was removed from this task.", 403);
+    await this.deps.pool.query(
+      `INSERT INTO task_watches (task_id, agent_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [id, agentId]
+    );
+  }
+
+  async unwatch(id: string, agentId: string): Promise<void> {
+    this.deps.watches?.cancel(id, agentId);
+    await this.deps.pool.query(
+      `DELETE FROM task_watches WHERE task_id = $1 AND agent_id = $2`,
+      [id, agentId]
+    );
+  }
+
+  async watching(id: string, agentId: string): Promise<boolean> {
+    const result = await this.deps.pool.query(
+      `SELECT 1 FROM task_watches WHERE task_id = $1 AND agent_id = $2`,
+      [id, agentId]
+    );
+    return result.rows.length > 0;
   }
 
   private publish(projectId: string, taskId?: string): void {
@@ -945,6 +998,7 @@ export class TaskService {
   async deleteTask(id: string): Promise<void> {
     await this.withTaskLock(id, async () => {
       const task = await this.requireTask(id);
+      this.deps.watches?.cancel(id);
       try {
         await this.deps.chat.closeStream(id);
       } catch (error) {
@@ -1146,6 +1200,7 @@ export class TaskService {
       }
       try {
         if (task.assignedAgentId === agentId) await this.unassign(task, actor);
+        await this.unwatch(id, agentId);
         await this.store.deleteTaskAgent(id, agentId);
         await this.store.insertEvent(id, "agent_removed", actor, {
           agentId,

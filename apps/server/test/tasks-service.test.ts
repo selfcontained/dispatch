@@ -869,6 +869,8 @@ function tools(
     new Set([
       "task_list",
       "task_get",
+      "task_watch",
+      "task_unwatch",
       "task_create",
       "task_update",
       "task_comment",
@@ -1038,6 +1040,43 @@ describe("task tools", () => {
 
     const unknown = await call("task_update", { id: task.id, column: "nope" });
     expect(unknown.content[0]!.text).toMatch(/Columns: backlog, ready/);
+  });
+
+  it("watches idempotently without changing assignment, column or history", async () => {
+    await insertAgent("agt_tool");
+    const call = tools("agt_tool", projectId);
+    const task = await service.createTask(
+      { projectId, title: "Watch me" },
+      USER
+    );
+    const before = await service.getTaskDetail(task.id);
+    expect(
+      (await call("task_watch", { id: task.id })).structuredContent
+    ).toEqual({ id: task.id, watching: true });
+    const createdAt = (
+      await pool.query(
+        `SELECT created_at::text AS created_at FROM task_watches`
+      )
+    ).rows[0].created_at;
+    await call("task_watch", { id: task.id });
+    expect(
+      (
+        await pool.query(
+          `SELECT created_at::text AS created_at FROM task_watches`
+        )
+      ).rows
+    ).toEqual([{ created_at: createdAt }]);
+    expect(await service.getTaskDetail(task.id)).toEqual(before);
+    expect(
+      (await call("task_get", { id: task.id })).structuredContent!.watching
+    ).toBe(true);
+    expect(await build().watching(task.id, "agt_tool")).toBe(true);
+    await call("task_unwatch", { id: task.id });
+    expect(await service.watching(task.id, "agt_tool")).toBe(false);
+    await pool.query(
+      `UPDATE agents SET deleted_at = now() WHERE id = 'agt_tool'`
+    );
+    expect((await call("task_watch", { id: task.id })).isError).toBe(true);
   });
 
   it("task_get caps events at 30", async () => {
@@ -1225,6 +1264,8 @@ describe("tool project scope", () => {
       ["task_list", { projectId: otherProjectId }],
       ["task_create", { title: "x", projectId: otherProjectId }],
       ["task_get", { id: theirs.id }],
+      ["task_watch", { id: theirs.id }],
+      ["task_unwatch", { id: theirs.id }],
       ["task_update", { id: theirs.id, title: "mine now" }],
     ];
     for (const [name, args] of cases) {

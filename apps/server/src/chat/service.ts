@@ -199,6 +199,7 @@ export type StreamAgent = Pick<
 
 export type StreamServiceDeps = {
   pool: Pool;
+  onTaskActivity?: (taskId: string) => void;
   publishUiEvent: (
     event: StreamChangedEvent | StreamEntryEvent | StreamReadEvent
   ) => void;
@@ -769,7 +770,10 @@ export class StreamService {
   private readonly log: NonNullable<StreamServiceDeps["log"]>;
 
   constructor(private readonly deps: StreamServiceDeps) {
-    this.store = new BlockStore(deps.pool);
+    this.store = new BlockStore(deps.pool, (streamId) => {
+      if (streamId.startsWith(TASK_ROOT_PREFIX))
+        deps.onTaskActivity?.(streamId);
+    });
     this.turns = new StreamStore(deps.pool);
     this.log = deps.log ?? NO_OP_LOG;
   }
