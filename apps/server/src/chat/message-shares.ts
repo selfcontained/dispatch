@@ -36,6 +36,9 @@ export function sharedMessageSnapshot(block: Block) {
     case "tasks":
       data = { items: block.data.items };
       break;
+    case "task":
+      data = { taskId: block.data.taskId };
+      break;
   }
   return {
     id: block.id,

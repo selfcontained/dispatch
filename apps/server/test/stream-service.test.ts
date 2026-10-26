@@ -8548,6 +8548,34 @@ describe("scoped verifiable message sharing", () => {
     );
   });
 
+  it("preserves a task-only card reference without copying task details or granting source access", async () => {
+    const taskId = "tsk_012345abcdef";
+    const { svc } = sharing({
+      deps: {
+        taskRoot: async () => ({
+          id: taskId,
+          title: "Unshared task title",
+          column: "Ready",
+          projectId: "prj_sharing",
+          assignedAgentId: null,
+          agentIds: [],
+        }),
+      },
+    });
+    const source = await svc.post(A, { task: { id: taskId } });
+    const receipt = await svc.shareMessage(A, source.id, B);
+    const shared = await snapshot(svc, B, receipt.id);
+    expect(shared.message).toMatchObject({
+      kind: "task",
+      text: "",
+      data: { taskId },
+    });
+    expect(JSON.stringify(shared)).not.toContain("Unshared task title");
+    await expect(svc.getMessage(B, source.id)).rejects.toThrow(
+      "Message not found"
+    );
+  });
+
   it("deduplicates concurrent shares and pending/accepted retries", async () => {
     let accept!: () => void;
     const gate = new Promise<void>((resolve) => {
