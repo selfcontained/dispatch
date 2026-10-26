@@ -1142,7 +1142,10 @@ export function ChatPane({
     async (
       text: string,
       attachments: ChatUserAttachmentInput[],
-      options?: { delivery?: "auto" | "queue" | "interrupt" }
+      options?: {
+        delivery?: "auto" | "queue" | "interrupt";
+        task?: { id: string };
+      }
     ): Promise<void> => {
       setSendError(null);
       if (text.trim() === "/mcp" && attachments.length === 0) {
@@ -1162,6 +1165,7 @@ export function ChatPane({
         attachments,
         ...(postTo ? { to: postTo } : {}),
         ...(options?.delivery ? { delivery: options.delivery } : {}),
+        ...(options?.task ? { task: options.task } : {}),
       });
     },
     [onDispatchCommand, postTo, scrollToBottom, sendAsync, updateFollowing]

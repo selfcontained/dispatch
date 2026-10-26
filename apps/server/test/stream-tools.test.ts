@@ -107,6 +107,18 @@ describe("registerStreamTools", () => {
     ).shape;
   }
 
+  it("accepts and forwards a single task reference", async () => {
+    expect(
+      shape("post").task.safeParse({ id: "tsk_012345abcdef" }).success
+    ).toBe(true);
+    expect(tool("post").config.description).toContain("task card");
+    await tool("post").handler({ task: { id: "tsk_012345abcdef" } });
+    expect(post).toHaveBeenCalledWith(
+      AGENT_ID,
+      expect.objectContaining({ task: { id: "tsk_012345abcdef" } })
+    );
+  });
+
   it("registers the tools only when allowed and a service is present", () => {
     expect(server.tools.map((t) => t.name)).toEqual([
       "get_review",
@@ -169,6 +181,7 @@ describe("registerStreamTools", () => {
       "link",
       "review",
       "tasks",
+      "task",
       "attachments",
       "notify",
       "delivery",
@@ -210,6 +223,7 @@ describe("registerStreamTools", () => {
       link: null,
       review: null,
       tasks: null,
+      task: null,
       attachments: [],
       notify: undefined,
     });

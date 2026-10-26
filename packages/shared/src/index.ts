@@ -117,6 +117,8 @@ export type {
   BlockReviewSeverity,
   BlockReviewState,
   BlockReviewStatus,
+  BlockRecipientData,
+  BlockTaskData,
   BlockTaskStatus,
   BlockTasksData,
   BlockTextData,

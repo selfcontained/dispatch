@@ -208,7 +208,7 @@ const POST_DESCRIPTION =
   "Post a block into a stream. By default it goes where your current turn is answering; outside a turn, a child agent's posts go to its launch-card thread. " +
   "With `to: <agentId>` it is addressed to that agent for prompt delivery; the user still sees it in the stream. A successful post records the block, not proof of pickup or an answer. " +
   "Your ordinary replies already appear in the stream as you write them, so use post for what plain text cannot do: " +
-  'a question with options (`question`), a form (`form`), a file (`attachments: [{ type: "file", path }]`), a link (`link`), a review of another agent\'s work (`review`, with `to`), a checklist (`tasks`), ' +
+  'a question with options (`question`), a form (`form`), a file (`attachments: [{ type: "file", path }]`), a link (`link`), a review of another agent\'s work (`review`, with `to`), a checklist (`tasks`), a live task card (`task: { id }`), ' +
   "a scoped threaded answer (`replyTo` with `text`), or a message to another agent (`to`). `replyTo` threads the block under another (use the id from a DISPATCH POST envelope or a post result). " +
   "Use threads for self-contained side questions or follow-ups tied to a specific post; keep broader primary-task progress, decisions, and overall results visible at home. Do not thread every answer or repeat a threaded answer in ordinary prose. Replies to a user already in a thread stream there automatically. " +
   'Use `placement: "home"` for a brief primary-task update or outcome when working in a side thread; children normally report in their launch threads. `placement: "root"` deliberately surfaces a broader update at the top of your own shared stream, including for children. Neither changes where subsequent ordinary replies appear or notifies another agent without `to`. A task contained entirely in a thread can finish there. Do not duplicate the full threaded answer. Explicit placement is unavailable for questions, forms, and reviews and cannot combine with `replyTo`. ' +
@@ -357,6 +357,9 @@ export function registerStreamTools(
           link: linkSchema.optional(),
           review: reviewSchema.optional(),
           tasks: tasksSchema.optional(),
+          task: strictObject({ id: z.string() })
+            .describe("Share a live task card by task ID.")
+            .optional(),
           attachments: attachmentsSchema.optional(),
           notify: z.boolean().optional(),
           delivery: z
@@ -379,6 +382,7 @@ export function registerStreamTools(
             link: args.link ?? null,
             review: args.review ?? null,
             tasks: args.tasks ?? null,
+            task: args.task ?? null,
             attachments: args.attachments ?? [],
             notify: args.notify,
             delivery: args.delivery,

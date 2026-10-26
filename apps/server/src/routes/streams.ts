@@ -75,6 +75,7 @@ const postBodySchema = z.object({
   to: z.string().min(1).optional(),
   /** A review left by hand (the Changes tab): the block is a `review`. */
   review: reviewBodySchema.optional(),
+  task: z.object({ id: z.string() }).optional(),
   text: z
     .string()
     .max(
@@ -283,6 +284,7 @@ export async function registerStreamRoutes(
         replyTo: parsed.data.replyTo ?? null,
         attachments: parsed.data.attachments ?? [],
         ...(parsed.data.review ? { review: parsed.data.review } : {}),
+        ...(parsed.data.task ? { task: parsed.data.task } : {}),
         ...(parsed.data.delivery ? { delivery: parsed.data.delivery } : {}),
         allowInert: true,
       });

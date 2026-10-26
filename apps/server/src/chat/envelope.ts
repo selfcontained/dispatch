@@ -269,6 +269,7 @@ const KIND_NOUN: Record<BlockKind, string> = {
   review: "review",
   finding: "finding",
   tasks: "task list",
+  task: "task card",
   launch: "launch briefing",
 };
 
