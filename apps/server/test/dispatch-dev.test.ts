@@ -143,6 +143,7 @@ async function restartAfterFirstTurn(
       journal,
       identity,
       hostPid,
+      deadline: Date.now() + 60_000,
     }),
   ];
   const options = {
