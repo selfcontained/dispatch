@@ -9,13 +9,11 @@ import { largeDiffFixture } from "./fixtures/large-diff";
 test.describe("Changes viewport rendering", () => {
   test.afterEach(async ({ request }) => cleanupE2EAgents(request));
 
-  test("bounds aggregate DOM after traversal and preserves distant navigation and tab returns", async ({
+  test("bounds aggregate DOM after visiting every file", async ({
     page,
     request,
   }) => {
-    // Visiting every file is intentionally exhaustive; shared CI runners can
-    // take longer without violating the per-viewport mounted DOM assertions.
-    test.setTimeout(process.env.CI ? 300_000 : 120_000);
+    test.setTimeout(120_000);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-large-diff-${Date.now()}`,
     });
@@ -29,20 +27,64 @@ test.describe("Changes viewport rendering", () => {
     const tables = pane.locator("table.diff");
     await expect(tables.first()).toBeVisible();
     await expect.poll(() => tables.count()).toBeLessThanOrEqual(3);
-    let maximum = 0;
-    for (let index = 0; index < 145; index++) {
-      const path = `src/large/file-${String(index).padStart(3, "0")}.ts`;
-      const section = page.getByTestId(`changes-file-section:${path}`);
-      await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
-      await expect(section.locator("table.diff")).toBeVisible();
-      await expect.poll(() => tables.count()).toBeLessThanOrEqual(3);
-      maximum = Math.max(maximum, await tables.count());
-    }
+    // Observe rendering where it happens. Hundreds of Playwright round trips
+    // compete with diff rendering on busy runners; one frame-driven traversal
+    // still waits for each file to mount and for previous tables to unmount.
+    const maximum = await pane.evaluate(async (el) => {
+      let maximum = 0;
+      for (let index = 0; index < 145; index++) {
+        const path = `src/large/file-${String(index).padStart(3, "0")}.ts`;
+        const section = el.querySelector<HTMLElement>(
+          `[data-testid="changes-file-section:${path}"]`
+        );
+        if (!section) throw new Error(`Missing section: ${path}`);
+        section.scrollIntoView({ block: "start" });
+        const deadline = performance.now() + 5000;
+        while (true) {
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+          );
+          const table = section.querySelector("table.diff");
+          const count = el.querySelectorAll("table.diff").length;
+          if (table && table.getBoundingClientRect().height > 0 && count <= 3) {
+            maximum = Math.max(maximum, count);
+            break;
+          }
+          if (performance.now() > deadline) {
+            throw new Error(
+              `${path}: table mounted=${Boolean(table)}, mounted tables=${count}`
+            );
+          }
+        }
+      }
+      return maximum;
+    });
     console.log(
       `87k fixture: maximum ${maximum} mounted tables after visiting every file`
     );
     expect(await pane.locator("table.diff tr").count()).toBeLessThan(2000);
 
+    await page.screenshot({
+      path: test.info().outputPath("large-diff-traversal.png"),
+    });
+  });
+
+  test("preserves distant navigation, tab returns and split hunks", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-large-diff-navigation-${Date.now()}`,
+    });
+    await page.route("**/api/v1/agents/*/diff?*", (route) =>
+      route.fulfill({ json: largeDiffFixture() })
+    );
+    await page.goto(`/agents/${agent.id}/changes`, {
+      waitUntil: "domcontentloaded",
+    });
+    const pane = page.getByTestId("changes-diff-pane");
+    const tables = pane.locator("table.diff");
+    await expect(tables.first()).toBeVisible();
     // Use the actual file tree to jump to a distant, currently unmounted file.
     const path = "src/large/file-100.ts";
     await page.getByTitle(path, { exact: true }).click();
