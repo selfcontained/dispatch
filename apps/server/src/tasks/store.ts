@@ -524,6 +524,32 @@ export class TaskStore {
     return min === null || min === undefined ? 0 : min - 1;
   }
 
+  /** Called under the destination column lock. Rebuild integer ranks so ties
+   * and exhausted fractional gaps cannot change a relative insertion. */
+  async reorderTask(
+    id: string,
+    columnId: string,
+    beforeId: string | null,
+    db: Queryable
+  ): Promise<number | null> {
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM tasks WHERE column_id = $1 AND archived_at IS NULL AND id <> $2
+       ORDER BY position, created_at, id`,
+      [columnId, id]
+    );
+    const ids = rows.map((row) => row.id);
+    const index = beforeId === null ? ids.length : ids.indexOf(beforeId);
+    if (index < 0) return null;
+    ids.splice(index, 0, id);
+    await db.query(
+      `UPDATE tasks SET position = ordered.rank - 1
+       FROM unnest($1::text[]) WITH ORDINALITY AS ordered(id, rank)
+       WHERE tasks.id = ordered.id AND tasks.id <> $2 AND tasks.column_id = $3 AND tasks.archived_at IS NULL`,
+      [ids, id, columnId]
+    );
+    return index;
+  }
+
   /**
    * Applies `patch`. With `fromColumnId` it is a conditional transition: the
    * row only changes while the task is still in that column, and the result

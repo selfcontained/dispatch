@@ -152,6 +152,8 @@ export type CreateTaskInput = {
 };
 
 export type UpdateTaskInput = {
+  /** Relative insertion anchor; null appends. Takes precedence over position. */
+  beforeId?: string | null;
   title?: string;
   body?: string;
   /** A change here is a move and may fire the destination column's trigger. */

@@ -33,41 +33,51 @@ import { ColumnTriggerStrip } from "./task-trigger-dialog";
 import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
 
-/**
- * What is under the pointer wins, read from the DOM. dnd-kit's rect-based
- * detection goes wrong on a board that scrolls while a card is lifted: the
- * lifted card's rect is shifted by the scroll since the lift and the
- * columns are measured on pointer moves, so after auto-scroll a finger
- * resting on one column "hovers" another. A hit test at the pointer is
- * exact whatever has scrolled. A card beats its column so ordering within
- * the column still works; nothing under the pointer (the gap between
- * columns, the board's padding) falls back to dnd-kit's own answer.
+/** Hit-test the scrolled column in the DOM, then its *layout* card slots.
+ * Sortable transforms are only a preview: feeding their painted positions
+ * back into collision detection makes a stationary pointer alternate targets.
+ * Removing the current transform retains live scroll/auto-scroll coordinates.
  */
 const underPointer: CollisionDetection = (args) => {
   const point = args.pointerCoordinates;
   if (point && typeof document !== "undefined") {
-    let columnId: string | null = null;
-    for (const element of document.elementsFromPoint(point.x, point.y)) {
-      if (element.closest("[data-testid='task-card-overlay']")) continue;
-      const card = element.closest<HTMLElement>("[data-task-id]");
-      const id = card?.dataset.taskId ?? null;
-      if (id && id !== args.active.id) {
-        const container = args.droppableContainers.find((c) => c.id === id);
-        if (container)
-          return [{ id, data: { droppableContainer: container, value: 0 } }];
+    const column = document
+      .elementsFromPoint(point.x, point.y)
+      .filter((el) => !el.closest("[data-testid='task-card-overlay']"))
+      .map((el) => el.closest<HTMLElement>("[data-column-id]"))
+      .find(Boolean);
+    if (column) {
+      const cards = Array.from(
+        column.querySelectorAll<HTMLElement>("[data-task-id]")
+      );
+      let id = `${COLUMN_PREFIX}${column.dataset.columnId}`;
+      let distance = Infinity;
+      for (const card of cards) {
+        const rect = card.getBoundingClientRect();
+        const transform = getComputedStyle(card).transform;
+        const matrix =
+          transform === "none" ? null : new DOMMatrixReadOnly(transform);
+        const top = rect.top - (matrix?.m42 ?? 0);
+        const left = rect.left - (matrix?.m41 ?? 0);
+        // Across columns, only a card's layout bounds insert before it.
+        // Dropping on column whitespace keeps the existing append behavior.
+        if (
+          args.active.data.current?.columnId !== column.dataset.columnId &&
+          (point.y < top ||
+            point.y > top + rect.height ||
+            point.x < left ||
+            point.x > left + rect.width)
+        )
+          continue;
+        const next = Math.abs(point.y - (top + rect.height / 2));
+        if (next < distance) {
+          distance = next;
+          id = card.dataset.taskId!;
+        }
       }
-      const column = element.closest<HTMLElement>("[data-column-id]");
-      if (column?.dataset.columnId) {
-        columnId = `${COLUMN_PREFIX}${column.dataset.columnId}`;
-        break;
-      }
-    }
-    if (columnId) {
-      const container = args.droppableContainers.find((c) => c.id === columnId);
+      const container = args.droppableContainers.find((c) => c.id === id);
       if (container)
-        return [
-          { id: columnId, data: { droppableContainer: container, value: 0 } },
-        ];
+        return [{ id, data: { droppableContainer: container, value: 0 } }];
     }
   }
   const hits = pointerWithin(args);
@@ -235,12 +245,19 @@ export function TaskBoard({
     const active = tasks.find((task) => task.id === event.active.id);
     const over = tasks.find((task) => task.id === event.over?.id);
     const targetId = columnOf(event.over);
-    if (
-      active &&
-      targetId &&
-      (active.columnId !== targetId || over?.id !== active.id)
-    )
-      moveTask(active, targetId, over?.id);
+    if (!active || !targetId || over?.id === active.id) return;
+    const ordered = tasksInColumn(tasks, targetId);
+    let beforeId = over?.id;
+    if (active.columnId === targetId && over) {
+      // Sortable's downward preview inserts AFTER the hovered slot.
+      const from = ordered.findIndex((task) => task.id === active.id);
+      const to = ordered.findIndex((task) => task.id === over.id);
+      if (from < to) beforeId = ordered[to + 1]?.id;
+    }
+    const currentNext =
+      ordered[ordered.findIndex((task) => task.id === active.id) + 1]?.id;
+    if (active.columnId === targetId && currentNext === beforeId) return;
+    moveTask(active, targetId, beforeId);
   };
   return (
     <DndContext

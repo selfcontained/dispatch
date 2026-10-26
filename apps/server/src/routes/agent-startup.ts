@@ -1,7 +1,10 @@
 import path from "node:path";
 
 import { detectFileType } from "../files/file-type.js";
-import { sanitizeUploadedFileName } from "../shared/files.js";
+import {
+  sanitizeUploadedFileName,
+  timestampedFileName,
+} from "../shared/files.js";
 
 export type CreateAgentBody = {
   projectId?: unknown;
@@ -46,6 +49,8 @@ export function startupFileUpload(
   originalName: string,
   buffer: Buffer
 ): StartupFileUpload {
+  // Reserve the longest startup suffix (up to ten files) before any writes.
+  timestampedFileName(fileName, new Date(), `-${MAX_STARTUP_FILE_COUNT}`);
   const type = detectFileType(buffer, fileName);
   if (!type.ok) throw new Error(type.error);
   return {

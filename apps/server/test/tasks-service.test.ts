@@ -220,6 +220,214 @@ async function withTrigger(
 
 const USER = { kind: "user" } as const;
 
+describe("relative task ordering", () => {
+  it("serializes numeric rank writes with a relative reorder paused after reading siblings", async () => {
+    const tasks = [];
+    for (const [position, title] of ["a", "b", "c", "d"].entries())
+      tasks.push(
+        await service.createTask({ projectId, title, position }, USER)
+      );
+    let reached!: () => void;
+    let release!: () => void;
+    const selected = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const originalReorder = TaskStore.prototype.reorderTask;
+    const originalLock = TaskStore.prototype.lockColumn;
+    let watchingNumeric = false;
+    let numericLockRequested = false;
+    const lockSpy = vi
+      .spyOn(TaskStore.prototype, "lockColumn")
+      .mockImplementation(function (this: TaskStore, ...args) {
+        if (watchingNumeric) numericLockRequested = true;
+        return originalLock.apply(this, args);
+      });
+    const reorderSpy = vi
+      .spyOn(TaskStore.prototype, "reorderTask")
+      .mockImplementation(function (
+        this: TaskStore,
+        id,
+        columnId,
+        beforeId,
+        db
+      ) {
+        const gatedDb = new Proxy(db, {
+          get(target, key) {
+            if (key === "query")
+              return async (...args: unknown[]) => {
+                const result = await Reflect.apply(target.query, target, args);
+                if (
+                  typeof args[0] === "string" &&
+                  args[0].includes("SELECT id FROM tasks WHERE column_id")
+                ) {
+                  reached();
+                  await gate;
+                }
+                return result;
+              };
+            return Reflect.get(target, key);
+          },
+        });
+        return originalReorder.call(this, id, columnId, beforeId, gatedDb);
+      });
+    let numericDone = false;
+    const relative = build().updateTask(
+      tasks[3]!.id,
+      { beforeId: tasks[2]!.id },
+      USER
+    );
+    let numeric: ReturnType<TaskService["updateTask"]> | undefined;
+    try {
+      await selected;
+      watchingNumeric = true;
+      numeric = build()
+        .updateTask(tasks[0]!.id, { position: 10 }, USER)
+        .then((task) => {
+          numericDone = true;
+          return task;
+        });
+      await vi.waitFor(() =>
+        expect(numericDone || numericLockRequested).toBe(true)
+      );
+      expect(numericDone).toBe(false);
+      release();
+      await Promise.all([relative, numeric]);
+      expect(
+        (await service.getBoard(projectId)).tasks.map((task) => task.id)
+      ).toEqual([tasks[1]!.id, tasks[3]!.id, tasks[2]!.id, tasks[0]!.id]);
+      expect((await service.requireTask(tasks[0]!.id)).position).toBe(10);
+    } finally {
+      release();
+      await Promise.allSettled([relative, ...(numeric ? [numeric] : [])]);
+      reorderSpy.mockRestore();
+      lockSpy.mockRestore();
+    }
+  });
+
+  it("rejects self/foreign anchors atomically and gives relative order precedence over numeric positions", async () => {
+    const a = await service.createTask(
+      { projectId, title: "a", position: 0 },
+      USER
+    );
+    const b = await service.createTask(
+      { projectId, title: "b", position: 1 },
+      USER
+    );
+    const foreign = await service.createTask(
+      { projectId, title: "foreign", columnId: await columnId("ready") },
+      USER
+    );
+    for (const beforeId of [a.id, foreign.id, "missing"]) {
+      await expect(
+        service.updateTask(
+          a.id,
+          { beforeId, title: "changed", position: -99 },
+          USER
+        )
+      ).rejects.toMatchObject({ status: 400 });
+      expect(await service.requireTask(a.id)).toMatchObject({
+        title: "a",
+        position: 0,
+      });
+    }
+    await service.updateTask(
+      a.id,
+      { beforeId: null, title: "changed", position: -99 },
+      USER
+    );
+    expect(
+      (await service.getBoard(projectId)).tasks
+        .filter((task) => task.columnId === a.columnId)
+        .map((task) => task.id)
+    ).toEqual([b.id, a.id]);
+    expect(await service.requireTask(a.id)).toMatchObject({
+      title: "changed",
+      position: 1,
+    });
+  });
+
+  it("serializes opposing relative moves and sibling reorders without deadlocking", async () => {
+    const backlog = await columnId("backlog");
+    const ready = await columnId("ready");
+    const a = await service.createTask(
+      { projectId, title: "a", columnId: backlog },
+      USER
+    );
+    const b = await service.createTask(
+      { projectId, title: "b", columnId: ready },
+      USER
+    );
+    const sibling = await service.createTask(
+      { projectId, title: "sibling", columnId: backlog },
+      USER
+    );
+    await Promise.all([
+      build().updateTask(a.id, { columnId: ready, beforeId: null }, USER),
+      build().updateTask(b.id, { columnId: backlog, beforeId: null }, USER),
+      build().updateTask(
+        sibling.id,
+        { columnId: backlog, beforeId: null },
+        USER
+      ),
+    ]);
+    expect(await service.requireTask(a.id)).toMatchObject({ columnId: ready });
+    expect(await service.requireTask(b.id)).toMatchObject({
+      columnId: backlog,
+    });
+    const tasks = (await service.getBoard(projectId)).tasks.filter(
+      (task) => task.columnId === backlog
+    );
+    expect(new Set(tasks.map((task) => task.position)).size).toBe(tasks.length);
+  });
+
+  it("persists insertions across tied and exhausted positions without launching on same-column reorder", async () => {
+    const ready = await withTrigger("ready");
+    const tasks = [];
+    for (const title of ["a", "b", "c", "d"])
+      tasks.push(
+        await service.createTask(
+          { projectId, title, columnId: ready, position: 1 },
+          USER
+        )
+      );
+    const original = (await service.getBoard(projectId)).tasks.map(
+      (task) => task.id
+    );
+    const moving = original[3]!;
+    await pool.query("UPDATE tasks SET position = $2 WHERE id = $1", [
+      moving,
+      1 + Number.EPSILON,
+    ]);
+    for (let n = 0; n < 60; n++) {
+      await service.updateTask(
+        moving,
+        { columnId: ready, beforeId: original[1]! },
+        USER
+      );
+      expect(
+        (await service.getBoard(projectId)).tasks.map((task) => task.id)
+      ).toEqual([original[0], moving, original[1], original[2]]);
+      await service.updateTask(
+        moving,
+        { columnId: ready, beforeId: null },
+        USER
+      );
+      expect(
+        (await service.getBoard(projectId)).tasks.map((task) => task.id)
+      ).toEqual(original);
+    }
+    expect(launches).toHaveLength(0);
+    const before = (await service.getBoard(projectId)).tasks;
+    await expect(
+      service.updateTask(moving, { beforeId: "missing" }, USER)
+    ).rejects.toMatchObject({ status: 400 });
+    expect((await service.getBoard(projectId)).tasks).toEqual(before);
+  });
+});
+
 describe("column capacity", () => {
   it("defaults to unlimited, validates limits, and allows lowering/removing them", async () => {
     const id = await columnId("ready");
@@ -1471,6 +1679,147 @@ function tools(
 }
 
 describe("task tools", () => {
+  it("lists ordered column configuration without changing existing task rows", async () => {
+    const ready = await columnId("ready");
+    const progress = await withTrigger("in_progress");
+    const review = await withTrigger("in_review", {
+      agentType: "claude",
+      model: "sonnet",
+      assign: false,
+      fireOnCreate: true,
+    });
+    for (const [id, capacity] of [
+      [ready, 2],
+      [progress, 2],
+      [review, 4],
+    ] as const) {
+      await service.updateColumn(id, { capacity });
+    }
+    const task = await service.createTask(
+      { projectId, title: "Queued", columnId: ready },
+      USER
+    );
+    const expectedColumns = (await service.getBoard(projectId)).columns;
+    const result = await tools("agt_reader", projectId)("task_list", {});
+    expect(result.isError).toBeUndefined();
+    const data = result.structuredContent!;
+    expect(data.columns).toEqual(expectedColumns.map((c) => c.key));
+    expect(data.columnCapacity).toEqual(
+      expectedColumns.map((c) => ({
+        id: c.id,
+        key: c.key,
+        name: c.name,
+        capacity: c.capacity,
+        activeTaskCount: c.activeTaskCount,
+        isDone: c.isDone,
+        trigger: c.trigger,
+      }))
+    );
+    expect(data.columnCapacity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready",
+          capacity: 2,
+          trigger: null,
+          isDone: false,
+        }),
+        expect.objectContaining({
+          key: "in_progress",
+          capacity: 2,
+          trigger: {
+            templateId: TEMPLATE_ID,
+            templateName: "Builder",
+            agentType: null,
+            model: null,
+            assign: true,
+            fireOnCreate: false,
+          },
+        }),
+        expect.objectContaining({
+          key: "in_review",
+          capacity: 4,
+          trigger: {
+            templateId: TEMPLATE_ID,
+            templateName: "Builder",
+            agentType: "claude",
+            model: "sonnet",
+            assign: false,
+            fireOnCreate: true,
+          },
+        }),
+        expect.objectContaining({
+          key: "done",
+          capacity: null,
+          trigger: null,
+          isDone: true,
+        }),
+      ])
+    );
+    expect(data.tasks).toEqual([
+      {
+        id: task.id,
+        title: task.title,
+        column: "ready",
+        assignedAgentId: null,
+        updatedAt: task.updatedAt,
+      },
+    ]);
+    expect(JSON.parse(result.content[0]!.text)).toEqual(data);
+    expect(launches).toHaveLength(0);
+  });
+
+  it("keeps column metadata and global active counts across filtered MCP reads", async () => {
+    await insertAgent("agt_reader", "idle");
+    const ready = await columnId("ready");
+    const progress = await withTrigger("in_progress");
+    await service.updateColumn(ready, { capacity: 2 });
+    await service.updateColumn(progress, { capacity: 2 });
+    const active = await service.createTask(
+      { projectId, title: "Active", columnId: ready },
+      USER
+    );
+    const archived = await service.createTask(
+      { projectId, title: "Archived", columnId: ready },
+      USER
+    );
+    await service.archiveTask(archived.id, USER);
+    const call = tools("agt_reader", projectId);
+    const all = (await call("task_list", {})).structuredContent!;
+    for (const filter of [
+      { column: "in_progress" },
+      { assignedToMe: true },
+      { archived: true },
+      { archived: true, column: "in_progress", assignedToMe: true },
+    ]) {
+      const filtered = (await call("task_list", filter)).structuredContent!;
+      expect(filtered.columns).toEqual(all.columns);
+      expect(filtered.columnCapacity).toEqual(all.columnCapacity);
+      expect(filtered.tasks).toEqual(
+        filter.archived && !filter.column
+          ? [expect.objectContaining({ id: archived.id })]
+          : []
+      );
+    }
+    expect(all.tasks).toEqual([expect.objectContaining({ id: active.id })]);
+    expect(all.columnCapacity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready",
+          capacity: 2,
+          activeTaskCount: 1,
+          trigger: null,
+        }),
+        expect.objectContaining({
+          key: "in_progress",
+          capacity: 2,
+          activeTaskCount: 0,
+          trigger: expect.objectContaining({ templateId: TEMPLATE_ID }),
+        }),
+      ])
+    );
+    expect(launches).toHaveLength(0);
+  });
+
   it("defaults to the caller's project and errors without one", async () => {
     await insertAgent("agt_tool");
     const call = tools("agt_tool", projectId);

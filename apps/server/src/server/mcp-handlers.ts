@@ -34,7 +34,11 @@ import {
   type AgentRelation,
 } from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
-import { resolveFilesDir } from "../shared/files.js";
+import {
+  assertValidStoredFileName,
+  resolveFilesDir,
+  timestampedFileName,
+} from "../shared/files.js";
 import type {
   ListedFileItem,
   SetWorkspaceResult,
@@ -609,6 +613,7 @@ async function handleShareFile(
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
+  if (opts.update) assertValidStoredFileName(opts.update);
   const buffer = await readFile(opts.filePath);
   // Typed against the name it will be stored and shown under.
   const type = detectFileType(
@@ -644,6 +649,7 @@ async function handleShareFile(
     }
 
     const fileName = existing.rows[0].file_name;
+    assertValidStoredFileName(fileName);
     const filePath = path.join(filesDir, fileName);
     const resolvedFilesDir = path.resolve(filesDir);
     if (!path.resolve(filePath).startsWith(resolvedFilesDir + path.sep)) {
@@ -691,9 +697,7 @@ async function handleShareFile(
   const safeName =
     baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") ||
     `shared-${timestamp}${fallbackExt}`;
-  const ext = path.extname(safeName);
-  const base = path.basename(safeName, ext);
-  const fileName = `${base}-${timestamp}${ext}`;
+  const fileName = timestampedFileName(safeName);
 
   await writeFile(path.join(filesDir, fileName), buffer);
   await deps.pool.query(

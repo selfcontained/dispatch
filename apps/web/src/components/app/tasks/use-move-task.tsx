@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
-import { nextPosition } from "./task-utils";
+import { tasksInColumn } from "./task-utils";
 
 /**
  * Move a task on its board. A move the server refuses because the assignee
@@ -22,17 +22,27 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
   const [relaunch, setRelaunch] = useState<{
     task: Task;
     columnId: string;
-    position: number;
+    beforeId: string | null;
   } | null>(null);
   const moveTask = async (task: Task, columnId: string, beforeId?: string) => {
     if (!board || task.id === beforeId) return;
     setMoveError(null);
-    const position = nextPosition(board.tasks, columnId, beforeId);
+    const ordered = tasksInColumn(board.tasks, columnId);
+    if (
+      task.columnId === columnId &&
+      ordered[ordered.findIndex((item) => item.id === task.id) + 1]?.id ===
+        beforeId
+    )
+      return;
     try {
-      await actions.update.mutateAsync({ id: task.id, columnId, position });
+      await actions.update.mutateAsync({
+        id: task.id,
+        columnId,
+        beforeId: beforeId ?? null,
+      });
     } catch (error) {
       if (error instanceof ApiError && error.code === "agent_working")
-        setRelaunch({ task, columnId, position });
+        setRelaunch({ task, columnId, beforeId: beforeId ?? null });
       else
         setMoveError(
           error instanceof Error ? error.message : "Could not move task."
@@ -78,7 +88,7 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
                     .mutateAsync({
                       id: relaunch.task.id,
                       columnId: relaunch.columnId,
-                      position: relaunch.position,
+                      beforeId: relaunch.beforeId,
                       confirmRelaunch: true,
                     })
                     .catch((error: Error) => setMoveError(error.message))

@@ -3,6 +3,8 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
+import { timestampedFileName } from "../shared/files.js";
+
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 
 export type SeedFileInput = {
@@ -37,14 +39,7 @@ export function timestampFileName(
   createdAt: Date,
   index: number
 ): string {
-  const timestamp = createdAt
-    .toISOString()
-    .replace(/[:.]/g, "-")
-    .replace("T", "-")
-    .replace("Z", "");
-  const ext = path.extname(fileName);
-  const base = path.basename(fileName, ext);
-  return `${base}-${timestamp}-${index + 1}${ext}`;
+  return timestampedFileName(fileName, createdAt, `-${index + 1}`);
 }
 
 /**

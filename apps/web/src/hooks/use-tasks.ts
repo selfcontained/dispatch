@@ -12,6 +12,7 @@ import type {
   LaunchTaskAgentInput,
 } from "../../../server/src/tasks/types";
 import { api } from "@/lib/api";
+import { tasksInColumn } from "@/components/app/tasks/task-utils";
 
 export type { Task, TaskBoard, TaskDetail, TaskColumn, TaskColumnTrigger };
 export const taskKeys = {
@@ -88,24 +89,40 @@ export function useTaskActions(projectId: string | null) {
       // stale on top of this.
       void client.cancelQueries({ queryKey: key });
       const previous = client.getQueryData<TaskBoard>(key);
-      client.setQueryData<TaskBoard>(key, (board) =>
-        board
-          ? {
-              ...board,
-              tasks: board.tasks.map((task) =>
-                task.id === id
-                  ? {
-                      ...task,
-                      ...input,
-                      ...(input.columnId && input.columnId !== task.columnId
-                        ? { latestFailure: null, launching: null }
-                        : {}),
-                    }
-                  : task
-              ),
-            }
-          : board
-      );
+      client.setQueryData<TaskBoard>(key, (board) => {
+        if (!board) return board;
+        const moving = board.tasks.find((task) => task.id === id);
+        const columnId = input.columnId ?? moving?.columnId;
+        const ranks = new Map<string, number>();
+        if (input.beforeId !== undefined && moving && columnId) {
+          const ordered = tasksInColumn(board.tasks, columnId).filter(
+            (task) => task.id !== id
+          );
+          const index =
+            input.beforeId === null
+              ? ordered.length
+              : ordered.findIndex((task) => task.id === input.beforeId);
+          if (index >= 0) {
+            ordered.splice(index, 0, moving);
+            ordered.forEach((task, rank) => ranks.set(task.id, rank));
+          }
+        }
+        return {
+          ...board,
+          tasks: board.tasks.map((task) => ({
+            ...task,
+            ...(task.id === id
+              ? {
+                  ...input,
+                  ...(input.columnId && input.columnId !== task.columnId
+                    ? { latestFailure: null, launching: null }
+                    : {}),
+                }
+              : {}),
+            ...(ranks.has(task.id) ? { position: ranks.get(task.id)! } : {}),
+          })),
+        };
+      });
       return { previous };
     },
     onError: (_error, _variables, context) => {
