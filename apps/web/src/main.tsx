@@ -15,6 +15,7 @@ import "./index.css";
 if (window.matchMedia("(pointer: coarse) and (min-width: 768px)").matches) {
   let touchStartTarget: Element | null = null;
   let touchStart = { x: 0, y: 0 };
+  let axis: "x" | "y" | null = null;
   const scrolls = (value: string) => value === "auto" || value === "scroll";
   document.addEventListener(
     "touchstart",
@@ -24,6 +25,7 @@ if (window.matchMedia("(pointer: coarse) and (min-width: 768px)").matches) {
       touchStart = touch
         ? { x: touch.clientX, y: touch.clientY }
         : { x: 0, y: 0 };
+      axis = null;
     },
     { passive: true }
   );
@@ -32,18 +34,29 @@ if (window.matchMedia("(pointer: coarse) and (min-width: 768px)").matches) {
     (e) => {
       // The gesture's axis decides which scrollers count: a sideways swipe
       // over a Tasks column must reach the board around it, a vertical one
-      // the list it is in.
+      // the list it is in. The first few pixels are a finger settling, not a
+      // direction, so the axis waits for real travel and then holds for the
+      // gesture; until then a scroller in either axis counts. Reading the
+      // axis off that jitter cancelled sideways swipes that began slightly
+      // vertical over a column too short to scroll.
       const touch = e.touches[0];
-      const horizontal = touch
-        ? Math.abs(touch.clientX - touchStart.x) >
-          Math.abs(touch.clientY - touchStart.y)
-        : false;
+      if (!axis && touch) {
+        const dx = Math.abs(touch.clientX - touchStart.x);
+        const dy = Math.abs(touch.clientY - touchStart.y);
+        if (Math.max(dx, dy) >= 10) axis = dx > dy ? "x" : "y";
+      }
       let el: Element | null = touchStartTarget;
       while (el && el !== document.body) {
         const style = window.getComputedStyle(el);
-        const scrollable = horizontal
-          ? scrolls(style.overflowX) && el.scrollWidth > el.clientWidth
-          : scrolls(style.overflowY) && el.scrollHeight > el.clientHeight;
+        const scrollsX =
+          axis !== "y" &&
+          scrolls(style.overflowX) &&
+          el.scrollWidth > el.clientWidth;
+        const scrollsY =
+          axis !== "x" &&
+          scrolls(style.overflowY) &&
+          el.scrollHeight > el.clientHeight;
+        const scrollable = scrollsX || scrollsY;
         if (scrollable) {
           return; // touch is in a real scroll container — let it scroll
         }

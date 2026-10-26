@@ -756,3 +756,136 @@ test("Tasks header controls keep their geometry across view toggles", async ({
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.describe("iPad touch lock on the Tasks board", () => {
+  test.use({
+    viewport: { width: 820, height: 1180 },
+    hasTouch: true,
+    isMobile: true,
+  });
+
+  test("a sideways swipe that lands slightly vertical still scrolls the board", async ({
+    page,
+    request,
+  }) => {
+    const root = mkdtempSync(join(tmpdir(), "dispatch-tasks-ipad-"));
+    execFileSync("git", ["init", root]);
+    const projectResponse = await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Tasks iPad Swipe E2E", repoRoot: root, color: "#7c6ee6" },
+    });
+    expect(projectResponse.ok(), await projectResponse.text()).toBeTruthy();
+    const project = await projectResponse.json();
+    try {
+      const taskResponse = await request.post("/api/v1/tasks", {
+        headers,
+        data: { projectId: project.id, title: "Short column" },
+      });
+      expect(taskResponse.ok(), await taskResponse.text()).toBeTruthy();
+      await page.goto(`/tasks?project=${project.id}&layout=board`, {
+        waitUntil: "domcontentloaded",
+      });
+      const board = page.getByTestId("tasks-board");
+      await expect(board).toBeVisible();
+      await expect
+        .poll(() => board.evaluate((el) => el.scrollWidth > el.clientWidth))
+        .toBe(true);
+      // Chromium never hands JS the first few pixels of a real touch, but
+      // iOS does: replay that landing jitter straight at the lock, which
+      // cancels the whole gesture once it calls preventDefault.
+      const prevented = (testId: string, moves: [number, number][]) =>
+        page.getByTestId(testId).evaluate((el, moves) => {
+          const box = el.getBoundingClientRect();
+          const x = box.left + box.width / 2;
+          const y = box.top + box.height / 2;
+          const touch = (dx: number, dy: number) =>
+            new Touch({
+              identifier: 1,
+              target: el,
+              clientX: x + dx,
+              clientY: y + dy,
+            });
+          const fire = (type: string, dx: number, dy: number) => {
+            const t = touch(dx, dy);
+            const event = new TouchEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              touches: [t],
+              targetTouches: [t],
+              changedTouches: [t],
+            });
+            el.dispatchEvent(event);
+            return event.defaultPrevented;
+          };
+          fire("touchstart", 0, 0);
+          const result = moves.map(([dx, dy]) => fire("touchmove", dx, dy));
+          el.dispatchEvent(new TouchEvent("touchend", { bubbles: true }));
+          return result;
+        }, moves);
+      const ready = page.getByTestId("task-column-ready");
+      await ready.locator("header").evaluate((el) => {
+        el.dataset.testid = "ipad-ready-header";
+      });
+      await ready.locator(".overflow-y-auto").evaluate((el) => {
+        el.dataset.testid = "ipad-ready-cards";
+      });
+      // Over a column too short to scroll, and over its header: the finger
+      // settling a little downward is not yet a direction.
+      expect(
+        await prevented("ipad-ready-cards", [
+          [1, 4],
+          [-30, 6],
+          [-120, 9],
+        ])
+      ).toEqual([false, false, false]);
+      expect(
+        await prevented("ipad-ready-header", [
+          [-1, 3],
+          [-40, 5],
+        ])
+      ).toEqual([false, false]);
+      // The lock still holds a real vertical drag where nothing scrolls
+      // vertically, jitter first or not.
+      expect(
+        await prevented("ipad-ready-header", [
+          [1, 4],
+          [2, 40],
+        ])
+      ).toEqual([false, true]);
+      // And a real finger swipe moves the board both ways.
+      const cdp = await page.context().newCDPSession(page);
+      const swipe = async (fromX: number, toX: number, y: number) => {
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchStart",
+          touchPoints: [{ x: fromX, y }],
+        });
+        for (let step = 1; step <= 10; step++)
+          await cdp.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [
+              { x: fromX + ((toX - fromX) * step) / 10, y: y + step },
+            ],
+          });
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
+      };
+      const boardBox = (await board.boundingBox())!;
+      const scrollLeft = () => board.evaluate((el) => el.scrollLeft);
+      const y = boardBox.y + boardBox.height / 2;
+      await swipe(boardBox.x + boardBox.width - 30, boardBox.x + 30, y);
+      await expect.poll(scrollLeft).toBeGreaterThan(150);
+      const advanced = await scrollLeft();
+      await swipe(boardBox.x + 30, boardBox.x + boardBox.width - 30, y);
+      await expect.poll(scrollLeft).toBeLessThan(advanced - 150);
+      await page.screenshot({
+        path: "/tmp/dispatch-tasks-ipad-swipe.png",
+        scale: "device",
+      });
+    } finally {
+      await request.delete(`/api/v1/projects/${project.id}`, { headers });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
