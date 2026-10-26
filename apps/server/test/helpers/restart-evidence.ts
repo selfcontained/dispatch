@@ -2,8 +2,6 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { RestartSocketTrace } from "./restart-socket-trace.js";
-
 // Error.message/stack/cause are non-enumerable. Keep transport fields (including
 // nested causes) and child-process stdout/stderr instead of JSON.stringify(Error).
 function serialize(value: unknown, seen = new WeakSet<object>()): unknown {
@@ -31,22 +29,11 @@ type Options = {
 
 export class RestartEvidence {
   agentId?: string;
-  private socketTrace?: RestartSocketTrace;
   private readonly commands: unknown[] = [];
   private readonly snapshots: unknown[] = [];
   private readonly requests: unknown[] = [];
 
   constructor(private readonly options: Options) {}
-
-  traceOrigin(origin: string): void {
-    if (process.env.DISPATCH_RESTART_SOCKET_TRACE === "1") {
-      this.socketTrace = new RestartSocketTrace(origin);
-    }
-  }
-
-  dispose(): void {
-    this.socketTrace?.dispose();
-  }
 
   command(result: {
     args: string;
@@ -236,7 +223,6 @@ export class RestartEvidence {
           outcome,
           suffix,
           preserveHosts,
-          controlledArm: process.env.DISPATCH_RESTART_CONTROLLED_ARM,
           agentId: this.agentId,
           runtime: {
             executable: process.execPath,
@@ -247,7 +233,6 @@ export class RestartEvidence {
           error: serialize(error),
           commands: this.commands,
           requests: this.requests,
-          socketTrace: this.socketTrace?.snapshot(),
           snapshots: this.snapshots,
           diagnostics,
         },

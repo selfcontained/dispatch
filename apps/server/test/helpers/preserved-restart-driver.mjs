@@ -76,6 +76,8 @@ export function firstTurnIdentity(journal, agentId) {
   return turn;
 }
 
+// A preserved host can settle while the API restarts. Enforce that ordering
+// before the parent's first read without blocking its HTTP client's event loop.
 async function main() {
   const { bin, cwd, suffix, journal, identity, hostPid } = JSON.parse(
     process.argv[2]
@@ -106,7 +108,7 @@ async function main() {
     }
     if (turn.settled) {
       process.stdout.write(
-        `\nControlled first-turn barrier: ${JSON.stringify(turn)}\n`
+        `\nPreserved first-turn settled: ${JSON.stringify(turn)}\n`
       );
       return;
     }

@@ -1,4 +1,4 @@
-import { execFile, execFileSync, execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -91,8 +91,12 @@ function run(
   }
 }
 
-// Diagnostic candidate only. The ordinary synchronous helper remains intact.
-async function runAsync(args: string): Promise<string> {
+// Lifecycle commands must yield while the API is replaced, allowing this
+// fixture's HTTP client to process closure of pooled connections from that API.
+async function runAsync(
+  args: string,
+  options?: { env?: Record<string, string> }
+): Promise<string> {
   const startedAt = new Date().toISOString();
   try {
     const { stdout, stderr } = await execFileAsync(
@@ -104,6 +108,7 @@ async function runAsync(args: string): Promise<string> {
         timeout: 60_000,
         env: {
           ...process.env,
+          ...options?.env,
           DISPATCH_AGENT_ID: "",
           RESTART_API_PORT: "",
           RESTART_DB_PORT: "",
@@ -119,8 +124,7 @@ async function runAsync(args: string): Promise<string> {
   }
 }
 
-async function controlledRestart(
-  arm: "sync" | "async",
+async function restartAfterFirstTurn(
   journal: string,
   agentId: string,
   hostPid: number
@@ -155,13 +159,11 @@ async function controlledRestart(
   };
   const startedAt = new Date().toISOString();
   try {
-    // Same driver/args/environment/bounds. Only parent execution mode differs.
-    const result =
-      arm === "sync"
-        ? { stdout: execFileSync(process.execPath, args, options), stderr: "" }
-        : await execFileAsync(process.execPath, args, options);
+    // Settle the preserved turn inside the child so the first blocks read is
+    // immediate after return, while the parent can process old socket closures.
+    const result = await execFileAsync(process.execPath, args, options);
     restartEvidence?.command({
-      args: `controlled restart (${arm}) ${JSON.stringify(identity)}`,
+      args: `restart after first-turn barrier ${JSON.stringify(identity)}`,
       startedAt,
       stdout: result.stdout,
       stderr: result.stderr,
@@ -169,7 +171,7 @@ async function controlledRestart(
     return result.stdout.trim();
   } catch (error) {
     restartEvidence?.command({
-      args: `controlled restart (${arm}) ${JSON.stringify(identity)}`,
+      args: `restart after first-turn barrier ${JSON.stringify(identity)}`,
       startedAt,
       error,
     });
@@ -328,9 +330,6 @@ describe("dispatch-dev", () => {
       );
       chmodSync(HOST_WRAPPER, 0o700);
 
-      const controlledArm = preserveHosts
-        ? process.env.DISPATCH_RESTART_CONTROLLED_ARM
-        : undefined;
       let hostPid = 0;
       restartEvidence = new RestartEvidence({
         repoRoot: REPO_ROOT,
@@ -340,16 +339,7 @@ describe("dispatch-dev", () => {
         preserveHosts,
       });
       try {
-        if (
-          controlledArm !== undefined &&
-          controlledArm !== "sync" &&
-          controlledArm !== "async"
-        ) {
-          throw new Error(
-            "DISPATCH_RESTART_CONTROLLED_ARM must be sync or async"
-          );
-        }
-        run(upArgs, {
+        await runAsync(upArgs, {
           env: {
             DISPATCH_AGENT_HOST_COMMAND: JSON.stringify([HOST_WRAPPER]),
             DISPATCH_HOST: "127.0.0.1",
@@ -357,7 +347,6 @@ describe("dispatch-dev", () => {
         });
         const port = Number(stateValue("DEV_API_PORT"));
         const api = `http://127.0.0.1:${port}/api/v1`;
-        restartEvidence.traceOrigin(new URL(api).origin);
         const created = await fetch(`${api}/agents`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -396,11 +385,11 @@ describe("dispatch-dev", () => {
         expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
           preserveHosts ? "1" : "0"
         );
-        if (controlledArm) expect(processAlive(hostPid)).toBe(true);
+        expect(processAlive(hostPid)).toBe(true);
         restartEvidence.snapshot("before-restart");
-        const restart = controlledArm
-          ? await controlledRestart(controlledArm, journal, agentId, hostPid)
-          : run("restart");
+        const restart = preserveHosts
+          ? await restartAfterFirstTurn(journal, agentId, hostPid)
+          : await runAsync("restart");
         restartEvidence.snapshot("after-restart");
         expect(restart).toContain("Stopped API server");
         expect(restart).toContain("Dev environment ready");
@@ -414,25 +403,8 @@ describe("dispatch-dev", () => {
           ).toBe(hostPid);
           expect(processAlive(hostPid)).toBe(true);
 
-          // The controlled driver already consumed this exact condition wait;
-          // do not grant a second journal deadline in either diagnostic arm.
-          if (!controlledArm) {
-            await until(() => {
-              const events = readFileSync(journal, "utf8")
-                .trim()
-                .split("\n")
-                .map(
-                  (line) =>
-                    JSON.parse(line) as { event?: Record<string, unknown> }
-                );
-              return events.some(
-                ({ event }) =>
-                  event?.type === "turn" &&
-                  event.state === "settled" &&
-                  event.error === undefined
-              );
-            });
-          }
+          // The child already verified successful journal settlement using
+          // the original 20s condition deadline; do not grant another wait.
           let turn:
             | {
                 settled: boolean;
@@ -481,10 +453,7 @@ describe("dispatch-dev", () => {
             timeout: 20_000,
           });
           restartEvidence.snapshot("before-database-recreation");
-          const recovered =
-            controlledArm === "async"
-              ? await runAsync("restart")
-              : run("restart");
+          const recovered = await runAsync("restart");
           restartEvidence.snapshot("after-database-recreation");
           expect(recovered).toContain(
             "recreating it without stopping agent hosts"
@@ -516,15 +485,7 @@ describe("dispatch-dev", () => {
                 );
               }
             );
-          // Retain baseline catch during both diagnostic arms; tracing must
-          // show no transport errors before a final repair removes this catch.
-          await until(async () => {
-            try {
-              return await readRecovered();
-            } catch {
-              return false;
-            }
-          });
+          await until(readRecovered);
         } else {
           await until(() => !processAlive(hostPid));
         }
@@ -532,8 +493,7 @@ describe("dispatch-dev", () => {
         if (process.env.DISPATCH_RESTART_EVIDENCE === "1") {
           restartEvidence.captureSuccess();
         }
-        if (controlledArm === "async") await runAsync("down --wipe");
-        else run("down --wipe");
+        await runAsync("down --wipe");
         if (preserveHosts) {
           await until(() => !processAlive(hostPid));
         }
@@ -543,11 +503,9 @@ describe("dispatch-dev", () => {
         restartEvidence.captureFailure(error);
         throw error;
       } finally {
-        restartEvidence?.dispose();
         restartEvidence = undefined;
         try {
-          if (controlledArm === "async") await runAsync("down --wipe");
-          else run("down --wipe");
+          await runAsync("down --wipe");
         } catch {
           // already down
         }
