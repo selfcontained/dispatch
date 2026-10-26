@@ -268,3 +268,17 @@ it("an explicit selection after a scope switch records normally", () => {
   act(() => result.current.rawNavigate("/agents/b1?project="));
   expect(store.get(lastAgentIdAtomFamily(null))).toBe("b1");
 });
+
+it("unscoped agent URLs use All memory rather than a saved foreign project", () => {
+  const { result, store } = mount("/agents/b1?task=task1", "pa");
+  expect(result.current.selected).toBe("b1");
+  expect(store.get(lastAgentIdAtomFamily(null))).toBe("b1");
+  expect(store.get(lastAgentIdAtomFamily("pa"))).toBeNull();
+  expect(result.current.location.search).toBe("?task=task1");
+});
+
+it("explicit project queries reject foreign agents even with an explicit agent URL", () => {
+  const { result, store } = mount("/agents/b1?project=pa", "pb");
+  expect(result.current.selected).toBeNull();
+  expect(store.get(lastAgentIdAtomFamily("pa"))).toBeNull();
+});

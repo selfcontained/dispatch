@@ -201,3 +201,27 @@ it("restores a persisted project or All choice in a fresh module", async () => {
   const reloadedAll = await import("@/lib/store");
   expect(createStore().get(reloadedAll.selectedProjectIdAtom)).toBeNull();
 });
+
+it("an unscoped explicit agent URL outranks a saved project and preserves deep-link state", () => {
+  const { result, store } = renderProject(
+    "/agents/unassigned?task=task1&thread=thread1#context",
+    "one"
+  );
+  expect(result.current.projectId).toBeNull();
+  expect(result.current.location.pathname).toBe("/agents/unassigned");
+  expect(result.current.location.search).toBe("?task=task1&thread=thread1");
+  expect(result.current.location.hash).toBe("#context");
+  expect(store.get(selectedProjectIdAtom)).toBeNull();
+  act(() => result.current.navigate("/agents/another"));
+  expect(result.current.location.pathname).toBe("/agents/another");
+  expect(result.current.location.search).toBe("");
+});
+
+it("an explicit project query still bounds an agent deep link", () => {
+  const { result } = renderProject(
+    "/agents/foreign?project=one&task=task1",
+    "two"
+  );
+  expect(result.current.projectId).toBe("one");
+  expect(result.current.location.search).toBe("?project=one&task=task1");
+});

@@ -25,15 +25,24 @@ for (const mobile of [false, true]) {
     const headers = authHeaders();
     const screenshot = `/tmp/dispatch-agent-memory-${mobile ? "mobile" : "desktop"}.png`;
     async function sidebar() {
-      if (
-        mobile &&
-        (await page.getByTitle("Open sidebar", { exact: true }).isVisible())
-      )
-        await page.getByTitle("Open sidebar", { exact: true }).click();
+      if (!mobile) return;
+      const sheet = page.getByRole("dialog", { name: "Navigation sidebar" });
+      const open = page.getByTitle("Open sidebar", { exact: true });
+      const openSheetClose = sheet
+        .and(page.locator(".translate-x-0"))
+        .getByTitle("Close sidebar", { exact: true });
+      // domcontentloaded can precede the app shell on a cold dev import.
+      // Wait for either its open control or its already-open list, rather
+      // than treating a not-yet-mounted control as a closed-sheet decision.
+      await expect(open.or(openSheetClose)).toBeVisible();
+      if (await open.isVisible()) await open.click();
+      await expect(sheet).toBeInViewport({ ratio: 1 });
     }
     async function section(name: string) {
       await sidebar();
-      await page.getByTestId(`${name}-button`).click();
+      const control = page.getByTestId(`${name}-button`);
+      await expect(control).toBeInViewport();
+      await control.click();
     }
     async function choose(name: string) {
       await sidebar();
@@ -47,6 +56,11 @@ for (const mobile of [false, true]) {
     async function empty() {
       await expect(page.getByTestId("chat-empty")).toBeVisible();
       expect(new URL(page.url()).pathname).toBe("/agents");
+      if (mobile) {
+        await expect(
+          page.getByRole("dialog", { name: "Navigation sidebar" })
+        ).toBeInViewport({ ratio: 1 });
+      }
     }
     async function memory(scope: string | null) {
       return page.evaluate(
@@ -213,6 +227,12 @@ for (const mobile of [false, true]) {
       await section("agents");
       await empty();
       await expect.poll(() => memory(projects[1]!.id)).toBe("null");
+
+      // An explicit project boundary still rejects an agent from elsewhere.
+      await page.goto(`/agents/${all.id}?project=${projects[0]!.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await empty();
 
       // Bare mounts stay detached; an explicit different URL wins over memory.
       await page.goto(`/agents?project=${projects[0]!.id}`, {

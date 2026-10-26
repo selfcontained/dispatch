@@ -76,7 +76,12 @@ test("creates a task with an image and link, previews it, and keeps the modal op
     await page.goto(`/agents/${agent.id}?task=${task.id}`, {
       waitUntil: "domcontentloaded",
     });
+    // The saved Tasks project must not constrain an explicit agent deep link.
+    await expect(page).toHaveURL(
+      new RegExp(`/agents/${agent.id}\\?task=${task.id}$`)
+    );
     const modal = page.getByTestId("task-modal");
+    await expect(modal).toBeVisible();
     await modal
       .getByTestId("chat-attachment-image")
       .getByRole("button")

@@ -4,6 +4,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import {
   useLocation,
   useNavigate,
+  matchPath,
   type NavigateOptions,
   type Location,
   type To,
@@ -36,6 +37,10 @@ export function useProjectScope() {
 function projectIdForLocation(location: Location, savedId: string | null) {
   const explicitId = new URLSearchParams(location.search).get("project");
   if (explicitId !== null) return explicitId || null;
+  // An explicit agent link without a scope must stay reachable even when a
+  // different project was last selected. All projects contains that agent;
+  // only an explicit project query is allowed to restrict the deep link.
+  if (matchPath("/agents/:agentId/*", location.pathname)) return null;
   // Preserve the original All projects view when returning to a bare history
   // entry, without adding a query parameter to every default dashboard URL.
   return location.state?.dispatchProjectScope === "all" ? null : savedId;
