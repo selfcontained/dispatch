@@ -81,7 +81,6 @@ function testTools(): PostgresTools | undefined {
 }
 
 describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
-  let pool: pg.Pool;
   let directory: string;
   let databaseUrl: string;
   let policy: PostgresRecoveryPolicy;
@@ -90,12 +89,22 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
   let archivePath: string;
   let largeObjectOid: number;
   const recoveredNames: string[] = [];
+  // Recovery requires no other source sessions. Pool maxUses/release starts
+  // teardown but its query promise does not await the client's end event.
+  async function sourceQuery(text: string, values?: unknown[]) {
+    const client = new pg.Client({ connectionString: databaseUrl });
+    try {
+      await client.connect();
+      return await client.query(text, values);
+    } finally {
+      await client.end();
+    }
+  }
+
   beforeAll(async () => {
     if (!process.env.TEST_DATABASE_URL)
       throw new Error("Run via the isolated server-test script");
-    pool = await setupTestDb();
-    // Backup requires every source client to disconnect. Destroy fixture connections on release.
-    pool.options.maxUses = 1;
+    await setupTestDb();
     await runTestMigrations();
     databaseUrl = getTestDatabaseUrl();
     const url = new URL(databaseUrl);
@@ -111,21 +120,21 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
       await mkdtemp(path.join(os.tmpdir(), "dispatch-postgres-recovery-"))
     );
     archivePath = path.join(directory, "database.dump");
-    await pool.query(
+    await sourceQuery(
       "INSERT INTO agents (id,name,status,cwd) VALUES ('recovery-agent','Recovery agent','idle','/tmp/recovery')"
     );
-    await pool.query(
+    await sourceQuery(
       "INSERT INTO settings (key,value) VALUES ('recovery-test','private-secret-setting')"
     );
-    await pool.query(
+    await sourceQuery(
       "INSERT INTO sessions (token,expires_at) VALUES ('recovery-session', now() + interval '1 day')"
     );
     largeObjectOid = (
-      await pool.query(
+      await sourceQuery(
         "SELECT lo_from_bytea(0, decode('decafbad','hex')) AS oid"
       )
     ).rows[0].oid;
-    await pool.query(
+    await sourceQuery(
       "CREATE TABLE recovery_sequence (id serial PRIMARY KEY, payload bytea); INSERT INTO recovery_sequence (payload) VALUES (decode('aabbcc','hex'))"
     );
   }, 60_000);
@@ -133,14 +142,15 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
     for (const name of recoveredNames) {
       if (!/^dispatch_recovery_[a-f0-9]{32}$/.test(name))
         throw new Error("unexpected owned database name");
-      await pool.query(`DROP DATABASE "${name}"`);
+      await sourceQuery(`DROP DATABASE "${name}"`);
     }
     await teardownTestDb();
     if (directory) await rm(directory, { recursive: true, force: true });
   });
   it("rejects an idle source client without terminating it", async () => {
-    const other = await pool.connect();
+    const other = new pg.Client({ connectionString: databaseUrl });
     try {
+      await other.connect();
       await expect(
         createPostgresBackup({
           databaseUrl,
@@ -152,7 +162,7 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
       expect((await other.query("SELECT 1 AS alive")).rows[0].alive).toBe(1);
       await expect(stat(path.join(directory, "busy.dump"))).rejects.toThrow();
     } finally {
-      other.release(true);
+      await other.end();
     }
   });
   it("creates a private custom archive and verifies an actual disposable restore", async () => {
@@ -167,7 +177,7 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
     );
     expect((await stat(archivePath)).mode & 0o777).toBe(0o600);
     expect(JSON.stringify(metadata)).not.toContain("private-secret-setting");
-    const before = await pool.query(
+    const before = await sourceQuery(
       "SELECT datname, oid FROM pg_database WHERE datname ~ '^dispatch_recovery_[0-9a-f]{32}$' OR datname = current_database() ORDER BY datname"
     );
     await verifyPostgresBackup({
@@ -179,7 +189,7 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
     });
     expect(
       (
-        await pool.query(
+        await sourceQuery(
           "SELECT datname, oid FROM pg_database WHERE datname ~ '^dispatch_recovery_[0-9a-f]{32}$' OR datname = current_database() ORDER BY datname"
         )
       ).rows
@@ -187,9 +197,9 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
   }, 60_000);
   it("restores the baseline into a new database and retains the failed database and schema", async () => {
     const migrations = (
-      await pool.query("SELECT * FROM pgmigrations ORDER BY id")
+      await sourceQuery("SELECT * FROM pgmigrations ORDER BY id")
     ).rows;
-    await pool.query(
+    await sourceQuery(
       "UPDATE settings SET value='failed-new-version' WHERE key='recovery-test'; ALTER TABLE agents ADD COLUMN failed_migration text"
     );
     const result = await restorePostgresBackup({
@@ -268,13 +278,13 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
       ).toBe(0);
       expect(
         (
-          await pool.query(
+          await sourceQuery(
             "SELECT value FROM settings WHERE key='recovery-test'"
           )
         ).rows[0].value
       ).toBe("failed-new-version");
       expect(
-        (await pool.query("SELECT failed_migration FROM agents")).rowCount
+        (await sourceQuery("SELECT failed_migration FROM agents")).rowCount
       ).toBe(1);
     } finally {
       await restored.end();
@@ -329,7 +339,7 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
         metadata,
       })
     ).rejects.toThrow("integrity");
-    const before = await pool.query(
+    const before = await sourceQuery(
       "SELECT datname, oid FROM pg_database WHERE datname ~ '^dispatch_recovery_[0-9a-f]{32}$' OR datname = current_database() ORDER BY datname"
     );
     await expect(
@@ -343,7 +353,7 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
     ).rejects.toThrow("do not match");
     expect(
       (
-        await pool.query(
+        await sourceQuery(
           "SELECT datname, oid FROM pg_database WHERE datname ~ '^dispatch_recovery_[0-9a-f]{32}$' OR datname = current_database() ORDER BY datname"
         )
       ).rows
@@ -352,11 +362,11 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
   it("requires CREATEDB capability and ownership before writing any archive", async () => {
     const role = `recovery_limited_${Date.now()}`;
     const database = `${role}_db`;
-    await pool.query(
+    await sourceQuery(
       `CREATE ROLE "${role}" LOGIN PASSWORD 'test-only-secret' NOCREATEDB`
     );
     try {
-      await pool.query(`CREATE DATABASE "${database}" OWNER "${role}"`);
+      await sourceQuery(`CREATE DATABASE "${database}" OWNER "${role}"`);
       const limitedUrl = new URL(databaseUrl);
       limitedUrl.username = role;
       limitedUrl.password = "test-only-secret";
@@ -373,8 +383,8 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
         stat(path.join(directory, "no-privilege"))
       ).rejects.toThrow();
     } finally {
-      await pool.query(`DROP DATABASE IF EXISTS "${database}"`);
-      await pool.query(`DROP ROLE "${role}"`);
+      await sourceQuery(`DROP DATABASE IF EXISTS "${database}"`);
+      await sourceQuery(`DROP ROLE "${role}"`);
     }
   });
   it("refuses symlinked archives and output replacement", async () => {
