@@ -8,6 +8,9 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   INBOX_CHECKLISTS_MAX,
+  INBOX_RESOURCE_POSTS_MAX,
+  isInboxResource,
+  resourcesOf,
   isInboxChecklist,
   isFailedParentInput,
 } from "@dispatch/shared";
@@ -100,7 +103,14 @@ export function threadQueryKey(rootId: string | null, blockId: string | null) {
   return [...STREAM_QUERY_PREFIX, rootId, "thread", blockId] as const;
 }
 
-export type FeedCache = InfiniteData<StreamFeedResponse, string | undefined>;
+/** Per-query resource revisions survive removal from the visible supplement.
+ * They are client metadata, never part of the shared/server response. */
+export type FeedCache = InfiniteData<StreamFeedResponse, string | undefined> & {
+  resourceVersions?: Record<string, string>;
+  /** Events older than evicted revisions need an authoritative refetch. */
+  resourceVersionFloor?: string;
+};
+export const RESOURCE_VERSIONS_MAX = LIVE_HEAD_ROWS;
 
 function streamPath(rootId: string | null): string {
   return `/api/v1/streams/${encodeURIComponent(rootId ?? "")}`;
@@ -232,8 +242,24 @@ export function shareFeedByEntryId(
   });
 
   const pageParams = replaceEqualDeep(prev.pageParams, next.pageParams);
-  if (!pagesChanged && pageParams === prev.pageParams) return prev;
-  return { pages, pageParams };
+  // A refetch supplies server pages only. Keep client revision guards for
+  // this query's lifetime, including an identical first-page snapshot.
+  const resourceVersions = next.resourceVersions ?? prev.resourceVersions;
+  const resourceVersionFloor =
+    next.resourceVersionFloor ?? prev.resourceVersionFloor;
+  if (
+    !pagesChanged &&
+    pageParams === prev.pageParams &&
+    resourceVersions === prev.resourceVersions &&
+    resourceVersionFloor === prev.resourceVersionFloor
+  )
+    return prev;
+  return {
+    pages,
+    pageParams,
+    ...(resourceVersions ? { resourceVersions } : {}),
+    ...(resourceVersionFloor ? { resourceVersionFloor } : {}),
+  };
 }
 
 /** The one place the untyped react-query cache boundary is crossed. */
@@ -554,14 +580,6 @@ function removeThreadReplyObject(
   return { ...thread, replies: thread.replies.filter((r) => r !== target) };
 }
 
-/** A block that carries a link or a pull request, as the Inbox lists them. */
-function carriesLink(block: Block): boolean {
-  return (
-    block.kind === "link" ||
-    block.attachments.some((a) => a.type === "link" || a.type === "pr")
-  );
-}
-
 /** Put a block in a list by id (or take it out), keeping the list's order. */
 function upsertListed(
   list: readonly Block[],
@@ -579,20 +597,97 @@ function upsertListed(
   return next;
 }
 
+/** Version guards apply only to IDs previously seen as resource posts. */
+export function isStaleResourceEvent(
+  cache: FeedCache | undefined,
+  block: Block
+): boolean {
+  const version = cache?.resourceVersions?.[block.id];
+  return version !== undefined && version > block.updatedAt;
+}
+
+/** Once a revision is evicted, an older unseen resource cannot safely be
+ * patched in. Refetch instead of guessing whether its absence was removal
+ * or pagination. Fresh server snapshots remain authoritative. */
+export function resourceEventNeedsRefetch(
+  cache: FeedCache | undefined,
+  block: Block
+): boolean {
+  return (
+    cache?.resourceVersionFloor !== undefined &&
+    cache.resourceVersions?.[block.id] === undefined &&
+    !cache.pages[0]?.threadLinks?.some(
+      (previous) => previous.id === block.id
+    ) &&
+    block.updatedAt <= cache.resourceVersionFloor &&
+    resourcesOf(block).length > 0
+  );
+}
+
+function rememberResourceVersion(cache: FeedCache, block: Block): FeedCache {
+  if (cache.resourceVersions?.[block.id] === block.updatedAt) return cache;
+  const versions = Object.entries({
+    ...cache.resourceVersions,
+    [block.id]: block.updatedAt,
+  }).sort(
+    ([idA, atA], [idB, atB]) => atB.localeCompare(atA) || idB.localeCompare(idA)
+  );
+  let floor = cache.resourceVersionFloor;
+  for (const [, at] of versions.slice(RESOURCE_VERSIONS_MAX))
+    if (floor === undefined || at > floor) floor = at;
+  return {
+    ...cache,
+    resourceVersions: Object.fromEntries(
+      versions.slice(0, RESOURCE_VERSIONS_MAX)
+    ),
+    ...(floor ? { resourceVersionFloor: floor } : {}),
+  };
+}
+
 /**
  * Keep what the first page carries from across the stream in step with a
  * block that changed: an agent's question or form for people is listed
- * while it is open and leaves once answered, and a post in a thread that
- * carries a link joins the thread links — wherever in the stream either
- * was posted.
+ * while it is open and leaves once answered. PR/preview resource posts
+ * join the bounded supplement whether direct or in a thread.
  */
 export function syncAcrossStream(
   cache: FeedCache | undefined,
   block: Block,
   childScope: LaunchReplyScope = true
 ): FeedCache | undefined {
-  const first = cache?.pages[0];
-  if (!cache || !first) return cache;
+  if (
+    !cache ||
+    isStaleResourceEvent(cache, block) ||
+    resourceEventNeedsRefetch(cache, block)
+  )
+    return cache;
+  const original = cache;
+  let resourceRelated =
+    cache.resourceVersions?.[block.id] !== undefined ||
+    resourcesOf(block).length > 0 ||
+    (cache.pages[0]?.threadLinks ?? []).some(
+      (previous) => previous.id === block.id
+    );
+  let stale = (cache.pages[0]?.threadLinks ?? []).some(
+    (previous) =>
+      previous.id === block.id && previous.updatedAt > block.updatedAt
+  );
+  // A type replacement also updates paginated/shown copies before removing
+  // the supplement, otherwise an older copy can resurrect the resource.
+  cache = mapBlock(cache, block.id, (previous) => {
+    if (resourcesOf(previous).length > 0) resourceRelated = true;
+    if (previous.updatedAt > block.updatedAt) {
+      stale = true;
+      return previous;
+    }
+    return resourcesOf(previous).length === 0 && resourcesOf(block).length === 0
+      ? previous
+      : block;
+  })!;
+  if (stale) return original;
+  if (resourceRelated) cache = rememberResourceVersion(cache, block);
+  const first = cache.pages[0];
+  if (!first) return cache;
   const open =
     block.author.kind === "agent" &&
     block.toAgentId === null &&
@@ -608,15 +703,22 @@ export function syncAcrossStream(
     open || isFailedParentInput(block),
     "end"
   );
+  const existingResource = first.threadLinks?.find(
+    (item) => item.id === block.id
+  );
   const links =
-    block.threadId !== null
-      ? upsertListed(
+    existingResource && existingResource.updatedAt > block.updatedAt
+      ? null
+      : upsertListed(
           first.threadLinks ?? [],
           block,
-          carriesLink(block),
+          isInboxResource(block, block.streamId, childScope),
           "start"
-        )
-      : null;
+        );
+  links?.sort(
+    (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+  );
+  if (links) links.length = Math.min(links.length, INBOX_RESOURCE_POSTS_MAX);
   const existing = first.checklists?.find((item) => item.id === block.id);
   const checklists =
     existing && existing.updatedAt > block.updatedAt
@@ -929,6 +1031,11 @@ export function upsertFeedEntry(
     );
     if (index === -1) continue;
     const previous = page.entries[index]!;
+    if (
+      !("__optimisticPost" in previous.block) &&
+      previous.block.updatedAt > entry.block.updatedAt
+    )
+      return { cache, placed: true };
     const shared = replaceEqualDeep(previous, entry);
     if (shared === previous) return { cache, placed: true };
     const entries = page.entries.slice();

@@ -12,6 +12,10 @@ describe("launch guidance", () => {
     expect(guidance).toContain("gh pr create");
     expect(guidance).toContain("list_personas then launch_agent");
     expect(guidance).toContain("question block");
+    expect(guidance).toContain(
+      "preview (runnable previews with a useful title and URL)"
+    );
+    expect(guidance).toContain("link (documents and generic URLs)");
   });
 
   it("keeps unattended jobs on their dedicated lifecycle", () => {

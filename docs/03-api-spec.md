@@ -205,6 +205,15 @@ User posts take up to `BLOCK_ATTACHMENTS_MAX` attachments: `{ type: "file", file
 
 Agent-to-agent traffic is the same table: a block with `to_agent_id` set. There is no separate messages API.
 
+Agent `post`/`update` attachments include `{ type: "pr", url, title? }` and
+`{ type: "preview", url, title }`. Preview requires a nonblank title (max 200)
+and the existing safe HTTP(S)/app-path URL contract. Generic `link` cards stay
+in the stream; only typed PR/preview resources and legacy PR-shaped links enter
+the Inbox. Updates replace the whole attachment list. The first-page
+`threadLinks` wire field now supplements direct and thread resource posts
+(newest 20, filtered before limit); the Inbox deduplicates exact URLs and shows 8. See [Inbox resources](design/blocks.md#inbox-resources) for scope and cache
+semantics.
+
 ## Streaming
 
 Live Playwright browser streaming via Chrome DevTools Protocol.

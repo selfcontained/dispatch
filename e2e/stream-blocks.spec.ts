@@ -332,7 +332,13 @@ test.describe("Stream blocks", () => {
       },
     });
     await callMcpToolViaAPI(request, agent.id, "post", {
-      link: { url: "https://example.com/preview", title: "Preview" },
+      attachments: [
+        {
+          type: "preview",
+          url: "https://example.com/preview",
+          title: "Web app",
+        },
+      ],
     });
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });

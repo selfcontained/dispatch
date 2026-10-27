@@ -23,7 +23,7 @@ import {
 
 import { deriveInbox, isOpenInput, useInbox } from "./use-inbox";
 
-const ROOT = "agt_root";
+const ROOT = "agt_1";
 const CHILD = "agt_child";
 const at = (hhmm: string): string => `2026-09-19T${hhmm}:00.000Z`;
 
@@ -318,9 +318,7 @@ describe("deriveInbox", () => {
     ];
     const inbox = deriveInbox(entries, ROOT, ROOT, [], threadLinks);
     expect(inbox.links.map((l) => l.url)).toEqual([
-      "https://example.com/child",
       "https://github.com/o/r/pull/8",
-      "https://example.com/a",
       "https://github.com/o/r/pull/7",
       "https://github.com/o/r/pull/9",
     ]);
@@ -328,7 +326,6 @@ describe("deriveInbox", () => {
     expect(
       deriveInbox(entries, CHILD, ROOT, [], threadLinks).links.map((l) => l.url)
     ).toEqual([
-      "https://example.com/child",
       "https://github.com/o/r/pull/7",
       "https://github.com/o/r/pull/9",
     ]);
@@ -338,11 +335,10 @@ describe("deriveInbox", () => {
     const inbox = deriveInbox(entries, ROOT, ROOT);
     expect(inbox.links.map((l) => [l.url, l.pr])).toEqual([
       ["https://github.com/o/r/pull/8", true],
-      ["https://example.com/a", false],
       ["https://github.com/o/r/pull/7", true],
     ]);
     // The newest block with a repeated url is the one kept.
-    expect(inbox.links[1]?.blockId).toBe("l3");
+    expect(inbox.links[0]?.blockId).toBe("p1");
   });
 });
 
@@ -525,5 +521,113 @@ describe("checklist progress derivation", () => {
         .reverse()
         .map((b) => b.id)
     );
+  });
+});
+
+describe("typed inbox resources", () => {
+  const preview = (id: string, extra: Partial<Block> = {}) =>
+    block({
+      id,
+      streamId: ROOT,
+      author: { kind: "agent", agentId: ROOT },
+      attachments: [
+        {
+          type: "preview",
+          url: "http://192.168.1.2:4321",
+          title: "Web preview",
+        },
+      ],
+      ...extra,
+    });
+
+  it("filters before the resource window, dedups exact URLs and keeps latest block copies", () => {
+    const resource = preview("resource");
+    const generic = Array.from({ length: 250 }, (_, i) =>
+      blockEntry(
+        block({
+          id: `generic-${i}`,
+          streamId: ROOT,
+          attachments: [{ type: "link", url: `https://example.com/${i}` }],
+          createdAt: "2026-10-01T00:00:00Z",
+        })
+      )
+    );
+    const duplicate = preview("duplicate", {
+      createdAt: "2026-09-03T00:00:00Z",
+    });
+    const inbox = deriveInbox(
+      [blockEntry(resource), ...generic],
+      ROOT,
+      ROOT,
+      [],
+      [duplicate]
+    );
+    expect(inbox.links).toHaveLength(1);
+    expect(inbox.links[0]).toMatchObject({
+      kind: "preview",
+      pr: false,
+      blockId: "duplicate",
+    });
+    const removed = {
+      ...resource,
+      attachments: [],
+      updatedAt: "2026-10-02T00:00:00Z",
+    };
+    expect(
+      deriveInbox([blockEntry(resource)], ROOT, ROOT, [], [removed]).links
+    ).toEqual([]);
+    // A stale supplemental copy must not override the updated paginated copy.
+    expect(
+      deriveInbox([blockEntry(removed)], ROOT, ROOT, [], [resource]).links
+    ).toEqual([]);
+  });
+
+  it("preserves shared stream and child-author scopes independently of the feed toggle", () => {
+    const direct = preview("direct");
+    const child = preview("child", {
+      author: { kind: "agent", agentId: CHILD },
+      threadId: "launch",
+    });
+    const directed = preview("directed", { toAgentId: CHILD });
+    const foreign = preview("foreign", { streamId: "other" });
+    const all = [direct, child, directed, foreign];
+    expect(deriveInbox([], ROOT, ROOT, [], all, [], false).links).toEqual(
+      deriveInbox([], ROOT, ROOT, [], all, [], true).links
+    );
+    expect(
+      deriveInbox([], CHILD, ROOT, [], all).links.map((x) => x.blockId)
+    ).toEqual(["child"]);
+    expect(deriveInbox([], ROOT, ROOT, [], all).links).toHaveLength(1); // exact URL dedup
+  });
+
+  it("bounds newest resources and never infers preview from a URL", () => {
+    const resources = Array.from({ length: 25 }, (_, i) =>
+      preview(`p${i}`, {
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
+        attachments: [
+          {
+            type: "preview",
+            url: `https://any-host.test/${i}`,
+            title: `Preview ${i}`,
+          },
+        ],
+      })
+    );
+    const inbox = deriveInbox([], ROOT, ROOT, [], resources);
+    expect(inbox.links.map((x) => x.blockId)).toEqual([
+      "p24",
+      "p23",
+      "p22",
+      "p21",
+      "p20",
+      "p19",
+      "p18",
+      "p17",
+    ]);
+    const generic = block({
+      streamId: ROOT,
+      attachments: [{ type: "link", url: "http://192.168.1.2:4321" }],
+    });
+    expect(deriveInbox([blockEntry(generic)], ROOT, ROOT).links).toEqual([]);
   });
 });

@@ -30,7 +30,9 @@ parent exists.
 - Run checks appropriate to the change and all mandatory repository checks.
   Exercise changed UI flows in Playwright and share screenshots as attachments.
   Use Dispatch's isolated dev tools for validation; do not operate on production.
-  Follow AGENTS.md for preview retention and cleanup.
+  Follow AGENTS.md for preview retention and cleanup. Share only the web LAN
+  URL with the user as a named `preview` attachment; keep API/DB addresses
+  internal to validation and attach cleanup commands separately.
 - Report meaningful blockers promptly with evidence, what you tried, and the
   smallest decision or dependency needed. Do not substitute repeated progress
   messages for finished work or claim tests passed when they were not run.

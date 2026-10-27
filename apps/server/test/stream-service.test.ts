@@ -957,6 +957,49 @@ describe("StreamService.post", () => {
     ).rejects.toThrow(/255 bytes/);
   });
 
+  it("persists named preview resources and replaces their type through authorized updates", async () => {
+    const preview = {
+      type: "preview" as const,
+      url: " http://192.168.1.2:4321 ",
+      title: " Web preview ",
+    };
+    const posted = await service.post(A, { attachments: [preview] });
+    expect(posted.attachments).toEqual([
+      { type: "preview", url: preview.url.trim(), title: "Web preview" },
+    ]);
+    expect((await service.store.getById(posted.id))?.attachments).toEqual(
+      posted.attachments
+    );
+    await expect(
+      service.update(B, posted.id, {
+        attachments: [{ type: "link", url: "https://example.com" }],
+      })
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
+    const changed = await service.update(A, posted.id, {
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/1" }],
+    });
+    expect(changed.attachments).toEqual([
+      { type: "pr", url: "https://github.com/o/r/pull/1" },
+    ]);
+    const generic = await service.update(A, posted.id, {
+      attachments: [{ type: "link", url: "https://example.com" }],
+    });
+    expect(generic.attachments).toEqual([
+      { type: "link", url: "https://example.com" },
+    ]);
+    for (const invalid of [
+      { ...preview, title: "  " },
+      { ...preview, url: "javascript:alert(1)" },
+    ]) {
+      await expect(
+        service.post(A, { attachments: [invalid] })
+      ).rejects.toBeInstanceOf(StreamValidationError);
+      await expect(
+        service.update(A, posted.id, { attachments: [invalid] })
+      ).rejects.toBeInstanceOf(StreamValidationError);
+    }
+  });
+
   it("resolves file attachments by stored fileName or fileId", async () => {
     await pool.query(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)

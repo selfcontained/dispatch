@@ -16,7 +16,9 @@ including ones that "obviously can't break anything".
 
 1. **Run the app.** Use the repo's own dev tooling; if the repo exposes
    `repo_*` tools for it (see the `repo-tools` skill), use those rather than
-   starting a server by hand.
+   starting a server by hand. For Dispatch dev stacks, share only the web LAN
+   URL with the user as a named `preview` attachment (`url`, `title`); keep
+   API/DB addresses internal and attach cleanup commands separately.
 2. **Drive the changed path**, don't just load the page.
 3. **Screenshot the meaningful states.**
 4. **Post them as file attachments** (`post` with

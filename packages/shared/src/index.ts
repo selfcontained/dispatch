@@ -221,3 +221,11 @@ export type {
 export { taskAgentName } from "./agent-names.js";
 
 export { INBOX_CHECKLISTS_MAX, isInboxChecklist } from "./inbox-checklists.js";
+export {
+  INBOX_RESOURCE_POSTS_MAX,
+  INBOX_RESOURCES_MAX,
+  isPullRequestUrl,
+  resourcesOf,
+  isInboxResource,
+} from "./inbox-resources.js";
+export type { InboxResource } from "./inbox-resources.js";

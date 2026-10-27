@@ -19,6 +19,8 @@ Trace changed tools through `shared/mcp/server.ts`, the tool registration module
 - Keep public names and legacy aliases compatible unless removal is intentional. Instructions and skills must reference callable tool names and the actual lifecycle.
 - Follow user override and model/runtime validation consistently. Check malformed input, missing callback, denied context, and partial failure paths.
 
+- Preview attachments require an explicit type, safe URL and useful title through post/update/persistence/rendering; never infer preview identity from a host. Dispatch guidance shares only the web LAN preview with users, keeps API/DB addresses internal, and still provides cleanup commands.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

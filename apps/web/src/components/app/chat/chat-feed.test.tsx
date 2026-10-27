@@ -2025,6 +2025,11 @@ describe("ChatFeed", () => {
             { type: "link", url: "https://example.com/x", title: "Example" },
             { type: "pr", url: "https://github.com/o/r/pull/1" },
             {
+              type: "preview",
+              url: "http://192.168.1.2:4321",
+              title: "Web preview",
+            },
+            {
               type: "code",
               code: "const a = 1;",
               language: "ts",
@@ -2059,6 +2064,15 @@ describe("ChatFeed", () => {
       "https://github.com/o/r/pull/1"
     );
     expect(pr.textContent).toContain("https://github.com/o/r/pull/1");
+    expect(
+      screen
+        .getByRole("link", { name: /PR.*github.com\/o\/r\/pull\/1/ })
+        .getAttribute("target")
+    ).toBe("_blank");
+    const preview = screen.getByRole("link", { name: /Preview Web preview/ });
+    expect(preview.getAttribute("href")).toBe("http://192.168.1.2:4321");
+    expect(preview.getAttribute("rel")).toBe("noreferrer");
+    expect(preview.getAttribute("tabindex")).not.toBe("-1");
     expect(screen.getByTestId("chat-attachment-code").textContent).toContain(
       "const a = 1;"
     );

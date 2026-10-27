@@ -106,7 +106,7 @@ const linkSchema = strictObject({
   url: chatUrlSchema,
   title: z.string().max(200).optional(),
 }).describe(
-  "A link card: a dev server, a PR, a doc. Shows in the stream and the Inbox."
+  "A generic rich link card in the stream. Only PR-shaped legacy links enter the Inbox; use pr or preview attachments for resources."
 );
 
 const reviewSchema = strictObject({
@@ -177,6 +177,13 @@ const attachmentSchema = z.discriminatedUnion("type", [
     title: z.string().max(200).optional(),
   }),
   strictObject({
+    type: z.literal("preview"),
+    url: chatUrlSchema,
+    title: z.string().trim().min(1).max(200),
+  }).describe(
+    "An explicit runnable preview resource, with a useful name. Never infer preview from a URL or host. Shows in stream and Inbox."
+  ),
+  strictObject({
     type: z.literal("pr"),
     url: chatUrlSchema,
     title: z.string().max(200).optional(),
@@ -197,7 +204,7 @@ const attachmentsSchema = z
   .array(attachmentSchema)
   .max(BLOCK_ATTACHMENTS_MAX)
   .describe(
-    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/fileId of one already shared), link, pr, or code. Several images go in one post; the stream lays them out together. Posted on your own stream during a turn, they show inside that turn's message, with text rendered as normal Markdown. Use each image attachment's caption for an optional label beneath that image.`
+    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/fileId of one already shared), link (stream only), pr, preview (URL and required title), or code. Several images go in one post; the stream lays them out together. Posted on your own stream during a turn, they show inside that turn's message, with text rendered as normal Markdown. Use each image attachment's caption for an optional label beneath that image.`
   );
 
 const textSchema = z

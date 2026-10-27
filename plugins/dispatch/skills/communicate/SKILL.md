@@ -28,7 +28,8 @@ the same stream; the rows differ in what the user can _do_ with it.
 | A question with a finite set of answers                       | `post` with `question`                                          | below       |
 | Several related values, or anything they must fill in         | `post` with `form`                                              | below       |
 | A file, screenshot, log, or report                            | `post` with a file attachment                                   | `sharing`   |
-| A link — a dev URL, a doc                                     | `post` with `link`                                              | —           |
+| A generic link — a doc or reference                           | `post` with `link`                                              | —           |
+| A runnable preview with a useful title                        | `post` with a `preview` attachment (`url`, `title`)             | `sharing`   |
 | A pull request                                                | `post` with a `pr` attachment                                   | —           |
 | A value they will copy — an id, a command, an env var, a port | `post` with a `code` attachment                                 | —           |
 | A checklist they will watch you work through                  | `post` with `tasks`, ticked with `update`                       | below       |

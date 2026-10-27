@@ -70,7 +70,8 @@
         "apps/server/test/*project*",
         "e2e/*project*",
         "apps/web/src/components/app/project-*",
-        "apps/web/src/hooks/use-projects*"
+        "apps/web/src/hooks/use-projects*",
+        "apps/server/test/launch-guidance.test.ts"
       ],
       "personas": ["agent-runtime-owner"]
     },
@@ -353,6 +354,18 @@
         "apps/server/test/http-logging.test.ts"
       ],
       "personas": ["auth-trust-owner"]
+    },
+    {
+      "paths": ["AGENTS.md", "CLAUDE.md"],
+      "personas": ["mcp-contract-owner"]
+    },
+    {
+      "paths": [
+        "packages/shared/src/inbox-resources.ts",
+        "apps/server/test/inbox-resources.test.ts",
+        "docs/design/blocks.md"
+      ],
+      "personas": ["stream-delivery-owner", "stream-interactions-owner"]
     }
   ],
   "fallback": ["code-review"]

@@ -888,7 +888,7 @@ describe("composeStreamFeed", () => {
     );
   });
 
-  it("lists the newest posts with links in threads on the first page", async () => {
+  it("lists resources across direct and thread posts on the first page", async () => {
     const top = await store.insert({ streamId: A, author: USER, text: "Hi" });
     const pr = await store.insert({
       streamId: A,
@@ -905,7 +905,7 @@ describe("composeStreamFeed", () => {
       kind: "link",
       threadId: top.id,
       replyTo: top.id,
-      data: { url: "https://example.com/dev" },
+      data: { url: "https://github.com/o/r/pull/2" },
     });
     await stamp(card.id, at(2));
     // No link, or top-level (the feed lists it): not a thread link.
@@ -922,9 +922,109 @@ describe("composeStreamFeed", () => {
       text: "Top",
       attachments: [{ type: "link", url: "https://example.com/top" }],
     });
-    const feed = await composeStreamFeed(store, A);
+    const feed = await composeStreamFeed(store, A, {
+      includeLaunchReplies: true,
+    });
     expect(feed.threadLinks?.map((b) => b.id)).toEqual([card.id, pr.id]);
     expect(feed.agentNames?.[ARCHIVED_CHILD]).toBe("Archived child");
+  });
+
+  it("filters direct and threaded resources before limits, preserving stream and child-author scope", async () => {
+    const host = await store.insert({
+      streamId: A,
+      author: USER,
+      text: "host",
+    });
+    const direct = await store.insert({
+      streamId: A,
+      author: agent(A),
+      attachments: [
+        {
+          type: "preview",
+          url: "http://192.168.1.2:4321",
+          title: "Web preview",
+        },
+      ],
+    });
+    await stamp(direct.id, at(1));
+    const threaded = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      threadId: host.id,
+      replyTo: host.id,
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/1" }],
+    });
+    await stamp(threaded.id, at(2));
+    // Recipient routing within this shared stream never restricted resource visibility.
+    const directed = await store.insert({
+      streamId: A,
+      author: agent(A),
+      toAgentId: OTHER,
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/2" }],
+    });
+    await stamp(directed.id, at(3));
+    await store.insert({
+      streamId: OTHER,
+      author: agent(OTHER),
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/999" }],
+    });
+    for (let i = 0; i < 25; i++) {
+      for (const threadId of [null, host.id])
+        await store.insert({
+          streamId: A,
+          author: agent(A),
+          threadId,
+          replyTo: threadId,
+          attachments: [
+            { type: "link", url: `http://192.168.1.2:${5000 + i}` },
+          ],
+        });
+    }
+    const quiet = await composeStreamFeed(store, A, { limit: 1 });
+    expect(quiet.entries).toHaveLength(1);
+    expect(quiet.threadLinks?.map((b) => b.id)).toEqual([
+      directed.id,
+      threaded.id,
+      direct.id,
+    ]);
+    const full = await composeStreamFeed(store, A, {
+      limit: 1,
+      includeLaunchReplies: true,
+    });
+    expect(full.threadLinks?.map((b) => b.id)).toEqual(
+      quiet.threadLinks?.map((b) => b.id)
+    );
+    const child = await composeStreamFeed(store, A, {
+      limit: 1,
+      includeLaunchReplies: ARCHIVED_CHILD,
+    });
+    expect(child.threadLinks?.map((b) => b.id)).toEqual([threaded.id]);
+    // Replacement attachments remove the old type in the next first-page snapshot.
+    await store.update(direct.id, {
+      attachments: [{ type: "link", url: "https://example.com/doc" }],
+    });
+    expect(
+      (await composeStreamFeed(store, A, { limit: 1 })).threadLinks?.map(
+        (b) => b.id
+      )
+    ).toEqual([directed.id, threaded.id]);
+    // More recent resources from siblings cannot consume a child's resource bound.
+    for (let i = 0; i < 25; i++)
+      await store.insert({
+        streamId: A,
+        author: agent(A),
+        attachments: [
+          { type: "pr", url: `https://github.com/o/r/pull/${10 + i}` },
+        ],
+      });
+    expect((await composeStreamFeed(store, A)).threadLinks).toHaveLength(20);
+    expect(
+      (
+        await composeStreamFeed(store, A, {
+          includeLaunchReplies: ARCHIVED_CHILD,
+        })
+      ).threadLinks?.map((b) => b.id)
+    ).toEqual([threaded.id]);
   });
 
   it("attaches the blocks a block shows, recursively, and counts none of them as replies", async () => {

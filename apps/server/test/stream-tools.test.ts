@@ -107,6 +107,44 @@ describe("registerStreamTools", () => {
     ).shape;
   }
 
+  it("accepts a named safe preview on post and replacement update, rejecting unsafe or unnamed previews", () => {
+    for (const name of ["post", "update"]) {
+      const schema = shape(name).attachments;
+      const preview = {
+        type: "preview",
+        url: "http://192.168.1.2:4321",
+        title: "Web preview",
+      };
+      expect(schema.safeParse([preview]).success).toBe(true);
+      for (const invalid of [
+        { ...preview, title: undefined },
+        { ...preview, title: "  " },
+        { ...preview, url: "javascript:alert(1)" },
+        { ...preview, url: "//evil.test" },
+      ])
+        expect(schema.safeParse([invalid]).success).toBe(false);
+      expect(
+        schema.safeParse([{ type: "link", url: preview.url }]).success
+      ).toBe(true);
+    }
+  });
+  it("forwards explicit preview attachments through post and replacement update", async () => {
+    const attachments = [
+      { type: "preview", url: "http://192.168.1.2:4321", title: "Web preview" },
+    ];
+    await tool("post").handler({ attachments });
+    expect(post).toHaveBeenCalledWith(
+      AGENT_ID,
+      expect.objectContaining({ attachments })
+    );
+    await tool("update").handler({ id: BLOCK, attachments });
+    expect(update).toHaveBeenCalledWith(
+      AGENT_ID,
+      BLOCK,
+      expect.objectContaining({ attachments })
+    );
+  });
+
   it("accepts and forwards a single task reference", async () => {
     expect(
       shape("post").task.safeParse({ id: "tsk_012345abcdef" }).success

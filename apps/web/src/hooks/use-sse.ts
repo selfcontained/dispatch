@@ -21,6 +21,8 @@ import {
   applyStreamRead,
   bumpReplyCount,
   syncAcrossStream,
+  isStaleResourceEvent,
+  resourceEventNeedsRefetch,
   type FeedCache,
   LIVE_HEAD_ROWS,
   replaceThreadRoot,
@@ -219,7 +221,7 @@ export function applyStreamEntry(
   agentId: string,
   entry: StreamEntry
 ): void {
-  if (entry.block.kind === "tasks" && entry.block.streamId !== agentId) return;
+  if (entry.block.streamId !== agentId) return;
   const feeds = queryClient.getQueryCache().findAll(streamFeedFilters(agentId));
   if (entry.type === "block" && entry.block.threadId !== null) {
     const reply = entry.block;
@@ -234,6 +236,17 @@ export function applyStreamEntry(
       (old) => replaceThreadRoot(old, reply)
     );
     for (const feed of feeds) {
+      if (isStaleResourceEvent(feed.state.data as FeedCache | undefined, reply))
+        continue;
+      if (
+        resourceEventNeedsRefetch(
+          feed.state.data as FeedCache | undefined,
+          reply
+        )
+      ) {
+        invalidateStreamFeed(queryClient, agentId);
+        continue;
+      }
       const scope =
         feed.queryKey[2] === "launch-replies"
           ? (feed.queryKey[3] as boolean | string)
@@ -243,7 +256,7 @@ export function applyStreamEntry(
       );
       // Replies may return below without becoming rows. They still need a
       // fresh first-page collection if an in-flight snapshot wins the race.
-      if (reply.kind === "tasks" && feed.state.fetchStatus === "fetching") {
+      if (feed.state.fetchStatus === "fetching") {
         if (feed.state.data === undefined)
           invalidateOnceFirstFetchSettles(queryClient, feed.queryKey);
         else invalidateStreamFeed(queryClient, agentId);
@@ -300,7 +313,11 @@ function applyFeedEntry(
   entry: StreamEntry
 ): void {
   const state = queryClient.getQueryState<FeedCache>(key);
-  if (!state) return;
+  if (!state || isStaleResourceEvent(state.data, entry.block)) return;
+  if (resourceEventNeedsRefetch(state.data, entry.block)) {
+    invalidateStreamFeed(queryClient, agentId);
+    return;
+  }
   // A fetch in flight (the feed's first load, or a refetch) may already have
   // read the row's earlier version from the DB, or may resolve before this
   // event's write is visible there — either way its response won't reflect
