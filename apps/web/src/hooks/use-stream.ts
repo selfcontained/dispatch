@@ -103,7 +103,14 @@ export function threadQueryKey(rootId: string | null, blockId: string | null) {
   return [...STREAM_QUERY_PREFIX, rootId, "thread", blockId] as const;
 }
 
-export type FeedCache = InfiniteData<StreamFeedResponse, string | undefined>;
+/** Per-query resource revisions survive removal from the visible supplement.
+ * They are client metadata, never part of the shared/server response. */
+export type FeedCache = InfiniteData<StreamFeedResponse, string | undefined> & {
+  resourceVersions?: Record<string, string>;
+  /** Events older than evicted revisions need an authoritative refetch. */
+  resourceVersionFloor?: string;
+};
+export const RESOURCE_VERSIONS_MAX = LIVE_HEAD_ROWS;
 
 function streamPath(rootId: string | null): string {
   return `/api/v1/streams/${encodeURIComponent(rootId ?? "")}`;
@@ -235,8 +242,24 @@ export function shareFeedByEntryId(
   });
 
   const pageParams = replaceEqualDeep(prev.pageParams, next.pageParams);
-  if (!pagesChanged && pageParams === prev.pageParams) return prev;
-  return { pages, pageParams };
+  // A refetch supplies server pages only. Keep client revision guards for
+  // this query's lifetime, including an identical first-page snapshot.
+  const resourceVersions = next.resourceVersions ?? prev.resourceVersions;
+  const resourceVersionFloor =
+    next.resourceVersionFloor ?? prev.resourceVersionFloor;
+  if (
+    !pagesChanged &&
+    pageParams === prev.pageParams &&
+    resourceVersions === prev.resourceVersions &&
+    resourceVersionFloor === prev.resourceVersionFloor
+  )
+    return prev;
+  return {
+    pages,
+    pageParams,
+    ...(resourceVersions ? { resourceVersions } : {}),
+    ...(resourceVersionFloor ? { resourceVersionFloor } : {}),
+  };
 }
 
 /** The one place the untyped react-query cache boundary is crossed. */
@@ -574,6 +597,53 @@ function upsertListed(
   return next;
 }
 
+/** Version guards apply only to IDs previously seen as resource posts. */
+export function isStaleResourceEvent(
+  cache: FeedCache | undefined,
+  block: Block
+): boolean {
+  const version = cache?.resourceVersions?.[block.id];
+  return version !== undefined && version > block.updatedAt;
+}
+
+/** Once a revision is evicted, an older unseen resource cannot safely be
+ * patched in. Refetch instead of guessing whether its absence was removal
+ * or pagination. Fresh server snapshots remain authoritative. */
+export function resourceEventNeedsRefetch(
+  cache: FeedCache | undefined,
+  block: Block
+): boolean {
+  return (
+    cache?.resourceVersionFloor !== undefined &&
+    cache.resourceVersions?.[block.id] === undefined &&
+    !cache.pages[0]?.threadLinks?.some(
+      (previous) => previous.id === block.id
+    ) &&
+    block.updatedAt <= cache.resourceVersionFloor &&
+    resourcesOf(block).length > 0
+  );
+}
+
+function rememberResourceVersion(cache: FeedCache, block: Block): FeedCache {
+  if (cache.resourceVersions?.[block.id] === block.updatedAt) return cache;
+  const versions = Object.entries({
+    ...cache.resourceVersions,
+    [block.id]: block.updatedAt,
+  }).sort(
+    ([idA, atA], [idB, atB]) => atB.localeCompare(atA) || idB.localeCompare(idA)
+  );
+  let floor = cache.resourceVersionFloor;
+  for (const [, at] of versions.slice(RESOURCE_VERSIONS_MAX))
+    if (floor === undefined || at > floor) floor = at;
+  return {
+    ...cache,
+    resourceVersions: Object.fromEntries(
+      versions.slice(0, RESOURCE_VERSIONS_MAX)
+    ),
+    ...(floor ? { resourceVersionFloor: floor } : {}),
+  };
+}
+
 /**
  * Keep what the first page carries from across the stream in step with a
  * block that changed: an agent's question or form for people is listed
@@ -585,8 +655,19 @@ export function syncAcrossStream(
   block: Block,
   childScope: LaunchReplyScope = true
 ): FeedCache | undefined {
-  if (!cache) return cache;
+  if (
+    !cache ||
+    isStaleResourceEvent(cache, block) ||
+    resourceEventNeedsRefetch(cache, block)
+  )
+    return cache;
   const original = cache;
+  let resourceRelated =
+    cache.resourceVersions?.[block.id] !== undefined ||
+    resourcesOf(block).length > 0 ||
+    (cache.pages[0]?.threadLinks ?? []).some(
+      (previous) => previous.id === block.id
+    );
   let stale = (cache.pages[0]?.threadLinks ?? []).some(
     (previous) =>
       previous.id === block.id && previous.updatedAt > block.updatedAt
@@ -594,6 +675,7 @@ export function syncAcrossStream(
   // A type replacement also updates paginated/shown copies before removing
   // the supplement, otherwise an older copy can resurrect the resource.
   cache = mapBlock(cache, block.id, (previous) => {
+    if (resourcesOf(previous).length > 0) resourceRelated = true;
     if (previous.updatedAt > block.updatedAt) {
       stale = true;
       return previous;
@@ -603,6 +685,7 @@ export function syncAcrossStream(
       : block;
   })!;
   if (stale) return original;
+  if (resourceRelated) cache = rememberResourceVersion(cache, block);
   const first = cache.pages[0];
   if (!first) return cache;
   const open =

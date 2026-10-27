@@ -26,6 +26,8 @@ import type {
 import {
   type FeedCache,
   LIVE_HEAD_ROWS,
+  RESOURCE_VERSIONS_MAX,
+  shareFeedCache,
   streamFeedQueryKey,
   threadQueryKey,
   useStreamFeed,
@@ -1858,6 +1860,130 @@ describe("live resource collections", () => {
       blockEntry({ ...latest, streamId: "another" })
     );
     expect(get(false).pages[0]!.threadLinks?.[0]).toEqual(latest);
+  });
+
+  it("retains supplement-only removal revisions across stale events and refetches, allowing genuinely newer resources", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { structuralSharing: shareFeedCache } },
+    });
+    const key = streamFeedQueryKey("agt_1");
+    const resource = block({
+      id: "supplement-only",
+      threadId: "old-host",
+      updatedAt: "2026-10-01T00:00:00Z",
+      attachments: [
+        { type: "preview", url: "https://example.com/app", title: "App" },
+      ],
+    });
+    client.setQueryData<FeedCache>(key, {
+      pageParams: [undefined],
+      pages: [page([], [resource])],
+    });
+    const get = () => client.getQueryData<FeedCache>(key)!;
+    const removed = {
+      ...resource,
+      updatedAt: "2026-10-02T00:00:00Z",
+      attachments: [],
+    };
+    applyStreamEntry(client, "agt_1", blockEntry(removed));
+    expect(get().pages[0]!.entries).toEqual([]);
+    expect(get().pages[0]!.threadLinks).toEqual([]);
+    expect(get().resourceVersions?.[resource.id]).toBe(removed.updatedAt);
+    // This ID has no loaded/shown/ordinary feed copy to guard its version.
+    const afterRemoval = get();
+    applyStreamEntry(client, "agt_1", blockEntry(resource));
+    expect(get()).toBe(afterRemoval);
+    // Authoritative refetch responses do not carry client revision metadata.
+    client.setQueryData<FeedCache>(key, {
+      pageParams: [undefined],
+      pages: [page([])],
+    });
+    applyStreamEntry(client, "agt_1", blockEntry(resource));
+    expect(get().pages[0]!.threadLinks).toEqual([]);
+    const newer = { ...resource, updatedAt: "2026-10-03T00:00:00Z" };
+    applyStreamEntry(client, "agt_1", blockEntry(newer));
+    expect(get().pages[0]!.threadLinks).toEqual([newer]);
+    expect(get().resourceVersions?.[resource.id]).toBe(newer.updatedAt);
+    client.removeQueries({ queryKey: key, exact: true });
+    expect(client.getQueryData(key)).toBeUndefined();
+  });
+
+  it("bounds revision metadata independently of resources and refetches ambiguous old events after eviction", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { structuralSharing: shareFeedCache } },
+    });
+    const key = streamFeedQueryKey("agt_1");
+    client.setQueryData<FeedCache>(key, {
+      pageParams: [undefined],
+      pages: [page([])],
+    });
+    const get = () => client.getQueryData<FeedCache>(key)!;
+    const resource = (id: string, minute: number) =>
+      block({
+        id,
+        threadId: "old-host",
+        updatedAt: new Date(Date.UTC(2026, 10, 1, 0, minute)).toISOString(),
+        attachments: [
+          { type: "preview", url: `https://example.com/${id}`, title: id },
+        ],
+      });
+    for (let i = 0; i <= RESOURCE_VERSIONS_MAX; i++) {
+      const posted = resource(`removed-${i}`, i * 2);
+      applyStreamEntry(client, "agt_1", blockEntry(posted));
+      applyStreamEntry(
+        client,
+        "agt_1",
+        blockEntry({
+          ...posted,
+          attachments: [],
+          updatedAt: new Date(
+            Date.UTC(2026, 10, 1, 0, i * 2 + 1)
+          ).toISOString(),
+        })
+      );
+    }
+    expect(Object.keys(get().resourceVersions!)).toHaveLength(
+      RESOURCE_VERSIONS_MAX
+    );
+    expect(get().resourceVersions?.["removed-0"]).toBeUndefined();
+    expect(get().resourceVersionFloor).toBeDefined();
+    expect(get().pages[0]!.threadLinks).toEqual([]);
+    const versions = get().resourceVersions;
+    for (let i = 0; i < RESOURCE_VERSIONS_MAX + 1; i++)
+      applyStreamEntry(
+        client,
+        "agt_1",
+        blockEntry(
+          block({
+            id: `generic-${i}`,
+            threadId: "old-host",
+            attachments: [{ type: "link", url: `https://docs.test/${i}` }],
+          })
+        )
+      );
+    expect(get().resourceVersions).toBe(versions);
+    // An evicted ID or previously unseen old resource may be a replay. It
+    // cannot be patched in until a server snapshot confirms current state.
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    applyStreamEntry(client, "agt_1", blockEntry(resource("removed-0", 0)));
+    expect(invalidate).toHaveBeenCalled();
+    expect(get().pages[0]!.threadLinks).toEqual([]);
+    invalidate.mockClear();
+    const oldButValid = resource("old-valid", 0);
+    applyStreamEntry(client, "agt_1", blockEntry(oldButValid));
+    expect(invalidate).toHaveBeenCalled();
+    expect(get().pages[0]!.threadLinks).toEqual([]);
+    client.setQueryData<FeedCache>(key, {
+      pageParams: [undefined],
+      pages: [page([], [oldButValid])],
+    });
+    expect(get().pages[0]!.threadLinks).toEqual([oldButValid]);
+    invalidate.mockClear();
+    applyStreamEntry(client, "agt_1", blockEntry(oldButValid));
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(Object.keys(get().resourceVersions!)).toHaveLength(
+      RESOURCE_VERSIONS_MAX
+    );
   });
 
   it("recovers thread resources arriving during first fetch and replaces them on reconnect", async () => {

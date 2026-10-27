@@ -21,6 +21,8 @@ import {
   applyStreamRead,
   bumpReplyCount,
   syncAcrossStream,
+  isStaleResourceEvent,
+  resourceEventNeedsRefetch,
   type FeedCache,
   LIVE_HEAD_ROWS,
   replaceThreadRoot,
@@ -234,6 +236,17 @@ export function applyStreamEntry(
       (old) => replaceThreadRoot(old, reply)
     );
     for (const feed of feeds) {
+      if (isStaleResourceEvent(feed.state.data as FeedCache | undefined, reply))
+        continue;
+      if (
+        resourceEventNeedsRefetch(
+          feed.state.data as FeedCache | undefined,
+          reply
+        )
+      ) {
+        invalidateStreamFeed(queryClient, agentId);
+        continue;
+      }
       const scope =
         feed.queryKey[2] === "launch-replies"
           ? (feed.queryKey[3] as boolean | string)
@@ -300,7 +313,11 @@ function applyFeedEntry(
   entry: StreamEntry
 ): void {
   const state = queryClient.getQueryState<FeedCache>(key);
-  if (!state) return;
+  if (!state || isStaleResourceEvent(state.data, entry.block)) return;
+  if (resourceEventNeedsRefetch(state.data, entry.block)) {
+    invalidateStreamFeed(queryClient, agentId);
+    return;
+  }
   // A fetch in flight (the feed's first load, or a refetch) may already have
   // read the row's earlier version from the DB, or may resolve before this
   // event's write is visible there — either way its response won't reflect
