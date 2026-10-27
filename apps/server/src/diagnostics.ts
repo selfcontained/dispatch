@@ -1,6 +1,5 @@
 import {
   appendFile,
-  copyFile,
   mkdir,
   open,
   readdir,
@@ -17,16 +16,21 @@ import type { FastifyBaseLogger } from "fastify";
 import { errorMessage } from "./shared/lib/error-message.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { statePath } from "./state-dir.js";
+import { isMacAppManaged } from "./update-owner.js";
 
 const TMUX_INVENTORY_INTERVAL_MS = 60_000;
 const LOG_MAINTENANCE_INTERVAL_MS = 5 * 60_000;
-const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 MiB
 const DIAGNOSTICS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const SERVER_LOG_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
 const diagnosticsRoot = (): string => statePath("diagnostics");
 
-const serverLogPath = (): string => statePath("logs", "dispatch.log");
+// Match ServerLauncher.swift, not the legacy installer launchd path.
+export const serverLogPath = (): string =>
+  isMacAppManaged()
+    ? statePath("server.log")
+    : statePath("logs", "dispatch.log");
 
 /**
  * Wrapper that swallows runCommand failures into a structured result so
@@ -79,42 +83,95 @@ export async function rotateFile(
   }
 }
 
+/** Read a fixed snapshot tail; never copy an unbounded historical log. */
+async function readLogTail(
+  file: Awaited<ReturnType<typeof open>>,
+  size: number
+) {
+  const length = Math.min(size, MAX_LOG_SIZE_BYTES);
+  const buffer = Buffer.alloc(length);
+  let read = 0;
+  while (read < length) {
+    const { bytesRead } = await file.read(
+      buffer,
+      read,
+      length - read,
+      size - length + read
+    );
+    if (bytesRead === 0) break;
+    read += bytesRead;
+  }
+  return buffer.subarray(0, read);
+}
+
 /**
- * Copy the file to a `.1` backup, then truncate it in place. Preserves
- * any open file descriptors (e.g. launchd's stdout/stderr handle on the
- * server log), which is why we copy-truncate rather than rename-rotate.
- *
- * Has the same small data-loss window between copy and truncate as
- * `logrotate copytruncate` — acceptable for diagnostic logs.
- *
- * Exported for unit testing.
+ * Retain at most maxBackups bounded tails, then truncate the active inode.
+ * Writers MUST use O_APPEND: preserving an inode alone does not reset a
+ * non-append writer's offset. Both native Mac and installer launchd use append.
+ * Writes between the snapshot and truncate can be lost (copytruncate's window).
  */
 export async function copyTruncateFile(
   filePath: string,
   maxBackups: number
 ): Promise<void> {
+  // Repair historical backups too, even when the active file is small.
+  let entries: string[];
   try {
-    const s = await stat(filePath);
-    if (s.size < MAX_LOG_SIZE_BYTES) return;
-  } catch {
-    return;
+    entries = await readdir(path.dirname(filePath));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
   }
-
-  // Shift existing backups
-  for (let i = maxBackups; i >= 2; i--) {
+  const prefix = `${path.basename(filePath)}.`;
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix)) continue;
+    const suffix = entry.slice(prefix.length);
+    if (!/^[1-9]\d*$/.test(suffix)) continue;
+    const backupPath = path.join(path.dirname(filePath), entry);
+    if (Number(suffix) > maxBackups) {
+      await unlink(backupPath);
+      continue;
+    }
+    const backup = await open(backupPath, "r+");
     try {
-      await rename(`${filePath}.${i - 1}`, `${filePath}.${i}`);
-    } catch {
-      /* missing */
+      const metadata = await backup.stat();
+      const { size } = metadata;
+      if (size > MAX_LOG_SIZE_BYTES) {
+        const tail = await readLogTail(backup, size);
+        await backup.writeFile(tail);
+        await backup.truncate(tail.length);
+        await backup.utimes(metadata.atime, metadata.mtime);
+      }
+    } finally {
+      await backup.close();
     }
   }
 
-  await copyFile(filePath, `${filePath}.1`);
-  const fh = await open(filePath, "r+");
+  let file;
   try {
-    await fh.truncate(0);
+    file = await open(filePath, "r+");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  try {
+    const { size } = await file.stat();
+    if (size < MAX_LOG_SIZE_BYTES) return;
+    for (let i = maxBackups; i >= 2; i--) {
+      try {
+        await rename(`${filePath}.${i - 1}`, `${filePath}.${i}`);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    if (maxBackups > 0) {
+      await writeFile(`${filePath}.1`, await readLogTail(file, size), {
+        mode: 0o600,
+      });
+    }
+    await file.truncate(0);
   } finally {
-    await fh.close();
+    await file.close();
   }
 }
 
@@ -154,7 +211,7 @@ export async function deleteOldFiles(
 
 export type DiagnosticsRecorder = {
   /**
-   * Rotate the dispatch server log when it exceeds 10 MB, and prune
+   * Rotate the selected server log when it reaches 10 MiB, and prune
    * diagnostic JSON / rotated log files older than the configured retention
    * windows. Throttled to once every five minutes.
    */
@@ -163,14 +220,13 @@ export type DiagnosticsRecorder = {
 
 /**
  * Build a diagnostics recorder bound to the given logger. The recorder
- * owns just two things: the throttle clocks for the two `maybe*`
- * methods, and the bound logger used to swallow-and-warn on capture
- * failures. All file/process work is delegated to module-scope helpers.
+ * owns the maintenance throttle clock and the logger used to warn on failures.
+ * All file/process work is delegated to module-scope helpers.
  */
 export function createDiagnosticsRecorder(
   logger: FastifyBaseLogger
 ): DiagnosticsRecorder {
-  let lastLogMaintenanceAt = 0;
+  let lastLogMaintenanceAt = -Infinity;
 
   return {
     async maybeMaintenanceLogs(): Promise<void> {
@@ -181,8 +237,9 @@ export function createDiagnosticsRecorder(
       lastLogMaintenanceAt = now;
 
       try {
-        // Rotate dispatch.log via copytruncate (keep 3 backups)
-        await copyTruncateFile(serverLogPath(), 3);
+        // Rotate the launcher-selected log via copytruncate (keep 3 bounded tails)
+        const logPath = serverLogPath();
+        await copyTruncateFile(logPath, 3);
 
         // Delete old diagnostics JSON files (> 7 days)
         await deleteOldFiles(
@@ -193,8 +250,8 @@ export function createDiagnosticsRecorder(
 
         // Delete old rotated server logs (> 14 days)
         await deleteOldFiles(
-          statePath("logs"),
-          /dispatch\.log\.\d+$/,
+          path.dirname(logPath),
+          isMacAppManaged() ? /^server\.log\.\d+$/ : /^dispatch\.log\.\d+$/,
           SERVER_LOG_MAX_AGE_MS
         );
       } catch (error) {

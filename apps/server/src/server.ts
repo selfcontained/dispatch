@@ -24,6 +24,10 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
+import {
+  httpLoggingOptions,
+  registerHttpLogging,
+} from "./server/http-logging.js";
 import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
@@ -152,9 +156,10 @@ import { registerUpdateRecoveryRoutes } from "./routes/update-recovery.js";
 const config = loadConfig();
 const app = Fastify({
   routerOptions: { maxParamLength: MAX_ENCODED_FILE_NAME_LENGTH },
-  logger: true,
+  ...httpLoggingOptions(),
   ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
 });
+registerHttpLogging(app);
 const pool = createPool(config);
 const serviceResourcesProbePool = createServiceResourcesProbePool(config);
 const agentManager = new AgentManager(pool, app.log, config);
@@ -1007,6 +1012,7 @@ export async function initializeApp(options?: {
 }): Promise<typeof app> {
   // Read before the database is touched: invalid probation fails closed.
   await updateRecoveryRuntime.loadProbation();
+  await agentManager.maintainServerLogs();
   await waitForDatabase();
   const shouldRunMigrations =
     options?.runMigrations ?? process.env.SKIP_MIGRATIONS !== "1";

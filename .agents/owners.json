@@ -331,6 +331,22 @@
     {
       "paths": ["e2e/message-sharing.spec.ts"],
       "personas": ["stream-delivery-owner", "mcp-contract-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/diagnostics.ts",
+        "apps/server/test/diagnostics-helpers.test.ts",
+        "docs/10-operations-runbook.md",
+        "apps/server/test/process-tree-fixture.test.ts"
+      ],
+      "personas": ["release-update-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/server/http-logging.ts",
+        "apps/server/test/http-logging.test.ts"
+      ],
+      "personas": ["auth-trust-owner"]
     }
   ],
   "fallback": ["code-review"]

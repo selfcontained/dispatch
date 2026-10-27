@@ -2246,6 +2246,11 @@ export class AgentManager {
     return readWorktreeStatus(agent.worktreePath);
   }
 
+  /** Run the existing recorder before DB startup as well as on reconcile ticks. */
+  async maintainServerLogs(): Promise<void> {
+    await this.diagnostics.maybeMaintenanceLogs();
+  }
+
   async reconcileAgents(): Promise<void> {
     // Two passes: status reconciliation + orphan-session cleanup. The
     // SSE broadcaster doesn't need the changed-record list at this

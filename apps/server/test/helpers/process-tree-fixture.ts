@@ -1,5 +1,29 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+
+/** A newline marks a complete publication; bare digit prefixes are not ready. */
+export function readFixturePid(file: string): number | undefined {
+  let contents: string;
+  try {
+    contents = readFileSync(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (!/^[1-9]\d*\n$/.test(contents)) return undefined;
+  const pid = Number(contents);
+  return Number.isSafeInteger(pid) && pid <= 0x7fffffff ? pid : undefined;
+}
+
+export async function waitForFixturePid(file: string): Promise<number> {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const pid = readFixturePid(file);
+    if (pid !== undefined) return pid;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`${file} never published a complete positive PID`);
+}
 
 /**
  * Writes a tiny two-process fixture standing in for a real test launcher
@@ -39,7 +63,8 @@ if (!stubborn) {
   process.on("SIGTERM", () => {});
   process.on("SIGINT", () => {});
 }
-fs.writeFileSync(readyFile, String(process.pid));
+fs.writeFileSync(readyFile + ".tmp", String(process.pid) + "\\n");
+fs.renameSync(readyFile + ".tmp", readyFile);
 setInterval(() => {}, 1000);
 `
   );
@@ -53,7 +78,9 @@ const fs = require("fs");
 const worker = spawn(process.execPath, [${JSON.stringify(workerScript)}], {
   stdio: "ignore",
 });
-fs.writeFileSync(${JSON.stringify(launcherReadyFile)}, String(worker.pid));
+const readyFile = ${JSON.stringify(launcherReadyFile)};
+fs.writeFileSync(readyFile + ".tmp", String(worker.pid) + "\\n");
+fs.renameSync(readyFile + ".tmp", readyFile);
 // Deliberately no signal handlers: see the module doc above.
 setInterval(() => {}, 1000);
 `

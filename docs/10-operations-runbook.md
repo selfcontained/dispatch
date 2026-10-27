@@ -26,7 +26,8 @@ The server runs as a **compiled Bun binary** at its fixed runtime path (normally
 - `release.json` — the currently deployed tag and `deployedAt` timestamp
 - `release-candidate.json` — a just-activated release, promoted into `release.json` once it boots healthy
 - `cache/release-<tag>.tar.gz` — cached pre-built release artifacts (override dir with `DISPATCH_RELEASE_CACHE_DIR`)
-- `logs/dispatch.log` — service stdout/stderr (rotated by the server, see Diagnostics)
+- `server.log` — native Mac app stdout/stderr (under `~/.dispatch-mac` by default)
+- `logs/dispatch.log` — macOS installer launchd stdout/stderr (see Diagnostics)
 - `agents/<agentId>/` — per-agent host state: launch file, socket, pid, journal, log (see Diagnostics)
 
 ## Service Management
@@ -213,6 +214,77 @@ it rather than a spawn error.
 
 ## Diagnostics
 
+### Server output and retention
+
+The native Mac app opens `<state>/server.log` with `O_APPEND`, duplicates that
+handle onto stdout/stderr, and sets `DISPATCH_STATE_DIR` (normally
+`~/.dispatch-mac`) and `DISPATCH_UPDATE_OWNER=macos-app` for the server.
+The recorder selects that path only for the app-owned runtime. The artifact
+installer's macOS launchd plist instead directs both streams to
+`<state>/logs/dispatch.log`; other runtimes retain that legacy file path if it
+exists. No file is created just to collect console output.
+
+The existing diagnostics recorder checks once before database connection retries
+at startup, including probation starts, then through normal agent reconciliation
+(30-second ticks, throttled to once every five minutes). Probation and callers
+that disable reconciliation get the startup check only. An unavailable database,
+a stalled reconciler, a suspended machine or a stopped server delays subsequent
+checks. At a check, a log of at least 10 MiB is copied as its **last 10 MiB** to
+`.1` and truncated in place. Three numbered backups are retained, each at most
+10 MiB; oversized historical backups are trimmed and excess numbered backups
+removed even if the active file is small. Rotated backups older than 14 days are
+removed; diagnostic JSON retention remains seven days. The retained tail can
+start partway through a line. These are polling thresholds, not a hard active
+file disk quota: output can exceed 10 MiB between checks. A startup with a huge
+historical file reads only its bounded tail rather than copying the whole file.
+
+Copytruncate keeps the active inode and open append descriptors usable across
+rotation. Writes between the tail snapshot and truncation can be lost; this is
+best-effort diagnostic retention, not an audit trail. Both the native launcher
+and [Apple's published launchd implementation](https://github.com/apple-oss-distributions/launchd/blob/main/src/core.c)
+use append-mode stdout/stderr descriptors. The launchd evidence is source-level,
+not live validation of every macOS version. Copytruncate is **unsupported for
+non-append writers**: a manual `>` redirection keeps its old offset after a
+truncate and can create sparse holes. Use `>>` when redirecting into a managed
+log path, or let an external collector own an unrelated output file. Arbitrary
+manual stdout/stderr paths are not discovered or rotated.
+
+On Linux, `bin/install-dispatch.sh` does not redirect stdout/stderr in its
+systemd user unit. The normal systemd defaults send stdout to the journal and
+stderr inherits it. Journald owns retention, not this file recorder. Dispatch
+installs no per-service journal quota. Journal storage and limits depend on the
+host's systemd version, build and administrator settings (see
+[systemd's output defaults](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#StandardOutput=)
+and [journald retention settings](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)).
+Inspect `journalctl --user -u dispatch-server.service` and the host configuration; do
+not interpret journal-wide size defaults as a hard limit for Dispatch alone.
+This routing is verified from the generated unit, not a live Linux service.
+
+### HTTP request logging
+
+At the default info level, successful HTTP requests produce no incoming/completed
+pairs. Startup messages and explicit application warnings/errors remain. Returned
+4xx responses log a warning and 5xx responses log an error; thrown request errors,
+timeouts and aborted requests are also logged. Request records include the
+request ID, method, registered route template and status (plus elapsed time for
+completed responses). Unknown routes omit the path. New request records exclude
+raw URLs, parameter/query values, headers, bodies and thrown error text, which
+can contain credentials. Thrown failures retain allowlisted built-in error types
+and Fastify/system error codes, plus the first available location within the
+server source tree (relative path and line/column). Compiled Bun virtual frames
+retain only a `bundled-server` label and line/column. Other stack text and unknown
+error names/codes are omitted. Application code can still emit its own diagnostic
+errors; this policy does not sanitize every explicit application log message.
+
+For temporary troubleshooting, set `DISPATCH_HTTP_DEBUG=1` in a manual or
+installer-managed server's environment and restart it. This enables safe
+received/completed pairs at debug level and other application debug messages;
+remove the variable and restart to return to info. The native app deliberately
+scrubs inherited `DISPATCH_*` environment variables, so a shell export does not
+enable this setting in the app-owned server. Rotation preserves the native
+`server.log` pathname and inode for existing log readers. If an older incident is needed, inspect the bounded `.1`–`.3`
+backups separately.
+
 Health check:
 
 ```bash
@@ -290,14 +362,15 @@ Hosts run in their own process group, so a Dispatch restart never takes them dow
 
 ## File Locations
 
-| Path                                               | Description                                                                |
-| -------------------------------------------------- | -------------------------------------------------------------------------- |
-| `<state>/server/`                                  | Server checkout (deploy target)                                            |
-| `<state>/server/.env`                              | Server environment config                                                  |
-| `<state>/server/dist/bun/`                         | Compiled Bun binaries the wrapper execs                                    |
-| `<state>/release.json`                             | Currently deployed tag + `deployedAt` timestamp                            |
-| `<state>/release-candidate.json`                   | Just-activated release awaiting a healthy boot                             |
-| `<state>/cache/release-<tag>.tar.gz`               | Cached pre-built release artifacts keyed by tag                            |
-| `<state>/logs/dispatch.log`                        | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days) |
-| `<state>/agents/<agentId>/`                        | Per-agent host state: launch file, socket, pid, journal, host log          |
-| `~/Library/LaunchAgents/dev.dispatch.server.plist` | launchd service definition (points at the fixed runtime)                   |
+| Path                                               | Description                                                            |
+| -------------------------------------------------- | ---------------------------------------------------------------------- |
+| `<state>/server/`                                  | Server checkout (deploy target)                                        |
+| `<state>/server/.env`                              | Server environment config                                              |
+| `<state>/server/dist/bun/`                         | Compiled Bun binaries the wrapper execs                                |
+| `<state>/release.json`                             | Currently deployed tag + `deployedAt` timestamp                        |
+| `<state>/release-candidate.json`                   | Just-activated release awaiting a healthy boot                         |
+| `<state>/cache/release-<tag>.tar.gz`               | Cached pre-built release artifacts keyed by tag                        |
+| `<state>/server.log`                               | Native Mac app output (10 MiB bounded tails, 3 backups, up to 14 days) |
+| `<state>/logs/dispatch.log`                        | macOS installer output (same retention; Linux normally uses journald)  |
+| `<state>/agents/<agentId>/`                        | Per-agent host state: launch file, socket, pid, journal, host log      |
+| `~/Library/LaunchAgents/dev.dispatch.server.plist` | launchd service definition (points at the fixed runtime)               |
