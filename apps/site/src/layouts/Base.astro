@@ -3,17 +3,15 @@ import "../styles/global.css";
 
 interface Props {
   title: string;
-  description?: string;
+  description: string;
+  noindex?: boolean;
 }
 
-const { title, description = "A local-first shared workspace for humans and coding agents to collaborate on software." } = Astro.props;
-const currentPath = Astro.url.pathname;
-const navigation = [
-  ["How it works", "/collaboration"],
-  ["Ideas", "/philosophy"],
-  ["Architecture", "/architecture"],
-  ["Docs", "/docs"],
-] as const;
+const { title, description, noindex = false } = Astro.props;
+const currentPath = Astro.url.pathname.replace(/\/$/, "") || "/";
+const canonical = new URL(currentPath, Astro.site);
+const pageTitle = `${title} · Dispatch`;
+const socialImage = new URL("/captures/kanban-board.webp", Astro.site);
 ---
 
 <!doctype html>
@@ -22,30 +20,70 @@ const navigation = [
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <link rel="canonical" href={canonical} />
     <link rel="icon" href="/brand-icon.svg" type="image/svg+xml" />
-    <title>{title} · Dispatch</title>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Dispatch" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={socialImage} />
+    <meta property="og:image:width" content="1920" />
+    <meta property="og:image:height" content="800" />
+    <meta
+      property="og:image:alt"
+      content="Dispatch development build with staged project tasks on a kanban board"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialImage} />
+    <title>{pageTitle}</title>
   </head>
   <body>
-    <header class="site-header">
-      <a class="wordmark" href="/" aria-label="Dispatch home"><img src="/brand-full-logo.svg" alt="Dispatch" /></a>
-      <nav aria-label="Primary navigation">
-        {navigation.map(([label, href]) => (
-          <a href={href} aria-current={currentPath === href ? "page" : undefined}>{label}</a>
-        ))}
-      </nav>
-      <details class="mobile-nav">
-        <summary>Menu</summary>
-        <div>
-          {navigation.map(([label, href]) => <a href={href}>{label}</a>)}
-          <a href="/principles">Principles</a>
+    <a class="skip-link" href="#content">Skip to content</a>
+    {
+      currentPath === "/" && (
+        <div class="motion-controls">
+          <button class="motion" id="motion" type="button" aria-pressed="false">
+            Pause motion
+          </button>
         </div>
-      </details>
-      <a class="github-link" href="https://github.com/selfcontained/dispatch">GitHub ↗</a>
+      )
+    }
+    <header>
+      <a href="/" aria-label="Dispatch home"
+        ><img
+          class="logo"
+          src="/brand-full-logo.svg"
+          width="1054"
+          height="286"
+          alt="Dispatch"
+        /></a
+      >
+      <nav aria-label="Primary navigation">
+        <a class="product-nav" href="/#product">Product</a>
+        <a
+          href="/docs"
+          aria-current={currentPath.startsWith("/docs") ? "page" : undefined}
+          >Docs</a
+        >
+        <a
+          class="cta"
+          href="/start"
+          aria-current={currentPath === "/start" ? "page" : undefined}
+          >Get started ↗</a
+        >
+      </nav>
     </header>
-    <main><slot /></main>
+    <main id="content" tabindex="-1"><slot /></main>
     <footer>
-      <span>Dispatch is an ongoing engineering project.</span>
-      <a href="https://github.com/selfcontained/dispatch">Read the source ↗</a>
+      <span>Dispatch</span><div>
+        <a href="/docs">Docs</a><a
+          href="https://github.com/selfcontained/dispatch">GitHub ↗</a
+        >
+      </div>
     </footer>
   </body>
 </html>

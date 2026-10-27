@@ -1,11 +1,20 @@
 ---
 import Base from "../layouts/Base.astro";
 ---
-<Base title="Page not found">
-  <section class="hero">
-    <p class="eyebrow">404</p>
-    <h1>This page does not exist.</h1>
-    <p class="summary">The useful pages are linked from the site navigation.</p>
-    <div class="actions"><a class="button primary" href="/">Return home</a></div>
+
+<Base
+  title="Page not found"
+  description="Find your way back to Dispatch and its usage guides."
+  noindex
+>
+  <section class="page-head">
+    <span class="page-kicker">404</span>
+    <h1>That page isn't here.</h1>
+    <p>Find your next step in the guides, or head back to Dispatch.</p>
   </section>
+  <div class="docs-content related-links">
+    <a href="/">Home →</a><a href="/docs">All guides →</a><a href="/start"
+      >Get started →</a
+    >
+  </div>
 </Base>

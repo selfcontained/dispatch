@@ -1,0 +1,144 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Get started"
+  description="Install Dispatch on macOS or Linux and connect the Claude Code and Codex accounts you already use."
+>
+  <section class="page-head">
+    <span class="page-kicker">GET STARTED</span><h1>Get Dispatch running.</h1><p
+    >
+      Your machine. Your Claude Code and Codex subscriptions.
+    </p>
+  </section>
+  <div class="start-content">
+    <div class="setup-prelude">
+      <span class="step-index">01</span><div>
+        <h2>Bring the tools you already use.</h2><p>
+          Bring your existing Claude Code and Codex setup. Sign in to the tools
+          you use on the machine that will run Dispatch.
+        </p>
+      </div>
+    </div>
+    <section class="install-grid" aria-label="Choose your platform">
+      <article class="install-card mac">
+        <div class="platform-heading">
+          <h2>macOS</h2><span class="platform-meta">13+ · Apple Silicon</span>
+        </div><p class="platform-lede">
+          A menu bar app that opens Dispatch in your browser.
+        </p><ol>
+          <li>Unzip the download and move Dispatch.app to Applications.</li><li>
+            Open Dispatch. In Settings, choose <b>Save</b>, then <b
+              >Start Server</b
+            >.
+          </li><li>
+            Allow background operation in System Settings if asked.
+          </li><li>
+            When ready, choose <b>Open Dispatch</b> from the menu bar.
+          </li>
+        </ol><a
+          class="cta"
+          href="https://github.com/selfcontained/dispatch/releases/download/v1.4.4/dispatch-macos-39972130235.1-arm64.zip"
+          >Download for macOS ↗</a
+        ><p class="release-caption">Stable v1.4.4 · arm64 ZIP</p><a
+          class="quiet-link"
+          href="/docs/setup">Startup or browser certificate help →</a
+        >
+      </article>
+      <article class="install-card linux">
+        <div class="platform-heading">
+          <h2>Linux</h2><span class="platform-meta"
+            >PostgreSQL 14+ · systemd</span
+          >
+        </div><p class="platform-lede">
+          Requires PostgreSQL 14+ and a working systemd user session.
+        </p><ol>
+          <li>
+            Install and start PostgreSQL 14+ with <code>psql</code> available.
+          </li><li>
+            Run the command below as your normal user in a terminal.
+          </li><li>When installation finishes, open the printed URL.</li>
+        </ol><div class="command">
+          <code id="linux-command"
+            >curl -fsSL
+            https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh
+            | bash -s -- --channel stable</code
+          ><button class="copy-button" data-copy="linux-command"
+            >Copy command</button
+          ><span class="copy-status" aria-live="polite"></span>
+        </div><p class="release-caption">
+          Installs and starts Stable · sudo may be requested for setup
+        </p><details class="install-help">
+          <summary>Linux prerequisites</summary><p>
+            The installer also needs curl, tar, openssl and flock. You need
+            local PostgreSQL administrator access, normally through sudo. Run it
+            from a terminal so it can prompt.
+          </p>
+        </details><a
+          class="quiet-link"
+          href="https://github.com/selfcontained/dispatch/blob/v1.4.4/bin/install-dispatch.sh"
+          >Read the installer ↗</a
+        >
+      </article>
+    </section>
+    <section class="release-strip" aria-label="Release channels">
+      <div>
+        <span class="channel stable">STABLE</span><p>
+          Start here for the promoted release.
+        </p>
+      </div><div>
+        <span class="channel preview">PREVIEW</span><p>
+          Includes project task boards. Choose it deliberately.
+        </p>
+      </div><a href="https://github.com/selfcontained/dispatch/releases"
+        >Compare releases ↗</a
+      >
+    </section>
+    <section class="first-agent">
+      <div class="setup-prelude">
+        <span class="step-index">02</span><div>
+          <h2>Give your first agent a task.</h2><p>
+            Open Dispatch, choose a folder and an agent, then give it a focused
+            assignment. Read the stream and answer when it needs you.
+          </p>
+        </div>
+      </div><div class="first-path">
+        <span>Choose a folder</span><b>→</b><span>Start an agent</span><b>→</b
+        ><span>Follow the stream</span>
+      </div><div class="related-links">
+        <a href="/docs/agents">Start an agent →</a><a href="/docs/setup"
+          >Setup help →</a
+        >
+      </div>
+    </section>
+    <div class="setup-footnote">
+      Dispatch runs locally. Your agent providers, accounts and usage limits
+      still apply. Keep the host available while agents work.
+    </div>
+  </div>
+</Base>
+
+<script>
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-copy]")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        const code = document.getElementById(button.dataset.copy ?? "");
+        const status = button.parentElement?.querySelector(".copy-status");
+        if (!code || !status) return;
+        try {
+          await navigator.clipboard.writeText(code.textContent ?? "");
+          status.textContent = "Copied";
+          button.textContent = "Copy again";
+        } catch {
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          const selection = getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+          status.textContent = "Command selected — copy with your keyboard";
+        }
+      });
+    });
+</script>

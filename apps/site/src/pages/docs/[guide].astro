@@ -1,0 +1,66 @@
+---
+import Base from "../../layouts/Base.astro";
+import { guides } from "../../content/guides";
+
+export function getStaticPaths() {
+  return guides.map((guide) => ({
+    params: { guide: guide.id },
+    props: { guide },
+  }));
+}
+const { guide } = Astro.props;
+const next = guides.find((entry) => entry.id === guide.next)!;
+---
+
+<Base title={guide.title} description={guide.desc}>
+  <div class="guide-layout">
+    <aside class="docs-sidebar" aria-label="Usage guides">
+      <a class="back" href="/docs">← All guides</a>
+      <span class="sidebar-caption">USE DISPATCH</span>
+      {
+        guides.map((entry) => (
+          <a
+            href={`/docs/${entry.id}`}
+            data-doc={entry.id}
+            aria-current={entry.id === guide.id ? "page" : undefined}
+          >
+            {entry.label}
+          </a>
+        ))
+      }
+      <a class="sidebar-start" href="/start">Installation →</a>
+    </aside>
+    <article id="guide-body">
+      <span class="page-kicker"
+        >{guide.label}{
+          "badge" in guide && <span class="badge">{guide.badge}</span>
+        }</span
+      >
+      <h1>{guide.title}</h1>
+      <p class="guide-intro">{guide.intro}</p>
+      <div class="prereq"><b>Before you start</b><br />{guide.needs}</div>
+      {
+        guide.steps.map(([heading, body], index) => (
+          <section class="guide-step">
+            <>
+              <h2>
+                {String(index + 1).padStart(2, "0")} · {heading}
+              </h2>
+              <p>{body}</p>
+            </>
+          </section>
+        ))
+      }
+      <div class="result">
+        <strong>What you should have</strong><p>{guide.result}</p>
+      </div>
+      <a class="guide-next" href={`/docs/${next.id}`}>Next: {next.label} →</a>
+      <p class="guide-reference">
+        Need more detail? Open the in-app Docs or browse <a
+          href="https://github.com/selfcontained/dispatch/tree/main/docs"
+          >source and contributor references ↗</a
+        >.
+      </p>
+    </article>
+  </div>
+</Base>
