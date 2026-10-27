@@ -13,11 +13,20 @@ import {
 
 const repo = mkdtempSync(join(tmpdir(), "dispatch-session-links-"));
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
-function postedId(response: Record<string, unknown>): string {
-  return JSON.parse(
+function postedBlock(response: Record<string, unknown>): {
+  id: string;
+  streamId: string;
+  threadId: string | null;
+  replyTo: string | null;
+} {
+  const receipt = JSON.parse(
     (response.result as { content: Array<{ text: string }> }).content[0]!.text
-  ).id;
+  );
+  expect(receipt.id).toEqual(expect.any(String));
+  expect(receipt.streamId).toEqual(expect.any(String));
+  return receipt;
 }
+
 for (const width of [1280, 390]) {
   test(`passive task, stream, thread and Inbox identities open exact child sessions at ${width}px`, async ({
     page,
@@ -124,12 +133,20 @@ for (const width of [1280, 390]) {
         contentType: "image/png",
       });
 
-      const streamPost = postedId(
+      // A child's home is its launch-card thread. Start at the stream root
+      // so this post itself hosts the discussion opened by the UI below.
+      const streamReceipt = postedBlock(
         await callMcpToolViaAPI(request, child.id, "post", {
           text: "Child stream identity",
-          placement: "home",
+          placement: "root",
         })
       );
+      expect(streamReceipt).toMatchObject({
+        streamId: root.id,
+        threadId: null,
+        replyTo: null,
+      });
+      const streamPost = streamReceipt.id;
       await page.goto(`/agents/${root.id}?project=${project.id}`, {
         waitUntil: "domcontentloaded",
       });
@@ -142,8 +159,15 @@ for (const width of [1280, 390]) {
         childPost.getByTestId("chat-post-author").getByRole("link"),
         child.id
       );
-      await callMcpToolViaAPI(request, child.id, "post", {
-        text: "Child reply identity",
+      const replyReceipt = postedBlock(
+        await callMcpToolViaAPI(request, child.id, "post", {
+          text: "Child reply identity",
+          replyTo: streamPost,
+        })
+      );
+      expect(replyReceipt).toMatchObject({
+        streamId: root.id,
+        threadId: streamPost,
         replyTo: streamPost,
       });
       await childPost.getByTestId("chat-reply-in-thread").click();
@@ -166,13 +190,14 @@ for (const width of [1280, 390]) {
         contentType: "image/png",
       });
 
-      const checklist = postedId(
+      const checklistReceipt = postedBlock(
         await callMcpToolViaAPI(request, child.id, "post", {
           text: "Child linked plan",
           tasks: { items: [{ id: "one", text: "Verify" }] },
           placement: "home",
         })
       );
+      const checklist = checklistReceipt.id;
       await page.goto(`/agents/${root.id}?project=${project.id}`, {
         waitUntil: "domcontentloaded",
       });

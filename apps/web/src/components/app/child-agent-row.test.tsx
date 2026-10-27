@@ -167,16 +167,18 @@ describe("ChildAgentRow", () => {
     );
     render(
       <QueryClientProvider client={client}>
-        <Avatar
-          author={{
-            key: "child",
-            kind: "peer",
-            agentId: baseAgent.id,
-            treeRootId: baseAgent.parentAgentId!,
-            name: baseAgent.name,
-            seat: 2,
-          }}
-        />
+        <MemoryRouter>
+          <Avatar
+            author={{
+              key: "child",
+              kind: "peer",
+              agentId: baseAgent.id,
+              treeRootId: baseAgent.parentAgentId!,
+              name: baseAgent.name,
+              seat: 2,
+            }}
+          />
+        </MemoryRouter>
       </QueryClientProvider>
     );
     expect(
@@ -229,16 +231,18 @@ describe("ChildAgentRow", () => {
     const { client } = renderRow(baseAgent, { seat: 2 }, 3);
     render(
       <QueryClientProvider client={client}>
-        <Avatar
-          author={{
-            key: `peer:${baseAgent.id}`,
-            kind: "peer",
-            agentId: baseAgent.id,
-            treeRootId: baseAgent.parentAgentId!,
-            name: baseAgent.name,
-            seat: 2,
-          }}
-        />
+        <MemoryRouter>
+          <Avatar
+            author={{
+              key: `peer:${baseAgent.id}`,
+              kind: "peer",
+              agentId: baseAgent.id,
+              treeRootId: baseAgent.parentAgentId!,
+              name: baseAgent.name,
+              seat: 2,
+            }}
+          />
+        </MemoryRouter>
       </QueryClientProvider>
     );
     expect(

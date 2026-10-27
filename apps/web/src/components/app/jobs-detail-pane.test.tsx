@@ -3,13 +3,25 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderUI,
   screen,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
 import type { Job, JobRun } from "@/hooks/use-jobs";
+
+import { MemoryRouter } from "react-router-dom";
+import type { ReactElement } from "react";
+
+// This suite tests pane wiring. Identity metadata itself is covered by the session-link tests.
+vi.mock("@/hooks/use-agent-tree", () => ({ useAgentRecord: () => null }));
+vi.mock("@/hooks/use-projects", () => ({
+  useProjectScope: () => ({ projectId: null }),
+}));
+function render(element: ReactElement) {
+  return renderUI(<MemoryRouter>{element}</MemoryRouter>);
+}
 
 import { JobDetailPane } from "./jobs-detail-pane";
 
