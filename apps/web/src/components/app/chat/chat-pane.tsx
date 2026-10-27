@@ -33,6 +33,7 @@ import {
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
+import { turnAnswerText } from "@/components/app/chat/turn/answer-text";
 import { visibleFeedEntries } from "@/components/app/chat/turn/visible-feed";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
 import {
@@ -379,13 +380,16 @@ export function clearChatScrollMemory(): void {
  * The page agent's turn whose message just landed: settled, with text,
  * not noticed before. Every settled turn present at the first pass is
  * remembered without being reported, so history never counts as landing.
+ * Hidden history still initializes bookkeeping; only visible answers can land.
  */
 export function landedTurn(
   entries: readonly StreamEntry[],
   agentId: string,
-  seen: Set<string>
+  seen: Set<string>,
+  visibleEntries: readonly StreamEntry[] = entries
 ): StreamBlockEntry | null {
   const first = seen.size === 0;
+  const visibleIds = new Set(visibleEntries.map((entry) => entry.id));
   let landed: StreamBlockEntry | null = null;
   for (const entry of entries) {
     const turn = entry.block.turn;
@@ -394,7 +398,13 @@ export function landedTurn(
     seen.add(entry.id);
     const by =
       entry.block.author.kind === "agent" ? entry.block.author.agentId : null;
-    if (first || by !== agentId || !entry.block.text) continue;
+    if (
+      first ||
+      by !== agentId ||
+      !visibleIds.has(entry.id) ||
+      !turnAnswerText(entry.block, turn).trim()
+    )
+      continue;
     landed = entry;
   }
   return landed;
@@ -880,6 +890,11 @@ export function ChatPane({
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Observe settlement before restoration/pagination early returns. Hidden
+    // no-op history establishes the baseline without becoming a scroll target.
+    const landed = agentId
+      ? landedTurn(entries, agentId, settledTurnIdsRef.current, visibleEntries)
+      : null;
     // Older page landed above: keep what the user was reading in place.
     // A windowed feed holds its own place (the rows below the view are
     // spacers whose heights move too, so the height difference is not the
@@ -960,9 +975,6 @@ export function ChatPane({
     // top if the bottom stayed pinned, so the reader lands at the start of
     // the reply instead and reads down; following resumes when they reach
     // the bottom. A reply that fits under the fold pins the bottom as usual.
-    const landed = agentId
-      ? landedTurn(visibleEntries, agentId, settledTurnIdsRef.current)
-      : null;
     if (tailing && landed) {
       if (replyStartIfTall(el, landed.id) !== null) {
         anchoredRef.current = Date.now();
@@ -987,6 +999,7 @@ export function ChatPane({
     scrollToBottom,
     seekSaved,
     showChildAgents,
+    entries,
     visibleEntries,
   ]);
 

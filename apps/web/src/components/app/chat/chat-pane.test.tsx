@@ -35,6 +35,7 @@ import {
   entryOwner,
   filterStreamView,
   isMainColumnEntry,
+  landedTurn,
   visibleStreamEntries,
   type StreamView,
   readChatScrollPosition,
@@ -2107,4 +2108,113 @@ it("does not report a new message when an empty settled tail disappears", () => 
     screen.getByTestId("chat-jump-to-bottom").getAttribute("data-pending")
   ).toBe("true");
   expect(scroll.scrollTop).toBe(200);
+});
+
+describe("settlement bookkeeping with hidden history", () => {
+  it("initializes from hidden settled history and only targets visible substantive answers", () => {
+    const history = turnRow({ id: "empty-history", text: "" });
+    const active = turnRow({
+      id: "real",
+      text: "",
+      turn: { settled: false, result: { text: "Streaming", streaming: true } },
+    });
+    const seen = new Set<string>();
+    const initial = [history, active];
+    expect(
+      landedTurn(
+        initial,
+        "agt_1",
+        seen,
+        visibleStreamEntries(initial, null, false)
+      )
+    ).toBeNull();
+    expect(seen.has(history.id)).toBe(true);
+    const answer = turnRow({
+      id: "real",
+      text: "",
+      turn: { result: { text: "Final answer", streaming: false } },
+    });
+    const hidden = turnRow({
+      id: "new-empty",
+      text: "Stale snapshot",
+      turn: { result: { text: "", streaming: false } },
+    });
+    const settled = [history, answer, hidden];
+    expect(
+      landedTurn(
+        settled,
+        "agt_1",
+        seen,
+        visibleStreamEntries(settled, null, false)
+      )
+    ).toBe(answer);
+    expect(seen.has(hidden.id)).toBe(true);
+    expect(
+      landedTurn(
+        settled,
+        "agt_1",
+        seen,
+        visibleStreamEntries(settled, null, false)
+      )
+    ).toBeNull();
+  });
+
+  it("lands a tall settled reply at its start after hidden empty history", () => {
+    const history = turnRow({ id: "empty-history", text: "" });
+    H.entries = [
+      history,
+      turnRow({
+        id: "real",
+        text: "",
+        turn: {
+          settled: false,
+          result: { text: "Streaming answer", streaming: true },
+        },
+      }),
+    ];
+    const props = {
+      agentId: "agt_1",
+      agent,
+      active: true,
+      showChildAgents: true,
+      onShowChildAgentsChange: vi.fn(),
+      openLightbox: vi.fn(),
+      isMobile: false,
+    };
+    const { rerender } = renderPane(props);
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 800, writable: true },
+    });
+    const geometry = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this === scroll)
+          return { top: 0, bottom: 200, height: 200 } as DOMRect;
+        if (
+          this.dataset.testid === "chat-message" &&
+          this.dataset.blockId === "real"
+        ) {
+          return {
+            top: 400 - scroll.scrollTop,
+            bottom: 1000 - scroll.scrollTop,
+            height: 600,
+          } as DOMRect;
+        }
+        return { top: 0, bottom: 0, height: 0 } as DOMRect;
+      });
+    try {
+      fireEvent.scroll(scroll);
+      H.entries = [history, turnRow({ id: "real", text: "Final long answer" })];
+      rerender(<ChatPane {...props} />);
+      expect(scroll.scrollTop).toBe(392);
+      expect(
+        document.querySelector('[data-chat-entry-id="empty-history"]')
+      ).toBeNull();
+    } finally {
+      geometry.mockRestore();
+    }
+  });
 });
