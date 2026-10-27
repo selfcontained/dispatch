@@ -22,6 +22,8 @@ Read the affected release runtime, artifact helpers, installer, and release work
 
 - Native service registration and supervision must preserve installation identity and terminate only owned processes. Check update handoff acknowledgments, recovery receipts, database preservation, and Sparkle feed/signature/channel agreement across native and server code.
 
+- Server file-log retention must target the actual installation log path, preserve append stdout/stderr descriptors through rotation, bound retained backup sizes and counts even for oversized historical files, and run at startup. Linux journald output remains subject to host journal policy.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

@@ -17,6 +17,8 @@ Trace changed authentication and trust boundaries across server hooks, routes, b
 - TLS renewal and address changes preserve the installation's CA identity where intended. Public trust downloads may expose certificates, never private keys; filesystem permissions must protect key material.
 - UI login, logout, and rejected requests must invalidate stale authorization state and surface actionable failures. Review real bypass scenarios rather than generic security checklists.
 
+- HTTP request diagnostics must preserve useful failures while excluding credentials, request bodies, raw query values and sensitive route parameters, including when debug logging is enabled.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.
