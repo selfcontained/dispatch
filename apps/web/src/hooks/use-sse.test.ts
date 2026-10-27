@@ -1651,6 +1651,12 @@ describe("live checklist collections", () => {
         expect(get(scope).pages[0]!.checklists).toEqual([version]);
       expect(get(false).pages[0]!.checklists ?? []).toEqual([]);
       expect(get("sibling").pages[0]!.checklists ?? []).toEqual([]);
+      // The first visible stream row counts as unread once; progress
+      // replacements preserve that count and add no approval/input state.
+      for (const scope of [true, "child"])
+        expect(get(scope).pages[0]!.unreadCount).toBe(8);
+      for (const scope of [false, "sibling"])
+        expect(get(scope).pages[0]!.unreadCount).toBe(7);
     }
     applyStreamEntry(client, root, blockEntry(plan));
     applyStreamEntry(
@@ -1663,7 +1669,7 @@ describe("live checklist collections", () => {
     expect(current[0]!.state).toEqual({ items: { one: "done" } });
     expect(get("child").pages[0]!.openInputs).toEqual([input]);
     expect(get("child").pages[0]!.threadLinks).toEqual([]);
-    expect(get("child").pages[0]!.unreadCount).toBe(7);
+    expect(get("child").pages[0]!.unreadCount).toBe(8);
     expect(get("child").pages[1]!.checklists).toBeUndefined();
   });
 });
