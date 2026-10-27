@@ -371,6 +371,10 @@
     {
       "paths": ["docs/design/dispatch-website/**"],
       "personas": ["code-review"]
+    },
+    {
+      "paths": ["apps/site/**"],
+      "personas": ["code-review"]
     }
   ],
   "fallback": ["code-review"]
