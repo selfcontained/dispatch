@@ -88,7 +88,10 @@ for (const width of [1280, 390]) {
         );
         await link.click();
         await expect(page).toHaveURL(
-          new RegExp(`/agents/${id}\\?project=${project.id}$`)
+          (url) =>
+            url.pathname === `/agents/${id}` &&
+            url.searchParams.get("project") === project.id &&
+            [...url.searchParams.keys()].length === 1
         );
         await expect(
           page
@@ -193,7 +196,10 @@ for (const width of [1280, 390]) {
       await authorLink.focus();
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(
-        new RegExp(`/agents/${child.id}\\?project=${project.id}$`)
+        (url) =>
+          url.pathname === `/agents/${child.id}` &&
+          url.searchParams.get("project") === project.id &&
+          [...url.searchParams.keys()].length === 1
       );
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(
@@ -207,7 +213,9 @@ for (const width of [1280, 390]) {
       await card
         .getByRole("button", { name: /^Open Child linked plan/ })
         .click();
-      await expect(page).toHaveURL(new RegExp(`thread=${checklist}`));
+      await expect(page).toHaveURL(
+        (url) => url.searchParams.get("thread") === checklist
+      );
       await expect(
         page.getByTestId("chat-thread-panel").filter({ visible: true })
       ).toContainText("Child linked plan");

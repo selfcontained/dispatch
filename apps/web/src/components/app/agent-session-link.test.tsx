@@ -159,7 +159,7 @@ describe("passive session identities", () => {
       turn: {
         settled: false,
         result: { text: "", streaming: true },
-        trace: { startedAt: "2026-09-02T10:00:00Z", endedAt: null, steps: [] },
+        trace: { startedAt: "2026-09-02T10:00:00Z", steps: [] },
       },
     });
     ui(
@@ -230,12 +230,12 @@ describe("passive session identities", () => {
     const question = block({
       id: "question",
       author,
-      body: { kind: "question", data: { options: [] }, state: null },
+      body: { kind: "question", data: { options: [] }, state: {} },
     });
     const review = block({
       id: "review",
       author,
-      body: { kind: "review", data: { summary: "Review" }, state: null },
+      body: { kind: "review", data: { summary: "Review" }, state: {} },
     });
     const checklist = block({
       id: "checklist",
@@ -244,7 +244,7 @@ describe("passive session identities", () => {
       body: {
         kind: "tasks",
         data: { items: [{ id: "one", text: "Implement" }] },
-        state: null,
+        state: { items: {} },
       },
     });
     const inbox = {
