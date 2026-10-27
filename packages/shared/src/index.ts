@@ -12,6 +12,7 @@ export type { AgentType, CliAgentType } from "./agent-types.js";
 export type {
   AgentActivity,
   AgentGitContext,
+  AgentIdentityRecord,
   AgentRecord,
   AgentRole,
   AgentStatus,

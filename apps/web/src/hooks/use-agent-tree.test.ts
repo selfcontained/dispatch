@@ -71,6 +71,8 @@ describe("useAgentRecord", () => {
       createdAt: "2026-01-01",
       seat: 2,
       rootId: "root",
+      projectId: null,
+      archived: true,
     };
     vi.mocked(api).mockResolvedValue({ agent: identity });
     const wrapper = ({ children }: { children: import("react").ReactNode }) =>
@@ -115,6 +117,40 @@ describe("useAgentRecord", () => {
     );
     expect(aged.result.current).toEqual(identity);
     cleanup();
+    client.clear();
+  });
+  it("prefers live project moves and active membership over cached historical metadata", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity } },
+    });
+    const identity = {
+      id: "moved",
+      name: "Historical name",
+      type: "codex",
+      model: null,
+      persona: null,
+      parentAgentId: null,
+      createdAt: "2026-01-01",
+      seat: 1,
+      rootId: "moved",
+      projectId: "old",
+      archived: true,
+    };
+    client.setQueryData(["agent-identity", "moved"], identity);
+    client.setQueryData(
+      ["agents"],
+      [{ ...identity, name: "Live name", projectId: null }]
+    );
+    const wrapper = ({ children }: { children: import("react").ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const hook = renderHook(() => useAgentRecord("moved"), { wrapper });
+    expect(hook.result.current).toMatchObject({
+      name: "Live name",
+      projectId: null,
+      archived: false,
+      seat: 1,
+    });
+    hook.unmount();
     client.clear();
   });
 });

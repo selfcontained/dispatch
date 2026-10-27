@@ -291,6 +291,129 @@ for (const width of [1280, 390]) {
           path: inboxScreenshot,
           contentType: "image/png",
         });
+
+      // A real projectless author must escape this task's project filter.
+      const projectless = await createAgentViaAPI(request, {
+        name: `Projectless author ${width}`,
+      });
+      const projectlessIdentity = await request.get(
+        `/api/v1/agents/${projectless.id}/identity`,
+        { headers }
+      );
+      expect(projectlessIdentity.ok()).toBeTruthy();
+      expect((await projectlessIdentity.json()).agent).toMatchObject({
+        projectId: null,
+        archived: false,
+      });
+      const projectlessMessage = await seedBlockViaDB({
+        streamId: task.id,
+        authorKind: "agent",
+        authorAgentId: projectless.id,
+        text: "Projectless task author",
+      });
+      await page.goto(taskUrl, { waitUntil: "domcontentloaded" });
+      const projectlessPost = conversation.locator(
+        `[data-block-id="${projectlessMessage}"]`
+      );
+      const projectlessLink = projectlessPost
+        .getByTestId("chat-post-author")
+        .getByRole("link");
+      await expect(projectlessLink).toHaveAttribute(
+        "href",
+        `/agents/${projectless.id}?project=`
+      );
+      await projectlessLink.click();
+      await expect(page).toHaveURL(
+        (url) =>
+          url.pathname === `/agents/${projectless.id}` &&
+          url.search === "?project="
+      );
+      await expect(
+        page
+          .getByTestId("chat-pane")
+          .filter({ visible: true })
+          .getByTestId("chat-composer-input")
+      ).toBeEditable();
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(
+        page
+          .getByTestId("chat-pane")
+          .filter({ visible: true })
+          .getByTestId("chat-composer-input")
+      ).toBeEditable();
+      await expect(page).toHaveURL(
+        (url) =>
+          url.pathname === `/agents/${projectless.id}` &&
+          url.search === "?project="
+      );
+      await page.goBack();
+      await expect(conversation).toBeVisible();
+
+      // Archive while this child's task identity is already cached/mounted.
+      // This must exercise agent.deleted cache semantics, not a fake missing row.
+      await expect(
+        post.getByTestId("chat-post-author").getByRole("link")
+      ).toHaveAttribute("href", `/agents/${child.id}?project=${project.id}`);
+      const archiveResponse = await request.delete(
+        `/api/v1/agents/${child.id}?cleanupWorktree=keep`,
+        { headers }
+      );
+      expect(archiveResponse.status()).toBe(202);
+      await expect
+        .poll(async () => {
+          const identity = await request.get(
+            `/api/v1/agents/${child.id}/identity`,
+            { headers }
+          );
+          return (await identity.json()).agent.archived;
+        })
+        .toBe(true);
+      const liveAgents = (
+        await (await request.get("/api/v1/agents", { headers })).json()
+      ).agents;
+      expect(
+        liveAgents.some((agent: { id: string }) => agent.id === child.id)
+      ).toBe(false);
+      const historyPath = `/activity/history/${child.id}`;
+      const archivedName = post
+        .getByTestId("chat-post-author")
+        .getByRole("link");
+      await expect(archivedName).toHaveAttribute(
+        "href",
+        `${historyPath}?project=${project.id}`
+      );
+      await archivedName.click();
+      await expect(page).toHaveURL(
+        (url) =>
+          url.pathname === historyPath &&
+          url.searchParams.get("project") === project.id
+      );
+      const archivedHeading = page
+        .locator("h2")
+        .filter({ hasText: child.name });
+      await expect(archivedHeading).toBeVisible();
+      await page.goBack();
+      await expect(conversation).toBeVisible();
+      const archivedAvatar = post
+        .locator("a")
+        .filter({ has: page.getByTestId("chat-avatar-agent") });
+      await expect(archivedAvatar).toHaveAttribute(
+        "href",
+        `${historyPath}?project=${project.id}`
+      );
+      await archivedAvatar.click();
+      await expect(archivedHeading).toBeVisible();
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(archivedHeading).toBeVisible();
+      await expect(page).toHaveURL((url) => url.pathname === historyPath);
+      const historyScreenshot = `/tmp/dispatch-session-links-archived-${width}.png`;
+      await page.screenshot({ path: historyScreenshot, fullPage: true });
+      await test
+        .info()
+        .attach(`Genuinely archived child history ${width}`, {
+          path: historyScreenshot,
+          contentType: "image/png",
+        });
     } finally {
       await cleanupE2EAgents(request);
       await request.delete(`/api/v1/projects/${project.id}`, { headers });

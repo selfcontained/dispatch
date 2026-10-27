@@ -24,7 +24,13 @@ const records = vi.hoisted(
   () =>
     new Map<
       string,
-      { name: string; projectId?: string; seat?: number; rootId?: string }
+      {
+        name: string;
+        projectId?: string | null;
+        archived?: boolean;
+        seat?: number;
+        rootId?: string;
+      }
     >()
 );
 vi.mock("@/hooks/use-agent-tree", () => ({
@@ -122,6 +128,50 @@ describe("passive session identities", () => {
       expect(screen.getByTestId("location").textContent).toContain("/tasks?");
     }
   );
+
+  it.each([
+    [null, "?project="],
+    [undefined, "?project=task+project"],
+    ["target project", "?project=target+project"],
+  ] as const)(
+    "uses known target membership %s before the task's fallback scope",
+    (projectId, search) => {
+      records.set("target", { name: "Target", projectId });
+      ui(<AgentSessionLink agentId="target" projectId="task project" />);
+      expect(
+        screen
+          .getByRole("link", { name: "Open Target session" })
+          .getAttribute("href")
+      ).toBe(`/agents/target${search}`);
+    }
+  );
+
+  it("uses All projects for a known projectless author from a scoped task", () => {
+    records.set("projectless", { name: "Projectless", projectId: null });
+    ui(<AgentSessionLink agentId="projectless" />);
+    expect(screen.getByRole("link").getAttribute("href")).toBe(
+      "/agents/projectless?project="
+    );
+  });
+
+  it("routes a trusted archived identity to readable history with its own project", () => {
+    records.set("archived", {
+      name: "Archived reviewer",
+      projectId: "history project",
+      archived: true,
+    });
+    ui(<AgentSessionLink agentId="archived" name="Old name" />);
+    const link = screen.getByRole("link", {
+      name: "Open Archived reviewer session",
+    });
+    expect(link.getAttribute("href")).toBe(
+      "/activity/history/archived?project=history+project"
+    );
+    fireEvent.click(link);
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/activity/history/archived?project=history+project"
+    );
+  });
 
   it("links the actual task author and each recipient, independently of the assignee and root", () => {
     const message = block({

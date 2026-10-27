@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentChangesRoute,
+  agentHistoryRoute,
   agentRoute,
   agentTurnLocation,
 } from "./agent-routes";
@@ -13,6 +14,9 @@ import {
 describe("agent route helpers", () => {
   it("builds the agent paths from the agent id", () => {
     expect(agentRoute("agt_123")).toBe("/agents/agt_123");
+    expect(agentHistoryRoute("agt_archived")).toBe(
+      "/activity/history/agt_archived"
+    );
     expect(agentChangesRoute("agt_123")).toBe("/agents/agt_123/changes");
   });
 

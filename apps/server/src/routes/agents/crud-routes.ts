@@ -3,6 +3,7 @@ import { access, constants, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
+import type { AgentIdentityRecord } from "@dispatch/shared";
 
 import {
   AGENT_TYPES,
@@ -62,7 +63,7 @@ export async function registerAgentCrudRoutes(
   // without transferring the rest of the tree to the browser.
   app.get("/api/v1/agents/:id/identity", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const result = await deps.pool.query(
+    const result = await deps.pool.query<AgentIdentityRecord>(
       `
       WITH RECURSIVE ancestors AS (
         SELECT id, parent_agent_id FROM agents WHERE id = $1
@@ -84,6 +85,7 @@ export async function registerAgentCrudRoutes(
         FROM lineage
       )
       SELECT a.id, a.name, a.type, a.model, a.persona,
+             a.project_id AS "projectId", (a.deleted_at IS NOT NULL) AS archived,
              a.parent_agent_id AS "parentAgentId", a.created_at AS "createdAt", seats.seat,
              (SELECT id FROM root) AS "rootId"
       FROM agents a LEFT JOIN seats ON seats.id = a.id WHERE a.id = $1

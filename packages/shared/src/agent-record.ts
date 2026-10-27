@@ -135,3 +135,14 @@ export type AgentRecord = {
  * `apps/server/src/routes/agents/`.
  */
 export type StreamedAgentRecord = AgentRecord & { hasStream: boolean };
+
+/** A stable identity, including agents no longer present in the live directory. */
+export type AgentIdentityRecord = Pick<
+  AgentRecord,
+  "id" | "name" | "type" | "model" | "persona" | "parentAgentId" | "createdAt"
+> & {
+  projectId: string | null;
+  archived: boolean;
+  seat: number | null;
+  rootId: string | null;
+};

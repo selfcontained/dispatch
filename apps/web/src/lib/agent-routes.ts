@@ -2,6 +2,11 @@ export function agentRoute(agentId: string): string {
   return `/agents/${agentId}`;
 }
 
+/** Archived sessions are readable in history, outside the live agents directory. */
+export function agentHistoryRoute(agentId: string): string {
+  return `/activity/history/${agentId}`;
+}
+
 export function agentChangesRoute(agentId: string): string {
   return `/agents/${agentId}/changes`;
 }

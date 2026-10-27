@@ -6,6 +6,7 @@
  * root's id.
  */
 import { useCallback } from "react";
+import type { AgentIdentityRecord } from "@dispatch/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 
 import type { Agent } from "@/components/app/types";
@@ -107,17 +108,12 @@ export function useDescendantAgentIds(
   return data ?? NO_DESCENDANTS;
 }
 
-export type AgentIdentity = Pick<
-  Agent,
-  | "id"
-  | "name"
-  | "type"
-  | "model"
-  | "persona"
-  | "parentAgentId"
-  | "createdAt"
-  | "projectId"
-> & { seat: number | null; rootId: string | null };
+/** Live/loading records can lack metadata until the historical endpoint resolves. */
+export type AgentIdentity = Omit<
+  AgentIdentityRecord,
+  "projectId" | "archived"
+> &
+  Partial<Pick<AgentIdentityRecord, "projectId" | "archived">>;
 
 const AGENT_RECORD_STALE_TIME = 5 * 60 * 1000;
 
@@ -125,7 +121,7 @@ function agentIdentityOptions(agentId: string | null) {
   return {
     queryKey: ["agent-identity", agentId],
     queryFn: async () => {
-      const payload = await api<{ agent: AgentIdentity }>(
+      const payload = await api<{ agent: AgentIdentityRecord }>(
         `/api/v1/agents/${encodeURIComponent(agentId!)}/identity`
       );
       return payload.agent;
@@ -165,9 +161,14 @@ export function useAgentRecord(agentId: string | null): AgentIdentity | null {
   });
   const live = agents.find((agent) => agent.id === agentId);
   return data
-    ? { ...data, ...live, seat: data.seat }
+    ? {
+        ...data,
+        ...live,
+        archived: live ? false : data.archived,
+        seat: data.seat,
+      }
     : live
-      ? { ...live, seat: null, rootId: null }
+      ? { ...live, archived: false, seat: null, rootId: null }
       : null;
 }
 
