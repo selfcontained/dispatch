@@ -73,6 +73,8 @@ test.describe("Changes viewport rendering", () => {
     page,
     request,
   }) => {
+    // Multiple cold 87k-line fixture loads and tab/file navigation share this budget.
+    test.setTimeout(60_000);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-large-diff-navigation-${Date.now()}`,
     });
