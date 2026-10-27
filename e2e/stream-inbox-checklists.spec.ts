@@ -5,6 +5,8 @@ import {
   createAgentViaAPI,
 } from "./helpers";
 
+test.use({ deviceScaleFactor: 2 });
+
 function postedId(response: Record<string, unknown>): string {
   return JSON.parse(
     (response.result as { content: Array<{ text: string }> }).content[0]!.text
@@ -40,9 +42,15 @@ for (const width of [1280, 390]) {
       });
       await expect(page.getByTestId("chat-pane")).toBeVisible();
       const openInbox = async () => {
+        await expect(
+          page.getByTestId("chat-composer").getByRole("textbox")
+        ).toBeEditable();
         const sidebar = page.getByTestId("drawer");
-        if (!(await sidebar.isVisible()))
-          await page.getByTestId("toggle-drawer").click();
+        const opener = page.getByTestId("toggle-drawer");
+        // Closed drawers stay mounted offscreen, so isVisible() on their
+        // content does not mean the drawer has been opened.
+        if (await opener.isVisible()) await opener.click();
+        await expect(sidebar.getByTestId("sidebar-tab-inbox")).toBeInViewport();
         await sidebar.getByTestId("sidebar-tab-inbox").click();
         return sidebar.getByTestId("inbox");
       };
@@ -85,7 +93,9 @@ for (const width of [1280, 390]) {
         });
         await card.click();
         await expect(page).toHaveURL(new RegExp(`thread=${id}`));
-        const source = page.getByTestId("chat-thread-panel");
+        const thread =
+          width < 768 ? page.getByRole("dialog", { name: "Thread" }) : page;
+        const source = thread.getByTestId("chat-thread-panel");
         await expect(source.getByTestId("chat-tasks-block")).toBeVisible();
         await expect(source).toContainText(title);
         await expect(source).toContainText("Verify");
@@ -95,7 +105,7 @@ for (const width of [1280, 390]) {
           path: sourceScreenshot,
           contentType: "image/png",
         });
-        await page.getByTestId("drawer-close").click();
+        await thread.getByTestId("drawer-close").click();
         inbox = await openInbox();
         await callMcpToolViaAPI(request, agent.id, "update", {
           id,
@@ -118,7 +128,9 @@ for (const width of [1280, 390]) {
       await expect(inbox.getByTestId("inbox-checklist")).toHaveCount(1);
       await expect(inbox).toContainText("Child home plan");
       await inbox.getByTestId("inbox-checklist").click();
-      await expect(page.getByTestId("chat-thread-panel")).toContainText(
+      const thread =
+        width < 768 ? page.getByRole("dialog", { name: "Thread" }) : page;
+      await expect(thread.getByTestId("chat-thread-panel")).toContainText(
         "Child home plan"
       );
     } finally {
