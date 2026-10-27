@@ -1,5 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
+
+const installCommand =
+  "curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash -s -- --channel stable";
 ---
 
 <Base
@@ -60,11 +63,7 @@ import Base from "../layouts/Base.astro";
             Run the command below as your normal user in a terminal.
           </li><li>When installation finishes, open the printed URL.</li>
         </ol><div class="command">
-          <code id="linux-command"
-            >curl -fsSL
-            https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh
-            | bash -s -- --channel stable</code
-          ><button class="copy-button" data-copy="linux-command"
+          <code id="linux-command">{installCommand}</code><button class="copy-button" data-copy="linux-command"
             >Copy command</button
           ><span class="copy-status" aria-live="polite"></span>
         </div><p class="release-caption">
