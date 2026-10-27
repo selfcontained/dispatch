@@ -738,7 +738,7 @@ describe("syncAcrossStream", () => {
         current,
         block({
           id: `plan-${i}`,
-          body: { kind: "tasks", data: { items: [] }, state: null },
+          body: { kind: "tasks", data: { items: [] }, state: { items: {} } },
           createdAt: `2026-10-${String(i).padStart(2, "0")}T00:00:00.000Z`,
         })
       )!;
