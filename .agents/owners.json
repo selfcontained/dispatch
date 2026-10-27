@@ -336,7 +336,8 @@
       "paths": [
         "apps/server/src/diagnostics.ts",
         "apps/server/test/diagnostics-helpers.test.ts",
-        "docs/10-operations-runbook.md"
+        "docs/10-operations-runbook.md",
+        "apps/server/test/process-tree-fixture.test.ts"
       ],
       "personas": ["release-update-owner"]
     },
