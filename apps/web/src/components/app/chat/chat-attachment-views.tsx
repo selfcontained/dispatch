@@ -121,6 +121,15 @@ export function LinkAttachment({
 }): JSX.Element {
   const host = hostOf(href);
   const inApp = href.startsWith("/") && !href.startsWith("//");
+  const resourceLabel =
+    resourceKind === "pr"
+      ? "PR"
+      : resourceKind === "preview"
+        ? "Preview"
+        : undefined;
+  const accessibleLabel = resourceLabel
+    ? `${resourceLabel} ${title ?? href}`
+    : undefined;
   const content = (
     <>
       <span className="shrink-0 text-muted-foreground" aria-hidden="true">
@@ -128,11 +137,6 @@ export function LinkAttachment({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium leading-4 text-foreground">
-          {resourceKind ? (
-            <span className="mr-1.5 text-[10px] text-muted-foreground">
-              {resourceKind === "pr" ? "PR" : "Preview"}
-            </span>
-          ) : null}{" "}
           {title ?? href}
         </span>
         <span className="block truncate text-[10px] leading-3 text-muted-foreground">
@@ -143,6 +147,14 @@ export function LinkAttachment({
               : "Opens in a new tab"}
         </span>
       </span>
+      {resourceLabel ? (
+        <span
+          className="shrink-0 text-[10px] font-medium text-muted-foreground"
+          aria-hidden="true"
+        >
+          {resourceLabel}
+        </span>
+      ) : null}
       <ArrowUpRight
         className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
         aria-hidden="true"
@@ -162,6 +174,7 @@ export function LinkAttachment({
           to={href}
           className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 max-md:min-h-11"
           title={href}
+          aria-label={accessibleLabel}
         >
           {content}
         </Link>
@@ -172,6 +185,7 @@ export function LinkAttachment({
           rel="noreferrer"
           className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 max-md:min-h-11"
           title={href}
+          aria-label={accessibleLabel}
         >
           {content}
         </a>

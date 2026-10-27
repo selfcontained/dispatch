@@ -140,6 +140,22 @@ for (const width of [1280, 700, 390]) {
       });
       const mixedCards = mixedList.locator(":scope > div");
       await expect(mixedCards).toHaveCount(3);
+      await expect
+        .poll(() =>
+          mixedCards.evaluateAll((elements) =>
+            elements.every((element) => {
+              const lines = element.querySelectorAll("span.block.truncate");
+              return (
+                lines.length === 2 &&
+                Math.abs(
+                  lines[0]!.getBoundingClientRect().left -
+                    lines[1]!.getBoundingClientRect().left
+                ) < 1
+              );
+            })
+          )
+        )
+        .toBe(true);
       if (width >= 768) {
         // Compact intrinsic widths let all three kinds occupy one flex row.
         await expect
