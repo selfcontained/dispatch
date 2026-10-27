@@ -17,7 +17,19 @@ const driver = path.join(
 );
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function validFixturePid(pid: number): boolean {
+  return Number.isSafeInteger(pid) && pid > 1;
+}
+
+function parseFixturePid(raw: string): number {
+  const pid = Number(raw);
+  if (!/^[1-9][0-9]*$/.test(raw) || !validFixturePid(pid))
+    throw new Error(`Invalid fixture readiness PID: ${JSON.stringify(raw)}`);
+  return pid;
+}
+
 function running(pid: number): boolean {
+  if (!validFixturePid(pid)) return false;
   const result = spawnSync("ps", ["-p", String(pid), "-o", "stat="], {
     encoding: "utf8",
   });
@@ -25,10 +37,10 @@ function running(pid: number): boolean {
   return state.length > 0 && !state.startsWith("Z");
 }
 
-async function ready(file: string): Promise<void> {
+async function ready(file: string): Promise<number> {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (existsSync(file)) return;
+    if (existsSync(file)) return parseFixturePid(readFileSync(file, "utf8"));
     await pause(25);
   }
   throw new Error(`Fixture did not become ready: ${file}`);
@@ -44,6 +56,27 @@ async function stopped(pid: number): Promise<void> {
 }
 
 describe("preserved restart driver cancellation (subprocesses only)", () => {
+  it("rejects incomplete or invalid readiness PIDs before process operations", () => {
+    for (const raw of [
+      "",
+      " ",
+      "0",
+      "1",
+      "-1",
+      "NaN",
+      "1e3",
+      "12junk",
+      "9007199254740992",
+    ]) {
+      expect(() => parseFixturePid(raw)).toThrow(
+        "Invalid fixture readiness PID"
+      );
+    }
+    expect(parseFixturePid("12345")).toBe(12345);
+    expect(running(0)).toBe(false);
+    expect(running(Number.NaN)).toBe(false);
+  });
+
   it.each<{
     name: string;
     signal?: "SIGTERM" | "SIGINT";
@@ -97,7 +130,7 @@ describe("preserved restart driver cancellation (subprocesses only)", () => {
       writeFileSync(
         worker,
         `
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync, renameSync } from "node:fs";
 let stopping = false;
 for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => {
   if (${stubborn} || stopping) return;
@@ -108,7 +141,8 @@ for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => {
     process.exit(0);
   }, 100);
 });
-writeFileSync(${JSON.stringify(workerReady)}, String(process.pid));
+writeFileSync(${JSON.stringify(workerReady + ".tmp")}, String(process.pid));
+renameSync(${JSON.stringify(workerReady + ".tmp")}, ${JSON.stringify(workerReady)});
 setInterval(() => {}, 1000);
 `
       );
@@ -116,9 +150,10 @@ setInterval(() => {}, 1000);
         bin,
         `#!${process.execPath}
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync, renameSync } from "node:fs";
 spawn(process.execPath, [${JSON.stringify(worker)}], { stdio: "ignore" });
-writeFileSync(${JSON.stringify(launcherReady)}, String(process.pid));
+writeFileSync(${JSON.stringify(launcherReady + ".tmp")}, String(process.pid));
+renameSync(${JSON.stringify(launcherReady + ".tmp")}, ${JSON.stringify(launcherReady)});
 // Default signal handling exits this launcher without forwarding to its child.
 if (${commandExited || success}) {
   const ready = setInterval(() => {
@@ -158,10 +193,8 @@ if (${commandExited || success}) {
       let launcherPid = 0;
       let workerPid = 0;
       try {
-        await ready(launcherReady);
-        launcherPid = Number(readFileSync(launcherReady, "utf8"));
-        await ready(workerReady);
-        workerPid = Number(readFileSync(workerReady, "utf8"));
+        launcherPid = await ready(launcherReady);
+        workerPid = await ready(workerReady);
         expect(running(workerPid)).toBe(true);
         if (commandExited) await stopped(launcherPid);
         if (signal) child.kill(signal); // Same signal used by parent execFile's timeout.
@@ -178,20 +211,33 @@ if (${commandExited || success}) {
           );
       } finally {
         // Only fixture-owned PIDs/groups. Never sweep shared processes.
-        if (!launcherPid && existsSync(launcherReady))
-          launcherPid = Number(readFileSync(launcherReady, "utf8"));
-        if (launcherPid) {
-          try {
-            process.kill(-launcherPid, "SIGKILL");
-          } catch {
-            /* already stopped */
+        try {
+          if (!validFixturePid(launcherPid) && existsSync(launcherReady)) {
+            try {
+              launcherPid = parseFixturePid(
+                readFileSync(launcherReady, "utf8")
+              );
+            } catch {
+              // An incomplete/invalid PID never authorizes a group signal.
+            }
           }
+          if (validFixturePid(launcherPid)) {
+            try {
+              process.kill(-launcherPid, "SIGKILL");
+            } catch {
+              /* already stopped */
+            }
+          }
+          if (child.exitCode === null && child.signalCode === null) {
+            // Without a trusted group ID, let the known driver reap its own
+            // group rather than guessing from malformed readiness contents.
+            child.kill(validFixturePid(launcherPid) ? "SIGKILL" : "SIGTERM");
+          }
+          await closed;
+          if (validFixturePid(workerPid)) await stopped(workerPid);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
         }
-        if (child.exitCode === null && child.signalCode === null)
-          child.kill("SIGKILL");
-        await closed;
-        if (workerPid) await stopped(workerPid);
-        rmSync(dir, { recursive: true, force: true });
       }
     }
   );

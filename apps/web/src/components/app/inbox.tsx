@@ -1,10 +1,11 @@
+import { AgentSessionLink } from "./agent-session-link";
 /**
  * The Inbox tab of the right sidebar: the open questions and forms an agent
  * is waiting on, answerable in place, plus agent progress and produced links.
  * Everything here is derived from the stream (see use-inbox.ts); the
  * agent has no tool to write to it directly.
  */
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import type { BlockOption } from "@dispatch/shared";
 import { reviewFindings, reviewStatus } from "@dispatch/shared";
 import { ChevronRight, Monitor, GitPullRequest, InboxIcon } from "lucide-react";
@@ -61,6 +62,42 @@ function InboxSectionTitle({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/** Selecting message text must not activate its original-message action. */
+function openOriginalMessage(
+  event: MouseEvent<HTMLButtonElement>,
+  open: ((blockId: string) => void) | undefined,
+  blockId: string
+) {
+  const selection = event.currentTarget.ownerDocument.getSelection();
+  if (
+    event.detail > 0 &&
+    selection &&
+    !selection.isCollapsed &&
+    (event.currentTarget.contains(selection.anchorNode) ||
+      event.currentTarget.contains(selection.focusNode))
+  )
+    return;
+  open?.(blockId);
+}
+
+function InboxAuthor({
+  block,
+  name,
+}: {
+  block: InboxInput | InboxReview | InboxChecklist;
+  name: string | null;
+}) {
+  return (
+    <span className="min-w-0 truncate">
+      {block.author.kind === "agent" ? (
+        <AgentSessionLink agentId={block.author.agentId} name={name} />
+      ) : (
+        "You"
+      )}
+    </span>
   );
 }
 
@@ -121,13 +158,15 @@ function InboxInputCard({
       data-kind={block.kind}
     >
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <span className="min-w-0 truncate">{authorName ?? "Agent"}</span>
+        <InboxAuthor block={block} name={authorName} />
         <button
           type="button"
           className="shrink-0 underline-offset-2 hover:underline"
           title={formatRelativeTime(block.createdAt)}
           // An ask made in a thread opens that thread, where it was asked.
-          onClick={() => onOpenBlock?.(block.threadId ?? block.id)}
+          onClick={(event) =>
+            openOriginalMessage(event, onOpenBlock, block.threadId ?? block.id)
+          }
           data-testid="inbox-input-open"
         >
           {formatRelativeTime(block.createdAt)}
@@ -199,43 +238,65 @@ function InboxReviewCard({
   const status = reviewStatus(findings);
   const standing = REVIEW_STATUS[status];
   return (
-    <button
-      type="button"
+    <div
       className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-col gap-1 rounded-md border border-border/60 bg-card/40 px-3 py-2 text-left hover:bg-muted/30"
       data-testid="inbox-review"
       data-block-id={review.id}
       data-status={status}
-      onClick={() => onOpenBlock?.(review.threadId ?? review.id)}
     >
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="min-w-0 truncate">{authorName}</span>
-        <span className="shrink-0">{formatRelativeTime(review.createdAt)}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          {unread > 0 ? (
-            <span
-              className="rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold text-primary-foreground"
-              data-testid="inbox-review-unread"
-              aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
-            >
-              {unread}
-            </span>
-          ) : null}
-          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </span>
+        <InboxAuthor block={review} name={authorName} />
+        <Button
+          type="button"
+          variant="ghost"
+          className="ml-auto h-auto gap-1.5 p-0 text-[11px] font-normal hover:bg-transparent"
+          aria-label={`Open review by ${authorName}`}
+          onClick={(event) =>
+            openOriginalMessage(
+              event,
+              onOpenBlock,
+              review.threadId ?? review.id
+            )
+          }
+        >
+          <span className="shrink-0">
+            {formatRelativeTime(review.createdAt)}
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5">
+            {unread > 0 ? (
+              <span
+                className="rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold text-primary-foreground"
+                data-testid="inbox-review-unread"
+                aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
+              >
+                {unread}
+              </span>
+            ) : null}
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
+        </Button>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <Button
+        type="button"
+        variant="ghost"
+        className="flex h-auto w-full select-text flex-wrap items-center justify-start gap-1.5 whitespace-normal p-0 text-left font-normal hover:bg-transparent"
+        aria-label={`Open review summary by ${authorName}`}
+        onClick={(event) =>
+          openOriginalMessage(event, onOpenBlock, review.threadId ?? review.id)
+        }
+      >
         <Badge variant={standing.variant} data-testid="inbox-review-status">
           {standing.label}
         </Badge>
         <span className="ml-auto text-[11px] text-muted-foreground">
           {findingsSummary(review)}
         </span>
-      </div>
-    </button>
+      </Button>
+    </div>
   );
 }
 
-/** Progress only: opening the original block is the sole action. A reply's
+/** Progress and its author link. A reply's
  * own ID is a valid thread root; opening its parent would lose the checklist. */
 function InboxChecklistCard({
   block,
@@ -255,37 +316,49 @@ function InboxChecklistCard({
   const complete = items.length > 0 && done === items.length;
   const title = block.text.trim() || "Agent checklist";
   return (
-    <Button
-      type="button"
-      variant="ghost"
+    <div
       className="mx-3 mb-2 flex h-auto w-[calc(100%-1.5rem)] shrink-0 flex-col items-stretch justify-start gap-1 whitespace-normal font-normal rounded-md border border-border/60 bg-card/40 px-3 py-2 text-left hover:bg-muted/30"
       data-testid="inbox-checklist"
       data-block-id={block.id}
       data-complete={complete}
-      onClick={() => onOpenBlock?.(block.id)}
-      aria-label={`Open ${title} by ${authorName}, ${done}/${items.length} done`}
     >
       <div className="flex w-full items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">{authorName}</span>
-        <span className="shrink-0" data-testid="inbox-checklist-progress">
-          {done}/{items.length} done
-        </span>
-        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <InboxAuthor block={block} name={authorName} />
+        <Button
+          type="button"
+          variant="ghost"
+          className="ml-auto h-auto shrink-0 gap-2 p-0 text-[11px] font-normal hover:bg-transparent"
+          onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
+          aria-label={`Open ${title} by ${authorName}, ${done}/${items.length} done`}
+        >
+          <span className="shrink-0" data-testid="inbox-checklist-progress">
+            {done}/{items.length} done
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        </Button>
       </div>
-      <span className="line-clamp-2 break-words text-sm">{title}</span>
-      <span
-        className="line-clamp-2 break-words text-[11px] text-muted-foreground"
-        data-testid="inbox-checklist-current"
+      <Button
+        type="button"
+        variant="ghost"
+        className="flex h-auto w-full select-text flex-col items-stretch gap-1 whitespace-normal p-0 text-left font-normal hover:bg-transparent"
+        onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
+        aria-label={`Open original checklist: ${title}`}
       >
-        {complete
-          ? "Complete"
-          : current
-            ? `Now: ${current.text}`
-            : next
-              ? `Next: ${next.text}`
-              : "No items yet"}
-      </span>
-    </Button>
+        <span className="line-clamp-2 break-words text-sm">{title}</span>
+        <span
+          className="line-clamp-2 break-words text-[11px] text-muted-foreground"
+          data-testid="inbox-checklist-current"
+        >
+          {complete
+            ? "Complete"
+            : current
+              ? `Now: ${current.text}`
+              : next
+                ? `Next: ${next.text}`
+                : "No items yet"}
+        </span>
+      </Button>
+    </div>
   );
 }
 

@@ -47,6 +47,7 @@ const cases: [string, string[]][] = [
     ["agent-runtime-owner", "frontend-react-review"],
   ],
   ["apps/server/test/db/agent-workspace.test.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/lifecycle-routes.test.ts", ["agent-runtime-owner"]],
   ["packages/shared/src/permission-types.ts", ["agent-runtime-owner"]],
   [
     "apps/web/src/components/app/personality-settings.tsx",

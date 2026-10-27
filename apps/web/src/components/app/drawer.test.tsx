@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import type { StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -185,7 +191,9 @@ describe("DrawerContent as the sidebar", () => {
       "Approved"
     );
     expect(screen.queryByTestId("inbox-review-unread")).toBeNull();
-    fireEvent.click(card);
+    fireEvent.click(
+      within(card).getByRole("button", { name: /^Open review summary/ })
+    );
     expect(onOpenBlock).toHaveBeenCalledWith("rv");
   });
 
@@ -208,7 +216,11 @@ describe("DrawerContent as the sidebar", () => {
       body: questionBody([{ label: "A" }]),
     });
     renderDrawer("", { reviews: [onCard], inputs: [ask], onOpenBlock });
-    fireEvent.click(screen.getByTestId("inbox-review"));
+    fireEvent.click(
+      within(screen.getByTestId("inbox-review")).getByRole("button", {
+        name: /^Open review summary/,
+      })
+    );
     expect(onOpenBlock).toHaveBeenLastCalledWith("card");
     fireEvent.click(screen.getByTestId("inbox-input-open"));
     expect(onOpenBlock).toHaveBeenLastCalledWith("card");
@@ -245,7 +257,11 @@ it("shows agent progress with author/title fallbacks and opens the exact child c
   expect(card.textContent).toContain("Now: Verify");
   expect(screen.queryByTestId("inbox-empty")).toBeNull();
   expect(screen.queryByTestId("inbox-input")).toBeNull();
-  fireEvent.click(card);
+  fireEvent.click(
+    within(card).getByRole("button", {
+      name: "Open original checklist: Agent checklist",
+    })
+  );
   expect(onOpenBlock).toHaveBeenCalledWith("child-plan");
   expect(card.querySelector('input, [role="checkbox"]')).toBeNull();
 });
@@ -267,5 +283,9 @@ it("retains a completed checklist as progress history without approval or dismis
   expect(card.textContent).toContain("1/1 done");
   expect(card.textContent).toContain("Complete");
   expect(card.getAttribute("data-complete")).toBe("true");
-  expect(card.querySelectorAll("button")).toHaveLength(0);
+  expect(within(card).getAllByRole("button")).toHaveLength(2);
+  for (const control of within(card).getAllByRole("button")) {
+    expect(control.getAttribute("aria-label")).toMatch(/^Open /);
+  }
+  expect(card.querySelector('input, [role="checkbox"]')).toBeNull();
 });

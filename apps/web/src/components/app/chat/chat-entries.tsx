@@ -1,3 +1,4 @@
+import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { SharedMessageEntry } from "./shared-message-entry";
 import { ScheduledMessageEntry } from "./scheduled-message-entry";
 import {
@@ -376,19 +377,25 @@ export function agentDisplayName(agentId: string, ctx: FeedContext): string {
 export function blockSide(
   block: Block,
   ctx: FeedContext
-): { recipientName: string } | undefined {
+):
+  | { recipientName: string; recipients: { agentId: string; name: string }[] }
+  | undefined {
   if (block.toAgentId === null || block.kind === "launch") return undefined;
-  if (block.author.kind === "agent") {
-    return { recipientName: agentDisplayName(block.toAgentId, ctx) };
-  }
-  // A person's post says whom it was for when that is not the page's
-  // agent, or when it named several: "You → reviewer, builder".
   const recipients = blockRecipients(block);
-  if (recipients.length === 1 && recipients[0] === ctx.agentId) {
+  // A person's single-recipient message to this page needs no extra label.
+  if (
+    block.author.kind === "user" &&
+    recipients.length === 1 &&
+    recipients[0] === ctx.agentId
+  ) {
     return undefined;
   }
   return {
     recipientName: recipients.map((id) => agentDisplayName(id, ctx)).join(", "),
+    recipients: recipients.map((id) => ({
+      agentId: id,
+      name: agentDisplayName(id, ctx),
+    })),
   };
 }
 
@@ -458,7 +465,33 @@ export function historicalMentionablesOf(
   );
 }
 
-export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+export function Avatar({
+  author,
+  size = "md",
+}: {
+  author: PostAuthor;
+  size?: "sm" | "md";
+}): JSX.Element {
+  if (author.kind === "user" || !author.agentId)
+    return <AvatarFace author={author} size={size} />;
+  return (
+    <AgentSessionLink
+      agentId={author.agentId}
+      name={author.name}
+      className="inline-flex self-start"
+    >
+      <AvatarFace author={author} size={size} />
+    </AgentSessionLink>
+  );
+}
+
+function AvatarFace({
+  author,
+  size,
+}: {
+  author: PostAuthor;
+  size: "sm" | "md";
+}): JSX.Element {
   const record = useAgentRecord(author.agentId ?? null);
   const seat =
     record?.rootId != null
@@ -483,6 +516,7 @@ export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
   // badge and root accent without borrowing a number from another tree.
   return (
     <AgentSeatBadge
+      size={size}
       seat={seat}
       name={record?.name ?? author.name}
       title={seat == null ? (record?.name ?? author.name) : undefined}
@@ -632,7 +666,10 @@ export function Post({
   /** Draw a hairline above: this group starts right after another post. */
   rule?: boolean;
   /** Who the post is addressed to, when that is another agent. */
-  side?: { recipientName: string };
+  side?: {
+    recipientName: string;
+    recipients?: { agentId: string; name: string }[];
+  };
   /** A compact post action, shown in the top-right on hover or touch. */
   action?: ReactNode;
   /** A receipt after the timestamp, with a fixed slot that preserves header layout. */
@@ -740,7 +777,21 @@ export function Post({
               className="max-w-full truncate text-sm font-semibold text-foreground"
               data-testid="chat-post-author"
             >
-              {author.name}
+              {author.agentId && author.kind !== "user" ? (
+                <>
+                  {author.launch ? "Started " : ""}
+                  <AgentSessionLink
+                    agentId={author.agentId}
+                    name={
+                      author.launch
+                        ? author.name.replace(/^Started /, "")
+                        : author.name
+                    }
+                  />
+                </>
+              ) : (
+                author.name
+              )}
             </span>
             {side ? (
               <span
@@ -748,7 +799,17 @@ export function Post({
                 data-testid="chat-side-recipient"
               >
                 <span aria-hidden="true">→ </span>
-                {side.recipientName}
+                {side.recipients
+                  ? side.recipients.map((recipient, index) => (
+                      <span key={recipient.agentId}>
+                        {index > 0 ? ", " : ""}
+                        <AgentSessionLink
+                          agentId={recipient.agentId}
+                          name={recipient.name}
+                        />
+                      </span>
+                    ))
+                  : side.recipientName}
               </span>
             ) : null}
             {timestamp}
@@ -1367,9 +1428,14 @@ function LaunchCard({
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Rocket className="h-3 w-3" aria-hidden="true" />
           Launched by{" "}
-          {block.launchedByAgentId
-            ? agentDisplayName(block.launchedByAgentId, ctx)
-            : "you"}
+          {block.launchedByAgentId ? (
+            <AgentSessionLink
+              agentId={block.launchedByAgentId}
+              name={agentDisplayName(block.launchedByAgentId, ctx)}
+            />
+          ) : (
+            "you"
+          )}
         </div>
         <LaunchStartup block={block} />
         <LaunchBriefing block={block} ctx={ctx} />
@@ -1404,12 +1470,18 @@ function LaunchCard({
         data-testid="launch-agent-details"
       >
         <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
-        <AgentSeatBadge
-          seat={seat}
+        <AgentSessionLink
+          agentId={block.toAgentId!}
           name={name}
-          size="sm"
-          className="h-[26px] w-[26px]"
-        />
+          className="shrink-0"
+        >
+          <AgentSeatBadge
+            seat={seat}
+            name={name}
+            size="sm"
+            className="h-[26px] w-[26px]"
+          />
+        </AgentSessionLink>
         <div className="min-w-0 max-w-[min(60%,24rem)]">
           <div className="flex min-w-0 items-center gap-2 whitespace-nowrap leading-[21px]">
             {startupIssue && !inThread && ctx.onOpenThread ? (
@@ -1436,7 +1508,7 @@ function LaunchCard({
               className="max-w-64 truncate text-xs font-medium"
               title={name}
             >
-              {name}
+              <AgentSessionLink agentId={block.toAgentId!} name={name} />
             </span>
             {engine ? (
               <span className="text-[11px] text-muted-foreground">
@@ -1732,17 +1804,12 @@ export const BlockView = memo(function BlockView({
         block={block}
         turn={block.turn}
         name={author.name}
-        avatar={
-          <AgentSeatBadge
-            seat={author.seat ?? null}
-            name={author.name}
-            title={author.seat === undefined ? author.name : undefined}
-            aria-label={
-              author.seat === undefined ? `${author.name}, agent` : undefined
-            }
-            size="sm"
-          />
+        identity={
+          author.agentId ? (
+            <AgentSessionLink agentId={author.agentId} name={author.name} />
+          ) : undefined
         }
+        avatar={<Avatar author={author} size="sm" />}
       />
     );
   }

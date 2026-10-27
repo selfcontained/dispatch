@@ -72,7 +72,9 @@ const H = vi.hoisted(() => ({
 // (`GET /api/v1/agents`) would otherwise hit whatever answers the jsdom
 // origin, and a resolved directory re-renders every post.
 vi.mock("@/lib/api", () => ({
-  api: vi.fn(async () => ({ agents: H.agents })),
+  api: vi.fn(async (url: string) =>
+    url === "/api/v1/projects" ? [] : { agents: H.agents }
+  ),
 }));
 
 const emptyHistoricalSeats = {};
@@ -612,7 +614,7 @@ describe("ChatPane", () => {
             status: "ok",
             inventory: { version: 1, servers: [] },
           } as never)
-        : ({ agents: H.agents } as never)
+        : ((url === "/api/v1/projects" ? [] : { agents: H.agents }) as never)
     );
     try {
       renderPane({

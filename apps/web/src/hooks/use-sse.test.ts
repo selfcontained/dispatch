@@ -871,6 +871,64 @@ describe("useSSE message handling", () => {
     expect(queryClient.getQueryData<Agent[]>(["agents"])).toBeUndefined();
   });
 
+  it("switches a freshly cached identity to archived history on deletion and refreshes only its metadata", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    const identity = {
+      ...agent("drop"),
+      projectId: "project",
+      archived: false,
+      seat: 2,
+      rootId: "root",
+    };
+    queryClient.setQueryData(["agents"], [agent("drop")]);
+    queryClient.setQueryData(["agent-identity", "drop"], identity);
+    queryClient.setQueryData(["agent-identity", "keep"], {
+      ...identity,
+      id: "keep",
+    });
+    emit({ type: "agent.deleted", agentId: "drop" });
+    expect(queryClient.getQueryData(["agent-identity", "drop"])).toMatchObject({
+      archived: true,
+      projectId: "project",
+      seat: 2,
+    });
+    expect(
+      queryClient.getQueryState(["agent-identity", "drop"])?.isInvalidated
+    ).toBe(true);
+    expect(
+      queryClient.getQueryState(["agent-identity", "keep"])?.isInvalidated
+    ).toBe(false);
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["agent-identity", "drop"],
+      exact: true,
+    });
+  });
+
+  it("updates identity membership on a live project move including explicit null", () => {
+    const { queryClient, emit } = renderMessages();
+    queryClient.setQueryData(["agent-identity", "moved"], {
+      ...agent("moved"),
+      projectId: "old",
+      archived: false,
+      seat: 2,
+      rootId: "root",
+    });
+    emit({
+      type: "agent.upsert",
+      agent: { ...agent("moved"), projectId: "new" },
+    });
+    expect(queryClient.getQueryData(["agent-identity", "moved"])).toMatchObject(
+      { projectId: "new", archived: false, seat: 2 }
+    );
+    emit({
+      type: "agent.upsert",
+      agent: { ...agent("moved"), projectId: null },
+    });
+    expect(queryClient.getQueryData(["agent-identity", "moved"])).toMatchObject(
+      { projectId: null, archived: false, seat: 2 }
+    );
+  });
+
   it("routes diff state to the include-uncommitted stats key", () => {
     const { queryClient, emit } = renderMessages();
     const pushed = { added: 3, deleted: 4, files: 2, computedAt: 123 };

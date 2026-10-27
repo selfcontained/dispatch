@@ -1,3 +1,4 @@
+import { AgentSessionLink } from "./agent-session-link";
 import {
   Fragment,
   useCallback,
@@ -272,9 +273,14 @@ function AgentHistoryList({
                         ) : (
                           <span className="w-[18px] flex-shrink-0" />
                         )}
-                        <AgentTypeIcon type={agent.type} />
+                        <AgentSessionLink agentId={agent.id} name={agent.name}>
+                          <AgentTypeIcon type={agent.type} />
+                        </AgentSessionLink>
                         <span className="truncate font-medium text-foreground">
-                          {agent.name}
+                          <AgentSessionLink
+                            agentId={agent.id}
+                            name={agent.name}
+                          />
                         </span>
                         {hasChildren && (
                           <span className="flex-shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
@@ -334,7 +340,10 @@ function AgentHistoryList({
                                 (child.role === "review" ? "review" : "agent")}
                             </Badge>
                             <span className="truncate text-muted-foreground">
-                              {child.name}
+                              <AgentSessionLink
+                                agentId={child.id}
+                                name={child.name}
+                              />
                             </span>
                           </div>
                         </td>

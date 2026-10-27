@@ -426,7 +426,10 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "agent.upsert") {
           queryClient.setQueryData<import("./use-agent-tree").AgentIdentity>(
             ["agent-identity", payload.agent.id],
-            (old) => (old ? { ...old, ...payload.agent, seat: old.seat } : old)
+            (old) =>
+              old
+                ? { ...old, ...payload.agent, archived: false, seat: old.seat }
+                : old
           );
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             // A delta is not a complete list. Seeding the cold cache here
@@ -550,6 +553,16 @@ export function useSSE(authState: AuthState): void {
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             old?.filter((a) => a.id !== payload.agentId)
           );
+          // Archival removes the live row; passive identities must switch to
+          // readable history immediately, even while a cached identity is fresh.
+          queryClient.setQueryData<import("./use-agent-tree").AgentIdentity>(
+            ["agent-identity", payload.agentId],
+            (old) => (old ? { ...old, archived: true } : undefined)
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ["agent-identity", payload.agentId],
+            exact: true,
+          });
           return;
         }
 

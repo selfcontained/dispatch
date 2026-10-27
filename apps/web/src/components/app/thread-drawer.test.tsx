@@ -19,7 +19,10 @@ import { DrawerFrame } from "./drawer";
 import { ThreadDrawer } from "./thread-drawer";
 
 const apiMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/api", () => ({ api: apiMock }));
+vi.mock("@/lib/api", () => ({
+  api: (url: string, ...args: unknown[]) =>
+    url === "/api/v1/projects" ? Promise.resolve([]) : apiMock(url, ...args),
+}));
 vi.mock("@/components/ui/markdown", () => ({
   Markdown: ({ children }: { children: string }) => (
     <div data-testid="markdown-mock">{children}</div>

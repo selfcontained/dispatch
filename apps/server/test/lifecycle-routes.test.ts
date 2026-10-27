@@ -87,16 +87,68 @@ describe("GET /api/v1/agents/:id/identity", () => {
         createdAt: "2026-01-02T00:00:00.000Z",
         seat: 2,
         rootId: "identity-root",
+        projectId: null,
+        archived: true,
       },
     });
     const later = await authedInject(
       "GET",
       "/api/v1/agents/identity-live/identity"
     );
-    expect(later.json().agent.seat).toBe(3);
+    expect(later.json().agent).toMatchObject({
+      seat: 3,
+      projectId: null,
+      archived: false,
+    });
     expect(
       (await authedInject("GET", "/api/v1/agents/missing/identity")).statusCode
     ).toBe(404);
+  });
+  it("returns authoritative project membership for archived agents and project moves to All projects", async () => {
+    await ctx.pool.query(
+      `INSERT INTO projects (id, name, repo_root) VALUES ('identity-project', 'Identity project', '/identity-project') ON CONFLICT (id) DO NOTHING`
+    );
+    await ctx.pool
+      .query(`INSERT INTO agents (id, name, cwd, status, project_id, deleted_at) VALUES
+      ('identity-project-archive', 'Archived member', '/tmp', 'stopped', 'identity-project', NOW()),
+      ('identity-project-live', 'Live member', '/tmp', 'stopped', 'identity-project', NULL)`);
+    const archived = await authedInject(
+      "GET",
+      "/api/v1/agents/identity-project-archive/identity"
+    );
+    expect(archived.json().agent).toMatchObject({
+      projectId: "identity-project",
+      archived: true,
+    });
+    const live = await authedInject(
+      "GET",
+      "/api/v1/agents/identity-project-live/identity"
+    );
+    expect(live.json().agent).toMatchObject({
+      projectId: "identity-project",
+      archived: false,
+    });
+    const moved = await authedInject(
+      "PATCH",
+      "/api/v1/agents/identity-project-live/project",
+      { projectId: null }
+    );
+    expect(moved.statusCode).toBe(200);
+    const projectless = await authedInject(
+      "GET",
+      "/api/v1/agents/identity-project-live/identity"
+    );
+    expect(projectless.json().agent).toMatchObject({
+      projectId: null,
+      archived: false,
+    });
+    const liveList = (await authedInject("GET", "/api/v1/agents")).json()
+      .agents;
+    expect(
+      liveList.some(
+        (agent: { id: string }) => agent.id === "identity-project-archive"
+      )
+    ).toBe(false);
   });
 });
 
