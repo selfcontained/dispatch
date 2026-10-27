@@ -1,3 +1,4 @@
+import { AgentSessionLink } from "@/components/app/agent-session-link";
 /**
  * What a block's body looks like per kind, past its text: a question's
  * options, a form's fields, a review's status and findings, a task list, a
@@ -1173,7 +1174,14 @@ export function FindingChangeEntry({
       <div className="min-w-0">
         <span>
           <span className="font-medium text-foreground/80">{verb}</span> by{" "}
-          {authorName(record.by)}
+          {record.by.kind === "agent" ? (
+            <AgentSessionLink
+              agentId={record.by.agentId}
+              name={authorName(record.by)}
+            />
+          ) : (
+            authorName(record.by)
+          )}
           {record.at ? ` · ${formatRelativeTime(record.at)}` : ""}
         </span>
         {record.note ? (
@@ -1212,7 +1220,12 @@ function FindingRecordLine({
       data-testid="chat-review-finding-record"
     >
       <span>
-        {verb} by {who}
+        {verb} by{" "}
+        {record.by.kind === "agent" ? (
+          <AgentSessionLink agentId={record.by.agentId} name={who} />
+        ) : (
+          who
+        )}
         {record.at ? ` · ${formatRelativeTime(record.at)}` : ""}
       </span>
       {record.note ? (

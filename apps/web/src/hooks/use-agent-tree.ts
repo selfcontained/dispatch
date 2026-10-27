@@ -109,7 +109,14 @@ export function useDescendantAgentIds(
 
 export type AgentIdentity = Pick<
   Agent,
-  "id" | "name" | "type" | "model" | "persona" | "parentAgentId" | "createdAt"
+  | "id"
+  | "name"
+  | "type"
+  | "model"
+  | "persona"
+  | "parentAgentId"
+  | "createdAt"
+  | "projectId"
 > & { seat: number | null; rootId: string | null };
 
 const AGENT_RECORD_STALE_TIME = 5 * 60 * 1000;

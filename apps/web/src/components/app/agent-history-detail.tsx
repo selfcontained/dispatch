@@ -1,3 +1,4 @@
+import { AgentSessionLink } from "./agent-session-link";
 import { ArrowLeft, Search } from "lucide-react";
 
 import {
@@ -82,9 +83,11 @@ export function AgentHistoryDetail({
           <ArrowLeft className="h-3.5 w-3.5" /> Back to history
         </button>
         <div className="flex items-center gap-2">
-          <AgentTypeIcon type={agent.type} />
+          <AgentSessionLink agentId={agent.id} name={agent.name}>
+            <AgentTypeIcon type={agent.type} />
+          </AgentSessionLink>
           <h2 className="text-base font-semibold text-foreground">
-            {agent.name}
+            <AgentSessionLink agentId={agent.id} name={agent.name} />
           </h2>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">

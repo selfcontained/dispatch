@@ -9,7 +9,7 @@ import {
 import { cachedAgentLineage } from "@/lib/agent-lineage";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Clock } from "lucide-react";
-import { Link } from "react-router-dom";
+import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { cn } from "@/lib/utils";
 import { agentQualifier } from "./task-utils";
 
@@ -197,9 +197,11 @@ export function TaskAgent({
   if (!agent)
     return <span className="text-xs text-muted-foreground">Unassigned</span>;
   return (
-    <Link
-      to={`/agents/${agent.id}?project=${encodeURIComponent(projectId)}`}
-      onClick={(event) => event.stopPropagation()}
+    <AgentSessionLink
+      decorative={false}
+      agentId={agent.id}
+      name={agent.name}
+      projectId={projectId}
       className={cn(
         "inline-flex min-w-0 hover:brightness-125",
         compact ? "rounded-full" : "rounded-lg",
@@ -212,6 +214,6 @@ export function TaskAgent({
         compact={compact}
         fullWidth={fullWidth}
       />
-    </Link>
+    </AgentSessionLink>
   );
 }

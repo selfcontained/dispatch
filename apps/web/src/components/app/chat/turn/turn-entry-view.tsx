@@ -279,11 +279,13 @@ export function PendingTurnLine({
   turn,
   name,
   avatar,
+  identity,
 }: {
   block: Block;
   turn: ChatTurnEntry;
   name: string;
   avatar: ReactNode;
+  identity?: ReactNode;
 }): JSX.Element {
   const trace = useMemo(() => turnTrace(turn), [turn]);
   const foldLabel = useMemo(
@@ -310,7 +312,7 @@ export function PendingTurnLine({
           className="max-w-full truncate pt-[3px] text-[11.5px] font-medium text-foreground/80"
           data-testid="chat-pending-turn-author"
         >
-          {name}
+          {identity ?? name}
         </span>
         <ActivityBlock trace={trace} label={foldLabel} />
       </div>

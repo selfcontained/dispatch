@@ -1,3 +1,4 @@
+import { AgentSessionLink } from "./agent-session-link";
 import { Play, Terminal } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
@@ -36,7 +37,10 @@ export function AttachedAgentBanner({
               : "Agent kept after completion — pick up where the run left off."}
           </div>
           <div className="truncate text-xs text-muted-foreground">
-            {attachedAgent.agent.name}
+            <AgentSessionLink
+              agentId={attachedAgent.agent.id}
+              name={attachedAgent.agent.name}
+            />
           </div>
         </div>
         <Button size="sm" onClick={() => void onOpenAgent(attachedAgent.agent)}>
