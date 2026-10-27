@@ -111,8 +111,9 @@ export function useDescendantAgentIds(
 /** Live/loading records can lack metadata until the historical endpoint resolves. */
 export type AgentIdentity = Omit<
   AgentIdentityRecord,
-  "projectId" | "archived"
+  "projectId" | "archived" | "type" | "persona" | "parentAgentId"
 > &
+  Pick<Agent, "type" | "persona" | "parentAgentId"> &
   Partial<Pick<AgentIdentityRecord, "projectId" | "archived">>;
 
 const AGENT_RECORD_STALE_TIME = 5 * 60 * 1000;

@@ -22,6 +22,7 @@
         "apps/web/src/components/app/agent-pane*",
         "apps/web/src/components/app/agent-*",
         "apps/server/test/*agent*",
+        "apps/server/test/lifecycle-routes.test.ts",
         "apps/server/test/*worktree*",
         "apps/server/test/tasks-service.test.ts",
         "apps/server/test/*acp*",
