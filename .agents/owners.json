@@ -70,7 +70,8 @@
         "apps/server/test/*project*",
         "e2e/*project*",
         "apps/web/src/components/app/project-*",
-        "apps/web/src/hooks/use-projects*"
+        "apps/web/src/hooks/use-projects*",
+        "apps/server/test/launch-guidance.test.ts"
       ],
       "personas": ["agent-runtime-owner"]
     },
