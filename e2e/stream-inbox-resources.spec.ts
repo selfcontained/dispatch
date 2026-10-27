@@ -96,6 +96,15 @@ for (const width of [1280, 390]) {
           .getByTestId("chat-attachment-pr")
           .getByRole("link", { name: /PR Feature PR/ })
       ).toHaveAttribute("href", prUrl);
+      await page.waitForFunction(() =>
+        document
+          .getAnimations()
+          .every(
+            (animation) =>
+              animation.effect?.getComputedTiming().iterations === Infinity ||
+              animation.playState !== "running"
+          )
+      );
       const streamScreenshot = `/tmp/dispatch-resources-stream-${width}-${parent.id}.png`;
       await page.screenshot({ path: streamScreenshot, fullPage: true });
       await test.info().attach(`Mixed stream resource cards ${width}`, {
