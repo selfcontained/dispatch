@@ -974,6 +974,7 @@ describe("composeStreamFeed", () => {
           streamId: A,
           author: agent(A),
           threadId,
+          replyTo: threadId,
           attachments: [
             { type: "link", url: `http://192.168.1.2:${5000 + i}` },
           ],
