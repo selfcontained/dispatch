@@ -143,7 +143,8 @@ The following is representative polished copy, gated by audience/release confirm
 
 Run coding agents in your own environment. Follow their work, answer questions, and review the results in one browser workspace.
 
-**Primary:** Get started → `/start`  
+**Primary:** Get started → `/start`
+
 **Secondary:** See the workflow → `#workflow`
 
 macOS and Linux. Bring your coding-agent CLI and account.
@@ -210,7 +211,8 @@ Dispatch runs on macOS and Linux. You supply a supported coding-agent CLI and it
 
 **Fit note:** Your coding agent's provider and permissions still apply. Local-first does not mean every model runs on your device.
 
-**Primary:** Get started → `/start`  
+**Primary:** Get started → `/start`
+
 **Secondary:** Read setup requirements → `/start#requirements`
 
 **Annotation:** Do not automatically run an installer or auto-download based on user agent. Keep both platform choices visible. “macOS and Linux” is not a Windows support claim. Native Mac minimum/version architecture is verified in the evidence ledger; the Linux distribution support policy and standalone artifact contents still need release-owner confirmation.
