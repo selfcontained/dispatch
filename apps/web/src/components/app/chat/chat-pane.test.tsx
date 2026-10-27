@@ -2050,3 +2050,61 @@ describe("ChatPane jump to a block", () => {
     expect(scroll.scrollTop).toBe(0);
   });
 });
+
+describe("empty turn pane projection", () => {
+  it("uses the same visibility for navigation and keeps rows needed for folding", () => {
+    const empty = turnRow({ id: "empty", text: "" });
+    const owner = turnRow({ id: "owner", text: "" });
+    const artifact = blockEntry(
+      block({
+        id: "artifact",
+        createdAt: owner.at,
+        attachments: [{ type: "link", url: "https://example.com" }],
+      })
+    );
+    expect(visibleStreamEntries([empty], null, false)).toEqual([]);
+    expect(visibleStreamEntries([empty, owner, artifact], null, false)).toEqual(
+      [owner, artifact]
+    );
+    owner.block.replyCount = 1;
+    expect(visibleStreamEntries([owner], null, false)).toEqual([owner]);
+  });
+});
+
+it("does not report a new message when an empty settled tail disappears", () => {
+  const first = blockEntry(block({ id: "first", text: "first" }));
+  H.entries = [
+    first,
+    turnRow({ id: "wake", text: "", turn: { settled: false } }),
+  ];
+  const props = {
+    agentId: "agt_1",
+    agent,
+    active: true,
+    showChildAgents: true,
+    onShowChildAgentsChange: vi.fn(),
+    openLightbox: vi.fn(),
+    isMobile: false,
+  };
+  const { rerender } = renderPane(props);
+  const scroll = screen.getByTestId("chat-scroll");
+  Object.defineProperties(scroll, {
+    scrollHeight: { configurable: true, value: 1000 },
+    clientHeight: { configurable: true, value: 200 },
+    scrollTop: { configurable: true, value: 200, writable: true },
+  });
+  fireEvent.scroll(scroll);
+  H.entries = [first, turnRow({ id: "wake", text: "" })];
+  rerender(<ChatPane {...props} />);
+  expect(scroll.scrollTop).toBe(200);
+  expect(
+    screen.getByTestId("chat-jump-to-bottom").getAttribute("data-pending")
+  ).toBeNull();
+  expect(document.querySelector('[data-chat-entry-id="wake"]')).toBeNull();
+  H.entries = [first, turnRow({ id: "wake", text: "Late visible answer" })];
+  rerender(<ChatPane {...props} />);
+  expect(
+    screen.getByTestId("chat-jump-to-bottom").getAttribute("data-pending")
+  ).toBe("true");
+  expect(scroll.scrollTop).toBe(200);
+});

@@ -3280,3 +3280,114 @@ describe("response backlinks", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 });
+
+describe("empty settled turn visibility", () => {
+  it("leaves no orphan dividers and does not break adjacent post grouping", () => {
+    const first = blockEntry(
+      block({ id: "before", createdAt: "2026-09-02T10:00:00.000Z" })
+    );
+    const blank = turnEntry({
+      text: " ",
+      createdAt: "2026-09-02T10:01:00.000Z",
+    });
+    const last = blockEntry(
+      block({ id: "after", createdAt: "2026-09-02T10:02:00.000Z" })
+    );
+    const nextDay = turnEntry({
+      text: "",
+      createdAt: "2026-09-03T10:00:00.000Z",
+    });
+    expect(layoutFeed([blank, nextDay], makeCtx())).toEqual([]);
+    const rows = layoutFeed([first, blank, last, nextDay], makeCtx());
+    expect(rows.filter((row) => row.kind === "divider")).toHaveLength(1);
+    expect(rows.filter((row) => row.kind === "entry")).toMatchObject([
+      { entry: { id: "before" }, grouped: false },
+      { entry: { id: "after" }, grouped: true },
+    ]);
+  });
+
+  it("removes a live shell on empty settlement and restores late content and thread access", () => {
+    const active = turnEntry({
+      id: "wake",
+      text: "",
+      turn: { settled: false },
+    });
+    const { rerenderWith } = renderFeed(
+      [active],
+      {},
+      { onOpenThread: vi.fn() }
+    );
+    expect(screen.getByTestId("chat-pending-turn")).toBeTruthy();
+    const settled = turnEntry({ id: "wake", text: "" });
+    rerenderWith([settled]);
+    expect(screen.queryByTestId("chat-pending-turn")).toBeNull();
+    expect(screen.queryByTestId("chat-message")).toBeNull();
+    expect(document.querySelector('[data-chat-entry-id="wake"]')).toBeNull();
+
+    const late = turnEntry({
+      id: "wake",
+      text: "",
+      turn: { result: { text: "Late answer", streaming: false } },
+    });
+    rerenderWith([late]);
+    expect(screen.getByText("Late answer")).toBeTruthy();
+
+    rerenderWith([
+      turnEntry({ id: "wake", text: "", replyCount: 1, unreadReplies: 1 }),
+    ]);
+    expect(document.querySelector('[data-chat-entry-id="wake"]')).toBeTruthy();
+  });
+
+  it("removes partial streaming text when settlement has an authoritative empty result", () => {
+    const active = turnEntry({
+      id: "partial",
+      text: "Stale block snapshot",
+      turn: {
+        settled: false,
+        result: { text: "Partial live answer", streaming: true },
+      },
+    });
+    const { rerenderWith } = renderFeed([active]);
+    expect(screen.getByText("Partial live answer")).toBeTruthy();
+    const settled = turnEntry({
+      id: "partial",
+      text: "Stale block snapshot",
+      turn: { result: { text: " \n", streaming: false } },
+    });
+    rerenderWith([settled]);
+    expect(document.querySelector('[data-chat-entry-id="partial"]')).toBeNull();
+    expect(screen.queryByText("Stale block snapshot")).toBeNull();
+    rerenderWith([
+      turnEntry({
+        id: "partial",
+        text: "Stale block snapshot",
+        turn: { result: { text: "Late final answer", streaming: false } },
+      }),
+    ]);
+    expect(screen.getByText("Late final answer")).toBeTruthy();
+  });
+
+  it("restores a settled owner when an artifact arrives after its empty result", () => {
+    const turn = turnEntry({ id: "owner", streamId: AGENT_ID, text: "" });
+    const { rerenderWith } = renderFeed([turn]);
+    expect(screen.queryByTestId("chat-turn")).toBeNull();
+    const artifact = blockEntry(
+      block({
+        id: "late-file",
+        streamId: AGENT_ID,
+        createdAt: turn.at,
+        text: "Artifact",
+        attachments: [
+          { type: "link", url: "https://example.com", title: "Report" },
+        ],
+      })
+    );
+    rerenderWith([turn, artifact]);
+    expect(screen.getByTestId("chat-turn")).toBeTruthy();
+    expect(screen.getByTestId("chat-turn-attachments")).toBeTruthy();
+    expect(screen.getByText("Artifact")).toBeTruthy();
+    expect(
+      document.querySelector('[data-chat-entry-id="late-file"]')
+    ).toBeNull();
+  });
+});

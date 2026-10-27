@@ -33,6 +33,7 @@ import {
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
+import { visibleFeedEntries } from "@/components/app/chat/turn/visible-feed";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
 import {
   agentDisplayName,
@@ -239,7 +240,10 @@ export function visibleStreamEntries(
         : []
     )
   );
-  return filtered.filter((entry) => !attachedReviews.has(entry.id));
+  return visibleFeedEntries(
+    filtered.filter((entry) => !attachedReviews.has(entry.id)),
+    view?.agentId
+  );
 }
 
 export function isMainColumnEntry(entry: StreamEntry): boolean {
@@ -906,6 +910,7 @@ export function ChatPane({
     // late and land by time below the newest row. Any unseen row sitting
     // under a seen one is an arrival; only "Load older" adds rows above.
     const arrived = arrivedEntryIds(seenEntryIdsRef.current, visibleEntries);
+    const newTail = lastId !== null && !seenEntryIdsRef.current.has(lastId);
     seenEntryIdsRef.current = new Set(visibleEntries.map((e) => e.id));
     const filterChanged = lastShowChildAgentsRef.current !== showChildAgents;
     lastShowChildAgentsRef.current = showChildAgents;
@@ -918,7 +923,9 @@ export function ChatPane({
       setPendingBelow(false);
       return;
     }
-    const appended = lastId !== lastEntryIdRef.current || arrived.length > 0;
+    // Removing an empty settled tail exposes an existing row; it is not an arrival.
+    const appended =
+      (lastId !== lastEntryIdRef.current && newTail) || arrived.length > 0;
     // A streaming turn keeps its id while it grows; that is still new
     // content below the fold for a reader who is following.
     const grew = !appended && lastKey !== lastEntryKeyRef.current;
