@@ -156,6 +156,21 @@ for (const width of [1280, 700, 390]) {
           )
         )
         .toBe(true);
+      // Each card kind starts its aligned title/URL column at the same inset.
+      await expect
+        .poll(() =>
+          mixedCards.evaluateAll((elements) => {
+            const offsets = elements.map((element) => {
+              const title = element.querySelector("span.block.truncate")!;
+              return (
+                title.getBoundingClientRect().left -
+                element.getBoundingClientRect().left
+              );
+            });
+            return Math.max(...offsets) - Math.min(...offsets) < 1;
+          })
+        )
+        .toBe(true);
       if (width >= 768) {
         // Compact intrinsic widths let all three kinds occupy one flex row.
         await expect

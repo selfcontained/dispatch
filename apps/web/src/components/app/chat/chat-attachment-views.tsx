@@ -137,9 +137,6 @@ export function LinkAttachment({
         aria-hidden="true"
       >
         {icon}
-        {resourceLabel ? (
-          <span className="text-[10px] font-medium">{resourceLabel}</span>
-        ) : null}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium leading-4 text-foreground">
