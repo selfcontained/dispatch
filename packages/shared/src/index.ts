@@ -219,3 +219,5 @@ export type {
 } from "./mcp-inventory-types.js";
 
 export { taskAgentName } from "./agent-names.js";
+
+export { INBOX_CHECKLISTS_MAX, isInboxChecklist } from "./inbox-checklists.js";

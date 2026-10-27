@@ -504,6 +504,9 @@ export type StreamFeedResponse = {
    * request, newest first — a child's work lands in its own thread.
    */
   threadLinks?: Block[];
+  /** First page only: newest 12 agent checklists in the selected stream/view,
+   * threads included. Completed lists remain as bounded progress history. */
+  checklists?: Block[];
   /**
    * The name of every agent this page's blocks mention, archived agents
    * included: the agents list leaves those out, and their posts keep their

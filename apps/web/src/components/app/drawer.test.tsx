@@ -12,6 +12,7 @@ import {
   findingBlock,
   findingRecord,
   questionBody,
+  tasksBody,
   reviewBlock,
 } from "@/test-utils/blocks";
 
@@ -88,10 +89,12 @@ function renderDrawer(
   {
     reviews = [review],
     inputs = [],
+    checklists = [],
     onOpenBlock = vi.fn(),
   }: {
     reviews?: Block[];
     inputs?: Block[];
+    checklists?: Block[];
     onOpenBlock?: (id: string) => void;
   } = {}
 ) {
@@ -117,6 +120,8 @@ function renderDrawer(
             inputs: inputs as never,
             links: [],
             reviews: reviews as never,
+            checklists: checklists as never,
+            agentNames: { agt_archived: "Archived builder" },
             isLoading: false,
           }}
           inboxDisabledReason={null}
@@ -215,4 +220,52 @@ describe("DrawerContent as the sidebar", () => {
     expect(screen.queryByTestId("drawer-page")).toBeNull();
     expect(screen.queryByTestId("drawer-title")).toBeNull();
   });
+});
+
+it("shows agent progress with author/title fallbacks and opens the exact child checklist", () => {
+  const onOpenBlock = vi.fn();
+  const plan = block({
+    id: "child-plan",
+    threadId: "launch-card",
+    text: "",
+    author: { kind: "agent", agentId: "agt_archived" },
+    body: tasksBody(
+      [
+        { id: "one", text: "Implement" },
+        { id: "two", text: "Verify" },
+      ],
+      { items: { one: "done", two: "now" } }
+    ),
+  });
+  renderDrawer("", { reviews: [], checklists: [plan], onOpenBlock });
+  const card = screen.getByTestId("inbox-checklist");
+  expect(card.textContent).toContain("Archived builder");
+  expect(card.textContent).toContain("Agent checklist");
+  expect(card.textContent).toContain("1/2 done");
+  expect(card.textContent).toContain("Now: Verify");
+  expect(screen.queryByTestId("inbox-empty")).toBeNull();
+  expect(screen.queryByTestId("inbox-input")).toBeNull();
+  fireEvent.click(card);
+  expect(onOpenBlock).toHaveBeenCalledWith("child-plan");
+  expect(card.querySelector('input, [role="checkbox"]')).toBeNull();
+});
+
+it("retains a completed checklist as progress history without approval or dismissal actions", () => {
+  renderDrawer("", {
+    reviews: [],
+    checklists: [
+      block({
+        id: "complete",
+        text: "Shipped",
+        body: tasksBody([{ id: "one", text: "Build" }], {
+          items: { one: "done" },
+        }),
+      }),
+    ],
+  });
+  const card = screen.getByTestId("inbox-checklist");
+  expect(card.textContent).toContain("1/1 done");
+  expect(card.textContent).toContain("Complete");
+  expect(card.getAttribute("data-complete")).toBe("true");
+  expect(card.querySelectorAll("button")).toHaveLength(0);
 });

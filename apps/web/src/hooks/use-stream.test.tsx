@@ -731,6 +731,24 @@ describe("syncAcrossStream", () => {
       body: questionBody([{ label: "Yes" }], { state }),
     });
 
+  it("keeps live checklist history bounded and ordered, including out-of-order old posts", () => {
+    let current = cache();
+    for (let i = 20; i >= 1; i--) {
+      current = syncAcrossStream(
+        current,
+        block({
+          id: `plan-${i}`,
+          body: { kind: "tasks", data: { items: [] }, state: null },
+          createdAt: `2026-10-${String(i).padStart(2, "0")}T00:00:00.000Z`,
+        })
+      )!;
+    }
+    expect(current.pages[0]!.checklists?.map((b) => b.id)).toEqual(
+      Array.from({ length: 12 }, (_, i) => `plan-${20 - i}`)
+    );
+    expect(current.pages[1]!.checklists).toBeUndefined();
+  });
+
   it("adds an agent's open question asked anywhere, replaces it, and drops it once answered", () => {
     const empty = cache();
     const added = syncAcrossStream(empty, ask())!;

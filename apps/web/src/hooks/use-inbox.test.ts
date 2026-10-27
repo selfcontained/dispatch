@@ -17,6 +17,7 @@ import {
   launchBlock,
   turnEntry,
   questionBody,
+  tasksBody,
   reviewBlock,
 } from "@/test-utils/blocks";
 
@@ -441,5 +442,88 @@ describe("useInbox", () => {
         createElement(QueryClientProvider, { client: queryClient }, children),
     });
     expect(result.current.inputs.map((b) => b.id)).toEqual(["t1", "q1"]);
+  });
+});
+
+describe("checklist progress derivation", () => {
+  const checklist = (id: string, by = ROOT, extra: Partial<Block> = {}) =>
+    block({
+      id,
+      streamId: ROOT,
+      author: { kind: "agent", agentId: by },
+      body: tasksBody([{ id: "one", text: "Build" }]),
+      ...extra,
+    });
+
+  it("chooses the newest version across a page, shown blocks and the supplemental collection", () => {
+    const old = checklist("plan");
+    const current = checklist("plan", ROOT, {
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    if (current.kind !== "tasks") throw new Error("fixture");
+    current.state = { items: { one: "now" } };
+    const shown = block({ blocks: [old] });
+    const inbox = deriveInbox(
+      [blockEntry(shown), blockEntry(current)],
+      ROOT,
+      ROOT,
+      [],
+      [],
+      [old]
+    );
+    expect(inbox.checklists).toEqual([current]);
+    const done = {
+      ...current,
+      state: { items: { one: "done" as const } },
+      updatedAt: "2026-10-02T00:00:00.000Z",
+    };
+    expect(
+      deriveInbox([blockEntry(current)], ROOT, ROOT, [], [], [done]).checklists
+    ).toEqual([done]);
+  });
+
+  it("respects root/child visibility and stream isolation without treating progress as an input", () => {
+    const root = checklist("root");
+    const home = checklist("child-home", CHILD, { threadId: "launch" });
+    const surfaced = checklist("child-outcome", CHILD);
+    const foreign = checklist("task-only", ROOT, { streamId: "tsk_other" });
+    const user = checklist("user", ROOT, { author: { kind: "user" } });
+    const all = [root, home, surfaced, foreign, user];
+    expect(
+      deriveInbox([], ROOT, ROOT, [], [], all, false).checklists.map(
+        (b) => b.id
+      )
+    ).toEqual(["root", "child-outcome"]);
+    expect(
+      deriveInbox([], CHILD, ROOT, [], [], all, false).checklists.map(
+        (b) => b.id
+      )
+    ).toEqual(["child-outcome", "child-home"]);
+    const inbox = deriveInbox([], ROOT, ROOT, [], [], all, true);
+    expect(inbox.checklists).toHaveLength(3);
+    expect(inbox.inputs).toEqual([]);
+  });
+
+  it("bounds completed history across loaded pages and thread supplements", () => {
+    const lists = Array.from({ length: 20 }, (_, i) =>
+      checklist(String(i), ROOT, {
+        createdAt: `2026-10-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`,
+      })
+    );
+    expect(
+      deriveInbox(
+        lists.map(blockEntry),
+        ROOT,
+        ROOT,
+        [],
+        [],
+        lists.slice(10)
+      ).checklists.map((b) => b.id)
+    ).toEqual(
+      lists
+        .slice(-12)
+        .reverse()
+        .map((b) => b.id)
+    );
   });
 });

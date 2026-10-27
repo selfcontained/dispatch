@@ -6,7 +6,11 @@
  * optimistically and lets the stored row arrive as a `stream.entry`.
  */
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
-import { isFailedParentInput } from "@dispatch/shared";
+import {
+  INBOX_CHECKLISTS_MAX,
+  isInboxChecklist,
+  isFailedParentInput,
+} from "@dispatch/shared";
 import type {
   Block,
   BlockOption,
@@ -377,7 +381,12 @@ export function useStreamFeedSelect<T>(
   rootId: string | null,
   select: (
     entries: StreamEntry[],
-    across: { openInputs: readonly Block[]; threadLinks: readonly Block[] }
+    across: {
+      openInputs: readonly Block[];
+      threadLinks: readonly Block[];
+      checklists: readonly Block[];
+      agentNames: Record<string, string>;
+    }
   ) => T,
   launchReplies: LaunchReplyScope = false
 ): { data: T | undefined; isLoading: boolean } {
@@ -393,6 +402,8 @@ export function useStreamFeedSelect<T>(
       select(flattenFeedPages(data.pages), {
         openInputs: data.pages[0]?.openInputs ?? [],
         threadLinks: data.pages[0]?.threadLinks ?? [],
+        checklists: data.pages[0]?.checklists ?? [],
+        agentNames: mergeAgentNames(data.pages),
       }),
   });
   return { data: query.data, isLoading: query.isLoading };
@@ -577,7 +588,8 @@ function upsertListed(
  */
 export function syncAcrossStream(
   cache: FeedCache | undefined,
-  block: Block
+  block: Block,
+  childScope: LaunchReplyScope = true
 ): FeedCache | undefined {
   const first = cache?.pages[0];
   if (!cache || !first) return cache;
@@ -605,7 +617,22 @@ export function syncAcrossStream(
           "start"
         )
       : null;
-  if (!inputs && !links) return cache;
+  const existing = first.checklists?.find((item) => item.id === block.id);
+  const checklists =
+    existing && existing.updatedAt > block.updatedAt
+      ? null
+      : upsertListed(
+          first.checklists ?? [],
+          block,
+          isInboxChecklist(block, block.streamId, childScope),
+          "start"
+        );
+  checklists?.sort(
+    (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+  );
+  if (checklists)
+    checklists.length = Math.min(checklists.length, INBOX_CHECKLISTS_MAX);
+  if (!inputs && !links && !checklists) return cache;
   return {
     ...cache,
     pages: [
@@ -613,6 +640,7 @@ export function syncAcrossStream(
         ...first,
         ...(inputs ? { openInputs: inputs } : {}),
         ...(links ? { threadLinks: links } : {}),
+        ...(checklists ? { checklists } : {}),
       },
       ...cache.pages.slice(1),
     ],
