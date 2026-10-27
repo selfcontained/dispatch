@@ -391,3 +391,27 @@ it("archives and restores from the drawer and shows archived status", async () =
     vi.unstubAllGlobals();
   }
 });
+
+it("adds the decorative PR icon only to PR links in details", async () => {
+  const { client } = renderTask("?task=task-1&pane=details");
+  const url = "https://github.com/example/repo/pull/42";
+  act(() => {
+    client.setQueryData(taskKeys.detail(detail.id), {
+      ...detail,
+      links: [
+        { kind: "pr", label: "PR #42", url },
+        { kind: "url", label: "Docs", url: "https://example.com/docs" },
+      ],
+    });
+  });
+  const pr = await screen.findByRole("link", { name: "PR #42" });
+  const docs = screen.getByRole("link", { name: "Docs" });
+  expect(pr.getAttribute("href")).toBe(url);
+  expect(pr.getAttribute("target")).toBe("_blank");
+  expect(pr.getAttribute("rel")).toBe("noreferrer");
+  const icon = pr.querySelector(".lucide-git-pull-request");
+  expect(icon?.getAttribute("aria-hidden")).toBe("true");
+  expect(docs.querySelector(".lucide-git-pull-request")).toBeNull();
+  expect(docs.querySelector(".lucide-external-link")).toBeTruthy();
+  expect(docs.getAttribute("href")).toBe("https://example.com/docs");
+});

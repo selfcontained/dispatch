@@ -103,3 +103,35 @@ it("shows the live launch instead of the prior agent and failure", () => {
   expect(screen.queryByText(/launch failed/)).toBeNull();
   expect(screen.queryByTestId("task-agent-chip-agt_old")).toBeNull();
 });
+
+it("renders decorative PR links without opening the card or changing its drag handle", () => {
+  const onOpen = vi.fn();
+  const label = "PR #42: " + "long-label".repeat(20);
+  const url = "https://github.com/example/repo/pull/42";
+  const linkedTask = {
+    ...task("Backlog"),
+    links: [
+      { kind: "pr" as const, label, url },
+      { kind: "url" as const, label: "Docs", url: "https://example.com/docs" },
+    ],
+  };
+  render(
+    <TaskCard
+      task={linkedTask}
+      columns={columns}
+      agents={[]}
+      onOpen={onOpen}
+      onMove={() => {}}
+    />
+  );
+  const link = screen.getByRole("link", { name: label });
+  expect(link.getAttribute("href")).toBe(url);
+  expect(link.getAttribute("target")).toBe("_blank");
+  expect(link.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
+  fireEvent.click(link);
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Drag Ship it" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Ship it" }));
+  expect(onOpen).toHaveBeenCalledOnce();
+});

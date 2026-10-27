@@ -130,3 +130,48 @@ it("a search that hides a column's tasks does not make it deletable", async () =
   });
   expect(remove.getAttribute("aria-disabled")).toBe("true");
 });
+
+it("keeps PR links distinct from the row's task navigation", () => {
+  const openTask = vi.fn();
+  const label = "PR #42: " + "long-label".repeat(20);
+  const url = "https://github.com/example/repo/pull/42";
+  const task = {
+    id: "task",
+    projectId: "p",
+    title: "Linked task",
+    columnId: "ready",
+    position: 0,
+    createdAt: new Date().toISOString(),
+    links: [
+      { kind: "pr", label, url },
+      { kind: "url", label: "Docs", url: "https://example.com/docs" },
+    ],
+  } as Task;
+  const board = {
+    projectId: "p",
+    tasks: [task],
+    columns: [{ id: "ready", key: "ready", name: "Ready", position: 0 }],
+  } as TaskBoard;
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <TaskList
+        board={board}
+        tasks={[task]}
+        agents={[]}
+        openTask={openTask}
+        moveTask={() => {}}
+      />
+    </QueryClientProvider>
+  );
+  const link = screen.getByRole("link", { name: label });
+  expect(link.getAttribute("href")).toBe(url);
+  expect(link.getAttribute("target")).toBeNull();
+  expect(link.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
+  // Prevent jsdom navigation while exercising the existing event propagation path.
+  link.addEventListener("click", (event) => event.preventDefault());
+  fireEvent.click(link);
+  expect(openTask).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Linked task" }));
+  expect(openTask).toHaveBeenCalledWith(task.id);
+});
