@@ -218,12 +218,10 @@ for (const width of [1280, 700, 390]) {
       if (width < 768) await expectFullContentWidth(mixedCards);
       const longScreenshot = `/tmp/dispatch-resources-long-${width}-${parent.id}.png`;
       await page.screenshot({ path: longScreenshot, fullPage: true });
-      await test
-        .info()
-        .attach(`Long URL card titles ${width}`, {
-          path: longScreenshot,
-          contentType: "image/png",
-        });
+      await test.info().attach(`Long URL card titles ${width}`, {
+        path: longScreenshot,
+        contentType: "image/png",
+      });
       await callMcpToolViaAPI(request, parent.id, "update", {
         id: direct,
         attachments: [
