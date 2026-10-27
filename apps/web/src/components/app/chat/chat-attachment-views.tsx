@@ -132,8 +132,14 @@ export function LinkAttachment({
     : undefined;
   const content = (
     <>
-      <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+      <span
+        className="inline-flex shrink-0 items-center gap-1 text-muted-foreground"
+        aria-hidden="true"
+      >
         {icon}
+        {resourceLabel ? (
+          <span className="text-[10px] font-medium">{resourceLabel}</span>
+        ) : null}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium leading-4 text-foreground">
@@ -147,14 +153,6 @@ export function LinkAttachment({
               : "Opens in a new tab"}
         </span>
       </span>
-      {resourceLabel ? (
-        <span
-          className="shrink-0 text-[10px] font-medium text-muted-foreground"
-          aria-hidden="true"
-        >
-          {resourceLabel}
-        </span>
-      ) : null}
       <ArrowUpRight
         className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
         aria-hidden="true"
