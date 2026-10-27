@@ -25,6 +25,7 @@ import {
   foldAttachments,
 } from "@/components/app/chat/turn/turn-attachments";
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
+import { isEmptySuccessfulTurn } from "@/components/app/chat/turn/visible-feed";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
 import { useWindowedRows, WindowGap } from "./windowed-rows";
@@ -258,6 +259,7 @@ export function layoutFeed(
   let lastPost: { key: string; at: number } | null = null;
   const fold = foldAttachments(entries, ctx.agentId);
   for (const entry of fold.entries) {
+    if (isEmptySuccessfulTurn(entry, fold.folded.get(entry.id))) continue;
     const item = { kind: "entry" as const, entry };
     const day = dayKey(item.entry.at);
     if (day !== lastDay) {
@@ -436,7 +438,11 @@ export function ChatFeed({
       suspend: windowed.suspendPlace,
     };
   }
-  const entering = useEnteringEntries(entries, ctx.agentId);
+  const renderedEntries = useMemo(
+    () => rows.flatMap((row) => (row.kind === "entry" ? [row.entry] : [])),
+    [rows]
+  );
+  const entering = useEnteringEntries(renderedEntries, ctx.agentId);
   const playedRef = useRef(new Set<string>());
   // Disclosure state per row (an expanded step, a folded step list), owned here so
   // it survives a row re-rendering; entries that left the feed drop theirs.
