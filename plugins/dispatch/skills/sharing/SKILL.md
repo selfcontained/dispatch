@@ -103,3 +103,18 @@ the artifact _shows_, not what it is:
 
 Keep the prose summary in your reply and put the bulk in the artifact. The reply
 says what happened; the file is the evidence.
+
+## Typed resources
+
+Use `attachments: [{ type: "pr", url, title }]` for a pull request and
+`attachments: [{ type: "preview", url, title }]` for a runnable preview. Preview
+requires a useful nonblank title and a safe HTTP(S) URL or app path. These show
+visible PR/Preview labels and icons in the stream and Inbox. Generic `link`
+cards stay in the stream; they do not enter the Inbox, except legacy PR-shaped
+URLs (`/pull/<number>` or `/merge_requests/<number>`). Never infer preview type
+from a domain, port or LAN address. Update attachments replaces the entire list.
+
+For Dispatch repository dev stacks, share **only the web LAN URL** with the
+user as the preview resource. API and database addresses remain internal
+validation details. Attach cleanup commands separately as code. This repository
+preference does not restrict preview resources in other projects.

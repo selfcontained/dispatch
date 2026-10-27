@@ -583,15 +583,15 @@ test.describe("Chat surface", () => {
     );
     await expect(fromChild).toHaveAttribute("data-author-kind", "peer");
 
-    // The Inbox lists the links the stream produced, newest first.
+    // Generic links stay in the stream; the Inbox only lists resources.
     await page.getByTestId("toggle-drawer").click();
     const drawer = page.getByTestId("drawer");
     await drawer.getByTestId("sidebar-tab-inbox").click();
     const inboxLinks = drawer.getByTestId("inbox-link");
-    await expect(inboxLinks).toHaveCount(3);
+    await expect(inboxLinks).toHaveCount(1);
     await expect(inboxLinks.nth(0).getByRole("link")).toHaveAttribute(
       "href",
-      "https://example.com/bare"
+      "https://github.com/o/r/pull/12"
     );
 
     await page.screenshot({

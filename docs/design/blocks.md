@@ -91,7 +91,7 @@ dropped. Rows are not migrated.
 | `launch`   | — (`text` is the briefing, `to_agent_id` the agent it launched)                 | `{ startup?, instructions?, blocks? }`                                     | Dispatch, one per agent         |
 | `tasks`    | `{ items: [{id, text}] }`                                                       | `{ items: { [id]: done\|now\|todo } }`                                     | agent                           |
 | `board`    | later: kanban, table                                                            |                                                                            |                                 |
-| `preview`  | later: a served URL with a live status                                          |                                                                            |                                 |
+| `preview`  | later: lifecycle block (current previews use typed attachments)                 |                                                                            |                                 |
 
 A `question` is a `form` with one field; it exists as its own kind because
 it is the common case and renders as a row of buttons.
@@ -236,3 +236,40 @@ attach the same `fileId` or `fileName` with different captions. `update` replace
 the attachment list, so supply captions again for the replacement attachments.
 `description` remains file registry metadata set on upload and is independent of
 these captions.
+
+### Inbox resources
+
+`post` and `update` accept `{ type: "preview", url, title }` attachments alongside
+`pr`, `link`, file and code. Preview titles are required, trimmed and limited to
+200 characters; URLs use the existing safe HTTP(S)/app-path contract. Preview
+is explicit, never inferred from host, port, LAN address, text or Markdown.
+Both stream cards and Inbox cards show PR/Preview labels with pull-request or
+monitor icons. Generic links remain rich stream cards, excluded from Inbox;
+legacy PR-shaped link attachments and link blocks remain compatible.
+
+The first-page `threadLinks` field retains its wire name for compatibility but
+now carries the newest **20 resource-bearing posts across direct and threaded
+posts**, independent of the paginated feed. Filtering by type and stream/child
+author happens before the server bound, so generic batches cannot evict direct
+or thread resources. Inbox resolves newest `updatedAt` copies by block ID before
+filtering, orders by creation time then ID descending, bounds to 20 resource
+posts, deduplicates exact URLs and displays at most 8 resources. The post bound
+is deliberate: more than 20 recent resource posts can age older results out,
+including when several posts repeat one URL. This is a glance, not an index.
+
+Resource scope preserves the previous Inbox contract: a root reads the whole
+shared stream, including thread resources regardless of the feed's child toggle
+or recipient routing. A child's page includes only that child's authored posts;
+filtering before the bound prevents siblings consuming its resource history.
+No resources from another stream are admitted. This differs intentionally from
+checklist visibility, which follows the feed's quiet/full toggle.
+
+SSE keeps the bounded supplement and loaded/shown copies current. Replacing
+attachments can remove a resource; stale versions must not restore it. An event
+racing a first fetch/refetch triggers a fresh snapshot, and reconnect refreshes
+the first-page supplement. Questions, forms, reviews and checklists keep their
+existing contracts. No preview lifecycle or automatic promotion is introduced.
+
+For this repository's dev stacks, user previews contain only the web LAN URL as
+a named preview attachment plus separate cleanup commands. API/DB addresses are
+internal validation details; the generic preview contract supports other apps.

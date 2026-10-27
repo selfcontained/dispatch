@@ -64,7 +64,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - If any files under `apps/web/` changed, run `pnpm run finalize:web` before marking the task complete.
 - After running `pnpm run finalize:web`, verify the served app via the repo MCP dev tools when the task affects UI/theme/rendering behavior.
 - After UI/theme/rendering validation on an isolated dev stack, leave that stack running for the user to inspect unless they explicitly ask you to tear it down.
-- In the final response, include the exact local URLs/ports for the running validation stack and the cleanup command(s) needed to stop it later.
+- In the final response, share only the web LAN URL as a named `preview` attachment, plus the cleanup command(s) needed to stop it later. API and database addresses are internal validation details.
 
 ## Temporary Files
 
@@ -80,7 +80,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - **Prefer `repo_dev_restart` over `repo_dev_down` + `repo_dev_up`** when you need to pick up code changes. Restart reuses the same ports and DB — no wasted time recreating containers. Only use `repo_dev_down` when the user asks or you're done for good.
 - If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
 - `repo_dev_up` auto-selects free ports and prints the URLs — just use the printed URLs.
-- Dev previews must be reachable from the user’s LAN by default. Bind to `0.0.0.0` (the dev helper default), verify the LAN URL responds, and post the LAN URL rather than only localhost. Honor `DISPATCH_HOST` from the checkout’s copied `.env` before deriving server bindings; do not let the installed app’s inherited localhost-only binding override it.
+- Dev previews must be reachable from the user’s LAN by default. Bind to `0.0.0.0` (the dev helper default), verify the LAN URL responds, and share only the web LAN URL with the user as a named `preview` attachment (`{ type: "preview", url, title }`). Keep API and database addresses internal to validation; share cleanup commands separately. Honor `DISPATCH_HOST` from the checkout’s copied `.env` before deriving server bindings; do not let the installed app’s inherited localhost-only binding override it.
 
 ## Backend Testing Safety
 
@@ -108,7 +108,7 @@ unrelated changes or CI.
 
 ## The Stream
 
-- Ordinary replies and progress updates stream automatically; do not repeat them through `post`. Use `post` for structured content: a `link` for a dev URL or doc, a `pr` attachment for a pull request, a `code` attachment for IDs, commands and env values, a `file` attachment for screenshots and reports, a `question` or `form` block for a decision.
+- Ordinary replies and progress updates stream automatically; do not repeat them through `post`. Use `post` for structured content: a `preview` attachment for a named web LAN preview, a `link` for a doc or generic URL, a `pr` attachment for a pull request, a `code` attachment for IDs, commands and env values, a `file` attachment for screenshots and reports, a `question` or `form` block for a decision.
 - Activity is derived from the runtime and open questions or forms; do not emit status events. A posting receipt or pickup indicator is not an answer or proof that work is complete.
 - `post` with `to: <agentId>` reaches another agent; children post into their parent's stream. Revise a block with `update`.
 

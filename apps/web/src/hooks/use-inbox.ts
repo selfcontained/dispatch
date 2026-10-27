@@ -7,9 +7,13 @@
 import { useCallback } from "react";
 import { useAtomValue } from "jotai";
 import { chatShowChildAgentsAtom } from "@/lib/store";
-import type { Block, ChatAttachment, StreamEntry } from "@dispatch/shared";
+import type { Block, StreamEntry } from "@dispatch/shared";
 import {
   INBOX_CHECKLISTS_MAX,
+  INBOX_RESOURCE_POSTS_MAX,
+  INBOX_RESOURCES_MAX,
+  isInboxResource,
+  resourcesOf,
   isInboxChecklist,
   reviewFindings,
   reviewStatus,
@@ -27,6 +31,7 @@ export type InboxLink = {
   title?: string;
   /** A pull request link, from a `pr` attachment or a PR-shaped URL. */
   pr: boolean;
+  kind: "pr" | "preview";
   /** The block it came from, for a key and a way back to the feed. */
   blockId: string;
   at: string;
@@ -52,14 +57,6 @@ export type Inbox = {
 
 const REVIEWS_MAX = 12;
 
-/** How far back the links list reads; the Inbox is a glance, not an index. */
-const LINKS_WINDOW = 200;
-const LINKS_MAX = 8;
-
-function isPullRequestUrl(url: string): boolean {
-  return /\/pull\/\d+/.test(url) || /\/merge_requests\/\d+/.test(url);
-}
-
 /** An agent's open question or form for people. */
 export function isOpenInput(block: Block): block is InboxInput {
   if (block.author.kind !== "agent" || block.toAgentId !== null) return false;
@@ -70,23 +67,6 @@ export function isOpenInput(block: Block): block is InboxInput {
   if (block.kind === "question") return block.state?.answer === undefined;
   if (block.kind === "form") return block.state?.submission === undefined;
   return false;
-}
-
-function linksOf(block: Block): InboxLink[] {
-  const out: InboxLink[] = [];
-  const push = (url: string, title: string | undefined, pr: boolean) =>
-    out.push({ url, title, pr, blockId: block.id, at: block.createdAt });
-  if (block.kind === "link") {
-    push(block.data.url, block.data.title, isPullRequestUrl(block.data.url));
-  }
-  for (const attachment of block.attachments as ChatAttachment[]) {
-    if (attachment.type === "link") {
-      push(attachment.url, attachment.title, isPullRequestUrl(attachment.url));
-    } else if (attachment.type === "pr") {
-      push(attachment.url, attachment.title, true);
-    }
-  }
-  return out;
 }
 
 /**
@@ -112,7 +92,6 @@ export function deriveInbox(
   const reviews: InboxReview[] = [];
   const reviewIds = new Set<string>();
   const seen = new Set<string>();
-  const blocks: Block[] = [];
   const asked = new Set<string>();
   for (const entry of entries) {
     if (entry.type !== "block") continue;
@@ -132,7 +111,6 @@ export function deriveInbox(
     }
     if (block.kind === "review") continue;
     if (!own(block)) continue;
-    blocks.push(block);
     if (isOpenInput(block)) {
       inputs.push(block);
       asked.add(block.id);
@@ -155,21 +133,6 @@ export function deriveInbox(
       b.id.localeCompare(a.id)
   );
   reviews.length = Math.min(reviews.length, REVIEWS_MAX);
-  // A child's links are posted in its own thread, which the feed does not
-  // list; the first page carries the newest of those. Newest first, all
-  // together.
-  const recent = [
-    ...blocks.slice(-LINKS_WINDOW),
-    ...threadLinks.filter((block) => own(block)),
-  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  for (let i = recent.length - 1; i >= 0 && links.length < LINKS_MAX; i--) {
-    for (const link of linksOf(recent[i]!)) {
-      if (seen.has(link.url)) continue;
-      seen.add(link.url);
-      links.push(link);
-      if (links.length >= LINKS_MAX) break;
-    }
-  }
   // Read all copies before filtering: a shown block or old paginated row
   // must not override a more recent supplemental/live version of the same ID.
   const current = new Map<string, Block>();
@@ -181,7 +144,32 @@ export function deriveInbox(
   };
   for (const entry of entries) collect(entry.block);
   for (const block of acrossChecklists) collect(block);
+  for (const block of threadLinks) collect(block);
   const scope = agentId && agentId !== rootId ? agentId : showChildAgents;
+  // Resolve latest copies before filtering, then bound resource posts. Generic
+  // batches never consume the resource window; the server also reads direct
+  // posts outside the paginated feed into threadLinks (legacy field name).
+  const recent = [...current.values()]
+    .filter((block) => rootId !== null && isInboxResource(block, rootId, scope))
+    .sort(
+      (a, b) =>
+        b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+    )
+    .slice(0, INBOX_RESOURCE_POSTS_MAX);
+  for (const block of recent) {
+    for (const resource of resourcesOf(block)) {
+      if (seen.has(resource.url)) continue;
+      seen.add(resource.url);
+      links.push({
+        ...resource,
+        pr: resource.kind === "pr",
+        blockId: block.id,
+        at: block.createdAt,
+      });
+      if (links.length >= INBOX_RESOURCES_MAX) break;
+    }
+    if (links.length >= INBOX_RESOURCES_MAX) break;
+  }
   const checklists = [...current.values()]
     .filter(
       (block): block is InboxChecklist =>

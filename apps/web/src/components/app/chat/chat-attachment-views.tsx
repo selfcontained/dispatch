@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import {
   CHAT_GALLERY_MAX_TILES,
   layoutAttachments,
+  isPullRequestUrl,
   type Block,
   type ChatAttachment,
   type ChatFileAttachment,
@@ -18,6 +19,7 @@ import {
   ExternalLink,
   FileText,
   GitPullRequest,
+  Monitor,
 } from "lucide-react";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
@@ -106,7 +108,9 @@ export function LinkAttachment({
   title,
   icon,
   testId,
+  resourceKind,
 }: {
+  resourceKind?: "pr" | "preview";
   href: string;
   title: string | undefined;
   icon: JSX.Element;
@@ -119,6 +123,11 @@ export function LinkAttachment({
       <Tile>{icon}</Tile>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-foreground">
+          {resourceKind ? (
+            <span className="mr-2 text-xs text-muted-foreground">
+              {resourceKind === "pr" ? "PR" : "Preview"}
+            </span>
+          ) : null}{" "}
           {title ?? href}
         </span>
         <span className="block truncate text-[11px] text-muted-foreground">
@@ -295,17 +304,32 @@ function AttachmentView({
         <LinkAttachment
           href={attachment.url}
           title={attachment.title}
-          icon={<ExternalLink className="h-3.5 w-3.5" />}
+          icon={
+            isPullRequestUrl(attachment.url) ? (
+              <GitPullRequest className="h-3.5 w-3.5" />
+            ) : (
+              <ExternalLink className="h-3.5 w-3.5" />
+            )
+          }
+          resourceKind={isPullRequestUrl(attachment.url) ? "pr" : undefined}
           testId="chat-attachment-link"
         />
       );
     case "pr":
+    case "preview":
       return (
         <LinkAttachment
           href={attachment.url}
           title={attachment.title}
-          icon={<GitPullRequest className="h-3.5 w-3.5" />}
-          testId="chat-attachment-pr"
+          icon={
+            attachment.type === "pr" ? (
+              <GitPullRequest className="h-3.5 w-3.5" />
+            ) : (
+              <Monitor className="h-3.5 w-3.5" />
+            )
+          }
+          resourceKind={attachment.type}
+          testId={`chat-attachment-${attachment.type}`}
         />
       );
     case "code":

@@ -74,6 +74,7 @@ export type ChatAttachment =
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
+  | { type: "preview"; url: string; title: string }
   | { type: "code"; code: string; language?: string; path?: string };
 
 export type ChatFileAttachment = Extract<ChatAttachment, { type: "file" }>;

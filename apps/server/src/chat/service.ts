@@ -121,6 +121,7 @@ export type BlockAttachmentInput =
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
+  | { type: "preview"; url: string; title: string }
   | { type: "code"; code: string; language?: string; path?: string };
 
 /** What an agent hands `post`. */
@@ -4770,18 +4771,31 @@ export class StreamService {
         out.push(
           await this.resolveFile([...new Set([agent.id, ...owners])], input)
         );
-      } else if (input.type === "link" || input.type === "pr") {
+      } else if (
+        input.type === "link" ||
+        input.type === "pr" ||
+        input.type === "preview"
+      ) {
         const url = chatUrlSchema.safeParse(input.url);
         if (!url.success) {
           throw new StreamValidationError(
             "url must be an absolute http or https URL, or an app path starting with /."
           );
         }
-        out.push({
-          type: input.type,
-          url: url.data,
-          ...(input.title ? { title: input.title } : {}),
-        });
+        if (input.type === "preview") {
+          const title = input.title?.trim();
+          if (!title || title.length > 200)
+            throw new StreamValidationError(
+              "preview title must be 1–200 characters."
+            );
+          out.push({ type: "preview", url: url.data, title });
+        } else {
+          out.push({
+            type: input.type,
+            url: url.data,
+            ...(input.title ? { title: input.title } : {}),
+          });
+        }
       } else {
         out.push(input);
       }
@@ -4847,6 +4861,7 @@ export class StreamService {
         }
         case "link":
         case "pr":
+        case "preview":
           lines.push(
             `- ${attachment.type}: ${attachment.url}${attachment.title ? ` — ${attachment.title}` : ""}`
           );

@@ -7,12 +7,7 @@
 import { useState } from "react";
 import type { BlockOption } from "@dispatch/shared";
 import { reviewFindings, reviewStatus } from "@dispatch/shared";
-import {
-  ChevronRight,
-  ExternalLink,
-  GitPullRequest,
-  InboxIcon,
-} from "lucide-react";
+import { ChevronRight, Monitor, GitPullRequest, InboxIcon } from "lucide-react";
 
 import {
   findingsSummary,
@@ -414,18 +409,19 @@ export function InboxPanel({
       ) : null}
       {links.length > 0 ? (
         <div data-testid="inbox-links">
-          <InboxSectionTitle>Links</InboxSectionTitle>
+          <InboxSectionTitle>Resources</InboxSectionTitle>
           <div className="flex flex-col gap-2 px-3">
             {links.map((link) => (
               <LinkAttachment
                 key={`${link.blockId}:${link.url}`}
                 href={link.url}
                 title={link.title}
+                resourceKind={link.kind}
                 icon={
                   link.pr ? (
                     <GitPullRequest className="h-3.5 w-3.5" />
                   ) : (
-                    <ExternalLink className="h-3.5 w-3.5" />
+                    <Monitor className="h-3.5 w-3.5" />
                   )
                 }
                 testId="inbox-link"

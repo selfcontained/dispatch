@@ -20,6 +20,7 @@ import type {
 } from "@dispatch/shared";
 import {
   CHAT_ATTACHMENTS_MAX,
+  isPullRequestUrl,
   reviewFindings,
   reviewStatus,
 } from "@dispatch/shared";
@@ -30,7 +31,7 @@ import {
   CircleDot,
   ChevronLeft,
   ExternalLink,
-  Link2,
+  GitPullRequest,
   RotateCcw,
   XCircle,
 } from "lucide-react";
@@ -1632,10 +1633,6 @@ export function TasksBlockBody({
 // Links
 // ---------------------------------------------------------------------------
 
-function isPullRequestUrl(url: string): boolean {
-  return /\/pull\/\d+/.test(url) || /\/merge_requests\/\d+/.test(url);
-}
-
 /** A link block: the same card an attached link gets. A PR is a link. */
 export function LinkBlockBody({
   block,
@@ -1650,11 +1647,12 @@ export function LinkBlockBody({
         title={title}
         icon={
           isPullRequestUrl(url) ? (
-            <Link2 className="h-3.5 w-3.5" />
+            <GitPullRequest className="h-3.5 w-3.5" />
           ) : (
             <ExternalLink className="h-3.5 w-3.5" />
           )
         }
+        resourceKind={isPullRequestUrl(url) ? "pr" : undefined}
         testId="chat-link-block-card"
       />
     </div>

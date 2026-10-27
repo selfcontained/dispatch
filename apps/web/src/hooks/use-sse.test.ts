@@ -1726,3 +1726,182 @@ describe("checklist reconnect recovery", () => {
     await waitFor(() => expect(result.current.data).toEqual([done]));
   });
 });
+
+describe("live resource collections", () => {
+  const page = (
+    entries: StreamEntry[],
+    threadLinks: Block[] = []
+  ): StreamFeedResponse => ({
+    entries,
+    threadLinks,
+    hasMore: false,
+    nextCursor: null,
+    unreadCount: 0,
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps bounded direct/thread resources through generic batches, scoped updates and type replacement", () => {
+    const client = new QueryClient();
+    const resource = block({
+      id: "resource",
+      attachments: [
+        { type: "preview", url: "https://example.com/app", title: "App" },
+      ],
+    });
+    const host = launchBlock({
+      id: "host",
+      toAgentId: "child",
+      blocks: [resource],
+    });
+    for (const scope of [false, true, "child", "sibling"])
+      client.setQueryData<FeedCache>(streamFeedQueryKey("agt_1", scope), {
+        pageParams: [undefined, "older"],
+        pages: [
+          page([], [resource]),
+          page([blockEntry(host), blockEntry(resource)]),
+        ],
+      });
+    const get = (scope: boolean | string) =>
+      client.getQueryData<FeedCache>(streamFeedQueryKey("agt_1", scope))!;
+    for (let i = 0; i < 50; i++)
+      applyStreamEntry(
+        client,
+        "agt_1",
+        blockEntry(
+          block({
+            id: `generic-${i}`,
+            threadId: "host",
+            attachments: [{ type: "link", url: `https://example.com/${i}` }],
+          })
+        )
+      );
+    expect(get(false).pages[0]!.threadLinks).toEqual([resource]);
+    const child = block({
+      id: "child-resource",
+      author: { kind: "agent", agentId: "child" },
+      threadId: "host",
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/1" }],
+      createdAt: "2026-10-01T00:00:00Z",
+    });
+    applyStreamEntry(client, "agt_1", blockEntry(child));
+    expect(get("child").pages[0]!.threadLinks?.map((b) => b.id)).toContain(
+      child.id
+    );
+    expect(
+      get("sibling").pages[0]!.threadLinks?.map((b) => b.id)
+    ).not.toContain(child.id);
+    const changed = {
+      ...resource,
+      attachments: [{ type: "link" as const, url: "https://example.com/doc" }],
+      updatedAt: "2026-10-02T00:00:00Z",
+    };
+    applyStreamEntry(client, "agt_1", blockEntry(changed));
+    expect(get(false).pages[0]!.threadLinks?.map((b) => b.id)).not.toContain(
+      resource.id
+    );
+    applyStreamEntry(client, "agt_1", blockEntry(resource));
+    expect(get(false).pages[0]!.threadLinks?.map((b) => b.id)).not.toContain(
+      resource.id
+    );
+    // The ordinary paginated and recursively shown copies are replaced too.
+    expect(
+      get(false).pages[1]!.entries[0]!.block.blocks?.[0]?.attachments
+    ).toEqual(changed.attachments);
+    expect(get(false).pages[1]!.entries[1]!.block.attachments).toEqual(
+      changed.attachments
+    );
+    for (let i = 0; i < 25; i++)
+      applyStreamEntry(
+        client,
+        "agt_1",
+        blockEntry(
+          block({
+            id: `resource-${i}`,
+            threadId: "host",
+            createdAt: new Date(Date.UTC(2026, 10, 1, 0, i)).toISOString(),
+            attachments: [
+              {
+                type: "preview",
+                title: `Preview ${i}`,
+                url: `https://example.com/app/${i}`,
+              },
+            ],
+          })
+        )
+      );
+    expect(get(false).pages[0]!.threadLinks).toHaveLength(20);
+    expect(get(false).pages[0]!.threadLinks?.[0]?.id).toBe("resource-24");
+    const latest = {
+      ...get(false).pages[0]!.threadLinks![0]!,
+      updatedAt: "2026-12-02T00:00:00Z",
+      attachments: [
+        { type: "pr" as const, url: "https://github.com/o/r/pull/25" },
+      ],
+    };
+    applyStreamEntry(client, "agt_1", blockEntry(latest));
+    applyStreamEntry(
+      client,
+      "agt_1",
+      blockEntry({
+        ...latest,
+        updatedAt: "2026-12-01T00:00:00Z",
+        attachments: [],
+      })
+    );
+    expect(get(false).pages[0]!.threadLinks?.[0]).toEqual(latest);
+    applyStreamEntry(
+      client,
+      "agt_1",
+      blockEntry({ ...latest, streamId: "another" })
+    );
+    expect(get(false).pages[0]!.threadLinks?.[0]).toEqual(latest);
+  });
+
+  it("recovers thread resources arriving during first fetch and replaces them on reconnect", async () => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let resolveFirst!: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveFirst = resolve;
+      })
+    );
+    const resource = block({
+      id: "resource",
+      threadId: "host",
+      attachments: [
+        { type: "preview", url: "https://example.com/app", title: "App" },
+      ],
+    });
+    const { result } = renderHook(
+      () => {
+        useSSE("authenticated");
+        return useStreamFeedSelect(
+          "agt_1",
+          (_entries, across) => across.threadLinks
+        );
+      },
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client }, children),
+      }
+    );
+    await waitFor(() => expect(resolveFirst).toBeDefined());
+    apiMock.mockResolvedValueOnce(page([], [resource]));
+    act(() => applyStreamEntry(client, "agt_1", blockEntry(resource)));
+    await act(async () => resolveFirst(page([])));
+    await waitFor(() => expect(result.current.data).toEqual([resource]));
+    apiMock.mockResolvedValue(page([]));
+    act(() => FakeEventSource.instances[0].fail(false));
+    act(() =>
+      FakeEventSource.instances[0].emit({ type: "snapshot", agents: [] })
+    );
+    await waitFor(() => expect(result.current.data).toEqual([]));
+  });
+});

@@ -219,7 +219,7 @@ export function applyStreamEntry(
   agentId: string,
   entry: StreamEntry
 ): void {
-  if (entry.block.kind === "tasks" && entry.block.streamId !== agentId) return;
+  if (entry.block.streamId !== agentId) return;
   const feeds = queryClient.getQueryCache().findAll(streamFeedFilters(agentId));
   if (entry.type === "block" && entry.block.threadId !== null) {
     const reply = entry.block;
@@ -243,7 +243,7 @@ export function applyStreamEntry(
       );
       // Replies may return below without becoming rows. They still need a
       // fresh first-page collection if an in-flight snapshot wins the race.
-      if (reply.kind === "tasks" && feed.state.fetchStatus === "fetching") {
+      if (feed.state.fetchStatus === "fetching") {
         if (feed.state.data === undefined)
           invalidateOnceFirstFetchSettles(queryClient, feed.queryKey);
         else invalidateStreamFeed(queryClient, agentId);

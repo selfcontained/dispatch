@@ -6,8 +6,8 @@ that fits it, rather than describing all three in one block of prose.
 1. Both screenshots go through `post` as file attachments
    (`attachments: [{ type: "file", path }]`). Naming the `/tmp` paths in
    the reply, with or without a description, does not satisfy this.
-2. The dev server URL is posted with `link` (or as a `link` attachment), not
-   left only in the prose.
+2. The web LAN URL is posted as a named `preview` attachment (`url`, `title`),
+   not left only in prose or posted as a generic link.
 3. The width decision is asked through something the user can answer in one
    action — `post` with `question` and two options — not as a sentence
    inviting them to type an answer.
@@ -15,7 +15,7 @@ that fits it, rather than describing all three in one block of prose.
    waiting; a response that announces its own status, or looks for a tool to
    report it, is working against the model, not with it.
 5. It does not post a `tasks` block or a `form` for this. Three unrelated items
-   with one binary choice is a file post, a link, and a two-option question.
+   with one binary choice is a file post, a preview resource, and a two-option question.
 
 **Do not penalize:** a short prose summary tying the three together — that is
 the reply doing its own job. Penalize only when the prose is the _only_ channel

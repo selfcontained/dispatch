@@ -109,6 +109,13 @@ already, and the parent's links and PRs are in that same stream, so neither side
 needs to relay a URL. Re-posting a child's file from the parent only duplicates
 it.
 
+Use typed resource attachments for handoffs: `pr` for pull requests and
+`preview` with `url` and a useful `title` for runnable previews. Generic `link`
+cards stay in the stream and do not enter the Inbox (legacy PR-shaped URLs
+remain compatible). For Dispatch dev stacks, share only the web LAN URL as the
+preview resource; API/DB addresses are internal validation details. Attach
+cleanup commands separately. Parents need not re-post a child's resource.
+
 For results that need to outlive either session — a finding, a decision, an
 accumulating list — write to the brain instead of messaging it. See the `brain`
 skill.

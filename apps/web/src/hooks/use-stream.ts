@@ -8,6 +8,9 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   INBOX_CHECKLISTS_MAX,
+  INBOX_RESOURCE_POSTS_MAX,
+  isInboxResource,
+  resourcesOf,
   isInboxChecklist,
   isFailedParentInput,
 } from "@dispatch/shared";
@@ -554,14 +557,6 @@ function removeThreadReplyObject(
   return { ...thread, replies: thread.replies.filter((r) => r !== target) };
 }
 
-/** A block that carries a link or a pull request, as the Inbox lists them. */
-function carriesLink(block: Block): boolean {
-  return (
-    block.kind === "link" ||
-    block.attachments.some((a) => a.type === "link" || a.type === "pr")
-  );
-}
-
 /** Put a block in a list by id (or take it out), keeping the list's order. */
 function upsertListed(
   list: readonly Block[],
@@ -582,17 +577,34 @@ function upsertListed(
 /**
  * Keep what the first page carries from across the stream in step with a
  * block that changed: an agent's question or form for people is listed
- * while it is open and leaves once answered, and a post in a thread that
- * carries a link joins the thread links — wherever in the stream either
- * was posted.
+ * while it is open and leaves once answered. PR/preview resource posts
+ * join the bounded supplement whether direct or in a thread.
  */
 export function syncAcrossStream(
   cache: FeedCache | undefined,
   block: Block,
   childScope: LaunchReplyScope = true
 ): FeedCache | undefined {
-  const first = cache?.pages[0];
-  if (!cache || !first) return cache;
+  if (!cache) return cache;
+  const original = cache;
+  let stale = (cache.pages[0]?.threadLinks ?? []).some(
+    (previous) =>
+      previous.id === block.id && previous.updatedAt > block.updatedAt
+  );
+  // A type replacement also updates paginated/shown copies before removing
+  // the supplement, otherwise an older copy can resurrect the resource.
+  cache = mapBlock(cache, block.id, (previous) => {
+    if (previous.updatedAt > block.updatedAt) {
+      stale = true;
+      return previous;
+    }
+    return resourcesOf(previous).length === 0 && resourcesOf(block).length === 0
+      ? previous
+      : block;
+  })!;
+  if (stale) return original;
+  const first = cache.pages[0];
+  if (!first) return cache;
   const open =
     block.author.kind === "agent" &&
     block.toAgentId === null &&
@@ -608,15 +620,22 @@ export function syncAcrossStream(
     open || isFailedParentInput(block),
     "end"
   );
+  const existingResource = first.threadLinks?.find(
+    (item) => item.id === block.id
+  );
   const links =
-    block.threadId !== null
-      ? upsertListed(
+    existingResource && existingResource.updatedAt > block.updatedAt
+      ? null
+      : upsertListed(
           first.threadLinks ?? [],
           block,
-          carriesLink(block),
+          isInboxResource(block, block.streamId, childScope),
           "start"
-        )
-      : null;
+        );
+  links?.sort(
+    (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+  );
+  if (links) links.length = Math.min(links.length, INBOX_RESOURCE_POSTS_MAX);
   const existing = first.checklists?.find((item) => item.id === block.id);
   const checklists =
     existing && existing.updatedAt > block.updatedAt
@@ -929,6 +948,11 @@ export function upsertFeedEntry(
     );
     if (index === -1) continue;
     const previous = page.entries[index]!;
+    if (
+      !("__optimisticPost" in previous.block) &&
+      previous.block.updatedAt > entry.block.updatedAt
+    )
+      return { cache, placed: true };
     const shared = replaceEqualDeep(previous, entry);
     if (shared === previous) return { cache, placed: true };
     const entries = page.entries.slice();

@@ -1,4 +1,7 @@
-import { INBOX_CHECKLISTS_MAX } from "@dispatch/shared";
+import {
+  INBOX_CHECKLISTS_MAX,
+  INBOX_RESOURCE_POSTS_MAX,
+} from "@dispatch/shared";
 import { attachMessageShares } from "./message-shares.js";
 import type {
   Block,
@@ -426,7 +429,9 @@ export async function composeStreamFeed(
   const blocks = page.map((item) => item.entry.block);
   const [openInputs, threadLinks, checklists] = await Promise.all([
     cursor ? Promise.resolve(null) : listOpenInputs(db, streamId),
-    cursor ? Promise.resolve(null) : listThreadLinks(db, streamId),
+    cursor
+      ? Promise.resolve(null)
+      : listThreadLinks(db, streamId, opts.includeLaunchReplies ?? false),
     cursor
       ? Promise.resolve(null)
       : listChecklists(db, streamId, opts.includeLaunchReplies ?? false),
@@ -465,27 +470,31 @@ export async function composeStreamFeed(
   };
 }
 
-/** How many posts with links from threads the first page carries: the Inbox's glance. */
-const THREAD_LINKS_MAX = 20;
-
-/**
- * The newest posts in threads that carry a link or a pull request: a
- * child's work lands in its own thread, which the feed does not list, and
- * the links it produces are the Inbox's to show.
- */
+/** First-page resources include direct posts outside the paginated feed.
+ * Filter type and visibility before the bound, so generic batches and hidden
+ * siblings cannot evict useful resources. threadLinks keeps its wire name. */
 async function listThreadLinks(
   db: Queryable,
-  streamId: string
+  streamId: string,
+  childScope: boolean | string
 ): Promise<Block[]> {
+  const params: unknown[] = [streamId];
+  let scope = "";
+  if (typeof childScope === "string") {
+    params.push(childScope);
+    scope = "AND b.author_kind = 'agent' AND b.author_agent_id = $2";
+  }
   const result = await db.query<BlockRow>(
     `SELECT b.* FROM blocks b
-      WHERE b.stream_id = $1 AND b.thread_id IS NOT NULL
-        AND (b.kind = 'link'
-             OR b.attachments @> '[{"type": "link"}]'::jsonb
-             OR b.attachments @> '[{"type": "pr"}]'::jsonb)
+      WHERE b.stream_id = $1
+        ${scope}
+        AND ((b.kind = 'link' AND b.data->>'url' ~ '/(pull|merge_requests)/[0-9]+')
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements(b.attachments) a
+            WHERE a->>'type' IN ('pr', 'preview')
+              OR (a->>'type' = 'link' AND a->>'url' ~ '/(pull|merge_requests)/[0-9]+')))
       ORDER BY b.created_at DESC, b.id DESC
-      LIMIT ${THREAD_LINKS_MAX}`,
-    [streamId]
+      LIMIT ${INBOX_RESOURCE_POSTS_MAX}`,
+    params
   );
   return result.rows.map(toBlock);
 }

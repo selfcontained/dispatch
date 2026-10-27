@@ -500,8 +500,9 @@ export type StreamFeedResponse = {
    */
   openInputs?: Block[];
   /**
-   * First page only: the newest posts in threads that carry a link or a pull
-   * request, newest first — a child's work lands in its own thread.
+   * First page only: newest 20 resource posts, direct or threaded, carrying
+   * explicit PR/preview attachments or legacy PR-shaped links. The wire name
+   * is retained for compatibility; generic links do not consume this bound.
    */
   threadLinks?: Block[];
   /** First page only: newest 12 agent checklists in the selected stream/view,

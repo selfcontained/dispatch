@@ -767,7 +767,7 @@ describe("syncAcrossStream", () => {
     expect(canceled.pages[0]!.openInputs).toEqual([]);
   });
 
-  it("puts a post with a link in a thread at the head of the thread links, and leaves top-level posts to the feed", () => {
+  it("supplements direct and threaded resources but excludes generic links", () => {
     const empty = cache();
     const linked = block({
       id: "p1",
@@ -786,11 +786,12 @@ describe("syncAcrossStream", () => {
     });
     expect(
       syncAcrossStream(added, older)!.pages[0]!.threadLinks!.map((b) => b.id)
-    ).toEqual(["p0", "p1"]);
-    // A top-level post is a row of the feed already.
+    ).toEqual(["p1"]);
+    // Direct resources also survive the feed pagination window.
     expect(
-      syncAcrossStream(empty, { ...linked, threadId: null, replyTo: null })
-    ).toBe(empty);
+      syncAcrossStream(empty, { ...linked, threadId: null, replyTo: null })!
+        .pages[0]!.threadLinks
+    ).toEqual([{ ...linked, threadId: null, replyTo: null }]);
   });
 
   it("leaves the cache alone for anything that is not an open ask", () => {
