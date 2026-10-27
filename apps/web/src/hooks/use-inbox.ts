@@ -1,5 +1,5 @@
 /**
- * The Inbox: what the stream needs from the user right now, derived from the
+ * The Inbox: requests, agent progress and results, derived from the
  * feed the Chat tab already holds (docs/design/blocks.md, step 4). Nothing
  * is fetched for it; it reads the same react-query cache `useStreamFeed`
  * fills and every `stream.entry` keeps current.
@@ -8,7 +8,12 @@ import { useCallback } from "react";
 import { useAtomValue } from "jotai";
 import { chatShowChildAgentsAtom } from "@/lib/store";
 import type { Block, ChatAttachment, StreamEntry } from "@dispatch/shared";
-import { reviewFindings, reviewStatus } from "@dispatch/shared";
+import {
+  INBOX_CHECKLISTS_MAX,
+  isInboxChecklist,
+  reviewFindings,
+  reviewStatus,
+} from "@dispatch/shared";
 
 import { useRootAgentId } from "@/hooks/use-agent-tree";
 import { useStreamFeedSelect } from "@/hooks/use-stream";
@@ -30,6 +35,8 @@ export type InboxLink = {
 /** A review in the stream, newest first. */
 export type InboxReview = Extract<Block, { kind: "review" }>;
 
+export type InboxChecklist = Extract<Block, { kind: "tasks" }>;
+
 export type Inbox = {
   rootId: string | null;
   /** Open inputs, oldest first: the order they were asked in. */
@@ -37,6 +44,9 @@ export type Inbox = {
   links: InboxLink[];
   /** Reviews the stream holds, newest first, open ones before settled ones. */
   reviews: InboxReview[];
+  /** Recent agent progress, including completed lists; newest first. */
+  checklists: InboxChecklist[];
+  agentNames: Record<string, string>;
   isLoading: boolean;
 };
 
@@ -89,8 +99,10 @@ export function deriveInbox(
   agentId: string | null,
   rootId: string | null,
   openInputs: readonly Block[] = [],
-  threadLinks: readonly Block[] = []
-): Pick<Inbox, "inputs" | "links" | "reviews"> {
+  threadLinks: readonly Block[] = [],
+  acrossChecklists: readonly Block[] = [],
+  showChildAgents = true
+): Pick<Inbox, "inputs" | "links" | "reviews" | "checklists"> {
   const own = (block: Block) =>
     agentId === null ||
     agentId === rootId ||
@@ -158,13 +170,40 @@ export function deriveInbox(
       if (links.length >= LINKS_MAX) break;
     }
   }
-  return { inputs, links, reviews };
+  // Read all copies before filtering: a shown block or old paginated row
+  // must not override a more recent supplemental/live version of the same ID.
+  const current = new Map<string, Block>();
+  const collect = (block: Block) => {
+    const previous = current.get(block.id);
+    if (!previous || block.updatedAt >= previous.updatedAt)
+      current.set(block.id, block);
+    for (const shown of block.blocks ?? []) collect(shown);
+  };
+  for (const entry of entries) collect(entry.block);
+  for (const block of acrossChecklists) collect(block);
+  const scope = agentId && agentId !== rootId ? agentId : showChildAgents;
+  const checklists = [...current.values()]
+    .filter(
+      (block): block is InboxChecklist =>
+        rootId !== null && isInboxChecklist(block, rootId, scope)
+    )
+    .sort(
+      (a, b) =>
+        b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+    )
+    .slice(0, INBOX_CHECKLISTS_MAX);
+  return { inputs, links, reviews, checklists };
 }
 
-const EMPTY: Pick<Inbox, "inputs" | "links" | "reviews"> = {
+const EMPTY: Pick<
+  Inbox,
+  "inputs" | "links" | "reviews" | "checklists" | "agentNames"
+> = {
   inputs: [],
   links: [],
   reviews: [],
+  checklists: [],
+  agentNames: {},
 };
 
 /** The Inbox for one agent's page, live off the stream feed cache. */
@@ -176,16 +215,25 @@ export function useInbox(agentId: string | null): Inbox {
   const select = useCallback(
     (
       entries: StreamEntry[],
-      across: { openInputs: readonly Block[]; threadLinks: readonly Block[] }
-    ) =>
-      deriveInbox(
+      across: {
+        openInputs: readonly Block[];
+        threadLinks: readonly Block[];
+        checklists: readonly Block[];
+        agentNames: Record<string, string>;
+      }
+    ) => ({
+      ...deriveInbox(
         entries,
         agentId,
         rootId,
         across.openInputs,
-        across.threadLinks
+        across.threadLinks,
+        across.checklists,
+        showChildAgents
       ),
-    [agentId, rootId]
+      agentNames: across.agentNames,
+    }),
+    [agentId, rootId, showChildAgents]
   );
   const feed = useStreamFeedSelect(
     rootId,
@@ -198,6 +246,8 @@ export function useInbox(agentId: string | null): Inbox {
     inputs: derived.inputs,
     links: derived.links,
     reviews: derived.reviews,
+    checklists: derived.checklists,
+    agentNames: derived.agentNames,
     isLoading: rootId !== null && feed.isLoading,
   };
 }

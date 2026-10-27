@@ -127,6 +127,7 @@
         "apps/server/src/stream-manager.ts",
         "apps/web/src/hooks/use-sse*",
         "packages/shared/src/conversation-delivery.ts",
+        "packages/shared/src/inbox-checklists.ts",
         "apps/server/src/notifications/**",
         "apps/server/src/server/notification-runtime.ts",
         "apps/server/test/*notification*",
@@ -169,7 +170,12 @@
         "apps/web/src/components/app/chat/chat-attachment*",
         "apps/web/src/lib/chat-draft*",
         "apps/web/src/lib/store*",
-        "packages/shared/src/block-types.ts"
+        "packages/shared/src/block-types.ts",
+        "packages/shared/src/inbox-checklists.ts",
+        "apps/web/src/components/app/inbox.tsx",
+        "apps/web/src/hooks/use-inbox*",
+        "e2e/stream-inbox-checklists.spec.ts",
+        "docs/design/inbox-checklists.md"
       ],
       "personas": ["stream-interactions-owner"]
     },

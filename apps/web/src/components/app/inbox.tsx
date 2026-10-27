@@ -1,6 +1,6 @@
 /**
  * The Inbox tab of the right sidebar: the open questions and forms an agent
- * is waiting on, answerable in place, and the links the stream produced.
+ * is waiting on, answerable in place, plus agent progress and produced links.
  * Everything here is derived from the stream (see use-inbox.ts); the
  * agent has no tool to write to it directly.
  */
@@ -19,8 +19,10 @@ import {
   FormBlockBody,
   QuestionOptions,
   REVIEW_STATUS,
+  taskStatus,
 } from "@/components/app/chat/block-bodies";
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
 import {
@@ -28,7 +30,12 @@ import {
   useSetBlockState,
   useSubmitForm,
 } from "@/hooks/use-stream";
-import type { InboxInput, InboxReview, Inbox } from "@/hooks/use-inbox";
+import type {
+  InboxInput,
+  InboxReview,
+  InboxChecklist,
+  Inbox,
+} from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
 
 export type InboxPanelProps = {
@@ -233,6 +240,60 @@ function InboxReviewCard({
   );
 }
 
+/** Progress only: opening the original block is the sole action. A reply's
+ * own ID is a valid thread root; opening its parent would lose the checklist. */
+function InboxChecklistCard({
+  block,
+  authorName,
+  onOpenBlock,
+}: {
+  block: InboxChecklist;
+  authorName: string;
+  onOpenBlock?: (blockId: string) => void;
+}): JSX.Element {
+  const items = block.data.items;
+  const done = items.filter(
+    (item) => taskStatus(block, item.id) === "done"
+  ).length;
+  const current = items.find((item) => taskStatus(block, item.id) === "now");
+  const next = items.find((item) => taskStatus(block, item.id) === "todo");
+  const complete = items.length > 0 && done === items.length;
+  const title = block.text.trim() || "Agent checklist";
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className="mx-3 mb-2 flex h-auto w-[calc(100%-1.5rem)] shrink-0 flex-col items-stretch justify-start gap-1 whitespace-normal font-normal rounded-md border border-border/60 bg-card/40 px-3 py-2 text-left hover:bg-muted/30"
+      data-testid="inbox-checklist"
+      data-block-id={block.id}
+      data-complete={complete}
+      onClick={() => onOpenBlock?.(block.id)}
+      aria-label={`Open ${title} by ${authorName}, ${done}/${items.length} done`}
+    >
+      <div className="flex w-full items-center gap-2 text-[11px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">{authorName}</span>
+        <span className="shrink-0" data-testid="inbox-checklist-progress">
+          {done}/{items.length} done
+        </span>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      </div>
+      <span className="line-clamp-2 break-words text-sm">{title}</span>
+      <span
+        className="line-clamp-2 break-words text-[11px] text-muted-foreground"
+        data-testid="inbox-checklist-current"
+      >
+        {complete
+          ? "Complete"
+          : current
+            ? `Now: ${current.text}`
+            : next
+              ? `Next: ${next.text}`
+              : "No items yet"}
+      </span>
+    </Button>
+  );
+}
+
 export function InboxPanel({
   inbox,
   agentName,
@@ -240,13 +301,23 @@ export function InboxPanel({
   disabledReason,
   onOpenBlock,
 }: InboxPanelProps): JSX.Element {
-  const { rootId, inputs, links, reviews } = inbox;
+  const { rootId, inputs, links, reviews, checklists, agentNames } = inbox;
+  const checklistAuthorName = (block: InboxChecklist): string => {
+    if (block.author.kind !== "agent") return "Agent";
+    const liveName = agentNameById?.(block.author.agentId);
+    return liveName && liveName !== "Agent"
+      ? liveName
+      : (agentNames[block.author.agentId] ?? "Agent");
+  };
   const [cancelError, setCancelError] = useState<{
     blockId: string;
     message: string;
   } | null>(null);
   const empty =
-    inputs.length === 0 && links.length === 0 && reviews.length === 0;
+    inputs.length === 0 &&
+    links.length === 0 &&
+    reviews.length === 0 &&
+    checklists.length === 0;
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3"
@@ -266,7 +337,7 @@ export function InboxPanel({
           <div className="text-foreground/80">Nothing waiting on you.</div>
           <div>
             Questions and forms {agentName ?? "the agent"} asks show up here
-            until you answer them, along with the links it posts.
+            until you answer them, along with its checklists and links.
           </div>
         </div>
       ) : null}
@@ -321,6 +392,21 @@ export function InboxPanel({
                   ? (agentNameById?.(review.author.agentId) ?? "Agent")
                   : "You"
               }
+              onOpenBlock={onOpenBlock}
+            />
+          ))}
+        </div>
+      ) : null}
+      {checklists.length > 0 ? (
+        <div data-testid="inbox-checklists">
+          <InboxSectionTitle count={checklists.length}>
+            Agent progress
+          </InboxSectionTitle>
+          {checklists.map((block) => (
+            <InboxChecklistCard
+              key={block.id}
+              block={block}
+              authorName={checklistAuthorName(block)}
               onOpenBlock={onOpenBlock}
             />
           ))}

@@ -1,3 +1,4 @@
+import { INBOX_CHECKLISTS_MAX } from "@dispatch/shared";
 import { attachMessageShares } from "./message-shares.js";
 import type {
   Block,
@@ -423,9 +424,12 @@ export async function composeStreamFeed(
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
   const blocks = page.map((item) => item.entry.block);
-  const [openInputs, threadLinks] = await Promise.all([
+  const [openInputs, threadLinks, checklists] = await Promise.all([
     cursor ? Promise.resolve(null) : listOpenInputs(db, streamId),
     cursor ? Promise.resolve(null) : listThreadLinks(db, streamId),
+    cursor
+      ? Promise.resolve(null)
+      : listChecklists(db, streamId, opts.includeLaunchReplies ?? false),
     attachTurns(db, blocks),
     attachShown(db, streamId, blocks, opts.isHeld),
   ]);
@@ -437,6 +441,7 @@ export async function composeStreamFeed(
     ...blocks,
     ...(openInputs ?? []),
     ...(threadLinks ?? []),
+    ...(checklists ?? []),
   ]);
   if (opts.isHeld) markHeld(blocks, opts.isHeld);
   const oldest = page[page.length - 1];
@@ -455,6 +460,7 @@ export async function composeStreamFeed(
     unreadCount,
     ...(openInputs ? { openInputs } : {}),
     ...(threadLinks ? { threadLinks } : {}),
+    ...(checklists ? { checklists } : {}),
     agentNames,
   };
 }
@@ -503,6 +509,33 @@ async function listOpenInputs(
       ORDER BY b.created_at, b.id
       LIMIT ${OPEN_INPUTS_MAX}`,
     [streamId]
+  );
+  return result.rows.map(toBlock);
+}
+
+/** First-page progress, including threads outside the paged feed. Filter
+ * before the bound so hidden siblings cannot consume a child's history. */
+async function listChecklists(
+  db: Queryable,
+  streamId: string,
+  childScope: boolean | string
+): Promise<Block[]> {
+  const params: unknown[] = [streamId];
+  let scope = "";
+  if (typeof childScope === "string") {
+    params.push(childScope);
+    scope = "AND b.author_agent_id = $2";
+  } else if (!childScope) {
+    scope = `AND ((b.thread_id IS NULL AND b.to_agent_id IS NULL)
+      OR (b.author_agent_id = $1 AND (b.to_agent_id IS NULL OR b.to_agent_id = $1)))`;
+  }
+  const result = await db.query<BlockRow>(
+    `SELECT b.* FROM blocks b
+      WHERE b.stream_id = $1 AND b.author_kind = 'agent' AND b.kind = 'tasks'
+        ${scope}
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ${INBOX_CHECKLISTS_MAX}`,
+    params
   );
   return result.rows.map(toBlock);
 }

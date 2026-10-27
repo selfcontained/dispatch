@@ -630,6 +630,7 @@ describe("composeStreamFeed", () => {
       unreadCount: 0,
       openInputs: [],
       threadLinks: [],
+      checklists: [],
       agentNames: {},
     });
   });
@@ -771,6 +772,120 @@ describe("composeStreamFeed", () => {
       cursor: decodeFeedCursor(first.nextCursor!),
     });
     expect("openInputs" in paged).toBe(false);
+  });
+
+  it("collects only this view's newest agent checklists on the first page, including threads and archived names", async () => {
+    const host = await store.insert({
+      streamId: A,
+      author: USER,
+      text: "host",
+    });
+    const insert = (
+      streamId: string,
+      author: BlockAuthor,
+      threadId: string | null = null
+    ) =>
+      store.insert({
+        streamId,
+        author,
+        kind: "tasks",
+        threadId,
+        replyTo: threadId,
+        text: "Plan",
+        data: { items: [{ id: "one", text: "Build" }] },
+      });
+    const root = await insert(A, agent(A));
+    await stamp(root.id, at(1));
+    const child = await insert(A, agent(ARCHIVED_CHILD), host.id);
+    await stamp(child.id, at(2));
+    const surfaced = await insert(A, agent(ARCHIVED_CHILD));
+    await stamp(surfaced.id, at(3));
+    await insert(OTHER, agent(OTHER));
+    await insert("tsk_separate_conversation", agent(A));
+    await insert(A, USER);
+
+    const quiet = await composeStreamFeed(store, A, { limit: 1 });
+    expect(quiet.checklists?.map((b) => b.id)).toEqual([surfaced.id, root.id]);
+    const full = await composeStreamFeed(store, A, {
+      limit: 1,
+      includeLaunchReplies: true,
+    });
+    expect(full.checklists?.map((b) => b.id)).toEqual([
+      surfaced.id,
+      child.id,
+      root.id,
+    ]);
+    expect(full.agentNames?.[ARCHIVED_CHILD]).toBe("Archived child");
+    expect(full.hasMore).toBe(true);
+    const older = await composeStreamFeed(store, A, {
+      cursor: decodeFeedCursor(full.nextCursor!),
+    });
+    expect(older.checklists).toBeUndefined();
+    const direct = await composeStreamFeed(store, A, {
+      includeLaunchReplies: ARCHIVED_CHILD,
+    });
+    expect(direct.checklists?.map((b) => b.id)).toEqual([
+      surfaced.id,
+      child.id,
+    ]);
+    expect(await loadBlockEntry(pool, A, child.id)).toMatchObject({
+      block: { id: child.id, threadId: host.id },
+    });
+    await store.mergeState(child.id, { items: { one: "now" } });
+    expect(
+      (
+        await composeStreamFeed(store, A, {
+          includeLaunchReplies: ARCHIVED_CHILD,
+        })
+      ).checklists?.find((b) => b.id === child.id)?.state
+    ).toEqual({ items: { one: "now" } });
+    await store.mergeState(child.id, { items: { one: "done" } });
+    const refreshed = await composeStreamFeed(store, A, {
+      includeLaunchReplies: ARCHIVED_CHILD,
+    });
+    expect(refreshed.checklists?.find((b) => b.id === child.id)?.state).toEqual(
+      { items: { one: "done" } }
+    );
+    // Listing progress does not mark it read or remove all-done history.
+    expect(
+      refreshed.checklists?.find((b) => b.id === child.id)?.readAt
+    ).toBeNull();
+  });
+
+  it("filters hidden checklists before applying the shared 12-list history bound", async () => {
+    const host = await store.insert({
+      streamId: A,
+      author: USER,
+      text: "host",
+    });
+    const own = await store.insert({
+      streamId: A,
+      author: agent(A),
+      kind: "tasks",
+      data: { items: [] },
+    });
+    await stamp(own.id, at(0));
+    for (let i = 1; i <= 14; i++) {
+      const b = await store.insert({
+        streamId: A,
+        author: agent(ARCHIVED_CHILD),
+        kind: "tasks",
+        threadId: host.id,
+        replyTo: host.id,
+        data: { items: [] },
+      });
+      await stamp(b.id, at(i));
+    }
+    expect(
+      (await composeStreamFeed(store, A)).checklists?.map((b) => b.id)
+    ).toEqual([own.id]);
+    const full = await composeStreamFeed(store, A, {
+      includeLaunchReplies: true,
+    });
+    expect(full.checklists).toHaveLength(12);
+    expect(full.checklists?.map((b) => b.createdAt)).toEqual(
+      Array.from({ length: 12 }, (_, i) => at(14 - i).toISOString())
+    );
   });
 
   it("lists the newest posts with links in threads on the first page", async () => {

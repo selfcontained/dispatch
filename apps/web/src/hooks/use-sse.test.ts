@@ -29,6 +29,7 @@ import {
   streamFeedQueryKey,
   threadQueryKey,
   useStreamFeed,
+  useStreamFeedSelect,
 } from "@/hooks/use-stream";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
@@ -52,6 +53,7 @@ import {
   findingRecord,
   launchBlock,
   questionBody,
+  tasksBody,
   reviewBlock,
   turnEntry,
 } from "@/test-utils/blocks";
@@ -196,6 +198,96 @@ describe("applyStreamEntry", () => {
     await waitFor(() =>
       expect(result.current.entries.map((e) => e.id)).toEqual(["late"])
     );
+  });
+
+  it("recovers a threaded checklist arriving during the first collection fetch, and refetch replaces progress", async () => {
+    let resolveFirst!: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveFirst = resolve;
+      })
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(
+      () =>
+        useStreamFeedSelect("agt_1", (_entries, across) => across.checklists),
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client }, children),
+      }
+    );
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    const plan = block({
+      id: "thread-plan",
+      streamId: "agt_1",
+      threadId: "host",
+      body: tasksBody([{ id: "one", text: "Build" }], {
+        items: { one: "now" },
+      }),
+    });
+    applyStreamEntry(
+      client,
+      "agt_1",
+      blockEntry({ ...plan, state: { items: {} } } as Block)
+    );
+    applyStreamEntry(client, "agt_1", blockEntry(plan));
+    apiMock.mockResolvedValueOnce({ ...page([]), checklists: [plan] });
+    resolveFirst({ ...page([]), checklists: [] });
+    await waitFor(() => expect(result.current.data).toEqual([plan]));
+    expect(apiMock).toHaveBeenCalledTimes(2);
+    const done = {
+      ...plan,
+      state: { items: { one: "done" as const } },
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    } as Block;
+    apiMock.mockResolvedValueOnce({ ...page([]), checklists: [done] });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: streamFeedQueryKey("agt_1") });
+    });
+    await waitFor(() => expect(result.current.data).toEqual([done]));
+  });
+
+  it("keeps a threaded checklist update when an older refetch is in flight", async () => {
+    const plan = block({
+      id: "refetch-plan",
+      streamId: "agt_1",
+      threadId: "host",
+      body: tasksBody([{ id: "one", text: "Build" }]),
+    });
+    apiMock.mockResolvedValueOnce(page([], { checklists: [plan] }));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const key = streamFeedQueryKey("agt_1");
+    const { result } = renderHook(
+      () =>
+        useStreamFeedSelect("agt_1", (_entries, across) => across.checklists),
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client }, children),
+      }
+    );
+    await waitFor(() => expect(result.current.data).toEqual([plan]));
+    let resolveStale!: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveStale = resolve;
+      })
+    );
+    void client.refetchQueries({ queryKey: key, exact: true });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    const done = {
+      ...plan,
+      state: { items: { one: "done" as const } },
+      updatedAt: "2026-10-04T00:00:00.000Z",
+    } as Block;
+    apiMock.mockResolvedValueOnce(page([], { checklists: [done] }));
+    act(() => applyStreamEntry(client, "agt_1", blockEntry(done)));
+    await waitFor(() => expect(result.current.data).toEqual([done]));
+    await act(async () => resolveStale(page([], { checklists: [plan] })));
+    expect(result.current.data).toEqual([done]);
   });
 
   it("does nothing for an agent with no mounted feed query", () => {
@@ -1509,5 +1601,128 @@ describe("applyStreamEntry and blocks shown in threads", () => {
     const first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
     expect(first.entries.map((e) => e.id)).toEqual(["q2"]);
     expect(first.openInputs?.map((b) => b.id)).toEqual(["q2"]);
+  });
+});
+
+describe("live checklist collections", () => {
+  it("updates a checklist once by ID in every eligible view, ignores stale versions and preserves other inbox collections", () => {
+    const client = new QueryClient();
+    const root = "agt_1";
+    const scopes = [false, true, "child", "sibling"] as const;
+    const input = block({ id: "ask", body: questionBody([{ label: "Yes" }]) });
+    for (const scope of scopes)
+      client.setQueryData<FeedCache>(streamFeedQueryKey(root, scope), {
+        pageParams: [undefined, "older"],
+        pages: [
+          {
+            entries: [],
+            hasMore: true,
+            nextCursor: "older",
+            unreadCount: 7,
+            openInputs: [input],
+            threadLinks: [],
+          },
+          { entries: [], hasMore: false, nextCursor: null, unreadCount: 0 },
+        ],
+      });
+    const plan = block({
+      id: "plan",
+      streamId: root,
+      author: { kind: "agent", agentId: "child" },
+      threadId: "launch",
+      body: tasksBody([{ id: "one", text: "Build" }]),
+    });
+    const get = (scope: boolean | string) =>
+      client.getQueryData<FeedCache>(streamFeedQueryKey(root, scope))!;
+    for (const status of ["todo", "now", "done"] as const) {
+      const version = block({
+        ...plan,
+        body: tasksBody([{ id: "one", text: "Build" }], {
+          items: { one: status },
+        }),
+        updatedAt: `2026-10-0${status === "todo" ? 1 : status === "now" ? 2 : 3}T00:00:00.000Z`,
+      });
+      applyStreamEntry(client, root, {
+        ...blockEntry(version),
+        launchThread: true,
+        launchAgentId: "child",
+      });
+      for (const scope of [true, "child"])
+        expect(get(scope).pages[0]!.checklists).toEqual([version]);
+      expect(get(false).pages[0]!.checklists ?? []).toEqual([]);
+      expect(get("sibling").pages[0]!.checklists ?? []).toEqual([]);
+      // The first visible stream row counts as unread once; progress
+      // replacements preserve that count and add no approval/input state.
+      for (const scope of [true, "child"])
+        expect(get(scope).pages[0]!.unreadCount).toBe(8);
+      for (const scope of [false, "sibling"])
+        expect(get(scope).pages[0]!.unreadCount).toBe(7);
+    }
+    applyStreamEntry(client, root, blockEntry(plan));
+    applyStreamEntry(
+      client,
+      root,
+      blockEntry({ ...plan, id: "foreign", streamId: "tsk_other" })
+    );
+    const current = get("child").pages[0]!.checklists!;
+    expect(current).toHaveLength(1);
+    expect(current[0]!.state).toEqual({ items: { one: "done" } });
+    expect(get("child").pages[0]!.openInputs).toEqual([input]);
+    expect(get("child").pages[0]!.threadLinks).toEqual([]);
+    expect(get("child").pages[0]!.unreadCount).toBe(8);
+    expect(get("child").pages[1]!.checklists).toBeUndefined();
+  });
+});
+
+describe("checklist reconnect recovery", () => {
+  const page = (entries: StreamEntry[]): StreamFeedResponse => ({
+    entries,
+    hasMore: false,
+    nextCursor: null,
+    unreadCount: 0,
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("replaces the actual selected checklist collection after a reconnect snapshot", async () => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const plan = block({
+      id: "reconnect-plan",
+      streamId: "agt_1",
+      body: tasksBody([{ id: "one", text: "Build" }]),
+    });
+    apiMock.mockResolvedValue({ ...page([]), checklists: [plan] });
+    const { result } = renderHook(
+      () => {
+        useSSE("authenticated");
+        return useStreamFeedSelect(
+          "agt_1",
+          (_entries, across) => across.checklists
+        );
+      },
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client }, children),
+      }
+    );
+    await waitFor(() => expect(result.current.data).toEqual([plan]));
+    const done = {
+      ...plan,
+      state: { items: { one: "done" } },
+      updatedAt: "2026-10-04T00:00:00.000Z",
+    } as Block;
+    apiMock.mockResolvedValue({ ...page([]), checklists: [done] });
+    // Transient disconnect/reconnect under the same EventSource instance.
+    act(() => FakeEventSource.instances[0].fail(false));
+    act(() =>
+      FakeEventSource.instances[0].emit({ type: "snapshot", agents: [] })
+    );
+    await waitFor(() => expect(result.current.data).toEqual([done]));
   });
 });
