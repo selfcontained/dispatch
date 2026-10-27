@@ -353,6 +353,18 @@
         "apps/server/test/http-logging.test.ts"
       ],
       "personas": ["auth-trust-owner"]
+    },
+    {
+      "paths": ["AGENTS.md", "CLAUDE.md"],
+      "personas": ["mcp-contract-owner"]
+    },
+    {
+      "paths": [
+        "packages/shared/src/inbox-resources.ts",
+        "apps/server/test/inbox-resources.test.ts",
+        "docs/design/blocks.md"
+      ],
+      "personas": ["stream-delivery-owner", "stream-interactions-owner"]
     }
   ],
   "fallback": ["code-review"]
