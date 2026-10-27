@@ -109,7 +109,8 @@ says what happened; the file is the evidence.
 Use `attachments: [{ type: "pr", url, title }]` for a pull request and
 `attachments: [{ type: "preview", url, title }]` for a runnable preview. Preview
 requires a useful nonblank title and a safe HTTP(S) URL or app path. These show
-visible PR/Preview labels and icons in the stream and Inbox. Generic `link`
+distinct PR/Preview icons with accessible type-and-title names in the stream
+and Inbox, without visible type labels. Generic `link`
 cards stay in the stream; they do not enter the Inbox, except legacy PR-shaped
 URLs (`/pull/<number>` or `/merge_requests/<number>`). Never infer preview type
 from a domain, port or LAN address. Update attachments replaces the entire list.

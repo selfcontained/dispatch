@@ -243,8 +243,8 @@ these captions.
 `pr`, `link`, file and code. Preview titles are required, trimmed and limited to
 200 characters; URLs use the existing safe HTTP(S)/app-path contract. Preview
 is explicit, never inferred from host, port, LAN address, text or Markdown.
-Both stream cards and Inbox cards show PR/Preview labels with pull-request or
-monitor icons. Generic links remain rich stream cards, excluded from Inbox;
+Both stream cards and Inbox cards use distinct pull-request or monitor icons
+with accessible type-and-title names; visible type labels are omitted. Generic links remain rich stream cards, excluded from Inbox;
 legacy PR-shaped link attachments and link blocks remain compatible.
 
 The first-page `threadLinks` field retains its wire name for compatibility but
