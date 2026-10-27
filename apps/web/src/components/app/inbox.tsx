@@ -5,7 +5,7 @@ import { AgentSessionLink } from "./agent-session-link";
  * Everything here is derived from the stream (see use-inbox.ts); the
  * agent has no tool to write to it directly.
  */
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import type { BlockOption } from "@dispatch/shared";
 import { reviewFindings, reviewStatus } from "@dispatch/shared";
 import { ChevronRight, Monitor, GitPullRequest, InboxIcon } from "lucide-react";
@@ -63,6 +63,24 @@ function InboxSectionTitle({
       ) : null}
     </div>
   );
+}
+
+/** Selecting message text must not activate its original-message action. */
+function openOriginalMessage(
+  event: MouseEvent<HTMLButtonElement>,
+  open: ((blockId: string) => void) | undefined,
+  blockId: string
+) {
+  const selection = event.currentTarget.ownerDocument.getSelection();
+  if (
+    event.detail > 0 &&
+    selection &&
+    !selection.isCollapsed &&
+    (event.currentTarget.contains(selection.anchorNode) ||
+      event.currentTarget.contains(selection.focusNode))
+  )
+    return;
+  open?.(blockId);
 }
 
 function InboxAuthor({
@@ -146,7 +164,9 @@ function InboxInputCard({
           className="shrink-0 underline-offset-2 hover:underline"
           title={formatRelativeTime(block.createdAt)}
           // An ask made in a thread opens that thread, where it was asked.
-          onClick={() => onOpenBlock?.(block.threadId ?? block.id)}
+          onClick={(event) =>
+            openOriginalMessage(event, onOpenBlock, block.threadId ?? block.id)
+          }
           data-testid="inbox-input-open"
         >
           {formatRelativeTime(block.createdAt)}
@@ -231,7 +251,13 @@ function InboxReviewCard({
           variant="ghost"
           className="ml-auto h-auto gap-1.5 p-0 text-[11px] font-normal hover:bg-transparent"
           aria-label={`Open review by ${authorName}`}
-          onClick={() => onOpenBlock?.(review.threadId ?? review.id)}
+          onClick={(event) =>
+            openOriginalMessage(
+              event,
+              onOpenBlock,
+              review.threadId ?? review.id
+            )
+          }
         >
           <span className="shrink-0">
             {formatRelativeTime(review.createdAt)}
@@ -255,7 +281,9 @@ function InboxReviewCard({
         variant="ghost"
         className="flex h-auto w-full select-text flex-wrap items-center justify-start gap-1.5 whitespace-normal p-0 text-left font-normal hover:bg-transparent"
         aria-label={`Open review summary by ${authorName}`}
-        onClick={() => onOpenBlock?.(review.threadId ?? review.id)}
+        onClick={(event) =>
+          openOriginalMessage(event, onOpenBlock, review.threadId ?? review.id)
+        }
       >
         <Badge variant={standing.variant} data-testid="inbox-review-status">
           {standing.label}
@@ -300,7 +328,7 @@ function InboxChecklistCard({
           type="button"
           variant="ghost"
           className="ml-auto h-auto shrink-0 gap-2 p-0 text-[11px] font-normal hover:bg-transparent"
-          onClick={() => onOpenBlock?.(block.id)}
+          onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
           aria-label={`Open ${title} by ${authorName}, ${done}/${items.length} done`}
         >
           <span className="shrink-0" data-testid="inbox-checklist-progress">
@@ -313,7 +341,7 @@ function InboxChecklistCard({
         type="button"
         variant="ghost"
         className="flex h-auto w-full select-text flex-col items-stretch gap-1 whitespace-normal p-0 text-left font-normal hover:bg-transparent"
-        onClick={() => onOpenBlock?.(block.id)}
+        onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
         aria-label={`Open original checklist: ${title}`}
       >
         <span className="line-clamp-2 break-words text-sm">{title}</span>

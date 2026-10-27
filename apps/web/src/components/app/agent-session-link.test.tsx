@@ -288,4 +288,57 @@ describe("passive session identities", () => {
         .className
     ).toContain("select-text");
   });
+  it("preserves review/checklist text selection without opening the message, while keyboard and normal clicks still work", () => {
+    const checklist = block({
+      id: "plan",
+      author: { kind: "agent", agentId: "child" },
+      text: "Select this plan",
+      body: { kind: "tasks", data: { items: [] }, state: { items: {} } },
+    });
+    const review = block({
+      id: "review",
+      author: { kind: "agent", agentId: "child" },
+      body: { kind: "review", data: { summary: "Review" }, state: {} },
+    });
+    const open = vi.fn();
+    ui(
+      <InboxPanel
+        inbox={
+          {
+            rootId: "root",
+            inputs: [],
+            links: [],
+            reviews: [review],
+            checklists: [checklist],
+            agentNames: {},
+            isLoading: false,
+          } as Inbox
+        }
+        agentName="Assignee"
+        disabledReason={null}
+        onOpenBlock={open}
+      />
+    );
+    const selection = window.getSelection()!;
+    for (const [name, id] of [
+      ["Open original checklist: Select this plan", "plan"],
+      ["Open review summary by Agent", "review"],
+    ]) {
+      const button = screen.getByRole("button", { name });
+      const range = document.createRange();
+      range.selectNodeContents(button);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      expect(selection.isCollapsed).toBe(false);
+      fireEvent.click(button, { detail: 1 });
+      expect(open).not.toHaveBeenCalled();
+      fireEvent.click(button, { detail: 0 });
+      expect(open).toHaveBeenCalledWith(id);
+      open.mockClear();
+      selection.removeAllRanges();
+      fireEvent.click(button, { detail: 1 });
+      expect(open).toHaveBeenCalledWith(id);
+      open.mockClear();
+    }
+  });
 });

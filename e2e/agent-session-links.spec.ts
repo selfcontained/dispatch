@@ -202,12 +202,31 @@ for (const width of [1280, 390]) {
         waitUntil: "domcontentloaded",
       });
       await expect(feed.getByTestId("chat-composer-input")).toBeEditable();
-      // Closed drawers remain mounted: open via its toggle and assert in-viewport readiness.
+      // Closed drawers remain mounted: visibility alone cannot prove readiness.
       const toggle = page.getByTestId("toggle-drawer");
-      if (await toggle.isVisible()) await toggle.click();
       const drawer = page.getByTestId("drawer");
-      await expect(drawer.getByTestId("sidebar-tab-inbox")).toBeInViewport();
-      await drawer.getByTestId("sidebar-tab-inbox").click();
+      const openInbox = async () => {
+        const tab = drawer.getByTestId("sidebar-tab-inbox");
+        const inViewport = await tab.evaluate(
+          (element) =>
+            new Promise<boolean>((resolve) => {
+              const observer = new IntersectionObserver(([entry]) => {
+                observer.disconnect();
+                resolve(
+                  Boolean(entry?.isIntersecting && entry.intersectionRatio > 0)
+                );
+              });
+              observer.observe(element);
+            })
+        );
+        if (!inViewport) {
+          await expect(toggle).toBeVisible();
+          await toggle.click();
+        }
+        await expect(tab).toBeInViewport();
+        await tab.click();
+      };
+      await openInbox();
       const card = drawer
         .getByTestId("inbox-checklist")
         .filter({ hasText: "Child linked plan" });
@@ -234,7 +253,27 @@ for (const width of [1280, 390]) {
           .getByTestId("chat-composer-input")
       ).toBeEditable();
       await page.goBack();
-      await expect(card).toBeVisible();
+      await openInbox();
+      await expect(card).toBeInViewport();
+      const original = card.getByRole("button", {
+        name: "Open original checklist: Child linked plan",
+      });
+      const title = original.locator("span").first();
+      const titleBox = (await title.boundingBox())!;
+      const beforeSelection = page.url();
+      await page.mouse.move(titleBox.x + 2, titleBox.y + titleBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        titleBox.x + titleBox.width - 2,
+        titleBox.y + titleBox.height / 2,
+        { steps: 12 }
+      );
+      await page.mouse.up();
+      await expect
+        .poll(() => page.evaluate(() => window.getSelection()?.toString()))
+        .toContain("Child linked plan");
+      await expect(page).toHaveURL(beforeSelection);
+      await page.evaluate(() => window.getSelection()?.removeAllRanges());
       await card
         .getByRole("button", { name: /^Open Child linked plan/ })
         .click();
