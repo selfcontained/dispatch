@@ -871,6 +871,7 @@ describe("composeStreamFeed", () => {
         author: agent(ARCHIVED_CHILD),
         kind: "tasks",
         threadId: host.id,
+        replyTo: host.id,
         data: { items: [] },
       });
       await stamp(b.id, at(i));
