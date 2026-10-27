@@ -408,12 +408,10 @@ for (const width of [1280, 390]) {
       await expect(page).toHaveURL((url) => url.pathname === historyPath);
       const historyScreenshot = `/tmp/dispatch-session-links-archived-${width}.png`;
       await page.screenshot({ path: historyScreenshot, fullPage: true });
-      await test
-        .info()
-        .attach(`Genuinely archived child history ${width}`, {
-          path: historyScreenshot,
-          contentType: "image/png",
-        });
+      await test.info().attach(`Genuinely archived child history ${width}`, {
+        path: historyScreenshot,
+        contentType: "image/png",
+      });
     } finally {
       await cleanupE2EAgents(request);
       await request.delete(`/api/v1/projects/${project.id}`, { headers });
