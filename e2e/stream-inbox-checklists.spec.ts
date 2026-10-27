@@ -43,7 +43,7 @@ for (const width of [1280, 390]) {
       await expect(page.getByTestId("chat-pane")).toBeVisible();
       const openInbox = async () => {
         await expect(
-          page.getByTestId("chat-composer").getByRole("textbox")
+          page.getByTestId("chat-pane").getByTestId("chat-composer-input")
         ).toBeEditable();
         const sidebar = page.getByTestId("drawer");
         const opener = page.getByTestId("toggle-drawer");
@@ -99,6 +99,15 @@ for (const width of [1280, 390]) {
         await expect(source.getByTestId("chat-tasks-block")).toBeVisible();
         await expect(source).toContainText(title);
         await expect(source).toContainText("Verify");
+        await page.waitForFunction(() =>
+          document
+            .getAnimations()
+            .every(
+              (animation) =>
+                animation.effect?.getComputedTiming().iterations === Infinity ||
+                animation.playState !== "running"
+            )
+        );
         const sourceScreenshot = `/tmp/dispatch-checklist-${width}-${agent.id}-source.png`;
         await page.screenshot({ path: sourceScreenshot, fullPage: true });
         await test.info().attach(`${title} original ${width}`, {
