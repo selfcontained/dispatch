@@ -8,7 +8,7 @@ import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
 import { MENU_ITEM, taskAge } from "./task-utils";
 import { TaskMoveSheet } from "./task-move-sheet";
-import { GripVertical, MoreHorizontal } from "lucide-react";
+import { GitPullRequest, GripVertical, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -231,10 +231,15 @@ function TaskCardDetails({
                 href={link.url ?? undefined}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded bg-background/60 px-1.5 py-0.5"
+                title={link.label}
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-background/60 px-1.5 py-0.5"
                 onClick={(event) => event.stopPropagation()}
               >
-                {link.label}
+                <GitPullRequest
+                  className="h-3 w-3 shrink-0"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 truncate">{link.label}</span>
               </a>
             ))}
           {task.latestFailure && !task.launching && (

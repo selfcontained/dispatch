@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  GitPullRequest,
   MoreHorizontal,
   Plus,
 } from "lucide-react";
@@ -427,6 +428,12 @@ export function TaskDetailPanel({
                           rel="noreferrer"
                           className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-xs text-primary hover:bg-muted"
                         >
+                          {link.kind === "pr" && (
+                            <GitPullRequest
+                              className="h-3 w-3 shrink-0"
+                              aria-hidden="true"
+                            />
+                          )}
                           <span className="truncate">{link.label}</span>
                           <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>

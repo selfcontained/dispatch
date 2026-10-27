@@ -15,7 +15,7 @@ import { columnAccent, groupTasks, taskAge } from "./task-utils";
 import { ColumnTriggerStrip } from "./task-trigger-dialog";
 import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, GitPullRequest } from "lucide-react";
 import { cn } from "@/lib/utils";
 export function TaskList({
   board,
@@ -160,7 +160,7 @@ export function TaskList({
                   <span className="text-right text-xs text-muted-foreground">
                     {taskAge(task.createdAt)}
                   </span>
-                  <div className="col-span-2 flex flex-wrap items-center gap-2 md:col-span-1">
+                  <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 md:col-span-1">
                     {task.latestFailure && !task.launching && (
                       <span
                         className="text-xs text-destructive"
@@ -175,9 +175,14 @@ export function TaskList({
                         <a
                           key={link.url ?? link.label}
                           href={link.url ?? undefined}
-                          className="text-xs text-primary"
+                          title={link.label}
+                          className="inline-flex min-w-0 max-w-full items-center gap-1 text-xs text-primary"
                         >
-                          {link.label}
+                          <GitPullRequest
+                            className="h-3 w-3 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 truncate">{link.label}</span>
                         </a>
                       ))}
                     <div className="flex min-w-0 items-center gap-2 md:hidden">
