@@ -22,6 +22,18 @@ for (const width of [1280, 700, 390]) {
     request,
   }) => {
     test.setTimeout(120_000);
+    const capture = async (path: string) => {
+      await page.waitForFunction(() =>
+        document
+          .getAnimations()
+          .every(
+            (animation) =>
+              animation.effect?.getComputedTiming().iterations === Infinity ||
+              animation.playState !== "running"
+          )
+      );
+      await page.screenshot({ path, fullPage: true });
+    };
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(() =>
       localStorage.setItem("dispatch:chatShowChildAgents", "true")
@@ -174,7 +186,7 @@ for (const width of [1280, 700, 390]) {
           )
       );
       const streamScreenshot = `/tmp/dispatch-resources-stream-${width}-${parent.id}.png`;
-      await page.screenshot({ path: streamScreenshot, fullPage: true });
+      await capture(streamScreenshot);
       await test.info().attach(`Mixed stream resource cards ${width}`, {
         path: streamScreenshot,
         contentType: "image/png",
@@ -217,7 +229,7 @@ for (const width of [1280, 700, 390]) {
         .toBe(true);
       if (width < 768) await expectFullContentWidth(mixedCards);
       const longScreenshot = `/tmp/dispatch-resources-long-${width}-${parent.id}.png`;
-      await page.screenshot({ path: longScreenshot, fullPage: true });
+      await capture(longScreenshot);
       await test.info().attach(`Long URL card titles ${width}`, {
         path: longScreenshot,
         contentType: "image/png",
@@ -322,7 +334,7 @@ for (const width of [1280, 700, 390]) {
         )
         .toBe(true);
       const mediaScreenshot = `/tmp/dispatch-resources-media-${width}-${parent.id}.png`;
-      await page.screenshot({ path: mediaScreenshot, fullPage: true });
+      await capture(mediaScreenshot);
       await test
         .info()
         .attach(`URL cards around media file and code ${width}`, {
@@ -401,7 +413,7 @@ for (const width of [1280, 700, 390]) {
         inbox.getByRole("link", { name: /PR Feature PR/ })
       ).toBeVisible();
       const screenshot = `/tmp/dispatch-resources-${width}-${parent.id}.png`;
-      await page.screenshot({ path: screenshot, fullPage: true });
+      await capture(screenshot);
       await test.info().attach(`Resource inbox after batches ${width}`, {
         path: screenshot,
         contentType: "image/png",
@@ -447,7 +459,7 @@ for (const width of [1280, 700, 390]) {
       inbox = await openInbox();
       await expect(inbox.getByTestId("inbox-link")).toHaveCount(1);
       const childScreenshot = `/tmp/dispatch-resources-child-${width}-${parent.id}.png`;
-      await page.screenshot({ path: childScreenshot, fullPage: true });
+      await capture(childScreenshot);
       await test.info().attach(`Child resource after replacement ${width}`, {
         path: childScreenshot,
         contentType: "image/png",
