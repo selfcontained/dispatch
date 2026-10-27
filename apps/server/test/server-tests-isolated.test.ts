@@ -9,7 +9,10 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeProcessTreeFixture } from "./helpers/process-tree-fixture.js";
+import {
+  waitForFixturePid,
+  writeProcessTreeFixture,
+} from "./helpers/process-tree-fixture.js";
 
 // Regression coverage for scripts/server-tests-isolated.sh:
 //  - the old age-only `docker ps -a | ... | docker rm -f` survivor sweep is
@@ -140,8 +143,13 @@ describe("server-tests-isolated.sh", () => {
       // reported to exit on TERM while its own forked worker kept running.
       // Reaching the worker therefore requires signaling the whole tree,
       // not just the launcher's PID.
-      const { launcherScript, markerFile, workerReadyFile, dir } =
-        writeProcessTreeFixture({});
+      const {
+        launcherScript,
+        markerFile,
+        workerReadyFile,
+        launcherReadyFile,
+        dir,
+      } = writeProcessTreeFixture({});
       cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
       const { runAsync, calls } = fixture({
         bun: `exec node ${launcherScript}`,
@@ -161,8 +169,8 @@ describe("server-tests-isolated.sh", () => {
       });
 
       await waitForCallLine(calls, "up");
-      await waitForFile(workerReadyFile);
-      const workerPid = Number(readFileSync(workerReadyFile, "utf8"));
+      const workerPid = await waitForFixturePid(workerReadyFile);
+      expect(await waitForFixturePid(launcherReadyFile)).toBe(workerPid);
       child.kill(signal);
 
       const exitCode = await new Promise<number | null>((resolve) => {
@@ -189,8 +197,13 @@ describe("server-tests-isolated.sh", () => {
   );
 
   it("escalates to SIGKILL for a worker that ignores the forwarded signal, without touching an unrelated process", async () => {
-    const { launcherScript, markerFile, workerReadyFile, dir } =
-      writeProcessTreeFixture({ stubbornWorker: true });
+    const {
+      launcherScript,
+      markerFile,
+      workerReadyFile,
+      launcherReadyFile,
+      dir,
+    } = writeProcessTreeFixture({ stubbornWorker: true });
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const { runAsync, calls } = fixture({ bun: `exec node ${launcherScript}` });
 
@@ -199,8 +212,8 @@ describe("server-tests-isolated.sh", () => {
 
     const child = runAsync();
     await waitForCallLine(calls, "up");
-    await waitForFile(workerReadyFile);
-    const workerPid = Number(readFileSync(workerReadyFile, "utf8"));
+    const workerPid = await waitForFixturePid(workerReadyFile);
+    expect(await waitForFixturePid(launcherReadyFile)).toBe(workerPid);
     child.kill("SIGTERM");
 
     const exitCode = await new Promise<number | null>((resolve) => {
@@ -277,13 +290,4 @@ async function waitForCallLine(
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`"${subcommand}" was never recorded in ${file}`);
-}
-
-async function waitForFile(file: string): Promise<void> {
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    if (existsSync(file)) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`${file} was never created`);
 }
