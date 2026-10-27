@@ -109,8 +109,11 @@ export function LinkAttachment({
   icon,
   testId,
   resourceKind,
+  fullWidth = false,
 }: {
   resourceKind?: "pr" | "preview";
+  /** Sidebar cards fill their column at every breakpoint. */
+  fullWidth?: boolean;
   href: string;
   title: string | undefined;
   icon: JSX.Element;
@@ -120,17 +123,19 @@ export function LinkAttachment({
   const inApp = href.startsWith("/") && !href.startsWith("//");
   const content = (
     <>
-      <Tile>{icon}</Tile>
+      <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+        {icon}
+      </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
+        <span className="block truncate text-xs font-medium leading-4 text-foreground">
           {resourceKind ? (
-            <span className="mr-2 text-xs text-muted-foreground">
+            <span className="mr-1.5 text-[10px] text-muted-foreground">
               {resourceKind === "pr" ? "PR" : "Preview"}
             </span>
           ) : null}{" "}
           {title ?? href}
         </span>
-        <span className="block truncate text-[11px] text-muted-foreground">
+        <span className="block truncate text-[10px] leading-3 text-muted-foreground">
           {inApp
             ? "Opens in Dispatch"
             : title && host
@@ -139,15 +144,25 @@ export function LinkAttachment({
         </span>
       </span>
       <ArrowUpRight
-        className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
+        className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
         aria-hidden="true"
       />
     </>
   );
   return (
-    <AttachmentBlock data-testid={testId}>
+    <AttachmentBlock
+      data-testid={testId}
+      className={cn(
+        "w-full rounded border-border/50 bg-transparent md:w-fit md:max-w-xs",
+        fullWidth && "md:w-full md:max-w-none"
+      )}
+    >
       {inApp ? (
-        <Link to={href} className={cn("group/link", CARD_ROW)} title={href}>
+        <Link
+          to={href}
+          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 max-md:min-h-11"
+          title={href}
+        >
           {content}
         </Link>
       ) : (
@@ -155,7 +170,7 @@ export function LinkAttachment({
           href={href}
           target="_blank"
           rel="noreferrer"
-          className={cn("group/link", CARD_ROW)}
+          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 max-md:min-h-11"
           title={href}
         >
           {content}
@@ -435,24 +450,42 @@ export function AttachmentList({
     // clear-both: start below the post's floated actions, so attachments get
     // the column's full width rather than whatever the float leaves beside it
     // (on a phone that made one post's gallery narrower than the next).
-    <div className="clear-both mt-2 flex flex-col gap-2">
-      {layoutAttachments(block.attachments).map((group, index) =>
-        group.kind === "gallery" ? (
-          <ImageGallery
-            key={index}
-            images={group.images}
-            block={block}
-            ctx={ctx}
-          />
-        ) : (
-          <AttachmentView
-            key={index}
-            attachment={group.attachment}
-            block={block}
-            ctx={ctx}
-          />
-        )
-      )}
+    <div
+      className="clear-both mt-2 flex flex-wrap items-start gap-2"
+      data-testid="chat-attachment-list"
+    >
+      {layoutAttachments(block.attachments).map((group, index) => {
+        if (
+          group.kind === "single" &&
+          (group.attachment.type === "link" ||
+            group.attachment.type === "pr" ||
+            group.attachment.type === "preview")
+        ) {
+          return (
+            <AttachmentView
+              key={index}
+              attachment={group.attachment}
+              block={block}
+              ctx={ctx}
+            />
+          );
+        }
+        // Media, files and code retain their own layout on a separate row;
+        // only adjacent URL cards pack together, preserving attachment order.
+        return (
+          <div key={index} className="w-full min-w-0">
+            {group.kind === "gallery" ? (
+              <ImageGallery images={group.images} block={block} ctx={ctx} />
+            ) : (
+              <AttachmentView
+                attachment={group.attachment}
+                block={block}
+                ctx={ctx}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

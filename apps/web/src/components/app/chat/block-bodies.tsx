@@ -1641,7 +1641,7 @@ export function LinkBlockBody({
 }): JSX.Element {
   const { url, title } = block.data;
   return (
-    <div className="mt-1" data-testid="chat-link-block">
+    <div className="clear-both mt-1" data-testid="chat-link-block">
       <LinkAttachment
         href={url}
         title={title}
