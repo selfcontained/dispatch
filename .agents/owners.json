@@ -364,7 +364,8 @@
       "paths": [
         "packages/shared/src/inbox-resources.ts",
         "apps/server/test/inbox-resources.test.ts",
-        "docs/design/blocks.md"
+        "docs/design/blocks.md",
+        "docs/research/agent-communication.md"
       ],
       "personas": ["stream-delivery-owner", "stream-interactions-owner"]
     },
