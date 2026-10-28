@@ -1,5 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
+import { AGENT_TYPES } from "../../agent-type-settings.js";
+import { describeAgentModelCatalog } from "../agent-models.js";
 
 import {
   mergeLinks,
@@ -7,7 +9,7 @@ import {
   type TaskCaller,
   type TaskService,
 } from "../../tasks/service.js";
-import type { Task, TaskDetail } from "../../tasks/types.js";
+import type { Task, TaskColumn, TaskDetail } from "../../tasks/types.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
@@ -64,6 +66,30 @@ const linkSchema = z.object({
   url: z.string().max(2048).nullable().optional(),
   label: z.string().min(1).max(200),
 });
+
+/** The same persisted, resolved metadata in reads and configuration responses. */
+function columnMetadata(column: TaskColumn) {
+  const {
+    id,
+    key,
+    name,
+    position,
+    capacity,
+    activeTaskCount,
+    isDone,
+    trigger,
+  } = column;
+  return {
+    id,
+    key,
+    name,
+    position,
+    capacity,
+    activeTaskCount,
+    isDone,
+    trigger,
+  };
+}
 
 export function registerTaskTools(
   server: McpServer,
@@ -152,27 +178,74 @@ export function registerTaskTools(
           return ok({
             projectId: board.projectId,
             columns: board.columns.map((c) => c.key),
-            columnCapacity: board.columns.map(
-              ({
-                id,
-                key,
-                name,
-                capacity,
-                activeTaskCount,
-                isDone,
-                trigger,
-              }) => ({
-                id,
-                key,
-                name,
-                capacity,
-                activeTaskCount,
-                isDone,
-                trigger,
-              })
-            ),
+            columnCapacity: board.columns.map(columnMetadata),
             tasks,
           });
+        } catch (error) {
+          return toTaskToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("task_column_update")) {
+    server.registerTool(
+      "task_column_update",
+      {
+        description:
+          "Configure a column trigger on your project's board by column key. Omit trigger to preserve it, send null to remove it, or send an object to replace it. Configuration never launches agents or moves tasks; future task creation/moves use the existing caller access ceiling. Returns persisted column metadata with the resolved templateName.",
+        inputSchema: {
+          projectId: z.string().min(1).optional(),
+          column: z
+            .string()
+            .min(1)
+            .describe("Column key, e.g. in_review; not a column ID."),
+          trigger: z
+            .object({
+              templateId: z.string().min(1),
+              agentType: z
+                .enum(AGENT_TYPES)
+                .nullable()
+                .optional()
+                .describe(
+                  "Runtime override; omitted or null inherits the template runtime."
+                ),
+              model: z
+                .string()
+                .nullable()
+                .optional()
+                .describe(
+                  "Model override; omitted or null inherits the template model. Validated for the effective runtime. " +
+                    describeAgentModelCatalog(AGENT_TYPES)
+                ),
+              assign: z
+                .boolean()
+                .optional()
+                .describe(
+                  "Assign the launched agent; defaults to true on replacement."
+                ),
+              fireOnCreate: z
+                .boolean()
+                .optional()
+                .describe(
+                  "Also launch for newly created tasks; defaults to false on replacement."
+                ),
+            })
+            .nullable()
+            .optional(),
+        },
+      },
+      async (args) => {
+        try {
+          const projectId = await projectFor(args.projectId);
+          const column = await service.resolveColumnKey(projectId, args.column);
+          if (args.trigger !== undefined) {
+            await service.updateColumn(column.id, { trigger: args.trigger });
+          }
+          const board = await service.getBoard(projectId);
+          const persisted = board.columns.find((c) => c.id === column.id);
+          if (!persisted) throw new TaskError("Column not found.", 404);
+          return ok({ projectId, ...columnMetadata(persisted) });
         } catch (error) {
           return toTaskToolError(error);
         }

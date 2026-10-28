@@ -1662,6 +1662,7 @@ function tools(
       "task_unwatch",
       "task_create",
       "task_update",
+      "task_column_update",
       "task_comment",
     ]),
     {
@@ -1709,6 +1710,7 @@ describe("task tools", () => {
         id: c.id,
         key: c.key,
         name: c.name,
+        position: c.position,
         capacity: c.capacity,
         activeTaskCount: c.activeTaskCount,
         isDone: c.isDone,
@@ -1818,6 +1820,272 @@ describe("task tools", () => {
       ])
     );
     expect(launches).toHaveLength(0);
+  });
+
+  it("round-trips trigger replacement, omission, inheritance and removal without changing tasks", async () => {
+    const ready = await columnId("ready");
+    await service.updateColumn(ready, {
+      name: "Queue",
+      position: 17,
+      capacity: 3,
+      isDone: true,
+    });
+    const task = await service.createTask(
+      { projectId, columnId: ready, title: "Existing" },
+      USER
+    );
+    const before = await service.requireColumn(ready);
+    const call = tools("agt_config", projectId, { fullAccess: false });
+    const configured = await call("task_column_update", {
+      column: "ready",
+      trigger: {
+        templateId: TEMPLATE_ID,
+        agentType: "claude",
+        model: "sonnet",
+        assign: false,
+        fireOnCreate: true,
+      },
+    });
+    expect(configured.isError).toBeUndefined();
+    expect(configured.structuredContent).toEqual({
+      projectId,
+      id: ready,
+      key: "ready",
+      name: "Queue",
+      position: 17,
+      capacity: 3,
+      activeTaskCount: 1,
+      isDone: true,
+      trigger: {
+        templateId: TEMPLATE_ID,
+        templateName: "Builder",
+        agentType: "claude",
+        model: "sonnet",
+        assign: false,
+        fireOnCreate: true,
+      },
+    });
+    expect(JSON.parse(configured.content[0]!.text)).toEqual(
+      configured.structuredContent
+    );
+    const preserved = await call("task_column_update", { column: "ready" });
+    expect(preserved.structuredContent).toEqual(configured.structuredContent);
+    const replaced = await call("task_column_update", {
+      column: "ready",
+      trigger: { templateId: TEMPLATE_ID },
+    });
+    expect(replaced.structuredContent!.trigger).toEqual({
+      templateId: TEMPLATE_ID,
+      templateName: "Builder",
+      agentType: null,
+      model: null,
+      assign: true,
+      fireOnCreate: false,
+    });
+    const inherited = await call("task_column_update", {
+      column: "ready",
+      trigger: { templateId: TEMPLATE_ID, agentType: null, model: null },
+    });
+    expect(inherited.structuredContent).toEqual(replaced.structuredContent);
+    expect(
+      (await call("task_list", {})).structuredContent!.columnCapacity
+    ).toContainEqual(
+      Object.fromEntries(
+        Object.entries(replaced.structuredContent!).filter(
+          ([key]) => key !== "projectId"
+        )
+      )
+    );
+    const removed = await call("task_column_update", {
+      column: "ready",
+      trigger: null,
+    });
+    expect(removed.structuredContent).toEqual({
+      ...configured.structuredContent,
+      trigger: null,
+    });
+    const after = await service.requireColumn(ready);
+    expect({ ...after, updatedAt: before.updatedAt }).toEqual(before);
+    expect(await service.requireTask(task.id)).toEqual(task);
+    expect(launches).toHaveLength(0);
+  });
+
+  it("keeps configured create/move launch settings and template inheritance", async () => {
+    await insertAgent("agt_config");
+    const call = tools("agt_config", projectId);
+    await call("task_column_update", {
+      column: "ready",
+      trigger: {
+        templateId: TEMPLATE_ID,
+        agentType: "codex",
+        model: "gpt-5.5",
+        assign: false,
+        fireOnCreate: false,
+      },
+    });
+    const created = await call("task_create", {
+      title: "Created directly",
+      column: "ready",
+    });
+    expect(launches).toHaveLength(0);
+    const waiting = await call("task_create", { title: "Waiting" });
+    const moved = await call("task_update", {
+      id: waiting.structuredContent!.id,
+      column: "ready",
+    });
+    expect(moved.isError).toBeUndefined();
+    expect(moved.structuredContent!.assignedAgentId).toBeNull();
+    expect(launches).toHaveLength(1);
+    expect(launches[0]).toMatchObject({
+      templateId: TEMPLATE_ID,
+      agentType: "codex",
+      model: "gpt-5.5",
+    });
+    expect(
+      (await call("task_get", { id: created.structuredContent!.id }))
+        .structuredContent!.assignedAgentId
+    ).toBeNull();
+    await call("task_column_update", {
+      column: "ready",
+      trigger: {
+        templateId: TEMPLATE_ID,
+        agentType: null,
+        model: null,
+        fireOnCreate: true,
+      },
+    });
+    expect(launches).toHaveLength(1);
+    const inherited = await call("task_create", {
+      title: "Inherited",
+      column: "ready",
+    });
+    const detail = await service.getTaskDetail(
+      inherited.structuredContent!.id as string
+    );
+    expect(detail.assignedAgentId).not.toBeNull();
+    expect(launches).toHaveLength(2);
+    expect(launches[1]).toMatchObject({ templateId: TEMPLATE_ID });
+    // No overrides are forwarded, so the template launcher uses its settings.
+    expect(launches[1]).not.toHaveProperty("agentType");
+    expect(launches[1]).not.toHaveProperty("model");
+    const opencode = await call("task_column_update", {
+      column: "ready",
+      trigger: { templateId: TEMPLATE_ID, agentType: "opencode", model: null },
+    });
+    expect(opencode.structuredContent!.trigger).toMatchObject({
+      agentType: "opencode",
+      model: null,
+    });
+    expect(launches).toHaveLength(2);
+  });
+
+  it("reads and removes a deleted-template trigger without revalidating it", async () => {
+    await withTrigger("ready");
+    service = build(filesRoot, { getTemplate: async () => null });
+    const call = tools("agt_config", projectId);
+    const preserved = await call("task_column_update", { column: "ready" });
+    expect(preserved.isError).toBeUndefined();
+    expect(preserved.structuredContent!.trigger).toMatchObject({
+      templateId: TEMPLATE_ID,
+      templateName: null,
+    });
+    expect(
+      (await call("task_list", {})).structuredContent!.columnCapacity
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready",
+          trigger: preserved.structuredContent!.trigger,
+        }),
+      ])
+    );
+    expect(
+      (await call("task_column_update", { column: "ready", trigger: null }))
+        .structuredContent!.trigger
+    ).toBeNull();
+    expect(launches).toHaveLength(0);
+  });
+
+  it("rejects invalid trigger replacements before any write", async () => {
+    const ready = await withTrigger("ready");
+    const before = await service.requireColumn(ready);
+    const call = tools("agt_config", projectId);
+    const eventCount = published.length;
+    for (const trigger of [
+      { templateId: "missing" },
+      { templateId: OTHER_TEMPLATE_ID },
+      { templateId: TEMPLATE_ID, agentType: "invalid" },
+      { templateId: TEMPLATE_ID, agentType: "claude", model: "invalid-model" },
+    ]) {
+      const result = await call("task_column_update", {
+        column: "ready",
+        trigger,
+      });
+      expect(result.isError, JSON.stringify(trigger)).toBe(true);
+      expect(await service.requireColumn(ready)).toEqual(before);
+    }
+    expect(published).toHaveLength(eventCount);
+    expect(launches).toHaveLength(0);
+  });
+
+  it("scopes column keys to the caller board and never treats IDs as authority", async () => {
+    const own = await columnId("ready");
+    const foreign = await service.resolveColumnKey(otherProjectId, "ready");
+    const call = tools("agt_config", projectId);
+    for (const args of [
+      { projectId: otherProjectId, column: "ready" },
+      { column: foreign.id },
+      { column: own },
+      { column: "unknown" },
+    ])
+      expect(
+        (
+          await call("task_column_update", {
+            ...args,
+            trigger: { templateId: TEMPLATE_ID },
+          })
+        ).isError
+      ).toBe(true);
+    expect(
+      (
+        await tools("agt_lost", null)("task_column_update", {
+          column: "ready",
+          trigger: null,
+        })
+      ).isError
+    ).toBe(true);
+    const fallback = tools("agt_projectless", null, { paths: [REPO] });
+    expect(
+      (await fallback("task_column_update", { column: "ready", trigger: null }))
+        .structuredContent!.projectId
+    ).toBe(projectId);
+    expect((await service.requireColumn(own)).trigger).toBeNull();
+    expect((await service.requireColumn(foreign.id)).trigger).toBeNull();
+    expect(launches).toHaveLength(0);
+  });
+
+  it("configuration preserves the restricted caller ceiling on subsequent launches", async () => {
+    await insertAgent("agt_restricted");
+    const call = tools("agt_restricted", projectId, { fullAccess: false });
+    expect(
+      (
+        await call("task_column_update", {
+          column: "ready",
+          trigger: { templateId: FULL_TEMPLATE_ID, fireOnCreate: true },
+        })
+      ).isError
+    ).toBeUndefined();
+    expect(launches).toHaveLength(0);
+    const created = await call("task_create", {
+      title: "Restricted",
+      column: "ready",
+    });
+    expect(created.isError).toBeUndefined();
+    expect(launches).toHaveLength(0);
+    const detail = await service.getTaskDetail(
+      created.structuredContent!.id as string
+    );
+    expect(detail.latestFailure?.reason).toMatch(/restricted agent/);
   });
 
   it("defaults to the caller's project and errors without one", async () => {
