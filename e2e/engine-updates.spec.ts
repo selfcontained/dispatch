@@ -125,6 +125,37 @@ for (const viewport of [
     await expect(
       manual.getByText("claude update", { exact: true })
     ).toBeVisible();
+    // LAN HTTP can omit Clipboard API; denied clipboard permissions also need
+    // the existing textarea fallback. Exercise both without touching the OS clipboard.
+    await page.evaluate((mode) => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value:
+          mode === "desktop"
+            ? undefined
+            : {
+                writeText: () => Promise.reject(new Error("Clipboard denied")),
+              },
+      });
+      document.execCommand = (command: string) => {
+        if (command !== "copy") return false;
+        (window as Window & { copiedCommand?: string }).copiedCommand = (
+          document.activeElement as HTMLTextAreaElement
+        ).value;
+        return true;
+      };
+    }, viewport.name);
+    await manual
+      .getByRole("button", { name: "Copy command", exact: true })
+      .click();
+    await expect(
+      manual.getByRole("button", { name: "Copied", exact: true })
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window as Window & { copiedCommand?: string }).copiedCommand
+      )
+    ).toBe("claude update");
     const missing = page.getByRole("region", { name: "OpenCode", exact: true });
     await expect(missing).toContainText("Not installed");
     await expect(

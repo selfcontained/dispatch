@@ -97,6 +97,7 @@ describe("selected installation", () => {
     ).toBe(false);
     await chmod(path.join(g.prefix, "lib/node_modules"), 0o555);
     expect((await inspectInstallation(g.status, g.home)).canUpdate).toBe(false);
+    await chmod(path.join(g.prefix, "lib/node_modules"), 0o755);
   });
   it("rejects misleading package prefixes and bin mappings", async () => {
     const f = await fixture();
@@ -111,6 +112,15 @@ describe("selected installation", () => {
       "lib/node_modules/@openai/codex/package.json",
       JSON.stringify({ name: "@openai/codex", bin: "other.js" })
     );
+    expect((await inspectInstallation(f.status, f.home)).canUpdate).toBe(false);
+  });
+  it("rejects foreign ownership and world-writable mutation roots", async () => {
+    const f = await fixture();
+    await chmod(f.prefix, 0o777);
+    expect((await inspectInstallation(f.status, f.home)).canUpdate).toBe(false);
+    await chmod(f.prefix, 0o755);
+    const uid = process.getuid!();
+    vi.spyOn(process, "getuid").mockReturnValue(uid + 1);
     expect((await inspectInstallation(f.status, f.home)).canUpdate).toBe(false);
   });
   it("does not use an arbitrary PATH npm", async () => {
@@ -133,8 +143,10 @@ describe("selected installation", () => {
       )
     ).toMatchObject({ source: "native", canUpdate: true });
     const brew = await f.file("Caskroom/codex/1.2.3/codex", "codex");
+    await rm(f.bin);
+    await symlink(brew, f.bin);
     expect(
-      await inspectInstallation({ ...f.status, path: brew }, f.home)
+      await inspectInstallation({ ...f.status, path: f.bin }, f.home)
     ).toMatchObject({
       source: "homebrew-cask",
       latestKey: "unknown:",
@@ -152,7 +164,7 @@ describe("selected installation", () => {
       })
     );
     expect(
-      await inspectInstallation({ ...f.status, path: brew }, f.home)
+      await inspectInstallation({ ...f.status, path: f.bin }, f.home)
     ).toMatchObject({
       source: "homebrew-cask",
       latestKey: "cask:codex",
@@ -160,6 +172,8 @@ describe("selected installation", () => {
       run: { args: ["upgrade", "--cask", "codex"] },
     });
     const formula = await f.file("Cellar/codex/1.2.3/bin/codex", "codex");
+    await rm(f.bin);
+    await symlink(formula, f.bin);
     await f.file("bin/brew", "brew");
     await f.file(
       "Cellar/codex/1.2.3/INSTALL_RECEIPT.json",
@@ -168,12 +182,92 @@ describe("selected installation", () => {
       })
     );
     expect(
-      await inspectInstallation({ ...f.status, path: formula }, f.home)
+      await inspectInstallation({ ...f.status, path: f.bin }, f.home)
     ).toMatchObject({
       source: "homebrew-formula",
       latestKey: "formula:codex",
       canUpdate: true,
     });
+  });
+  it("refreshes stale Homebrew metadata before an explicit upgrade", async () => {
+    const f = await fixture();
+    vi.spyOn(os, "homedir").mockReturnValue(f.home);
+    await f.file("bin/brew", "brew");
+    const binary = await f.file(
+      "Cellar/codex/1.0.0/bin/codex",
+      "#!/bin/sh\necho 'codex-cli 1.0.0'\n"
+    );
+    await f.file(
+      "Cellar/codex/1.0.0/INSTALL_RECEIPT.json",
+      JSON.stringify({
+        source: { path: "/tap/Formula/codex.rb", tap: "homebrew/core" },
+      })
+    );
+    await rm(f.bin);
+    await symlink(binary, f.bin);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ versions: { stable: "2.0.0" } }))
+      )
+    );
+    let refreshed = false;
+    const runner = vi.fn(
+      async (
+        _command: string,
+        args: string[],
+        options?: { env?: NodeJS.ProcessEnv }
+      ) => {
+        if (args[0] === "update") {
+          expect(options?.env?.HOMEBREW_NO_AUTO_UPDATE).toBeUndefined();
+          refreshed = true;
+          return { exitCode: 0, stdout: "Metadata refreshed", stderr: "" };
+        }
+        expect(refreshed).toBe(true);
+        await f.file(
+          "Cellar/codex/1.0.0/bin/codex",
+          "#!/bin/sh\necho 'codex-cli 2.0.0'\n"
+        );
+        return { exitCode: 0, stdout: "Upgraded Codex", stderr: "" };
+      }
+    );
+    expect(
+      await updateEngine(
+        "codex",
+        {
+          codex: f.bin,
+          claude: "/missing-claude",
+          opencode: "/missing-opencode",
+        },
+        runner
+      )
+    ).toMatchObject({
+      success: true,
+      output: "Metadata refreshed\n\nUpgraded Codex",
+      engine: { version: "2.0.0" },
+    });
+    expect(runner.mock.calls.map((call) => call[1])).toEqual([
+      ["update"],
+      ["upgrade", "--formula", "codex"],
+    ]);
+    const failed = vi.fn(async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Refresh failed",
+    }));
+    expect(
+      await updateEngine(
+        "codex",
+        {
+          codex: f.bin,
+          claude: "/missing-claude",
+          opencode: "/missing-opencode",
+        },
+        failed
+      )
+    ).toMatchObject({ success: false, output: "Refresh failed" });
+    expect(failed).toHaveBeenCalledOnce();
   });
   it("refreshes a replaced symlink even when the target mtime is unchanged", async () => {
     const f = await fixture();
@@ -192,6 +286,8 @@ describe("selected installation", () => {
     const f = await fixture();
     await f.file("bin/brew", "brew");
     const cask = await f.file("Caskroom/codex/0.159.0/bin/codex", "codex");
+    await rm(f.bin);
+    await symlink(cask, f.bin);
     await f.file(
       "Caskroom/codex/.metadata/INSTALL_RECEIPT.json",
       JSON.stringify({
@@ -206,7 +302,7 @@ describe("selected installation", () => {
       })
     );
     expect(
-      await inspectInstallation({ ...f.status, path: cask }, f.home)
+      await inspectInstallation({ ...f.status, path: f.bin }, f.home)
     ).toMatchObject({
       canUpdate: true,
       source: "homebrew-cask",
@@ -229,8 +325,10 @@ describe("selected installation", () => {
         },
       })
     );
+    const opencodeBin = path.join(f.prefix, "bin/opencode");
+    await symlink(formula, opencodeBin);
     const thirdParty = await inspectInstallation(
-      { ...f.status, id: "opencode", path: formula },
+      { ...f.status, id: "opencode", path: opencodeBin },
       f.home
     );
     expect(thirdParty).toMatchObject({
@@ -243,7 +341,7 @@ describe("selected installation", () => {
     expect(
       (
         await inspectInstallation(
-          { ...f.status, id: "opencode", path: formula },
+          { ...f.status, id: "opencode", path: opencodeBin },
           f.home
         )
       ).canUpdate
@@ -252,7 +350,26 @@ describe("selected installation", () => {
     expect(
       (
         await inspectInstallation(
+          { ...f.status, id: "opencode", path: opencodeBin },
+          f.home
+        )
+      ).canUpdate
+    ).toBe(false);
+    await chmod(path.dirname(path.dirname(formula)), 0o755);
+    expect(
+      (
+        await inspectInstallation(
           { ...f.status, id: "opencode", path: formula },
+          f.home
+        )
+      ).canUpdate
+    ).toBe(false);
+    const pinned = path.join(f.home, "custom-opencode");
+    await symlink(formula, pinned);
+    expect(
+      (
+        await inspectInstallation(
+          { ...f.status, id: "opencode", path: pinned },
           f.home
         )
       ).canUpdate
@@ -272,7 +389,8 @@ describe("selected installation", () => {
       })
     );
     expect(
-      (await inspectInstallation({ ...f.status, path: cask }, f.home)).canUpdate
+      (await inspectInstallation({ ...f.status, path: f.bin }, f.home))
+        .canUpdate
     ).toBe(false);
   });
   it("runs only the revalidated selected installation and refreshes launcher versions", async () => {

@@ -22,7 +22,12 @@ const brewNames = {
   codex: "codex",
   opencode: "opencode",
 };
-type Command = { executable: string; args: string[]; env?: NodeJS.ProcessEnv };
+type Command = {
+  executable: string;
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+  refresh?: { executable: string; args: string[]; env?: NodeJS.ProcessEnv };
+};
 export type Installation = {
   realPath: string | null;
   source: "native" | "npm" | "homebrew-formula" | "homebrew-cask" | "unknown";
@@ -143,7 +148,7 @@ export async function inspectInstallation(
     const source = receipt?.source;
     const tap =
       typeof source?.tap === "string" &&
-      /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/.test(source.tap)
+      /^[a-zA-Z0-9][a-zA-Z0-9_-]*\/[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(source.tap)
         ? source.tap
         : null;
     const namedSource =
@@ -191,6 +196,11 @@ export async function inspectInstallation(
       : tap !== null &&
         (tap === "homebrew/core" ? namedSource || apiLoaded : tapSource);
     if (identity) {
+      if (status.path !== path.join(prefix!, "bin", status.id)) {
+        result.reason =
+          "The selected path is pinned to a version. Configure the moving Homebrew bin path before updating.";
+        return result;
+      }
       const executable = path.join(prefix!, "bin/brew");
       const qualified =
         tap === "homebrew/core" || tap === "homebrew/cask"
@@ -206,6 +216,14 @@ export async function inspectInstallation(
             {
               executable,
               args: ["upgrade", cask ? "--cask" : "--formula", qualified],
+              refresh: {
+                executable,
+                args: ["update"],
+                env: {
+                  HOMEBREW_NO_AUTO_UPDATE: undefined,
+                  NONINTERACTIVE: "1",
+                },
+              },
               env: {
                 HOMEBREW_NO_AUTO_UPDATE: "1",
                 HOMEBREW_NO_INSTALL_CLEANUP: "1",
@@ -474,16 +492,23 @@ export async function updateEngine(
   try {
     let success = false,
       output: string;
+    const logs: string[] = [];
     try {
-      const result = await runner(
-        installation.run.executable,
-        installation.run.args,
-        { env: installation.run.env, timeoutMs: 120_000 }
-      );
-      success = result.exitCode === 0;
-      output = `${result.stdout}\n${result.stderr}`.trim().slice(-64_000);
+      const execute = async (command: Command, timeoutMs: number) => {
+        const result = await runner(command.executable, command.args, {
+          env: command.env,
+          timeoutMs,
+        });
+        logs.push(result.stdout, result.stderr);
+        return result.exitCode === 0;
+      };
+      const refreshed =
+        !installation.run.refresh ||
+        (await execute(installation.run.refresh, 60_000));
+      success = refreshed && (await execute(installation.run, 120_000));
+      output = logs.join("\n").trim().slice(-64_000);
     } catch (error) {
-      output = String(error).slice(-64_000);
+      output = [...logs, String(error)].join("\n").trim().slice(-64_000);
     }
     // npm launchers may stay unchanged while their package files change.
     clearEngineVersionCache();
