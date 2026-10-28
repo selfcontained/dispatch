@@ -198,14 +198,40 @@ it("closes an attachment preview on Escape, not the task", () => {
   expect(where()).toBe("/agents/a1");
 });
 
-it("drops pane when paging and preserves the modal closing history", () => {
+it("selects Details when paging and preserves the modal closing history", () => {
   renderStream("/agents/a1");
   fireEvent.click(screen.getByRole("button", { name: /^Task:/ }));
   expect(where()).toContain("pane=conversation");
   fireEvent.click(screen.getByRole("button", { name: "Next task" }));
-  expect(where()).toBe("/agents/a1?task=tsk_2");
+  expect(where()).toBe("/agents/a1?task=tsk_2&pane=details");
   fireEvent.click(screen.getByRole("button", { name: "Close task" }));
   expect(where()).toBe("/agents/a1");
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(where()).toBe("/agents/a1?from=before");
+});
+
+it.each(["block=b1", "thread=t1", "block=b1&thread=t1"])(
+  "selects Details on modal paging while preserving underlying %s and closing history",
+  (target) => {
+    const underlying = `/agents/a1?project=p1&${target}`;
+    renderStream(underlying);
+    fireEvent.click(screen.getByRole("button", { name: /^Task:/ }));
+    expect(where()).toBe(`${underlying}&task=tsk_1&pane=conversation`);
+    fireEvent.click(screen.getByRole("button", { name: "Next task" }));
+    expect(where()).toBe(`${underlying}&task=tsk_2&pane=details`);
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    expect(where()).toBe(underlying);
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(where()).toBe("/agents/a1?from=before");
+  }
+);
+
+it("clears pane on deep-linked modal close while preserving underlying targets", () => {
+  renderStream("/agents/a1?block=b1&thread=t1&task=tsk_1&pane=conversation");
+  fireEvent.click(screen.getByRole("button", { name: "Next task" }));
+  expect(where()).toBe("/agents/a1?block=b1&thread=t1&task=tsk_2&pane=details");
+  fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+  expect(where()).toBe("/agents/a1?block=b1&thread=t1");
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(where()).toBe("/agents/a1?from=before");
 });

@@ -55,9 +55,15 @@ export function TaskModal({
     const state = location.state as typeof TASK_MODAL_STATE | null;
     if (!next && state?.taskModal) return navigate(-1);
     const updated = new URLSearchParams(params);
-    updated.delete(TASK_PANE_PARAM);
-    if (next) updated.set("task", next);
-    else updated.delete("task");
+    if (next) {
+      updated.set("task", next);
+      // Preserve the underlying agent's block/thread without carrying its
+      // implicit Conversation selection into an ordinary task switch.
+      updated.set(TASK_PANE_PARAM, "details");
+    } else {
+      updated.delete("task");
+      updated.delete(TASK_PANE_PARAM);
+    }
     setParams(updated, { replace: true, state: location.state });
   };
   const close = () => setTask(null);
