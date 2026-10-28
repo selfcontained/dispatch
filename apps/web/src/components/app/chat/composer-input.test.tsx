@@ -234,3 +234,48 @@ describe("ComposerInput plain-text editing", () => {
     expect(changed).toHaveBeenLastCalledWith("12345", 5);
   });
 });
+
+describe("ComposerInput caret scrolling", () => {
+  it("scrolls only its own box, never the window", async () => {
+    const { input } = setup();
+    const caret = { left: 10, right: 11, top: 900, bottom: 924 };
+    Object.defineProperty(Range.prototype, "getClientRects", {
+      configurable: true,
+      value: () => [{ ...caret, width: 1, height: 24 }],
+    });
+    Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ ...caret, width: 1, height: 24 }),
+    });
+    vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      right: 400,
+      top: 700,
+      bottom: 800,
+      width: 400,
+      height: 100,
+    } as DOMRect);
+    let scrollTop = 0;
+    Object.defineProperty(input, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (next: number) => (scrollTop = next),
+    });
+    input.style.paddingBottom = "8px";
+    const scrollBy = vi.fn();
+    vi.spyOn(window, "scrollBy").mockImplementation(scrollBy);
+
+    await act(async () => {
+      const p = document.createElement("p");
+      p.textContent = "hi";
+      input.replaceChildren(p);
+      document.getSelection()?.collapse(p.firstChild, 2);
+      fireEvent.input(input, { inputType: "insertText" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(input.textContent).toBe("hi");
+    expect(scrollBy).not.toHaveBeenCalled();
+    expect(scrollTop).toBe(132);
+  });
+});
