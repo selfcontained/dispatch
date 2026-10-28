@@ -261,6 +261,7 @@ describe("ComposerInput caret scrolling", () => {
       get: () => scrollTop,
       set: (next: number) => (scrollTop = next),
     });
+    input.style.paddingBottom = "8px";
     const scrollBy = vi.fn();
     vi.spyOn(window, "scrollBy").mockImplementation(scrollBy);
 
@@ -275,6 +276,6 @@ describe("ComposerInput caret scrolling", () => {
 
     expect(input.textContent).toBe("hi");
     expect(scrollBy).not.toHaveBeenCalled();
-    expect(scrollTop).toBe(129);
+    expect(scrollTop).toBe(132);
   });
 });
