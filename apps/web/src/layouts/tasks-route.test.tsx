@@ -9,7 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import type { TaskBoard } from "@/hooks/use-tasks";
 import { TasksRoute } from "./tasks-route";
 
@@ -103,6 +103,21 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuSeparator: () => null,
 }));
 
+vi.mock("@/components/app/tasks/task-drawer", () => ({
+  TaskDrawer: ({
+    openTask,
+    close,
+  }: {
+    openTask: (id: string) => void;
+    close: () => void;
+  }) => (
+    <>
+      <button onClick={() => openTask("other")}>Next task</button>
+      <button onClick={close}>Close task</button>
+    </>
+  ),
+}));
+
 // The project switcher reads the agents cache when the scope changes.
 function QueryWrapper({ children }: { children: React.ReactNode }) {
   const [client] = useState(() => new QueryClient());
@@ -111,7 +126,14 @@ function QueryWrapper({ children }: { children: React.ReactNode }) {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{location.search}</output>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="location">{location.search}</output>
+      <button onClick={() => navigate(-1)}>Back</button>
+      <button onClick={() => navigate(1)}>Forward</button>
+    </>
+  );
 }
 
 beforeAll(() => {
@@ -285,4 +307,61 @@ it("lists older archived tasks with column/time and filters them by search and a
   expect(
     screen.queryByRole("button", { name: "Old completed work" })
   ).toBeNull();
+});
+
+it("clears pane and conversation targets on ordinary opens, paging and close while retaining history", () => {
+  boardQuery.mockReturnValue({
+    data: {
+      projectId: "p1",
+      columns: [],
+      tasks: [
+        {
+          id: "old",
+          title: "Open archived task",
+          projectId: "p1",
+          columnId: "done",
+          body: "",
+          position: 0,
+          assignedAgentId: null,
+          links: [],
+          createdBy: { kind: "user" },
+          latestFailure: null,
+          launching: null,
+          completedAt: null,
+          createdAt: "2020-01-01T00:00:00Z",
+          updatedAt: "2020-01-01T00:00:00Z",
+          archivedAt: "2020-01-01T00:00:00Z",
+        },
+      ],
+    } as TaskBoard,
+    isLoading: false,
+    error: null,
+  });
+  const original =
+    "?project=p1&view=archived&task=first&pane=conversation&block=b1&thread=t1";
+  render(
+    <MemoryRouter initialEntries={[`/tasks${original}`]}>
+      <TasksRoute />
+      <LocationProbe />
+    </MemoryRouter>,
+    { wrapper: QueryWrapper }
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Open archived task" }));
+  expect(screen.getByTestId("location").textContent).toBe(
+    "?project=p1&view=archived&task=old"
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(screen.getByTestId("location").textContent).toBe(original);
+  fireEvent.click(screen.getByRole("button", { name: "Next task" }));
+  expect(screen.getByTestId("location").textContent).toBe(
+    "?project=p1&view=archived&task=other"
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(screen.getByTestId("location").textContent).toBe(original);
+  fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+  expect(screen.getByTestId("location").textContent).toContain("task=other");
+  fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+  expect(screen.getByTestId("location").textContent).toBe(
+    "?project=p1&view=archived"
+  );
 });

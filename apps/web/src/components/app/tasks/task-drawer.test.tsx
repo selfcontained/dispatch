@@ -166,6 +166,7 @@ function Where() {
       </output>
       <button onClick={() => navigate("?task=task-2")}>Other task</button>
       <button onClick={() => navigate(-1)}>Back</button>
+      <button onClick={() => navigate(1)}>Forward</button>
     </>
   );
 }
@@ -210,16 +211,22 @@ function renderTask(search = "?task=task-1") {
   };
 }
 const selectTab = (name: string) =>
-  fireEvent.mouseDown(screen.getByRole("tab", { name }), {
-    button: 0,
-    ctrlKey: false,
-  });
+  fireEvent.mouseDown(
+    screen.getByRole("tab", { name: new RegExp(`^${name}`) }),
+    {
+      button: 0,
+      ctrlKey: false,
+    }
+  );
 
 it.each([
   ["?task=task-1", 0, "Details"],
   ["?task=task-1&block=b1", 0, "Conversation"],
   ["?task=task-1&thread=b1", 0, "Conversation"],
-  ["?task=task-1", 3, "Conversation"],
+  ["?task=task-1", 3, "Details"],
+  ["?task=task-1&pane=invalid", 3, "Details"],
+  ["?task=task-1&pane=details&block=b1&thread=b1", 3, "Details"],
+  ["?task=task-1&pane=invalid&block=b1", 0, "Conversation"],
   ["?task=task-1&pane=conversation", 0, "Conversation"],
   ["?task=task-1&pane=details", 3, "Details"],
 ])("resolves %s with %i unread to %s", (search, unread, tab) => {
@@ -253,7 +260,7 @@ it("writes pane with replace and retains the modal opening state", () => {
 
 it("keeps Conversation selected when mark-read clears the badge", () => {
   summary.unread = 3;
-  const { client } = renderTask();
+  const { client } = renderTask("?task=task-1&pane=conversation");
   expect(screen.getByLabelText("3 unread posts")).toBeTruthy();
   summary.unread = 0;
   act(() =>
@@ -272,7 +279,7 @@ it("keeps Conversation selected when mark-read clears the badge", () => {
   });
 });
 
-it("lets late unread data choose Conversation until the user chooses Details", async () => {
+it("keeps Details selected as late unread data arrives and changes", async () => {
   summary.unread = undefined;
   const { client } = renderTask();
   expect(
@@ -285,14 +292,12 @@ it("lets late unread data choose Conversation until the user chooses Details", a
       title: "Updated",
     })
   );
+  await screen.findByLabelText("2 unread posts");
   await waitFor(() =>
     expect(
-      screen
-        .getByRole("tab", { name: /^Conversation/ })
-        .getAttribute("data-state")
+      screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
     ).toBe("active")
   );
-  selectTab("Details");
   summary.unread = 4;
   act(() =>
     client.setQueryData(taskKeys.detail(detail.id), {
@@ -300,6 +305,7 @@ it("lets late unread data choose Conversation until the user chooses Details", a
       title: "Updated again",
     })
   );
+  await screen.findByLabelText("4 unread posts");
   await waitFor(() =>
     expect(
       screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
@@ -307,17 +313,25 @@ it("lets late unread data choose Conversation until the user chooses Details", a
   );
 });
 
-it("resolves a fresh default for another task after a reader chose Details", () => {
+it("resets to Details on task navigation and restores explicit panes with history", () => {
   summary.unread = 3;
-  renderTask();
-  selectTab("Details");
+  renderTask("?task=task-1&block=b1");
+  selectTab("Conversation");
   fireEvent.click(screen.getByRole("button", { name: "Other task" }));
+  expect(
+    screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
+  ).toBe("active");
+  expect(screen.getByTestId("task-conversation").textContent).toBe("task-2");
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(
     screen
       .getByRole("tab", { name: /^Conversation/ })
       .getAttribute("data-state")
   ).toBe("active");
-  expect(screen.getByTestId("task-conversation").textContent).toBe("task-2");
+  fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+  expect(
+    screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
+  ).toBe("active");
 });
 
 it("keeps Details when the reader interacts before the unread query arrives", async () => {
@@ -414,4 +428,27 @@ it("adds the decorative PR icon only to PR links in details", async () => {
   expect(docs.querySelector(".lucide-git-pull-request")).toBeNull();
   expect(docs.querySelector(".lucide-external-link")).toBeTruthy();
   expect(docs.getAttribute("href")).toBe("https://example.com/docs");
+});
+
+it("copies the full task ID with shared feedback without changing the pane or URL", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+  try {
+    renderTask("?task=task-1&pane=conversation");
+    const before = screen.getByTestId("where").textContent;
+    fireEvent.click(screen.getByRole("button", { name: "Copy task ID" }));
+    await screen.findByRole("button", { name: "Copied" });
+    expect(writeText).toHaveBeenCalledWith(detail.id);
+    expect(screen.getByTestId("where").textContent).toBe(before);
+    expect(
+      screen.getByTestId("task-conversation").getAttribute("data-active")
+    ).toBe("true");
+  } finally {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
 });

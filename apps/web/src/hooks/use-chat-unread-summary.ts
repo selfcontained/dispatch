@@ -29,7 +29,7 @@ export function useAgentChatUnread(agentId: string | null): ChatAgentUnread {
   return (agentId && summary?.agents[agentId]) || NONE;
 }
 
-/** Undefined until the shared summary arrives, so task defaults can resolve then. */
+/** Undefined until the shared summary arrives; unread counts drive task badges. */
 export function useTaskChatUnread(taskId: string): number | undefined {
   const summary = useChatUnreadSummary();
   return summary ? (summary.tasks?.[taskId]?.unread ?? 0) : undefined;

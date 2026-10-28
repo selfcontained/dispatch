@@ -25,6 +25,7 @@ import { useTaskActions, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Markdown } from "@/components/ui/markdown";
 import { TaskAgent } from "./task-agent";
 import { useTemplates } from "@/hooks/use-templates";
@@ -130,30 +131,13 @@ export function TaskDetailPanel({
   const explicitPane = params.get(TASK_PANE_PARAM);
   const linkedConversation =
     params.has(BLOCK_PARAM) || params.has(THREAD_PARAM);
-  const resolvePane = () => ({
-    id,
-    value: linkedConversation || (unread ?? 0) > 0 ? "conversation" : "details",
-    resolved: linkedConversation || unread !== undefined,
-  });
-  const [defaultPane, setDefaultPane] = useState(resolvePane);
-  // Resolve once per task, allowing a late unread response until the reader
-  // interacts. Mark-read must never send the reader back to Details.
-  if (
-    defaultPane.id !== id ||
-    (!defaultPane.resolved && unread !== undefined)
-  ) {
-    setDefaultPane(resolvePane());
-  }
   const pane =
     explicitPane === "details" || explicitPane === "conversation"
       ? explicitPane
-      : defaultPane.value;
-  const freezeDefaultPane = () => {
-    if (!defaultPane.resolved)
-      setDefaultPane({ id, value: pane, resolved: true });
-  };
+      : linkedConversation
+        ? "conversation"
+        : "details";
   const changePane = (value: string) => {
-    setDefaultPane({ id, value, resolved: true });
     const next = new URLSearchParams(params);
     next.set(TASK_PANE_PARAM, value);
     setParams(next, { replace: true, state: location.state });
@@ -224,7 +208,7 @@ export function TaskDetailPanel({
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <span className="flex min-w-0 flex-1 items-center gap-2 truncate px-1">
+        <span className="flex min-w-0 flex-1 items-center gap-2 px-1">
           {column && (
             <span
               aria-hidden="true"
@@ -237,6 +221,7 @@ export function TaskDetailPanel({
           <span className="truncate">
             {column?.name ?? "Task"} · <span className="font-mono">{id}</span>
           </span>
+          <CopyButton text={id} label="Copy task ID" className="shrink-0" />
         </span>
         <Button
           size="icon"
@@ -274,9 +259,6 @@ export function TaskDetailPanel({
         <Tabs
           value={pane}
           onValueChange={changePane}
-          onPointerDownCapture={freezeDefaultPane}
-          onKeyDownCapture={freezeDefaultPane}
-          onWheelCapture={freezeDefaultPane}
           className="flex min-h-0 flex-1 flex-col"
         >
           <TabsList aria-label="Task panes" className="mx-3 my-2 shrink-0">
@@ -355,7 +337,6 @@ export function TaskDetailPanel({
                     onLaunchTemplate={(templateId) =>
                       void actions.launch.mutateAsync({ id, templateId })
                     }
-                    className={PROPERTY_CONTROL}
                   />
                   <span className="text-xs text-muted-foreground">Created</span>
                   <span className="text-xs">
