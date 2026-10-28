@@ -54,12 +54,19 @@ async function json(file: string): Promise<InstallMetadata | null> {
     return null;
   }
 }
-async function owned(files: string[], writable: boolean): Promise<boolean> {
+async function owned(
+  files: string[],
+  writable: boolean,
+  allowGroupWrite = false
+): Promise<boolean> {
   if (!process.getuid || process.getuid() === 0) return false;
   try {
     for (const file of files) {
       const info = await stat(file);
-      if (info.uid !== process.getuid() || (info.mode & 0o002) !== 0)
+      if (
+        info.uid !== process.getuid() ||
+        (info.mode & (allowGroupWrite ? 0o002 : 0o022)) !== 0
+      )
         return false;
       if (writable) await access(file, constants.W_OK);
     }
@@ -104,13 +111,18 @@ export async function inspectInstallation(
   const enable = async (
     directories: string[],
     run: Command,
-    identities: string[] = []
+    identities: string[] = [],
+    allowGroupWrite = false
   ) => {
     result.reason = deny;
     if (
       !ambiguous &&
-      (await owned([...directories, path.dirname(status.path!)], true)) &&
-      (await owned([real, ...identities], false))
+      (await owned(
+        [...directories, path.dirname(status.path!)],
+        true,
+        allowGroupWrite
+      )) &&
+      (await owned([real, ...identities], false, allowGroupWrite))
     ) {
       result.canUpdate = true;
       result.reason = "Verified user-owned installation.";
@@ -196,11 +208,6 @@ export async function inspectInstallation(
       : tap !== null &&
         (tap === "homebrew/core" ? namedSource || apiLoaded : tapSource);
     if (identity) {
-      if (status.path !== path.join(prefix!, "bin", status.id)) {
-        result.reason =
-          "The selected path is pinned to a version. Configure the moving Homebrew bin path before updating.";
-        return result;
-      }
       const executable = path.join(prefix!, "bin/brew");
       const qualified =
         tap === "homebrew/core" || tap === "homebrew/cask"
@@ -209,6 +216,11 @@ export async function inspectInstallation(
       result.command = `${quote(executable)} upgrade --${cask ? "cask" : "formula"} ${qualified}`;
       if (tap !== "homebrew/core" && tap !== "homebrew/cask")
         result.latestKey = `brew:${JSON.stringify({ executable, name: qualified })}`;
+      if (status.path !== path.join(prefix!, "bin", status.id)) {
+        result.reason =
+          "The selected path is pinned to a version. Configure the moving Homebrew bin path before updating.";
+        return result;
+      }
       await access(executable, constants.X_OK)
         .then(async () => {
           await enable(
@@ -230,7 +242,8 @@ export async function inspectInstallation(
                 NONINTERACTIVE: "1",
               },
             },
-            [executable, receiptPath]
+            [executable, receiptPath],
+            true
           );
         })
         .catch(() => {});

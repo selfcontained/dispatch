@@ -114,6 +114,37 @@ describe("selected installation", () => {
     );
     expect((await inspectInstallation(f.status, f.home)).canUpdate).toBe(false);
   });
+  it("keeps group-writable npm and native installs manual", async () => {
+    const f = await fixture();
+    await chmod(f.prefix, 0o775);
+    expect((await inspectInstallation(f.status, f.home)).canUpdate).toBe(false);
+    await chmod(f.prefix, 0o755);
+    const nativeRoot = path.join(f.home, ".local/share/claude/versions");
+    await mkdir(nativeRoot, { recursive: true });
+    const native = path.join(nativeRoot, "2.0.0");
+    await writeFile(native, "claude", { mode: 0o755 });
+    const launcher = path.join(f.home, ".local/bin/claude");
+    await mkdir(path.dirname(launcher), { recursive: true });
+    await symlink(native, launcher);
+    await chmod(nativeRoot, 0o775);
+    expect(
+      (
+        await inspectInstallation(
+          { ...f.status, id: "claude", path: launcher },
+          f.home
+        )
+      ).canUpdate
+    ).toBe(false);
+    await chmod(nativeRoot, 0o755);
+    expect(
+      (
+        await inspectInstallation(
+          { ...f.status, id: "claude", path: launcher },
+          f.home
+        )
+      ).canUpdate
+    ).toBe(true);
+  });
   it("rejects foreign ownership and world-writable mutation roots", async () => {
     const f = await fixture();
     await chmod(f.prefix, 0o777);
