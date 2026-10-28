@@ -276,14 +276,16 @@ export const ComposerInput = forwardRef<
       // Keep the caret visible inside the editor's own scroller only. The
       // default walk also scrolls the window by visualViewport height, which
       // ignores its offset: on iPad a short or panned visual viewport made
-      // every keystroke scroll the locked page, and iOS pan it back.
+      // every keystroke scroll the locked page, and iOS pans it back.
       handleScrollToSelection(view) {
+        const margin = 5;
         const scroller = view.dom;
         const box = scroller.getBoundingClientRect();
         const caret = view.coordsAtPos(view.state.selection.head);
-        if (caret.top < box.top) scroller.scrollTop -= box.top - caret.top;
+        if (caret.top < box.top)
+          scroller.scrollTop -= box.top - caret.top + margin;
         else if (caret.bottom > box.bottom)
-          scroller.scrollTop += caret.bottom - box.bottom;
+          scroller.scrollTop += caret.bottom - box.bottom + margin;
         return true;
       },
       handleDOMEvents: {
