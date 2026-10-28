@@ -367,6 +367,14 @@
         "docs/design/blocks.md"
       ],
       "personas": ["stream-delivery-owner", "stream-interactions-owner"]
+    },
+    {
+      "paths": ["docs/design/dispatch-website/**"],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": ["apps/site/**"],
+      "personas": ["code-review"]
     }
   ],
   "fallback": ["code-review"]

@@ -1,111 +1,136 @@
 ---
 import Base from "../layouts/Base.astro";
 ---
-<Base title="A shared workspace for humans and coding agents" description="Dispatch is a local-first shared workspace where humans and coding agents collaborate using durable agents, worktrees, shared context, and reusable capabilities.">
+
+<Base
+  title="A workspace for you and your AI agents"
+  description="Organize projects and tasks, work with Claude Code and Codex, and review their results. Run Dispatch locally with your existing subscriptions."
+>
   <section class="hero">
-    <img class="hero-logo" src="/brand-full-logo.svg" alt="Dispatch" />
-    <p class="eyebrow">Durable collaboration for software teams</p>
-    <h1>Software engineering is collaborative. AI should be, too.</h1>
-    <p class="summary">Developers share context, ask questions, investigate problems, review work, leave notes, and hand work to one another. Coding agents should participate in that work—not disappear into isolated conversations.</p>
-    <p class="product-definition">Dispatch is a local-first shared workspace where humans and coding agents collaborate using durable agents, worktrees, shared context, and reusable capabilities.</p>
-    <div class="actions">
-      <a class="button primary" href="/collaboration">See how it works</a>
-      <a class="button" href="https://github.com/selfcontained/dispatch">Browse GitHub ↗</a>
-    </div>
+    <div class="eyebrow" aria-hidden="true">
+      <span class="glyph">⠋</span>
+    </div><h1>A workspace for you<br /><span>and your AI agents.</span></h1><p>
+      Organize projects and tasks. Put agents to work. Follow their progress,
+      answer questions, and review what they produce.
+    </p><div class="provider-line">
+      <strong>Claude Code and Codex</strong><span
+        >Keep using your existing subscriptions.</span
+      >
+    </div><div class="actions">
+      <a class="cta" href="/start">Get started ↗</a><a href="/#product"
+        >Take a look ↓</a
+      >
+    </div><p class="expect">Local-first. macOS + Linux.</p>
   </section>
-
-  <section class="content-section accent-green" aria-labelledby="collaboration-scenes-title">
-    <div class="two-column">
-      <div><p class="eyebrow">A working environment</p><h2 id="collaboration-scenes-title">The useful parts of working together can be visible.</h2></div>
-      <div class="prose"><p>These are small moments in a piece of engineering work: seeing what is underway, keeping the useful context close, and getting another set of eyes on the same change.</p></div>
-    </div>
-    <div class="collaboration-scenes">
-      <article class="scene scene-cyan">
-        <img src="/agent-conversation.png" alt="A Dispatch message thread between a developer and a frontend UX review agent" />
-        <div>
-          <p class="eyebrow">A question, in context</p>
-          <h3>Collaboration does not have to leave the work.</h3>
-          <p>People and agents need a place to ask for a check, answer it, and keep moving. Those exchanges are most useful when they remain connected to the work that prompted them.</p>
-        </div>
-      </article>
-      <article class="scene scene-yellow">
-        <img src="/shared-pinned-context.png" alt="Dispatch drawer showing a staging link, a shared file, and an open review beside the active work" />
-        <div>
-          <p class="eyebrow">Context that remains usable</p>
-          <h3>The starting point should be there when someone joins.</h3>
-          <p>Links, files, and decisions need to be easy to find at the moment they become relevant. Keeping them with the work avoids making every handoff a reconstruction.</p>
-        </div>
-      </article>
-      <article class="scene scene-pink">
-        <img src="/reviewer-in-progress.png" alt="Dispatch showing a frontend UX reviewer actively working beneath the parent agent" />
-        <div>
-          <p class="eyebrow">A reviewer is working</p>
-          <h3>Review is a teammate activity, not a terminal state.</h3>
-          <p>A reviewer can join an agent’s work while it is still unfolding. The person directing the work can see that a second perspective is active without turning review into a separate workflow.</p>
-        </div>
-      </article>
-      <article class="scene scene-green">
-        <img src="/review-feedback-items.png" alt="A Dispatch review showing one open and two fixed findings with their affected files" />
-        <div>
-          <p class="eyebrow">The reviewer found something</p>
-          <h3>Feedback should stay close enough to be acted on.</h3>
-          <p>Review is useful when concerns retain their location and status. The developer and agent can work from the same concrete record rather than translate a verdict back into tasks.</p>
-        </div>
-      </article>
-    </div>
+  <section class="board-section" id="product">
+    <div class="section-intro">
+      <span class="kicker">PREVIEW</span>
+      <h2>See the work across your project.</h2><p>
+        Track tasks on a kanban board, see which agents are working, and choose
+        what moves forward.
+      </p>
+    </div><figure
+      class="capture board-capture"
+      tabindex="0"
+      aria-label="Project board screenshot, horizontally scrollable on small screens"
+    >
+      <a
+        class="capture-link"
+        href="/captures/kanban-board.webp"
+        download="dispatch-kanban-board.webp"
+        aria-label="Download full-resolution Dispatch kanban board with research, writing, coding and review tasks"
+        ><img
+          width="1920"
+          height="800"
+          fetchpriority="high"
+          src="/captures/kanban-board.webp"
+          alt="Dispatch kanban board with research, writing, coding and review tasks"
+        /></a
+      ><figcaption>Dispatch development build · staged project data</figcaption>
+    </figure>
   </section>
-
-  <section class="content-section accent-violet">
-    <div class="two-column">
-      <div><p class="eyebrow">The shared workspace</p><h2>Humans and agents work with the same durable objects.</h2></div>
-      <div class="prose"><p>Dispatch is the space around an agent session where people can see what is happening, contribute context, and return to the work. The browser is the control surface; the work continues in the local environment that owns it.</p></div>
-    </div>
-    <div class="capability-groups">
-      <article class="cyan"><h3>Durable agents</h3><p>Each agent runs in its own host process that survives a browser session, a disconnect, a Dispatch restart, and the time between decisions.</p></article>
-      <article class="green"><h3>Independent worktrees</h3><p>Humans and agents can change the same repository without borrowing or disturbing each other’s directory.</p></article>
-      <article class="yellow"><h3>Shared context</h3><p>One stream per agent—replies, questions, screenshots, links, and reviews—plus files and Brain preserve the evidence behind a decision.</p></article>
-      <article class="pink"><h3>Reusable practices</h3><p>Review personas, jobs, notifications, and repo-aware tools make a good way of working available again.</p></article>
-    </div>
+  <section class="stream-section">
+    <div class="stream-copy">
+      <span class="kicker">THE AGENT STREAM</span><h2>
+        Stay in the conversation.
+      </h2><p>
+        Give direction, answer questions, and open the files and links an agent
+        shares. Keep feedback and review findings with the work.
+      </p>
+    </div><figure class="capture stream-capture">
+      <a
+        class="capture-link"
+        href="/captures/agent-stream-focus.webp"
+        download="dispatch-agent-stream.webp"
+        aria-label="Download full-resolution Dispatch agent stream with a shared synthesis and a question awaiting input"
+        ><picture
+          ><source
+            width="390"
+            height="900"
+            media="(max-width:600px)"
+            srcset="/captures/agent-stream-mobile.webp"
+          /><img
+            width="960"
+            height="1144"
+            loading="lazy"
+            decoding="async"
+            src="/captures/agent-stream-focus.webp"
+            alt="Dispatch stream showing shared findings and an open question"
+          /></picture
+        ></a
+      ><figcaption>Actual agent stream · staged conversation</figcaption>
+    </figure>
   </section>
-
-  <section class="content-section two-column accent-pink">
-    <div><p class="eyebrow">A realistic handoff</p><h2>Leave at six. Pick up the same investigation at nine.</h2></div>
-    <div class="prose">
-      <ol class="usage-path">
-        <li>A developer launches an agent to investigate a bug in an isolated worktree.</li>
-        <li>The agent finds a staging URL and shares it with a screenshot in its stream, where the team can find both.</li>
-        <li>A reviewer launches a persona, reads the same artifacts, and posts a review with findings in the shared workspace.</li>
-        <li>Later, the developer joins from another device. The agent is still running; the worktree, stream, evidence, and findings are all still available.</li>
-      </ol>
+  <section class="section">
+    <h2>Make the process your own.</h2><div class="concepts">
+      <div class="concept">
+        <h3><a href="/docs/workflows">Workflows</a></h3><p>
+          Configure task stages and launch an agent when work enters a column.
+          Available in Preview.
+        </p>
+      </div><div class="concept">
+        <h3><a href="/docs/personas">Personas</a></h3><p>
+          Save roles and instructions for the agents you use again.
+        </p>
+      </div><div class="concept">
+        <h3><a href="/docs/reviews">Owner reviews</a></h3><p>
+          Map project files to reviewers, then track their findings.
+        </p>
+      </div>
     </div>
-  </section>
-
-  <section class="content-section two-column accent-green">
-    <div><p class="eyebrow">Local-first</p><h2>The browser is a control surface over your environment.</h2></div>
-    <div class="prose">
-      <p>Dispatch runs against the repositories, credentials, coding-agent CLIs, and compute already available on your macOS or Linux machine. It does not replace that environment; it makes its ongoing work easier to see, share, and direct from a browser.</p>
-      <div class="local-environment"><span>repositories</span><span>credentials</span><span>agent CLIs</span><span>local compute</span></div>
+    <div class="end" id="setup">
+      <div>
+        <h2>Run Dispatch on your machine.</h2><p>
+          Connect Claude Code and Codex with the accounts you already use.
+        </p>
+      </div><a class="cta" href="/start">Get started ↗</a>
     </div>
-  </section>
-
-  <section class="content-section two-column accent-yellow">
-    <div><p class="eyebrow">Why capabilities?</p><h2>Collaboration needs room for the work to change shape.</h2></div>
-    <div class="prose">
-      <p>Capabilities are useful independently: start an isolated worktree, share a screenshot, leave a message, ask for a review, store a decision in Brain, or schedule recurring work. They also compose naturally when an investigation takes an unexpected turn.</p>
-      <p>That is why Dispatch is built from capabilities rather than a rigid workflow engine. <strong>Workflows can be repeatable without becoming the only way collaboration is allowed to happen.</strong></p>
-    </div>
-  </section>
-
-  <section class="content-section two-column accent-violet">
-    <div><p class="eyebrow">An ongoing experiment</p><h2>Useful context should not disappear between sessions.</h2></div>
-    <div class="prose">
-      <p>Dispatch grew out of using coding agents on real software projects and watching useful context get trapped in terminal windows, browser tabs, temporary screenshots, and isolated conversations.</p>
-      <p>It is an ongoing experiment in making collaboration with AI feel more like collaboration with another engineer: durable, visible, and grounded in shared work. It is not an attempt to replace developers; it is an attempt to give them a better place to work alongside agents.</p>
-    </div>
-  </section>
-
-  <section class="content-section two-column accent-pink">
-    <div><p class="eyebrow">Continue reading</p><h2>See how the workspace is built.</h2></div>
-    <div class="prose"><p>Read the <a href="/principles">principles</a> behind the experiment, see why its pieces exist in the <a href="/architecture">architecture</a>, or <a href="/docs">run Dispatch locally</a> with your own team.</p></div>
   </section>
 </Base>
+
+<script>
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const motion = document.querySelector<HTMLButtonElement>("#motion");
+  const glyph = document.querySelector<HTMLElement>(".glyph");
+  const preference = matchMedia("(prefers-reduced-motion: reduce)");
+  let paused = preference.matches;
+  let frame = 0;
+  function label() {
+    if (!motion) return;
+    motion.textContent = paused ? "Play motion" : "Pause motion";
+    motion.setAttribute("aria-pressed", String(paused));
+  }
+  label();
+  preference.addEventListener("change", (event) => {
+    paused = event.matches;
+    label();
+  });
+  motion?.addEventListener("click", () => {
+    paused = !paused;
+    label();
+  });
+  window.setInterval(() => {
+    if (!paused && !document.hidden && glyph)
+      glyph.textContent = frames[++frame % frames.length];
+  }, 110);
+</script>
