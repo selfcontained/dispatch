@@ -23,7 +23,7 @@ import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import {
   httpLoggingOptions,
   registerHttpLogging,
@@ -682,6 +682,24 @@ async function registerRoutes() {
     }
   });
 
+  const canManageEngineUpdates = async (
+    request: FastifyRequest
+  ): Promise<boolean> => {
+    const header = request.headers.authorization;
+    if (
+      header?.startsWith("Bearer ") &&
+      shouldAcceptApiBearerToken(header.slice(7), config.authToken)
+    )
+      return true;
+    const signed = request.cookies[SESSION_COOKIE];
+    const unsigned = signed ? request.unsignCookie(signed) : null;
+    return Boolean(
+      unsigned?.valid &&
+      unsigned.value &&
+      (await validateSession(pool, unsigned.value))
+    );
+  };
+
   // ---------------------------------------------------------------------------
   // Auth hook — runs before every /api/ route except auth + health endpoints
   // ---------------------------------------------------------------------------
@@ -706,6 +724,18 @@ async function registerRoutes() {
     if (request.routeOptions.config.macAppBearer) return;
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
+    // Host package changes require the owner bearer or an authenticated browser
+    // session, including during first-run mode. Scoped agent/job credentials
+    // must never gain access through the general MCP auth shortcut.
+    if (
+      request.method === "POST" &&
+      url === "/api/v1/system/engines/:engine/update"
+    ) {
+      if (await canManageEngineUpdates(request)) return;
+      return reply
+        .code(403)
+        .send({ error: "Only the installation owner can update engine CLIs." });
+    }
     // If no password is set, all routes are open (first-run mode).
     if (!(await authRuntime.isPasswordSetCached())) return;
 
@@ -825,6 +855,7 @@ async function registerRoutes() {
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
+    canManageEngineUpdates,
     pool,
     localCertificateTrust:
       process.env.DISPATCH_UPDATE_OWNER === "macos-app" &&

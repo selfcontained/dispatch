@@ -16,6 +16,16 @@ export type EngineStatus = {
   /** The CLI's own `--version`, reduced to the number; null when unknown. */
   version?: string | null;
   install: string;
+  update?: {
+    realPath: string | null;
+    source: string;
+    canUpdate: boolean;
+    reason: string;
+    command: string;
+    latestVersion: string | null;
+    latestPending: boolean;
+    available: boolean;
+  };
 };
 
 export function useEngines(): {
