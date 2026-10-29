@@ -319,6 +319,45 @@ describe("AgentCard state and selection", () => {
   });
 });
 
+describe("AgentCard pin controls", () => {
+  it.each(["standard", "review"] as const)(
+    "pins %s cards without opening, expanding or closing the narrow drawer",
+    (role) => {
+      const onTogglePin = vi.fn();
+      const onRequestClose = vi.fn();
+      const child = makeChild();
+      const { props, rerender } = renderCard({
+        agent: makeAgent({ role }),
+        expandedAgentId: AGENT_ID,
+        childAgents: [child],
+        onTogglePin,
+        onRequestClose,
+        closeOnSessionAction: true,
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Pin session" }));
+      expect(onTogglePin).toHaveBeenCalledWith(AGENT_ID);
+      expect(props.openAgent).not.toHaveBeenCalled();
+      expect(props.closeAgent).not.toHaveBeenCalled();
+      expect(props.toggleAgentDetails).not.toHaveBeenCalled();
+      expect(onRequestClose).not.toHaveBeenCalled();
+      expect(screen.queryByTestId(`agent-pin-toggle-${child.id}`)).toBeNull();
+      rerender({ isPinned: true });
+      expect(
+        screen
+          .getByRole("button", { name: "Unpin session" })
+          .getAttribute("aria-pressed")
+      ).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "Unpin session" }));
+      expect(onTogglePin).toHaveBeenCalledTimes(2);
+      rerender({ isPinned: true, expandedAgentId: null });
+      expect(screen.getByRole("img", { name: "Pinned session" })).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Unpin session" })
+      ).toBeNull();
+    }
+  );
+});
+
 describe("AgentCardHeader wiring", () => {
   it("attaches on row click, and detaches + collapses when already connected", () => {
     const { props, rerender } = renderCard();
