@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { Pool } from "pg";
-import { deleteAgentViaAPI, loadApp, seedBlockViaDB } from "./helpers";
+import {
+  cleanupE2EAgents,
+  deleteAgentViaAPI,
+  loadApp,
+  seedBlockViaDB,
+  trackAgent,
+} from "./helpers";
 const headers = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
 };
@@ -1329,6 +1335,234 @@ for (const touch of [false, true]) {
         });
         await cdp?.detach();
       } finally {
+        await request.delete(`/api/v1/projects/${project.id}`, { headers });
+      }
+    });
+  });
+}
+
+for (const width of [1280, 390]) {
+  test.describe(`task deletion at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 }, deviceScaleFactor: 2 });
+    test("confirms from the drawer and nested task modal without a native dialog", async ({
+      page,
+      request,
+    }) => {
+      const response = await request.post("/api/v1/projects", {
+        headers,
+        data: {
+          name: `Task deletion ${width}`,
+          repoRoot: repo,
+          color: "#7c6ee6",
+        },
+      });
+      expect(response.ok(), await response.text()).toBeTruthy();
+      const project = await response.json();
+      const nativeDialogs: string[] = [];
+      page.on("dialog", async (dialog) => {
+        nativeDialogs.push(dialog.message());
+        await dialog.dismiss();
+      });
+      let deletes = 0;
+      page.on("request", (request) => {
+        if (
+          request.method() === "DELETE" &&
+          /\/api\/v1\/tasks\//.test(request.url())
+        )
+          deletes++;
+      });
+      try {
+        const makeTask = async (title: string) => {
+          const response = await request.post("/api/v1/tasks", {
+            headers,
+            data: { projectId: project.id, title },
+          });
+          expect(response.ok(), await response.text()).toBeTruthy();
+          return response.json();
+        };
+        const drawerTask = await makeTask(`Disposable drawer task ${width}`);
+        const modalTask = await makeTask(`Disposable modal task ${width}`);
+        await loadApp(page);
+        await page.goto(`/tasks?project=${project.id}&task=${drawerTask.id}`, {
+          waitUntil: "domcontentloaded",
+        });
+        const drawer = page.getByTestId("task-drawer");
+        await expect(drawer).toBeVisible();
+        const opener = drawer.getByRole("button", {
+          name: "Delete",
+          exact: true,
+        });
+        const alert = page.getByRole("alertdialog", { name: "Delete task?" });
+        const expectHotkeyContained = async () => {
+          const url = page.url();
+          await page.keyboard.press("ControlOrMeta+k");
+          await expect(
+            page.getByRole("dialog", {
+              name: "Command palette",
+              includeHidden: true,
+            })
+          ).toHaveCount(0);
+          await expect(alert).toBeVisible();
+          await expect(alert.locator(":focus")).toHaveCount(1);
+          expect(page.url()).toBe(url);
+        };
+        await opener.click();
+        await expect(alert).toContainText(drawerTask.title);
+        await expect(
+          alert.getByRole("button", { name: "Cancel" })
+        ).toBeFocused();
+        await expectHotkeyContained();
+        // Tab stays inside the confirmation, and outside clicks do not confirm.
+        await page.keyboard.press("Shift+Tab");
+        await expect(
+          alert.getByRole("button", { name: "Delete task", exact: true })
+        ).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(
+          alert.getByRole("button", { name: "Cancel" })
+        ).toBeFocused();
+        await page.mouse.click(1, 1);
+        await expect(alert).toBeVisible();
+        await page.screenshot({
+          path: `/tmp/dispatch-task-delete-${width}-drawer-confirm.png`,
+          scale: "device",
+        });
+        await alert.getByRole("button", { name: "Cancel" }).click();
+        await expect(alert).toHaveCount(0);
+        await expect(opener).toBeFocused();
+        expect(deletes).toBe(0);
+        expect(
+          (
+            await request.get(`/api/v1/tasks/${drawerTask.id}`, { headers })
+          ).ok()
+        ).toBeTruthy();
+        await opener.click();
+        await page.keyboard.press("Escape");
+        await expect(alert).toHaveCount(0);
+        await expect(drawer).toBeVisible();
+        await expect(opener).toBeFocused();
+        expect(deletes).toBe(0);
+        await opener.click();
+        await alert
+          .getByRole("button", { name: "Delete task", exact: true })
+          .click();
+        await expect(drawer).toHaveCount(0);
+        await expect
+          .poll(async () =>
+            (
+              await request.get(`/api/v1/tasks/${drawerTask.id}`, { headers })
+            ).status()
+          )
+          .toBe(404);
+        expect(deletes).toBe(1);
+        await page.screenshot({
+          path: `/tmp/dispatch-task-delete-${width}-drawer-deleted.png`,
+          scale: "device",
+        });
+
+        const agentResponse = await request.post("/api/v1/agents", {
+          headers,
+          data: {
+            name: `Deletion reader ${width}`,
+            type: "codex",
+            projectId: project.id,
+            useWorktree: false,
+          },
+        });
+        expect(agentResponse.ok(), await agentResponse.text()).toBeTruthy();
+        const { agent } = await agentResponse.json();
+        trackAgent(agent.id);
+        await page.goto(
+          `/agents/${agent.id}?project=${project.id}&task=${modalTask.id}`,
+          { waitUntil: "domcontentloaded" }
+        );
+        const modal = page.getByTestId("task-modal");
+        await expect(modal).toBeVisible();
+        const modalOpener = modal.getByRole("button", {
+          name: "Delete",
+          exact: true,
+        });
+        await modalOpener.click();
+        await expect(
+          alert.getByRole("button", { name: "Cancel" })
+        ).toBeFocused();
+        await expectHotkeyContained();
+        await page.keyboard.press("Escape");
+        await expect(alert).toHaveCount(0);
+        await expect(modal).toBeVisible();
+        await expect(modalOpener).toBeFocused();
+        expect(deletes).toBe(1);
+        expect(
+          (await request.get(`/api/v1/tasks/${modalTask.id}`, { headers })).ok()
+        ).toBeTruthy();
+        await modalOpener.click();
+        await page.screenshot({
+          path: `/tmp/dispatch-task-delete-${width}-modal-confirm.png`,
+          scale: "device",
+        });
+        let releaseDelete!: () => void;
+        const deletionGate = new Promise<void>((resolve) => {
+          releaseDelete = resolve;
+        });
+        await page.route(`**/api/v1/tasks/${modalTask.id}`, async (route) => {
+          if (route.request().method() !== "DELETE") return route.fallback();
+          await deletionGate;
+          await route.fulfill({
+            status: 409,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "Delivery is in flight" }),
+          });
+        });
+        await alert
+          .getByRole("button", { name: "Delete task", exact: true })
+          .click();
+        await expect(
+          alert.getByRole("button", { name: "Deleting…" })
+        ).toBeDisabled();
+        await page.keyboard.press("ControlOrMeta+k");
+        await expect(
+          page.getByRole("dialog", {
+            name: "Command palette",
+            includeHidden: true,
+          })
+        ).toHaveCount(0);
+        await expect(alert).toBeFocused();
+        releaseDelete();
+        await expect(alert.getByRole("alert")).toContainText(
+          "Delivery is in flight"
+        );
+        // Remove interception only after the active route has been fulfilled.
+        // The next confirmation must reach the real DELETE endpoint.
+        await page.unroute(`**/api/v1/tasks/${modalTask.id}`);
+        await expect(
+          alert.getByRole("button", { name: "Cancel" })
+        ).toBeEnabled();
+        expect(
+          (await request.get(`/api/v1/tasks/${modalTask.id}`, { headers })).ok()
+        ).toBeTruthy();
+        await page.screenshot({
+          path: `/tmp/dispatch-task-delete-${width}-modal-error.png`,
+          scale: "device",
+        });
+        await alert
+          .getByRole("button", { name: "Delete task", exact: true })
+          .click();
+        await expect(modal).toHaveCount(0);
+        await expect
+          .poll(async () =>
+            (
+              await request.get(`/api/v1/tasks/${modalTask.id}`, { headers })
+            ).status()
+          )
+          .toBe(404);
+        expect(deletes).toBe(3);
+        expect(nativeDialogs).toEqual([]);
+        await page.screenshot({
+          path: `/tmp/dispatch-task-delete-${width}-modal-deleted.png`,
+          scale: "device",
+        });
+      } finally {
+        await cleanupE2EAgents(request);
         await request.delete(`/api/v1/projects/${project.id}`, { headers });
       }
     });

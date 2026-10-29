@@ -452,3 +452,67 @@ it("copies the full task ID with shared feedback without changing the pane or UR
     else Reflect.deleteProperty(navigator, "clipboard");
   }
 });
+
+it("discards deletion confirmation on selection change and never closes the replacement task", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  const second = { ...detail, id: "task-2", title: "Keep this task" };
+  client.setQueryData(taskKeys.detail(detail.id), detail);
+  client.setQueryData(taskKeys.detail(second.id), second);
+  const close = vi.fn();
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (init?.method === "DELETE") {
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify(url.endsWith(second.id) ? second : detail), {
+        status: 200,
+      })
+    );
+  });
+  vi.stubGlobal("fetch", fetch);
+  const view = (id: string) => (
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <TaskDrawer
+          id={id}
+          projectId={detail.projectId}
+          columns={[]}
+          boardTasks={[detail, second]}
+          agents={[]}
+          close={close}
+          openTask={vi.fn()}
+          moveTask={vi.fn()}
+          isMobile={false}
+        />
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+  try {
+    const { rerender } = render(view(detail.id));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await screen.findByRole("alertdialog");
+    rerender(view(second.id));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    rerender(view(detail.id));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete task" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/v1/tasks/task-1",
+        expect.objectContaining({ method: "DELETE" })
+      )
+    );
+    rerender(view(second.id));
+    await act(async () => finish(new Response(null, { status: 204 })));
+    expect(close).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: second.title })).toBeTruthy();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
