@@ -10,6 +10,8 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     let version = "1.0.0";
+    let operation: Record<string, unknown> | null = null;
+    let updateRequests = 0;
     const engines = () => [
       {
         id: "codex",
@@ -29,6 +31,7 @@ for (const viewport of [
           latestVersion: "2.0.0",
           latestPending: false,
           available: version === "1.0.0",
+          operation,
         },
       },
       {
@@ -64,20 +67,38 @@ for (const viewport of [
     let releaseUpdate: (() => void) | undefined;
     await page.route("**/api/v1/system/engines/codex/update", async (route) => {
       expect(route.request().method()).toBe("POST");
+      updateRequests += 1;
+      operation = {
+        id: `update-${updateRequests}`,
+        engineId: "codex",
+        status: fail ? "failed" : "running",
+        phase: fail ? "complete" : "updating",
+        message: fail ? "Update failed" : "Updating Codex…",
+        output: fail
+          ? "Permission denied by package manager"
+          : "Downloading CLI…",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        finishedAt: null,
+        retryBlocked: !fail,
+      };
       if (!fail) {
-        await new Promise<void>((resolve) => {
-          releaseUpdate = resolve;
-        });
-        version = "2.0.0";
+        releaseUpdate = () => {
+          version = "2.0.0";
+          operation = {
+            ...operation,
+            status: "succeeded",
+            phase: "complete",
+            message: "Update completed · Installed: 2.0.0",
+            output: "Installed selected CLI",
+            retryBlocked: false,
+            finishedAt: new Date().toISOString(),
+          };
+        };
       }
       await route.fulfill({
-        json: {
-          success: !fail,
-          output: fail
-            ? "Permission denied by package manager"
-            : "Installed selected CLI",
-          engine: engines()[0],
-        },
+        status: 202,
+        json: { operation },
       });
     });
     await loadApp(page);
@@ -147,6 +168,14 @@ for (const viewport of [
       codex.getByRole("button", { name: "Updating…", exact: true })
     ).toBeDisabled();
     await expect.poll(() => releaseUpdate !== undefined).toBe(true);
+    await expect(codex.getByRole("status")).toContainText("Downloading CLI…");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await disclosure.click();
+    await expect(
+      codex.getByRole("button", { name: "Updating…", exact: true })
+    ).toBeDisabled();
+    await expect(codex.getByRole("status")).toContainText("Downloading CLI…");
+    expect(updateRequests).toBe(1);
     releaseUpdate!();
     await expect(codex.getByRole("status")).toContainText(
       "Update completed · Installed: 2.0.0"
@@ -156,6 +185,9 @@ for (const viewport of [
     );
     await disclosure.click();
     await expect(codex.getByRole("status")).toBeHidden();
+    await disclosure.click();
+    await expect(codex.getByRole("status")).toContainText("Update completed");
+    await page.reload({ waitUntil: "domcontentloaded" });
     await disclosure.click();
     await expect(codex.getByRole("status")).toContainText("Update completed");
     await codex.scrollIntoViewIfNeeded();
@@ -226,6 +258,24 @@ for (const viewport of [
     await page.screenshot({
       path: `/tmp/engine-updates-${viewport.name}.png`,
       fullPage: true,
+    });
+    operation = {
+      ...operation,
+      status: "interrupted",
+      message: "Update interrupted; outcome unknown.",
+      retryBlocked: true,
+    };
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await disclosure.click();
+    await expect(codex.getByRole("status")).toContainText(
+      "Update interrupted; outcome unknown."
+    );
+    await expect(
+      codex.getByRole("button", { name: "Update Codex", exact: true })
+    ).toBeDisabled();
+    expect(updateRequests).toBe(2);
+    await codex.screenshot({
+      path: `/tmp/engine-interrupted-${viewport.name}.png`,
     });
   });
 

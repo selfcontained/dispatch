@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Markdown } from "@/components/ui/markdown";
 import { api } from "@/lib/api";
-import type { EngineStatus } from "@/hooks/use-engines";
+import type { EngineStatus, EngineUpdateOperation } from "@/hooks/use-engines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,7 +20,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-type UpdateResult = { success: boolean; output: string; engine?: EngineStatus };
+type EngineUpdates = { engines: EngineStatus[]; canManage?: boolean };
 function InstallationDetails({
   engine,
 }: {
@@ -70,14 +70,33 @@ function EngineRow({
   const queryClient = useQueryClient();
   const update = useMutation({
     mutationFn: () =>
-      api<UpdateResult>(`/api/v1/system/engines/${engine.id}/update`, {
-        method: "POST",
-      }),
-    onSuccess: async () => {
+      api<{ operation: EngineUpdateOperation }>(
+        `/api/v1/system/engines/${engine.id}/update`,
+        {
+          method: "POST",
+        }
+      ),
+    onSuccess: ({ operation }) => {
+      queryClient.setQueryData<EngineUpdates>(
+        ["system-engines"],
+        (data) =>
+          data && {
+            ...data,
+            engines: data.engines.map((item) =>
+              item.id === engine.id && item.update
+                ? { ...item, update: { ...item.update, operation } }
+                : item
+            ),
+          }
+      );
+    },
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["system-engines"] });
     },
   });
   const metadata = engine.update;
+  const operation = metadata?.operation;
+  const running = update.isPending || operation?.status === "running";
   return (
     <section className="border-t pt-2" aria-label={engine.label}>
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -114,10 +133,10 @@ function EngineRow({
           {engine.installed && canManage && metadata?.canUpdate && (
             <Button
               size="sm"
-              disabled={update.isPending}
+              disabled={running || operation?.retryBlocked}
               onClick={() => update.mutate()}
             >
-              {update.isPending ? "Updating…" : `Update ${engine.label}`}
+              {running ? "Updating…" : `Update ${engine.label}`}
             </Button>
           )}
           {engine.installed && (
@@ -159,17 +178,16 @@ function EngineRow({
               {update.error.message}
             </p>
           )}
-          {update.data && (
+          {(operation || update.isPending) && (
             <div role="status" className="space-y-2 text-sm">
               <p>
-                {update.data.success ? "Update completed" : "Update failed"}
-                {update.data.engine?.version
-                  ? ` · Installed: ${update.data.engine.version}`
-                  : ""}
+                {update.isPending && operation?.status !== "running"
+                  ? "Starting update…"
+                  : operation?.message}
               </p>
-              {update.data.output && (
+              {operation?.output && (
                 <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
-                  {update.data.output}
+                  {operation.output}
                 </pre>
               )}
             </div>
@@ -181,13 +199,18 @@ function EngineRow({
   );
 }
 export function EngineUpdatesCard(): JSX.Element {
-  const query = useQuery<{ engines: EngineStatus[]; canManage?: boolean }>({
+  const query = useQuery<EngineUpdates>({
     queryKey: ["system-engines"],
     queryFn: () => api("/api/v1/system/engines"),
     staleTime: 0,
     refetchInterval: (query) =>
-      query.state.data?.engines.some((engine) => engine.update?.latestPending)
-        ? 2_000
+      query.state.data?.engines.some(
+        (engine) =>
+          engine.update?.latestPending ||
+          engine.update?.operation?.status === "running" ||
+          engine.update?.operation?.retryBlocked
+      )
+        ? 1_000
         : false,
   });
   return (
