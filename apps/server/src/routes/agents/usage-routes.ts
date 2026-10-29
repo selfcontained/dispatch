@@ -1,3 +1,5 @@
+import { createCodexResetCoordinator } from "../../agents/codex-reset.js";
+import * as z from "zod/v4";
 import type {
   AgentConfigResponse,
   AgentConfigUpdateRequest,
@@ -5,7 +7,6 @@ import type {
 import type { FastifyInstance } from "fastify";
 
 import {
-  CodexResetError,
   consumeCodexLimitReset,
   createProviderPlansReporter,
 } from "../../agents/provider-plans.js";
@@ -81,27 +82,35 @@ export async function registerAgentUsageRoutes(
     return providerPlans({ force });
   });
 
-  // Spends one of the Codex account's limit resets. Reached only from the
-  // popover's confirmed dialog; the cached plans are dropped so the next
-  // read shows the windows as ChatGPT now has them.
+  const redeem =
+    deps.redeemCodexReset ??
+    createCodexResetCoordinator({
+      consume:
+        deps.consumeCodexReset ??
+        ((requestId) =>
+          consumeCodexLimitReset({ log: deps.appLog, requestId })),
+      providerPlans,
+    });
   app.post("/api/v1/usage/codex/resets/consume", async (request, reply) => {
-    const consume =
-      deps.consumeCodexReset ??
-      (() => consumeCodexLimitReset({ log: deps.appLog }));
-    try {
-      const outcome = await consume();
-      providerPlans.invalidate?.();
-      return outcome;
-    } catch (error) {
-      if (error instanceof CodexResetError) {
-        // A request that reached ChatGPT may have been honoured even though
-        // its answer was lost: drop the cached plans so the next read tells.
-        if (error.reason !== "not_signed_in") providerPlans.invalidate?.();
-        return reply
-          .code(error.reason === "not_signed_in" ? 409 : 502)
-          .send({ error: error.message, reason: error.reason });
-      }
-      throw error;
+    const parsed = z
+      .object({ idempotencyKey: z.uuid().optional() })
+      .safeParse(request.body ?? {});
+    if (!parsed.success)
+      return reply.code(400).send({ error: "idempotencyKey must be a UUID." });
+    const result = await redeem(parsed.data.idempotencyKey);
+    if (result.error) {
+      return reply
+        .code(
+          [
+            "not_signed_in",
+            "reset_in_progress",
+            "idempotency_capacity",
+          ].includes(result.error.reason)
+            ? 409
+            : 502
+        )
+        .send({ error: result.error.message, reason: result.error.reason });
     }
+    return result.outcome;
   });
 }

@@ -1,3 +1,4 @@
+import type { RedeemCodexReset } from "../../agents/codex-reset.js";
 import type { ProviderPlan, ProviderPlansResponse } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
@@ -8,6 +9,7 @@ import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export type UsageCallbacks = {
+  redeemCodexReset?: RedeemCodexReset;
   providerPlans?: (request?: {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>;
@@ -151,6 +153,38 @@ export function registerUsageTools(
   allowed: Set<string>,
   callbacks: UsageCallbacks
 ): void {
+  if (allowed.has("redeem_codex_reset") && callbacks.redeemCodexReset) {
+    server.registerTool(
+      "redeem_codex_reset",
+      {
+        description:
+          "Explicitly spend at most one account-shared Codex reset credit. ChatGPT chooses the oldest eligible credit; no purchase. This affects every agent using this login. Call get_usage first. Reuse the same UUID idempotencyKey for retries; results, including uncertain failures, are retained for ten minutes in this server process. Concurrent distinct requests are refused. Protection is lost on server restart. Never automatically retry an uncertain result with a new key. outcome preserves provider codes (ok, nothing_to_reset, no_credit, or unknown); error reports uncertainty. usage is the refreshed provider state, including reset credits; refreshError does not change the redemption outcome.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+        inputSchema: {
+          idempotencyKey: z
+            .uuid()
+            .describe("UUID for this deliberate redemption; reuse on retries."),
+        },
+      },
+      async ({ idempotencyKey }) => {
+        try {
+          const result = await callbacks.redeemCodexReset!(idempotencyKey);
+          return {
+            content: [{ type: "text", text: jsonText(result) }],
+            structuredContent: result,
+            ...(result.error ? { isError: true } : {}),
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
   if (!allowed.has("get_usage") || !callbacks.providerPlans) return;
   const providerPlans = callbacks.providerPlans;
   server.registerTool(

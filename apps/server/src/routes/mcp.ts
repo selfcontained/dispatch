@@ -1,3 +1,4 @@
+import type { RedeemCodexReset } from "../agents/codex-reset.js";
 import type { ScheduledMessageService } from "../scheduled-messages/service.js";
 import path from "node:path";
 
@@ -42,6 +43,7 @@ function onceResponseFinished(res: {
 }
 
 type McpRouteDeps = {
+  redeemCodexReset?: RedeemCodexReset;
   providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   config: {
     authToken: string;
@@ -229,6 +231,7 @@ export async function registerMcpRoutes(
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
       providerPlans,
+      redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
@@ -317,6 +320,7 @@ export async function registerMcpRoutes(
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
       providerPlans,
+      redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
