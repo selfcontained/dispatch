@@ -37,7 +37,7 @@ async function fixture(extra = "prefix") {
   const prefix = path.join(home, extra);
   const file = async (name: string, data: string) => {
     const at = path.join(prefix, name);
-    await mkdir(path.dirname(at), { recursive: true });
+    await mkdir(path.dirname(at), { recursive: true, mode: 0o755 });
     await writeFile(at, data, { mode: 0o755 });
     return at;
   };
@@ -120,11 +120,11 @@ describe("selected installation", () => {
     expect((await inspectInstallation(f.status, f.home)).canUpdate).toBe(false);
     await chmod(f.prefix, 0o755);
     const nativeRoot = path.join(f.home, ".local/share/claude/versions");
-    await mkdir(nativeRoot, { recursive: true });
+    await mkdir(nativeRoot, { recursive: true, mode: 0o755 });
     const native = path.join(nativeRoot, "2.0.0");
     await writeFile(native, "claude", { mode: 0o755 });
     const launcher = path.join(f.home, ".local/bin/claude");
-    await mkdir(path.dirname(launcher), { recursive: true });
+    await mkdir(path.dirname(launcher), { recursive: true, mode: 0o755 });
     await symlink(native, launcher);
     await chmod(nativeRoot, 0o775);
     expect(
@@ -162,10 +162,10 @@ describe("selected installation", () => {
   it("detects native Claude and Homebrew source without trusting a prefix substring", async () => {
     const f = await fixture();
     const native = path.join(f.home, ".local/share/claude/versions/2.0.0");
-    await mkdir(path.dirname(native), { recursive: true });
+    await mkdir(path.dirname(native), { recursive: true, mode: 0o755 });
     await writeFile(native, "claude", { mode: 0o755 });
     const launcher = path.join(f.home, ".local/bin/claude");
-    await mkdir(path.dirname(launcher), { recursive: true });
+    await mkdir(path.dirname(launcher), { recursive: true, mode: 0o755 });
     await symlink(native, launcher);
     expect(
       await inspectInstallation(
