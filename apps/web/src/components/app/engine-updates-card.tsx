@@ -119,7 +119,13 @@ function EngineRow({
               : "Not installed"}
           </span>
           <span className="flex h-7 w-full items-center sm:w-72">
-            {metadata?.latestPending ? (
+            {running ? (
+              <Badge variant="running">Updating…</Badge>
+            ) : operation?.status === "interrupted" ? (
+              <Badge variant="error">Update interrupted</Badge>
+            ) : operation?.status === "failed" ? (
+              <Badge variant="error">Update failed</Badge>
+            ) : metadata?.latestPending ? (
               <Skeleton
                 className="h-6 w-40"
                 aria-label="Checking for updates"

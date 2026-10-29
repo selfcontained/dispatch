@@ -170,6 +170,7 @@ for (const viewport of [
     await expect.poll(() => releaseUpdate !== undefined).toBe(true);
     await expect(codex.getByRole("status")).toContainText("Downloading CLI…");
     await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(disclosure).toContainText("Updating…");
     await disclosure.click();
     await expect(
       codex.getByRole("button", { name: "Updating…", exact: true })
@@ -266,6 +267,7 @@ for (const viewport of [
       retryBlocked: true,
     };
     await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(disclosure).toContainText("Update interrupted");
     await disclosure.click();
     await expect(codex.getByRole("status")).toContainText(
       "Update interrupted; outcome unknown."
