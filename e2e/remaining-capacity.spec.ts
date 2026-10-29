@@ -76,6 +76,8 @@ for (const width of [1280, 390]) {
       })
     );
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    // On mobile, focusing the composer reveals its footer controls.
+    await page.getByTestId("chat-composer-input").click();
     const chip = page.getByTestId("composer-usage-chip");
     await expect(chip).toHaveAccessibleName("Context: 40% left");
     await expect(chip).toHaveAttribute("title", "Context: 40% left");
