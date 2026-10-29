@@ -71,7 +71,8 @@ export function AssigneeSelect({
       <SelectTrigger
         aria-label="Assignee"
         className={cn(
-          "h-8 w-full max-w-64 border-transparent bg-muted/50 text-xs hover:bg-muted",
+          "w-full max-w-64 border-transparent bg-muted/50 text-xs hover:bg-muted",
+          "h-auto min-h-9 gap-2 px-2 py-1 [&>span]:min-w-0 [&>span]:flex-1 [&>span]:line-clamp-none [&>svg]:shrink-0",
           className
         )}
       >
@@ -124,7 +125,12 @@ export function AssigneeSelect({
         </SelectItem>
         {options.map((agent) => (
           <SelectItem key={agent.id} value={agent.id}>
-            <TaskAgentChip agent={agent} agents={options} compact />
+            <TaskAgentChip
+              agent={agent}
+              agents={options}
+              compact
+              className="max-w-full"
+            />
           </SelectItem>
         ))}
       </SelectContent>

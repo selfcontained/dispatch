@@ -1,3 +1,4 @@
+import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAtom } from "jotai";
@@ -106,7 +107,11 @@ function TasksContent({ projectId }: { projectId: string }) {
     const next = new URLSearchParams(params);
     if (value) next.set(name, value);
     else next.delete(name);
-    if (name === "task") next.delete(TASK_PANE_PARAM);
+    if (name === "task") {
+      next.delete(TASK_PANE_PARAM);
+      next.delete(BLOCK_PARAM);
+      next.delete(THREAD_PARAM);
+    }
     setParams(next);
   };
   const openTask = (id: string) => updateParam("task", id);

@@ -50,7 +50,8 @@ export function TaskBlockBody({
         const next = new URLSearchParams(params);
         const paging = next.has("task");
         next.set("task", task.id);
-        next.delete(TASK_PANE_PARAM);
+        // Block/thread may still target the agent stream beneath this modal.
+        next.set(TASK_PANE_PARAM, "details");
         setParams(next, {
           replace: paging,
           state: paging
