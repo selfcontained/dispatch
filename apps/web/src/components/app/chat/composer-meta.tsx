@@ -886,9 +886,9 @@ export function UseResetButton({
       open={open}
       onOpenChange={(next) => (next ? setOpen(true) : close())}
     >
-      {/* Longer local timestamps wrap above the action on narrow cards. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span
+      {/* Each expiry gets its own row, with the action below the list. */}
+      <div className="flex flex-col gap-2">
+        <div
           className={cn(
             "min-w-0 text-[11px]",
             expiring ? "text-primary" : "text-muted-foreground/80"
@@ -896,14 +896,20 @@ export function UseResetButton({
           data-testid="usage-codex-reset-expiry"
           title={expiry ? `Resets expire: ${expiry}` : undefined}
         >
-          {expiry ?? ""}
-        </span>
+          {expiry ? (
+            <ul className="space-y-1">
+              {expiry.split("\n").map((date, index) => (
+                <li key={index}>{date}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         <DialogTrigger asChild>
           <Button
             type="button"
             size="sm"
             variant="default"
-            className="h-6 shrink-0 px-2 text-[11px] pointer-coarse:min-h-11"
+            className="h-6 shrink-0 self-end px-2 text-[11px] pointer-coarse:min-h-11"
             disabled={available === 0}
             data-testid="usage-codex-reset"
           >
@@ -937,14 +943,14 @@ export function UseResetButton({
             <div className="text-[11px] font-medium text-foreground">
               Your resets · the oldest is used first
             </div>
-            <ul className="space-y-0.5" data-testid="usage-codex-reset-list">
+            <ul className="space-y-1" data-testid="usage-codex-reset-list">
               {resets.items.map((item, index) => {
                 const expires = formatResetExpiryDate(item.expiresAt);
                 return (
                   <li
                     key={item.id}
                     className={cn(
-                      "flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5",
+                      "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1",
                       plan.engine === "codex" &&
                         available > 0 &&
                         resetExpiresSoon(item.expiresAt, now)
@@ -956,7 +962,7 @@ export function UseResetButton({
                       {item.title}
                       {index === 0 ? " · next" : ""}
                     </span>
-                    <span className="tabular-nums">
+                    <span className="whitespace-nowrap tabular-nums">
                       {expires
                         ? `expires ${expires}`
                         : item.expiresAt == null

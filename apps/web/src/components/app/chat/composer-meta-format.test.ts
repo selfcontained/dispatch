@@ -149,12 +149,11 @@ describe("reset expiry dates", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("uses the browser locale/timezone, includes year and minutes, and omits seconds", () => {
+  it("uses the browser locale/timezone, omits the year, includes minutes, and omits seconds", () => {
     expect(formatResetExpiryDate("2026-10-22T21:00:57Z")).toBe(
-      "Oct 22, 2026, 9:00 PM UTC"
+      "Oct 22, 9:00 PM UTC"
     );
     expect(Intl.DateTimeFormat).toHaveBeenCalledWith(undefined, {
-      year: "numeric",
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -166,14 +165,14 @@ describe("reset expiry dates", () => {
   it("converts the date and time to the browser timezone across midnight and DST", () => {
     timeZone = "America/Los_Angeles";
     expect(formatResetExpiryDate("2026-10-22T01:12:54Z")).toBe(
-      "Oct 21, 2026, 6:12 PM PDT"
+      "Oct 21, 6:12 PM PDT"
     );
     expect(formatResetExpiryDate("2026-12-22T01:12:54Z")).toBe(
-      "Dec 21, 2026, 5:12 PM PST"
+      "Dec 21, 5:12 PM PST"
     );
   });
 
-  it("lists valid expirations chronologically without changing the input", () => {
+  it("lists one valid expiration per line chronologically without changing the input", () => {
     const items = [
       { expiresAt: "2026-10-29T19:12:54Z" },
       { expiresAt: "2026-10-22T21:00:57Z" },
@@ -181,7 +180,7 @@ describe("reset expiry dates", () => {
       { expiresAt: "invalid" },
     ];
     expect(formatResetExpiry({ available: 4, items })).toBe(
-      "Oct 22, 2026, 9:00 PM UTC · Oct 29, 2026, 7:12 PM UTC"
+      "Oct 22, 9:00 PM UTC\nOct 29, 7:12 PM UTC"
     );
     expect(items[0].expiresAt).toBe("2026-10-29T19:12:54Z");
   });
@@ -193,7 +192,7 @@ describe("reset expiry dates", () => {
         oldestExpiresAt: "2026-10-22T21:00:00Z",
         items: [{ expiresAt: "invalid" }],
       })
-    ).toBe("oldest expires Oct 22, 2026, 9:00 PM UTC");
+    ).toBe("oldest expires Oct 22, 9:00 PM UTC");
   });
 
   it("omits bare days rather than displaying an invented midnight time", () => {
@@ -205,7 +204,7 @@ describe("reset expiry dates", () => {
           { expiresAt: "2026-10-29T19:12:54Z" },
         ],
       })
-    ).toBe("Oct 29, 2026, 7:12 PM UTC");
+    ).toBe("Oct 29, 7:12 PM UTC");
     expect(
       formatResetExpiry({ available: 1, items: [{ expiresAt: "2026-10-22" }] })
     ).toBeNull();

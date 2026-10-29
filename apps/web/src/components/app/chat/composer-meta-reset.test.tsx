@@ -97,9 +97,11 @@ describe("UseResetButton", () => {
       },
     });
     const timestamp = formatResetExpiryDate(dated)!;
+    const summary = screen.getByTestId("usage-codex-reset-expiry");
     expect(
-      screen.getByTestId("usage-codex-reset-expiry").textContent
-    ).toContain(timestamp);
+      Array.from(summary.querySelectorAll("li"), (row) => row.textContent)
+    ).toEqual([timestamp, formatResetExpiryDate("2026-10-29T19:12:54Z")]);
+    expect(summary.textContent).not.toContain("2026");
     fireEvent.click(screen.getByTestId("usage-codex-reset"));
     const entries = screen
       .getByTestId("usage-codex-reset-list")
@@ -121,6 +123,51 @@ describe("UseResetButton", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(apiMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps duplicate expiry rows and sorts only the summary, preserving provider dialog order", () => {
+    const earlier = "2026-10-22T21:00:57Z";
+    const later = "2026-10-29T19:12:54Z";
+    renderButton({
+      ...plan,
+      limitResets: {
+        ...plan.limitResets!,
+        items: [
+          {
+            id: "a",
+            title: "Provider first",
+            grantedAt: null,
+            expiresAt: later,
+          },
+          { id: "b", title: "Earlier", grantedAt: null, expiresAt: earlier },
+          {
+            id: "c",
+            title: "Same expiry",
+            grantedAt: null,
+            expiresAt: earlier,
+          },
+        ],
+      },
+    });
+    const summary = screen.getByTestId("usage-codex-reset-expiry");
+    expect(
+      Array.from(summary.querySelectorAll("li"), (row) => row.textContent)
+    ).toEqual([
+      formatResetExpiryDate(earlier),
+      formatResetExpiryDate(earlier),
+      formatResetExpiryDate(later),
+    ]);
+    fireEvent.click(screen.getByTestId("usage-codex-reset"));
+    const entries = screen
+      .getByTestId("usage-codex-reset-list")
+      .querySelectorAll("li");
+    expect(entries[0].textContent).toBe(
+      `Provider first · nextexpires ${formatResetExpiryDate(later)}`
+    );
+    expect(entries[1].textContent).toContain("Earlier");
+    expect(entries[2].textContent).toContain("Same expiry");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(apiMock).not.toHaveBeenCalled();
   });
 

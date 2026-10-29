@@ -143,7 +143,6 @@ export function formatResetExpiryDate(
   const at = expiresAt ? Date.parse(expiresAt) : NaN;
   if (!Number.isFinite(at)) return null;
   return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -170,7 +169,7 @@ export function formatResetExpiry(
     .sort((a, b) => Date.parse(a.expiresAt!) - Date.parse(b.expiresAt!))
     .map((item) => formatResetExpiryDate(item.expiresAt))
     .filter((date) => date !== null);
-  if (dates.length > 0) return dates.join(" · ");
+  if (dates.length > 0) return dates.join("\n");
   const expires = formatResetExpiryDate(resets.oldestExpiresAt);
   return expires ? `oldest expires ${expires}` : null;
 }
