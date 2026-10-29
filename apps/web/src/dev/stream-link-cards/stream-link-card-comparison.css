@@ -1,0 +1,55 @@
+/* Loaded exclusively by the alternate dev entry, never by the app. Keep the
+   selectors limited to URL cards so file/code cards cannot inherit a candidate. */
+.comparison-page [data-comparison-variant] {
+  --comparison-surface: transparent;
+  --comparison-border: hsl(var(--border) / 0.5);
+  --comparison-icon: hsl(var(--muted-foreground));
+}
+.comparison-page [data-comparison-variant="surface"] {
+  --comparison-surface: hsl(var(--muted) / 0.5);
+}
+.comparison-page [data-comparison-variant="accent"] {
+  --comparison-border: hsl(var(--primary) / 0.5);
+  --comparison-icon: hsl(var(--primary));
+}
+.comparison-page [data-comparison-variant="balanced"] {
+  --comparison-surface: hsl(var(--muted) / 0.35);
+  --comparison-border: hsl(var(--primary) / 0.35);
+  --comparison-icon: hsl(var(--primary));
+}
+.comparison-page
+  [data-comparison-variant]:not([data-comparison-variant="baseline"])
+  :is(
+    [data-testid="chat-link-block-card"],
+    [data-testid="chat-attachment-link"],
+    [data-testid="chat-attachment-pr"],
+    [data-testid="chat-attachment-preview"]
+  ) {
+  background-color: var(--comparison-surface);
+  border-color: var(--comparison-border);
+}
+.comparison-page
+  [data-comparison-variant]:not([data-comparison-variant="baseline"])
+  :is(
+    [data-testid="chat-link-block-card"],
+    [data-testid="chat-attachment-link"],
+    [data-testid="chat-attachment-pr"],
+    [data-testid="chat-attachment-preview"]
+  )
+  > a
+  > span:first-child {
+  color: var(--comparison-icon);
+}
+/* Inset so AttachmentBlock's overflow clipping cannot hide keyboard focus. */
+.comparison-page
+  [data-comparison-variant]:not([data-comparison-variant="baseline"])
+  :is(
+    [data-testid="chat-link-block-card"],
+    [data-testid="chat-attachment-link"],
+    [data-testid="chat-attachment-pr"],
+    [data-testid="chat-attachment-preview"]
+  )
+  > a:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
