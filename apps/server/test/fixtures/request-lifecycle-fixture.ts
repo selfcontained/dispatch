@@ -1,4 +1,8 @@
 import {
+  macAuthCases,
+  runMacAuthScenario,
+} from "./mac-app-request-lifecycle.js";
+import {
   parserOwnershipCases,
   runParserOwnershipScenario,
 } from "./request-parser-ownership.js";
@@ -741,5 +745,7 @@ if (process.env.DISPATCH_LIFECYCLE_FIXTURE === "1") {
   results.push((await runUpgradeScenario()) as any);
   for (const kind of parserOwnershipCases)
     results.push((await runParserOwnershipScenario(kind)) as any);
+  for (const kind of macAuthCases)
+    results.push((await runMacAuthScenario(kind)) as any);
   console.log(JSON.stringify({ runtime: process.versions, results }, null, 2));
 }

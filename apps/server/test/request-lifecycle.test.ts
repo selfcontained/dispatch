@@ -1,4 +1,8 @@
 import {
+  macAuthCases,
+  runMacAuthScenario,
+} from "./fixtures/mac-app-request-lifecycle.js";
+import {
   parserOwnershipCases,
   runParserOwnershipScenario,
 } from "./fixtures/request-parser-ownership.js";
@@ -13,6 +17,11 @@ describe("real Fastify application settlement and recovery maintenance", () => {
   it(
     "preserves real websocket ownership and fenced admission",
     runUpgradeScenario
+  );
+  it.each(macAuthCases)(
+    "actual Mac auth lifecycle: %s",
+    runMacAuthScenario,
+    10_000
   );
   it.each(parserOwnershipCases)(
     "parser ownership after raw abort: %s",
