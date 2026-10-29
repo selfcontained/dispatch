@@ -309,6 +309,65 @@ describe("recovery route auth", () => {
     expect((await app.inject({ url, headers: auth })).json().busy).toBe(false);
   });
 
+  it("keeps sends admitted during advisory busy reads whereas fence-first closes admission", async () => {
+    const dir = await tempDir();
+    const keyFile = await privateFile(dir, "control.key", KEY);
+    let release!: () => void;
+    let checking!: () => void;
+    let entered = new Promise<void>((resolve) => {
+      checking = resolve;
+    });
+    let paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { deps } = makeDeps({
+      busyReasons: async () => {
+        checking();
+        await paused;
+        return [{ kind: "agent-turn" }];
+      },
+    });
+    const maintenance = new RecoveryMaintenance(deps);
+    const app = await harness(maintenance, keyFile);
+    const advisory = app.inject({
+      url: `${route("status")}?challenge=${CHALLENGE}`,
+      headers: auth,
+    });
+    await entered;
+    expect(
+      (await app.inject({ method: "POST", url: "/api/v1/agents" })).statusCode
+    ).toBe(200);
+    release();
+    expect((await advisory).json().busy).toBe(true);
+    expect(maintenance.mode).toBe("normal");
+    expect(deps.stopWriters).not.toHaveBeenCalled();
+
+    entered = new Promise<void>((resolve) => {
+      checking = resolve;
+    });
+    paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Baseline native path: requesting the fence before learning the server is
+    // busy temporarily rejects sends even though no shutdown will be authorized.
+    const boundary = app.inject({
+      method: "POST",
+      url: route("fence"),
+      headers: auth,
+      payload: { transactionId: TX, challenge: CHALLENGE },
+    });
+    await entered;
+    expect(
+      (await app.inject({ method: "POST", url: "/api/v1/agents" })).statusCode
+    ).toBe(503);
+    release();
+    expect((await boundary).json().code).toBe("BUSY");
+    expect(
+      (await app.inject({ method: "POST", url: "/api/v1/agents" })).statusCode
+    ).toBe(200);
+    expect(deps.stopWriters).not.toHaveBeenCalled();
+  });
+
   it("requires enrollment, the key and a loopback socket", async () => {
     const dir = await tempDir();
     const keyFile = path.join(dir, "control.key");
@@ -456,8 +515,19 @@ describe("pre-update fence", () => {
     const slow = new Promise<void>((resolve) => (finish = resolve));
     const app = await harness(maintenance, keyFile, slow);
 
+    const statusURL = `${route("status")}?challenge=${CHALLENGE}`;
+    expect(
+      (await app.inject({ url: statusURL, headers: auth })).json().busy
+    ).toBe(false);
     const write = app.inject({ method: "POST", url: "/api/v1/agents" });
     await vi.waitFor(() => expect(maintenance["inFlight"].size).toBe(1));
+    // An admitted mutation makes activity busy, without installing the gate.
+    const busy = await app.inject({ url: statusURL, headers: auth });
+    expect(busy.json().busy).toBe(true);
+    expect(busy.json().mode).toBe("normal");
+    expect(verify("status", busy.json())).toBe(true);
+    expect(deps.stopWriters).not.toHaveBeenCalled();
+    deps.busyReasons.mockClear();
     const fenced = fence(app);
     await new Promise((r) => setTimeout(r, 50));
     expect(deps.busyReasons).not.toHaveBeenCalled();
@@ -467,6 +537,29 @@ describe("pre-update fence", () => {
     finish();
     expect((await write).statusCode).toBe(200);
     expect((await fenced).statusCode).toBe(200);
+  });
+
+  it("treats idle status as advisory when agent work starts before the fence", async () => {
+    let active = false;
+    const { deps, maintenance, keyFile } = await setup({
+      busyReasons: async () => (active ? [{ kind: "agent-turn" }] : []),
+    });
+    const app = await harness(maintenance, keyFile);
+    const idle = await app.inject({
+      url: `${route("status")}?challenge=${CHALLENGE}`,
+      headers: auth,
+    });
+    expect(idle.json().busy).toBe(false);
+    expect(verify("status", idle.json())).toBe(true);
+    active = true;
+    const refused = await fence(app);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().code).toBe("BUSY");
+    expect(deps.stopWriters).not.toHaveBeenCalled();
+    expect(deps.quiesceHosts).not.toHaveBeenCalled();
+    expect(
+      (await app.inject({ method: "POST", url: "/api/v1/agents" })).statusCode
+    ).toBe(200);
   });
 
   it("gives up and reopens when draining times out", async () => {

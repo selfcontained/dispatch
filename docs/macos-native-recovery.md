@@ -198,11 +198,33 @@ If removal cannot be proven (for example a root-domain installer, or an unknown
 launchctl failure), termination stays held with the exact `launchctl bootout`
 command; Quit remains enabled and retries the handoff each time.
 
-- **Busy deferral.** Only a proof-verified 409 with `BUSY`, `DRAIN_TIMEOUT`,
+- **Automatic advisory preflight.** Before changing the staged journal to
+  preparing, requesting the write fence, stopping the service, or backing up,
+  background and deferred attempts require a signed, instance-matched status
+  response with an explicit boolean `busy: false`. Busy activity, missing activity
+  on older servers, authentication/instance/proof errors, and network failures
+  defer and withdraw the staged installer without changing automatic preferences.
+  An idle read only permits attempting the existing authoritative fence: its
+  atomic admission gate, drain, and activity rechecks still decide the boundary.
+  The menu rechecks cancellation, handoff/transaction identity, recovery state,
+  and service running state after the read. Unknown resumed installers and
+  install-on-quit use this conservative policy. A current explicit manual or
+  remote install keeps its existing authoritative-fence behavior; the remote
+  API's use of Sparkle's background check does not make it automatic. Completed
+  or aborted cycles clear explicit intent. Any later deferred retry is automatic.
+  If the service was deliberately stopped, the existing private preparation
+  worker must instead prove readiness with the transaction nonce and quiescent
+  boundary before backup; a failed status read never selects that path.
+- **Busy deferral.** A proof-verified 409 with `BUSY`, `DRAIN_TIMEOUT`,
   `BUSY_AFTER_FENCE`, `HOSTS_NOT_QUIESCED`, or `HOSTS_RUNNING` is a deferral.
   Nothing has been stopped, no turn is interrupted, and it is not a recovery.
   The menu shows "Update waits for agents to finish" and re-runs a silent check
   every five minutes, at most twelve times, then asks for a manual check.
+  Automatic preflight busy/unknown results use the same safe withdrawal/retry
+  path. Duplicate cycle-completion and withdrawal callbacks share one timer and
+  budget slot; active Sparkle sessions or locked controls postpone that reservation
+  without consuming another slot. Cancelled timer generations cannot run a newer
+  reservation. A fresh hourly cycle may start a new bounded retry sequence.
 - **Refusals** (external database, missing signed artifact identity, incompatible
   app, quarantined artifact, failed permission preflight, launcher not started)
   withdraw the installation, clear the preactivation handoff, and leave Quit
