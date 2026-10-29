@@ -29,6 +29,80 @@ const defaults = {
 afterEach(cleanup);
 
 describe("request context", () => {
+  it("expands a multiline preview, jumps to the selected request, and collapses with Escape", () => {
+    const onJump = vi.fn();
+    render(
+      <RequestContext
+        {...defaults}
+        onJump={onJump}
+        entries={[
+          user("First line\n\n**Second line**"),
+          user("Latest request"),
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByLabelText("Previous message"));
+    const toggle = screen.getByTestId("request-context-open");
+    const preview = screen.getByTestId("request-context-text");
+    expect(preview.textContent).toBe("First line **Second line**");
+    expect(toggle.getAttribute("aria-controls")).toBe(preview.id);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Second line").tagName).toBe("STRONG");
+    fireEvent.click(screen.getByRole("button", { name: "Jump to message" }));
+    expect(onJump).toHaveBeenCalledWith("First line\n\n**Second line**");
+
+    fireEvent.keyDown(toggle, { key: "Escape" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("request-context-detail")).toBeNull();
+    expect(screen.getByTestId("request-context-text").textContent).toBe(
+      "First line **Second line**"
+    );
+    expect(document.activeElement).toBe(toggle);
+    fireEvent.click(screen.getByLabelText("Next message"));
+    expect(screen.getByTestId("request-context-text").textContent).toBe(
+      "Latest request"
+    );
+  });
+
+  it("keeps attachment-only requests available in the preview and expanded details", () => {
+    render(
+      <RequestContext
+        {...defaults}
+        entries={[
+          blockEntry(
+            block({
+              authorKind: "user",
+              text: "",
+              attachments: [
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  title: "Reference",
+                },
+              ],
+            })
+          ),
+        ]}
+      />
+    );
+    expect(screen.getByTestId("request-context-text").textContent).toBe(
+      "Attached files"
+    );
+    fireEvent.click(screen.getByTestId("request-context-open"));
+    expect(
+      screen.getByRole("link", { name: /Reference/ }).getAttribute("href")
+    ).toBe("https://example.com");
+    fireEvent.click(screen.getByTestId("request-context-open"));
+    expect(screen.queryByRole("link", { name: /Reference/ })).toBeNull();
+    expect(screen.getByTestId("request-context-text").textContent).toBe(
+      "Attached files"
+    );
+  });
+
   it("skips launch cards an agent wrote for its children", () => {
     const launch = (id: string, launchedByAgentId?: string) =>
       blockEntry(

@@ -137,15 +137,20 @@ export function RequestContext({
       )}
     >
       <div
-        className="px-3 py-1 sm:px-4"
+        className={cn(
+          "px-3 py-1 sm:px-4",
+          !open &&
+            "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-1 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+        )}
         onKeyDown={(event) => {
           if (event.key === "Escape") setOpen(false);
         }}
       >
         <div
           className={cn(
-            "flex items-center gap-1",
-            open && "-mx-3 border-b border-white/5 px-3 sm:-mx-4 sm:px-4"
+            open
+              ? "-mx-3 flex items-center gap-1 border-b border-white/5 px-3 sm:-mx-4 sm:px-4"
+              : "contents"
           )}
         >
           <button
@@ -154,16 +159,16 @@ export function RequestContext({
             aria-expanded={open}
             aria-controls={detailId}
             onClick={() => setOpen(!open)}
-            className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-[11px] font-medium text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9"
+            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-[11px] font-medium text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9"
           >
-            <span>
+            <span className="shrink-0 whitespace-nowrap">
               {index === requests.length - 1
                 ? "Your last message"
                 : "Earlier message"}
             </span>
             <ChevronDown
               className={cn(
-                "h-3 w-3 text-muted-foreground transition-transform motion-reduce:transition-none",
+                "h-3 w-3 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
                 open && "rotate-180"
               )}
             />
@@ -171,7 +176,7 @@ export function RequestContext({
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9"
+            className="col-start-2 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-3"
             aria-label="Previous message"
             disabled={busy || (index === 0 && !hasOlder)}
             onClick={previous}
@@ -188,7 +193,7 @@ export function RequestContext({
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9"
+            className="col-start-3 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-4"
             aria-label="Next message"
             disabled={busy || index === requests.length - 1}
             onClick={() =>
@@ -218,7 +223,7 @@ export function RequestContext({
             "min-w-0 transform-gpu pb-1 text-xs leading-5 text-muted-foreground",
             open
               ? "max-h-[min(40vh,20rem)] overflow-y-auto overscroll-contain break-words"
-              : "truncate"
+              : "col-span-3 col-start-1 row-start-2 truncate sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:pb-0"
           )}
         >
           {open ? (
@@ -261,7 +266,10 @@ export function RequestContext({
           </div>
         )}
         {error && seekingBefore && (
-          <p role="status" className="pb-2 text-xs text-muted-foreground">
+          <p
+            role="status"
+            className="col-span-full pb-2 text-xs text-muted-foreground"
+          >
             Couldn’t load earlier messages. Try again.
           </p>
         )}
