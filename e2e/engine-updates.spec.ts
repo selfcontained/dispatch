@@ -85,12 +85,48 @@ for (const viewport of [
     await expect(
       codex.getByText("Update available: 1.0.0 → 2.0.0")
     ).toBeVisible();
+    const disclosure = codex.getByRole("button", { expanded: false });
+    await expect(disclosure).toContainText("Codex");
+    await expect(disclosure.getByText("1.0.0", { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole("button", { expanded: false })
+        .filter({ hasText: /Codex|Claude Code|OpenCode/ })
+    ).toHaveCount(3);
+    await expect(
+      codex.getByText("/home/user/npm/bin/codex", { exact: true })
+    ).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Copy code", exact: true })
+    ).toHaveCount(0);
+    const card = page
+      .getByText("Engines", { exact: true })
+      .locator("..")
+      .locator("..");
+    await card.screenshot({
+      path: `/tmp/engine-updates-${viewport.name}-collapsed.png`,
+    });
+    await disclosure.click();
     await expect(
       codex.getByText("/home/user/npm/bin/codex", { exact: true })
     ).toBeVisible();
+    await codex.getByRole("button", { name: "Copy code", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await card.screenshot({
+      path: `/tmp/engine-updates-${viewport.name}-expanded.png`,
+    });
     await codex
       .getByRole("button", { name: "Update Codex", exact: true })
       .click();
+    await expect(
+      codex.getByRole("button", { name: "Updating…", exact: true })
+    ).toBeDisabled();
+    await codex.getByRole("button", { expanded: true }).click();
+    await expect(
+      codex.getByRole("button", { name: "Updating…", exact: true })
+    ).toBeHidden();
+    await codex.getByRole("button", { expanded: false }).click();
     await expect(
       codex.getByRole("button", { name: "Updating…", exact: true })
     ).toBeDisabled();
@@ -102,6 +138,10 @@ for (const viewport of [
     await expect(codex.getByRole("status")).toContainText(
       "Installed selected CLI"
     );
+    await codex.getByRole("button", { expanded: true }).click();
+    await expect(codex.getByRole("status")).toBeHidden();
+    await codex.getByRole("button", { expanded: false }).click();
+    await expect(codex.getByRole("status")).toContainText("Update completed");
     await codex.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: `/tmp/engine-updates-${viewport.name}-success.png`,
@@ -119,6 +159,7 @@ for (const viewport of [
       name: "Claude Code",
       exact: true,
     });
+    await manual.getByRole("button", { expanded: false }).click();
     await expect(
       manual.getByRole("button", { name: "Update Claude Code" })
     ).toHaveCount(0);
@@ -146,10 +187,10 @@ for (const viewport of [
       };
     }, viewport.name);
     await manual
-      .getByRole("button", { name: "Copy command", exact: true })
+      .getByRole("button", { name: "Copy code", exact: true })
       .click();
     await expect(
-      manual.getByRole("button", { name: "Copied", exact: true })
+      manual.getByRole("button", { name: "Code copied", exact: true })
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -158,8 +199,9 @@ for (const viewport of [
     ).toBe("claude update");
     const missing = page.getByRole("region", { name: "OpenCode", exact: true });
     await expect(missing).toContainText("Not installed");
+    await missing.getByRole("button", { expanded: false }).click();
     await expect(
-      missing.getByRole("button", { name: "Copy command" })
+      missing.getByRole("button", { name: "Copy code" })
     ).toBeVisible();
     await missing.scrollIntoViewIfNeeded();
     await page.screenshot({

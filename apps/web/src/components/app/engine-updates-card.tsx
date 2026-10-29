@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCopyText } from "@/hooks/use-copy";
+import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Markdown } from "@/components/ui/markdown";
 import { api } from "@/lib/api";
 import type { EngineStatus } from "@/hooks/use-engines";
 import { Badge } from "@/components/ui/badge";
@@ -13,19 +20,6 @@ import {
 } from "@/components/ui/card";
 
 type UpdateResult = { success: boolean; output: string; engine?: EngineStatus };
-function Command({ command }: { command: string }): JSX.Element {
-  const [copied, copyText] = useCopyText();
-  return (
-    <div className="flex items-start gap-2">
-      <code className="min-w-0 flex-1 select-all break-all rounded bg-muted p-2 text-xs">
-        {command}
-      </code>
-      <Button size="sm" variant="default" onClick={() => copyText(command)}>
-        {copied ? "Copied" : "Copy command"}
-      </Button>
-    </div>
-  );
-}
 function EngineRow({
   engine,
   canManage,
@@ -33,6 +27,7 @@ function EngineRow({
   engine: EngineStatus;
   canManage: boolean;
 }): JSX.Element {
+  const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const update = useMutation({
     mutationFn: () =>
@@ -45,71 +40,84 @@ function EngineRow({
   });
   const metadata = engine.update;
   return (
-    <section className="space-y-2 border-t pt-4" aria-label={engine.label}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-medium">
-          {engine.label}{" "}
-          <span className="text-sm text-muted-foreground">
+    <section className="border-t pt-2" aria-label={engine.label}>
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="flex w-full flex-wrap items-center gap-2 py-2 text-left text-sm hover:text-foreground transition-colors">
+          {open ? (
+            <ChevronDown
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          ) : (
+            <ChevronRight
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          )}
+          <span className="font-medium">{engine.label}</span>
+          <span className="text-muted-foreground">
             {engine.installed
               ? (engine.version ?? "Version unknown")
               : "Not installed"}
           </span>
-        </h3>
-        {engine.installed && canManage && metadata?.canUpdate && (
-          <Button
-            size="sm"
-            disabled={update.isPending}
-            onClick={() => update.mutate()}
-          >
-            {update.isPending ? "Updating…" : `Update ${engine.label}`}
-          </Button>
-        )}
-      </div>
-      {engine.path && (
-        <p className="break-all font-mono text-sm">{engine.path}</p>
-      )}
-      {metadata?.realPath && metadata.realPath !== engine.path && (
-        <p className="break-all text-xs text-muted-foreground">
-          Real path: {metadata.realPath}
-        </p>
-      )}
-      {metadata?.available && (
-        <Badge variant="transitional">
-          Update available: {engine.version} → {metadata.latestVersion}
-        </Badge>
-      )}
-      <p className="text-sm text-muted-foreground">
-        Source: {metadata?.source ?? "unknown"} ·{" "}
-        {metadata?.latestPending
-          ? "Checking latest…"
-          : metadata?.latestVersion
-            ? `Latest: ${metadata.latestVersion}${metadata.available ? " · Update available" : ""}`
-            : "Latest version unknown"}
-      </p>
-      <p className="text-xs text-muted-foreground">
-        {metadata?.reason ?? "Update manually using your installer."}
-      </p>
-      <Command command={metadata?.command ?? engine.install} />
-      {update.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {update.error.message}
-        </p>
-      )}
-      {update.data && (
-        <div role="status" className="space-y-2 text-sm">
-          <p>
-            {update.data.success ? "Update completed" : "Update failed"}
-            {update.data.engine?.version
-              ? ` · Installed: ${update.data.engine.version}`
-              : ""}
-          </p>
-          {update.data.output && (
-            <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
-              {update.data.output}
-            </pre>
+          {metadata?.available && (
+            <Badge variant="transitional">
+              Update available: {engine.version} → {metadata.latestVersion}
+            </Badge>
           )}
-        </div>
-      )}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="min-w-0 space-y-2 pt-2">
+          {engine.installed && canManage && metadata?.canUpdate && (
+            <Button
+              size="sm"
+              disabled={update.isPending}
+              onClick={() => update.mutate()}
+            >
+              {update.isPending ? "Updating…" : `Update ${engine.label}`}
+            </Button>
+          )}
+          {engine.path && (
+            <p className="break-all font-mono text-sm">{engine.path}</p>
+          )}
+          {metadata?.realPath && metadata.realPath !== engine.path && (
+            <p className="break-all text-xs text-muted-foreground">
+              Real path: {metadata.realPath}
+            </p>
+          )}
+          <p className="text-sm text-muted-foreground">
+            Source: {metadata?.source ?? "unknown"} ·{" "}
+            {metadata?.latestPending
+              ? "Checking latest…"
+              : metadata?.latestVersion
+                ? `Latest: ${metadata.latestVersion}${metadata.available ? " · Update available" : ""}`
+                : "Latest version unknown"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {metadata?.reason ?? "Update manually using your installer."}
+          </p>
+          <Markdown>{`\`\`\`sh\n${metadata?.command ?? engine.install}\n\`\`\``}</Markdown>
+          {update.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {update.error.message}
+            </p>
+          )}
+          {update.data && (
+            <div role="status" className="space-y-2 text-sm">
+              <p>
+                {update.data.success ? "Update completed" : "Update failed"}
+                {update.data.engine?.version
+                  ? ` · Installed: ${update.data.engine.version}`
+                  : ""}
+              </p>
+              {update.data.output && (
+                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
+                  {update.data.output}
+                </pre>
+              )}
+            </div>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }
