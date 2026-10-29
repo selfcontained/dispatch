@@ -51,6 +51,9 @@ export const scenarios = [
   "lost-transformed-stream",
   "normal",
   "early-handler",
+  "early-await-reply-loss",
+  "early-await-reply-timeout-loss",
+  "delayed-transformed-stream-loss",
   "early-global-hook",
   "early-route-hook",
   "global-error-handler",
@@ -81,6 +84,9 @@ const expectedMutations: Record<(typeof scenarios)[number], number> = {
   "lost-transformed-stream": 0,
   normal: 1,
   "early-handler": 1,
+  "early-await-reply-loss": 1,
+  "early-await-reply-timeout-loss": 1,
+  "delayed-transformed-stream-loss": 1,
   "early-global-hook": 1,
   "early-route-hook": 1,
   "global-error-handler": 1,
@@ -111,7 +117,9 @@ export async function runScenario(
     mutations = 0;
   const entered = deferred(),
     held = deferred(),
-    sent = deferred();
+    sent = deferred(),
+    sendHeld = deferred();
+  let replyAwaitSettled = false;
   const maintenance = new RecoveryMaintenance({
     version: "fixture",
     instance: {
@@ -171,6 +179,9 @@ export async function runScenario(
   const app = Fastify({
     ...(tls ? { https: tls } : {}),
     ...(scenario === "socket-timeout" ? { connectionTimeout: 35 } : {}),
+    ...(scenario === "early-await-reply-timeout-loss"
+      ? { handlerTimeout: 1000 }
+      : {}),
   }) as unknown as FastifyInstance;
   installRequestLifecycle(app, {
     started: () => {
@@ -200,6 +211,11 @@ export async function runScenario(
   app.addHook("onResponse", async () => {
     events.push("onResponse");
   });
+  if (scenario.startsWith("early-await-reply-"))
+    app.addHook("onSend", async (_req, _reply, payload) => {
+      await sendHeld.promise;
+      return payload;
+    });
   let request: FastifyRequest | undefined;
   let response: http.ServerResponse | undefined;
   app.addHook("onRequest", async (req, reply) => {
@@ -319,6 +335,14 @@ export async function runScenario(
         inner.post(
           "/api/work",
           {
+            ...(scenario === "delayed-transformed-stream-loss"
+              ? {
+                  onSend: async () => {
+                    await sendHeld.promise;
+                    return stream;
+                  },
+                }
+              : {}),
             ...(scenario === "lost-transformed-stream"
               ? { onSend: async () => stream }
               : {}),
@@ -395,6 +419,22 @@ export async function runScenario(
               entered.resolve();
               return "x".repeat(64 * 1024 * 1024);
             }
+            if (scenario.startsWith("early-await-reply-")) {
+              const sending = reply.send({ early: true });
+              entered.resolve();
+              await sending;
+              replyAwaitSettled = true;
+              await held.promise;
+              mutations++;
+              return;
+            }
+            if (scenario === "delayed-transformed-stream-loss") {
+              reply.send("transform");
+              entered.resolve();
+              await held.promise;
+              mutations++;
+              return;
+            }
             if (scenario === "early-handler") reply.send({ early: true });
             entered.resolve();
             await held.promise;
@@ -457,6 +497,9 @@ export async function runScenario(
     } else {
       await entered.promise;
       const lost = [
+        "early-await-reply-loss",
+        "early-await-reply-timeout-loss",
+        "delayed-transformed-stream-loss",
         "lost-success",
         "lost-error",
         "lost-undefined",
@@ -519,17 +562,40 @@ export async function runScenario(
           "must not stop writers while application/stream is active"
         );
       }
+      if (scenario.startsWith("early-await-reply-")) {
+        sendHeld.resolve();
+        await until(() => replyAwaitSettled);
+        assert.equal(mutations, 0);
+        assert.deepEqual(
+          await maintenance.fence({ transactionId: "after-reply-await" }),
+          { ok: false, status: 409, code: "DRAIN_TIMEOUT" }
+        );
+        assert.equal(stops, 0);
+        events.push("mutation-after-reply-await-still-owned");
+      }
+      if (scenario === "delayed-transformed-stream-loss") {
+        sendHeld.resolve();
+        await delay(20);
+        assert.equal((await maintenance.activity()).busy, true);
+        assert.equal(mutations, 0);
+      }
       held.resolve();
       if (
-        ["stream-drain", "lost-stream", "lost-transformed-stream"].includes(
-          scenario
-        )
+        [
+          "stream-drain",
+          "lost-stream",
+          "lost-transformed-stream",
+          "delayed-transformed-stream-loss",
+        ].includes(scenario)
       )
         stream.end("done");
       if (
-        ["lost-stream", "lost-transformed-stream", "lost-hijack"].includes(
-          scenario
-        )
+        [
+          "lost-stream",
+          "lost-transformed-stream",
+          "lost-hijack",
+          "delayed-transformed-stream-loss",
+        ].includes(scenario)
       ) {
         await delay(50);
         assert.equal(
@@ -585,6 +651,7 @@ export async function runScenario(
     });
     throw error;
   } finally {
+    sendHeld.resolve();
     held.resolve();
     stream.destroy();
     client?.destroy();
@@ -745,7 +812,9 @@ if (process.env.DISPATCH_LIFECYCLE_FIXTURE === "1") {
   results.push((await runUpgradeScenario()) as any);
   for (const kind of parserOwnershipCases)
     results.push((await runParserOwnershipScenario(kind)) as any);
-  for (const kind of macAuthCases)
+  for (const kind of macAuthCases) {
+    console.error(`mac-auth:${kind}`);
     results.push((await runMacAuthScenario(kind)) as any);
+  }
   console.log(JSON.stringify({ runtime: process.versions, results }, null, 2));
 }

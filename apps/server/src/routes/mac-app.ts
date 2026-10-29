@@ -42,7 +42,11 @@ async function requireControlToken(
   if (header?.startsWith("Bearer ") && tokensEqual(header.slice(7), token)) {
     return;
   }
-  void reply.code(401).send({ error: "Authentication required." });
+  // Wait for async onSend before Fastify can advance past this auth hook.
+  await reply.code(401).send({ error: "Authentication required." });
+  // EOS may settle before a delayed serializer sends headers. Rejection must
+  // remain terminal; unknown response ownership stays conservatively external.
+  if (!reply.sent) reply.hijack();
 }
 
 export async function registerMacAppRoutes(

@@ -30,6 +30,7 @@ type State = {
   finished: boolean;
   scheduled: boolean;
   reply: FastifyReply;
+  stopPipeline: () => void;
 };
 
 /**
@@ -52,6 +53,10 @@ export function installRequestLifecycle(
 ): void {
   const states = new WeakMap<FastifyRequest, State>();
   const wrapped = new WeakSet<Fn>();
+  const stopLostFinitePipeline = (state: State) => {
+    if (!state.finished && state.lost && state.finite && !state.external)
+      state.stopPipeline();
+  };
   const schedule = (request: FastifyRequest, state: State) => {
     if (state.finished || state.scheduled) return;
     state.scheduled = true;
@@ -80,6 +85,7 @@ export function installRequestLifecycle(
   // This first onRequest runs before admission, without an asynchronous gap.
   app.addHook("onRequest", (request, reply, done) => {
     if (!request.url.startsWith("/api/")) return done();
+    const hijack = reply.hijack;
     const state: State = {
       active: 0,
       ended: false,
@@ -94,6 +100,11 @@ export function installRequestLifecycle(
       finished: false,
       scheduled: false,
       reply,
+      // Native Fastify terminal marker, without transferring application work
+      // to external ownership. Promise/callback counts still govern retirement.
+      stopPipeline: () => {
+        hijack.call(reply);
+      },
     };
     states.set(request, state);
     callbacks.started(request);
@@ -116,15 +127,25 @@ export function installRequestLifecycle(
         this.finished === false &&
         Object.getPrototypeOf(this) === ServerResponse.prototype &&
         end === ServerResponse.prototype.end &&
+        this.destroy === ServerResponse.prototype.destroy &&
+        this.req === request.raw &&
         this.socket !== null &&
         this.socket === request.raw.socket &&
+        "_httpMessage" in this.socket &&
+        this.socket._httpMessage === this &&
+        state.finite &&
         !state.external
-      )
+      ) {
         state.lost = true;
+        stopLostFinitePipeline(state);
+        // Bun's rejected native end emits no close. Its pinned native destroy
+        // publishes close and settles real Reply.then waiters; never synthesize
+        // finish or clear active work. The socket must still own THIS response.
+        ServerResponse.prototype.destroy.call(this);
+      }
       schedule(request, state);
       return result;
     } as typeof end;
-    const hijack = reply.hijack;
     reply.hijack = function () {
       state.external = true;
       return hijack.call(this);
@@ -136,10 +157,14 @@ export function installRequestLifecycle(
     reply.raw.on("close", () => {
       if (reply.raw.writableFinished) state.drained = true;
       else state.lost = true;
+      // Registered before Reply.then/EOS listeners. A lost finite reply must
+      // be terminal before EOS fulfills an auth hook's await and advances it.
+      stopLostFinitePipeline(state);
       schedule(request, state);
     });
     request.raw.on("aborted", () => {
       state.lost = true;
+      stopLostFinitePipeline(state);
       // Only an unsubstituted incomplete body is terminal for parsing.
       if (!request.raw.complete) state.abortedBody = true;
       schedule(request, state);
@@ -168,7 +193,10 @@ export function installRequestLifecycle(
     ) {
       state.external = true;
     }
-    if (state) state.finite = !state.external;
+    if (state) {
+      state.finite = !state.external;
+      stopLostFinitePipeline(state);
+    }
     done(null, payload);
   };
   app.addHook("onSend", observePayload);
