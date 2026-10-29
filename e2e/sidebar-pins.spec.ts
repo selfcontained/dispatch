@@ -20,6 +20,14 @@ async function expand(page: Page, id: string) {
   }
   await expect(pinAction(page, id)).toBeVisible();
 }
+async function expectMobileSidebarOpen(page: Page) {
+  const drawer = page.getByRole("dialog", { name: "Navigation sidebar" });
+  await expect
+    .poll(() =>
+      drawer.evaluate((el) => Math.round(el.getBoundingClientRect().left))
+    )
+    .toBe(0);
+}
 async function visibleOrder(page: Page, ids: string[]) {
   return page
     .getByTestId("agent-sidebar")
@@ -171,14 +179,14 @@ test.describe("narrow touch sidebar pins", () => {
       expect(assigned.ok()).toBeTruthy();
       await loadApp(page);
       const drawer = page.getByRole("dialog", { name: "Navigation sidebar" });
-      await expect(drawer).toBeVisible();
+      await expectMobileSidebarOpen(page);
       await expand(page, other.id);
       await pinAction(page, other.id).tap();
       await expect(pinAction(page, other.id)).toHaveAttribute(
         "aria-pressed",
         "true"
       );
-      await expect(drawer.getByTitle("Close sidebar")).toBeVisible();
+      await expectMobileSidebarOpen(page);
       await drawer.getByRole("button", { name: "Filter by project" }).tap();
       await page.getByRole("menuitem", { name: "Sidebar pin project" }).tap();
       await expect(card(page, other.id)).toHaveCount(0);
@@ -188,7 +196,7 @@ test.describe("narrow touch sidebar pins", () => {
         "aria-pressed",
         "true"
       );
-      await expect(drawer.getByTitle("Close sidebar")).toBeVisible();
+      await expectMobileSidebarOpen(page);
       expect(
         await page.evaluate(() =>
           JSON.parse(localStorage.getItem("dispatch:agentSidebarPins")!)
@@ -198,7 +206,7 @@ test.describe("narrow touch sidebar pins", () => {
       await page.getByRole("menuitem", { name: "All projects" }).tap();
       await expect(page.getByTestId(`agent-pinned-${other.id}`)).toBeVisible();
       await expect(page.getByTestId(`agent-pinned-${scoped.id}`)).toBeVisible();
-      await expect(drawer.getByTitle("Close sidebar")).toBeVisible();
+      await expectMobileSidebarOpen(page);
       await testInfo.attach("narrow-touch-project-pins", {
         body: await page.screenshot(),
         contentType: "image/png",
