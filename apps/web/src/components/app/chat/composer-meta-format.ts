@@ -134,16 +134,23 @@ export function hasExpiringResets(
   );
 }
 
-const EXPIRY_DATE = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-});
+/** Browser-local date and time, with minute precision and timezone context. */
+export function formatResetExpiryDate(
+  expiresAt: string | null | undefined
+): string | null {
+  const at = expiresAt ? Date.parse(expiresAt) : NaN;
+  if (!Number.isFinite(at)) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(at);
+}
 
-/**
- * When the held resets lapse: "Oct 22 · Oct 29 · Nov 6" when each is
- * known (the row's title says what the dates are), "oldest expires in 6d
- * 21h" when only the first is; null when none is held or dated.
- */
+/** Each known expiry, chronologically, or the oldest known absolute expiry. */
 export function formatResetExpiry(
   resets:
     | {
@@ -151,18 +158,17 @@ export function formatResetExpiry(
         oldestExpiresAt?: string | null;
         items?: Array<{ expiresAt: string | null }>;
       }
-    | undefined,
-  now = Date.now()
+    | undefined
 ): string | null {
   if (!resets || resets.available === 0) return null;
   const dates = (resets.items ?? [])
-    .map((item) => (item.expiresAt ? Date.parse(item.expiresAt) : NaN))
-    .filter((at) => Number.isFinite(at))
-    .sort((a, b) => a - b);
-  if (dates.length > 0) {
-    return dates.map((at) => EXPIRY_DATE.format(at)).join(" · ");
-  }
-  const expires = resetsIn(resets.oldestExpiresAt ?? null, now);
+    .filter(
+      (item) => item.expiresAt && Number.isFinite(Date.parse(item.expiresAt))
+    )
+    .sort((a, b) => Date.parse(a.expiresAt!) - Date.parse(b.expiresAt!))
+    .map((item) => formatResetExpiryDate(item.expiresAt));
+  if (dates.length > 0) return dates.join(" · ");
+  const expires = formatResetExpiryDate(resets.oldestExpiresAt);
   return expires ? `oldest expires ${expires}` : null;
 }
 

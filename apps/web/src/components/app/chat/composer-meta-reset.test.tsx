@@ -16,6 +16,7 @@ vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 const { api } = await import("@/lib/api");
 const apiMock = vi.mocked(api);
 const { ComposerMeta, UseResetButton } = await import("./composer-meta");
+const { formatResetExpiryDate } = await import("./composer-meta-format");
 
 // Radix's dialog reaches for pointer APIs jsdom lacks.
 Element.prototype.hasPointerCapture ??= () => false;
@@ -45,13 +46,16 @@ const plan: ProviderPlan = {
   },
 };
 
-function renderButton() {
+function renderButton(providerPlan = plan) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <UseResetButton plan={plan} now={Date.parse("2026-10-16T00:00:00Z")} />
+      <UseResetButton
+        plan={providerPlan}
+        now={Date.parse("2026-10-16T00:00:00Z")}
+      />
     </QueryClientProvider>
   );
 }
@@ -62,6 +66,83 @@ afterEach(() => {
 });
 
 describe("UseResetButton", () => {
+  it("shows each known expiration with the same timestamp as the summary, and cancels without consuming", () => {
+    const dated = "2026-10-22T21:00:57Z";
+    renderButton({
+      ...plan,
+      limitResets: {
+        ...plan.limitResets!,
+        items: [
+          { id: "a", title: "First reset", grantedAt: null, expiresAt: dated },
+          {
+            id: "b",
+            title: "Second reset",
+            grantedAt: null,
+            expiresAt: "2026-10-29T19:12:54Z",
+          },
+          {
+            id: "c",
+            title: "Unknown reset",
+            grantedAt: null,
+            expiresAt: "invalid",
+          },
+          { id: "d", title: "Undated reset", grantedAt: null, expiresAt: null },
+        ],
+      },
+    });
+    const timestamp = formatResetExpiryDate(dated)!;
+    expect(
+      screen.getByTestId("usage-codex-reset-expiry").textContent
+    ).toContain(timestamp);
+    fireEvent.click(screen.getByTestId("usage-codex-reset"));
+    const entries = screen
+      .getByTestId("usage-codex-reset-list")
+      .querySelectorAll("li");
+    expect(entries[0].textContent).toBe(
+      `First reset · nextexpires ${timestamp}`
+    );
+    expect(entries[0].className).toContain("text-primary");
+    expect(entries[1].textContent).toContain(
+      `expires ${formatResetExpiryDate("2026-10-29T19:12:54Z")}`
+    );
+    expect(entries[1].textContent).not.toContain("next");
+    expect(entries[1].className).toContain("text-muted-foreground");
+    expect(entries[2].textContent).toContain("expiry unknown");
+    expect(entries[3].textContent).toContain("no expiry");
+    expect(screen.getByRole("dialog").textContent).not.toContain(
+      "Invalid Date"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(apiMock).not.toHaveBeenCalled();
+  });
+
+  it("shows an oldest-only absolute expiry and disables the action with zero resets", () => {
+    const { unmount } = renderButton({
+      ...plan,
+      limitResets: {
+        available: 1,
+        applicable: 0,
+        oldestExpiresAt: "2026-10-22T21:00:57Z",
+      },
+    });
+    expect(screen.getByTestId("usage-codex-reset-expiry").textContent).toBe(
+      `oldest expires ${formatResetExpiryDate("2026-10-22T21:00:57Z")}`
+    );
+    unmount();
+    renderButton({
+      ...plan,
+      limitResets: { ...plan.limitResets!, available: 0 },
+    });
+    expect(screen.getByTestId("usage-codex-reset-expiry").textContent).toBe("");
+    expect(
+      (screen.getByTestId("usage-codex-reset") as HTMLButtonElement).disabled
+    ).toBe(true);
+    fireEvent.click(screen.getByTestId("usage-codex-reset"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(apiMock).not.toHaveBeenCalled();
+  });
+
   it("asks for confirmation again after a result is closed with the button", async () => {
     apiMock.mockResolvedValueOnce({ code: "ok", windowsReset: 1 });
     renderButton();

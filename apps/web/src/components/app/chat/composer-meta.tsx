@@ -62,6 +62,7 @@ import {
   formatExtraUsage,
   formatLimitResets,
   formatResetExpiry,
+  formatResetExpiryDate,
   hasExpiringResets,
   resetExpiresSoon,
   pickableOptions,
@@ -865,7 +866,7 @@ export function UseResetButton({
   const consume = useConsumeCodexReset();
   const resets: PlanLimitResets | undefined = plan.limitResets;
   const available = resets?.available ?? 0;
-  const expiry = formatResetExpiry(resets, now);
+  const expiry = formatResetExpiry(resets);
   const expiring = plan.engine === "codex" && hasExpiringResets(resets, now);
   // Every way out (button, Escape, overlay) forgets the last answer, so the
   // next open asks for confirmation again rather than showing an old result.
@@ -885,11 +886,11 @@ export function UseResetButton({
       open={open}
       onOpenChange={(next) => (next ? setOpen(true) : close())}
     >
-      {/* When the resets lapse at the left, the action at the right. */}
-      <div className="flex items-center justify-between gap-2">
+      {/* Longer local timestamps wrap above the action on narrow cards. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span
           className={cn(
-            "truncate text-[11px]",
+            "min-w-0 text-[11px]",
             expiring ? "text-primary" : "text-muted-foreground/80"
           )}
           data-testid="usage-codex-reset-expiry"
@@ -937,29 +938,34 @@ export function UseResetButton({
               Your resets · the oldest is used first
             </div>
             <ul className="space-y-0.5" data-testid="usage-codex-reset-list">
-              {resets.items.map((item, index) => (
-                <li
-                  key={item.id}
-                  className={cn(
-                    "flex justify-between gap-2",
-                    plan.engine === "codex" &&
-                      available > 0 &&
-                      resetExpiresSoon(item.expiresAt, now)
-                      ? "text-primary"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  <span className="truncate">
-                    {item.title}
-                    {index === 0 ? " · next" : ""}
-                  </span>
-                  <span className="shrink-0 tabular-nums">
-                    {item.expiresAt
-                      ? `expires ${new Date(item.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                      : "no expiry"}
-                  </span>
-                </li>
-              ))}
+              {resets.items.map((item, index) => {
+                const expires = formatResetExpiryDate(item.expiresAt);
+                return (
+                  <li
+                    key={item.id}
+                    className={cn(
+                      "flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5",
+                      plan.engine === "codex" &&
+                        available > 0 &&
+                        resetExpiresSoon(item.expiresAt, now)
+                        ? "text-primary"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    <span className="min-w-0 break-words">
+                      {item.title}
+                      {index === 0 ? " · next" : ""}
+                    </span>
+                    <span className="tabular-nums">
+                      {expires
+                        ? `expires ${expires}`
+                        : item.expiresAt == null
+                          ? "no expiry"
+                          : "expiry unknown"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
