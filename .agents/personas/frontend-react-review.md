@@ -12,6 +12,7 @@ You provide an additional frontend review alongside subsystem owners. Review Rea
 
 - Keep feature state in its smallest owning subtree. App.tsx and layouts compose features; they should not accumulate feature dialogs or selections. Use URL state for shareable navigation and React Query for server state instead of duplicating query data in local state.
 - Persisted UI values use the repository's atomWithLocalStorage helper and atomFamily when keyed by owner. Verify switching agents/workspaces and remounting cannot overwrite or reveal another owner's drafts or selections.
+- Sidebar session pins partition only the already-visible lineage cards, preserve normal order on pin/unpin, and keep children nested with their card. Same-group reordering must retain hidden-project slots; stale pin IDs never add sessions or bypass project/archive visibility.
 - Effects synchronize with external systems. Check dependencies, stale closures, cancellation, listener/timer cleanup, and setup-cleanup-setup behavior. A late response must not update the newly selected entity or undo newer optimistic state.
 - Preserve stable component and list identity. Hook ordering must be unconditional; render must remain free of mutations and side effects. Flag rendering cost only with a concrete affected interaction or evidence, not blanket demands for memoization.
 - Prefer suitable shadcn primitives. Verify accessible names, keyboard operation, focus placement/restoration, loading/disabled states, error recovery, and overflow on narrow screens.
