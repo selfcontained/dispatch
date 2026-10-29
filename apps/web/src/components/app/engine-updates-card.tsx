@@ -97,6 +97,7 @@ function EngineRow({
   const metadata = engine.update;
   const operation = metadata?.operation;
   const running = update.isPending || operation?.status === "running";
+  const managed = engine.installed && canManage && metadata?.canUpdate;
   return (
     <section className="border-t pt-2" aria-label={engine.label}>
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -136,16 +137,37 @@ function EngineRow({
           </span>
         </CollapsibleTrigger>
         <CollapsibleContent className="min-w-0 space-y-2 pt-2">
-          {engine.installed && canManage && metadata?.canUpdate && (
-            <Button
-              size="sm"
-              disabled={running || operation?.retryBlocked}
-              onClick={() => update.mutate()}
-            >
-              {running ? "Updating…" : `Update ${engine.label}`}
-            </Button>
+          {managed && (
+            <div className="flex h-9 items-center" aria-live="polite">
+              {running || (metadata?.available && !operation?.retryBlocked) ? (
+                <Button
+                  size="sm"
+                  disabled={running || operation?.retryBlocked}
+                  onClick={() => update.mutate()}
+                >
+                  {running
+                    ? "Updating…"
+                    : `Update ${engine.label} to ${metadata?.latestVersion}`}
+                </Button>
+              ) : operation?.retryBlocked ? (
+                <p className="text-sm text-muted-foreground">
+                  Update interrupted
+                </p>
+              ) : metadata?.latestPending ? (
+                <Skeleton
+                  className="h-9 w-60"
+                  aria-label="Checking for updates"
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {engine.version && metadata?.latestVersion
+                    ? "Up to date"
+                    : "Update availability unknown"}
+                </p>
+              )}
+            </div>
           )}
-          {engine.installed && (
+          {engine.installed && !managed && (
             <div
               className="min-h-5 text-sm text-muted-foreground"
               aria-live="polite"

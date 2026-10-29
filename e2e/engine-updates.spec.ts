@@ -10,6 +10,7 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     let version = "1.0.0";
+    let latestVersion = "2.0.0";
     let operation: Record<string, unknown> | null = null;
     let updateRequests = 0;
     const engines = () => [
@@ -28,9 +29,9 @@ for (const viewport of [
           reason: "Verified user-owned installation.",
           command:
             "npm install --global --prefix /home/user/npm @openai/codex@latest",
-          latestVersion: "2.0.0",
+          latestVersion,
           latestPending: false,
-          available: version === "1.0.0",
+          available: version !== latestVersion,
           operation,
         },
       },
@@ -153,9 +154,7 @@ for (const viewport of [
     await card.screenshot({
       path: `/tmp/engine-updates-${viewport.name}-expanded.png`,
     });
-    await codex
-      .getByRole("button", { name: "Update Codex", exact: true })
-      .click();
+    await codex.getByRole("button", { name: /^Update Codex to / }).click();
     await expect(
       codex.getByRole("button", { name: "Updating…", exact: true })
     ).toBeDisabled();
@@ -196,10 +195,15 @@ for (const viewport of [
       path: `/tmp/engine-updates-${viewport.name}-success.png`,
       fullPage: true,
     });
+    await expect(codex.getByText("Up to date", { exact: true })).toBeVisible();
+    await expect(
+      codex.getByRole("button", { name: /^Update Codex to / })
+    ).toHaveCount(0);
+    latestVersion = "3.0.0";
     fail = true;
-    await codex
-      .getByRole("button", { name: "Update Codex", exact: true })
-      .click();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await disclosure.click();
+    await codex.getByRole("button", { name: /^Update Codex to / }).click();
     await expect(codex.getByRole("status")).toContainText("Update failed");
     await expect(codex.getByRole("status")).toContainText(
       "Permission denied by package manager"
@@ -273,8 +277,8 @@ for (const viewport of [
       "Update interrupted; outcome unknown."
     );
     await expect(
-      codex.getByRole("button", { name: "Update Codex", exact: true })
-    ).toBeDisabled();
+      codex.getByRole("button", { name: /^Update Codex to / })
+    ).toHaveCount(0);
     expect(updateRequests).toBe(2);
     await codex.screenshot({
       path: `/tmp/engine-interrupted-${viewport.name}.png`,
@@ -347,7 +351,7 @@ for (const viewport of [
     );
     pending = false;
     await expect(
-      codex.getByText("Latest version: 2.0.0", { exact: true })
+      codex.getByRole("button", { name: "Update Codex to 2.0.0", exact: true })
     ).toBeVisible();
     await expect(codex.getByLabel("Checking for updates")).toHaveCount(0);
     const after = await next.evaluate(
