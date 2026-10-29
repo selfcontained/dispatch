@@ -236,6 +236,7 @@
         "apps/server/test/request-lifecycle.test.ts",
         "apps/server/test/fixtures/request-lifecycle-fixture.ts",
         "apps/server/test/fixtures/request-parser-ownership.ts",
+        "apps/server/test/fixtures/mac-app-request-lifecycle.ts",
         "apps/server/src/update-owner.ts",
         "apps/server/src/mac-app-update-bridge.ts",
         "apps/server/src/server/update-recovery-runtime.ts",
