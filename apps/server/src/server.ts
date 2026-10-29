@@ -1,3 +1,5 @@
+import { createCodexResetCoordinator } from "./agents/codex-reset.js";
+import { consumeCodexLimitReset } from "./agents/provider-plans.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -800,8 +802,13 @@ async function registerRoutes() {
   });
 
   const providerPlans = createProviderPlansReporter({ log: app.log });
+  const redeemCodexReset = createCodexResetCoordinator({
+    providerPlans,
+    consume: (requestId) => consumeCodexLimitReset({ log: app.log, requestId }),
+  });
   await registerMcpRoutes(app, {
     providerPlans,
+    redeemCodexReset,
     config,
     pool,
     loginLinkStore,
@@ -959,6 +966,7 @@ async function registerRoutes() {
 
   await registerAgentRoutes(app, {
     providerPlans,
+    redeemCodexReset,
     tasks: {
       briefingFor: (taskId) => taskService.briefingFor(taskId),
       assignCreated: (taskId, agentId) =>

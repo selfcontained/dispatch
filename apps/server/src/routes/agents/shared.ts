@@ -1,3 +1,4 @@
+import type { RedeemCodexReset } from "../../agents/codex-reset.js";
 import type { ProviderPlansResponse } from "@dispatch/shared";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
@@ -53,6 +54,7 @@ export type AgentRouteDeps = {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>) & { invalidate?: () => void };
   /** Spends a Codex limit reset; tests inject one so nothing reaches ChatGPT. */
+  redeemCodexReset?: RedeemCodexReset;
   consumeCodexReset?: () => Promise<CodexResetOutcome>;
   /**
    * An agent created with `taskId` is briefed on the task and becomes its

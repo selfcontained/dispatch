@@ -34,6 +34,7 @@ vi.mock("../src/agents/telemetry.js", () => ({
 function createMockDeps() {
   return {
     config: { authToken: "test-auth-token" },
+    redeemCodexReset: vi.fn(),
     providerPlans: vi.fn(async () => ({
       checkedAt: "2026-09-24T12:00:00Z",
       providers: [],
@@ -358,4 +359,53 @@ describe("job access ceiling wiring", () => {
       fullAccess
     );
   });
+});
+
+describe("Codex reset dependency forwarding", () => {
+  it.each([false, true])(
+    "forwards reset only with scoped bearer (job=%s)",
+    async (job) => {
+      const url = job
+        ? "/api/mcp/jobs/run_test/agt_test1"
+        : "/api/mcp/agt_test1";
+      await app.inject({
+        method: "POST",
+        url,
+        payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      });
+      expect(
+        vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3]?.redeemCodexReset
+      ).toBe(deps.redeemCodexReset);
+      vi.mocked(handleMcpRequest).mockClear();
+      deps.getBearerToken.mockReturnValue(null as never);
+      await app.inject({
+        method: "POST",
+        url,
+        headers: { cookie: "session=browser-only" },
+        payload: { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      });
+      expect(
+        vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3]?.redeemCodexReset
+      ).toBeUndefined();
+    }
+  );
+
+  it.each([false, true])(
+    "refuses invalid bearer before forwarding (job=%s)",
+    async (job) => {
+      deps.validateAgentMcpToken.mockReturnValue(false);
+      deps.validateJobMcpToken.mockReturnValue(false);
+      const url = job
+        ? "/api/mcp/jobs/run_test/agt_test1"
+        : "/api/mcp/agt_test1";
+      const response = await app.inject({
+        method: "POST",
+        url,
+        payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      });
+      expect(response.statusCode).toBe(403);
+      expect(handleMcpRequest).not.toHaveBeenCalled();
+      expect(deps.redeemCodexReset).not.toHaveBeenCalled();
+    }
+  );
 });

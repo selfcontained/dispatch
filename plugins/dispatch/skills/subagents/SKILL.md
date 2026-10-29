@@ -50,6 +50,15 @@ fine, or nothing reports usage, the default is as good as any. If every reported
 type is low, say so to the user before launching rather than queueing work that
 cannot run.
 
+`redeem_codex_reset` irreversibly consumes a limited, account-shared Codex reset
+credit. Before invoking it, call `get_usage`, present current usage and available
+resets to the user, and obtain explicit authorization for this redemption. If the
+user already clearly authorized this action (for example, "use a reset now"),
+proceed without asking again. Generic permission to keep working does not
+authorize redemption. This is agent guidance, not a server-enforced approval
+gate. Reuse the same UUID idempotency key for retries and never automatically
+retry an uncertain redemption with a new key.
+
 By default the new agent is your child: it renders inside your card in the
 sidebar, and archiving it is yours to do. `child: false` launches an independent
 agent instead — same inherited directory, type, and access level, still yours to

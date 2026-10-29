@@ -30,6 +30,8 @@
         "apps/web/src/components/app/agent-pane*",
         "apps/web/src/components/app/agent-*",
         "apps/server/test/*agent*",
+        "apps/server/test/codex-reset.test.ts",
+        "apps/server/test/provider-plans.test.ts",
         "apps/server/test/lifecycle-routes.test.ts",
         "apps/server/test/*worktree*",
         "apps/server/test/tasks-service.test.ts",

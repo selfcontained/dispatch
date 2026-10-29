@@ -678,10 +678,10 @@ const CODEX_RESET_FAILURE_TEXT: Record<RefreshFailureReason, string> = {
  * Spend one of the account's Codex limit resets. ChatGPT picks the oldest
  * available credit itself and keeps it when there is nothing to reset. The
  * redeem id makes a repeated call for the same click a no-op, never a
- * second spend. Only ever called from an explicit, confirmed user action.
+ * second spend. Called only for an explicit UI or authenticated agent action.
  */
 export async function consumeCodexLimitReset(
-  options: ProviderPlanOptions = {}
+  options: ProviderPlanOptions & { requestId?: string } = {}
 ): Promise<CodexResetOutcome> {
   const now = options.now ?? new Date();
   const env = options.env ?? process.env;
@@ -703,7 +703,9 @@ export async function consumeCodexLimitReset(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ redeem_request_id: randomUUID() }),
+        body: JSON.stringify({
+          redeem_request_id: options.requestId ?? randomUUID(),
+        }),
       }
     );
     const root = object(await response.json());
