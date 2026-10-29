@@ -262,6 +262,7 @@
         "apps/web/src/**",
         "apps/web/eslint.config.js",
         "apps/web/package.json",
+        "e2e/settings.spec.ts",
         "e2e/changes-virtualization.spec.ts",
         "e2e/tasks-board.spec.ts"
       ],

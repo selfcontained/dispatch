@@ -34,11 +34,26 @@ export function choiceName(
     : choice.name;
 }
 
-/** "42%" of the context window, or null before the engine reported any. */
-export function contextPercent(usage: AgentUsageResponse | undefined) {
+/** Convert provider usage once; the rounded result drives both label and fill. */
+export function remainingPercent(usedPercent: unknown): number | null {
+  if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent))
+    return null;
+  return Math.round(100 - Math.min(100, Math.max(0, usedPercent)));
+}
+
+/** Remaining context capacity, or unknown until a valid window is reported. */
+export function contextRemainingPercent(
+  usage: AgentUsageResponse | undefined
+): number | null {
   const context = usage?.context;
-  if (!context) return null;
-  return Math.min(100, Math.round((context.used / context.size) * 100));
+  if (
+    !context ||
+    !Number.isFinite(context.used) ||
+    !Number.isFinite(context.size) ||
+    context.size <= 0
+  )
+    return null;
+  return remainingPercent((context.used / context.size) * 100);
 }
 
 export function formatCost(amount: number, currency: string): string {

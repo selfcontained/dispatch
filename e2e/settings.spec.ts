@@ -260,7 +260,7 @@ test.describe("Settings pane", () => {
       "Retained artifacts on disk"
     );
     const hostMemory = dashboard.getByTestId("host-memory-history");
-    await expect(hostMemory).toContainText("% free");
+    await expect(hostMemory).toContainText("% left");
     await expect(hostMemory.getByText("Free RAM", { exact: true })).toBeVisible(
       { timeout: 25_000 }
     );
