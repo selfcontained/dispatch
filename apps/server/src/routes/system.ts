@@ -2,7 +2,11 @@ import os from "node:os";
 import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
 
-import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type {
+  FastifyBaseLogger,
+  FastifyInstance,
+  FastifyRequest,
+} from "fastify";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
@@ -37,10 +41,18 @@ import {
   setUserAvatar,
 } from "../user-avatar-settings.js";
 
+import {
+  EngineUpdateOperations,
+  engineOperationStore,
+  withEngineUpdates,
+} from "../agents/engine-updates.js";
+import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
+
 const INSTANCE_NAME_KEY = "instance_name";
 
 type SystemRouteDeps = {
   pool: Pool;
+  canManageEngineUpdates?: (request: FastifyRequest) => Promise<boolean>;
   appLog: FastifyBaseLogger;
   slackNotifier: SlackNotifier;
   iconColorKey: string;
@@ -114,10 +126,52 @@ export async function registerSystemRoutes(
     };
   });
 
-  app.get("/api/v1/system/engines", async () => {
+  const engineUpdates = new EngineUpdateOperations(
+    engineOperationStore(deps.pool),
+    {
+      onError: (error) =>
+        deps.appLog.error({ err: error }, "Engine update persistence failed"),
+    }
+  );
+  app.get("/api/v1/system/engines", async (request) => {
+    const operations = await engineUpdates.read();
     return {
-      engines: await withEngineVersions(await engineStatuses(deps.engineBins)),
+      canManage: (await deps.canManageEngineUpdates?.(request)) ?? false,
+      engines: await withEngineUpdates(
+        await withEngineVersions(await engineStatuses(deps.engineBins))
+      ).then((engines) =>
+        engines.map((engine) => ({
+          ...engine,
+          update: {
+            ...engine.update,
+            operation: operations[engine.id] ?? null,
+          },
+        }))
+      ),
     };
+  });
+
+  app.post("/api/v1/system/engines/:engine/update", async (request, reply) => {
+    const { engine } = request.params as { engine: string };
+    if (
+      !(ACP_ENGINE_IDS as readonly string[]).includes(engine) ||
+      request.body != null
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "Provide only a supported engine ID in the URL." });
+    }
+    try {
+      const operation = await engineUpdates.start(
+        engine as AcpEngineId,
+        deps.engineBins
+      );
+      return reply.code(202).send({ operation });
+    } catch (error) {
+      return reply.code(409).send({
+        error: error instanceof Error ? error.message : "Update unavailable.",
+      });
+    }
   });
 
   app.get("/api/v1/agent-models", async () => {

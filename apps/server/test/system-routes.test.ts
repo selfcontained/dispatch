@@ -786,3 +786,46 @@ describe("user avatar settings", () => {
     ).toBe(200);
   });
 });
+
+describe("POST /api/v1/system/engines/:engine/update authorization", () => {
+  it("rejects anonymous and non-owner bearer credentials before touching host CLIs", async () => {
+    const secret = await ctx.auth.getOrCreateAuthToken(ctx.pool);
+    for (const authorization of [
+      undefined,
+      `Bearer ${ctx.auth.createAgentMcpToken(secret, "agt_engine_update_test")}`,
+      `Bearer ${ctx.auth.createJobMcpToken(secret, "run_engine_update_test", "agt_engine_update_job")}`,
+      "Bearer wrong-owner-token",
+    ]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/system/engines/codex/update",
+        headers: authorization ? { authorization } : {},
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error).toBe("Authentication required.");
+    }
+  });
+  it("allows an owner session to reach strict ID/body validation", async () => {
+    const invalid = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/system/engines/not-an-engine/update",
+      headers: { cookie: sessionCookie },
+    });
+    expect(invalid.statusCode).toBe(400);
+    const owner = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/system/engines/not-an-engine/update",
+      headers: {
+        authorization: `Bearer ${await ctx.auth.getOrCreateAuthToken(ctx.pool)}`,
+      },
+    });
+    expect(owner.statusCode).toBe(400);
+    const body = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/system/engines/codex/update",
+      headers: { cookie: sessionCookie },
+      payload: { executable: "/tmp/evil", args: ["upgrade"] },
+    });
+    expect(body.statusCode).toBe(400);
+  });
+});

@@ -2,6 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
+export type EngineUpdateOperation = {
+  id: string;
+  engineId: string;
+  status: "running" | "succeeded" | "failed" | "interrupted";
+  phase: "starting" | "refreshing" | "updating" | "complete";
+  message: string;
+  output: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  retryBlocked: boolean;
+};
+
 /**
  * An engine Dispatch can drive and whether this machine has its CLI. The
  * ACP adapters ship inside the Dispatch binary, so the CLI is the only
@@ -16,6 +29,17 @@ export type EngineStatus = {
   /** The CLI's own `--version`, reduced to the number; null when unknown. */
   version?: string | null;
   install: string;
+  update?: {
+    realPath: string | null;
+    source: string;
+    canUpdate: boolean;
+    reason: string;
+    command: string;
+    latestVersion: string | null;
+    latestPending: boolean;
+    available: boolean;
+    operation?: EngineUpdateOperation | null;
+  };
 };
 
 export function useEngines(): {

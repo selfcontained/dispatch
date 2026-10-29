@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,9 +8,13 @@ import type {
   UseReleaseStreamResult,
 } from "@/hooks/use-release-stream";
 
-// UpdatesSection is a pure view over useReleaseUpdates, so stubbing the hook
+// Stub release behavior and engine metadata so the real Settings cards can
+// render together without external requests. Stubbing the release hook
 // is what lets the real subcomponents (#949 split them out of this file) be
 // exercised together.
+vi.mock("@/lib/api", () => ({
+  api: vi.fn(async () => ({ engines: [], canManage: false })),
+}));
 vi.mock("@/hooks/use-release-updates", () => ({ useReleaseUpdates: vi.fn() }));
 vi.mock("@/hooks/use-mac-app-update", () => ({
   useMacAppUpdate: () => ({ data: { connected: false, state: null } }),
@@ -104,7 +109,15 @@ function stubHook(overrides: Partial<ReleaseUpdates> = {}): void {
 }
 
 function renderSection(): void {
-  render(<UpdatesSection stream={{} as UseReleaseStreamResult} />);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  client.setQueryData(["system-engines"], { engines: [], canManage: false });
+  render(
+    <QueryClientProvider client={client}>
+      <UpdatesSection stream={{} as UseReleaseStreamResult} />
+    </QueryClientProvider>
+  );
 }
 
 it("keeps web installation controls out of app-managed installations", () => {

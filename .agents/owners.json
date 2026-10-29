@@ -3,6 +3,14 @@
   "rules": [
     {
       "paths": [
+        "apps/server/src/routes/system.ts",
+        "apps/server/test/system-routes.test.ts",
+        "e2e/engine-updates.spec.ts"
+      ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": [
         "apps/server/src/tasks/**",
         "apps/server/src/routes/tasks.ts",
         "apps/server/test/tasks-service.test.ts",
