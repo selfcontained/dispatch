@@ -226,7 +226,7 @@ export function ServiceResourcesDashboard({
       >
         <ResourceChart
           title="System memory history"
-          description={`${formatBytes(current.host.freeMemoryBytes)} free of ${formatBytes(current.host.totalMemoryBytes)} total${current.host.totalMemoryBytes > 0 ? ` (${((current.host.freeMemoryBytes / current.host.totalMemoryBytes) * 100).toFixed(1)}% free)` : ""}. Includes all apps, browsers, and dev servers on this host. OS-reported free RAM is not a memory-pressure or swap metric.`}
+          description={`${formatBytes(current.host.freeMemoryBytes)} free of ${formatBytes(current.host.totalMemoryBytes)} total${current.host.totalMemoryBytes > 0 ? ` (${((current.host.freeMemoryBytes / current.host.totalMemoryBytes) * 100).toFixed(1)}% left)` : ""}. Includes all apps, browsers, and dev servers on this host. OS-reported free RAM is not a memory-pressure or swap metric.`}
           data={chartData}
           config={hostMemoryChartConfig}
           keys={["hostTotalGiB", "hostFreeGiB"]}
