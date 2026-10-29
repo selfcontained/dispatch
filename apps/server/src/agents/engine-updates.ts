@@ -2,6 +2,8 @@ import { access, constants, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import type { Pool } from "pg";
 import {
   compareVersions,
   clearEngineVersionCache,
@@ -449,44 +451,99 @@ export async function withEngineUpdates(statuses: EngineStatus[]) {
 }
 
 /** Dedicated bounded runner: output capture is capped while the process runs. */
-export const runUpdate: CommandRunner = (command, args, options) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      env: { ...process.env, ...options?.env },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
-    let stdout = "",
-      stderr = "";
-    const cap = (old: string, chunk: Buffer) =>
-      (old + String(chunk)).slice(-32_000);
-    child.stdout.on("data", (chunk) => {
-      stdout = cap(stdout, chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr = cap(stderr, chunk);
-    });
-    const timeoutMs = options?.timeoutMs ?? 120_000;
-    const timer = setTimeout(() => {
-      try {
-        if (process.platform !== "win32" && child.pid)
-          process.kill(-child.pid, "SIGKILL");
-        else child.kill("SIGKILL");
-      } catch {}
-      stderr = cap(
-        stderr,
-        Buffer.from(`\nCommand timed out after ${timeoutMs / 1000} seconds.`)
+export type UpdateObserver = {
+  output?: (chunk: string) => void;
+  spawned?: (pid: number) => Promise<void>;
+};
+export const observedUpdateRunner =
+  (observer: UpdateObserver = {}): CommandRunner =>
+  (command, args, options) =>
+    new Promise((resolve, reject) => {
+      // A closed stdin before the durable PID write must never run the updater.
+      // Positional arguments preserve the verified executable and arguments;
+      // none of them are evaluated as shell source.
+      if (process.platform === "win32") {
+        reject(
+          new Error(
+            "Automatic updates require a POSIX process gate. Update manually on Windows."
+          )
+        );
+        return;
+      }
+      const child = spawn(
+        "/bin/sh",
+        [
+          "-c",
+          'IFS= read -r dispatch_start || exit 1; [ "$dispatch_start" = start ] || exit 1; exec "$@" </dev/null',
+          "dispatch-engine-update",
+          command,
+          ...args,
+        ],
+        {
+          env: { ...process.env, ...options?.env },
+          stdio: ["pipe", "pipe", "pipe"],
+          detached: true,
+        }
       );
-    }, timeoutMs);
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+      let stdout = "",
+        stderr = "";
+      let timedOut = false;
+      const cap = (old: string, chunk: Buffer) =>
+        (old + String(chunk)).slice(-32_000);
+      child.stdout.on("data", (chunk) => {
+        stdout = cap(stdout, chunk);
+        observer.output?.(String(chunk));
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr = cap(stderr, chunk);
+        observer.output?.(String(chunk));
+      });
+      const recorded =
+        child.pid && observer.spawned
+          ? observer.spawned(child.pid)
+          : Promise.resolve();
+      // Release only after the PID snapshot commits. If this server dies before
+      // then, the gate receives EOF and exits without executing any command.
+      child.stdin.on("error", () => {});
+      void recorded.then(
+        () => child.stdin.end("start\n"),
+        () => child.stdin.destroy()
+      );
+      // A persistence failure must never allow an untracked command to continue.
+      void recorded.catch(() => {
+        try {
+          if (process.platform !== "win32" && child.pid)
+            process.kill(-child.pid, "SIGKILL");
+          else child.kill("SIGKILL");
+        } catch {}
+      });
+      const timeoutMs = options?.timeoutMs ?? 120_000;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try {
+          if (process.platform !== "win32" && child.pid)
+            process.kill(-child.pid, "SIGKILL");
+          else child.kill("SIGKILL");
+        } catch {}
+        stderr = cap(
+          stderr,
+          Buffer.from(`\nCommand timed out after ${timeoutMs / 1000} seconds.`)
+        );
+      }, timeoutMs);
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        void recorded.then(
+          () =>
+            resolve({ exitCode: timedOut ? 1 : (code ?? 1), stdout, stderr }),
+          reject
+        );
+      });
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ exitCode: code ?? 1, stdout, stderr });
-    });
-  });
+export const runUpdate = observedUpdateRunner();
 const active = new Set<string>();
 export async function updateEngine(
   id: AcpEngineId,
@@ -531,5 +588,269 @@ export async function updateEngine(
     return { success, output, engine: fresh.find((item) => item.id === id) };
   } finally {
     active.delete(installation.target);
+  }
+}
+
+export type EngineUpdateOperation = {
+  id: string;
+  engineId: AcpEngineId;
+  status: "running" | "succeeded" | "failed" | "interrupted";
+  phase: "starting" | "refreshing" | "updating" | "complete";
+  message: string;
+  output: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  retryBlocked: boolean;
+};
+type StoredOperation = EngineUpdateOperation & {
+  owner: string;
+  ownerPid: number;
+  childPid: number | null;
+  spawnGated: boolean;
+  target: string;
+};
+type OperationRecords = Partial<Record<AcpEngineId, StoredOperation>>;
+export interface EngineOperationStore {
+  exclusive<T>(work: (records: OperationRecords) => Promise<T>): Promise<T>;
+}
+const OPERATION_KEY = "engine_update_operations";
+/** One transaction lock covers all engines, including shared brew/npm prefixes. */
+export function engineOperationStore(pool: Pool): EngineOperationStore {
+  return {
+    async exclusive(work) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(1852271177, 1)");
+        const result = await client.query<{ value: string }>(
+          "SELECT value FROM settings WHERE key = $1",
+          [OPERATION_KEY]
+        );
+        const records: OperationRecords = result.rows[0]
+          ? JSON.parse(result.rows[0].value)
+          : {};
+        const value = await work(records);
+        await client.query(
+          `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+          [OPERATION_KEY, JSON.stringify(records)]
+        );
+        await client.query("COMMIT");
+        return value;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  };
+}
+function mayExist(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+function publicOperation(record: StoredOperation): EngineUpdateOperation {
+  const {
+    owner: _owner,
+    ownerPid: _ownerPid,
+    childPid: _pid,
+    spawnGated: _gate,
+    target: _target,
+    ...operation
+  } = record;
+  return operation;
+}
+/** Server-owned lifecycle. No request/socket owns the command or its exclusion. */
+export class EngineUpdateOperations {
+  private readonly owner = randomUUID();
+  constructor(
+    private readonly store: EngineOperationStore,
+    private readonly options: {
+      prepare?: (
+        id: AcpEngineId,
+        overrides: Partial<Record<AcpEngineId, string>>
+      ) => Promise<Installation>;
+      runner?: (observer: UpdateObserver) => CommandRunner;
+      mayExist?: (pid: number) => boolean;
+      onError?: (error: unknown) => void;
+    } = {}
+  ) {}
+  private recover(records: OperationRecords) {
+    for (const record of Object.values(records)) {
+      if (record.status === "running" && record.owner !== this.owner) {
+        record.status = "interrupted";
+        record.finishedAt = record.updatedAt = new Date().toISOString();
+        record.message =
+          "Server continuity was lost. The update outcome is unknown; verify the installed version before retrying.";
+      }
+      if (record.status === "interrupted") {
+        const exists = this.options.mayExist ?? mayExist;
+        // Existence is only a reason to BLOCK. Never assume a recovered PID is
+        // ours or signal it. Same-PID hot reloads cannot use owner PID liveness.
+        // The gate plus the interrupted/ID write fence prevents a superseded
+        // executor from releasing a new command, including another engine.
+        record.retryBlocked =
+          (record.ownerPid !== process.pid && exists(record.ownerPid)) ||
+          (!record.childPid
+            ? !record.spawnGated
+            : exists(
+                process.platform === "win32"
+                  ? record.childPid
+                  : -record.childPid
+              ));
+      }
+    }
+  }
+  async read(): Promise<Partial<Record<AcpEngineId, EngineUpdateOperation>>> {
+    return this.store.exclusive(async (records) => {
+      this.recover(records);
+      return Object.fromEntries(
+        Object.entries(records).map(([id, record]) => [
+          id,
+          publicOperation(record),
+        ])
+      );
+    });
+  }
+  async start(
+    id: AcpEngineId,
+    overrides: Partial<Record<AcpEngineId, string>>
+  ) {
+    const installation = await (this.options.prepare
+      ? this.options.prepare(id, overrides)
+      : engineStatuses(overrides).then((statuses) =>
+          inspectInstallation(statuses.find((status) => status.id === id)!)
+        ));
+    if (!installation.canUpdate || !installation.run)
+      throw new Error(installation.reason);
+    const operation = await this.store.exclusive(async (records) => {
+      this.recover(records);
+      if (
+        Object.values(records).some(
+          (record) => record.status === "running" || record.retryBlocked
+        )
+      )
+        throw new Error(
+          "An engine update is running or its prior outcome is uncertain. Review the previous operation before retrying."
+        );
+      const now = new Date().toISOString();
+      const record: StoredOperation = {
+        id: randomUUID(),
+        engineId: id,
+        status: "running",
+        phase: "starting",
+        message: "Starting verified installation update.",
+        output: "",
+        startedAt: now,
+        updatedAt: now,
+        finishedAt: null,
+        retryBlocked: true,
+        owner: this.owner,
+        ownerPid: process.pid,
+        childPid: null,
+        spawnGated: true,
+        target: installation.target,
+      };
+      records[id] = record;
+      return { ...record };
+    });
+    // Start only after the durable claim commits; disconnection cannot cancel it.
+    void this.execute(operation, installation.run).catch((error) =>
+      this.options.onError?.(error)
+    );
+    return publicOperation(operation);
+  }
+  private async execute(record: StoredOperation, command: Command) {
+    let output = "";
+    const save = async () => {
+      record.output = output;
+      record.updatedAt = new Date().toISOString();
+      await this.store.exclusive(async (records) => {
+        if (
+          records[record.engineId]?.id !== record.id ||
+          records[record.engineId]?.status === "interrupted"
+        )
+          throw new Error("Engine operation ownership changed.");
+        records[record.engineId] = { ...record };
+      });
+    };
+    // Throttle writes; the in-memory and persisted buffers are both bounded.
+    let dirty = false;
+    let writes = Promise.resolve();
+    const queueSave = () => {
+      writes = writes.then(save);
+      return writes;
+    };
+    const timer = setInterval(() => {
+      if (!dirty) return;
+      dirty = false;
+      void queueSave().catch((error) => this.options.onError?.(error));
+    }, 250);
+    timer.unref();
+    const runner = (this.options.runner ?? observedUpdateRunner)({
+      output: (chunk) => {
+        output = (output + chunk).slice(-64_000);
+        dirty = true;
+      },
+      spawned: async (pid) => {
+        record.childPid = pid;
+        await queueSave();
+      },
+    });
+    try {
+      const execute = async (
+        step: Command,
+        phase: "refreshing" | "updating",
+        timeoutMs: number
+      ) => {
+        record.phase = phase;
+        record.message =
+          phase === "refreshing"
+            ? "Refreshing package metadata…"
+            : "Updating the selected installation…";
+        // Persist intent before each spawn. A restart in this gap is uncertain.
+        record.childPid = null;
+        await queueSave();
+        const result = await runner(step.executable, step.args, {
+          env: step.env,
+          timeoutMs,
+        });
+        // Injectable runners need not stream their output.
+        const finalOutput = [result.stdout, result.stderr]
+          .filter(Boolean)
+          .join("\n");
+        if (finalOutput && !output.endsWith(finalOutput))
+          output = (output + "\n" + finalOutput).slice(-64_000);
+        return result.exitCode === 0;
+      };
+      const refreshed =
+        !command.refresh ||
+        (await execute(command.refresh, "refreshing", 60_000));
+      const success =
+        refreshed && (await execute(command, "updating", 120_000));
+      record.status = success ? "succeeded" : "failed";
+      record.message = success
+        ? "Update completed."
+        : "Update command failed. Review the output before retrying.";
+    } catch (error) {
+      record.status = "failed";
+      record.message = "Update failed. Review the output before retrying.";
+      output = (output + "\n" + String(error)).slice(-64_000);
+    } finally {
+      clearInterval(timer);
+      clearEngineVersionCache();
+      record.phase = "complete";
+      record.finishedAt = new Date().toISOString();
+      record.retryBlocked = false;
+      // Drain in-flight snapshots before writing the terminal result.
+      await writes.catch(() => {});
+      await save();
+    }
   }
 }

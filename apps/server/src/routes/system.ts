@@ -41,7 +41,11 @@ import {
   setUserAvatar,
 } from "../user-avatar-settings.js";
 
-import { updateEngine, withEngineUpdates } from "../agents/engine-updates.js";
+import {
+  EngineUpdateOperations,
+  engineOperationStore,
+  withEngineUpdates,
+} from "../agents/engine-updates.js";
 import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
 
 const INSTANCE_NAME_KEY = "instance_name";
@@ -122,11 +126,27 @@ export async function registerSystemRoutes(
     };
   });
 
+  const engineUpdates = new EngineUpdateOperations(
+    engineOperationStore(deps.pool),
+    {
+      onError: (error) =>
+        deps.appLog.error({ err: error }, "Engine update persistence failed"),
+    }
+  );
   app.get("/api/v1/system/engines", async (request) => {
+    const operations = await engineUpdates.read();
     return {
       canManage: (await deps.canManageEngineUpdates?.(request)) ?? false,
       engines: await withEngineUpdates(
         await withEngineVersions(await engineStatuses(deps.engineBins))
+      ).then((engines) =>
+        engines.map((engine) => ({
+          ...engine,
+          update: {
+            ...engine.update,
+            operation: operations[engine.id] ?? null,
+          },
+        }))
       ),
     };
   });
@@ -142,7 +162,11 @@ export async function registerSystemRoutes(
         .send({ error: "Provide only a supported engine ID in the URL." });
     }
     try {
-      return await updateEngine(engine as AcpEngineId, deps.engineBins);
+      const operation = await engineUpdates.start(
+        engine as AcpEngineId,
+        deps.engineBins
+      );
+      return reply.code(202).send({ operation });
     } catch (error) {
       return reply.code(409).send({
         error: error instanceof Error ? error.message : "Update unavailable.",
