@@ -33,18 +33,20 @@ type MacAppRouteDeps = {
   controlToken: string;
 };
 
-function requireControlToken(
+async function requireControlToken(
   token: string,
   request: FastifyRequest,
-  reply: FastifyReply,
-  done: () => void
-): void {
+  reply: FastifyReply
+): Promise<void> {
   const header = request.headers.authorization;
   if (header?.startsWith("Bearer ") && tokensEqual(header.slice(7), token)) {
-    done();
     return;
   }
-  void reply.code(401).send({ error: "Authentication required." });
+  // Wait for async onSend before Fastify can advance past this auth hook.
+  await reply.code(401).send({ error: "Authentication required." });
+  // EOS may settle before a delayed serializer sends headers. Rejection must
+  // remain terminal; unknown response ownership stays conservatively external.
+  if (!reply.sent) reply.hijack();
 }
 
 export async function registerMacAppRoutes(
@@ -53,11 +55,8 @@ export async function registerMacAppRoutes(
 ): Promise<void> {
   const appOnly = {
     config: { macAppBearer: true },
-    preHandler: (
-      request: FastifyRequest,
-      reply: FastifyReply,
-      done: () => void
-    ) => requireControlToken(deps.controlToken, request, reply, done),
+    preHandler: async (request: FastifyRequest, reply: FastifyReply) =>
+      requireControlToken(deps.controlToken, request, reply),
   };
 
   app.get("/api/v1/mac-app/control", appOnly, (_request, reply) => {

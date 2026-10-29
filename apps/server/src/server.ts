@@ -1,3 +1,4 @@
+import { installRequestLifecycle } from "./server/request-lifecycle.js";
 import { createCodexResetCoordinator } from "./agents/codex-reset.js";
 import { consumeCodexLimitReset } from "./agents/provider-plans.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
@@ -160,6 +161,18 @@ const app = Fastify({
   routerOptions: { maxParamLength: MAX_ENCODED_FILE_NAME_LENGTH },
   ...httpLoggingOptions(),
   ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
+});
+installRequestLifecycle(app, {
+  started: (request) => {
+    resourceRequestStarts.set(request, serviceResources.requestStarted());
+  },
+  finished: (request, statusCode) => {
+    recoveryMaintenance.requestFinished(request);
+    const token = resourceRequestStarts.get(request);
+    if (!token) return;
+    serviceResources.requestFinished(token, statusCode);
+    resourceRequestStarts.delete(request);
+  },
 });
 registerHttpLogging(app);
 const pool = createPool(config);
@@ -643,27 +656,6 @@ async function registerRoutes() {
       reply.header("X-Dispatch-Version", packageVersion);
     }
     return payload;
-  });
-
-  app.addHook("onRequest", async (request) => {
-    if (!request.url.startsWith("/api/")) return;
-    resourceRequestStarts.set(request, serviceResources.requestStarted());
-  });
-  const finishResourceRequest = (request: object, statusCode: number) => {
-    recoveryMaintenance.requestFinished(request);
-    const token = resourceRequestStarts.get(request);
-    if (!token) return;
-    serviceResources.requestFinished(token, statusCode);
-    resourceRequestStarts.delete(request);
-  };
-  app.addHook("onResponse", async (request, reply) => {
-    finishResourceRequest(request, reply.statusCode);
-  });
-  app.addHook("onRequestAbort", async (request) => {
-    finishResourceRequest(request, 499);
-  });
-  app.addHook("onTimeout", async (request) => {
-    finishResourceRequest(request, 504);
   });
 
   // Update recovery gate: synchronous, ahead of auth, so nothing a fence or
