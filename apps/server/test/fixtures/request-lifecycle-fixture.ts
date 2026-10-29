@@ -1,3 +1,7 @@
+import {
+  parserOwnershipCases,
+  runParserOwnershipScenario,
+} from "./request-parser-ownership.js";
 import websocket from "@fastify/websocket";
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -735,5 +739,7 @@ if (process.env.DISPATCH_LIFECYCLE_FIXTURE === "1") {
   ] as const)
     results.push(await runScenario(scenario, "tls-additional"));
   results.push((await runUpgradeScenario()) as any);
+  for (const kind of parserOwnershipCases)
+    results.push((await runParserOwnershipScenario(kind)) as any);
   console.log(JSON.stringify({ runtime: process.versions, results }, null, 2));
 }

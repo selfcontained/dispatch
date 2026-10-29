@@ -20,6 +20,7 @@ type State = {
   active: number;
   ended: boolean;
   abortedBody: boolean;
+  payloadReplaced: boolean;
   drained: boolean;
   lost: boolean;
   external: boolean;
@@ -59,7 +60,11 @@ export function installRequestLifecycle(
     setImmediate(() => {
       state.scheduled = false;
       if (state.finished || state.active !== 0) return;
-      if (!state.ended && !state.abortedBody) return;
+      // Raw transport abort only terminates parsing while the raw request
+      // still owns the payload. A substituted stream may later parse and start
+      // a handler, even though the original request body is incomplete/aborted.
+      if (!state.ended && !(state.abortedBody && !state.payloadReplaced))
+        return;
       if (
         state.responseStarted &&
         !state.responseDone &&
@@ -79,6 +84,7 @@ export function installRequestLifecycle(
       active: 0,
       ended: false,
       abortedBody: false,
+      payloadReplaced: false,
       drained: false,
       lost: false,
       external: !!request.headers.upgrade,
@@ -134,7 +140,7 @@ export function installRequestLifecycle(
     });
     request.raw.on("aborted", () => {
       state.lost = true;
-      // An incomplete body cannot reach a handler through Fastify's parser.
+      // Only an unsubstituted incomplete body is terminal for parsing.
       if (!request.raw.complete) state.abortedBody = true;
       schedule(request, state);
     });
@@ -174,6 +180,14 @@ export function installRequestLifecycle(
       const state = states.get(request);
       if (!state || state.finished) return fn.apply(this, args);
       state.active++;
+      const observeReplacement = (payload: unknown) => {
+        if (
+          hook === "preParsing" &&
+          payload !== undefined &&
+          payload !== request.raw
+        )
+          state.payloadReplaced = true;
+      };
       let returned = false;
       let completed = !callback;
       let settled = false;
@@ -187,6 +201,7 @@ export function installRequestLifecycle(
         const next = args[args.length - 1];
         args[args.length - 1] = (...values: any[]) => {
           try {
+            observeReplacement(values[1]);
             if (hook === "onResponse" && values[0]) state.responseDone = true;
             return next(...values);
           } finally {
@@ -200,6 +215,7 @@ export function installRequestLifecycle(
         if (value && typeof value.then === "function") {
           return value.then(
             (payload: unknown) => {
+              observeReplacement(payload);
               const reply = args[requestIndex + 1] as FastifyReply;
               // wrap-thenable deliberately skips send(undefined) on a lost
               // connection. No response/end callback will follow that branch.

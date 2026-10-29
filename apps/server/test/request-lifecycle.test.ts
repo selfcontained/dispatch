@@ -1,3 +1,7 @@
+import {
+  parserOwnershipCases,
+  runParserOwnershipScenario,
+} from "./fixtures/request-parser-ownership.js";
 import { describe, it } from "vitest";
 import {
   runScenario,
@@ -9,6 +13,11 @@ describe("real Fastify application settlement and recovery maintenance", () => {
   it(
     "preserves real websocket ownership and fenced admission",
     runUpgradeScenario
+  );
+  it.each(parserOwnershipCases)(
+    "parser ownership after raw abort: %s",
+    runParserOwnershipScenario,
+    10_000
   );
   it.each(scenarios)(
     "%s",
