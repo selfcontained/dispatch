@@ -7,12 +7,14 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ComponentProps } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { useState, type ComponentProps } from "react";
+import { createStore, Provider as JotaiProvider } from "jotai";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
 import type { Template } from "@/hooks/use-templates";
+import { createAgentLocationPrefAtom } from "@/lib/store";
 
 import { AgentsViewDialogs } from "./agents-view-dialogs";
 
@@ -123,11 +125,117 @@ beforeEach(() => {
     unobserve(): void {}
     disconnect(): void {}
   };
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.releasePointerCapture = () => {};
 });
 
 afterEach(cleanup);
 
 describe("AgentsViewDialogs", () => {
+  it("opens from sidebar scope ahead of remembered location and viewed cwd, then permits manual changes", async () => {
+    const projects = [
+      {
+        id: "project-a",
+        name: "Project A",
+        repoRoot: "/repo/a",
+        updatedAt: "2026-10-01",
+      },
+      {
+        id: "project-b",
+        name: "Project B",
+        repoRoot: "/repo/b",
+        updatedAt: "2026-10-01",
+      },
+    ];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(["projects"], projects);
+    const store = createStore();
+    store.set(createAgentLocationPrefAtom, {
+      mode: "project",
+      projectId: "project-b",
+    });
+    apiMock.mockImplementation(async (path) => {
+      if (path.startsWith("/api/v1/personas?")) return { personas: [] };
+      if (path.startsWith("/api/v1/history/projects")) return { projects: [] };
+      if (path === "/api/v1/system/defaults") return { homeDir: "/home/test" };
+      if (path === "/api/v1/agent-models") return { models: {} };
+      if (path === "/api/v1/system/engines") return { engines: [] };
+      if (path.includes("/path-info?"))
+        return { exists: true, isDirectory: true, isGitRepo: false };
+      return [];
+    });
+    function Host() {
+      const navigate = useNavigate();
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open Create</button>
+          <button onClick={() => navigate("/agents?project=project-b")}>
+            Select B
+          </button>
+          <AgentsViewDialogs
+            {...baseProps()}
+            createOpen={open}
+            onCreateOpenChange={setOpen}
+            resolveCreateDefaultCwd={() => "/viewed/c"}
+          />
+        </>
+      );
+    }
+    render(
+      <JotaiProvider store={store}>
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={["/agents?project=project-a"]}>
+            <Host />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </JotaiProvider>
+    );
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Open Create" }));
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Choose project" }).textContent
+        ).toContain("Project A")
+      );
+      expect(screen.getByTestId("create-agent-cwd")).toHaveProperty(
+        "value",
+        "/repo/a"
+      );
+      fireEvent.click(screen.getByTestId("create-agent-cancel"));
+      fireEvent.click(screen.getByRole("button", { name: "Select B" }));
+      fireEvent.click(screen.getByRole("button", { name: "Open Create" }));
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Choose project" }).textContent
+        ).toContain("Project B")
+      );
+      expect(screen.getByTestId("create-agent-cwd")).toHaveProperty(
+        "value",
+        "/repo/b"
+      );
+      fireEvent.pointerDown(
+        screen.getByRole("button", { name: "Choose project" }),
+        { button: 0, ctrlKey: false, pointerType: "mouse" }
+      );
+      fireEvent.click(
+        await screen.findByRole("menuitem", { name: /Project A/ })
+      );
+      expect(screen.getByTestId("create-agent-cwd")).toHaveProperty(
+        "value",
+        "/repo/a"
+      );
+      expect(
+        screen.getByRole("button", { name: "Choose project" }).textContent
+      ).toContain("Project A");
+    } finally {
+      cleanup();
+      client.clear();
+    }
+  });
+
   it("renders nothing when every dialog is closed", () => {
     renderDialogs();
     expect(screen.queryByRole("dialog")).toBeNull();

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider as JotaiProvider } from "jotai";
 import type { ClipboardEvent, FormEvent, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -72,6 +72,7 @@ type SetupOverrides = Partial<{
   enabledAgentTypes: AgentType[];
   initialAgentType: AgentType | null;
   initialProjectId: string | null;
+  task: { id: string; title: string; projectId: string } | null;
   resolveDefaultCwd: () => string;
   onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
 }>;
@@ -86,6 +87,7 @@ async function setup(overrides: SetupOverrides = {}) {
         enabledAgentTypes: ["claude", "codex"] as AgentType[],
         initialAgentType: null,
         initialProjectId: null,
+        task: null,
         resolveDefaultCwd: () => "/repo/app",
         onCreated,
         ...overrides,
@@ -205,30 +207,165 @@ describe("launch location preference", () => {
     queryClient.setQueryData(["projects"], projects);
   });
 
-  it("uses initial scope until an explicit folder choice, and retains the project when toggled back", async () => {
+  it("allows a folder choice but reopens with the latest concrete scope", async () => {
     const first = await setup({ initialProjectId: "project-a" });
     expect(first.result.current.createProjectId).toBe("project-a");
     expect(first.result.current.createCwd).toBe("/repo/a");
     act(() => first.result.current.setCreateProjectId(null));
     first.unmount();
     const reopened = await setup({ initialProjectId: "project-b" });
-    expect(reopened.result.current.createProjectId).toBeNull();
+    expect(reopened.result.current.createProjectId).toBe("project-b");
+    expect(reopened.result.current.createCwd).toBe("/repo/b");
     expect(reopened.result.current.lastProjectId).toBe("project-a");
     expect(
       JSON.parse(localStorage.getItem("dispatch:createAgentLocation")!)
     ).toEqual({ mode: "folder", projectId: "project-a" });
   });
 
-  it("recalls an explicitly selected project instead of overwriting it with scope", async () => {
+  it("uses scope ahead of remembered project and viewed-agent directory on reopen", async () => {
     const first = await setup({ initialProjectId: "project-a" });
     act(() => first.result.current.setCreateProjectId("project-b"));
     first.unmount();
     const reopened = await setup({ initialProjectId: "project-a" });
-    expect(reopened.result.current.createProjectId).toBe("project-b");
-    expect(reopened.result.current.createCwd).toBe("/repo/b");
+    expect(reopened.result.current.createProjectId).toBe("project-a");
+    expect(reopened.result.current.createCwd).toBe("/repo/a");
     await act(async () => reopened.result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson()).toMatchObject({ projectId: "project-b" });
+    expect(agentsPostJson()).toMatchObject({ projectId: "project-a" });
     expect(agentsPostJson()).not.toHaveProperty("cwd");
+  });
+
+  it.each(["project", "folder"] as const)(
+    "All projects recalls remembered %s mode",
+    async (mode) => {
+      jotaiStore.set(createAgentLocationPrefAtom, {
+        mode,
+        projectId: "project-b",
+      });
+      const { result } = await setup();
+      expect(result.current.createProjectId).toBe(
+        mode === "project" ? "project-b" : null
+      );
+      expect(result.current.createCwd).toBe(
+        mode === "project" ? "/repo/b" : "/repo/app"
+      );
+    }
+  );
+
+  it("keeps a manual project or folder choice through scope and preference rerenders", async () => {
+    const { result, rerender, onCreated } = await setup({
+      initialProjectId: "project-a",
+    });
+    act(() => result.current.setCreateProjectId("project-b"));
+    const props = {
+      enabledAgentTypes: ["claude", "codex"] as AgentType[],
+      initialAgentType: null,
+      initialProjectId: "project-a",
+      task: null,
+      resolveDefaultCwd: () => "/viewed/c",
+      onCreated,
+    };
+    act(() =>
+      jotaiStore.set(createAgentLocationPrefAtom, {
+        mode: "project",
+        projectId: "project-a",
+      })
+    );
+    rerender(props);
+    expect(result.current.createProjectId).toBe("project-b");
+    expect(result.current.createCwd).toBe("/repo/b");
+    act(() => result.current.setCreateProjectId(null));
+    act(() => result.current.setCreateCwd("/manual/folder"));
+    rerender({ ...props, initialProjectId: "project-b" });
+    expect(result.current.createProjectId).toBeNull();
+    expect(result.current.createCwd).toBe("/manual/folder");
+  });
+
+  it("keeps scope through delayed projects and preference hydration, loading cwd-keyed defaults", async () => {
+    queryClient.removeQueries({ queryKey: ["projects"] });
+    let resolveProjects!: (value: typeof projects) => void;
+    const pendingProjects = new Promise<typeof projects>((resolve) => {
+      resolveProjects = resolve;
+    });
+    const fallback = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((path, options) =>
+      path === "/api/v1/projects" ? pendingProjects : fallback(path, options)
+    );
+    jotaiStore.set(createPersonaPrefAtom("/repo/a"), "builder-a");
+    jotaiStore.set(createBaseBranchPrefAtom("/repo/a"), "release-a");
+    const { result } = await setup({
+      initialProjectId: "project-a",
+      resolveDefaultCwd: () => "/viewed/c",
+    });
+    expect(result.current.locationReady).toBe(false);
+    act(() =>
+      jotaiStore.set(createAgentLocationPrefAtom, {
+        mode: "project",
+        projectId: "project-b",
+      })
+    );
+    expect(result.current.createProjectId).toBe("project-a");
+    await act(async () => resolveProjects(projects));
+    await waitFor(() => expect(result.current.locationReady).toBe(true));
+    expect(result.current.createCwd).toBe("/repo/a");
+    expect(result.current.createPersona).toBe("builder-a");
+    expect(result.current.createBaseBranch).toBe("release-a");
+    act(() => result.current.setCreateProjectId("project-b"));
+    expect(result.current.createCwd).toBe("/repo/b");
+    expect(result.current.createPersona).toBeNull();
+    expect(result.current.createBaseBranch).toBe("main");
+  });
+
+  it("preserves a manual choice made before project data and preferences arrive", async () => {
+    queryClient.removeQueries({ queryKey: ["projects"] });
+    const fallback = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((path, options) =>
+      path === "/api/v1/projects"
+        ? new Promise(() => {})
+        : fallback(path, options)
+    );
+    const { result } = await setup({ initialProjectId: "project-a" });
+    act(() => result.current.setCreateProjectId("project-b"));
+    act(() => {
+      jotaiStore.set(createAgentLocationPrefAtom, {
+        mode: "folder",
+        projectId: "project-a",
+      });
+      queryClient.setQueryData(["projects"], projects);
+    });
+    await waitFor(() => expect(result.current.locationReady).toBe(true));
+    expect(result.current.createProjectId).toBe("project-b");
+    expect(result.current.createCwd).toBe("/repo/b");
+  });
+
+  it("falls back safely when the explicit scope is unavailable, ahead of remembered membership", async () => {
+    jotaiStore.set(createAgentLocationPrefAtom, {
+      mode: "project",
+      projectId: "project-b",
+    });
+    const { result } = await setup({ initialProjectId: "deleted" });
+    expect(result.current.createProjectId).toBeNull();
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({ cwd: "/repo/app" });
+    expect(agentsPostJson()).not.toHaveProperty("projectId");
+  });
+
+  it("keeps the task project ahead of sidebar scope, preference, and picker overrides", async () => {
+    jotaiStore.set(createAgentLocationPrefAtom, {
+      mode: "project",
+      projectId: "project-a",
+    });
+    const { result } = await setup({
+      initialProjectId: "project-a",
+      task: { id: "task-b", title: "Task B", projectId: "project-b" },
+    });
+    act(() => result.current.setCreateProjectId("project-a"));
+    expect(result.current.createProjectId).toBe("project-b");
+    expect(result.current.createCwd).toBe("/repo/b");
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      projectId: "project-b",
+      taskId: "task-b",
+    });
   });
 
   it("falls back to a folder for deleted projects without submitting stale membership", async () => {
@@ -243,19 +380,34 @@ describe("launch location preference", () => {
     expect(agentsPostJson()).not.toHaveProperty("projectId");
   });
 
-  it("blocks submission while the selected project is loading", async () => {
-    queryClient.removeQueries({ queryKey: ["projects"] });
-    const fallback = apiMock.getMockImplementation()!;
-    apiMock.mockImplementation((path, options) =>
-      path === "/api/v1/projects"
-        ? new Promise(() => {})
-        : fallback(path, options)
-    );
-    const { result } = await setup({ initialProjectId: "project-a" });
-    expect(result.current.locationReady).toBe(false);
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPost()).toBeUndefined();
-  });
+  it.each([false, true])(
+    "blocks submission until project data arrives (unavailable: %s) and never submits stale membership",
+    async (unavailable) => {
+      queryClient.removeQueries({ queryKey: ["projects"] });
+      const fallback = apiMock.getMockImplementation()!;
+      apiMock.mockImplementation((path, options) =>
+        path === "/api/v1/projects"
+          ? new Promise(() => {})
+          : fallback(path, options)
+      );
+      const { result } = await setup({ initialProjectId: "project-a" });
+      expect(result.current.locationReady).toBe(false);
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPost()).toBeUndefined();
+      act(() =>
+        queryClient.setQueryData(["projects"], unavailable ? [] : projects)
+      );
+      await waitFor(() => expect(result.current.locationReady).toBe(true));
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      if (unavailable) {
+        expect(agentsPostJson()).not.toHaveProperty("projectId");
+        expect(agentsPostJson()).toMatchObject({ cwd: "/repo/app" });
+      } else {
+        expect(agentsPostJson()).toMatchObject({ projectId: "project-a" });
+        expect(agentsPostJson()).not.toHaveProperty("cwd");
+      }
+    }
+  );
 });
 
 describe("agent type seeding", () => {
@@ -288,6 +440,7 @@ describe("agent type seeding", () => {
       enabledAgentTypes: ["claude"] as AgentType[],
       initialAgentType: "codex",
       initialProjectId: null,
+      task: null,
       resolveDefaultCwd: () => "/repo/app",
       onCreated,
     });
