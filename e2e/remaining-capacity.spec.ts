@@ -14,6 +14,36 @@ async function expectCapacity(scope: Locator, name: string, left: number) {
   expect(Math.abs(fill.width - (track.width * left) / 100)).toBeLessThan(1);
 }
 
+async function waitForEntryAnimation(surface: Locator) {
+  await surface.evaluate(async (element) => {
+    await Promise.all(
+      element
+        .getAnimations()
+        .map((animation) => animation.finished.catch(() => {}))
+    );
+  });
+}
+
+async function expectDialogOnTop(dialog: Locator) {
+  await expect
+    .poll(() =>
+      dialog.evaluate((element) => {
+        const heading = element.querySelector("h2");
+        if (!heading) return false;
+        // Visibility alone does not detect a higher popover covering this modal.
+        return [heading, element].every((target) => {
+          const rect = target.getBoundingClientRect();
+          const top = document.elementFromPoint(
+            rect.x + rect.width / 2,
+            rect.y + rect.height / 2
+          );
+          return top !== null && element.contains(top);
+        });
+      })
+    )
+    .toBe(true);
+}
+
 test.use({ deviceScaleFactor: 2 });
 
 test.afterEach(async ({ request }) => {
@@ -103,6 +133,7 @@ for (const width of [1280, 390]) {
     const bounds = (await panel.boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await waitForEntryAnimation(panel);
     const popoverImage = `/tmp/remaining-capacity-popover-${width}.png`;
     await page.screenshot({ path: popoverImage });
     await testInfo.attach("usage popover", {
@@ -117,6 +148,8 @@ for (const width of [1280, 390]) {
     await expectCapacity(dialog, "Weekly", 40);
     await expectCapacity(dialog, "Full", 100);
     await expectCapacity(dialog, "Empty", 0);
+    await waitForEntryAnimation(dialog);
+    await expectDialogOnTop(dialog);
     const resetImage = `/tmp/remaining-capacity-reset-${width}.png`;
     await page.screenshot({ path: resetImage });
     await testInfo.attach("reset confirmation (never consumed)", {
