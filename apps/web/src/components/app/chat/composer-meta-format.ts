@@ -138,6 +138,8 @@ export function hasExpiringResets(
 export function formatResetExpiryDate(
   expiresAt: string | null | undefined
 ): string | null {
+  // A bare calendar day does not establish an expiration time or timezone.
+  if (expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(expiresAt.trim())) return null;
   const at = expiresAt ? Date.parse(expiresAt) : NaN;
   if (!Number.isFinite(at)) return null;
   return new Intl.DateTimeFormat(undefined, {
@@ -166,7 +168,8 @@ export function formatResetExpiry(
       (item) => item.expiresAt && Number.isFinite(Date.parse(item.expiresAt))
     )
     .sort((a, b) => Date.parse(a.expiresAt!) - Date.parse(b.expiresAt!))
-    .map((item) => formatResetExpiryDate(item.expiresAt));
+    .map((item) => formatResetExpiryDate(item.expiresAt))
+    .filter((date) => date !== null);
   if (dates.length > 0) return dates.join(" · ");
   const expires = formatResetExpiryDate(resets.oldestExpiresAt);
   return expires ? `oldest expires ${expires}` : null;

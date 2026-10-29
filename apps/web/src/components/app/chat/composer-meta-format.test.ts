@@ -196,8 +196,23 @@ describe("reset expiry dates", () => {
     ).toBe("oldest expires Oct 22, 2026, 9:00 PM UTC");
   });
 
+  it("omits bare days rather than displaying an invented midnight time", () => {
+    expect(
+      formatResetExpiry({
+        available: 2,
+        items: [
+          { expiresAt: "2026-10-22" },
+          { expiresAt: "2026-10-29T19:12:54Z" },
+        ],
+      })
+    ).toBe("Oct 29, 2026, 7:12 PM UTC");
+    expect(
+      formatResetExpiry({ available: 1, items: [{ expiresAt: "2026-10-22" }] })
+    ).toBeNull();
+  });
+
   it("does not invent dates for invalid/missing metadata or unavailable resets", () => {
-    for (const expiresAt of [null, undefined, "invalid", ""]) {
+    for (const expiresAt of [null, undefined, "invalid", "", "2026-10-22"]) {
       expect(formatResetExpiryDate(expiresAt)).toBeNull();
       expect(
         formatResetExpiry({ available: 3, oldestExpiresAt: expiresAt })

@@ -87,6 +87,12 @@ describe("UseResetButton", () => {
             expiresAt: "invalid",
           },
           { id: "d", title: "Undated reset", grantedAt: null, expiresAt: null },
+          {
+            id: "e",
+            title: "Day-only reset",
+            grantedAt: null,
+            expiresAt: "2026-10-22",
+          },
         ],
       },
     });
@@ -109,6 +115,7 @@ describe("UseResetButton", () => {
     expect(entries[1].className).toContain("text-muted-foreground");
     expect(entries[2].textContent).toContain("expiry unknown");
     expect(entries[3].textContent).toContain("no expiry");
+    expect(entries[4].textContent).toContain("expiry unknown");
     expect(screen.getByRole("dialog").textContent).not.toContain(
       "Invalid Date"
     );
