@@ -36,15 +36,16 @@ for (const viewport of [
         label: "Claude Code",
         installed: true,
         path: "/usr/local/bin/claude",
-        version: "2.0.0",
+        version: null,
         install: "npm i -g @anthropic-ai/claude-code",
         update: {
           source: "unknown",
           canUpdate: false,
           reason: "Manual update required.",
           command: "claude update",
-          latestVersion: null,
+          latestVersion: "2.0.0",
           latestPending: false,
+          available: false,
         },
       },
       {
@@ -175,6 +176,9 @@ for (const viewport of [
       exact: true,
     });
     await manual.getByRole("button", { expanded: false }).click();
+    await expect(manual).toContainText("Version unknown");
+    await expect(manual).toContainText("Update availability unknown");
+    await expect(manual).not.toContainText("Up to date");
     await expect(
       manual.getByRole("button", { name: "Update Claude Code" })
     ).toHaveCount(0);

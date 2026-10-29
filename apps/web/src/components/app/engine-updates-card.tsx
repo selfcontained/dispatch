@@ -121,12 +121,13 @@ function EngineRow({
           )}
           {engine.installed &&
             !metadata?.latestPending &&
-            !metadata?.latestVersion && (
+            (!engine.version || !metadata?.latestVersion) && (
               <p className="text-sm text-muted-foreground">
                 Update availability unknown
               </p>
             )}
           {engine.installed &&
+            engine.version &&
             metadata?.latestVersion &&
             !metadata.available && (
               <p className="text-sm text-muted-foreground">Up to date</p>
