@@ -12,6 +12,7 @@ export const macAuthCases = [
   "wrong-token",
   "wrong-scheme",
   "authorized",
+  "authorized-loss",
   "delayed-state",
   "delayed-control",
   "delayed-state-loss",
@@ -275,12 +276,18 @@ export async function runMacAuthScenario(kind: Case) {
       assert.equal(reports, 0);
       assert.equal(attaches, 0);
       assert.equal(published, 0);
-    } else if (kind === "authorized") {
+    } else if (kind.startsWith("authorized")) {
       control = new PassThrough();
       detach = bridge.attach(control);
       const baselinePublished = published;
-      const pending = request("POST", "/api/v1/mac-app/state");
+      const pending = request("POST", "/api/v1/mac-app/state").catch(
+        (error) => ({ error })
+      );
       await until(() => admitted);
+      if (kind === "authorized-loss") {
+        for (const client of clients) client.destroy();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
       assert.equal(reports, 0);
       assert.equal(bridge.snapshot().state, null);
       assert.deepEqual(await maintenance.fence({ transactionId: "held" }), {
@@ -290,7 +297,10 @@ export async function runMacAuthScenario(kind: Case) {
       });
       assert.equal(stops, 0);
       release();
-      assert.deepEqual(await pending, { status: 200, body: { ok: true } });
+      if (kind === "authorized-loss") {
+        for (const client of clients) assert.equal(client.destroyed, true);
+      } else
+        assert.deepEqual(await pending, { status: 200, body: { ok: true } });
       await until(() => finishes === 1);
       assert.equal(reports, 1);
       assert.equal(published, baselinePublished + 1);
@@ -317,7 +327,7 @@ export async function runMacAuthScenario(kind: Case) {
     await until(
       () =>
         finishes ===
-        (kind === "authorized" || kind.startsWith("delayed-") ? 1 : 2)
+        (kind.startsWith("authorized") || kind.startsWith("delayed-") ? 1 : 2)
     );
     assert.equal((await maintenance.activity()).busy, false);
     assert.equal(stops, 1);
@@ -328,7 +338,7 @@ export async function runMacAuthScenario(kind: Case) {
       published,
       finishes,
       stops,
-      authorizedHeld: kind === "authorized",
+      authorizedHeld: kind.startsWith("authorized"),
       fenceDuringDelay,
     };
   } finally {
