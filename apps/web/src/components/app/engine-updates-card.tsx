@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import type { EngineStatus } from "@/hooks/use-engines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
   CardContent,
@@ -98,11 +99,16 @@ function EngineRow({
               ? (engine.version ?? "Version unknown")
               : "Not installed"}
           </span>
-          {metadata?.available && (
-            <Badge variant="transitional">
-              Update available: {engine.version} → {metadata.latestVersion}
-            </Badge>
-          )}
+          <span className="flex h-7 w-full items-center sm:w-72">
+            {metadata?.latestPending ? (
+              <Skeleton
+                className="h-6 w-40"
+                aria-label="Checking for updates"
+              />
+            ) : metadata?.available ? (
+              <Badge variant="transitional">Update available</Badge>
+            ) : null}
+          </span>
         </CollapsibleTrigger>
         <CollapsibleContent className="min-w-0 space-y-2 pt-2">
           {engine.installed && canManage && metadata?.canUpdate && (
@@ -114,24 +120,25 @@ function EngineRow({
               {update.isPending ? "Updating…" : `Update ${engine.label}`}
             </Button>
           )}
-          {engine.installed && metadata?.latestPending && (
-            <p className="text-sm text-muted-foreground">
-              Checking for updates…
-            </p>
+          {engine.installed && (
+            <div
+              className="min-h-5 text-sm text-muted-foreground"
+              aria-live="polite"
+            >
+              {metadata?.latestPending ? (
+                <Skeleton
+                  className="h-5 w-44"
+                  aria-label="Checking for updates"
+                />
+              ) : !engine.version || !metadata?.latestVersion ? (
+                "Update availability unknown"
+              ) : metadata.available ? (
+                `Latest version: ${metadata.latestVersion}`
+              ) : (
+                "Up to date"
+              )}
+            </div>
           )}
-          {engine.installed &&
-            !metadata?.latestPending &&
-            (!engine.version || !metadata?.latestVersion) && (
-              <p className="text-sm text-muted-foreground">
-                Update availability unknown
-              </p>
-            )}
-          {engine.installed &&
-            engine.version &&
-            metadata?.latestVersion &&
-            !metadata.available && (
-              <p className="text-sm text-muted-foreground">Up to date</p>
-            )}
           {(!engine.installed || !metadata?.canUpdate) && (
             <>
               <p className="text-sm text-muted-foreground">
@@ -193,7 +200,24 @@ export function EngineUpdatesCard(): JSX.Element {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {query.isPending && <p>Checking engine installations…</p>}
+        {query.isPending && (
+          <div
+            aria-label="Checking engine installations"
+            aria-busy="true"
+            className="space-y-4"
+          >
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="border-t pt-2">
+                <div className="flex flex-wrap items-center gap-2 py-2">
+                  <Skeleton className="h-5 w-48" />
+                  <span className="flex h-7 w-full items-center sm:w-72">
+                    <Skeleton className="h-6 w-40" />
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {query.isError && (
           <div role="alert">
             <p>Unable to check engines: {query.error.message}</p>

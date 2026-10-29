@@ -84,7 +84,7 @@ for (const viewport of [
     await page.goto("/settings/updates", { waitUntil: "domcontentloaded" });
     const codex = page.getByRole("region", { name: "Codex", exact: true });
     await expect(
-      codex.getByText("Update available: 1.0.0 → 2.0.0")
+      codex.getByText("Update available", { exact: true })
     ).toBeVisible();
     const disclosure = codex.getByRole("button", { name: /^Codex / });
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
@@ -227,5 +227,81 @@ for (const viewport of [
       path: `/tmp/engine-updates-${viewport.name}.png`,
       fullPage: true,
     });
+  });
+
+  test(`engine metadata loading keeps expanded content stable (${viewport.name})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    let pending = true;
+    let releaseInitial!: () => void;
+    const initial = new Promise<void>((resolve) => {
+      releaseInitial = resolve;
+    });
+    await page.route("**/api/v1/system/engines", async (route) => {
+      await initial;
+      await route.fulfill({
+        json: {
+          canManage: true,
+          engines: [
+            {
+              id: "codex",
+              label: "Codex",
+              installed: true,
+              version: "1.0.0",
+              path: "/npm/bin/codex",
+              install: "npm i -g @openai/codex",
+              update: {
+                source: "npm",
+                canUpdate: true,
+                command: "npm i -g @openai/codex",
+                latestPending: pending,
+                latestVersion: pending ? null : "2.0.0",
+                available: !pending,
+              },
+            },
+            {
+              id: "opencode",
+              label: "OpenCode",
+              installed: false,
+              version: null,
+              path: null,
+              install: "npm i -g opencode-ai",
+            },
+          ],
+        },
+      });
+    });
+    await loadApp(page);
+    await page.goto("/settings/updates", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByLabel("Checking engine installations")
+    ).toBeVisible();
+    await page.screenshot({
+      path: `/tmp/engine-initial-${viewport.name}.png`,
+      fullPage: true,
+    });
+    releaseInitial();
+    const codex = page.getByRole("region", { name: "Codex", exact: true });
+    await codex.getByRole("button", { name: /^Codex / }).click();
+    await expect(codex.getByLabel("Checking for updates")).toHaveCount(2);
+    await expect(codex.getByText("Update availability unknown")).toHaveCount(0);
+    const next = page.getByRole("region", { name: "OpenCode", exact: true });
+    await codex.screenshot({
+      path: `/tmp/engine-loading-${viewport.name}.png`,
+    });
+    const before = await next.evaluate(
+      (el) => el.getBoundingClientRect().top + window.scrollY
+    );
+    pending = false;
+    await expect(
+      codex.getByText("Latest version: 2.0.0", { exact: true })
+    ).toBeVisible();
+    await expect(codex.getByLabel("Checking for updates")).toHaveCount(0);
+    const after = await next.evaluate(
+      (el) => el.getBoundingClientRect().top + window.scrollY
+    );
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
+    await codex.screenshot({ path: `/tmp/engine-loaded-${viewport.name}.png` });
   });
 }
