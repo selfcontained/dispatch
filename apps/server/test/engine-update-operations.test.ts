@@ -54,6 +54,45 @@ const readUntil = async (manager: EngineUpdateOperations, status: string) => {
 };
 
 describe("durable engine update operations", () => {
+  it("retries a failed terminal commit on a healthy read and restores admission", async () => {
+    const storage = store();
+    let failTerminal = true;
+    const flaky: EngineOperationStore = {
+      exclusive: (work) =>
+        storage.exclusive(async (records) => {
+          const result = await work(records);
+          if (failTerminal && records.codex?.status === "succeeded") {
+            failTerminal = false;
+            throw new Error("transient commit failure");
+          }
+          return result;
+        }),
+    };
+    const onError = vi.fn();
+    const runner = vi.fn(async () => done);
+    const manager = new EngineUpdateOperations(flaky, {
+      prepare: async () => installation,
+      runner: () => runner,
+      onError,
+    });
+    await manager.start("codex", {});
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    const result = (await manager.read()).codex!;
+    expect(result.status).toBe("succeeded");
+    expect(result.output).toContain("updated");
+    expect(result.retryBlocked).toBe(false);
+    expect(runner).toHaveBeenCalledOnce();
+    expect((await new EngineUpdateOperations(storage).read()).codex).toEqual(
+      result
+    );
+    await expect(manager.start("claude", {})).resolves.toMatchObject({
+      status: "running",
+    });
+    await vi.waitFor(async () =>
+      expect((await manager.read()).claude?.status).toBe("succeeded")
+    );
+  });
+
   it("acknowledges before completion, streams bounded output, excludes duplicate starts and preserves result across reload", async () => {
     const storage = store();
     const completion = deferred<RunCommandResult>();

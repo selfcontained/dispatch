@@ -669,6 +669,7 @@ function publicOperation(record: StoredOperation): EngineUpdateOperation {
 /** Server-owned lifecycle. No request/socket owns the command or its exclusion. */
 export class EngineUpdateOperations {
   private readonly owner = randomUUID();
+  private readonly pendingTerminal = new Map<AcpEngineId, StoredOperation>();
   constructor(
     private readonly store: EngineOperationStore,
     private readonly options: {
@@ -707,8 +708,21 @@ export class EngineUpdateOperations {
       }
     }
   }
+  private reconcileTerminal(records: OperationRecords) {
+    for (const [id, terminal] of this.pendingTerminal) {
+      const current = records[id];
+      if (
+        current?.id === terminal.id &&
+        current.owner === this.owner &&
+        current.status === "running"
+      )
+        records[id] = { ...terminal };
+    }
+  }
   async read(): Promise<Partial<Record<AcpEngineId, EngineUpdateOperation>>> {
-    return this.store.exclusive(async (records) => {
+    const pending = [...this.pendingTerminal];
+    const result = await this.store.exclusive(async (records) => {
+      this.reconcileTerminal(records);
       this.recover(records);
       return Object.fromEntries(
         Object.entries(records).map(([id, record]) => [
@@ -717,6 +731,16 @@ export class EngineUpdateOperations {
         ])
       );
     });
+    // Only discard after the transaction commits; an interrupted/replaced
+    // operation is fenced and must never be overwritten by an older result.
+    for (const [id, terminal] of pending) {
+      if (
+        this.pendingTerminal.get(id)?.id === terminal.id &&
+        (result[id]?.id !== terminal.id || result[id]?.status !== "running")
+      )
+        this.pendingTerminal.delete(id);
+    }
+    return result;
   }
   async start(
     id: AcpEngineId,
@@ -730,6 +754,7 @@ export class EngineUpdateOperations {
     if (!installation.canUpdate || !installation.run)
       throw new Error(installation.reason);
     const operation = await this.store.exclusive(async (records) => {
+      this.reconcileTerminal(records);
       this.recover(records);
       if (
         Object.values(records).some(
@@ -850,7 +875,11 @@ export class EngineUpdateOperations {
       record.retryBlocked = false;
       // Drain in-flight snapshots before writing the terminal result.
       await writes.catch(() => {});
+      record.output = output;
+      this.pendingTerminal.set(record.engineId, { ...record });
       await save();
+      if (this.pendingTerminal.get(record.engineId)?.id === record.id)
+        this.pendingTerminal.delete(record.engineId);
     }
   }
 }
