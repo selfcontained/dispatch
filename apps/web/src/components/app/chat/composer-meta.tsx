@@ -56,7 +56,8 @@ import { cn } from "@/lib/utils";
 
 import {
   choiceName,
-  contextPercent,
+  contextRemainingPercent,
+  remainingPercent,
   formatCost,
   formatCredits,
   formatExtraUsage,
@@ -308,8 +309,8 @@ function UsageChip({
     (plan) =>
       plan.engine === "codex" && hasExpiringResets(plan.limitResets, now)
   );
-  const percent = contextPercent(usage);
-  const usageLabel = percent === null ? "Usage" : `${percent}% context`;
+  const percent = contextRemainingPercent(usage);
+  const usageLabel = percent === null ? "Usage" : `Context: ${percent}% left`;
   return (
     <Popover
       open={open}
@@ -327,7 +328,7 @@ function UsageChip({
             "shrink-0 tabular-nums",
             !agent && "col-start-2"
           )}
-          title="Usage"
+          title={usageLabel}
           aria-label={
             expiring
               ? `${usageLabel} · Codex reset credit expires within seven days`
@@ -345,9 +346,11 @@ function UsageChip({
               />
             ) : null}
           </span>
-          <span className="composer-usage-full">{usageLabel}</span>
+          <span className="composer-usage-full">
+            {percent === null ? "Usage" : `${percent}% left · context`}
+          </span>
           <span className="composer-usage-short hidden">
-            {percent === null ? "Usage" : `${percent}% ctx`}
+            {percent === null ? "Usage" : `${percent}% left`}
           </span>
         </button>
       </PopoverTrigger>
@@ -376,7 +379,7 @@ function UsageChip({
 
 /**
  * The bar's colour: the provider's own warning level when it gives one
- * ("normal", "warning", anything worse), else by how full it is.
+ * ("normal", "warning", anything worse), else by used capacity.
  */
 function barTone(percent: number, severity?: string): string {
   if (severity) {
@@ -395,17 +398,36 @@ function barTone(percent: number, severity?: string): string {
 
 function Bar({
   percent,
+  usedPercent,
+  label,
   severity,
 }: {
-  percent: number;
+  percent: number | null;
+  usedPercent: number;
+  label: string;
   severity?: string;
 }): JSX.Element {
   return (
-    <div className={BAR_TRACK_CLASS}>
-      <div
-        className={cn("h-full rounded-full", barTone(percent, severity))}
-        style={{ width: `${Math.max(2, percent)}%` }}
-      />
+    <div
+      className={BAR_TRACK_CLASS}
+      role="progressbar"
+      aria-label={`${label} capacity left`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent ?? undefined}
+      aria-valuetext={
+        percent === null ? "not reported yet" : `${percent}% left`
+      }
+      title={
+        percent === null ? "Capacity not reported yet" : `${percent}% left`
+      }
+    >
+      {percent !== null ? (
+        <div
+          className={cn("h-full rounded-full", barTone(usedPercent, severity))}
+          style={{ width: `${percent}%` }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -483,7 +505,7 @@ function UsageDetails({
 }): JSX.Element {
   const catalog = useAgentModelCatalogData();
   if (!usage) return <UsageDetailsSkeleton agentType={agentType} />;
-  const percent = contextPercent(usage);
+  const percent = contextRemainingPercent(usage);
   const { session } = usage;
   return (
     <section
@@ -499,15 +521,24 @@ function UsageDetails({
             testId="usage-context"
             value={
               usage.context && percent !== null
-                ? `${formatTokenCount(usage.context.used)} / ${formatTokenCount(usage.context.size)} (${percent}%)`
+                ? `${formatTokenCount(usage.context.used)} / ${formatTokenCount(usage.context.size)} (${percent}% left)`
                 : "not reported yet"
             }
           />
-          {percent !== null ? (
-            <Bar percent={percent} />
-          ) : (
-            <div className={BAR_TRACK_CLASS} />
-          )}
+          <Bar
+            percent={percent}
+            label="Context"
+            usedPercent={
+              percent === null
+                ? 0
+                : Math.min(
+                    100,
+                    Math.round(
+                      (usage.context!.used / usage.context!.size) * 100
+                    )
+                  )
+            }
+          />
         </div>
         <Row
           label="Session"
@@ -1062,6 +1093,7 @@ function PlanWindowRow({
   now: number;
 }): JSX.Element {
   const resets = resetsIn(window.resetsAt, now);
+  const percent = remainingPercent(window.usedPercent);
   return (
     <div className="space-y-1.5 py-0.5">
       {/* The percentage stands alone at the right; the reset sits, muted, by the label. */}
@@ -1075,10 +1107,15 @@ function PlanWindowRow({
           ) : null}
         </span>
         <span className="shrink-0 tabular-nums text-foreground">
-          {Math.round(window.usedPercent)}%
+          {percent === null ? "not reported yet" : `${percent}% left`}
         </span>
       </div>
-      <Bar percent={window.usedPercent} severity={window.severity} />
+      <Bar
+        percent={percent}
+        usedPercent={window.usedPercent}
+        label={window.label}
+        severity={window.severity}
+      />
     </div>
   );
 }

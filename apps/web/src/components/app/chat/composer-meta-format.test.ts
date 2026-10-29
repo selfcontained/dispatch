@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   choiceName,
-  contextPercent,
+  contextRemainingPercent,
+  remainingPercent,
   formatCost,
   formatCredits,
   formatExtraUsage,
@@ -55,13 +56,15 @@ describe("choiceName", () => {
   });
 });
 
-describe("contextPercent", () => {
+describe("contextRemainingPercent", () => {
   it("rounds, caps at 100, and is null before any report", () => {
     const usage = (used: number, size: number) =>
       ({ context: { used, size } }) as AgentUsageResponse;
-    expect(contextPercent(usage(84_000, 200_000))).toBe(42);
-    expect(contextPercent(usage(300, 200))).toBe(100);
-    expect(contextPercent({ context: null } as AgentUsageResponse)).toBeNull();
+    expect(contextRemainingPercent(usage(84_000, 200_000))).toBe(58);
+    expect(contextRemainingPercent(usage(300, 200))).toBe(0);
+    expect(
+      contextRemainingPercent({ context: null } as AgentUsageResponse)
+    ).toBeNull();
   });
 });
 
@@ -217,5 +220,43 @@ describe("reset expiry reminder", () => {
         now
       )
     ).toBe(true);
+  });
+});
+
+describe("remaining capacity", () => {
+  it.each([
+    [0, 100],
+    [60, 40],
+    [100, 0],
+    [-5, 100],
+    [105, 0],
+    [60.49, 40],
+    [60.5, 40],
+    [60.51, 39],
+    [99.6, 0],
+  ])("converts %s used to %s left", (used, left) => {
+    expect(remainingPercent(used)).toBe(left);
+  });
+  it.each([undefined, null, NaN, Infinity, -Infinity, "60"])(
+    "keeps %s unknown",
+    (value) => {
+      expect(remainingPercent(value)).toBeNull();
+    }
+  );
+  it("rejects invalid context denominators and nonfinite facts", () => {
+    for (const [used, size] of [
+      [60, 0],
+      [60, -1],
+      [NaN, 100],
+      [60, Infinity],
+      [Infinity, 100],
+    ]) {
+      expect(
+        contextRemainingPercent({
+          context: { used, size },
+        } as AgentUsageResponse)
+      ).toBeNull();
+    }
+    expect(contextRemainingPercent(undefined)).toBeNull();
   });
 });
