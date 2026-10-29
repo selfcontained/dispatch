@@ -67,8 +67,11 @@ final class UpdateProgressWindowTests: XCTestCase {
         let driver = UpdateUserDriver(hostBundle: .main, delegate: nil)
         defer { driver.progress?.close(); driver.dismissUpdateInstallation() }
         var replies = 0
+        var explicitInstalls = 0
+        driver.explicitInstall = { explicitInstalls += 1 }
         driver.showReady(toInstallAndRelaunch: { choice in
             XCTAssertEqual(choice, .install)
+            XCTAssertEqual(explicitInstalls, 1, "Human intent must be recorded before Sparkle receives the final ready reply")
             // Progress must already be visible when Sparkle receives the reply.
             XCTAssertEqual(driver.progress?.phase, .preparing)
             XCTAssertTrue(driver.progress?.window?.isVisible == true)
@@ -82,6 +85,7 @@ final class UpdateProgressWindowTests: XCTestCase {
         XCTAssertFalse(oldWindow.isVisible)
         button.performClick(nil)
         XCTAssertEqual(replies, 1)
+        XCTAssertEqual(explicitInstalls, 1)
         driver.showInstallingUpdate(withApplicationTerminated: false, retryTerminatingApplication: { XCTFail("Must not retry termination") })
         XCTAssertTrue(driver.progress?.window?.isVisible == true)
         driver.restarting()

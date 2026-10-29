@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import CryptoKit
+import CoreFoundation
 
 /// An authenticated server said active work prevents a safe boundary right now. Nothing
 /// was stopped or fenced; the update is postponed, never forced and never a recovery.
@@ -10,7 +11,13 @@ public struct RecoveryDeferral: LocalizedError, Equatable {
     public let reasons: [String]
     public init(code: String, reasons: [String]) { self.code = code; self.reasons = reasons }
     public var errorDescription: String? {
-        "Dispatch postponed the update because agents are still working\(reasons.isEmpty ? "" : " (\(reasons.prefix(3).joined(separator: ", ")))"). It will retry when they are idle; no work was interrupted."
+        if code == "ACTIVITY_UNVERIFIED" {
+            return "Dispatch postponed the automatic update because it could not verify agent activity. It will retry automatically; no work was interrupted."
+        }
+        if code == "ATTEMPT_CHANGED" {
+            return "Dispatch postponed the update because its preparation state changed. It will retry automatically; no work was interrupted."
+        }
+        return "Dispatch postponed the update because agents are still working\(reasons.isEmpty ? "" : " (\(reasons.prefix(3).joined(separator: ", ")))"). It will retry when they are idle; no work was interrupted."
     }
 }
 
@@ -36,7 +43,7 @@ public enum RecoveryProtocol {
     }
 
     /// Advisory, authenticated check. The installation fence remains authoritative.
-    public static func updateBusy(root: URL) async throws -> Bool {
+    public static func updateBusy(root: URL, strict: Bool = false) async throws -> Bool {
         let config = try serverConfiguration(root: root)
         guard let token = AppControlToken.read(root: root) else { throw ConfigurationError("Cannot check agent activity. Start the Dispatch server and try again.") }
         let challenge = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
@@ -48,14 +55,28 @@ public enum RecoveryProtocol {
         let session = URLSession(configuration: .ephemeral, delegate: LocalServerTrust(root: root), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
+        return try authenticatedActivity(status: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                                         data: data, key: token, challenge: challenge,
+                                         instanceID: config.instanceID, strict: strict)
+    }
+
+    /// Strict callers require the signed activity capability. Legacy servers without
+    /// `busy` may still serve manual prompts, but cannot authorize an automatic fence.
+    public static func authenticatedActivity(status: Int, data: Data, key: String, challenge: String, instanceID: String, strict: Bool) throws -> Bool {
+        guard status == 200,
               var body = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let proof = body.removeValue(forKey: "proof") as? String,
-              try verifyProof(proof, body: body, key: token, route: "status", challenge: challenge, nonce: nil),
-              let instance = body["instance"] as? [String: Any], instance["macInstanceId"] as? String == config.instanceID else {
+              try verifyProof(proof, body: body, key: key, route: "status", challenge: challenge, nonce: nil),
+              !instanceID.isEmpty,
+              let instance = body["instance"] as? [String: Any], instance["macInstanceId"] as? String == instanceID else {
             throw ConfigurationError("Cannot verify agent activity. Check that the Dispatch server is running and try again.")
         }
-        // Older servers do not expose activity; their installation fence still guards updates.
+        if strict {
+            guard let busy = body["busy"] as? NSNumber, CFGetTypeID(busy) == CFBooleanGetTypeID() else {
+                throw ConfigurationError("This server does not report verified agent activity for automatic updates.")
+            }
+            return busy.boolValue
+        }
         return body["busy"] as? Bool ?? false
     }
 

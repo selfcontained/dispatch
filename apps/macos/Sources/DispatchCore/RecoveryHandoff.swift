@@ -196,11 +196,82 @@ public struct UpdateDeferralSchedule: Equatable {
     public static let interval: TimeInterval = 300
     public static let maxAttempts = 12
     public private(set) var attempts = 0
+    public struct Retry: Equatable {
+        public let id: UUID
+        public let when: Date
+    }
+    public private(set) var pending: Retry?
     public init() {}
+    /// Duplicate completion/withdrawal callbacks share one timer and one budget slot.
+    public mutating func schedule(after now: Date) -> Retry? {
+        if let pending { return pending }
+        guard let when = next(after: now) else { return nil }
+        let retry = Retry(id: UUID(), when: when)
+        pending = retry
+        return retry
+    }
+    /// Locked controls and active Sparkle sessions postpone the same reservation.
+    /// Stale cancelled timers cannot claim a later reservation.
+    public mutating func claim(_ id: UUID, eligible: Bool, now: Date) -> Bool {
+        guard pending?.id == id else { return false }
+        if !eligible {
+            pending = Retry(id: id, when: now.addingTimeInterval(Self.interval))
+            return false
+        }
+        pending = nil
+        return true
+    }
     /// The next retry time, or nil when the bounded budget is spent.
     public mutating func next(after now: Date) -> Date? {
         guard attempts < Self.maxAttempts else { return nil }
         attempts += 1
         return now.addingTimeInterval(Self.interval)
+    }
+}
+
+/// Snapshot compared after the advisory await, before preparation can advance.
+public struct UpdateAttemptState: Equatable {
+    public var intent: UpdateRecovery?
+    public var journal: NativeRecoveryJournal?
+    public var running: Bool
+    public var active: Bool
+    public var recoveryLocked: Bool
+    public var generation: UUID
+    public init(intent: UpdateRecovery?, journal: NativeRecoveryJournal?, running: Bool, active: Bool, recoveryLocked: Bool, generation: UUID = UUID()) {
+        self.intent = intent; self.journal = journal; self.running = running
+        self.active = active; self.recoveryLocked = recoveryLocked; self.generation = generation
+    }
+}
+
+/// Only a live explicit request bypasses the advisory read. Unknown resumed
+/// installers and automatic retries use the conservative background policy.
+public struct UpdateAttemptPolicy: Equatable {
+    public private(set) var explicit = false
+    public private(set) var generation = UUID()
+    public init() {}
+    public mutating func begin(background: Bool, remoteInstall: Bool) {
+        generation = UUID(); explicit = !background || remoteInstall
+    }
+    public mutating func userInstall() { generation = UUID(); explicit = true }
+    public mutating func end() { generation = UUID(); explicit = false }
+
+    @MainActor
+    public func preflight(expected: UpdateAttemptState, activity: () async throws -> Bool, current: () -> UpdateAttemptState) async throws {
+        if !explicit && expected.running {
+            do {
+                if try await activity() {
+                    throw RecoveryDeferral(code: "BUSY", reasons: ["active server work"])
+                }
+            } catch let error as RecoveryDeferral { throw error }
+            catch {
+                throw RecoveryDeferral(code: "ACTIVITY_UNVERIFIED", reasons: ["agent activity could not be verified"])
+            }
+        }
+        // For a stopped service the existing private readiness worker must still
+        // prove the transaction nonce and quiescent boundary. No failed read is idle.
+        guard !Task.isCancelled, expected.active, !expected.recoveryLocked, expected.journal != nil,
+              expected.intent?.wasRunning == expected.running, current() == expected else {
+            throw RecoveryDeferral(code: "ATTEMPT_CHANGED", reasons: ["update or server state changed during preparation"])
+        }
     }
 }

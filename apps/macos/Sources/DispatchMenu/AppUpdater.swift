@@ -39,11 +39,13 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     // Progress of a check or install the web app asked for, plus what any check found.
     private var checking = false
     private var installing = false
+    private var remoteInstallRequest = false
     private var availableVersion: String?
     private var checkedAt: Date?
     private var remoteError: String?
     /// Bounded idle retries after the server reported active work. Nothing is staged
     /// meanwhile, so Quit, logout, and restart never install an unprotected update.
+    private var attemptPolicy = UpdateAttemptPolicy()
     private var deferral = UpdateDeferralSchedule()
     private var deferralTask: Task<Void, Never>?
     private(set) var deferredNote: String?
@@ -104,6 +106,9 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             self.scheduleArtifactMaintenance()
             self.clearDeferral(); self.restoreAutomatic()
         }
+        // Sparkle's final ready prompt does not emit userDidMakeChoice; record
+        // its accepted human reply directly. Silent automatic installs never use it.
+        userDriver.explicitInstall = { [weak self] in self?.attemptPolicy.userInstall() }
         userDriver.checkActivity = { [weak self] in
             guard let self, self.wasRunning() else { return false }
             return try await RecoveryProtocol.updateBusy(root: self.root)
@@ -328,6 +333,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
                 updater.automaticallyChecksForUpdates = true
                 updater.automaticallyDownloadsUpdates = true
             }
+            remoteInstallRequest = true
             updater.checkForUpdatesInBackground()
         default: return
         }
@@ -506,8 +512,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         return true
     }
     private func scheduleDeferredRetry() {
-        deferralTask?.cancel()
-        guard let when = deferral.next(after: Date()) else {
+        guard deferralTask == nil else { return }
+        guard let retry = deferral.schedule(after: Date()) else {
             clearDeferral()
             remoteError = "Dispatch postponed the update because agents stayed busy. Choose Check for Updates when work is idle."
             userDriver.retryExhausted(remoteError!)
@@ -515,14 +521,24 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         }
         deferredNote = "Update waits for agents to finish"
         deferralTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(max(1, when.timeIntervalSinceNow)))
+            try? await Task.sleep(for: .seconds(max(1, retry.when.timeIntervalSinceNow)))
             guard !Task.isCancelled else { return }
-            self?.retryDeferredInstall()
+            self?.retryDeferredInstall(timerID: retry.id)
         }
     }
-    private func retryDeferredInstall() {
-        deferralTask = nil
-        guard started, !controlsLocked, !needsRecovery, !updater.sessionInProgress else { scheduleDeferredRetry(); return }
+    private func retryDeferredInstall(timerID: UUID? = nil) {
+        let eligible = started && !controlsLocked && !needsRecovery && !updater.sessionInProgress
+        if let pending = deferral.pending {
+            guard timerID == nil || timerID == pending.id else { return }
+            deferralTask?.cancel(); deferralTask = nil
+            guard deferral.claim(pending.id, eligible: eligible, now: Date()) else {
+                scheduleDeferredRetry(); return
+            }
+        } else {
+            // Snapshot preparation can resume an attempt without a busy timer.
+            guard timerID == nil, eligible else { return }
+        }
+        attemptPolicy.end(); remoteInstallRequest = false
         log("retrying deferred update attempt=\(deferral.attempts)")
         // Same silent path as a remote install; the setting is restored after the cycle.
         if !automatic {
@@ -550,6 +566,11 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         guard var journal = ownedStagedJournal(), journal.targetIdentity == targetIdentity, journal.targetBuild == intent.targetBuild, journal.instanceID == config.instanceID else {
             throw RecoveryDeferral(code: "UNPROTECTED_STAGE", reasons: ["no staged protection matches this installer"])
         }
+        let expected = UpdateAttemptState(intent: intent, journal: journal, running: wasRunning(),
+                                          active: handoff.active, recoveryLocked: needsRecovery || maintainingArtifacts, generation: attemptPolicy.generation)
+        try await attemptPolicy.preflight(expected: expected, activity: {
+            try await RecoveryProtocol.updateBusy(root: self.root, strict: true)
+        }, current: { self.preparationState() })
         var preparationWorker: Process?
         var fenced = false
         do {
@@ -598,6 +619,10 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             }
             throw error
         }
+    }
+    private func preparationState() -> UpdateAttemptState {
+        UpdateAttemptState(intent: handoff.intent, journal: ownedStagedJournal(), running: wasRunning(),
+                           active: handoff.active, recoveryLocked: needsRecovery || maintainingArtifacts, generation: attemptPolicy.generation)
     }
     private func stopPreparationWorker(_ worker: Process) async throws {
         if worker.isRunning { worker.terminate() }
@@ -667,6 +692,10 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     /// Read per check, so a channel picked in Settings applies to the next one.
     func allowedChannels(for updater: SPUUpdater) -> Set<String> { UpdateChannel.current().sparkleChannels }
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        // Consume only the request starting this cycle, not the remote progress
+        // flag which can remain set while Sparkle switches drivers after an abort.
+        let remoteInstall = remoteInstallRequest
+        remoteInstallRequest = false
         if updateCheck == .updatesInBackground, !checking, !installing,
            SystemPower.inDarkWake() {
             wakeCheckPending = true
@@ -674,6 +703,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         }
         userDriver.beginUpdateCycle()
         if controlsLocked || needsRecovery { throw ConfigurationError("Finish update recovery before checking for another update.") }
+        attemptPolicy.begin(background: updateCheck == .updatesInBackground, remoteInstall: remoteInstall)
     }
     /// The last point where an update can be vetoed before Sparkle downloads, extracts,
     /// and submits its installer job. Information-only checks never stage anything.
@@ -700,6 +730,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         if !protected { log("extraction without staged protection; the installer will be withdrawn at the install hook") }
     }
     func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate updateItem: SUAppcastItem, state: SPUUserUpdateState) {
+        if choice == .install { attemptPolicy.userInstall() }
         resumableDownload = choice == .dismiss && state.stage == .downloaded
     }
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
@@ -715,6 +746,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         availableVersion = nil; checkedAt = Date(); remoteError = nil; onChange?()
     }
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        attemptPolicy.end(); remoteInstallRequest = false
         if Self.isSleepVeto(error) { restoreAutomatic(); checkAfterWake(); return }
         let wasRemote = checking || installing
         checking = false; installing = false
@@ -739,6 +771,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         install(item, handler: handler); return true
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        attemptPolicy.end(); remoteInstallRequest = false
         if Self.isSleepVeto(error) { return }
         guard handoff.abort() else { releaseStaged("Update cycle aborted without a staged installer."); onChange?(); return }
         Task {

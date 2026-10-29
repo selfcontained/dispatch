@@ -241,6 +241,7 @@
         "apps/server/test/helpers/restart-evidence.ts",
         "e2e/*release*",
         "apps/macos/**",
+        "docs/macos-native-recovery.md",
         "apps/server/src/update-recovery/**",
         "apps/server/src/server/request-lifecycle.ts",
         "apps/server/test/request-lifecycle.test.ts",

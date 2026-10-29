@@ -12,6 +12,7 @@ final class UpdateUserDriver: SPUStandardUserDriver {
     private var pendingInstallerError: String?
     var cancelPendingInstall: (() async throws -> Void)?
     var checkActivity: (() async throws -> Bool)?
+    var explicitInstall: (() -> Void)?
     var activityPollDelay: () async throws -> Void = { try await Task.sleep(for: .seconds(3)) }
     private var activityTask: Task<Void, Never>?
     private var abandonActivity: (() -> Void)?
@@ -141,10 +142,10 @@ final class UpdateUserDriver: SPUStandardUserDriver {
                     guard let self else { return }
                     // A long wait never installs without a fresh confirmation.
                     if waited { self.showReadyPrompt(reply, check: false) }
-                    else { self.beginProgress(); reply(.install) }
+                    else { self.beginProgress(); self.explicitInstall?(); reply(.install) }
                 }
             } else {
-                self.beginProgress(); reply(.install)
+                self.beginProgress(); self.explicitInstall?(); reply(.install)
             }
         }
     }

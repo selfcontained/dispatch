@@ -1,9 +1,39 @@
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
 @testable import DispatchCore
 
 final class RecoveryActivityTests: XCTestCase {
+    func testStrictActivityRequiresSignedExplicitBooleanAndMatchingInstance() throws {
+        let key = "fixture-token", challenge = "fresh-challenge"
+        func signed(_ body: [String: Any], proofKey: String? = nil) throws -> Data {
+            let payload = try "dispatch-recovery-v1\n\(RecoveryProtocol.prefix)status\n\(challenge)\n\(RecoveryProtocol.canonical(body))\n{}"
+            let mac = HMAC<SHA256>.authenticationCode(for: Data(payload.utf8), using: SymmetricKey(data: Data((proofKey ?? key).utf8)))
+            var result = body
+            result["proof"] = mac.map { String(format: "%02x", $0) }.joined()
+            return try JSONSerialization.data(withJSONObject: result)
+        }
+        func read(_ body: [String: Any], status: Int = 200, proofKey: String? = nil, strict: Bool = true) throws -> Bool {
+            try RecoveryProtocol.authenticatedActivity(status: status, data: signed(body, proofKey: proofKey), key: key, challenge: challenge, instanceID: "this-mac", strict: strict)
+        }
+        let identity: [String: Any] = ["instance": ["macInstanceId": "this-mac"]]
+        XCTAssertFalse(try read(identity.merging(["busy": false]) { _, new in new }))
+        XCTAssertTrue(try read(identity.merging(["busy": true]) { _, new in new }))
+        XCTAssertThrowsError(try read(identity)) // legacy server lacks capability
+        XCTAssertFalse(try read(identity, strict: false)) // preserve manual behavior
+        for malformed: Any in ["false", 0, 1, NSNull(), []] {
+            XCTAssertThrowsError(try read(identity.merging(["busy": malformed]) { _, new in new }))
+        }
+        XCTAssertThrowsError(try read(["busy": false, "instance": ["macInstanceId": "other-mac"]]))
+        XCTAssertThrowsError(try read(["busy": false]))
+        XCTAssertThrowsError(try read(identity, status: 503))
+        XCTAssertThrowsError(try read(identity.merging(["busy": false]) { _, new in new }, proofKey: "wrong-token"))
+        let valid = try signed(identity.merging(["busy": false]) { _, new in new })
+        XCTAssertThrowsError(try RecoveryProtocol.authenticatedActivity(status: 200, data: valid, key: key, challenge: "replayed-challenge", instanceID: "this-mac", strict: true))
+        XCTAssertThrowsError(try RecoveryProtocol.authenticatedActivity(status: 200, data: Data("invalid".utf8), key: key, challenge: challenge, instanceID: "this-mac", strict: true))
+    }
+
     func testRecoveryUsesRunningPortAndRejectsCorruptSnapshot() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-recovery-config-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -90,7 +120,7 @@ final class RecoveryActivityTests: XCTestCase {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("ready").path), "The isolated HTTPS server must start")
-        let busy = try await RecoveryProtocol.updateBusy(root: root)
+        let busy = try await RecoveryProtocol.updateBusy(root: root, strict: true)
         XCTAssertFalse(busy)
         // Legacy installations without a worker snapshot still use saved settings.
         try FileManager.default.removeItem(at: root.appendingPathComponent("running-configuration.json"))
