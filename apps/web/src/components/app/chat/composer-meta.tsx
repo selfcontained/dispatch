@@ -359,7 +359,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
+          "z-[60] max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"
