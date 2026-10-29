@@ -1,5 +1,5 @@
 import type { AgentConfigOption, AgentUsageResponse } from "@dispatch/shared";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   choiceName,
@@ -9,6 +9,7 @@ import {
   formatExtraUsage,
   formatLimitResets,
   formatResetExpiry,
+  formatResetExpiryDate,
   hasExpiringResets,
   resetExpiresSoon,
   pickableOptions,
@@ -134,36 +135,102 @@ describe("formatLimitResets", () => {
     expect(formatLimitResets({ available: 3 })).toBe("3 available");
     expect(formatLimitResets(undefined)).toBe("—");
   });
+});
 
-  it("lists each reset's expiry when known", () => {
+describe("reset expiry dates", () => {
+  const DateTimeFormat = Intl.DateTimeFormat;
+  let timeZone = "UTC";
+  beforeEach(() => {
+    timeZone = "UTC";
+    vi.spyOn(Intl, "DateTimeFormat").mockImplementation(
+      (_locale, options) =>
+        new DateTimeFormat("en-US", { ...options, timeZone })
+    );
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("uses the browser locale/timezone, omits the year, includes minutes, and omits seconds", () => {
+    expect(formatResetExpiryDate("2026-10-22T21:00:57Z")).toBe(
+      "Oct 22, 9:00 PM UTC"
+    );
+    expect(Intl.DateTimeFormat).toHaveBeenCalledWith(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+  });
+
+  it("converts the date and time to the browser timezone across midnight and DST", () => {
+    timeZone = "America/Los_Angeles";
+    expect(formatResetExpiryDate("2026-10-22T01:12:54Z")).toBe(
+      "Oct 21, 6:12 PM PDT"
+    );
+    expect(formatResetExpiryDate("2026-12-22T01:12:54Z")).toBe(
+      "Dec 21, 5:12 PM PST"
+    );
+  });
+
+  it("lists one valid expiration per line chronologically without changing the input", () => {
+    const items = [
+      { expiresAt: "2026-10-29T19:12:54Z" },
+      { expiresAt: "2026-10-22T21:00:57Z" },
+      { expiresAt: null },
+      { expiresAt: "invalid" },
+    ];
+    expect(formatResetExpiry({ available: 4, items })).toBe(
+      "Oct 22, 9:00 PM UTC\nOct 29, 7:12 PM UTC"
+    );
+    expect(items[0].expiresAt).toBe("2026-10-29T19:12:54Z");
+  });
+
+  it("shows the oldest absolute expiry even when no valid item dates were reported", () => {
     expect(
       formatResetExpiry({
         available: 3,
-        items: [
-          { expiresAt: "2026-10-29T19:12:54Z" },
-          { expiresAt: "2026-10-22T21:00:57Z" },
-          { expiresAt: null },
-        ],
+        oldestExpiresAt: "2026-10-22T21:00:00Z",
+        items: [{ expiresAt: "invalid" }],
       })
-    ).toBe("Oct 22 · Oct 29");
+    ).toBe("oldest expires Oct 22, 9:00 PM UTC");
   });
 
-  it("says when the oldest reset lapses, only while one is held", () => {
-    const now = Date.parse("2026-10-16T00:00:00Z");
+  it("omits bare days rather than displaying an invented midnight time", () => {
     expect(
-      formatResetExpiry(
-        { available: 3, oldestExpiresAt: "2026-10-22T21:00:00Z" },
-        now
-      )
-    ).toBe("oldest expires in 6d 21h");
+      formatResetExpiry({
+        available: 2,
+        items: [
+          { expiresAt: "2026-10-22" },
+          { expiresAt: "2026-10-29T19:12:54Z" },
+        ],
+      })
+    ).toBe("Oct 29, 7:12 PM UTC");
     expect(
-      formatResetExpiry(
-        { available: 0, oldestExpiresAt: "2026-10-22T21:00:00Z" },
-        now
-      )
+      formatResetExpiry({ available: 1, items: [{ expiresAt: "2026-10-22" }] })
     ).toBeNull();
-    expect(formatResetExpiry({ available: 3 }, now)).toBeNull();
-    expect(formatResetExpiry(undefined, now)).toBeNull();
+  });
+
+  it("does not invent dates for invalid/missing metadata or unavailable resets", () => {
+    for (const expiresAt of [null, undefined, "invalid", "", "2026-10-22"]) {
+      expect(formatResetExpiryDate(expiresAt)).toBeNull();
+      expect(
+        formatResetExpiry({ available: 3, oldestExpiresAt: expiresAt })
+      ).toBeNull();
+    }
+    expect(
+      formatResetExpiry({
+        available: 0,
+        oldestExpiresAt: "2026-10-22T21:00:00Z",
+      })
+    ).toBeNull();
+    expect(
+      formatResetExpiry({
+        available: 0,
+        items: [{ expiresAt: "2026-10-22T21:00:00Z" }],
+      })
+    ).toBeNull();
+    expect(formatResetExpiry({ available: 3 })).toBeNull();
+    expect(formatResetExpiry(undefined)).toBeNull();
   });
 });
 

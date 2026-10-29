@@ -62,6 +62,7 @@ import {
   formatExtraUsage,
   formatLimitResets,
   formatResetExpiry,
+  formatResetExpiryDate,
   hasExpiringResets,
   resetExpiresSoon,
   pickableOptions,
@@ -358,7 +359,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
+          "z-[60] max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"
@@ -865,7 +866,7 @@ export function UseResetButton({
   const consume = useConsumeCodexReset();
   const resets: PlanLimitResets | undefined = plan.limitResets;
   const available = resets?.available ?? 0;
-  const expiry = formatResetExpiry(resets, now);
+  const expiry = formatResetExpiry(resets);
   const expiring = plan.engine === "codex" && hasExpiringResets(resets, now);
   // Every way out (button, Escape, overlay) forgets the last answer, so the
   // next open asks for confirmation again rather than showing an old result.
@@ -885,24 +886,30 @@ export function UseResetButton({
       open={open}
       onOpenChange={(next) => (next ? setOpen(true) : close())}
     >
-      {/* When the resets lapse at the left, the action at the right. */}
-      <div className="flex items-center justify-between gap-2">
-        <span
+      {/* Each expiry gets its own row, with the action below the list. */}
+      <div className="flex flex-col gap-2">
+        <div
           className={cn(
-            "truncate text-[11px]",
+            "min-w-0 text-[11px]",
             expiring ? "text-primary" : "text-muted-foreground/80"
           )}
           data-testid="usage-codex-reset-expiry"
           title={expiry ? `Resets expire: ${expiry}` : undefined}
         >
-          {expiry ?? ""}
-        </span>
+          {expiry ? (
+            <ul className="space-y-1">
+              {expiry.split("\n").map((date, index) => (
+                <li key={index}>{date}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         <DialogTrigger asChild>
           <Button
             type="button"
             size="sm"
             variant="default"
-            className="h-6 shrink-0 px-2 text-[11px] pointer-coarse:min-h-11"
+            className="h-6 shrink-0 self-end px-2 text-[11px] pointer-coarse:min-h-11"
             disabled={available === 0}
             data-testid="usage-codex-reset"
           >
@@ -934,32 +941,37 @@ export function UseResetButton({
         {resets?.items?.length ? (
           <div className="space-y-1 text-xs">
             <div className="text-[11px] font-medium text-foreground">
-              Your resets · the oldest is used first
+              Reset expirations · oldest first
             </div>
-            <ul className="space-y-0.5" data-testid="usage-codex-reset-list">
-              {resets.items.map((item, index) => (
-                <li
-                  key={item.id}
-                  className={cn(
-                    "flex justify-between gap-2",
-                    plan.engine === "codex" &&
-                      available > 0 &&
-                      resetExpiresSoon(item.expiresAt, now)
-                      ? "text-primary"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  <span className="truncate">
-                    {item.title}
-                    {index === 0 ? " · next" : ""}
-                  </span>
-                  <span className="shrink-0 tabular-nums">
-                    {item.expiresAt
-                      ? `expires ${new Date(item.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                      : "no expiry"}
-                  </span>
-                </li>
-              ))}
+            <ul className="space-y-1" data-testid="usage-codex-reset-list">
+              {resets.items.map((item, index) => {
+                const expires = formatResetExpiryDate(item.expiresAt);
+                return (
+                  <li
+                    key={item.id}
+                    className={cn(
+                      "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1",
+                      plan.engine === "codex" &&
+                        available > 0 &&
+                        resetExpiresSoon(item.expiresAt, now)
+                        ? "text-primary"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    <span className="min-w-0 break-words">
+                      {item.title}
+                      {index === 0 ? " · next" : ""}
+                    </span>
+                    <span className="whitespace-nowrap tabular-nums">
+                      {expires
+                        ? expires
+                        : item.expiresAt == null
+                          ? "no expiry"
+                          : "expiry unknown"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
