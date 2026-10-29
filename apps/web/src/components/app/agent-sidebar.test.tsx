@@ -112,8 +112,8 @@ afterEach(() => {
 describe("sidebar pin integration", () => {
   it("keeps nested children with cards and retains hidden pins through scope changes", () => {
     const { store, props, rerender } = setup(["stale", "child", ""]);
-    fireEvent.click(screen.getByRole("button", { name: "c", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "b", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "c" }));
+    fireEvent.click(screen.getByRole("button", { name: "b" }));
     expect(order()).toEqual(["b", "c", "a", "d"]);
     expect(
       screen.getByTestId("nested-child").closest('[data-testid="card-b"]')
@@ -124,7 +124,7 @@ describe("sidebar pin integration", () => {
       agents.filter((agent) => agent.id === "b" || agent.id === "child")
     );
     expect(order()).toEqual(["b"]);
-    fireEvent.click(screen.getByRole("button", { name: "b", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "b" }));
     expect(store.get(agentSidebarPinsAtom)).toContain("c");
     rerender(agents);
     expect(order()).toEqual(["c", "a", "b", "d"]);
