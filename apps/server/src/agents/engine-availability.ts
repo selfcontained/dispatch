@@ -1,4 +1,4 @@
-import { access, constants, stat } from "node:fs/promises";
+import { access, constants, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { defaultSearchDirs } from "../shared/lib/tool-environment.js";
@@ -63,7 +63,7 @@ async function executable(candidate: string): Promise<boolean> {
 }
 
 /** Numeric order of two version strings ("0.155.1" > "0.154.0"); unknown sorts lowest. */
-function compareVersions(a: string | null, b: string | null): number {
+export function compareVersions(a: string | null, b: string | null): number {
   if (a === b) return 0;
   if (a === null) return -1;
   if (b === null) return 1;
@@ -163,22 +163,33 @@ export function missingEngineMessage(status: EngineStatus): string {
  */
 const versionCache = new Map<
   string,
-  { mtimeMs: number; version: string | null }
+  { fingerprint: string; version: string | null }
 >();
+
+let versionCacheGeneration = 0;
+
+export function clearEngineVersionCache(): void {
+  versionCacheGeneration += 1;
+  versionCache.clear();
+}
 
 export async function engineVersion(bin: string): Promise<string | null> {
   // Asked on every launch and every engines check; the answer only changes
   // when the file does.
-  let mtimeMs: number;
+  let fingerprint: string;
   try {
-    mtimeMs = (await stat(bin)).mtimeMs;
+    const info = await stat(bin);
+    fingerprint = `${await realpath(bin)}:${info.ino}:${info.ctimeMs}:${info.mtimeMs}:${info.size}`;
   } catch {
     return null;
   }
   const cached = versionCache.get(bin);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.version;
+  if (cached && cached.fingerprint === fingerprint) return cached.version;
+  const generation = versionCacheGeneration;
   const version = await readVersion(bin);
-  versionCache.set(bin, { mtimeMs, version });
+  // An in-flight pre-update read must not repopulate the cleared cache.
+  if (generation === versionCacheGeneration)
+    versionCache.set(bin, { fingerprint, version });
   return version;
 }
 

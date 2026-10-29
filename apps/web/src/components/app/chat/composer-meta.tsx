@@ -56,12 +56,14 @@ import { cn } from "@/lib/utils";
 
 import {
   choiceName,
-  contextPercent,
+  contextRemainingPercent,
+  remainingPercent,
   formatCost,
   formatCredits,
   formatExtraUsage,
   formatLimitResets,
   formatResetExpiry,
+  formatResetExpiryDate,
   hasExpiringResets,
   resetExpiresSoon,
   pickableOptions,
@@ -308,8 +310,8 @@ function UsageChip({
     (plan) =>
       plan.engine === "codex" && hasExpiringResets(plan.limitResets, now)
   );
-  const percent = contextPercent(usage);
-  const usageLabel = percent === null ? "Usage" : `${percent}% context`;
+  const percent = contextRemainingPercent(usage);
+  const usageLabel = percent === null ? "Usage" : `Context: ${percent}% left`;
   return (
     <Popover
       open={open}
@@ -327,7 +329,7 @@ function UsageChip({
             "shrink-0 tabular-nums",
             !agent && "col-start-2"
           )}
-          title="Usage"
+          title={usageLabel}
           aria-label={
             expiring
               ? `${usageLabel} · Codex reset credit expires within seven days`
@@ -345,9 +347,11 @@ function UsageChip({
               />
             ) : null}
           </span>
-          <span className="composer-usage-full">{usageLabel}</span>
+          <span className="composer-usage-full">
+            {percent === null ? "Usage" : `${percent}% left · context`}
+          </span>
           <span className="composer-usage-short hidden">
-            {percent === null ? "Usage" : `${percent}% ctx`}
+            {percent === null ? "Usage" : `${percent}% left`}
           </span>
         </button>
       </PopoverTrigger>
@@ -358,7 +362,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
+          "z-[60] max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"
@@ -376,7 +380,7 @@ function UsageChip({
 
 /**
  * The bar's colour: the provider's own warning level when it gives one
- * ("normal", "warning", anything worse), else by how full it is.
+ * ("normal", "warning", anything worse), else by used capacity.
  */
 function barTone(percent: number, severity?: string): string {
   if (severity) {
@@ -395,17 +399,36 @@ function barTone(percent: number, severity?: string): string {
 
 function Bar({
   percent,
+  usedPercent,
+  label,
   severity,
 }: {
-  percent: number;
+  percent: number | null;
+  usedPercent: number;
+  label: string;
   severity?: string;
 }): JSX.Element {
   return (
-    <div className={BAR_TRACK_CLASS}>
-      <div
-        className={cn("h-full rounded-full", barTone(percent, severity))}
-        style={{ width: `${Math.max(2, percent)}%` }}
-      />
+    <div
+      className={BAR_TRACK_CLASS}
+      role="progressbar"
+      aria-label={`${label} capacity left`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent ?? undefined}
+      aria-valuetext={
+        percent === null ? "not reported yet" : `${percent}% left`
+      }
+      title={
+        percent === null ? "Capacity not reported yet" : `${percent}% left`
+      }
+    >
+      {percent !== null ? (
+        <div
+          className={cn("h-full rounded-full", barTone(usedPercent, severity))}
+          style={{ width: `${percent}%` }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -483,7 +506,7 @@ function UsageDetails({
 }): JSX.Element {
   const catalog = useAgentModelCatalogData();
   if (!usage) return <UsageDetailsSkeleton agentType={agentType} />;
-  const percent = contextPercent(usage);
+  const percent = contextRemainingPercent(usage);
   const { session } = usage;
   return (
     <section
@@ -499,15 +522,24 @@ function UsageDetails({
             testId="usage-context"
             value={
               usage.context && percent !== null
-                ? `${formatTokenCount(usage.context.used)} / ${formatTokenCount(usage.context.size)} (${percent}%)`
+                ? `${formatTokenCount(usage.context.used)} / ${formatTokenCount(usage.context.size)} (${percent}% left)`
                 : "not reported yet"
             }
           />
-          {percent !== null ? (
-            <Bar percent={percent} />
-          ) : (
-            <div className={BAR_TRACK_CLASS} />
-          )}
+          <Bar
+            percent={percent}
+            label="Context"
+            usedPercent={
+              percent === null
+                ? 0
+                : Math.min(
+                    100,
+                    Math.round(
+                      (usage.context!.used / usage.context!.size) * 100
+                    )
+                  )
+            }
+          />
         </div>
         <Row
           label="Session"
@@ -865,7 +897,7 @@ export function UseResetButton({
   const consume = useConsumeCodexReset();
   const resets: PlanLimitResets | undefined = plan.limitResets;
   const available = resets?.available ?? 0;
-  const expiry = formatResetExpiry(resets, now);
+  const expiry = formatResetExpiry(resets);
   const expiring = plan.engine === "codex" && hasExpiringResets(resets, now);
   // Every way out (button, Escape, overlay) forgets the last answer, so the
   // next open asks for confirmation again rather than showing an old result.
@@ -885,24 +917,30 @@ export function UseResetButton({
       open={open}
       onOpenChange={(next) => (next ? setOpen(true) : close())}
     >
-      {/* When the resets lapse at the left, the action at the right. */}
-      <div className="flex items-center justify-between gap-2">
-        <span
+      {/* Each expiry gets its own row, with the action below the list. */}
+      <div className="flex flex-col gap-2">
+        <div
           className={cn(
-            "truncate text-[11px]",
+            "min-w-0 text-[11px]",
             expiring ? "text-primary" : "text-muted-foreground/80"
           )}
           data-testid="usage-codex-reset-expiry"
           title={expiry ? `Resets expire: ${expiry}` : undefined}
         >
-          {expiry ?? ""}
-        </span>
+          {expiry ? (
+            <ul className="space-y-1">
+              {expiry.split("\n").map((date, index) => (
+                <li key={index}>{date}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         <DialogTrigger asChild>
           <Button
             type="button"
             size="sm"
             variant="default"
-            className="h-6 shrink-0 px-2 text-[11px] pointer-coarse:min-h-11"
+            className="h-6 shrink-0 self-end px-2 text-[11px] pointer-coarse:min-h-11"
             disabled={available === 0}
             data-testid="usage-codex-reset"
           >
@@ -934,32 +972,37 @@ export function UseResetButton({
         {resets?.items?.length ? (
           <div className="space-y-1 text-xs">
             <div className="text-[11px] font-medium text-foreground">
-              Your resets · the oldest is used first
+              Reset expirations · oldest first
             </div>
-            <ul className="space-y-0.5" data-testid="usage-codex-reset-list">
-              {resets.items.map((item, index) => (
-                <li
-                  key={item.id}
-                  className={cn(
-                    "flex justify-between gap-2",
-                    plan.engine === "codex" &&
-                      available > 0 &&
-                      resetExpiresSoon(item.expiresAt, now)
-                      ? "text-primary"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  <span className="truncate">
-                    {item.title}
-                    {index === 0 ? " · next" : ""}
-                  </span>
-                  <span className="shrink-0 tabular-nums">
-                    {item.expiresAt
-                      ? `expires ${new Date(item.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                      : "no expiry"}
-                  </span>
-                </li>
-              ))}
+            <ul className="space-y-1" data-testid="usage-codex-reset-list">
+              {resets.items.map((item, index) => {
+                const expires = formatResetExpiryDate(item.expiresAt);
+                return (
+                  <li
+                    key={item.id}
+                    className={cn(
+                      "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1",
+                      plan.engine === "codex" &&
+                        available > 0 &&
+                        resetExpiresSoon(item.expiresAt, now)
+                        ? "text-primary"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    <span className="min-w-0 break-words">
+                      {item.title}
+                      {index === 0 ? " · next" : ""}
+                    </span>
+                    <span className="whitespace-nowrap tabular-nums">
+                      {expires
+                        ? expires
+                        : item.expiresAt == null
+                          ? "no expiry"
+                          : "expiry unknown"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
@@ -1062,6 +1105,7 @@ function PlanWindowRow({
   now: number;
 }): JSX.Element {
   const resets = resetsIn(window.resetsAt, now);
+  const percent = remainingPercent(window.usedPercent);
   return (
     <div className="space-y-1.5 py-0.5">
       {/* The percentage stands alone at the right; the reset sits, muted, by the label. */}
@@ -1075,10 +1119,15 @@ function PlanWindowRow({
           ) : null}
         </span>
         <span className="shrink-0 tabular-nums text-foreground">
-          {Math.round(window.usedPercent)}%
+          {percent === null ? "not reported yet" : `${percent}% left`}
         </span>
       </div>
-      <Bar percent={window.usedPercent} severity={window.severity} />
+      <Bar
+        percent={percent}
+        usedPercent={window.usedPercent}
+        label={window.label}
+        severity={window.severity}
+      />
     </div>
   );
 }

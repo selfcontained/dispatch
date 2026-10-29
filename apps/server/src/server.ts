@@ -1,4 +1,6 @@
 import { installRequestLifecycle } from "./server/request-lifecycle.js";
+import { createCodexResetCoordinator } from "./agents/codex-reset.js";
+import { consumeCodexLimitReset } from "./agents/provider-plans.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -24,7 +26,7 @@ import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import {
   httpLoggingOptions,
   registerHttpLogging,
@@ -674,6 +676,25 @@ async function registerRoutes() {
     }
   });
 
+  const canManageEngineUpdates = async (
+    request: FastifyRequest
+  ): Promise<boolean> => {
+    if (!(await authRuntime.isPasswordSetCached())) return true;
+    const header = request.headers.authorization;
+    if (
+      header?.startsWith("Bearer ") &&
+      shouldAcceptApiBearerToken(header.slice(7), config.authToken)
+    )
+      return true;
+    const signed = request.cookies[SESSION_COOKIE];
+    const unsigned = signed ? request.unsignCookie(signed) : null;
+    return Boolean(
+      unsigned?.valid &&
+      unsigned.value &&
+      (await validateSession(pool, unsigned.value))
+    );
+  };
+
   // ---------------------------------------------------------------------------
   // Auth hook — runs before every /api/ route except auth + health endpoints
   // ---------------------------------------------------------------------------
@@ -773,8 +794,13 @@ async function registerRoutes() {
   });
 
   const providerPlans = createProviderPlansReporter({ log: app.log });
+  const redeemCodexReset = createCodexResetCoordinator({
+    providerPlans,
+    consume: (requestId) => consumeCodexLimitReset({ log: app.log, requestId }),
+  });
   await registerMcpRoutes(app, {
     providerPlans,
+    redeemCodexReset,
     config,
     pool,
     loginLinkStore,
@@ -817,6 +843,7 @@ async function registerRoutes() {
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
+    canManageEngineUpdates,
     pool,
     localCertificateTrust:
       process.env.DISPATCH_UPDATE_OWNER === "macos-app" &&
@@ -931,6 +958,7 @@ async function registerRoutes() {
 
   await registerAgentRoutes(app, {
     providerPlans,
+    redeemCodexReset,
     tasks: {
       briefingFor: (taskId) => taskService.briefingFor(taskId),
       assignCreated: (taskId, agentId) =>

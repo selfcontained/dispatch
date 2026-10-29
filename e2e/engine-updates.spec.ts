@@ -1,0 +1,363 @@
+import { test, expect } from "@playwright/test";
+import { loadApp } from "./helpers";
+test.use({ deviceScaleFactor: 2 });
+for (const viewport of [
+  { name: "desktop", width: 1440, height: 1000 },
+  { name: "mobile", width: 390, height: 844 },
+]) {
+  test(`engine updates show success, failure and manual installs (${viewport.name})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    let version = "1.0.0";
+    let latestVersion = "2.0.0";
+    let operation: Record<string, unknown> | null = null;
+    let updateRequests = 0;
+    const engines = () => [
+      {
+        id: "codex",
+        label: "Codex",
+        installed: true,
+        path: "/home/user/npm/bin/codex",
+        version,
+        install: "npm i -g @openai/codex",
+        update: {
+          realPath:
+            "/home/user/npm/lib/node_modules/@openai/codex/bin/codex.js",
+          source: "npm",
+          canUpdate: true,
+          reason: "Verified user-owned installation.",
+          command:
+            "npm install --global --prefix /home/user/npm @openai/codex@latest",
+          latestVersion,
+          latestPending: false,
+          available: version !== latestVersion,
+          operation,
+        },
+      },
+      {
+        id: "claude",
+        label: "Claude Code",
+        installed: true,
+        path: "/usr/local/bin/claude",
+        version: null,
+        install: "npm i -g @anthropic-ai/claude-code",
+        update: {
+          source: "unknown",
+          canUpdate: false,
+          reason: "Manual update required.",
+          command: "claude update",
+          latestVersion: "2.0.0",
+          latestPending: false,
+          available: false,
+        },
+      },
+      {
+        id: "opencode",
+        label: "OpenCode",
+        installed: false,
+        path: null,
+        version: null,
+        install: "npm i -g opencode-ai",
+      },
+    ];
+    await page.route("**/api/v1/system/engines", (route) =>
+      route.fulfill({ json: { engines: engines(), canManage: true } })
+    );
+    let fail = false;
+    let releaseUpdate: (() => void) | undefined;
+    await page.route("**/api/v1/system/engines/codex/update", async (route) => {
+      expect(route.request().method()).toBe("POST");
+      updateRequests += 1;
+      operation = {
+        id: `update-${updateRequests}`,
+        engineId: "codex",
+        status: fail ? "failed" : "running",
+        phase: fail ? "complete" : "updating",
+        message: fail ? "Update failed" : "Updating Codex…",
+        output: fail
+          ? "Permission denied by package manager"
+          : "Downloading CLI…",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        finishedAt: null,
+        retryBlocked: !fail,
+      };
+      if (!fail) {
+        releaseUpdate = () => {
+          version = "2.0.0";
+          operation = {
+            ...operation,
+            status: "succeeded",
+            phase: "complete",
+            message: "Update completed · Installed: 2.0.0",
+            output: "Installed selected CLI",
+            retryBlocked: false,
+            finishedAt: new Date().toISOString(),
+          };
+        };
+      }
+      await route.fulfill({
+        status: 202,
+        json: { operation },
+      });
+    });
+    await loadApp(page);
+    await page.goto("/settings/updates", { waitUntil: "domcontentloaded" });
+    const codex = page.getByRole("region", { name: "Codex", exact: true });
+    await expect(
+      codex.getByText("Update available", { exact: true })
+    ).toBeVisible();
+    const disclosure = codex.getByRole("button", { name: /^Codex / });
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(disclosure).toContainText("Codex");
+    await expect(disclosure.getByText("1.0.0", { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole("button", { expanded: false })
+        .filter({ hasText: /Codex|Claude Code|OpenCode/ })
+    ).toHaveCount(3);
+    await expect(
+      codex.getByText("/home/user/npm/bin/codex", { exact: true })
+    ).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Copy code", exact: true })
+    ).toHaveCount(0);
+    const card = page
+      .getByText("Engines", { exact: true })
+      .locator("..")
+      .locator("..");
+    await card.screenshot({
+      path: `/tmp/engine-updates-${viewport.name}-collapsed.png`,
+    });
+    await disclosure.click();
+    await expect(
+      codex.getByText("/home/user/npm/bin/codex", { exact: true })
+    ).toBeHidden();
+    await expect(codex).not.toContainText("Verified user-owned installation");
+    await expect(codex).not.toContainText("Source:");
+    const installationDetails = codex.getByRole("button", {
+      name: "Installation details",
+      exact: true,
+    });
+    await expect(installationDetails).toHaveAttribute("aria-expanded", "false");
+    await installationDetails.click();
+    await expect(
+      codex.getByText("Installed using npm", { exact: true })
+    ).toBeVisible();
+    await expect(
+      codex.getByText("/home/user/npm/bin/codex", { exact: true })
+    ).toBeVisible();
+    await codex.getByRole("button", { name: "Copy code", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await card.screenshot({
+      path: `/tmp/engine-updates-${viewport.name}-expanded.png`,
+    });
+    await codex.getByRole("button", { name: /^Update Codex to / }).click();
+    await expect(
+      codex.getByRole("button", { name: "Updating…", exact: true })
+    ).toBeDisabled();
+    await disclosure.click();
+    await expect(
+      codex.getByRole("button", { name: "Updating…", exact: true })
+    ).toBeHidden();
+    await disclosure.click();
+    await expect(
+      codex.getByRole("button", { name: "Updating…", exact: true })
+    ).toBeDisabled();
+    await expect.poll(() => releaseUpdate !== undefined).toBe(true);
+    await expect(codex.getByRole("status")).toContainText("Downloading CLI…");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(disclosure).toContainText("Updating…");
+    await disclosure.click();
+    await expect(
+      codex.getByRole("button", { name: "Updating…", exact: true })
+    ).toBeDisabled();
+    await expect(codex.getByRole("status")).toContainText("Downloading CLI…");
+    expect(updateRequests).toBe(1);
+    releaseUpdate!();
+    await expect(codex.getByRole("status")).toContainText(
+      "Update completed · Installed: 2.0.0"
+    );
+    await expect(codex.getByRole("status")).toContainText(
+      "Installed selected CLI"
+    );
+    await disclosure.click();
+    await expect(codex.getByRole("status")).toBeHidden();
+    await disclosure.click();
+    await expect(codex.getByRole("status")).toContainText("Update completed");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await disclosure.click();
+    await expect(codex.getByRole("status")).toContainText("Update completed");
+    await codex.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `/tmp/engine-updates-${viewport.name}-success.png`,
+      fullPage: true,
+    });
+    await expect(codex.getByText("Up to date", { exact: true })).toBeVisible();
+    await expect(
+      codex.getByRole("button", { name: /^Update Codex to / })
+    ).toHaveCount(0);
+    latestVersion = "3.0.0";
+    fail = true;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await disclosure.click();
+    await codex.getByRole("button", { name: /^Update Codex to / }).click();
+    await expect(codex.getByRole("status")).toContainText("Update failed");
+    await expect(codex.getByRole("status")).toContainText(
+      "Permission denied by package manager"
+    );
+    const manual = page.getByRole("region", {
+      name: "Claude Code",
+      exact: true,
+    });
+    await manual.getByRole("button", { expanded: false }).click();
+    await expect(manual).toContainText("Version unknown");
+    await expect(manual).toContainText("Update availability unknown");
+    await expect(manual).not.toContainText("Up to date");
+    await expect(
+      manual.getByRole("button", { name: "Update Claude Code" })
+    ).toHaveCount(0);
+    await expect(
+      manual.getByText("claude update", { exact: true })
+    ).toBeVisible();
+    // LAN HTTP can omit Clipboard API; denied clipboard permissions also need
+    // the existing textarea fallback. Exercise both without touching the OS clipboard.
+    await page.evaluate((mode) => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value:
+          mode === "desktop"
+            ? undefined
+            : {
+                writeText: () => Promise.reject(new Error("Clipboard denied")),
+              },
+      });
+      document.execCommand = (command: string) => {
+        if (command !== "copy") return false;
+        (window as Window & { copiedCommand?: string }).copiedCommand = (
+          document.activeElement as HTMLTextAreaElement
+        ).value;
+        return true;
+      };
+    }, viewport.name);
+    await manual
+      .getByRole("button", { name: "Copy code", exact: true })
+      .click();
+    await expect(
+      manual.getByRole("button", { name: "Code copied", exact: true })
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window as Window & { copiedCommand?: string }).copiedCommand
+      )
+    ).toBe("claude update");
+    const missing = page.getByRole("region", { name: "OpenCode", exact: true });
+    await expect(missing).toContainText("Not installed");
+    await missing.getByRole("button", { expanded: false }).click();
+    await expect(
+      missing.getByRole("button", { name: "Copy code" })
+    ).toBeVisible();
+    await missing.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `/tmp/engine-updates-${viewport.name}.png`,
+      fullPage: true,
+    });
+    operation = {
+      ...operation,
+      status: "interrupted",
+      message: "Update interrupted; outcome unknown.",
+      retryBlocked: true,
+    };
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(disclosure).toContainText("Update interrupted");
+    await disclosure.click();
+    await expect(codex.getByRole("status")).toContainText(
+      "Update interrupted; outcome unknown."
+    );
+    await expect(
+      codex.getByRole("button", { name: /^Update Codex to / })
+    ).toHaveCount(0);
+    expect(updateRequests).toBe(2);
+    await codex.screenshot({
+      path: `/tmp/engine-interrupted-${viewport.name}.png`,
+    });
+  });
+
+  test(`engine metadata loading keeps expanded content stable (${viewport.name})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    let pending = true;
+    let releaseInitial!: () => void;
+    const initial = new Promise<void>((resolve) => {
+      releaseInitial = resolve;
+    });
+    await page.route("**/api/v1/system/engines", async (route) => {
+      await initial;
+      await route.fulfill({
+        json: {
+          canManage: true,
+          engines: [
+            {
+              id: "codex",
+              label: "Codex",
+              installed: true,
+              version: "1.0.0",
+              path: "/npm/bin/codex",
+              install: "npm i -g @openai/codex",
+              update: {
+                source: "npm",
+                canUpdate: true,
+                command: "npm i -g @openai/codex",
+                latestPending: pending,
+                latestVersion: pending ? null : "2.0.0",
+                available: !pending,
+              },
+            },
+            {
+              id: "opencode",
+              label: "OpenCode",
+              installed: false,
+              version: null,
+              path: null,
+              install: "npm i -g opencode-ai",
+            },
+          ],
+        },
+      });
+    });
+    await loadApp(page);
+    await page.goto("/settings/updates", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByLabel("Checking engine installations")
+    ).toBeVisible();
+    await page.screenshot({
+      path: `/tmp/engine-initial-${viewport.name}.png`,
+      fullPage: true,
+    });
+    releaseInitial();
+    const codex = page.getByRole("region", { name: "Codex", exact: true });
+    await codex.getByRole("button", { name: /^Codex / }).click();
+    await expect(codex.getByLabel("Checking for updates")).toHaveCount(2);
+    await expect(codex.getByText("Update availability unknown")).toHaveCount(0);
+    const next = page.getByRole("region", { name: "OpenCode", exact: true });
+    await codex.screenshot({
+      path: `/tmp/engine-loading-${viewport.name}.png`,
+    });
+    const before = await next.evaluate(
+      (el) => el.getBoundingClientRect().top + window.scrollY
+    );
+    pending = false;
+    await expect(
+      codex.getByRole("button", { name: "Update Codex to 2.0.0", exact: true })
+    ).toBeVisible();
+    await expect(codex.getByLabel("Checking for updates")).toHaveCount(0);
+    const after = await next.evaluate(
+      (el) => el.getBoundingClientRect().top + window.scrollY
+    );
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
+    await codex.screenshot({ path: `/tmp/engine-loaded-${viewport.name}.png` });
+  });
+}

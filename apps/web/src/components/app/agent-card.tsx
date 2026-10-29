@@ -1,4 +1,6 @@
 import React from "react";
+import { Pin, PinOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
@@ -61,6 +63,8 @@ export type AgentCardProps = {
   enabledAgentTypes: AgentType[];
   enabledIdes: IdeType[];
   containerProps?: AgentCardContainerProps;
+  isPinned?: boolean;
+  onTogglePin?: (agentId: string) => void;
 };
 
 function AgentCardImpl({
@@ -86,6 +90,8 @@ function AgentCardImpl({
   enabledAgentTypes,
   enabledIdes,
   containerProps,
+  isPinned = false,
+  onTogglePin,
 }: AgentCardProps): JSX.Element {
   const {
     className: containerClassName,
@@ -157,6 +163,7 @@ function AgentCardImpl({
           agent={agent}
           childAgents={childAgents}
           isExpanded={isExpanded}
+          isPinned={isPinned}
           isStopped={isStopped}
           connectedAgentId={connectedAgentId}
           closeOnSessionAction={closeOnSessionAction}
@@ -254,6 +261,24 @@ function AgentCardImpl({
                   </div>
                 ) : null}
               </div>
+              {onTogglePin ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 min-h-9 gap-2 text-muted-foreground [@media(pointer:coarse)]:min-h-11"
+                  data-agent-control="true"
+                  data-testid={`agent-pin-toggle-${agent.id}`}
+                  aria-pressed={isPinned}
+                  onClick={() => onTogglePin(agent.id)}
+                >
+                  {isPinned ? (
+                    <PinOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Pin className="h-3.5 w-3.5" />
+                  )}
+                  {isPinned ? "Unpin session" : "Pin session"}
+                </Button>
+              ) : null}
               {agent.role !== "review" ? (
                 <AgentCardActions
                   agent={agent}

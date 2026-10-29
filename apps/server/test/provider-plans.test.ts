@@ -624,6 +624,27 @@ describe("loadProviderPlans", () => {
   });
 
   describe("consumeCodexLimitReset", () => {
+    it("preserves an explicit request UUID across provider executions", async () => {
+      const requestId = "a8b3cda6-7890-4a17-a031-9affc78a1eba";
+      const fetchUsage = codexFetch(
+        () => new Response(JSON.stringify({ code: "nothing_to_reset" }))
+      );
+      for (let i = 0; i < 2; i++)
+        await consumeCodexLimitReset({
+          ...codexOptions(codexAuth),
+          requestId,
+          fetchUsage: fetchUsage as unknown as typeof fetch,
+        });
+      expect(fetchUsage).toHaveBeenCalledTimes(2);
+      for (const [, init] of fetchUsage.mock.calls as unknown as Array<
+        [string, RequestInit]
+      >) {
+        expect(JSON.parse(String(init.body))).toEqual({
+          redeem_request_id: requestId,
+        });
+      }
+    });
+
     it("posts one redeem with a fresh request id and maps the answer", async () => {
       const fetchUsage = codexFetch(
         () =>

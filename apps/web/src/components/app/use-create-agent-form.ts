@@ -62,24 +62,30 @@ export function useCreateAgentForm({
 }: UseCreateAgentFormOptions) {
   const [locationPref, setLocationPref] = useAtom(createAgentLocationPrefAtom);
   const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
+  // The scope seeds this opening, but a picker choice (including Folder)
+  // belongs to the mounted form and must survive preference hydration/rerenders.
+  const [locationChoice, setLocationChoice] = useState<{
+    projectId: string | null;
+  } | null>(null);
   const selectedProjectId = task
     ? task.projectId
-    : locationPref
-      ? locationPref.mode === "project"
-        ? locationPref.projectId
-        : null
-      : (initialProjectId ?? null);
+    : locationChoice
+      ? locationChoice.projectId
+      : (initialProjectId ??
+        (locationPref?.mode === "project" ? locationPref.projectId : null));
   const project = projects.find((p) => p.id === selectedProjectId);
   // Keep a pending choice while loading, but never submit an unavailable ID.
   const createProjectId = projectsLoaded
     ? (project?.id ?? null)
     : selectedProjectId;
   const locationReady = !selectedProjectId || projectsLoaded;
-  const setCreateProjectId = (id: string | null) =>
+  const setCreateProjectId = (id: string | null) => {
+    setLocationChoice({ projectId: id });
     setLocationPref({
       mode: id ? "project" : "folder",
       projectId: id ?? selectedProjectId ?? locationPref?.projectId ?? null,
     });
+  };
   const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [createName, setCreateName] = useState("");

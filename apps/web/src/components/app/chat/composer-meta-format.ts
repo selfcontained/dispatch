@@ -34,11 +34,26 @@ export function choiceName(
     : choice.name;
 }
 
-/** "42%" of the context window, or null before the engine reported any. */
-export function contextPercent(usage: AgentUsageResponse | undefined) {
+/** Convert provider usage once; the rounded result drives both label and fill. */
+export function remainingPercent(usedPercent: unknown): number | null {
+  if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent))
+    return null;
+  return Math.round(100 - Math.min(100, Math.max(0, usedPercent)));
+}
+
+/** Remaining context capacity, or unknown until a valid window is reported. */
+export function contextRemainingPercent(
+  usage: AgentUsageResponse | undefined
+): number | null {
   const context = usage?.context;
-  if (!context) return null;
-  return Math.min(100, Math.round((context.used / context.size) * 100));
+  if (
+    !context ||
+    !Number.isFinite(context.used) ||
+    !Number.isFinite(context.size) ||
+    context.size <= 0
+  )
+    return null;
+  return remainingPercent((context.used / context.size) * 100);
 }
 
 export function formatCost(amount: number, currency: string): string {
@@ -134,16 +149,24 @@ export function hasExpiringResets(
   );
 }
 
-const EXPIRY_DATE = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-});
+/** Browser-local date and time, with minute precision and timezone context. */
+export function formatResetExpiryDate(
+  expiresAt: string | null | undefined
+): string | null {
+  // A bare calendar day does not establish an expiration time or timezone.
+  if (expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(expiresAt.trim())) return null;
+  const at = expiresAt ? Date.parse(expiresAt) : NaN;
+  if (!Number.isFinite(at)) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(at);
+}
 
-/**
- * When the held resets lapse: "Oct 22 · Oct 29 · Nov 6" when each is
- * known (the row's title says what the dates are), "oldest expires in 6d
- * 21h" when only the first is; null when none is held or dated.
- */
+/** Each known expiry, chronologically, or the oldest known absolute expiry. */
 export function formatResetExpiry(
   resets:
     | {
@@ -151,18 +174,18 @@ export function formatResetExpiry(
         oldestExpiresAt?: string | null;
         items?: Array<{ expiresAt: string | null }>;
       }
-    | undefined,
-  now = Date.now()
+    | undefined
 ): string | null {
   if (!resets || resets.available === 0) return null;
   const dates = (resets.items ?? [])
-    .map((item) => (item.expiresAt ? Date.parse(item.expiresAt) : NaN))
-    .filter((at) => Number.isFinite(at))
-    .sort((a, b) => a - b);
-  if (dates.length > 0) {
-    return dates.map((at) => EXPIRY_DATE.format(at)).join(" · ");
-  }
-  const expires = resetsIn(resets.oldestExpiresAt ?? null, now);
+    .filter(
+      (item) => item.expiresAt && Number.isFinite(Date.parse(item.expiresAt))
+    )
+    .sort((a, b) => Date.parse(a.expiresAt!) - Date.parse(b.expiresAt!))
+    .map((item) => formatResetExpiryDate(item.expiresAt))
+    .filter((date) => date !== null);
+  if (dates.length > 0) return dates.join("\n");
+  const expires = formatResetExpiryDate(resets.oldestExpiresAt);
   return expires ? `oldest expires ${expires}` : null;
 }
 

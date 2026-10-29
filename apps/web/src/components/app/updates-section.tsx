@@ -1,3 +1,4 @@
+import { EngineUpdatesCard } from "@/components/app/engine-updates-card";
 import { MacAppUpdatesCard } from "@/components/app/mac-app-updates-card";
 import { OperationTakeover } from "@/components/app/release-operation-takeover";
 import { UpdatesCheckPanel } from "@/components/app/updates-check-panel";
@@ -131,6 +132,8 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       )}
 
       <div className="border-t border-white/[0.12]" />
+
+      <EngineUpdatesCard />
 
       <UpdatesReloadCard
         onReload={handleReload}

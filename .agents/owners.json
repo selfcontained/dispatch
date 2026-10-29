@@ -3,6 +3,14 @@
   "rules": [
     {
       "paths": [
+        "apps/server/src/routes/system.ts",
+        "apps/server/test/system-routes.test.ts",
+        "e2e/engine-updates.spec.ts"
+      ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": [
         "apps/server/src/tasks/**",
         "apps/server/src/routes/tasks.ts",
         "apps/server/test/tasks-service.test.ts",
@@ -22,6 +30,8 @@
         "apps/web/src/components/app/agent-pane*",
         "apps/web/src/components/app/agent-*",
         "apps/server/test/*agent*",
+        "apps/server/test/codex-reset.test.ts",
+        "apps/server/test/provider-plans.test.ts",
         "apps/server/test/lifecycle-routes.test.ts",
         "apps/server/test/*worktree*",
         "apps/server/test/tasks-service.test.ts",
@@ -267,7 +277,9 @@
         "apps/web/src/**",
         "apps/web/eslint.config.js",
         "apps/web/package.json",
+        "e2e/settings.spec.ts",
         "e2e/changes-virtualization.spec.ts",
+        "e2e/sidebar-pins.spec.ts",
         "e2e/tasks-board.spec.ts"
       ],
       "personas": ["frontend-react-review"]

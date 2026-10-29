@@ -24,7 +24,16 @@ import {
   sortAgentTypes,
 } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
-import { agentSidebarOrderAtom, reconcileAgentSidebarOrder } from "@/lib/store";
+import {
+  agentSidebarOrderAtom,
+  agentSidebarPinsAtom,
+  reconcileAgentSidebarOrder,
+} from "@/lib/store";
+import {
+  pinnedFirst,
+  reorderSidebarPinGroup,
+  toggleSidebarPin,
+} from "@/lib/agent-sidebar-pins";
 import { cn } from "@/lib/utils";
 
 function dropPositionForEvent(event: DragEvent): "before" | "after" {
@@ -94,6 +103,14 @@ export function AgentListContent({
   const [agentSidebarOrder, setAgentSidebarOrder] = useAtom(
     agentSidebarOrderAtom
   );
+  const [sidebarPins, setSidebarPins] = useAtom(agentSidebarPinsAtom);
+  const pinnedIds = useMemo(() => new Set(sidebarPins), [sidebarPins]);
+  const togglePin = useCallback(
+    (id: string) => {
+      setSidebarPins((current) => toggleSidebarPin(current, id));
+    },
+    [setSidebarPins]
+  );
   const [draggingAgentId, setDraggingAgentId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{
     agentId: string;
@@ -123,10 +140,13 @@ export function AgentListContent({
       topLevelAgentIds
     );
     const agentById = new Map(topLevelAgents.map((agent) => [agent.id, agent]));
-    return reconciledOrder
-      .map((agentId) => agentById.get(agentId))
-      .filter((agent): agent is Agent => Boolean(agent));
-  }, [agentSidebarOrder, topLevelAgentIds, topLevelAgents]);
+    return pinnedFirst(
+      reconciledOrder
+        .map((agentId) => agentById.get(agentId))
+        .filter((agent): agent is Agent => Boolean(agent)),
+      pinnedIds
+    );
+  }, [agentSidebarOrder, topLevelAgentIds, topLevelAgents, pinnedIds]);
 
   const moveAgent = useCallback(
     (
@@ -134,80 +154,58 @@ export function AgentListContent({
       targetAgentId: string,
       position: "before" | "after"
     ) => {
-      if (draggedAgentId === targetAgentId) return;
+      if (
+        draggedAgentId === targetAgentId ||
+        pinnedIds.has(draggedAgentId) !== pinnedIds.has(targetAgentId)
+      )
+        return;
       setAgentSidebarOrder((currentOrder) => {
-        const reconciledOrder = reconcileAgentSidebarOrder(
-          currentOrder,
-          topLevelAgentIds
+        const reconciledOrder = reconcileAgentSidebarOrder(currentOrder, [
+          ...new Set([...topLevelAgentIds, ...currentOrder]),
+        ]);
+        return reorderSidebarPinGroup(
+          reconciledOrder,
+          topLevelAgentIds,
+          pinnedIds,
+          draggedAgentId,
+          targetAgentId,
+          position
         );
-        const nextOrder = reconciledOrder.filter(
-          (agentId) => agentId !== draggedAgentId
-        );
-        const targetIndex = nextOrder.indexOf(targetAgentId);
-        if (targetIndex === -1) return reconciledOrder;
-        nextOrder.splice(
-          position === "after" ? targetIndex + 1 : targetIndex,
-          0,
-          draggedAgentId
-        );
-        return nextOrder;
       });
     },
-    [setAgentSidebarOrder, topLevelAgentIds]
+    [setAgentSidebarOrder, topLevelAgentIds, pinnedIds]
   );
 
   const moveAgentToBoundary = (
     draggedAgentId: string,
     position: "first" | "last"
   ) => {
-    setAgentSidebarOrder((currentOrder) => {
-      const reconciledOrder = reconcileAgentSidebarOrder(
-        currentOrder,
-        topLevelAgentIds
+    const group = orderedTopLevelAgents.filter(
+      (agent) => pinnedIds.has(agent.id) === pinnedIds.has(draggedAgentId)
+    );
+    const target = position === "first" ? group[0] : group[group.length - 1];
+    if (target)
+      moveAgent(
+        draggedAgentId,
+        target.id,
+        position === "first" ? "before" : "after"
       );
-      if (!reconciledOrder.includes(draggedAgentId)) return reconciledOrder;
-      const nextOrder = reconciledOrder.filter(
-        (agentId) => agentId !== draggedAgentId
-      );
-      if (position === "first") {
-        nextOrder.unshift(draggedAgentId);
-      } else {
-        nextOrder.push(draggedAgentId);
-      }
-      return nextOrder;
-    });
   };
 
   const moveAgentByOffset = useCallback(
     (agent: Agent, offset: -1 | 1) => {
-      setAgentSidebarOrder((currentOrder) => {
-        const reconciledOrder = reconcileAgentSidebarOrder(
-          currentOrder,
-          topLevelAgentIds
-        );
-        const currentIndex = reconciledOrder.indexOf(agent.id);
-        const nextIndex = currentIndex + offset;
-        if (
-          currentIndex === -1 ||
-          nextIndex < 0 ||
-          nextIndex >= reconciledOrder.length
-        ) {
-          return reconciledOrder;
-        }
-        const nextOrder = [...reconciledOrder];
-        [nextOrder[currentIndex], nextOrder[nextIndex]] = [
-          nextOrder[nextIndex],
-          nextOrder[currentIndex],
-        ];
-        setReorderAnnouncement(
-          `${agent.name} moved ${offset < 0 ? "up" : "down"} to position ${
-            nextIndex + 1
-          } of ${reconciledOrder.length}.`
-        );
-        return nextOrder;
-      });
+      const group = orderedTopLevelAgents.filter(
+        (card) => pinnedIds.has(card.id) === pinnedIds.has(agent.id)
+      );
+      const currentIndex = group.findIndex((card) => card.id === agent.id);
+      const target = group[currentIndex + offset];
+      if (!target) return;
+      moveAgent(agent.id, target.id, offset < 0 ? "before" : "after");
+      setReorderAnnouncement(
+        `${agent.name} moved ${offset < 0 ? "up" : "down"} to position ${currentIndex + offset + 1} of ${group.length} in the ${pinnedIds.has(agent.id) ? "pinned" : "unpinned"} group.`
+      );
     },
-    [setAgentSidebarOrder, topLevelAgentIds]
+    [moveAgent, orderedTopLevelAgents, pinnedIds]
   );
 
   const clearDragState = useCallback(() => {
@@ -278,7 +276,12 @@ export function AgentListContent({
                 },
                 dragenter: (event) => {
                   event.preventDefault();
-                  if (!draggingAgentId || draggingAgentId === agent.id) {
+                  if (
+                    !draggingAgentId ||
+                    draggingAgentId === agent.id ||
+                    pinnedIds.has(draggingAgentId) !== pinnedIds.has(agent.id)
+                  ) {
+                    setDropTarget(null);
                     return;
                   }
                   setDropTarget({
@@ -287,7 +290,12 @@ export function AgentListContent({
                   });
                 },
                 dragover: (event) => {
-                  if (!draggingAgentId || draggingAgentId === agent.id) {
+                  if (
+                    !draggingAgentId ||
+                    draggingAgentId === agent.id ||
+                    pinnedIds.has(draggingAgentId) !== pinnedIds.has(agent.id)
+                  ) {
+                    setDropTarget(null);
                     return;
                   }
                   event.preventDefault();
@@ -337,6 +345,7 @@ export function AgentListContent({
       moveAgent,
       moveAgentByOffset,
       orderedTopLevelAgents,
+      pinnedIds,
     ]
   );
 
@@ -347,10 +356,12 @@ export function AgentListContent({
     if (!draggingAgentId || orderedTopLevelAgents.length === 0) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
+    const group = orderedTopLevelAgents.filter(
+      (agent) => pinnedIds.has(agent.id) === pinnedIds.has(draggingAgentId)
+    );
     const boundaryAgent =
-      position === "first"
-        ? orderedTopLevelAgents[0]
-        : orderedTopLevelAgents[orderedTopLevelAgents.length - 1];
+      position === "first" ? group[0] : group[group.length - 1];
+    if (!boundaryAgent) return;
     setDropTarget({
       agentId: boundaryAgent.id,
       position: position === "first" ? "before" : "after",
@@ -440,7 +451,8 @@ export function AgentListContent({
             <React.Fragment>
               <p id="agent-sidebar-reorder-instructions" className="sr-only">
                 Focus an agent card and press Alt or Option plus Arrow Up or
-                Arrow Down to reorder it.
+                Arrow Down to reorder it within its pinned or unpinned group.
+                Pinning a card also moves its nested sub agents.
               </p>
               <p className="sr-only" aria-live="polite">
                 {reorderAnnouncement}
@@ -475,6 +487,8 @@ export function AgentListContent({
                   connectedAgentId={connectedAgentId}
                   onRequestClose={onRequestClose}
                   closeOnSessionAction={closeOnSessionAction}
+                  isPinned={pinnedIds.has(agent.id)}
+                  onTogglePin={togglePin}
                   containerProps={containerPropsById.get(agent.id)}
                 />
               ))}
