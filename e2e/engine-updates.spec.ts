@@ -85,7 +85,8 @@ for (const viewport of [
     await expect(
       codex.getByText("Update available: 1.0.0 → 2.0.0")
     ).toBeVisible();
-    const disclosure = codex.getByRole("button", { expanded: false });
+    const disclosure = codex.getByRole("button", { name: /^Codex / });
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
     await expect(disclosure).toContainText("Codex");
     await expect(disclosure.getByText("1.0.0", { exact: true })).toBeVisible();
     await expect(
@@ -109,6 +110,20 @@ for (const viewport of [
     await disclosure.click();
     await expect(
       codex.getByText("/home/user/npm/bin/codex", { exact: true })
+    ).toBeHidden();
+    await expect(codex).not.toContainText("Verified user-owned installation");
+    await expect(codex).not.toContainText("Source:");
+    const installationDetails = codex.getByRole("button", {
+      name: "Installation details",
+      exact: true,
+    });
+    await expect(installationDetails).toHaveAttribute("aria-expanded", "false");
+    await installationDetails.click();
+    await expect(
+      codex.getByText("Installed using npm", { exact: true })
+    ).toBeVisible();
+    await expect(
+      codex.getByText("/home/user/npm/bin/codex", { exact: true })
     ).toBeVisible();
     await codex.getByRole("button", { name: "Copy code", exact: true }).focus();
     await page.keyboard.press("Tab");
@@ -122,11 +137,11 @@ for (const viewport of [
     await expect(
       codex.getByRole("button", { name: "Updating…", exact: true })
     ).toBeDisabled();
-    await codex.getByRole("button", { expanded: true }).click();
+    await disclosure.click();
     await expect(
       codex.getByRole("button", { name: "Updating…", exact: true })
     ).toBeHidden();
-    await codex.getByRole("button", { expanded: false }).click();
+    await disclosure.click();
     await expect(
       codex.getByRole("button", { name: "Updating…", exact: true })
     ).toBeDisabled();
@@ -138,9 +153,9 @@ for (const viewport of [
     await expect(codex.getByRole("status")).toContainText(
       "Installed selected CLI"
     );
-    await codex.getByRole("button", { expanded: true }).click();
+    await disclosure.click();
     await expect(codex.getByRole("status")).toBeHidden();
-    await codex.getByRole("button", { expanded: false }).click();
+    await disclosure.click();
     await expect(codex.getByRole("status")).toContainText("Update completed");
     await codex.scrollIntoViewIfNeeded();
     await page.screenshot({

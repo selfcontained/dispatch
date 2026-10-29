@@ -20,6 +20,44 @@ import {
 } from "@/components/ui/card";
 
 type UpdateResult = { success: boolean; output: string; engine?: EngineStatus };
+function InstallationDetails({
+  engine,
+}: {
+  engine: EngineStatus;
+}): JSX.Element {
+  const source = engine.update?.source;
+  const installer =
+    source === "native"
+      ? "Claude installer"
+      : source === "npm"
+        ? "npm"
+        : source?.startsWith("homebrew-")
+          ? "Homebrew"
+          : null;
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight
+          className="h-3 w-3 group-data-[state=open]:rotate-90"
+          aria-hidden="true"
+        />
+        Installation details
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-2 pt-2 text-xs text-muted-foreground">
+        <p>
+          {installer ? `Installed using ${installer}` : "Installer unknown"}
+        </p>
+        {engine.path && <p className="break-all font-mono">{engine.path}</p>}
+        {engine.update?.realPath && engine.update.realPath !== engine.path && (
+          <p className="break-all">Resolved path: {engine.update.realPath}</p>
+        )}
+        {engine.update?.canUpdate && (
+          <Markdown>{`\`\`\`sh\n${engine.update.command}\n\`\`\``}</Markdown>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 function EngineRow({
   engine,
   canManage,
@@ -76,26 +114,38 @@ function EngineRow({
               {update.isPending ? "Updating…" : `Update ${engine.label}`}
             </Button>
           )}
-          {engine.path && (
-            <p className="break-all font-mono text-sm">{engine.path}</p>
-          )}
-          {metadata?.realPath && metadata.realPath !== engine.path && (
-            <p className="break-all text-xs text-muted-foreground">
-              Real path: {metadata.realPath}
+          {engine.installed && metadata?.latestPending && (
+            <p className="text-sm text-muted-foreground">
+              Checking for updates…
             </p>
           )}
-          <p className="text-sm text-muted-foreground">
-            Source: {metadata?.source ?? "unknown"} ·{" "}
-            {metadata?.latestPending
-              ? "Checking latest…"
-              : metadata?.latestVersion
-                ? `Latest: ${metadata.latestVersion}${metadata.available ? " · Update available" : ""}`
-                : "Latest version unknown"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {metadata?.reason ?? "Update manually using your installer."}
-          </p>
-          <Markdown>{`\`\`\`sh\n${metadata?.command ?? engine.install}\n\`\`\``}</Markdown>
+          {engine.installed &&
+            !metadata?.latestPending &&
+            !metadata?.latestVersion && (
+              <p className="text-sm text-muted-foreground">
+                Update availability unknown
+              </p>
+            )}
+          {engine.installed &&
+            metadata?.latestVersion &&
+            !metadata.available && (
+              <p className="text-sm text-muted-foreground">Up to date</p>
+            )}
+          {(!engine.installed || !metadata?.canUpdate) && (
+            <>
+              <p className="text-sm text-muted-foreground">
+                {engine.installed
+                  ? "Update this installation with the command below."
+                  : `Install ${engine.label} with the command below, then sign in.`}
+              </p>
+              <Markdown>{`\`\`\`sh\n${metadata?.command ?? engine.install}\n\`\`\``}</Markdown>
+            </>
+          )}
+          {engine.installed && metadata?.canUpdate && !canManage && (
+            <p className="text-sm text-muted-foreground">
+              Sign in as the owner to update this CLI.
+            </p>
+          )}
           {update.isError && (
             <p role="alert" className="text-sm text-destructive">
               {update.error.message}
@@ -116,6 +166,7 @@ function EngineRow({
               )}
             </div>
           )}
+          {engine.installed && <InstallationDetails engine={engine} />}
         </CollapsibleContent>
       </Collapsible>
     </section>
