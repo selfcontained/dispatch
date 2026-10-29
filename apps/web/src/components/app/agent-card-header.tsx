@@ -1,5 +1,5 @@
 import React from "react";
-import { AlarmClock, ChevronDown, Play, Repeat2, Tag } from "lucide-react";
+import { AlarmClock, ChevronDown, Play, Pin, Repeat2, Tag } from "lucide-react";
 import { toast } from "sonner";
 
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
@@ -25,6 +25,7 @@ export type AgentCardHeaderProps = {
   agent: Agent;
   childAgents: Agent[];
   isExpanded: boolean;
+  isPinned?: boolean;
   isStopped: boolean;
   connectedAgentId?: string | null;
   closeOnSessionAction: boolean;
@@ -43,6 +44,7 @@ export function AgentCardHeader({
   agent,
   childAgents,
   isExpanded,
+  isPinned = false,
   isStopped,
   connectedAgentId,
   closeOnSessionAction,
@@ -152,6 +154,18 @@ export function AgentCardHeader({
         ) : null}
       </div>
 
+      {isPinned ? (
+        <span
+          role="img"
+          aria-label="Pinned session"
+          title="Pinned session"
+          className="shrink-0 text-primary"
+          data-testid={`agent-pinned-${agent.id}`}
+        >
+          <Pin aria-hidden="true" className="h-3.5 w-3.5" />
+        </span>
+      ) : null}
+
       <ChatUnreadBadge agentId={agent.id} />
 
       {needsAttention ? (
@@ -221,6 +235,10 @@ export function AgentCardHeader({
             variant="ghost"
             data-agent-control="true"
             data-testid={`agent-expand-toggle-${agent.id}`}
+            aria-label={
+              isExpanded ? "Hide session details" : "Show session details"
+            }
+            aria-expanded={isExpanded}
             onClick={() => {
               // If collapsing while a child persona is connected, detach it
               if (

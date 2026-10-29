@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { isSidebarPinPreference } from "./agent-sidebar-pins";
 import { atomFamily } from "jotai/utils";
 
 import { type CenterTab, isCenterTab } from "./center-tabs";
@@ -282,6 +283,13 @@ export const diffFileTreeOpenAtom = atomWithLocalStorage<boolean>(
 export const agentSidebarOrderAtom = atomWithLocalStorage<string[]>(
   "dispatch:agentSidebarOrder",
   []
+);
+
+// Browser-local session preferences, independent of project visibility and manual order.
+export const agentSidebarPinsAtom = atomWithLocalStorage<string[]>(
+  "dispatch:agentSidebarPins",
+  [],
+  { validate: isSidebarPinPreference }
 );
 
 export function reconcileAgentSidebarOrder(

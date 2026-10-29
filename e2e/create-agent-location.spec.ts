@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { errors, expect, test } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -142,7 +142,21 @@ for (const mobile of [false, true]) {
         .and(page.locator(".translate-x-0"))
         .getByTitle("Close sidebar", { exact: true });
       await expect(open.or(close)).toBeVisible();
-      if (await open.isVisible()) await open.click();
+      if (await open.isVisible()) {
+        try {
+          await open.click({ timeout: 1_000 });
+        } catch (error) {
+          // The empty mobile route can auto-open between the visibility check
+          // and click. Accept only that vanished-opener race; a blocked or
+          // otherwise failing button must still fail the test.
+          if (
+            !(error instanceof errors.TimeoutError) ||
+            (await open.count()) !== 0
+          )
+            throw error;
+          await expect(sheet).toBeInViewport({ ratio: 1 });
+        }
+      }
       await expect(sheet).toBeInViewport({ ratio: 1 });
     }
     async function chooseSidebar(name: string) {
