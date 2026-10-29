@@ -787,7 +787,7 @@ describe("user avatar settings", () => {
   });
 });
 
-describe("POST /api/v1/system/engines/:engine/update owner authorization", () => {
+describe("POST /api/v1/system/engines/:engine/update authorization", () => {
   it("rejects anonymous and non-owner bearer credentials before touching host CLIs", async () => {
     const secret = await ctx.auth.getOrCreateAuthToken(ctx.pool);
     for (const authorization of [
@@ -801,8 +801,8 @@ describe("POST /api/v1/system/engines/:engine/update owner authorization", () =>
         url: "/api/v1/system/engines/codex/update",
         headers: authorization ? { authorization } : {},
       });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().error).toContain("owner");
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error).toBe("Authentication required.");
     }
   });
   it("allows an owner session to reach strict ID/body validation", async () => {

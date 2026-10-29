@@ -144,7 +144,7 @@ function EngineRow({
           )}
           {engine.installed && metadata?.canUpdate && !canManage && (
             <p className="text-sm text-muted-foreground">
-              Sign in as the owner to update this CLI.
+              Sign in to Dispatch to update this CLI.
             </p>
           )}
           {update.isError && (

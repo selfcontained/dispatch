@@ -685,6 +685,7 @@ async function registerRoutes() {
   const canManageEngineUpdates = async (
     request: FastifyRequest
   ): Promise<boolean> => {
+    if (!(await authRuntime.isPasswordSetCached())) return true;
     const header = request.headers.authorization;
     if (
       header?.startsWith("Bearer ") &&
@@ -724,18 +725,6 @@ async function registerRoutes() {
     if (request.routeOptions.config.macAppBearer) return;
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
-    // Host package changes require the owner bearer or an authenticated browser
-    // session, including during first-run mode. Scoped agent/job credentials
-    // must never gain access through the general MCP auth shortcut.
-    if (
-      request.method === "POST" &&
-      url === "/api/v1/system/engines/:engine/update"
-    ) {
-      if (await canManageEngineUpdates(request)) return;
-      return reply
-        .code(403)
-        .send({ error: "Only the installation owner can update engine CLIs." });
-    }
     // If no password is set, all routes are open (first-run mode).
     if (!(await authRuntime.isPasswordSetCached())) return;
 
