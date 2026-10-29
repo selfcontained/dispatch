@@ -103,15 +103,14 @@ describe("UseResetButton", () => {
     ).toEqual([timestamp, formatResetExpiryDate("2026-10-29T19:12:54Z")]);
     expect(summary.textContent).not.toContain("2026");
     fireEvent.click(screen.getByTestId("usage-codex-reset"));
+    expect(screen.getByText("Reset expirations · oldest first")).toBeTruthy();
     const entries = screen
       .getByTestId("usage-codex-reset-list")
       .querySelectorAll("li");
-    expect(entries[0].textContent).toBe(
-      `First reset · nextexpires ${timestamp}`
-    );
+    expect(entries[0].textContent).toBe(`First reset · next${timestamp}`);
     expect(entries[0].className).toContain("text-primary");
     expect(entries[1].textContent).toContain(
-      `expires ${formatResetExpiryDate("2026-10-29T19:12:54Z")}`
+      formatResetExpiryDate("2026-10-29T19:12:54Z")
     );
     expect(entries[1].textContent).not.toContain("next");
     expect(entries[1].className).toContain("text-muted-foreground");
@@ -163,7 +162,7 @@ describe("UseResetButton", () => {
       .getByTestId("usage-codex-reset-list")
       .querySelectorAll("li");
     expect(entries[0].textContent).toBe(
-      `Provider first · nextexpires ${formatResetExpiryDate(later)}`
+      `Provider first · next${formatResetExpiryDate(later)}`
     );
     expect(entries[1].textContent).toContain("Earlier");
     expect(entries[2].textContent).toContain("Same expiry");

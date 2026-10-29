@@ -941,7 +941,7 @@ export function UseResetButton({
         {resets?.items?.length ? (
           <div className="space-y-1 text-xs">
             <div className="text-[11px] font-medium text-foreground">
-              Your resets · the oldest is used first
+              Reset expirations · oldest first
             </div>
             <ul className="space-y-1" data-testid="usage-codex-reset-list">
               {resets.items.map((item, index) => {
@@ -964,7 +964,7 @@ export function UseResetButton({
                     </span>
                     <span className="whitespace-nowrap tabular-nums">
                       {expires
-                        ? `expires ${expires}`
+                        ? expires
                         : item.expiresAt == null
                           ? "no expiry"
                           : "expiry unknown"}
