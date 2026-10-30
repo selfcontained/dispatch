@@ -255,26 +255,30 @@ describe("ChildAgentRow", () => {
     ).toBe("3");
   });
 
-  describe("chat unread badge", () => {
+  describe("pending input indicator", () => {
     it("shows nothing while the child has no unread chat", () => {
       renderRow(baseAgent);
       expect(screen.queryByTestId("agent-chat-unread")).toBeNull();
     });
 
-    it("shows the unread count for a child with replies waiting", () => {
+    it("hides unread-only child replies", () => {
       chatUnread.value = { unread: 2, pendingQuestions: 0 };
       renderRow(baseAgent);
-      const badge = screen.getByTestId("agent-chat-unread");
-      expect(badge.textContent).toBe("2");
-      expect(badge.className).not.toContain("status-waiting");
+      expect(screen.queryByTestId("agent-chat-unread")).toBeNull();
     });
 
-    it("takes the waiting accent when the child asked a question", () => {
-      chatUnread.value = { unread: 0, pendingQuestions: 1 };
-      renderRow(baseAgent);
-      const badge = screen.getByTestId("agent-chat-unread");
-      expect(badge.className).toContain("status-waiting");
-      expect(badge.getAttribute("title")).toBe("1 open question");
+    it("shows one compact waiting icon and preserves row selection", () => {
+      chatUnread.value = { unread: 0, pendingQuestions: 2 };
+      const { openAgent } = renderRow(baseAgent);
+      const indicator = screen.getByRole("img", { name: "Needs your input" });
+      expect(indicator.className).toContain("text-status-waiting");
+      expect(indicator.className).not.toMatch(/px-|text-\[/);
+      expect(indicator.textContent).toBe("");
+      fireEvent.click(indicator);
+      expect(openAgent).toHaveBeenCalledWith(baseAgent);
+      openMenu();
+      fireEvent.click(screen.getByTestId("child-agent-open-agt_child"));
+      expect(openAgent).toHaveBeenCalledTimes(2);
     });
   });
 

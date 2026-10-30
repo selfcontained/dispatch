@@ -39,9 +39,12 @@ import { AgentCard, type AgentCardProps } from "./agent-card";
 // of these tests is that the four-file split (#803) keeps passing each child
 // the props it needs. Only the HTTP seam is mocked.
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+const chatUnread = vi.hoisted(() => ({
+  value: { unread: 0, pendingQuestions: 0 },
+}));
 // The chat badge has its own query; keep it out of this file's api spy.
 vi.mock("@/hooks/use-chat-unread-summary", () => ({
-  useAgentChatUnread: () => ({ unread: 0, pendingQuestions: 0 }),
+  useAgentChatUnread: () => chatUnread.value,
 }));
 
 // Animations are replaced with plain elements so collapse/expand is synchronous;
@@ -233,6 +236,7 @@ function card(agentId = AGENT_ID): HTMLElement {
 }
 
 beforeEach(() => {
+  chatUnread.value = { unread: 0, pendingQuestions: 0 };
   // Two source-defined windows (the 1.5s rename re-arm, the 2s copy
   // confirmation) are asserted inside, so time is driven explicitly rather than
   // by the wall clock. shouldAdvanceTime keeps React's own scheduling alive.
@@ -359,6 +363,25 @@ describe("AgentCard pin controls", () => {
 });
 
 describe("AgentCardHeader wiring", () => {
+  it("keeps pending input informational while preserving selection and keyboard controls", () => {
+    chatUnread.value = { unread: 0, pendingQuestions: 2 };
+    const { props, rerender } = renderCard();
+    const indicator = screen.getByRole("img", { name: "Needs your input" });
+    fireEvent.click(indicator);
+    expect(props.openAgent).toHaveBeenCalledWith(props.agent);
+    fireEvent.keyDown(indicator, { key: "Enter" });
+    fireEvent.keyDown(indicator, { key: " " });
+    expect(props.openAgent).toHaveBeenCalledTimes(1);
+    const expand = screen.getByTestId(`agent-expand-toggle-${AGENT_ID}`);
+    expect(expand.tagName).toBe("BUTTON");
+    fireEvent.click(expand); // Native buttons dispatch click for keyboard activation.
+    expect(props.toggleAgentDetails).toHaveBeenCalledWith(AGENT_ID);
+    expect(props.openAgent).toHaveBeenCalledTimes(1);
+    rerender({ connectedAgentId: AGENT_ID });
+    fireEvent.click(screen.getByRole("img", { name: "Needs your input" }));
+    expect(props.closeAgent).toHaveBeenCalledOnce();
+  });
+
   it("attaches on row click, and detaches + collapses when already connected", () => {
     const { props, rerender } = renderCard();
 

@@ -1,71 +1,96 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 
 import { ChatUnreadBadge } from "./chat-unread-badge";
 
-const H = vi.hoisted(() => ({
-  enabled: true,
-  summary: {
-    agents: {} as Record<string, { unread: number; pendingQuestions: number }>,
-  },
-}));
+vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 
-vi.mock("@/lib/api", () => ({
-  api: vi.fn(async () => H.summary),
-}));
+afterEach(cleanup);
 
-function wrapper({ children }: { children: ReactNode }) {
+function renderIndicator(unread: number, pendingQuestions: number) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { enabled: false, retry: false } },
   });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const update = (unread: number, pendingQuestions: number) =>
+    client.setQueryData(CHAT_UNREAD_QUERY_KEY, {
+      agents: { agt_1: { unread, pendingQuestions } },
+    });
+  update(unread, pendingQuestions);
+  render(
+    <QueryClientProvider client={client}>
+      <TooltipProvider delayDuration={0}>
+        <ChatUnreadBadge agentId="agt_1" />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+  return update;
 }
 
-beforeEach(() => {
-  H.enabled = true;
-  H.summary = { agents: {} };
-});
+describe("ChatUnreadBadge input indicator", () => {
+  it.each([0, 3])(
+    "renders nothing for %i unread replies without pending input",
+    (unread) => {
+      renderIndicator(unread, 0);
+      expect(screen.queryByTestId("agent-chat-unread")).toBeNull();
+    }
+  );
 
-afterEach(() => {
-  cleanup();
-});
-
-describe("ChatUnreadBadge", () => {
-  it("renders nothing while nothing is unread", async () => {
-    H.summary = { agents: { agt_1: { unread: 0, pendingQuestions: 0 } } };
-    render(<ChatUnreadBadge agentId="agt_1" />, { wrapper });
-    await Promise.resolve();
-    expect(screen.queryByTestId("agent-chat-unread")).toBeNull();
+  it.each([
+    [0, 1],
+    [5, 3],
+  ])("shows one unboxed icon for unread=%i, pending=%i", (unread, pending) => {
+    renderIndicator(unread, pending);
+    const indicator = screen.getByRole("img", { name: "Needs your input" });
+    expect(indicator.tagName).toBe("SPAN");
+    expect(indicator.textContent).toBe("");
+    expect(indicator.querySelectorAll("svg")).toHaveLength(1);
+    expect(indicator.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+      "true"
+    );
+    expect(indicator.className).toContain("text-status-waiting");
+    expect(indicator.className).not.toMatch(/\b(bg-|border|px-|py-)/);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("shows the unread count with the plain accent", async () => {
-    H.summary = { agents: { agt_1: { unread: 3, pendingQuestions: 0 } } };
-    render(<ChatUnreadBadge agentId="agt_1" />, { wrapper });
-    const badge = await screen.findByTestId("agent-chat-unread");
-    expect(badge.textContent).toBe("3");
-    expect(badge.getAttribute("data-pending-questions")).toBe("0");
-    expect(badge.getAttribute("title")).toBe("3 unread chat replies");
-    expect(badge.className).not.toContain("status-waiting");
-  });
-
-  it("switches to the waiting accent when a question is open", async () => {
-    H.summary = { agents: { agt_1: { unread: 1, pendingQuestions: 1 } } };
-    render(<ChatUnreadBadge agentId="agt_1" />, { wrapper });
-    const badge = await screen.findByTestId("agent-chat-unread");
-    expect(badge.className).toContain("status-waiting");
-    expect(badge.getAttribute("title")).toBe(
-      "1 unread chat reply · 1 open question"
+  it("offers the concise tooltip on keyboard focus", async () => {
+    renderIndicator(0, 1);
+    const indicator = screen.getByRole("img", { name: "Needs your input" });
+    expect(indicator.tabIndex).toBe(0);
+    fireEvent.focus(indicator);
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "Needs your input"
     );
   });
 
-  it("stays hidden with the chat surface off, even with unread data", async () => {
-    H.enabled = false;
-    H.summary = { agents: { agt_1: { unread: 5, pendingQuestions: 2 } } };
-    render(<ChatUnreadBadge agentId="agt_1" />, { wrapper });
-    await Promise.resolve();
-    expect(screen.queryByTestId("agent-chat-unread")).toBeNull();
+  it("survives mark-read and disappears after the final input is answered or canceled", async () => {
+    const update = renderIndicator(5, 2);
+    await act(async () => {
+      update(0, 2);
+    });
+    expect(screen.getByRole("img", { name: "Needs your input" })).toBeTruthy();
+    await act(async () => {
+      update(0, 1);
+    });
+    expect(
+      screen.getAllByRole("img", { name: "Needs your input" })
+    ).toHaveLength(1);
+    await act(async () => {
+      update(3, 0);
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("agent-chat-unread")).toBeNull()
+    );
   });
 });
