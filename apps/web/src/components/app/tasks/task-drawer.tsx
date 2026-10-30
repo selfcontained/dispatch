@@ -1,4 +1,5 @@
 import { TaskAttachments } from "./task-attachments";
+import { TaskDeleteDialog } from "./task-delete-dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -618,17 +619,9 @@ export function TaskDetailPanel({
               >
                 {task.archivedAt ? "Restore" : "Archive"}
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => {
-                  if (window.confirm(`Delete ${task.title}?`))
-                    void actions.remove.mutateAsync(task.id).then(close);
-                }}
-              >
-                Delete
-              </Button>
+              {task.id === id && (
+                <TaskDeleteDialog key={id} task={task} close={close} />
+              )}
             </footer>
           </TabsContent>
           <TabsContent
