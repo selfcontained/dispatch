@@ -28,7 +28,10 @@ import { StreamRecorder } from "../src/agents/acp/stream-recorder.js";
 import { StreamStore } from "../src/agents/acp/stream-store.js";
 import type { Block } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
-import { composeStreamFeed } from "../src/chat/feed.js";
+import {
+  composeStreamFeed,
+  FAILED_PARENT_INPUT_SQL,
+} from "../src/chat/feed.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -8021,6 +8024,48 @@ describe("Parent-owned child requests", () => {
     expect((await svc.feed(A)).openInputs?.map((b) => b.id)).toEqual(
       expect.arrayContaining([question.id, form.id])
     );
+  });
+
+  it("looks up a failed parent answer by primary key and ignores malformed ids", async () => {
+    const { svc } = build({
+      access: async () => {
+        throw new Error("Agent stopped");
+      },
+    });
+    const question = await svc.post(B, {
+      text: "Need decision",
+      question: { options: [{ label: "Yes" }] },
+    });
+    await svc.answerQuestion(A, question.id, { value: "Yes" });
+    const malformed = await svc.post(B, {
+      text: "Malformed answer",
+      question: { options: [{ label: "Yes" }] },
+    });
+    await pool.query(
+      `UPDATE blocks SET state = '{"answer":{"blockId":"not-a-uuid"}}' WHERE id = $1`,
+      [malformed.id]
+    );
+    const open = (await svc.feed(A)).openInputs?.map((b) => b.id);
+    expect(open).toContain(question.id);
+    expect(open).not.toContain(malformed.id);
+
+    // A text comparison on answer.id cannot use blocks_pkey, so the planner
+    // is left scanning every block once per parent-handled ask.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL enable_seqscan = off");
+      const plan = await client.query<{ "QUERY PLAN": string }>(
+        `EXPLAIN SELECT 1 FROM blocks b WHERE ${FAILED_PARENT_INPUT_SQL}`
+      );
+      const text = plan.rows.map((r) => r["QUERY PLAN"]).join("\n");
+      expect(text).toMatch(
+        /Index (Only )?Scan using blocks_pkey on blocks answer/
+      );
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
   });
 
   it("routes child asks, delivers context, and records the parent's answer as an agent", async () => {
