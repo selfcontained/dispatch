@@ -133,7 +133,7 @@ export function LinkAttachment({
   const content = (
     <>
       <span
-        className="inline-flex shrink-0 items-center gap-1 text-muted-foreground"
+        className="inline-flex shrink-0 items-center gap-1 text-primary"
         aria-hidden="true"
       >
         {icon}
@@ -160,14 +160,14 @@ export function LinkAttachment({
     <AttachmentBlock
       data-testid={testId}
       className={cn(
-        "w-full rounded border-border/50 bg-transparent md:w-fit md:max-w-xs",
+        "w-full rounded border-border/50 bg-muted/50 md:w-fit md:max-w-xs",
         fullWidth && "md:w-full md:max-w-none"
       )}
     >
       {inApp ? (
         <Link
           to={href}
-          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 max-md:min-h-11"
+          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-md:min-h-11"
           title={href}
           aria-label={accessibleLabel}
         >
@@ -178,7 +178,7 @@ export function LinkAttachment({
           href={href}
           target="_blank"
           rel="noreferrer"
-          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 max-md:min-h-11"
+          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-md:min-h-11"
           title={href}
           aria-label={accessibleLabel}
         >
