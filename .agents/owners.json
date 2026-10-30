@@ -12,6 +12,7 @@
     {
       "paths": [
         "apps/server/src/tasks/**",
+        "apps/server/test/task-watch-unsubscribe.test.ts",
         "apps/server/src/routes/tasks.ts",
         "apps/server/test/tasks-service.test.ts",
         "e2e/tasks-board.spec.ts"
@@ -132,6 +133,7 @@
         "packages/shared/src/chat-types.ts",
         "packages/shared/src/ui-event-types.ts",
         "apps/server/test/*stream*",
+        "apps/server/test/task-watch-unsubscribe.test.ts",
         "apps/server/test/*message*",
         "apps/server/test/*chat*",
         "e2e/*chat*",
@@ -256,6 +258,7 @@
         "apps/server/src/db/migrate.ts",
         "apps/server/test/db/*migrat*",
         "apps/server/test/migrations.test.ts",
+        "apps/server/test/task-board-watch-upgrade.test.ts",
         "apps/web/src/components/app/updates-*",
         "apps/web/src/components/app/update-*",
         "apps/web/src/components/app/mac-app-updates-card*",
@@ -351,7 +354,7 @@
       "personas": ["code-review"]
     },
     {
-      "paths": ["docs/03-api-spec.md"],
+      "paths": ["docs/03-api-spec.md", "docs/19-tasks.md"],
       "personas": ["mcp-contract-owner", "stream-delivery-owner"]
     },
     {
