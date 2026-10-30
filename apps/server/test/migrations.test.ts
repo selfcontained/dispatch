@@ -81,10 +81,13 @@ async function dropTasks(): Promise<void> {
   );
   await pool.query("DROP TRIGGER IF EXISTS task_watch_block_insert ON blocks");
   await pool.query(
-    "DROP TABLE IF EXISTS task_watch_items, task_watches, task_attachments, task_events, task_agents, tasks, task_columns"
+    "DROP FUNCTION IF EXISTS task_watch_enqueue(text, text, text)"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments', '0025_task_archive', '0026_task_watches', '0027_task_blocks', '0028_task_column_capacity')"
+    "DROP TABLE IF EXISTS task_watch_items, task_board_watches, task_watches, task_attachments, task_events, task_agents, tasks, task_columns"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments', '0025_task_archive', '0026_task_watches', '0027_task_blocks', '0028_task_column_capacity', '0030_task_board_watches')"
   );
 }
 

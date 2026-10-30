@@ -1660,6 +1660,8 @@ function tools(
       "task_get",
       "task_watch",
       "task_unwatch",
+      "task_board_watch",
+      "task_board_unwatch",
       "task_create",
       "task_update",
       "task_column_update",
@@ -2275,6 +2277,56 @@ describe("task tools", () => {
       `UPDATE agents SET deleted_at = now() WHERE id = 'agt_tool'`
     );
     expect((await call("task_watch", { id: task.id })).isError).toBe(true);
+  });
+
+  it("keeps board subscriptions durable, idempotent, independent and scoped to a real caller", async () => {
+    await insertAgent("agt_tool");
+    const call = tools("agt_tool", projectId);
+    expect((await call("task_list", {})).structuredContent!.boardWatching).toBe(
+      false
+    );
+    expect((await call("task_board_watch", {})).structuredContent).toEqual({
+      projectId,
+      watching: true,
+    });
+    const first = (
+      await pool.query(`SELECT id, created_at FROM task_board_watches`)
+    ).rows;
+    await call("task_board_watch", { projectId });
+    expect(
+      (await pool.query(`SELECT id, created_at FROM task_board_watches`)).rows
+    ).toEqual(first);
+    expect((await call("task_list", {})).structuredContent!.boardWatching).toBe(
+      true
+    );
+    expect(await build().boardWatching(projectId, "agt_tool")).toBe(true);
+    const task = await service.createTask({ projectId, title: "Future" }, USER);
+    expect(
+      (await call("task_get", { id: task.id })).structuredContent!.watching
+    ).toBe(false);
+    await call("task_watch", { id: task.id });
+    await call("task_board_unwatch", {});
+    expect(await service.watching(task.id, "agt_tool")).toBe(true);
+    await call("task_board_watch", {});
+    await call("task_unwatch", { id: task.id });
+    expect(await service.boardWatching(projectId, "agt_tool")).toBe(true);
+    expect(
+      (await call("task_board_watch", { projectId: otherProjectId })).isError
+    ).toBe(true);
+    await expect(
+      service.watchBoard(otherProjectId, "agt_tool")
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      service.watchBoard(projectId, "unknown")
+    ).rejects.toMatchObject({ status: 403 });
+    expect(
+      (await tools("agt_tool", null)("task_board_watch", {})).isError
+    ).toBe(true);
+    await pool.query(
+      `UPDATE agents SET deleted_at = now() WHERE id = 'agt_tool'`
+    );
+    expect((await call("task_board_watch", {})).isError).toBe(true);
+    expect((await call("task_board_unwatch", {})).isError).toBe(true);
   });
 
   it("task_get caps events at 30", async () => {

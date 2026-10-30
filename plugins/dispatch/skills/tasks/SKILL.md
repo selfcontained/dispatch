@@ -16,9 +16,13 @@ task_list  projectId?, column?, assignedToMe?, archived?
 task_get   id
 task_watch id
 task_unwatch id
+task_board_watch projectId?
+task_board_unwatch projectId?
 ```
 
-`task_watch({ id })` subscribes you to task activity and new posts without taking assignment. Notices are coalesced and include IDs to read with `task_get`, `get_message`, or `get_thread`. `task_unwatch({ id })` stops them; `task_get` includes your `watching` flag.
+`task_watch({ id })` subscribes you to task activity and new posts without taking assignment. Notices are coalesced and include IDs to read with `task_get`, `get_message`, or `get_thread`. `task_unwatch({ id })` removes that explicit watch; `task_get` includes your explicit `watching` flag.
+
+`task_board_watch({})` subscribes your validated calling agent to future activity across every column of its own project, including new tasks. An optional `projectId` must match your project. `task_board_unwatch({})` removes this board subscription. Both return `{ projectId, watching }`; `task_list` exposes `boardWatching` for reconnects. Board and task watches are independent, overlap produces one notice per source item, and neither subscription takes assignment or replays history. Callable jobs use their agent identity; unscoped admin requests cannot subscribe.
 
 Columns may have optional capacity limits. `task_list` includes `columnCapacity` entries with each column's `capacity` (null means unlimited) and `activeTaskCount` (all non-archived tasks, regardless of filters). Creating, moving, or restoring into a full column returns `column_capacity_exceeded` with the column, count, and limit. Leave the refused task where it is and explain the blockage; edits, moves out, and archiving remain possible. Capacity gates entry into its own column only: a trigger in an earlier queue does not reserve a later work slot. Do not change limits or project configuration unless asked.
 
