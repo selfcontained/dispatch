@@ -1056,7 +1056,13 @@ describe("task watches", () => {
   it("never lets old acceptance cleanup delete a resubscribed generation's item", async () => {
     await tasks.watchBoard(projectId, PEER);
     const task = await newTask(null);
-    await tasks.watch(task.id, PEER);
+    const original = (
+      await pool.query(
+        `SELECT id, board_watch_id, source, item_id FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+        [task.id, PEER]
+      )
+    ).rows;
+    expect(original).toHaveLength(1);
     let release!: () => void;
     let entered!: () => void;
     const ready = new Promise<void>((r) => {
@@ -1083,14 +1089,19 @@ describe("task watches", () => {
     );
     release();
     await old;
-    expect(
-      (
-        await pool.query(
-          `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
-          [task.id, PEER]
-        )
-      ).rows
-    ).toHaveLength(1);
+    const remaining = (
+      await pool.query(
+        `SELECT id, board_watch_id, source, item_id FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+        [task.id, PEER]
+      )
+    ).rows;
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({
+      source: original[0].source,
+      item_id: original[0].item_id,
+    });
+    expect(remaining[0].id).not.toBe(original[0].id);
+    expect(remaining[0].board_watch_id).not.toBe(original[0].board_watch_id);
     watchDeliver = async (_id, text, options) => {
       if (await options.beforeSubmit()) watchPrompts.push(text);
     };
