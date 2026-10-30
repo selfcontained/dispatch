@@ -1,57 +1,35 @@
-import { MessageCircleQuestion, MessageSquare } from "lucide-react";
+import { MessageCircleQuestion } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
-import { formatBadgeCount } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
-/**
- * Sidebar signal that an agent has chat replies the user has not read. An
- * open question takes the waiting accent so it reads as "needs you", not
- * just "new". Renders nothing with the flag off or nothing unread.
- */
+/** Pending input stays visible even after the user reads the agent's stream. */
 export function ChatUnreadBadge({
   agentId,
-  className,
 }: {
   agentId: string;
-  className?: string;
 }): JSX.Element | null {
-  const { unread, pendingQuestions } = useAgentChatUnread(agentId);
-  if (unread <= 0 && pendingQuestions <= 0) return null;
-
-  const asksSomething = pendingQuestions > 0;
-  const count = Math.max(unread, pendingQuestions);
-  const parts: string[] = [];
-  if (unread > 0) {
-    parts.push(`${unread} unread chat ${unread === 1 ? "reply" : "replies"}`);
-  }
-  if (asksSomething) {
-    parts.push(
-      `${pendingQuestions} open ${pendingQuestions === 1 ? "question" : "questions"}`
-    );
-  }
-  const title = parts.join(" · ");
+  const { pendingQuestions } = useAgentChatUnread(agentId);
+  if (pendingQuestions <= 0) return null;
 
   return (
-    <Badge
-      className={cn(
-        asksSomething
-          ? "border-status-waiting/45 bg-status-waiting/15 text-status-waiting"
-          : "border-primary/40 bg-primary/15 text-primary",
-        className
-      )}
-      title={title}
-      aria-label={title}
-      data-testid="agent-chat-unread"
-      data-pending-questions={pendingQuestions}
-    >
-      {asksSomething ? (
-        <MessageCircleQuestion className="mr-1 h-3 w-3" />
-      ) : (
-        <MessageSquare className="mr-1 h-3 w-3" />
-      )}
-      {formatBadgeCount(count)}
-    </Badge>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="img"
+          tabIndex={0}
+          aria-label="Needs your input"
+          data-testid="agent-chat-unread"
+          className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-status-waiting outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <MessageCircleQuestion className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Needs your input</TooltipContent>
+    </Tooltip>
   );
 }

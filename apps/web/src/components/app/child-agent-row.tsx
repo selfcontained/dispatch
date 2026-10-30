@@ -195,10 +195,7 @@ export function ChildAgentRow({
         as clicking blank space anywhere else in the row.
       */}
       <div className="flex shrink-0 items-center gap-1">
-        <ChatUnreadBadge
-          agentId={agent.id}
-          className="h-4 px-1 text-[10px] leading-none"
-        />
+        <ChatUnreadBadge agentId={agent.id} />
         {review || isReviewAgent ? (
           <AgentReviewIndicator
             agentId={agent.id}

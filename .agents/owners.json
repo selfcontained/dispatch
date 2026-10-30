@@ -284,6 +284,7 @@
         "e2e/settings.spec.ts",
         "e2e/changes-virtualization.spec.ts",
         "e2e/sidebar-pins.spec.ts",
+        "e2e/sidebar-input-needed.spec.ts",
         "e2e/tasks-board.spec.ts"
       ],
       "personas": ["frontend-react-review"]
