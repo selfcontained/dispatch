@@ -278,6 +278,68 @@ export class TaskService {
     this.projects = new ProjectStore(deps.pool);
   }
 
+  /** Validate persisted identity, not just the MCP request's project hint. */
+  private async requireWatchProject(
+    agentId: string,
+    expectedProjectId: string
+  ): Promise<void> {
+    const agent = await this.deps.getAgent(agentId);
+    const persisted = await this.deps.pool.query(
+      `SELECT 1 FROM agents WHERE id = $1 AND deleted_at IS NULL`,
+      [agentId]
+    );
+    if (!agent || !persisted.rows.length)
+      throw new TaskError("Agent is archived or unavailable.", 403);
+    const projectId = await agentTaskProject(
+      {
+        ...agent,
+        cwd: agent.cwd ?? null,
+        worktreePath: agent.worktreePath ?? null,
+        baseBranch: agent.baseBranch ?? null,
+      },
+      (input) => this.projectForAgent(input)
+    );
+    if (projectId !== expectedProjectId)
+      throw new TaskError("You can only watch your own project's board.", 403);
+  }
+
+  async watchBoard(projectId: string, agentId: string): Promise<void> {
+    await this.requireWatchProject(agentId, projectId);
+    const { rows } = await this.deps.pool.query(
+      `INSERT INTO task_board_watches (project_id, agent_id)
+       SELECT $1, id FROM agents WHERE id = $2 AND deleted_at IS NULL
+       ON CONFLICT (project_id, agent_id) DO UPDATE SET agent_id = EXCLUDED.agent_id
+       RETURNING id`,
+      [projectId, agentId]
+    );
+    if (!rows.length)
+      throw new TaskError("Agent is archived or unavailable.", 403);
+  }
+
+  async unwatchBoard(projectId: string, agentId: string): Promise<void> {
+    await this.requireWatchProject(agentId, projectId);
+    const pending = await this.deps.pool.query<{ task_id: string }>(
+      `SELECT DISTINCT i.task_id FROM task_watch_items i JOIN task_board_watches w ON w.id = i.board_watch_id
+       WHERE w.project_id = $1 AND w.agent_id = $2`,
+      [projectId, agentId]
+    );
+    await this.deps.pool.query(
+      `DELETE FROM task_board_watches WHERE project_id = $1 AND agent_id = $2`,
+      [projectId, agentId]
+    );
+    for (const { task_id } of pending.rows)
+      if (!(await this.watching(task_id, agentId)))
+        this.deps.watches?.cancel(task_id, agentId);
+  }
+
+  async boardWatching(projectId: string, agentId: string): Promise<boolean> {
+    const { rows } = await this.deps.pool.query(
+      `SELECT 1 FROM task_board_watches WHERE project_id = $1 AND agent_id = $2`,
+      [projectId, agentId]
+    );
+    return rows.length > 0;
+  }
+
   async watch(id: string, agentId: string): Promise<void> {
     const task = await this.requireTask(id);
     const agent = await this.deps.getAgent(agentId);
@@ -307,7 +369,9 @@ export class TaskService {
   }
 
   async unwatch(id: string, agentId: string): Promise<void> {
-    this.deps.watches?.cancel(id, agentId);
+    const task = await this.requireTask(id);
+    if (!(await this.boardWatching(task.projectId, agentId)))
+      this.deps.watches?.cancel(id, agentId);
     await this.deps.pool.query(
       `DELETE FROM task_watches WHERE task_id = $1 AND agent_id = $2`,
       [id, agentId]

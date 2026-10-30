@@ -948,6 +948,335 @@ describe("task stream root", () => {
 });
 
 describe("task watches", () => {
+  it("covers future tasks in every column, deduplicates overlap and preserves either subscription", async () => {
+    await tasks.watchBoard(projectId, PEER);
+    await tasks.watchBoard(projectId, HELPER);
+    const first = await newTask(null);
+    const ready = await tasks.resolveColumnKey(projectId, "ready");
+    const second = await tasks.createTask(
+      { projectId, title: "Another column", columnId: ready.id },
+      USER
+    );
+    for (const task of [first, second]) {
+      await watches.flush(task.id, PEER);
+      expect(watchPrompts.at(-1)).toContain("created");
+    }
+    expect(watchPrompts).toHaveLength(2);
+    await tasks.watch(first.id, PEER);
+    await tasks.comment(first.id, ASSIGNEE, "Overlap once");
+    await watches.flush(first.id, PEER);
+    expect(watchPrompts.at(-1)!.match(/Overlap once/g)).toHaveLength(1);
+    expect(
+      (
+        await pool.query(
+          `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+          [first.id, PEER]
+        )
+      ).rows
+    ).toHaveLength(0);
+    await tasks.unwatch(first.id, PEER);
+    await tasks.comment(first.id, ASSIGNEE, "Board survives");
+    await watches.flush(first.id, PEER);
+    expect(watchPrompts.at(-1)).toContain("Board survives");
+    await tasks.watch(first.id, PEER);
+    await tasks.unwatchBoard(projectId, PEER);
+    await tasks.comment(first.id, ASSIGNEE, "Explicit survives");
+    await watches.flush(first.id, PEER);
+    expect(watchPrompts.at(-1)).toContain("Explicit survives");
+    await tasks.comment(second.id, ASSIGNEE, "No board coverage");
+    const count = watchPrompts.length;
+    await watches.flush(second.id, PEER);
+    expect(watchPrompts).toHaveLength(count);
+    // The other watcher remains independent throughout.
+    await watches.flush(first.id, HELPER);
+    expect(watchPrompts.at(-1)).toContain("Explicit survives");
+    await expect(tasks.watchBoard(projectId, STRANGER)).rejects.toThrow();
+    expect(
+      (
+        await pool.query(`SELECT * FROM task_watch_items WHERE agent_id = $1`, [
+          STRANGER,
+        ])
+      ).rows
+    ).toHaveLength(0);
+  });
+
+  it("retains board inboxes across notifier restart and cleans archived/removed agents without looping", async () => {
+    await tasks.watchBoard(projectId, PEER);
+    const task = await newTask(null);
+    watches.dispose();
+    const deliver = vi.fn(
+      async (_id: string, text: string, options: WatchDelivery) => {
+        if (await options.beforeSubmit()) watchPrompts.push(text);
+      }
+    );
+    const restarted = new TaskWatchNotifier({
+      pool,
+      projectForAgent: async () => projectId,
+      deliver,
+      warn: () => {},
+    });
+    const schedule = vi
+      .spyOn(restarted, "schedule")
+      .mockImplementation(() => {});
+    try {
+      await restarted.recover(PEER);
+      expect(schedule).toHaveBeenCalledWith(task.id);
+      await restarted.flushTask(task.id);
+      expect(deliver).toHaveBeenCalledTimes(1);
+      await restarted.flushTask(task.id);
+      expect(deliver).toHaveBeenCalledTimes(1);
+      await tasks.store.insertEvent(task.id, "agent_removed", USER, {
+        agentId: PEER,
+      });
+      await tasks.comment(task.id, HELPER, "Excluded after removal");
+      await restarted.flushTask(task.id);
+      expect(deliver).toHaveBeenCalledTimes(1);
+      // Removal is per task; board coverage continues elsewhere.
+      const another = await newTask(null);
+      await restarted.flushTask(another.id);
+      expect(deliver).toHaveBeenCalledTimes(2);
+      await pool.query(`UPDATE agents SET deleted_at = now() WHERE id = $1`, [
+        PEER,
+      ]);
+      await restarted.recover();
+      expect(await tasks.boardWatching(projectId, PEER)).toBe(false);
+      expect(
+        (
+          await pool.query(
+            `SELECT * FROM task_watch_items WHERE agent_id = $1`,
+            [PEER]
+          )
+        ).rows
+      ).toHaveLength(0);
+    } finally {
+      restarted.dispose();
+    }
+  });
+
+  it("never lets old acceptance cleanup delete a resubscribed generation's item", async () => {
+    await tasks.watchBoard(projectId, PEER);
+    const task = await newTask(null);
+    await tasks.watch(task.id, PEER);
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((r) => {
+      entered = r;
+    });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    watchDeliver = async (_id, text, options) => {
+      expect(await options.beforeSubmit()).toBe(true);
+      entered();
+      await gate;
+      watchPrompts.push(text);
+    };
+    const old = watches.flush(task.id, PEER);
+    await ready;
+    await tasks.unwatchBoard(projectId, PEER);
+    await tasks.watchBoard(projectId, PEER);
+    // Reinsert the same underlying source identity to prove cleanup is keyed by
+    // inbox generation rather than (task, agent, source, item_id).
+    await pool.query(
+      `SELECT task_watch_enqueue($1, 'event', id::text) FROM task_events WHERE task_id = $1 AND kind = 'created'`,
+      [task.id]
+    );
+    release();
+    await old;
+    expect(
+      (
+        await pool.query(
+          `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+          [task.id, PEER]
+        )
+      ).rows
+    ).toHaveLength(1);
+    watchDeliver = async (_id, text, options) => {
+      if (await options.beforeSubmit()) watchPrompts.push(text);
+    };
+    await watches.flush(task.id, PEER);
+    expect(
+      (
+        await pool.query(
+          `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+          [task.id, PEER]
+        )
+      ).rows
+    ).toHaveLength(0);
+  });
+
+  it("rejects a queued board notice when unsubscribe wins acceptance, even after resubscribe", async () => {
+    await tasks.watchBoard(projectId, PEER);
+    const task = await newTask(null);
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((r) => {
+      entered = r;
+    });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    watchDeliver = async (_id, text, options) => {
+      entered();
+      await gate;
+      if (await options.beforeSubmit()) watchPrompts.push(text);
+    };
+    const pending = watches.flush(task.id, PEER);
+    await ready;
+    await tasks.unwatchBoard(projectId, PEER);
+    await tasks.watchBoard(projectId, PEER);
+    await tasks.comment(task.id, HELPER, "New generation");
+    release();
+    await pending;
+    expect(watchPrompts).toHaveLength(0);
+    watchDeliver = async (_id, text, options) => {
+      if (await options.beforeSubmit()) watchPrompts.push(text);
+    };
+    await watches.flush(task.id, PEER);
+    expect(watchPrompts).toHaveLength(1);
+    expect(watchPrompts[0]).toContain("New generation");
+    expect(watchPrompts[0]).not.toContain("created");
+  });
+
+  it("rebuilds partial coverage loss and wakes activity whose debounce expired during delivery", async () => {
+    const task = await newTask(null);
+    await tasks.watchBoard(projectId, PEER);
+    await tasks.comment(task.id, HELPER, "Board only, withdrawn");
+    await tasks.watch(task.id, PEER);
+    await tasks.comment(task.id, HELPER, "Still explicit");
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((r) => {
+      entered = r;
+    });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let first = true;
+    watchDeliver = async (_id, text, options) => {
+      if (first) {
+        first = false;
+        entered();
+        await gate;
+      }
+      if (await options.beforeSubmit()) watchPrompts.push(text);
+    };
+    enableAutomaticWatchScheduling();
+    const pending = watches.flush(task.id, PEER);
+    await ready;
+    await tasks.unwatchBoard(projectId, PEER);
+    const automatic = vi.spyOn(watches, "flushTask");
+    await tasks.comment(task.id, HELPER, "Arrived while active");
+    // The real debounce fires and observes this watcher still active.
+    await expect.poll(() => automatic.mock.calls.length).toBeGreaterThan(0);
+    await automatic.mock.results[0]!.value;
+    release();
+    await pending;
+    await expect.poll(() => watchPrompts.length).toBe(1);
+    expect(watchPrompts[0]).not.toContain("Board only, withdrawn");
+    expect(watchPrompts[0]).toContain("Still explicit");
+    expect(watchPrompts[0]).toContain("Arrived while active");
+    await expect
+      .poll(
+        async () =>
+          (
+            await pool.query(
+              `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+              [task.id, PEER]
+            )
+          ).rowCount
+      )
+      .toBe(0);
+  });
+
+  it("defines subscribe at fanout's statement snapshot without history replay", async () => {
+    const task = await newTask(null);
+    const tx = await pool.connect();
+    try {
+      await tx.query("BEGIN");
+      await tx.query(
+        `INSERT INTO task_board_watches (project_id, agent_id) VALUES ($1, $2)`,
+        [projectId, PEER]
+      );
+      await tasks.comment(task.id, HELPER, "Before subscription commit");
+      await tx.query("COMMIT");
+      await tasks.comment(task.id, HELPER, "After subscription commit");
+      await watches.flush(task.id, PEER);
+      expect(watchPrompts).toHaveLength(1);
+      expect(watchPrompts[0]).not.toContain("Before subscription commit");
+      expect(watchPrompts[0]).toContain("After subscription commit");
+    } finally {
+      await tx.query("ROLLBACK");
+      tx.release();
+    }
+  });
+
+  it.each([true, false])(
+    "serializes board unsubscribe with atomic source fanout (source first=%s)",
+    async (sourceFirst) => {
+      const task = await newTask(null);
+      await tasks.watchBoard(projectId, PEER);
+      const a = await pool.connect();
+      const b = await pool.connect();
+      const insert = (client: typeof a) =>
+        client.query(
+          `INSERT INTO task_events (id, task_id, kind, actor_kind, data)
+      VALUES (gen_random_uuid(), $1, 'updated', 'user', '{"fields":["title"]}')`,
+          [task.id]
+        );
+      const remove = (client: typeof a) =>
+        client.query(
+          `DELETE FROM task_board_watches WHERE project_id = $1 AND agent_id = $2`,
+          [projectId, PEER]
+        );
+      let blocked: Promise<unknown> | undefined;
+      try {
+        await a.query("BEGIN");
+        await b.query("BEGIN");
+        const pid = (await b.query(`SELECT pg_backend_pid() AS pid`)).rows[0]
+          .pid;
+        await (sourceFirst ? insert(a) : remove(a));
+        blocked = sourceFirst ? remove(b) : insert(b);
+        await expect
+          .poll(
+            async () =>
+              (
+                await pool.query(
+                  `SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`,
+                  [pid]
+                )
+              ).rows[0]?.wait_event_type
+          )
+          .toBe("Lock");
+        await a.query("COMMIT");
+        await blocked;
+        await b.query("COMMIT");
+        expect(
+          (
+            await pool.query(
+              `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+              [task.id, PEER]
+            )
+          ).rows
+        ).toHaveLength(0);
+        expect(
+          (
+            await pool.query(
+              `SELECT * FROM task_events WHERE task_id = $1 AND kind = 'updated'`,
+              [task.id]
+            )
+          ).rows
+        ).toHaveLength(1);
+      } finally {
+        await a.query("ROLLBACK");
+        await blocked?.catch(() => {});
+        await b.query("ROLLBACK");
+        a.release();
+        b.release();
+      }
+    }
+  );
+
   it("waits for the owning automatic flush before asserting addressed inbox cleanup", async () => {
     const task = await newTask();
     await tasks.watch(task.id, ASSIGNEE);
@@ -1204,7 +1533,8 @@ describe("task watches", () => {
     await tasks.watch(task.id, PEER);
     await tasks.comment(task.id, HELPER, "First notice");
     let accept!: () => void;
-    watchDeliver = async (_id, text) => {
+    watchDeliver = async (_id, text, options) => {
+      if (!(await options.beforeSubmit())) throw new Error("withdrawn");
       watchPrompts.push(text);
       await new Promise<void>((resolve) => {
         accept = resolve;
@@ -1215,8 +1545,8 @@ describe("task watches", () => {
     await tasks.comment(task.id, HELPER, "Arrived during delivery");
     accept();
     await pending;
-    watchDeliver = async (_id, text) => {
-      watchPrompts.push(text);
+    watchDeliver = async (_id, text, options) => {
+      if (await options.beforeSubmit()) watchPrompts.push(text);
     };
     await watches.flushTask(task.id);
     expect(watchPrompts).toHaveLength(2);

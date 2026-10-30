@@ -27,6 +27,8 @@ type Item = {
 
 /** Insert triggers own the durable inbox. Timers are delivery wakeups only. */
 export class TaskWatchNotifier {
+  private disposed = false;
+  private retry = new Set<string>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private active = new Map<
     string,
@@ -35,12 +37,15 @@ export class TaskWatchNotifier {
   constructor(private readonly deps: Deps) {}
 
   dispose(): void {
+    this.disposed = true;
+    this.retry.clear();
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     for (const entry of this.active.values()) entry.controller.abort();
   }
 
   schedule(taskId: string): void {
+    if (this.disposed) return;
     clearTimeout(this.timers.get(taskId));
     const timer = setTimeout(() => {
       this.timers.delete(taskId);
@@ -66,6 +71,9 @@ export class TaskWatchNotifier {
     await this.deps.pool.query(
       `DELETE FROM task_watches w USING agents a WHERE w.agent_id = a.id AND a.deleted_at IS NOT NULL`
     );
+    await this.deps.pool.query(
+      `DELETE FROM task_board_watches w USING agents a WHERE w.agent_id = a.id AND a.deleted_at IS NOT NULL`
+    );
     const { rows } = await this.deps.pool.query<{ task_id: string }>(
       `SELECT DISTINCT task_id FROM task_watch_items WHERE ($1::text IS NULL OR agent_id = $1)`,
       [agentId ?? null]
@@ -75,7 +83,7 @@ export class TaskWatchNotifier {
 
   async flushTask(taskId: string): Promise<void> {
     const { rows } = await this.deps.pool.query<{ agent_id: string }>(
-      `SELECT agent_id FROM task_watches WHERE task_id = $1`,
+      `SELECT DISTINCT agent_id FROM task_watch_items WHERE task_id = $1`,
       [taskId]
     );
     await Promise.all(
@@ -85,7 +93,10 @@ export class TaskWatchNotifier {
 
   async flush(taskId: string, agentId: string): Promise<void> {
     const key = `${taskId}:${agentId}`;
-    if (this.active.has(key)) return;
+    if (this.active.has(key)) {
+      this.retry.add(key);
+      return;
+    }
     const controller = new AbortController();
     this.active.set(key, { taskId, agentId, controller });
     try {
@@ -97,8 +108,9 @@ export class TaskWatchNotifier {
         deleted_at: string | null;
       }>(
         `SELECT t.title, c.key AS column, t.project_id, a.status, a.deleted_at
-          FROM task_watches w JOIN tasks t ON t.id = w.task_id JOIN task_columns c ON c.id = t.column_id
-          JOIN agents a ON a.id = w.agent_id WHERE w.task_id = $1 AND w.agent_id = $2`,
+          FROM tasks t JOIN task_columns c ON c.id = t.column_id
+          JOIN agents a ON a.id = $2 WHERE t.id = $1
+          AND EXISTS (SELECT 1 FROM task_watch_items i WHERE i.task_id = t.id AND i.agent_id = a.id)`,
         [taskId, agentId]
       );
       const watch = watches[0];
@@ -116,30 +128,38 @@ export class TaskWatchNotifier {
           `DELETE FROM task_watches WHERE task_id = $1 AND agent_id = $2`,
           [taskId, agentId]
         );
+        await this.deps.pool.query(
+          `DELETE FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+          [taskId, agentId]
+        );
+        if (
+          watch.deleted_at !== null ||
+          (await this.deps.projectForAgent(agentId)) !== watch.project_id
+        )
+          await this.deps.pool.query(
+            `DELETE FROM task_board_watches WHERE project_id = $1 AND agent_id = $2`,
+            [watch.project_id, agentId]
+          );
         return;
       }
       if (watch.status !== "running") return;
       // Snapshot identities, not timestamps: later commits stay in the inbox even
       // when their source created_at predates an already accepted notice.
       const { rows: pending } = await this.deps.pool.query<{
+        id: string;
         source: string;
         item_id: string;
       }>(
-        `SELECT source, item_id FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+        `SELECT id::text, source, item_id FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
         [taskId, agentId]
       );
       if (!pending.length || controller.signal.aborted) return;
       const remove = async (entries: typeof pending) => {
         if (!entries.length) return;
         await this.deps.pool.query(
-          `DELETE FROM task_watch_items i USING unnest($3::text[], $4::text[]) AS accepted(source, item_id)
-           WHERE i.task_id = $1 AND i.agent_id = $2 AND i.source = accepted.source AND i.item_id = accepted.item_id`,
-          [
-            taskId,
-            agentId,
-            entries.map((item) => item.source),
-            entries.map((item) => item.item_id),
-          ]
+          `DELETE FROM task_watch_items i USING unnest($3::bigint[]) AS accepted(id)
+           WHERE i.task_id = $1 AND i.agent_id = $2 AND i.id = accepted.id`,
+          [taskId, agentId, entries.map((item) => item.id)]
         );
       };
       const { rows: items } = await this.deps.pool.query<Item>(
@@ -162,7 +182,7 @@ export class TaskWatchNotifier {
             LEFT JOIN task_columns to_column ON to_column.id = e.data->>'toColumnId'
           WHERE e.task_id = $1 AND e.id::text = ANY($3::text[])
             AND e.actor_agent_id IS DISTINCT FROM $2
-            AND (e.kind IN ('moved','assigned','unassigned','agent_removed','archived','restored','link_added','trigger_failed')
+            AND (e.kind IN ('created','moved','assigned','unassigned','agent_removed','archived','restored','link_added','trigger_failed')
               OR (e.kind = 'updated' AND e.data->'fields' ?| array['title','body']))
           UNION ALL
           SELECT b.id::text, 'block', 'message', COALESCE(message_actor.name, b.author_agent_id, b.author_kind),
@@ -211,26 +231,38 @@ export class TaskWatchNotifier {
           : []),
         `Read task_get({id: "${taskId}"}), get_message({id: "<message id>"}) or get_thread({id: "<message id>"}).`,
       ].join("\n");
+      const represented = pending.filter((item) =>
+        included.has(`${item.source}:${item.item_id}`)
+      );
+      let accepted = false;
       await this.deps.deliver(agentId, text, {
         signal: controller.signal,
-        beforeSubmit: async () =>
-          !controller.signal.aborted &&
-          (await this.deps.projectForAgent(agentId)) === watch.project_id &&
-          (
-            await this.deps.pool.query(
-              `SELECT 1 FROM task_watches w JOIN agents a ON a.id = w.agent_id
-           WHERE w.task_id = $1 AND w.agent_id = $2 AND a.status = 'running' AND a.deleted_at IS NULL
-             AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = w.task_id AND e.kind = 'agent_removed' AND e.data->>'agentId' = w.agent_id)`,
-              [taskId, agentId]
-            )
-          ).rows.length > 0,
+        beforeSubmit: async () => {
+          if (
+            controller.signal.aborted ||
+            (await this.deps.projectForAgent(agentId)) !== watch.project_id
+          )
+            return false;
+          // Acceptance is the final live-coverage check, not the earlier snapshot.
+          // Every represented source must still have one of its original coverage
+          // rows. A new subscription cannot authorize an old queued delivery.
+          const result = await this.deps.pool.query(
+            `SELECT (SELECT count(DISTINCT (i.source, i.item_id)) FROM task_watch_items i
+                WHERE i.task_id = $1 AND i.agent_id = a.id AND i.id = ANY($3::bigint[]))::int AS covered
+              FROM agents a WHERE a.id = $2 AND a.status = 'running' AND a.deleted_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = $1 AND e.kind = 'agent_removed' AND e.data->>'agentId' = a.id)`,
+            [taskId, agentId, represented.map((item) => item.id)]
+          );
+          accepted = result.rows[0]?.covered === included.size;
+          // Coverage changed while queued: rebuild from the surviving inbox.
+          if (result.rows.length && !accepted) this.retry.add(key);
+          return accepted;
+        },
       });
-      if (!controller.signal.aborted)
-        await remove(
-          items.map((item) => ({ source: item.source, item_id: item.id }))
-        );
+      if (accepted && !controller.signal.aborted) await remove(represented);
     } finally {
       this.active.delete(key);
+      if (this.retry.delete(key)) this.schedule(taskId);
     }
   }
 }

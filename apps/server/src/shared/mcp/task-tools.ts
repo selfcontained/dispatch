@@ -177,6 +177,10 @@ export function registerTaskTools(
             }));
           return ok({
             projectId: board.projectId,
+            boardWatching: await service.boardWatching(
+              board.projectId,
+              agentId
+            ),
             columns: board.columns.map((c) => c.key),
             columnCapacity: board.columns.map(columnMetadata),
             tasks,
@@ -276,6 +280,31 @@ export function registerTaskTools(
             column: key ?? null,
             watching: await service.watching(args.id, agentId),
           });
+        } catch (error) {
+          return toTaskToolError(error);
+        }
+      }
+    );
+  }
+
+  for (const name of ["task_board_watch", "task_board_unwatch"] as const) {
+    if (!allowed.has(name)) continue;
+    server.registerTool(
+      name,
+      {
+        description:
+          name === "task_board_watch"
+            ? "Watch future activity on all tasks in every column of your own project, including newly created tasks. No history replay or assignment. Independent of explicit task watches."
+            : "Stop your project board watch; explicit task watches remain active.",
+        inputSchema: { projectId: z.string().min(1).optional() },
+      },
+      async ({ projectId: requested }) => {
+        try {
+          const projectId = await projectFor(requested);
+          if (name === "task_board_watch")
+            await service.watchBoard(projectId, agentId);
+          else await service.unwatchBoard(projectId, agentId);
+          return ok({ projectId, watching: name === "task_board_watch" });
         } catch (error) {
           return toTaskToolError(error);
         }

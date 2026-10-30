@@ -28,6 +28,9 @@ async function withClient(
     ...(job ? { jobTools: {} as never } : {}),
     taskService: {
       projectForAgent: async () => "own",
+      boardWatching: async () => false,
+      watchBoard: async () => {},
+      unwatchBoard: async () => {},
       resolveColumnKey: async () => column,
       updateColumn: update,
       getBoard: async () => ({
@@ -126,5 +129,72 @@ describe("task column MCP boundary", () => {
     expect(registerTool.mock.calls.map(([name]) => name)).toEqual([
       "task_list",
     ]);
+  });
+});
+
+describe("board watch MCP boundary", () => {
+  it.each([false, true])(
+    "registers independent board watches for agents and callable jobs (job=%s)",
+    async (job) => {
+      await withClient(job, async (client) => {
+        const inventory = await client.listTools();
+        for (const name of ["task_board_watch", "task_board_unwatch"]) {
+          const tool = inventory.tools.find((t) => t.name === name)!;
+          expect(tool.inputSchema.properties).toEqual({
+            projectId: expect.any(Object),
+          });
+          expect(tool.inputSchema.required ?? []).toEqual([]);
+          expect(
+            (await client.callTool({ name, arguments: {} })).structuredContent
+          ).toEqual({
+            projectId: "own",
+            watching: name === "task_board_watch",
+          });
+          expect(
+            (
+              await client.callTool({
+                name,
+                arguments: { projectId: "foreign" },
+              })
+            ).isError
+          ).toBe(true);
+          expect(
+            (await client.callTool({ name, arguments: { projectId: "" } }))
+              .isError
+          ).toBe(true);
+        }
+        const list = await client.callTool({
+          name: "task_list",
+          arguments: {},
+        });
+        expect(list.structuredContent).toMatchObject({
+          projectId: "own",
+          boardWatching: false,
+        });
+      });
+    }
+  );
+
+  it("does not fabricate a subscriber for an unscoped/admin context", async () => {
+    const server = await createDispatchMcpServer({
+      repoRoot: null,
+      worktreeRoot: null,
+      taskService: {} as TaskService,
+    });
+    const client = new Client({ name: "board-admin-test", version: "1" });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(b);
+    await client.connect(a);
+    try {
+      await expect(
+        client.callTool({ name: "task_board_watch", arguments: {} })
+      ).rejects.toThrow();
+      await expect(
+        client.callTool({ name: "task_board_unwatch", arguments: {} })
+      ).rejects.toThrow();
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });
