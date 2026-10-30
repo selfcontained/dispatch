@@ -318,18 +318,13 @@ export class TaskService {
 
   async unwatchBoard(projectId: string, agentId: string): Promise<void> {
     await this.requireWatchProject(agentId, projectId);
-    const pending = await this.deps.pool.query<{ task_id: string }>(
-      `SELECT DISTINCT i.task_id FROM task_watch_items i JOIN task_board_watches w ON w.id = i.board_watch_id
-       WHERE w.project_id = $1 AND w.agent_id = $2`,
-      [projectId, agentId]
-    );
+    // Delete only this subscription's coverage. Cancellation by task/agent
+    // cannot distinguish an old unsubscribe from a newly queued generation;
+    // the notifier's original-inbox acceptance check fences queued delivery.
     await this.deps.pool.query(
       `DELETE FROM task_board_watches WHERE project_id = $1 AND agent_id = $2`,
       [projectId, agentId]
     );
-    for (const { task_id } of pending.rows)
-      if (!(await this.watching(task_id, agentId)))
-        this.deps.watches?.cancel(task_id, agentId);
   }
 
   async boardWatching(projectId: string, agentId: string): Promise<boolean> {
@@ -369,9 +364,8 @@ export class TaskService {
   }
 
   async unwatch(id: string, agentId: string): Promise<void> {
-    const task = await this.requireTask(id);
-    if (!(await this.boardWatching(task.projectId, agentId)))
-      this.deps.watches?.cancel(id, agentId);
+    // Like board unsubscribe, do not abort a task/agent delivery that might
+    // already belong to fresh board coverage or a new explicit generation.
     await this.deps.pool.query(
       `DELETE FROM task_watches WHERE task_id = $1 AND agent_id = $2`,
       [id, agentId]

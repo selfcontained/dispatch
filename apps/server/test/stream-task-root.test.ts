@@ -1138,6 +1138,97 @@ describe("task watches", () => {
     expect(watchPrompts[0]).not.toContain("created");
   });
 
+  it.each(["board", "task"] as const)(
+    "an old %s unsubscribe cannot cancel a new generation's automatic delivery",
+    async (scope) => {
+      const task = await newTask(null);
+      if (scope === "board") await tasks.watchBoard(projectId, PEER);
+      else await tasks.watch(task.id, PEER);
+      await tasks.comment(task.id, HELPER, "Old coverage");
+      let resumeOld!: () => void;
+      let deletionReached!: () => void;
+      const deleted = new Promise<void>((r) => {
+        deletionReached = r;
+      });
+      const oldGate = new Promise<void>((r) => {
+        resumeOld = r;
+      });
+      const originalQuery = pool.query.bind(pool);
+      const spy = vi.spyOn(pool, "query").mockImplementation((async (
+        sql: string,
+        values?: unknown[]
+      ) => {
+        const result = await originalQuery(sql, values);
+        const table = scope === "board" ? "task_board_watches" : "task_watches";
+        if (
+          sql.includes(`DELETE FROM ${table} WHERE`) &&
+          values?.[1] === PEER
+        ) {
+          deletionReached();
+          await oldGate;
+        }
+        return result;
+      }) as typeof pool.query);
+      let resumeDelivery!: () => void;
+      let deliveryReached!: () => void;
+      const queued = new Promise<void>((r) => {
+        deliveryReached = r;
+      });
+      const deliveryGate = new Promise<void>((r) => {
+        resumeDelivery = r;
+      });
+      let signal: AbortSignal | undefined;
+      watchDeliver = async (_id, text, options) => {
+        signal = options.signal;
+        deliveryReached();
+        await deliveryGate;
+        if (await options.beforeSubmit()) watchPrompts.push(text);
+      };
+      const oldUnsubscribe =
+        scope === "board"
+          ? tasks.unwatchBoard(projectId, PEER)
+          : tasks.unwatch(task.id, PEER);
+      try {
+        await deleted;
+        // The old request has deleted its generation but has not returned. A
+        // reconnect creates new board coverage and its real debounce queues it.
+        await tasks.watchBoard(projectId, PEER);
+        enableAutomaticWatchScheduling();
+        await tasks.comment(
+          task.id,
+          HELPER,
+          "Fresh generation delivered automatically"
+        );
+        await queued;
+        resumeOld();
+        await oldUnsubscribe;
+        expect(signal?.aborted).toBe(false);
+        resumeDelivery();
+        await expect.poll(() => watchPrompts.length).toBe(1);
+        expect(watchPrompts[0]).toContain(
+          "Fresh generation delivered automatically"
+        );
+        expect(watchPrompts[0]).not.toContain("Old coverage");
+        await expect
+          .poll(
+            async () =>
+              (
+                await pool.query(
+                  `SELECT * FROM task_watch_items WHERE task_id = $1 AND agent_id = $2`,
+                  [task.id, PEER]
+                )
+              ).rowCount
+          )
+          .toBe(0);
+      } finally {
+        resumeOld();
+        resumeDelivery();
+        await oldUnsubscribe;
+        spy.mockRestore();
+      }
+    }
+  );
+
   it("rebuilds partial coverage loss and wakes activity whose debounce expired during delivery", async () => {
     const task = await newTask(null);
     await tasks.watchBoard(projectId, PEER);
@@ -1769,8 +1860,8 @@ describe("task watches", () => {
     };
     await watches.flushTask(task.id);
     expect(await pendingCount()).toBe(1);
-    watchDeliver = async (_id, text) => {
-      watchPrompts.push(text);
+    watchDeliver = async (_id, text, options) => {
+      if (await options.beforeSubmit()) watchPrompts.push(text);
     };
     enableAutomaticWatchScheduling();
     await watches.recover(PEER);
@@ -1779,15 +1870,17 @@ describe("task watches", () => {
     await expect.poll(pendingCount).toBe(0);
   });
 
-  it("removes inbox items only on acceptance and aborts queued watches on unwatch/delete", async () => {
+  it("withdraws queued watches at unsubscribe acceptance and aborts task deletion", async () => {
     const task = await newTask();
     await tasks.watch(task.id, PEER);
-    let accept!: () => void;
+    let accept!: () => Promise<void>;
     watchDeliver = async (_id, text, options) =>
       new Promise<void>((resolve, reject) => {
-        accept = () => {
-          watchPrompts.push(text);
-          resolve();
+        accept = async () => {
+          if (await options.beforeSubmit()) {
+            watchPrompts.push(text);
+            resolve();
+          } else reject(new Error("withdrawn"));
         };
         options.signal.addEventListener(
           "abort",
@@ -1806,6 +1899,7 @@ describe("task watches", () => {
       ).rows
     ).toHaveLength(1);
     await tasks.unwatch(task.id, PEER);
+    await accept();
     await pending;
     expect(watchPrompts).toHaveLength(0);
     await tasks.watch(task.id, PEER);
