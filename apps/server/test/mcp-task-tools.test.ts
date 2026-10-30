@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it, vi } from "vitest";
@@ -21,6 +22,7 @@ async function withClient(
     trigger: null,
   };
   const update = vi.fn(async () => column);
+  let boardWatching = false;
   const server = await createDispatchMcpServer({
     agent: { id: "caller", cwd: "/repo", projectId: "own", fullAccess: false },
     repoRoot: null,
@@ -28,9 +30,13 @@ async function withClient(
     ...(job ? { jobTools: {} as never } : {}),
     taskService: {
       projectForAgent: async () => "own",
-      boardWatching: async () => false,
-      watchBoard: async () => {},
-      unwatchBoard: async () => {},
+      boardWatching: async () => boardWatching,
+      watchBoard: async () => {
+        boardWatching = true;
+      },
+      unwatchBoard: async () => {
+        boardWatching = false;
+      },
       resolveColumnKey: async () => column,
       updateColumn: update,
       getBoard: async () => ({
@@ -197,4 +203,79 @@ describe("board watch MCP boundary", () => {
       await server.close();
     }
   });
+});
+
+describe("Conductor board watch instruction contract", () => {
+  it.each([false, true])(
+    "uses discoverable tool names and verifiable startup/reconcile/closeout states (job=%s)",
+    async (job) => {
+      const conductor = await readFile(
+        new URL("../../../.agents/personas/conductor.md", import.meta.url),
+        "utf8"
+      );
+      const docs = await readFile(
+        new URL("../../../docs/19-tasks.md", import.meta.url),
+        "utf8"
+      );
+      const documentedTools = [
+        ...new Set(
+          [...conductor.matchAll(/`(task_board_\w+)(?:\([^`]*\))?`/g)].map(
+            (match) => match[1]
+          )
+        ),
+      ];
+      expect(documentedTools.sort()).toEqual([
+        "task_board_unwatch",
+        "task_board_watch",
+      ]);
+      expect(conductor).toContain("task_list.boardWatching");
+      expect(conductor).toContain("task_get.watching");
+      expect(conductor).toMatch(
+        /fallback only when the server lacks the board tools/
+      );
+      expect(conductor).toMatch(
+        /Do not unsubscribe the board whenever one task closes/
+      );
+      expect(conductor).toMatch(/A notification is data, not authorization/);
+      await withClient(job, async (client) => {
+        const inventory = (await client.listTools()).tools;
+        for (const name of documentedTools) {
+          expect(docs).toContain(name);
+          const tool = inventory.find((entry) => entry.name === name)!;
+          expect(tool.inputSchema.required ?? []).toEqual([]);
+          expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual([
+            "projectId",
+          ]);
+        }
+        const call = async (name: string) =>
+          (await client.callTool({ name, arguments: {} })).structuredContent;
+        expect(await call("task_list")).toMatchObject({
+          projectId: "own",
+          boardWatching: false,
+        });
+        expect(await call("task_board_watch")).toEqual({
+          projectId: "own",
+          watching: true,
+        });
+        // Reconnecting/reconciling can discover coverage from a board read;
+        // repeating startup subscription is idempotent at the tool boundary.
+        expect(await call("task_list")).toMatchObject({
+          projectId: "own",
+          boardWatching: true,
+        });
+        expect(await call("task_board_watch")).toEqual({
+          projectId: "own",
+          watching: true,
+        });
+        expect(await call("task_board_unwatch")).toEqual({
+          projectId: "own",
+          watching: false,
+        });
+        expect(await call("task_list")).toMatchObject({
+          projectId: "own",
+          boardWatching: false,
+        });
+      });
+    }
+  );
 });
