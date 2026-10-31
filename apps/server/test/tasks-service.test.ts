@@ -36,6 +36,7 @@ import {
   type TaskLaunchRequest,
 } from "../src/tasks/service.js";
 import type { TemplateRecord } from "../src/templates/store.js";
+import * as personaResolution from "../src/personas/resolve.js";
 import { TemplateService } from "../src/templates/service.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { registerTaskTools } from "../src/shared/mcp/task-tools.js";
@@ -1191,6 +1192,10 @@ describe("triggers", () => {
   );
 
   it("launches a prompt-less persona template with the briefing as its prompt", async () => {
+    // This test isolates prompt composition; discovery is validated separately.
+    const persona = vi
+      .spyOn(personaResolution, "resolveLaunchPersona")
+      .mockResolvedValue({ body: "Build" } as never);
     const prompted: Array<string | undefined> = [];
     const promptless = template({
       id: TEMPLATE_ID,
@@ -1233,6 +1238,7 @@ describe("triggers", () => {
     expect(prompted).toHaveLength(2);
     expect(prompted[1]).toMatch(/^## Dispatch task/);
     expect(prompted[1]).toContain(task.id);
+    persona.mockRestore();
   });
 
   it("always appends the task briefing, assigning or not", async () => {
@@ -1765,6 +1771,7 @@ describe("task tools", () => {
         title: task.title,
         column: "ready",
         assignedAgentId: null,
+        launchTemplates: {},
         updatedAt: task.updatedAt,
       },
     ]);
@@ -3039,4 +3046,500 @@ describe("task archive", () => {
       )
     ).toHaveLength(1);
   });
+});
+
+describe("task stage template preferences", () => {
+  const LEAD = "tpl_lead";
+  let selected: TemplateRecord | null;
+  beforeEach(() => {
+    selected = template({
+      persona: null,
+      id: LEAD,
+      name: "Lead",
+      agentType: "codex",
+      model: "gpt-5.5",
+      fullAccess: false,
+      useWorktree: true,
+      baseBranch: "main",
+      branchName: "lead-task",
+    });
+    service = build(filesRoot, {
+      getTemplate: async (id) =>
+        id === LEAD
+          ? selected
+          : id === TEMPLATE_ID
+            ? template({ id })
+            : id === OTHER_TEMPLATE_ID
+              ? template({ id, projectId: otherProjectId })
+              : id === FULL_TEMPLATE_ID
+                ? template({ id, fullAccess: true })
+                : null,
+    });
+  });
+
+  it("inherits runtime overrides, selects the full task template for one stage, and snapshots the actual launch", async () => {
+    const implementation = await withTrigger("in_progress", {
+      agentType: "claude",
+      model: "haiku",
+    });
+    const review = await withTrigger("in_review", {
+      agentType: "claude",
+      model: "sonnet",
+    });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Large task",
+        launchTemplate: { columnId: implementation, templateId: LEAD },
+      },
+      USER
+    );
+    expect(launches).toHaveLength(0);
+    const detail = await service.getTaskDetail(task.id);
+    const preview = detail.launchPreviews![implementation];
+    expect(preview).toMatchObject({
+      source: "task",
+      templateId: LEAD,
+      configuration: {
+        agentType: "codex",
+        model: "gpt-5.5",
+        useWorktree: true,
+        baseBranch: "main",
+      },
+    });
+    expect(detail.launchPreviews![review]).toMatchObject({
+      source: "column",
+      configuration: { model: "sonnet" },
+    });
+    await service.updateTask(task.id, { columnId: implementation }, USER);
+    expect(launches).toHaveLength(1);
+    expect(launches[0]).toMatchObject({
+      templateId: LEAD,
+      resolvedTemplate: preview.configuration,
+    });
+    expect(launches[0].agentType).toBeUndefined();
+    const history = (await service.getTaskDetail(task.id)).events.find(
+      (e) => e.kind === "trigger_launched"
+    )!;
+    expect(history.data).toMatchObject({
+      source: "task",
+      columnId: implementation,
+      templateId: LEAD,
+      configuration: preview.configuration,
+    });
+    selected = { ...selected!, model: "gpt-5.6-sol", name: "Edited lead" };
+    await service.updateTask(
+      task.id,
+      { launchTemplate: { columnId: implementation, templateId: null } },
+      USER
+    );
+    expect(launches).toHaveLength(1);
+    expect(
+      (await service.getTaskDetail(task.id)).events.find(
+        (e) => e.id === history.id
+      )?.data
+    ).toEqual(history.data);
+    await service.updateTask(
+      task.id,
+      { columnId: review, confirmRelaunch: true },
+      USER
+    );
+    expect(launches[1]).toMatchObject({
+      templateId: TEMPLATE_ID,
+      agentType: "claude",
+      model: "sonnet",
+    });
+    await service.updateTask(
+      task.id,
+      { columnId: implementation, confirmRelaunch: true },
+      USER
+    );
+    expect(launches[2]).toMatchObject({
+      templateId: TEMPLATE_ID,
+      model: "haiku",
+    });
+  });
+
+  it("atomically sets on move and on create while preserving fireOnCreate and assign", async () => {
+    const stage = await withTrigger("ready", {
+      fireOnCreate: true,
+      assign: false,
+    });
+    const created = await service.createTask(
+      {
+        projectId,
+        title: "Create override",
+        columnId: stage,
+        launchTemplate: { columnId: stage, templateId: LEAD },
+      },
+      USER
+    );
+    expect(created.assignedAgentId).toBeNull();
+    expect(launches.map((l) => l.templateId)).toEqual([LEAD]);
+    const task = await service.createTask(
+      { projectId, title: "Set with move" },
+      USER
+    );
+    await service.updateTask(
+      task.id,
+      {
+        columnId: stage,
+        launchTemplate: { columnId: stage, templateId: LEAD },
+      },
+      USER
+    );
+    expect(launches.map((l) => l.templateId)).toEqual([LEAD, LEAD]);
+  });
+
+  it("rejects foreign columns/templates and restricted full-access selections without partial edits", async () => {
+    const stage = await withTrigger("ready");
+    const task = await service.createTask(
+      { projectId, title: "Original" },
+      USER
+    );
+    const foreign = (await service.getBoard(otherProjectId)).columns[0];
+    for (const operation of [
+      { columnId: foreign.id, templateId: LEAD },
+      { columnId: stage, templateId: OTHER_TEMPLATE_ID },
+      { columnId: "deleted", templateId: null },
+    ]) {
+      await expect(
+        service.updateTask(
+          task.id,
+          { title: "Wrong", columnId: stage, launchTemplate: operation },
+          USER
+        )
+      ).rejects.toThrow();
+    }
+    await expect(
+      service.updateTask(
+        task.id,
+        { launchTemplate: { columnId: stage, templateId: FULL_TEMPLATE_ID } },
+        { kind: "agent", agentId: "restricted" }
+      )
+    ).rejects.toThrow("restricted agent cannot launch a full-access template");
+    expect(await service.requireTask(task.id)).toMatchObject({
+      title: "Original",
+      columnId: task.columnId,
+      launchTemplates: {},
+    });
+    expect(launches).toHaveLength(0);
+  });
+
+  it("fails unavailable or mutated templates visibly at launch without falling back and recovers by clearing", async () => {
+    const stage = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Missing lead",
+        launchTemplate: { columnId: stage, templateId: LEAD },
+      },
+      USER
+    );
+    selected = null;
+    expect(
+      (await service.getTaskDetail(task.id)).launchPreviews![stage]
+    ).toMatchObject({ source: "task", available: false });
+    const moved = await service.updateTask(task.id, { columnId: stage }, USER);
+    expect(moved.latestFailure?.reason).toContain(LEAD);
+    expect(launches).toHaveLength(0);
+    await service.updateTask(
+      task.id,
+      { launchTemplate: { columnId: stage, templateId: null } },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: task.columnId }, USER);
+    await service.updateTask(task.id, { columnId: stage }, USER);
+    expect(launches.map((l) => l.templateId)).toEqual([TEMPLATE_ID]);
+  });
+
+  it("revalidates scope, model, and access at launch and rejects invalid writes", async () => {
+    const stage = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Mutable lead",
+        launchTemplate: { columnId: stage, templateId: LEAD },
+      },
+      USER
+    );
+    for (const mutation of [
+      { projectId: otherProjectId },
+      { model: "invalid-model" },
+      { fullAccess: true },
+    ]) {
+      selected = {
+        ...template({ id: LEAD, agentType: "codex", model: "gpt-5.5" }),
+        ...mutation,
+      };
+      await expect(
+        service.updateTask(
+          task.id,
+          { launchTemplate: { columnId: stage, templateId: LEAD } },
+          { kind: "agent", agentId: "restricted" }
+        )
+      ).rejects.toThrow();
+      const moved = await service.updateTask(
+        task.id,
+        { columnId: stage },
+        { kind: "agent", agentId: "restricted" }
+      );
+      expect(moved.latestFailure).not.toBeNull();
+      await service.updateTask(task.id, { columnId: task.columnId }, USER);
+    }
+    expect(launches).toHaveLength(0);
+  });
+
+  it("serializes preference edits behind in-flight moves and never launches twice", async () => {
+    const stage = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Concurrent",
+        launchTemplate: { columnId: stage, templateId: LEAD },
+      },
+      USER
+    );
+    let release!: () => void;
+    launchGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      launchEntered = resolve;
+    });
+    const moving = service.updateTask(task.id, { columnId: stage }, USER);
+    await entered;
+    const clearing = service.updateTask(
+      task.id,
+      { launchTemplate: { columnId: stage, templateId: null } },
+      USER
+    );
+    const duplicate = service.updateTask(task.id, { columnId: stage }, USER);
+    expect(launches).toHaveLength(1);
+    release();
+    await Promise.all([moving, clearing, duplicate]);
+    expect(launches.map((l) => l.templateId)).toEqual([LEAD]);
+    expect((await service.requireTask(task.id)).launchTemplates).toEqual({});
+  });
+
+  it("removes bindings when an unused column is deleted and preserves other stages", async () => {
+    const implementation = await withTrigger("in_progress");
+    const review = await withTrigger("in_review");
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Cleanup",
+        launchTemplate: { columnId: implementation, templateId: LEAD },
+      },
+      USER
+    );
+    await service.updateTask(
+      task.id,
+      { launchTemplate: { columnId: review, templateId: LEAD } },
+      USER
+    );
+    await service.deleteColumn(implementation);
+    expect((await service.requireTask(task.id)).launchTemplates).toEqual({
+      [review]: LEAD,
+    });
+  });
+});
+
+it("uses the same normalized workspace/model options in preview and the shared template launcher", async () => {
+  const saved = template({
+    id: TEMPLATE_ID,
+    useWorktree: true,
+    baseBranch: " origin/main ",
+    branchName: " task/lead ",
+    model: "haiku",
+    fullAccess: false,
+  });
+  const createAgent = vi.fn(async () => {
+    await insertAgent("agt_normalized", "idle");
+    return { id: "agt_normalized" } as AgentRecord;
+  });
+  const templates = new TemplateService(
+    {} as never,
+    { createAgent } as never,
+    { info: vi.fn() } as never
+  );
+  // The task hands the launcher a resolved snapshot; any reread would fail.
+  vi.spyOn(templates.store, "getTemplate").mockRejectedValue(
+    new Error("Unexpected mutable reread")
+  );
+  service = build(filesRoot, {
+    getTemplate: async () => saved,
+    launchTemplate: async (input) =>
+      (await templates.launchTemplate(input)).agent,
+  });
+  const stage = await withTrigger("in_progress", { assign: false });
+  const task = await service.createTask(
+    {
+      projectId,
+      title: "Normalized",
+      launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+    },
+    USER
+  );
+  const preview = (await service.getTaskDetail(task.id)).launchPreviews![stage]
+    .configuration!;
+  expect(preview).toMatchObject({
+    baseBranch: "main",
+    branchName: "task/lead",
+    useWorktree: true,
+  });
+  await service.updateTask(task.id, { columnId: stage }, USER);
+  expect(createAgent).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: preview.agentType,
+      model: preview.model,
+      cwd: preview.directory,
+      fullAccess: preview.fullAccess,
+      useWorktree: preview.useWorktree,
+      baseBranch: preview.baseBranch,
+      worktreeBranch: preview.branchName,
+    })
+  );
+  // Blank base uses the manager's existing main default; no branch means generated at launch.
+  saved.baseBranch = null;
+  saved.branchName = null;
+  expect(
+    (await service.getTaskDetail(task.id)).launchPreviews![stage].configuration
+  ).toMatchObject({ baseBranch: "main", branchName: null });
+});
+
+it("holds creation's task lock through its fire-on-create launch before preference edits", async () => {
+  const stage = await withTrigger("ready", {
+    fireOnCreate: true,
+    assign: false,
+  });
+  let release!: () => void;
+  launchGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const entered = new Promise<void>((resolve) => {
+    launchEntered = resolve;
+  });
+  const creating = service.createTask(
+    {
+      projectId,
+      title: "Create under lock",
+      columnId: stage,
+      launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+    },
+    USER
+  );
+  await entered;
+  const id = launches[0].args["task id"];
+  let edited = false;
+  const editing = service
+    .updateTask(
+      id,
+      { launchTemplate: { columnId: stage, templateId: null } },
+      USER
+    )
+    .then((result) => {
+      edited = true;
+      return result;
+    });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(edited).toBe(false);
+  release();
+  await Promise.all([creating, editing]);
+  expect(launches).toHaveLength(1);
+  expect((await service.requireTask(id)).launchTemplates).toEqual({});
+});
+
+it("treats an explicit selection of the default template as a full override and rolls back refused admission", async () => {
+  const stage = await withTrigger("ready", { model: "haiku", assign: false });
+  await service.updateColumn(stage, { capacity: 1 });
+  const task = await service.createTask(
+    { projectId, title: "Same template" },
+    USER
+  );
+  expect(await service.launchPreview(projectId, stage, null)).toMatchObject({
+    source: "column",
+    configuration: { model: "haiku" },
+  });
+  expect(
+    await service.launchPreview(projectId, stage, TEMPLATE_ID)
+  ).toMatchObject({ source: "task", configuration: { model: null } });
+  await service.createTask(
+    { projectId, title: "Occupant", columnId: stage },
+    USER
+  );
+  await expect(
+    service.updateTask(
+      task.id,
+      {
+        title: "Must roll back",
+        columnId: stage,
+        launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+      },
+      USER
+    )
+  ).rejects.toMatchObject({ code: "column_capacity_exceeded" });
+  expect(await service.requireTask(task.id)).toMatchObject({
+    title: "Same template",
+    columnId: task.columnId,
+    launchTemplates: {},
+  });
+  await expect(
+    service.createTask(
+      {
+        projectId,
+        title: "Refused creation",
+        columnId: stage,
+        launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+      },
+      USER
+    )
+  ).rejects.toMatchObject({ code: "column_capacity_exceeded" });
+  expect((await service.getBoard(projectId)).tasks).toHaveLength(2);
+  expect(launches).toHaveLength(0);
+});
+
+it("accepts stage selections in multipart task creation and rejects malformed operations", async () => {
+  const stage = await withTrigger("in_progress");
+  const app = Fastify();
+  await app.register(fastifyMultipart);
+  await registerTaskRoutes(app, {
+    taskService: service,
+    withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
+  });
+  try {
+    const operation = { columnId: stage, templateId: TEMPLATE_ID };
+    const form = new FormData();
+    form.set("projectId", projectId);
+    form.set("title", "Context with stage preference");
+    form.set("launchTemplate", JSON.stringify(operation));
+    const request = new Request("http://localhost/api/v1/tasks", {
+      method: "POST",
+      body: form,
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: { "content-type": request.headers.get("content-type")! },
+      payload: Buffer.from(await request.arrayBuffer()),
+    });
+    expect(created.statusCode, created.body).toBe(200);
+    expect(created.json().launchTemplates).toEqual({ [stage]: TEMPLATE_ID });
+    for (const launchTemplate of [
+      null,
+      {},
+      { columnId: stage },
+      { columnId: stage, templateId: "" },
+    ]) {
+      const rejected = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/tasks/${created.json().id}`,
+        payload: { launchTemplate },
+      });
+      expect(rejected.statusCode).toBe(400);
+    }
+    expect(launches).toHaveLength(0);
+  } finally {
+    await app.close();
+  }
 });

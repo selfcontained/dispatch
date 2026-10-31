@@ -61,6 +61,20 @@ function toTaskToolError(error: unknown): ToolResult {
   return toToolError(error);
 }
 
+const launchTemplateSchema = z.object({
+  columnId: z
+    .string()
+    .min(1)
+    .describe("Stable stage column ID from columnCapacity, not its key."),
+  templateId: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe(
+      "Template ID to set; null clears this stage back to the column default. No launch on edit."
+    ),
+});
+
 const linkSchema = z.object({
   kind: z.enum(["pr", "branch", "url"]),
   url: z.string().max(2048).nullable().optional(),
@@ -173,6 +187,7 @@ export function registerTaskTools(
               title: t.title,
               column: keyOf.get(t.columnId) ?? null,
               assignedAgentId: t.assignedAgentId,
+              launchTemplates: t.launchTemplates,
               updatedAt: t.updatedAt,
             }));
           return ok({
@@ -263,7 +278,12 @@ export function registerTaskTools(
       {
         description:
           "Get a task: its column key, body, links, agents that worked it, and its recent activity.",
-        inputSchema: { id: z.string().min(1) },
+        inputSchema: {
+          id: z.string().min(1),
+          launchTemplate: launchTemplateSchema
+            .optional()
+            .describe("Read-only preview of an unsaved stage selection."),
+        },
       },
       async (args) => {
         try {
@@ -277,6 +297,15 @@ export function registerTaskTools(
           )?.key;
           return ok({
             ...detail,
+            ...(args.launchTemplate
+              ? {
+                  launchPreview: await service.launchPreview(
+                    detail.projectId,
+                    args.launchTemplate.columnId,
+                    args.launchTemplate.templateId
+                  ),
+                }
+              : {}),
             column: key ?? null,
             watching: await service.watching(args.id, agentId),
           });
@@ -343,6 +372,7 @@ export function registerTaskTools(
         description:
           "Create a task on your project's board, in the first column unless you name one. A column with automation may launch an agent for it.",
         inputSchema: {
+          launchTemplate: launchTemplateSchema.optional(),
           title: z.string().min(1).max(500),
           body: z
             .string()
@@ -362,6 +392,9 @@ export function registerTaskTools(
           const task = await service.createTask(
             {
               projectId,
+              ...(args.launchTemplate
+                ? { launchTemplate: args.launchTemplate }
+                : {}),
               title: args.title,
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
@@ -371,7 +404,13 @@ export function registerTaskTools(
           const key = (await service.ensureColumns(projectId)).find(
             (c) => c.id === task.columnId
           )?.key;
-          return ok({ id: task.id, column: key ?? null });
+          return ok({
+            id: task.id,
+            column: key ?? null,
+            launchTemplates: task.launchTemplates,
+            launchPreviews: (await service.getTaskDetail(task.id))
+              .launchPreviews,
+          });
         } catch (error) {
           return toTaskToolError(error);
         }
@@ -387,6 +426,7 @@ export function registerTaskTools(
           'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up (your task briefing lists this board\'s keys); a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended; archived (sent alone) archives or restores it.',
         inputSchema: {
           id: z.string().min(1),
+          launchTemplate: launchTemplateSchema.optional(),
           title: z.string().min(1).max(500).optional(),
           body: z.string().max(50_000).optional(),
           column: z.string().min(1).optional().describe("Column key."),
@@ -434,6 +474,9 @@ export function registerTaskTools(
           const updated = await service.updateTask(
             task.id,
             {
+              ...(args.launchTemplate
+                ? { launchTemplate: args.launchTemplate }
+                : {}),
               ...(args.title !== undefined ? { title: args.title } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
@@ -454,6 +497,9 @@ export function registerTaskTools(
             links: updated.links,
             latestFailure: updated.latestFailure,
             launching: updated.launching,
+            launchTemplates: updated.launchTemplates,
+            launchPreviews: (await service.getTaskDetail(updated.id))
+              .launchPreviews,
           });
         } catch (error) {
           return toTaskToolError(error);

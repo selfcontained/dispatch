@@ -20,6 +20,8 @@ import type { StreamService, TaskStreamRoot } from "../chat/service.js";
 import { ProjectStore, type ProjectRecord } from "../projects/store.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
 import type { TemplateRecord } from "../templates/store.js";
 import { agentTaskProject } from "./agent-scope.js";
 import { newTaskId, TaskStore, type TaskPatch } from "./store.js";
@@ -35,6 +37,8 @@ import type {
   TaskColumnTrigger,
   TaskDetail,
   TaskLink,
+  TaskLaunchPreview,
+  TaskLaunchTemplateOperation,
   UpdateTaskInput,
 } from "./types.js";
 
@@ -107,6 +111,7 @@ export type TaskAgentInfo = {
 };
 
 export type TaskLaunchRequest = {
+  resolvedTemplate?: TemplateRecord;
   name?: string;
   templateId: string;
   projectId: string;
@@ -541,6 +546,106 @@ export class TaskService {
     };
   }
 
+  private async resolveLaunch(
+    projectId: string,
+    launch: {
+      templateId: string;
+      agentType?: AgentType | null;
+      model?: string | null;
+    },
+    caller?: TaskCaller
+  ): Promise<TemplateRecord> {
+    const project = await this.requireProject(projectId);
+    const stored = await this.deps.getTemplate(launch.templateId);
+    if (!stored) throw invalid(`Template ${launch.templateId} not found.`);
+    if (
+      stored.projectId !== project.id &&
+      !(stored.projectId === null && stored.directory === project.repoRoot)
+    )
+      throw invalid(`Template "${stored.name}" belongs to another project.`);
+    const template = resolveTemplateLaunch(stored, {
+      ...(launch.agentType ? { agentType: launch.agentType } : {}),
+      ...(launch.model ? { model: launch.model } : {}),
+    });
+    if (caller && template.fullAccess && isRestricted(caller))
+      throw invalid(RESTRICTED_LAUNCH_REASON);
+    if (template.persona)
+      await resolveLaunchPersona(
+        template.directory,
+        template.persona,
+        "task",
+        "catalog"
+      );
+    return template;
+  }
+
+  private stageLaunch(task: Pick<Task, "launchTemplates">, column: TaskColumn) {
+    const templateId = task.launchTemplates?.[column.id];
+    return templateId
+      ? { templateId, agentType: null, model: null }
+      : column.trigger;
+  }
+
+  /** Read-only; errors remain visible and recoverable by clearing the stage preference. */
+  async launchPreview(
+    projectId: string,
+    columnId: string,
+    templateId?: string | null
+  ): Promise<TaskLaunchPreview | null> {
+    const column = await this.requireColumn(columnId);
+    if (column.projectId !== projectId)
+      throw invalid("Column is not in this project.");
+    if (!column.trigger) return null;
+    const launch = templateId ? { templateId } : column.trigger;
+    const base = {
+      columnId,
+      source: templateId ? ("task" as const) : ("column" as const),
+      templateId: launch.templateId,
+    };
+    try {
+      const template = await this.resolveLaunch(projectId, launch);
+      return {
+        ...base,
+        available: true,
+        templateName: template.name,
+        configuration: {
+          agentType: template.agentType,
+          model: template.model,
+          persona: template.persona ?? null,
+          fullAccess: template.fullAccess ?? false,
+          directory: template.directory,
+          useWorktree: template.useWorktree ?? false,
+          baseBranch: template.baseBranch ?? null,
+          branchName: template.branchName ?? null,
+        },
+      };
+    } catch (error) {
+      return { ...base, available: false, error: errorMessage(error) };
+    }
+  }
+
+  private async validateLaunchPreference(
+    projectId: string,
+    operation: TaskLaunchTemplateOperation,
+    caller: TaskCaller
+  ) {
+    const column = await this.requireColumn(operation.columnId);
+    if (column.projectId !== projectId)
+      throw invalid("Launch stage is not in this project.");
+    if (operation.templateId !== null) {
+      try {
+        await this.resolveLaunch(
+          projectId,
+          { templateId: operation.templateId },
+          caller
+        );
+      } catch (error) {
+        if (error instanceof TaskError) throw error;
+        throw invalid(errorMessage(error));
+      }
+    }
+  }
+
   private async uniqueKey(projectId: string, base: string): Promise<string> {
     const taken = new Set(
       (await this.store.listColumns(projectId)).map((c) => c.key)
@@ -806,6 +911,20 @@ export class TaskService {
       agents,
       events,
       attachments: await this.listAttachments(id),
+      launchPreviews: Object.fromEntries(
+        await Promise.all(
+          (await this.ensureColumns(task.projectId))
+            .filter((c) => c.trigger)
+            .map(async (c) => [
+              c.id,
+              await this.launchPreview(
+                task.projectId,
+                c.id,
+                task.launchTemplates?.[c.id]
+              ),
+            ])
+        )
+      ),
     };
   }
 
@@ -816,6 +935,18 @@ export class TaskService {
       startupFiles?: StartupFileUpload[];
       startupLinks?: string[];
     } = {}
+  ): Promise<Task> {
+    const id = newTaskId();
+    return this.withTaskLock(id, () =>
+      this.createTaskLocked(id, input, caller, context)
+    );
+  }
+
+  private async createTaskLocked(
+    id: string,
+    input: CreateTaskInput,
+    caller: TaskCaller,
+    context: { startupFiles?: StartupFileUpload[]; startupLinks?: string[] }
   ): Promise<Task> {
     const files = context.startupFiles ?? [];
     if (files.length > MAX_STARTUP_FILE_COUNT)
@@ -842,9 +973,30 @@ export class TaskService {
     if (!initialColumn)
       throw invalid("columnId is not a column of this project.");
     const actor = actorOf(caller);
-    const id = newTaskId();
+    if (input.launchTemplate)
+      await this.validateLaunchPreference(
+        input.projectId,
+        input.launchTemplate,
+        caller
+      );
     const column = await this.store.transaction(async (db) => {
-      const currentColumn = await this.store.lockColumn(initialColumn.id, db);
+      for (const columnId of [
+        ...new Set([
+          initialColumn.id,
+          ...(input.launchTemplate ? [input.launchTemplate.columnId] : []),
+        ]),
+      ].sort())
+        if (!(await this.store.lockColumn(columnId, db)))
+          throw notFound("Column");
+      if (input.launchTemplate) {
+        const stage = await this.store.getColumn(
+          input.launchTemplate.columnId,
+          db
+        );
+        if (!stage || stage.projectId !== input.projectId)
+          throw invalid("Launch stage is not in this project.");
+      }
+      const currentColumn = await this.store.getColumn(initialColumn.id, db);
       if (!currentColumn) throw notFound("Column");
       this.checkCapacity(currentColumn);
       await this.store.insertTask(
@@ -862,6 +1014,12 @@ export class TaskService {
         },
         db
       );
+      if (input.launchTemplate)
+        await this.store.updateTask(
+          id,
+          { launchTemplate: input.launchTemplate },
+          { db }
+        );
       return currentColumn;
     });
     try {
@@ -893,9 +1051,7 @@ export class TaskService {
       columnId: column.id,
     });
     if (column.trigger?.fireOnCreate) {
-      await this.withTaskLock(id, async () =>
-        this.fireTrigger(await this.requireTask(id), column, caller)
-      );
+      await this.fireTrigger(await this.requireTask(id), column, caller);
     }
     this.publish(input.projectId, id);
     return await this.requireTask(id);
@@ -968,6 +1124,15 @@ export class TaskService {
     const actor = actorOf(caller);
     const patch: TaskPatch = {};
     const changed: string[] = [];
+    if (input.launchTemplate) {
+      await this.validateLaunchPreference(
+        task.projectId,
+        input.launchTemplate,
+        caller
+      );
+      patch.launchTemplate = input.launchTemplate;
+      changed.push("launchTemplates");
+    }
 
     if (input.title !== undefined) {
       const title = input.title.trim();
@@ -1034,13 +1199,26 @@ export class TaskService {
         !!destination ||
         input.beforeId !== undefined ||
         input.position !== undefined;
-      if (writesOrder) {
+      if (writesOrder || input.launchTemplate) {
         for (const columnId of [
-          ...new Set([task.columnId, destination?.id ?? task.columnId]),
+          ...new Set([
+            task.columnId,
+            destination?.id ?? task.columnId,
+            ...(input.launchTemplate ? [input.launchTemplate.columnId] : []),
+          ]),
         ].sort()) {
           if (!(await this.store.lockColumn(columnId, db)))
             throw notFound("Column");
         }
+      }
+      if (input.launchTemplate) {
+        const stage = await this.store.getColumn(
+          input.launchTemplate.columnId,
+          db
+        );
+        if (!stage || stage.projectId !== task.projectId)
+          throw invalid("Launch stage is not in this project.");
+        if (!(await this.store.lockTask(id, db))) throw notFound("Task");
       }
       if (destination) {
         const currentColumn = await this.store.lockColumn(destination.id, db);
@@ -1257,15 +1435,18 @@ export class TaskService {
       agentType: AgentType | null;
       model: string | null;
     },
-    caller: TaskCaller
+    caller: TaskCaller,
+    resolvedTemplate?: TemplateRecord
   ): Promise<AgentRecord> {
-    const template = await this.deps.getTemplate(launch.templateId);
-    if (!template) throw new Error(`Template ${launch.templateId} not found.`);
+    const template =
+      resolvedTemplate ??
+      (await this.resolveLaunch(task.projectId, launch, caller));
     if (template.fullAccess && isRestricted(caller))
       throw new Error(RESTRICTED_LAUNCH_REASON);
     const project = await this.requireProject(task.projectId);
     return await this.deps.launchTemplate({
       templateId: template.id,
+      resolvedTemplate: template,
       name: taskAgentName(task.title),
       projectId: task.projectId,
       // Placeholders resolve by lowercase key, so these satisfy
@@ -1301,14 +1482,18 @@ export class TaskService {
   ): Promise<void> {
     const trigger = column.trigger;
     if (!trigger) return;
+    const launch = this.stageLaunch(task, column)!;
+    const source = task.launchTemplates?.[column.id] ? "task" : "column";
     const system: TaskActor = { kind: "system" };
     await this.store.insertEvent(task.id, "trigger_launching", system, {
-      templateId: trigger.templateId,
+      templateId: launch.templateId,
     });
     this.publish(task.projectId, task.id);
     let agent: { id: string };
+    let configuration: TemplateRecord;
     try {
-      agent = await this.launchFor(task, column, trigger, caller);
+      configuration = await this.resolveLaunch(task.projectId, launch, caller);
+      agent = await this.launchFor(task, column, launch, caller, configuration);
     } catch (error) {
       const reason = errorMessage(error);
       this.deps.log.warn(
@@ -1316,14 +1501,17 @@ export class TaskService {
         "Task trigger launch failed"
       );
       await this.store.insertEvent(task.id, "trigger_failed", system, {
-        templateId: trigger.templateId,
+        templateId: launch.templateId,
         reason,
       });
       return;
     }
     await this.store.insertEvent(task.id, "trigger_launched", system, {
       agentId: agent.id,
-      templateId: trigger.templateId,
+      templateId: launch.templateId,
+      columnId: column.id,
+      source,
+      configuration,
     });
     if (!trigger.assign) return;
     const current = await this.store.getTask(task.id);

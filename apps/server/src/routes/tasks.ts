@@ -45,7 +45,13 @@ const LinkSchema = z.object({
   label: z.string(),
 });
 
+const LaunchTemplateOperationSchema = z.object({
+  columnId: z.string().min(1),
+  templateId: z.string().min(1).nullable(),
+});
+
 const CreateTaskSchema = z.object({
+  launchTemplate: LaunchTemplateOperationSchema.optional(),
   projectId: z.string().min(1, "projectId is required."),
   title: z.string().min(1, "title is required."),
   body: z.string().optional(),
@@ -54,6 +60,7 @@ const CreateTaskSchema = z.object({
 });
 
 const UpdateTaskSchema = z.object({
+  launchTemplate: LaunchTemplateOperationSchema.optional(),
   beforeId: z.string().min(1).nullable().optional(),
   title: z.string().min(1).optional(),
   body: z.string().optional(),
@@ -165,6 +172,25 @@ export async function registerTaskRoutes(
     );
   });
 
+  app.post<{ Params: { projectId: string } }>(
+    "/api/v1/projects/:projectId/tasks/launch-preview",
+    async (request, reply) => {
+      const input = parseInput(
+        LaunchTemplateOperationSchema,
+        request.body,
+        reply
+      );
+      if (!input) return reply;
+      return mapTaskErrors(reply, () =>
+        taskService.launchPreview(
+          request.params.projectId,
+          input.columnId,
+          input.templateId
+        )
+      );
+    }
+  );
+
   app.post("/api/v1/tasks", async (request, reply) => {
     let parsed;
     let links: string[];
@@ -177,6 +203,8 @@ export async function registerTaskRoutes(
           parsed.isMultipart
         ) ?? []
       );
+      if (parsed.isMultipart && typeof parsed.body.launchTemplate === "string")
+        parsed.body.launchTemplate = JSON.parse(parsed.body.launchTemplate);
       if (parsed.isMultipart && parsed.body.position !== undefined)
         parsed.body.position = Number(parsed.body.position);
     } catch (error) {

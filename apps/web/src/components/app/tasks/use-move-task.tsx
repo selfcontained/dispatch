@@ -1,3 +1,7 @@
+import {
+  TaskLaunchPreviewView,
+  useTaskLaunchPreview,
+} from "./task-launch-template";
 import { useState } from "react";
 import type { Task, TaskBoard } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
@@ -18,13 +22,18 @@ import { tasksInColumn } from "./task-utils";
  */
 export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
   const actions = useTaskActions(projectId);
+  const [previewMove, setPreviewMove] = useState<{
+    task: Task;
+    columnId: string;
+    beforeId?: string;
+  } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [relaunch, setRelaunch] = useState<{
     task: Task;
     columnId: string;
     beforeId: string | null;
   } | null>(null);
-  const moveTask = async (task: Task, columnId: string, beforeId?: string) => {
+  const applyMove = async (task: Task, columnId: string, beforeId?: string) => {
     if (!board || task.id === beforeId) return;
     setMoveError(null);
     const ordered = tasksInColumn(board.tasks, columnId);
@@ -49,11 +58,23 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
         );
     }
   };
+  const moveTask = async (task: Task, columnId: string, beforeId?: string) => {
+    if (
+      task.columnId !== columnId &&
+      task.launchTemplates?.[columnId] &&
+      board?.columns.find((c) => c.id === columnId)?.trigger
+    ) {
+      setPreviewMove({ task, columnId, beforeId });
+      return;
+    }
+    await applyMove(task, columnId, beforeId);
+  };
   const dialog = (
     <Dialog
-      open={!!relaunch || !!moveError}
+      open={!!relaunch || !!moveError || !!previewMove}
       onOpenChange={(open) => {
         if (!open) {
+          setPreviewMove(null);
           setRelaunch(null);
           setMoveError(null);
         }
@@ -62,45 +83,110 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {moveError ? "Could not move task" : "Launch another agent?"}
+            {moveError
+              ? "Could not move task"
+              : previewMove
+                ? "Move and launch task template?"
+                : "Launch another agent?"}
           </DialogTitle>
           <DialogDescription>
             {moveError ??
-              "The assigned agent is still working on this task. Moving it here will launch another agent."}
+              (previewMove
+                ? "Entering this stage uses the task's selected launch template."
+                : "The assigned agent is still working on this task. Moving it here will launch another agent.")}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setRelaunch(null);
-              setMoveError(null);
+
+        {previewMove && !moveError && (
+          <MoveLaunchPreview
+            projectId={projectId}
+            task={previewMove.task}
+            columnId={previewMove.columnId}
+            onCancel={() => setPreviewMove(null)}
+            onConfirm={() => {
+              const move = previewMove;
+              setPreviewMove(null);
+              void applyMove(move.task, move.columnId, move.beforeId);
             }}
-          >
-            {moveError ? "Close" : "Cancel"}
-          </Button>
-          {relaunch && !moveError && (
+          />
+        )}
+        {(!previewMove || moveError) && (
+          <div className="flex justify-end gap-2">
             <Button
-              disabled={actions.update.isPending}
+              variant="ghost"
               onClick={() => {
-                if (relaunch)
-                  void actions.update
-                    .mutateAsync({
-                      id: relaunch.task.id,
-                      columnId: relaunch.columnId,
-                      beforeId: relaunch.beforeId,
-                      confirmRelaunch: true,
-                    })
-                    .catch((error: Error) => setMoveError(error.message))
-                    .finally(() => setRelaunch(null));
+                setPreviewMove(null);
+                setRelaunch(null);
+                setMoveError(null);
               }}
             >
-              Move and launch
+              {moveError ? "Close" : "Cancel"}
             </Button>
-          )}
-        </div>
+            {relaunch && !moveError && (
+              <Button
+                disabled={actions.update.isPending}
+                onClick={() => {
+                  if (relaunch)
+                    void actions.update
+                      .mutateAsync({
+                        id: relaunch.task.id,
+                        columnId: relaunch.columnId,
+                        beforeId: relaunch.beforeId,
+                        confirmRelaunch: true,
+                      })
+                      .catch((error: Error) => setMoveError(error.message))
+                      .finally(() => setRelaunch(null));
+                }}
+              >
+                Move and launch
+              </Button>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
   return { moveTask, dialog };
+}
+
+function MoveLaunchPreview({
+  projectId,
+  task,
+  columnId,
+  onConfirm,
+  onCancel,
+}: {
+  projectId: string;
+  task: Task;
+  columnId: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const preview = useTaskLaunchPreview(
+    projectId,
+    columnId,
+    task.launchTemplates?.[columnId] ?? null
+  );
+  return (
+    <div className="space-y-3">
+      {preview.isFetching ? (
+        <p role="status">Loading launch preview…</p>
+      ) : preview.data ? (
+        <TaskLaunchPreviewView preview={preview.data} />
+      ) : (
+        <p role="alert">Could not load launch preview.</p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          disabled={preview.isFetching || !preview.data?.available}
+          onClick={onConfirm}
+        >
+          Move and launch
+        </Button>
+      </div>
+    </div>
+  );
 }

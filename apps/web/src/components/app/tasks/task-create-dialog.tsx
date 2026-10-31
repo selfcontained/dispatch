@@ -1,3 +1,5 @@
+import { TaskLaunchTemplatePicker } from "./task-launch-template";
+import type { TaskLaunchTemplateOperation } from "../../../../../server/src/tasks/types";
 import { ContextPicker } from "../context-picker";
 import { useStartupAttachments } from "../use-startup-attachments";
 import { getClipboardFilesFromEvent } from "../create-agent-dialog-clipboard";
@@ -57,6 +59,8 @@ export function TaskCreateDialog({
   const actions = useTaskActions(projectId);
   const context = useStartupAttachments();
   const formRef = useRef<HTMLFormElement>(null);
+  const [launchTemplate, setLaunchTemplate] =
+    useState<TaskLaunchTemplateOperation>();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [column, setColumn] = useState("");
@@ -68,6 +72,7 @@ export function TaskCreateDialog({
   useEffect(() => {
     if (!open) return;
     context.resetAttachments();
+    setLaunchTemplate(undefined);
     setTitle("");
     setBody("");
     setColumn(columnId ?? columns[0]?.id ?? "");
@@ -89,6 +94,7 @@ export function TaskCreateDialog({
       task ??= await actions.create.mutateAsync({
         projectId,
         title: title.trim(),
+        ...(launchTemplate ? { launchTemplate } : {}),
         ...(context.startupFiles.length
           ? { startupFiles: context.startupFiles }
           : {}),
@@ -251,6 +257,17 @@ export function TaskCreateDialog({
               />
             </div>
           </div>
+          {columns.some((c) => c.trigger) && (
+            <TaskLaunchTemplatePicker
+              key={open ? "open" : "closed"}
+              projectId={projectId}
+              columns={columns}
+              columnId={column}
+              value={launchTemplate}
+              onChange={setLaunchTemplate}
+              disabled={saving || !!created}
+            />
+          )}
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
