@@ -86,8 +86,12 @@ async function dropTasks(): Promise<void> {
   await pool.query(
     "DROP TABLE IF EXISTS task_watch_items, task_board_watches, task_watches, task_attachments, task_events, task_agents, tasks, task_columns"
   );
+  // Dropping task_columns removes its trigger, but the trigger function survives.
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments', '0025_task_archive', '0026_task_watches', '0027_task_blocks', '0028_task_column_capacity', '0030_task_board_watches')"
+    "DROP FUNCTION IF EXISTS remove_task_column_launch_templates()"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name IN ('0023_tasks', '0024_task_attachments', '0025_task_archive', '0026_task_watches', '0027_task_blocks', '0028_task_column_capacity', '0030_task_board_watches', '0031_task_launch_templates')"
   );
 }
 
