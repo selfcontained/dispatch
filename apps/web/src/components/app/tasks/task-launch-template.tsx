@@ -20,10 +20,20 @@ import {
 export function useTaskLaunchPreview(
   projectId: string,
   columnId: string,
-  templateId: string | null
+  templateId: string | null,
+  refreshKey?: string
 ) {
+  const { data: templates = [] } = useTemplates(!!columnId);
   return useQuery<TaskLaunchPreview | null>({
-    queryKey: ["tasks", projectId, "launch-preview", columnId, templateId],
+    queryKey: [
+      "tasks",
+      projectId,
+      "launch-preview",
+      columnId,
+      templateId,
+      refreshKey,
+      templates.map((t) => [t.id, t.updatedAt]),
+    ],
     queryFn: () =>
       api(
         `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/launch-preview`,
@@ -102,6 +112,7 @@ export function TaskLaunchTemplatePicker({
   const position = columns.find((c) => c.id === columnId)?.position ?? -1;
   const [chosenStage, setChosenStage] = useState("");
   const stage =
+    stages.find((c) => c.id === value?.columnId) ??
     stages.find((c) => c.id === chosenStage) ??
     stages.find((c) => c.id === columnId) ??
     stages.find((c) => c.position >= position) ??

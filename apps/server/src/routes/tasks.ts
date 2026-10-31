@@ -60,6 +60,10 @@ const CreateTaskSchema = z.object({
 });
 
 const UpdateTaskSchema = z.object({
+  expectedLaunchRevision: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   launchTemplate: LaunchTemplateOperationSchema.optional(),
   beforeId: z.string().min(1).nullable().optional(),
   title: z.string().min(1).optional(),

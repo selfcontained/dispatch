@@ -131,7 +131,41 @@ it("round-trips stage overrides, previews and clear across authenticated MCP and
     launchTemplate: { columnId: stage.id },
   });
   expect(malformed.isError).toBe(true);
-  const moved = await call("task_update", { id, column: "in_progress" });
+  const priorRevision =
+    read.structuredContent.launchPreviews[stage.id].revision;
+  await http("PATCH", `/api/v1/templates/${lead.id}`, { model: "gpt-5.6-sol" });
+  const beforeRefusal = await http("GET", `/api/v1/tasks/${id}`);
+  const refused = await call("task_update", {
+    id,
+    column: "in_progress",
+    title: "Wrong",
+    expectedLaunchRevision: priorRevision,
+  });
+  expect(refused.isError).toBe(true);
+  expect(refused.structuredContent.error.code).toBe("launch_preview_changed");
+  expect(await http("GET", `/api/v1/tasks/${id}`)).toEqual(beforeRefusal);
+  const changedRevision = beforeRefusal.launchPreviews[stage.id].revision;
+  await http("PATCH", `/api/v1/templates/${lead.id}`, { model: "gpt-5.5" });
+  const refusedHttp = await ctx.app.inject({
+    method: "PATCH",
+    url: `/api/v1/tasks/${id}`,
+    headers,
+    payload: { columnId: stage.id, expectedLaunchRevision: changedRevision },
+  });
+  expect(refusedHttp.statusCode).toBe(409);
+  expect(refusedHttp.json().code).toBe("launch_preview_changed");
+  const invalidRevision = await call("task_update", {
+    id,
+    column: "in_progress",
+    expectedLaunchRevision: "not-a-server-revision",
+  });
+  expect(invalidRevision.isError).toBe(true);
+  const latest = await http("GET", `/api/v1/tasks/${id}`);
+  const moved = await call("task_update", {
+    id,
+    column: "in_progress",
+    expectedLaunchRevision: latest.launchPreviews[stage.id].revision,
+  });
   expect(moved.isError).toBeUndefined();
   const launched = (await http("GET", `/api/v1/tasks/${id}`)).events.find(
     (e: { kind: string }) => e.kind === "trigger_launched"

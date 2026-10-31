@@ -427,6 +427,13 @@ export function registerTaskTools(
         inputSchema: {
           id: z.string().min(1),
           launchTemplate: launchTemplateSchema.optional(),
+          expectedLaunchRevision: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .optional()
+            .describe(
+              "Optional launchPreview revision; refuses the move if the resolved launch choice changed."
+            ),
           title: z.string().min(1).max(500).optional(),
           body: z.string().max(50_000).optional(),
           column: z.string().min(1).optional().describe("Column key."),
@@ -476,6 +483,9 @@ export function registerTaskTools(
             {
               ...(args.launchTemplate
                 ? { launchTemplate: args.launchTemplate }
+                : {}),
+              ...(args.expectedLaunchRevision
+                ? { expectedLaunchRevision: args.expectedLaunchRevision }
                 : {}),
               ...(args.title !== undefined ? { title: args.title } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),

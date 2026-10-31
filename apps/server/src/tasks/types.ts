@@ -63,6 +63,8 @@ export type TaskLaunchPreview = {
   source: "column" | "task";
   templateId: string;
   available: boolean;
+  /** Opaque precondition for a move using this exact resolved choice. */
+  revision?: string;
   error?: string;
   templateName?: string;
   configuration?: {
@@ -180,6 +182,8 @@ export type CreateTaskInput = {
 };
 
 export type UpdateTaskInput = {
+  /** Optional preview revision; a changed choice refuses the entire move. */
+  expectedLaunchRevision?: string;
   launchTemplate?: TaskLaunchTemplateOperation;
   /** Relative insertion anchor; null appends. Takes precedence over position. */
   beforeId?: string | null;

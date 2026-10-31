@@ -87,6 +87,15 @@ or `task_get({ id, launchTemplate: { columnId, templateId } })` (read-only; retu
 `launchPreview`). The create/detail picker defaults to the current or next trigger
 stage, offers “Use column default”, and displays the server-resolved preview.
 Task overrides receive a preview confirmation before a board move launches them.
+The preview's opaque `revision` may be submitted as `expectedLaunchRevision` with
+an HTTP/MCP task update that enters a trigger column. It guards the stage, source,
+trigger policy and full normalized template snapshot using SHA-256 of canonical
+JSON (sorted object keys; template timestamps are ISO strings). Invalid/stale
+choices return 409 `launch_preview_changed` before any mutation or launch; close
+and preview again. Supplying a revision without a trigger-entry move is refused.
+Successful admission passes that exact resolved snapshot to launch, with no
+mutable template reread. Old clients may omit the precondition. Draft selections
+remain visibly targeted at their chosen stage when a task's column changes.
 
 Writes validate the selected template's project, runtime/model, persona and caller
 access ceiling; launches validate again. Restricted agents cannot set or launch a

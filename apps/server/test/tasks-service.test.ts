@@ -3543,3 +3543,134 @@ it("accepts stage selections in multipart task creation and rejects malformed op
     await app.close();
   }
 });
+
+describe("confirmed task launch revisions", () => {
+  it("rejects changed stage bindings, template settings, policy, and non-entry requests without any mutation", async () => {
+    let saved = template({
+      id: "tpl_confirmed",
+      model: "sonnet",
+      fullAccess: false,
+    });
+    service = build(filesRoot, {
+      getTemplate: async (id) => (id === saved.id ? saved : template({ id })),
+    });
+    const stage = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Confirmed",
+        launchTemplate: { columnId: stage, templateId: saved.id },
+      },
+      USER
+    );
+    const revision = (await service.launchPreview(projectId, stage, saved.id))!
+      .revision!;
+    expect(revision).toMatch(/^[a-f0-9]{64}$/);
+    await service.updateTask(
+      task.id,
+      { launchTemplate: { columnId: stage, templateId: TEMPLATE_ID } },
+      USER
+    );
+    const afterEdit = await service.getTaskDetail(task.id);
+    await expect(
+      service.updateTask(
+        task.id,
+        { title: "Wrong", columnId: stage, expectedLaunchRevision: revision },
+        USER
+      )
+    ).rejects.toMatchObject({ code: "launch_preview_changed", status: 409 });
+    expect(await service.getTaskDetail(task.id)).toEqual(afterEdit);
+    await service.updateTask(
+      task.id,
+      { launchTemplate: { columnId: stage, templateId: saved.id } },
+      USER
+    );
+    for (const mutation of [
+      { model: "haiku" },
+      { prompt: "Changed prompt" },
+      { branchName: "new-branch" },
+    ]) {
+      const prior = (await service.getTaskDetail(task.id)).launchPreviews![
+        stage
+      ].revision!;
+      saved = { ...saved, ...mutation };
+      const before = await service.getTaskDetail(task.id);
+      await expect(
+        service.updateTask(
+          task.id,
+          { columnId: stage, title: "Wrong", expectedLaunchRevision: prior },
+          USER
+        )
+      ).rejects.toMatchObject({ code: "launch_preview_changed" });
+      expect(await service.getTaskDetail(task.id)).toEqual(before);
+    }
+    const prior = (await service.getTaskDetail(task.id)).launchPreviews![stage]
+      .revision!;
+    await service.updateColumn(stage, {
+      trigger: { templateId: TEMPLATE_ID, assign: true },
+    });
+    await expect(
+      service.updateTask(
+        task.id,
+        { columnId: stage, expectedLaunchRevision: prior },
+        USER
+      )
+    ).rejects.toMatchObject({ code: "launch_preview_changed" });
+    await expect(
+      service.updateTask(
+        task.id,
+        { title: "Wrong", expectedLaunchRevision: prior },
+        USER
+      )
+    ).rejects.toMatchObject({ code: "launch_preview_changed" });
+    expect(launches).toHaveLength(0);
+    expect((await service.requireTask(task.id)).columnId).toBe(task.columnId);
+  });
+
+  it("canonicalizes revision object keys and launches the exact admitted snapshot without rereading the template", async () => {
+    let saved = template({
+      id: "tpl_confirmed",
+      model: "sonnet",
+      fullAccess: false,
+      useWorktree: false,
+    });
+    service = build(filesRoot, { getTemplate: async () => saved });
+    const stage = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Snapshot",
+        launchTemplate: { columnId: stage, templateId: saved.id },
+      },
+      USER
+    );
+    const preview = (await service.launchPreview(projectId, stage, saved.id))!;
+    saved = Object.fromEntries(
+      Object.entries(saved).reverse()
+    ) as TemplateRecord;
+    expect(
+      (await service.launchPreview(projectId, stage, saved.id))!.revision
+    ).toBe(preview.revision);
+    const original = service.store.transaction.bind(service.store);
+    vi.spyOn(service.store, "transaction").mockImplementationOnce(
+      async (run) => {
+        // Admission resolved the user-confirmed configuration. Later edits must
+        // not cause the launch to silently reread a different configuration.
+        saved = { ...saved, model: "haiku" };
+        return original(run);
+      }
+    );
+    await service.updateTask(
+      task.id,
+      { columnId: stage, expectedLaunchRevision: preview.revision },
+      USER
+    );
+    expect(launches).toHaveLength(1);
+    expect(launches[0].resolvedTemplate).toMatchObject({ model: "sonnet" });
+    expect(
+      (await service.getTaskDetail(task.id)).events.find(
+        (e) => e.kind === "trigger_launched"
+      )?.data.configuration
+    ).toMatchObject({ model: "sonnet" });
+  });
+});

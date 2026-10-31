@@ -148,3 +148,9 @@ assignment, fire-on-create, capacities and relaunch safeguards still apply.
 Unavailable templates fail visibly; choose another or clear the preference rather
 than silently inheriting. Inspect the actual `trigger_launched.configuration`
 snapshot after a launch. A restricted caller cannot select or launch full access.
+
+To guard a previewed move, pass its opaque `revision` as `expectedLaunchRevision`
+on `task_update` alongside the destination `column`. A changed binding, template
+or trigger returns `launch_preview_changed` without changing the task or launching.
+Read a fresh preview before retrying. This optional precondition does not grant
+scope or access and is only valid for a trigger-entry move.

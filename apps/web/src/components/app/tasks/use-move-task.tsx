@@ -3,7 +3,7 @@ import {
   useTaskLaunchPreview,
 } from "./task-launch-template";
 import { useState } from "react";
-import type { Task, TaskBoard } from "@/hooks/use-tasks";
+import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,17 +23,29 @@ import { tasksInColumn } from "./task-utils";
 export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
   const actions = useTaskActions(projectId);
   const [previewMove, setPreviewMove] = useState<{
-    task: Task;
+    taskId: string;
     columnId: string;
     beforeId?: string;
   } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [relaunch, setRelaunch] = useState<{
-    task: Task;
+    taskId: string;
     columnId: string;
     beforeId: string | null;
+    expectedLaunchRevision?: string;
   } | null>(null);
-  const applyMove = async (task: Task, columnId: string, beforeId?: string) => {
+  const currentPreviewTask = board?.tasks.find(
+    (task) => task.id === previewMove?.taskId
+  );
+  const previewColumn = board?.columns?.find(
+    (column) => column.id === previewMove?.columnId
+  );
+  const applyMove = async (
+    task: Task,
+    columnId: string,
+    beforeId?: string,
+    expectedLaunchRevision?: string
+  ) => {
     if (!board || task.id === beforeId) return;
     setMoveError(null);
     const ordered = tasksInColumn(board.tasks, columnId);
@@ -48,10 +60,16 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
         id: task.id,
         columnId,
         beforeId: beforeId ?? null,
+        ...(expectedLaunchRevision ? { expectedLaunchRevision } : {}),
       });
     } catch (error) {
       if (error instanceof ApiError && error.code === "agent_working")
-        setRelaunch({ task, columnId, beforeId: beforeId ?? null });
+        setRelaunch({
+          taskId: task.id,
+          columnId,
+          beforeId: beforeId ?? null,
+          expectedLaunchRevision,
+        });
       else
         setMoveError(
           error instanceof Error ? error.message : "Could not move task."
@@ -64,7 +82,7 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
       task.launchTemplates?.[columnId] &&
       board?.columns.find((c) => c.id === columnId)?.trigger
     ) {
-      setPreviewMove({ task, columnId, beforeId });
+      setPreviewMove({ taskId: task.id, columnId, beforeId });
       return;
     }
     await applyMove(task, columnId, beforeId);
@@ -97,20 +115,36 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
           </DialogDescription>
         </DialogHeader>
 
-        {previewMove && !moveError && (
+        {previewMove && !moveError && currentPreviewTask && previewColumn && (
           <MoveLaunchPreview
             projectId={projectId}
-            task={previewMove.task}
-            columnId={previewMove.columnId}
+            task={currentPreviewTask}
+            column={previewColumn}
             onCancel={() => setPreviewMove(null)}
-            onConfirm={() => {
+            onConfirm={(revision) => {
               const move = previewMove;
               setPreviewMove(null);
-              void applyMove(move.task, move.columnId, move.beforeId);
+              void applyMove(
+                currentPreviewTask,
+                move.columnId,
+                move.beforeId,
+                revision
+              );
             }}
           />
         )}
-        {(!previewMove || moveError) && (
+        {previewMove &&
+          !moveError &&
+          (!currentPreviewTask || !previewColumn) && (
+            <p role="alert">
+              This task or stage is no longer available. Close and choose the
+              move again.
+            </p>
+          )}
+        {(!previewMove ||
+          moveError ||
+          !currentPreviewTask ||
+          !previewColumn) && (
           <div className="flex justify-end gap-2">
             <Button
               variant="ghost"
@@ -129,10 +163,16 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
                   if (relaunch)
                     void actions.update
                       .mutateAsync({
-                        id: relaunch.task.id,
+                        id: relaunch.taskId,
                         columnId: relaunch.columnId,
                         beforeId: relaunch.beforeId,
                         confirmRelaunch: true,
+                        ...(relaunch.expectedLaunchRevision
+                          ? {
+                              expectedLaunchRevision:
+                                relaunch.expectedLaunchRevision,
+                            }
+                          : {}),
                       })
                       .catch((error: Error) => setMoveError(error.message))
                       .finally(() => setRelaunch(null));
@@ -152,20 +192,21 @@ export function useMoveTask(projectId: string, board: TaskBoard | undefined) {
 function MoveLaunchPreview({
   projectId,
   task,
-  columnId,
+  column,
   onConfirm,
   onCancel,
 }: {
   projectId: string;
   task: Task;
-  columnId: string;
-  onConfirm: () => void;
+  column: TaskColumn;
+  onConfirm: (revision: string) => void;
   onCancel: () => void;
 }) {
   const preview = useTaskLaunchPreview(
     projectId,
-    columnId,
-    task.launchTemplates?.[columnId] ?? null
+    column.id,
+    task.launchTemplates?.[column.id] ?? null,
+    `${task.updatedAt}:${column.updatedAt}`
   );
   return (
     <div className="space-y-3">
@@ -181,8 +222,16 @@ function MoveLaunchPreview({
           Cancel
         </Button>
         <Button
-          disabled={preview.isFetching || !preview.data?.available}
-          onClick={onConfirm}
+          disabled={
+            preview.isFetching ||
+            !preview.data?.available ||
+            !preview.data.revision ||
+            task.columnId === column.id ||
+            !!task.archivedAt
+          }
+          onClick={() => {
+            if (preview.data?.revision) onConfirm(preview.data.revision);
+          }}
         >
           Move and launch
         </Button>
