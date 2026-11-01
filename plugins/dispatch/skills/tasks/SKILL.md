@@ -149,7 +149,9 @@ Unavailable templates fail visibly; choose another or clear the preference rathe
 than silently inheriting. Inspect the actual `trigger_launched.configuration`
 snapshot after a launch. A restricted caller cannot select or launch full access.
 
-To guard a previewed move, pass its opaque `revision` as `expectedLaunchRevision`
+Normal `task_update` stage moves launch the selected task template directly through
+the column trigger; no preview, revision or human confirmation is required.
+To opt in to guarding a previewed move, pass its opaque `revision` as `expectedLaunchRevision`
 on `task_update` alongside the destination `column`. A changed binding, template
 or trigger returns `launch_preview_changed` without changing the task or launching.
 Read a fresh preview before retrying. This optional precondition does not grant

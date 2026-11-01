@@ -178,6 +178,46 @@ it("round-trips stage overrides, previews and clear across authenticated MCP and
     },
   });
   await ctx.awaitLaunched(launched.data.agentId);
+  // A normal signed agent move needs no preview, revision or human gate.
+  const directTask = await call("task_create", {
+    title: "Direct agent stage move",
+    launchTemplate: operation,
+  });
+  expect(directTask.isError).toBeUndefined();
+  const directId = directTask.structuredContent.id;
+  const directMove = await call("task_update", {
+    id: directId,
+    column: "in_progress",
+  });
+  expect(directMove.isError).toBeUndefined();
+  const directDetail = await http("GET", `/api/v1/tasks/${directId}`);
+  expect(directDetail.columnId).toBe(stage.id);
+  const directLaunches = directDetail.events.filter(
+    (e: { kind: string }) => e.kind === "trigger_launched"
+  );
+  expect(directLaunches).toHaveLength(1);
+  expect(directLaunches[0].data).toMatchObject({
+    columnId: stage.id,
+    source: "task",
+    templateId: lead.id,
+    configuration: {
+      agentType: "codex",
+      model: "gpt-5.5",
+      directory: "/tmp",
+      fullAccess: false,
+      prompt: "Work on this task",
+    },
+  });
+  await ctx.awaitLaunched(directLaunches[0].data.agentId);
+  // A repeated update to the same stage must not launch a second agent.
+  expect(
+    (await call("task_update", { id: directId, column: "in_progress" })).isError
+  ).toBeUndefined();
+  expect(
+    (await http("GET", `/api/v1/tasks/${directId}`)).events.filter(
+      (e: { kind: string }) => e.kind === "trigger_launched"
+    )
+  ).toHaveLength(1);
   const cleared = await call("task_update", {
     id,
     launchTemplate: { columnId: stage.id, templateId: null },

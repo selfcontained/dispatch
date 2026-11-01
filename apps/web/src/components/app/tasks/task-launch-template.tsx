@@ -1,13 +1,8 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { useTemplates } from "@/hooks/use-templates";
 import { useProjects } from "@/hooks/use-projects";
 import { useTaskActions, type Task, type TaskColumn } from "@/hooks/use-tasks";
-import type {
-  TaskLaunchPreview,
-  TaskLaunchTemplateOperation,
-} from "../../../../../server/src/tasks/types";
+import type { TaskLaunchTemplateOperation } from "../../../../../server/src/tasks/types";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -16,79 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-export function useTaskLaunchPreview(
-  projectId: string,
-  columnId: string,
-  templateId: string | null,
-  refreshKey?: string
-) {
-  const { data: templates = [] } = useTemplates(!!columnId);
-  return useQuery<TaskLaunchPreview | null>({
-    queryKey: [
-      "tasks",
-      projectId,
-      "launch-preview",
-      columnId,
-      templateId,
-      refreshKey,
-      templates.map((t) => [t.id, t.updatedAt]),
-    ],
-    queryFn: () =>
-      api(
-        `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/launch-preview`,
-        {
-          method: "POST",
-          body: JSON.stringify({ columnId, templateId }),
-        }
-      ),
-    enabled: !!columnId,
-    staleTime: 0,
-  });
-}
-
-export function TaskLaunchPreviewView({
-  preview,
-}: {
-  preview: TaskLaunchPreview;
-}) {
-  const config = preview.configuration;
-  return (
-    <div
-      className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground"
-      data-testid="task-launch-preview"
-      aria-live="polite"
-    >
-      <p className="font-medium text-foreground">
-        {preview.source === "task" ? "Task override" : "Column default"} ·{" "}
-        {preview.templateName ?? preview.templateId}
-      </p>
-      {!preview.available && (
-        <p role="alert" className="text-destructive">
-          Unavailable: {preview.error} Choose another template or use the column
-          default.
-        </p>
-      )}
-      {config && (
-        <>
-          <p>
-            {config.persona ? `Persona: ${config.persona} · ` : ""}
-            {config.agentType} · {config.model ?? "CLI default"}
-          </p>
-          <p className="break-all">Workspace: {config.directory}</p>
-          <p>
-            {config.fullAccess ? "Full access" : "Restricted access"} ·{" "}
-            {config.useWorktree ? "Separate worktree" : "Project workspace"}
-            {config.baseBranch ? ` · Base: ${config.baseBranch}` : ""}
-            {config.useWorktree
-              ? ` · New branch: ${config.branchName ?? "generated at launch"}`
-              : ""}
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
 
 /** Stage selection stays in this feature subtree; one operation changes one stable column ID. */
 export function TaskLaunchTemplatePicker({
@@ -121,15 +43,16 @@ export function TaskLaunchTemplatePicker({
     value && value.columnId === stage?.id
       ? value.templateId
       : (bindings[stage?.id ?? ""] ?? null);
-  const { data: templates = [] } = useTemplates(stages.length > 0);
-  const { data: projects = [] } = useProjects();
+  const { data: templates = [], isSuccess: templatesLoaded } = useTemplates(
+    stages.length > 0
+  );
+  const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
   const root = projects.find((p) => p.id === projectId)?.repoRoot;
   const choices = templates.filter(
     (t) =>
       t.projectId === projectId ||
       (t.projectId === null && t.directory === root)
   );
-  const preview = useTaskLaunchPreview(projectId, stage?.id ?? "", templateId);
   if (!stage) return null;
   return (
     <div className="space-y-2" data-testid="task-launch-template-picker">
@@ -172,9 +95,12 @@ export function TaskLaunchTemplatePicker({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__inherit__">Use column default</SelectItem>
-            {templateId && !choices.some((t) => t.id === templateId) && (
-              <SelectItem value={templateId}>Unavailable template</SelectItem>
-            )}
+            {templatesLoaded &&
+              projectsLoaded &&
+              templateId &&
+              !choices.some((t) => t.id === templateId) && (
+                <SelectItem value={templateId}>Unavailable template</SelectItem>
+              )}
             {choices.map((t) => (
               <SelectItem key={t.id} value={t.id}>
                 {t.name}
@@ -183,22 +109,15 @@ export function TaskLaunchTemplatePicker({
           </SelectContent>
         </Select>
       </label>
-      <p className="text-xs text-muted-foreground">
-        Applies on the next eligible entry into {stage.name}. Editing this
-        choice launches nothing.
-      </p>
-      {preview.isFetching ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          Loading launch preview…
-        </p>
-      ) : preview.data ? (
-        <TaskLaunchPreviewView preview={preview.data} />
-      ) : null}
-      {preview.error && (
-        <p role="alert" className="text-xs text-destructive">
-          Could not load launch preview.
-        </p>
-      )}
+      {templatesLoaded &&
+        projectsLoaded &&
+        templateId &&
+        !choices.some((t) => t.id === templateId) && (
+          <p role="alert" className="text-xs text-destructive">
+            Template unavailable. Choose another template or use the column
+            default.
+          </p>
+        )}
     </div>
   );
 }

@@ -85,16 +85,18 @@ an `error`. For an unsaved selection, use
 `POST /api/v1/projects/:projectId/tasks/launch-preview` with `{ columnId, templateId }`,
 or `task_get({ id, launchTemplate: { columnId, templateId } })` (read-only; returns
 `launchPreview`). The create/detail picker defaults to the current or next trigger
-stage, offers “Use column default”, and displays the server-resolved preview.
-Task overrides receive a preview confirmation before a board move launches them.
+stage and offers “Use column default”. Normal board moves enter the selected
+stage directly and launch through its trigger, including task overrides; no extra
+preview or confirmation is required. The existing working-assignee relaunch
+safeguard still applies.
 The preview's opaque `revision` may be submitted as `expectedLaunchRevision` with
 an HTTP/MCP task update that enters a trigger column. It guards the stage, source,
 trigger policy and full normalized template snapshot using SHA-256 of canonical
 JSON (sorted object keys; template timestamps are ISO strings). Invalid/stale
-choices return 409 `launch_preview_changed` before any mutation or launch; close
-and preview again. Supplying a revision without a trigger-entry move is refused.
+choices return 409 `launch_preview_changed` before any mutation or launch; fetch a fresh
+preview before retrying. Supplying a revision without a trigger-entry move is refused.
 Successful admission passes that exact resolved snapshot to launch, with no
-mutable template reread. Old clients may omit the precondition. Draft selections
+mutable template reread. The precondition is opt-in; normal UI and agent moves may omit it. Draft selections
 remain visibly targeted at their chosen stage when a task's column changes.
 
 Writes validate the selected template's project, runtime/model, persona and caller

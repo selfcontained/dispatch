@@ -10,7 +10,7 @@ const repo = mkdtempSync(join(tmpdir(), "dispatch-stage-templates-"));
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
 for (const layout of ["desktop", "mobile"] as const) {
-  test(`task stage templates create, edit, clear, preview and launch on ${layout}`, async ({
+  test(`task stage templates create, edit, clear and move directly on ${layout}`, async ({
     page,
     request,
   }) => {
@@ -116,9 +116,61 @@ for (const layout of ["desktop", "mobile"] as const) {
       await page
         .getByRole("option", { name: "Stage Delivery Lead", exact: true })
         .click();
-      await expect(dialog.getByTestId("task-launch-preview")).toContainText(
-        "codex · gpt-5.5"
-      );
+      await expect(dialog.getByTestId("task-launch-preview")).toHaveCount(0);
+      await expect(
+        dialog.getByText(/Applies on the next eligible entry/)
+      ).toHaveCount(0);
+      // Keyboard focus must leave room for the full four-pixel ring at every
+      // scroll/overflow boundary, including when mobile needs to scroll.
+      for (const [name, control] of [
+        ["title", dialog.getByLabel("Title", { exact: true })],
+        [
+          "column",
+          dialog.getByRole("combobox", { name: "Column", exact: true }),
+        ],
+        [
+          "template",
+          dialog.getByRole("combobox", {
+            name: "Launch template",
+            exact: true,
+          }),
+        ],
+      ] as const) {
+        for (let tabs = 0; tabs < 30; tabs++) {
+          await page.keyboard.press("Tab");
+          if (await control.evaluate((el) => el === document.activeElement))
+            break;
+        }
+        await expect(control).toBeFocused();
+        expect(
+          await control.evaluate((el) => {
+            const rect = el.getBoundingClientRect();
+            for (
+              let parent = el.parentElement;
+              parent;
+              parent = parent.parentElement
+            ) {
+              const style = getComputedStyle(parent);
+              const bounds = parent.getBoundingClientRect();
+              if (
+                /(auto|scroll|hidden|clip)/.test(style.overflowX) &&
+                (rect.left - 4 < bounds.left || rect.right + 4 > bounds.right)
+              )
+                return false;
+              if (
+                /(auto|scroll|hidden|clip)/.test(style.overflowY) &&
+                (rect.top - 4 < bounds.top || rect.bottom + 4 > bounds.bottom)
+              )
+                return false;
+            }
+            return getComputedStyle(el).boxShadow !== "none";
+          })
+        ).toBe(true);
+        await page.screenshot({
+          path: `/tmp/dispatch-stage-template-${layout}-focus-${name}.png`,
+          scale: "device",
+        });
+      }
       await page.screenshot({
         path: `/tmp/dispatch-stage-template-${layout}-create.png`,
         scale: "device",
@@ -203,12 +255,9 @@ for (const layout of ["desktop", "mobile"] as const) {
       await page
         .getByRole("option", { name: "In review", exact: true })
         .click();
-      await expect(detail.getByTestId("task-launch-preview")).toContainText(
-        "Column default"
-      );
-      await expect(detail.getByTestId("task-launch-preview")).toContainText(
-        "claude · haiku"
-      );
+      await expect(
+        detail.getByRole("combobox", { name: "Launch template", exact: true })
+      ).toHaveText("Use column default");
       await detail
         .getByRole("combobox", { name: "Launch stage", exact: true })
         .click();
@@ -261,95 +310,17 @@ for (const layout of ["desktop", "mobile"] as const) {
         path: `/tmp/dispatch-stage-template-${layout}-detail.png`,
         scale: "device",
       });
-      await detail
-        .getByRole("combobox", {
-          name: `Status for Large task ${layout}`,
-          exact: true,
-        })
-        .click();
-      await page
-        .getByRole("option", { name: "In progress", exact: true })
-        .click();
-      const move = page.getByRole("dialog", {
-        name: "Move and launch task template?",
-      });
-      await expect(move.getByTestId("task-launch-preview")).toContainText(
-        "codex · gpt-5.5"
-      );
-      await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-launch.png`,
-        scale: "device",
-      });
-      // While confirmation is open, use the latest task binding and template.
-      await request.patch(`/api/v1/tasks/${task.id}`, {
-        headers,
-        data: {
-          launchTemplate: {
-            columnId: implementation.id,
-            templateId: builder.id,
-          },
-        },
-      });
-      await expect(move.getByTestId("task-launch-preview")).toContainText(
-        "Task override · Stage Builder"
-      );
-      await expect(move.getByTestId("task-launch-preview")).toContainText(
-        "claude · sonnet"
-      );
-      await request.patch(`/api/v1/templates/${builder.id}`, {
-        headers,
-        data: { model: "haiku" },
-      });
-      await expect(move.getByTestId("task-launch-preview")).toContainText(
-        "claude · haiku"
-      );
-      await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-refreshed-confirmation.png`,
-        scale: "device",
-      });
-      // Force the final request race: mutate configuration after click but before admission.
-      await page.route(`**/api/v1/tasks/${task.id}`, async (route) => {
+      const moveRequests: Record<string, unknown>[] = [];
+      const previewRequests: string[] = [];
+      page.on("request", (request) => {
+        if (request.url().includes("/tasks/launch-preview"))
+          previewRequests.push(request.url());
         if (
-          route.request().method() === "PATCH" &&
-          route.request().postDataJSON()?.expectedLaunchRevision
-        ) {
-          await request.patch(`/api/v1/templates/${builder.id}`, {
-            headers,
-            data: { model: "sonnet" },
-          });
-        }
-        await route.continue();
-      });
-      await move
-        .getByRole("button", { name: "Move and launch", exact: true })
-        .click();
-      const refusedMove = page.getByRole("dialog", {
-        name: "Could not move task",
-      });
-      await expect(refusedMove).toContainText("Launch configuration changed");
-      expect((await read()).columnId).toBe(task.columnId);
-      expect(
-        (await read()).events.filter(
-          (e: { kind: string }) => e.kind === "trigger_launched"
+          request.method() === "PATCH" &&
+          new URL(request.url()).pathname === `/api/v1/tasks/${task.id}`
         )
-      ).toHaveLength(initialLaunchCount);
-      await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-changed-confirmation.png`,
-        scale: "device",
+          moveRequests.push(request.postDataJSON());
       });
-      await page.unroute(`**/api/v1/tasks/${task.id}`);
-      await refusedMove
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
-      await request.patch(`/api/v1/tasks/${task.id}`, {
-        headers,
-        data: {
-          launchTemplate: { columnId: implementation.id, templateId: lead.id },
-        },
-      });
-      await expect(
-        detail.getByRole("combobox", { name: "Launch template", exact: true })
-      ).toHaveText("Stage Delivery Lead");
       await detail
         .getByRole("combobox", {
           name: `Status for Large task ${layout}`,
@@ -358,12 +329,6 @@ for (const layout of ["desktop", "mobile"] as const) {
         .click();
       await page
         .getByRole("option", { name: "In progress", exact: true })
-        .click();
-      await expect(move.getByTestId("task-launch-preview")).toContainText(
-        "codex · gpt-5.5"
-      );
-      await move
-        .getByRole("button", { name: "Move and launch", exact: true })
         .click();
       await expect
         .poll(
@@ -373,6 +338,17 @@ for (const layout of ["desktop", "mobile"] as const) {
             ).length
         )
         .toBe(initialLaunchCount + 1);
+      expect(moveRequests).toHaveLength(1);
+      expect(moveRequests[0]).toMatchObject({ columnId: implementation.id });
+      expect(moveRequests[0]).not.toHaveProperty("expectedLaunchRevision");
+      expect(previewRequests).toHaveLength(0);
+      await expect(
+        page.getByRole("dialog", { name: "Move and launch task template?" })
+      ).toHaveCount(0);
+      await page.screenshot({
+        path: `/tmp/dispatch-stage-template-${layout}-direct-move.png`,
+        scale: "device",
+      });
       const launched = (await read()).events.find(
         (e: { kind: string; data: { templateId: string } }) =>
           e.kind === "trigger_launched" && e.data.templateId === lead.id
@@ -389,8 +365,8 @@ for (const layout of ["desktop", "mobile"] as const) {
       });
       await request.delete(`/api/v1/templates/${lead.id}`, { headers });
       await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(detail.getByTestId("task-launch-preview")).toContainText(
-        "Unavailable:"
+      await expect(detail.getByRole("alert")).toContainText(
+        "Template unavailable. Choose another template or use the column default."
       );
       await page.screenshot({
         path: `/tmp/dispatch-stage-template-${layout}-unavailable.png`,
