@@ -6,11 +6,11 @@ import { authHeaders, cleanupE2EAgents, loadApp, trackAgent } from "./helpers";
 
 test.use({ deviceScaleFactor: 2 });
 
-const repo = mkdtempSync(join(tmpdir(), "dispatch-stage-templates-"));
+const repo = mkdtempSync(join(tmpdir(), "dispatch-task-templates-"));
 test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
 for (const layout of ["desktop", "mobile"] as const) {
-  test(`task stage templates create, edit, clear and move directly on ${layout}`, async ({
+  test(`task templates create, edit, clear and move directly on ${layout}`, async ({
     page,
     request,
   }) => {
@@ -18,14 +18,14 @@ for (const layout of ["desktop", "mobile"] as const) {
     mkdirSync(`${repo}/${layout}`, { recursive: true });
     await page.setViewportSize(
       layout === "mobile"
-        ? { width: 390, height: 844 }
+        ? { width: 390, height: 650 }
         : { width: 1440, height: 1050 }
     );
     const headers = authHeaders();
     const projectResponse = await request.post("/api/v1/projects", {
       headers,
       data: {
-        name: `Stage templates ${layout}`,
+        name: `Task templates ${layout}`,
         repoRoot: `${repo}/${layout}`,
         color: "#336699",
       },
@@ -64,8 +64,8 @@ for (const layout of ["desktop", "mobile"] as const) {
       expect(response.ok(), await response.text()).toBeTruthy();
       return response.json();
     };
-    const builder = await makeTemplate("Stage Builder", "claude", "sonnet");
-    const lead = await makeTemplate("Stage Delivery Lead", "codex", "gpt-5.5");
+    const builder = await makeTemplate("Default Builder", "claude", "sonnet");
+    const lead = await makeTemplate("Task Delivery Lead", "codex", "gpt-5.5");
     for (const column of [implementation, review]) {
       const response = await request.patch(
         `/api/v1/task-columns/${column.id}`,
@@ -101,12 +101,38 @@ for (const layout of ["desktop", "mobile"] as const) {
           .click();
       }
       const dialog = page.getByTestId("task-create-dialog");
+      const assertContextBounds = async () => {
+        const description = await dialog
+          .getByLabel("Description", { exact: true })
+          .boundingBox();
+        const context = await dialog.getByTestId("task-context").boundingBox();
+        const clipboard = await dialog
+          .getByRole("button", { name: "Read clipboard", exact: true })
+          .boundingBox();
+        expect(description).not.toBeNull();
+        expect(context).not.toBeNull();
+        expect(clipboard).not.toBeNull();
+        expect(description!.y + description!.height).toBeLessThanOrEqual(
+          context!.y
+        );
+        expect(clipboard!.y).toBeGreaterThanOrEqual(context!.y);
+        expect(clipboard!.y + clipboard!.height).toBeLessThanOrEqual(
+          context!.y + context!.height
+        );
+      };
+      await assertContextBounds();
+      await dialog.getByLabel("Description", { exact: true }).focus();
+      await assertContextBounds();
+      await page.screenshot({
+        path: `/tmp/dispatch-task-template-${layout}-context.png`,
+        scale: "device",
+      });
       await dialog
         .getByLabel("Title", { exact: true })
         .fill(`Large task ${layout}`);
       await expect(
         dialog.getByRole("combobox", { name: "Launch stage", exact: true })
-      ).toHaveText("In progress");
+      ).toHaveCount(0);
       await expect(
         dialog.getByRole("combobox", { name: "Launch template", exact: true })
       ).toHaveText("Use column default");
@@ -114,7 +140,7 @@ for (const layout of ["desktop", "mobile"] as const) {
         .getByRole("combobox", { name: "Launch template", exact: true })
         .click();
       await page
-        .getByRole("option", { name: "Stage Delivery Lead", exact: true })
+        .getByRole("option", { name: "Task Delivery Lead", exact: true })
         .click();
       await expect(dialog.getByTestId("task-launch-preview")).toHaveCount(0);
       await expect(
@@ -136,46 +162,49 @@ for (const layout of ["desktop", "mobile"] as const) {
           }),
         ],
       ] as const) {
-        for (let tabs = 0; tabs < 30; tabs++) {
-          await page.keyboard.press("Tab");
-          if (await control.evaluate((el) => el === document.activeElement))
-            break;
-        }
+        // Start from a known control after the Select close/autofocus cycle,
+        // then return via the keyboard so focus-visible is exercised.
+        await expect(page.getByRole("listbox")).toHaveCount(0);
+        await control.focus();
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Shift+Tab");
         await expect(control).toBeFocused();
-        expect(
-          await control.evaluate((el) => {
-            const rect = el.getBoundingClientRect();
-            for (
-              let parent = el.parentElement;
-              parent;
-              parent = parent.parentElement
-            ) {
-              const style = getComputedStyle(parent);
-              const bounds = parent.getBoundingClientRect();
-              if (
-                /(auto|scroll|hidden|clip)/.test(style.overflowX) &&
-                (rect.left - 4 < bounds.left || rect.right + 4 > bounds.right)
-              )
-                return false;
-              if (
-                /(auto|scroll|hidden|clip)/.test(style.overflowY) &&
-                (rect.top - 4 < bounds.top || rect.bottom + 4 > bounds.bottom)
-              )
-                return false;
-            }
-            return getComputedStyle(el).boxShadow !== "none";
-          })
-        ).toBe(true);
+        await expect
+          .poll(() =>
+            control.evaluate((el) => {
+              const rect = el.getBoundingClientRect();
+              for (
+                let parent = el.parentElement;
+                parent;
+                parent = parent.parentElement
+              ) {
+                const style = getComputedStyle(parent);
+                const bounds = parent.getBoundingClientRect();
+                if (
+                  /(auto|scroll|hidden|clip)/.test(style.overflowX) &&
+                  (rect.left - 4 < bounds.left || rect.right + 4 > bounds.right)
+                )
+                  return false;
+                if (
+                  /(auto|scroll|hidden|clip)/.test(style.overflowY) &&
+                  (rect.top - 4 < bounds.top || rect.bottom + 4 > bounds.bottom)
+                )
+                  return false;
+              }
+              return getComputedStyle(el).boxShadow !== "none";
+            })
+          )
+          .toBe(true);
         await page.screenshot({
-          path: `/tmp/dispatch-stage-template-${layout}-focus-${name}.png`,
+          path: `/tmp/dispatch-task-template-${layout}-focus-${name}.png`,
           scale: "device",
         });
       }
       await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-create.png`,
+        path: `/tmp/dispatch-task-template-${layout}-create.png`,
         scale: "device",
       });
-      // A draft keeps its visible stage when the creation destination changes.
+      // A draft keeps its template choice when the creation destination changes.
       await dialog
         .getByRole("combobox", { name: "Column", exact: true })
         .click();
@@ -184,12 +213,12 @@ for (const layout of ["desktop", "mobile"] as const) {
         .click();
       await expect(
         dialog.getByRole("combobox", { name: "Launch stage", exact: true })
-      ).toHaveText("In progress");
+      ).toHaveCount(0);
       await expect(
         dialog.getByRole("combobox", { name: "Launch template", exact: true })
-      ).toHaveText("Stage Delivery Lead");
+      ).toHaveText("Task Delivery Lead");
       await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-visible-draft.png`,
+        path: `/tmp/dispatch-task-template-${layout}-visible-draft.png`,
         scale: "device",
       });
       await dialog
@@ -205,7 +234,7 @@ for (const layout of ["desktop", "mobile"] as const) {
         .getByRole("button", { name: "Create task", exact: true })
         .click();
       const task = await (await createdResponse).json();
-      expect(task.launchTemplates).toEqual({ [implementation.id]: lead.id });
+      expect(task.launchTemplateId).toBe(lead.id);
       if (layout === "mobile")
         await page
           .getByTestId(`task-row-${task.id}`)
@@ -220,12 +249,12 @@ for (const layout of ["desktop", "mobile"] as const) {
           (e: { kind: string }) => e.kind === "trigger_launched"
         )
       ).toHaveLength(0);
-      // An external move must not hide an unsaved implementation draft.
+      // An external move must not hide an unsaved template draft.
       await detail
         .getByRole("combobox", { name: "Launch template", exact: true })
         .click();
       await page
-        .getByRole("option", { name: "Stage Builder", exact: true })
+        .getByRole("option", { name: "Default Builder", exact: true })
         .click();
       await request.patch(`/api/v1/tasks/${task.id}`, {
         headers,
@@ -239,31 +268,15 @@ for (const layout of ["desktop", "mobile"] as const) {
       ).toHaveText("In review");
       await expect(
         detail.getByRole("combobox", { name: "Launch stage", exact: true })
-      ).toHaveText("In progress");
+      ).toHaveCount(0);
       await expect(
         detail.getByRole("combobox", { name: "Launch template", exact: true })
-      ).toHaveText("Stage Builder");
+      ).toHaveText("Default Builder");
       const reviewLaunch = (await read()).events.find(
         (e: { kind: string }) => e.kind === "trigger_launched"
       );
       trackAgent(reviewLaunch.data.agentId);
       const initialLaunchCount = 1;
-      // Read the later review stage without changing its choice.
-      await detail
-        .getByRole("combobox", { name: "Launch stage", exact: true })
-        .click();
-      await page
-        .getByRole("option", { name: "In review", exact: true })
-        .click();
-      await expect(
-        detail.getByRole("combobox", { name: "Launch template", exact: true })
-      ).toHaveText("Use column default");
-      await detail
-        .getByRole("combobox", { name: "Launch stage", exact: true })
-        .click();
-      await page
-        .getByRole("option", { name: "In progress", exact: true })
-        .click();
       await request.patch(`/api/v1/tasks/${task.id}`, {
         headers,
         data: { columnId: task.columnId },
@@ -274,7 +287,7 @@ for (const layout of ["desktop", "mobile"] as const) {
           exact: true,
         })
       ).toHaveText("Backlog");
-      // Clear and save. Reload proves the persisted map is empty.
+      // Clear and save. Reload proves the persisted override is cleared.
       await detail
         .getByRole("combobox", { name: "Launch template", exact: true })
         .click();
@@ -284,7 +297,7 @@ for (const layout of ["desktop", "mobile"] as const) {
       await detail
         .getByRole("button", { name: "Save launch template" })
         .click();
-      await expect.poll(async () => (await read()).launchTemplates).toEqual({});
+      await expect.poll(async () => (await read()).launchTemplateId).toBeNull();
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(
         detail.getByRole("combobox", { name: "Launch template", exact: true })
@@ -293,21 +306,21 @@ for (const layout of ["desktop", "mobile"] as const) {
         .getByRole("combobox", { name: "Launch template", exact: true })
         .click();
       await page
-        .getByRole("option", { name: "Stage Delivery Lead", exact: true })
+        .getByRole("option", { name: "Task Delivery Lead", exact: true })
         .click();
       await detail
         .getByRole("button", { name: "Save launch template" })
         .click();
       await expect
-        .poll(async () => (await read()).launchTemplates)
-        .toEqual({ [implementation.id]: lead.id });
+        .poll(async () => (await read()).launchTemplateId)
+        .toBe(lead.id);
       expect(
         (await read()).events.filter(
           (e: { kind: string }) => e.kind === "trigger_launched"
         )
       ).toHaveLength(initialLaunchCount);
       await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-detail.png`,
+        path: `/tmp/dispatch-task-template-${layout}-detail.png`,
         scale: "device",
       });
       const moveRequests: Record<string, unknown>[] = [];
@@ -346,7 +359,7 @@ for (const layout of ["desktop", "mobile"] as const) {
         page.getByRole("dialog", { name: "Move and launch task template?" })
       ).toHaveCount(0);
       await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-direct-move.png`,
+        path: `/tmp/dispatch-task-template-${layout}-direct-move.png`,
         scale: "device",
       });
       const launched = (await read()).events.find(
@@ -359,17 +372,13 @@ for (const layout of ["desktop", "mobile"] as const) {
         templateId: lead.id,
         configuration: { agentType: "codex", model: "gpt-5.5" },
       });
-      expect((await read()).launchPreviews[review.id]).toMatchObject({
-        source: "column",
-        templateId: builder.id,
-      });
       await request.delete(`/api/v1/templates/${lead.id}`, { headers });
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(detail.getByRole("alert")).toContainText(
         "Template unavailable. Choose another template or use the column default."
       );
       await page.screenshot({
-        path: `/tmp/dispatch-stage-template-${layout}-unavailable.png`,
+        path: `/tmp/dispatch-task-template-${layout}-unavailable.png`,
         scale: "device",
       });
       await detail
@@ -381,7 +390,7 @@ for (const layout of ["desktop", "mobile"] as const) {
       await detail
         .getByRole("button", { name: "Save launch template" })
         .click();
-      await expect.poll(async () => (await read()).launchTemplates).toEqual({});
+      await expect.poll(async () => (await read()).launchTemplateId).toBeNull();
     } finally {
       await cleanupE2EAgents(request);
       await request.delete(`/api/v1/projects/${project.id}`, { headers });

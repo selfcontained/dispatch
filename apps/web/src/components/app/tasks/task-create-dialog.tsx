@@ -1,5 +1,4 @@
 import { TaskLaunchTemplatePicker } from "./task-launch-template";
-import type { TaskLaunchTemplateOperation } from "../../../../../server/src/tasks/types";
 import { ContextPicker } from "../context-picker";
 import { useStartupAttachments } from "../use-startup-attachments";
 import { getClipboardFilesFromEvent } from "../create-agent-dialog-clipboard";
@@ -59,8 +58,7 @@ export function TaskCreateDialog({
   const actions = useTaskActions(projectId);
   const context = useStartupAttachments();
   const formRef = useRef<HTMLFormElement>(null);
-  const [launchTemplate, setLaunchTemplate] =
-    useState<TaskLaunchTemplateOperation>();
+  const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [column, setColumn] = useState("");
@@ -72,7 +70,7 @@ export function TaskCreateDialog({
   useEffect(() => {
     if (!open) return;
     context.resetAttachments();
-    setLaunchTemplate(undefined);
+    setLaunchTemplateId(null);
     setTitle("");
     setBody("");
     setColumn(columnId ?? columns[0]?.id ?? "");
@@ -94,7 +92,7 @@ export function TaskCreateDialog({
       task ??= await actions.create.mutateAsync({
         projectId,
         title: title.trim(),
-        ...(launchTemplate ? { launchTemplate } : {}),
+        launchTemplateId,
         ...(context.startupFiles.length
           ? { startupFiles: context.startupFiles }
           : {}),
@@ -156,7 +154,7 @@ export function TaskCreateDialog({
         </DialogHeader>
         <form
           ref={formRef}
-          className="-mx-1 -my-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-1"
+          className="-mx-1 -my-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto scroll-p-1 p-1 [&>*]:shrink-0"
           onPaste={(event) => {
             // ContextPicker owns paste inside its own subtree.
             if (
@@ -189,14 +187,14 @@ export function TaskCreateDialog({
               onChange={(event) => setTitle(event.target.value)}
             />
           </div>
-          <div className="flex min-h-0 flex-1 flex-col space-y-1.5">
+          <div className="flex flex-col space-y-1.5">
             <label className={LABEL} htmlFor="task-create-description">
               Description
             </label>
             <Textarea
               id="task-create-description"
               placeholder={DESCRIPTION_PLACEHOLDER}
-              className="min-h-36 flex-1 resize-none font-mono text-sm md:min-h-44"
+              className="min-h-36 resize-none font-mono text-sm md:min-h-44"
               value={body}
               onChange={(event) => setBody(event.target.value)}
               onKeyDown={(event) => {
@@ -261,10 +259,8 @@ export function TaskCreateDialog({
             <TaskLaunchTemplatePicker
               key={open ? "open" : "closed"}
               projectId={projectId}
-              columns={columns}
-              columnId={column}
-              value={launchTemplate}
-              onChange={setLaunchTemplate}
+              value={launchTemplateId}
+              onChange={setLaunchTemplateId}
               disabled={saving || !!created}
             />
           )}

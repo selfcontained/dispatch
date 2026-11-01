@@ -13,7 +13,7 @@ beforeAll(async () => {
   base = await ctx.app.listen({ host: "127.0.0.1", port: 0 });
 });
 
-it("round-trips stage overrides, previews and clear across authenticated MCP and HTTP", async () => {
+it("round-trips task overrides and clear across authenticated MCP and HTTP", async () => {
   const projectId = "prj_template_transport";
   await ctx.pool.query(
     `INSERT INTO projects (id, name, repo_root, color) VALUES ($1, 'Templates', '/tmp', '#336699')`,
@@ -94,78 +94,30 @@ it("round-trips stage overrides, previews and clear across authenticated MCP and
     const data = text.split("\n").find((line) => line.startsWith("data: "));
     return JSON.parse(data ? data.slice(6) : text).result;
   };
-  const operation = { columnId: stage.id, templateId: lead.id };
+  const launchTemplateId = lead.id;
   const created = await call("task_create", {
     title: "Lead task",
-    launchTemplate: operation,
+    launchTemplateId,
   });
   expect(created.isError).toBeUndefined();
   const id = created.structuredContent.id;
-  expect(created.structuredContent.launchTemplates).toEqual({
-    [stage.id]: lead.id,
-  });
-  expect(created.structuredContent.launchPreviews[stage.id]).toMatchObject({
-    source: "task",
-    configuration: { agentType: "codex", model: "gpt-5.5" },
-  });
-  const read = await call("task_get", {
-    id,
-    launchTemplate: { columnId: stage.id, templateId: null },
-  });
-  expect(read.structuredContent.launchPreview).toMatchObject({
-    source: "column",
-    configuration: { agentType: "claude", model: "haiku" },
-  });
-  expect((await http("GET", `/api/v1/tasks/${id}`)).launchTemplates).toEqual({
-    [stage.id]: lead.id,
-  });
+  expect(created.structuredContent.launchTemplateId).toBe(lead.id);
+  expect((await http("GET", `/api/v1/tasks/${id}`)).launchTemplateId).toBe(
+    lead.id
+  );
   const denied = await call("task_update", {
     id,
     title: "Must remain unchanged",
-    launchTemplate: { columnId: stage.id, templateId: full.id },
+    launchTemplateId: full.id,
   });
   expect(denied.isError).toBe(true);
   expect((await http("GET", `/api/v1/tasks/${id}`)).title).toBe("Lead task");
   const malformed = await call("task_update", {
     id,
-    launchTemplate: { columnId: stage.id },
+    launchTemplateId: {},
   });
   expect(malformed.isError).toBe(true);
-  const priorRevision =
-    read.structuredContent.launchPreviews[stage.id].revision;
-  await http("PATCH", `/api/v1/templates/${lead.id}`, { model: "gpt-5.6-sol" });
-  const beforeRefusal = await http("GET", `/api/v1/tasks/${id}`);
-  const refused = await call("task_update", {
-    id,
-    column: "in_progress",
-    title: "Wrong",
-    expectedLaunchRevision: priorRevision,
-  });
-  expect(refused.isError).toBe(true);
-  expect(refused.structuredContent.error.code).toBe("launch_preview_changed");
-  expect(await http("GET", `/api/v1/tasks/${id}`)).toEqual(beforeRefusal);
-  const changedRevision = beforeRefusal.launchPreviews[stage.id].revision;
-  await http("PATCH", `/api/v1/templates/${lead.id}`, { model: "gpt-5.5" });
-  const refusedHttp = await ctx.app.inject({
-    method: "PATCH",
-    url: `/api/v1/tasks/${id}`,
-    headers,
-    payload: { columnId: stage.id, expectedLaunchRevision: changedRevision },
-  });
-  expect(refusedHttp.statusCode).toBe(409);
-  expect(refusedHttp.json().code).toBe("launch_preview_changed");
-  const invalidRevision = await call("task_update", {
-    id,
-    column: "in_progress",
-    expectedLaunchRevision: "not-a-server-revision",
-  });
-  expect(invalidRevision.isError).toBe(true);
-  const latest = await http("GET", `/api/v1/tasks/${id}`);
-  const moved = await call("task_update", {
-    id,
-    column: "in_progress",
-    expectedLaunchRevision: latest.launchPreviews[stage.id].revision,
-  });
+  const moved = await call("task_update", { id, column: "in_progress" });
   expect(moved.isError).toBeUndefined();
   const launched = (await http("GET", `/api/v1/tasks/${id}`)).events.find(
     (e: { kind: string }) => e.kind === "trigger_launched"
@@ -181,7 +133,7 @@ it("round-trips stage overrides, previews and clear across authenticated MCP and
   // A normal signed agent move needs no preview, revision or human gate.
   const directTask = await call("task_create", {
     title: "Direct agent stage move",
-    launchTemplate: operation,
+    launchTemplateId,
   });
   expect(directTask.isError).toBeUndefined();
   const directId = directTask.structuredContent.id;
@@ -220,23 +172,16 @@ it("round-trips stage overrides, previews and clear across authenticated MCP and
   ).toHaveLength(1);
   const cleared = await call("task_update", {
     id,
-    launchTemplate: { columnId: stage.id, templateId: null },
+    launchTemplateId: null,
   });
-  expect(cleared.structuredContent.launchTemplates).toEqual({});
-  expect(cleared.structuredContent.launchPreviews[review.id]).toMatchObject({
-    source: "column",
-    templateId: builder.id,
-  });
+  expect(cleared.structuredContent.launchTemplateId).toBeNull();
   const events = (await http("GET", `/api/v1/tasks/${id}`)).events;
   expect(
     events.filter((e: { kind: string }) => e.kind === "trigger_launched")
   ).toHaveLength(1);
   // Persisted preference survives deletion as an explicit unavailable choice.
-  await http("PATCH", `/api/v1/tasks/${id}`, { launchTemplate: operation });
+  await http("PATCH", `/api/v1/tasks/${id}`, { launchTemplateId });
   await http("DELETE", `/api/v1/templates/${lead.id}`);
   const missing = await call("task_get", { id });
-  expect(missing.structuredContent.launchPreviews[stage.id]).toMatchObject({
-    source: "task",
-    available: false,
-  });
+  expect(missing.structuredContent.launchTemplateId).toBe(lead.id);
 });

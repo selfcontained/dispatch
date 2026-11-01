@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { taskAgentName } from "@dispatch/shared";
 import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
 import path from "node:path";
@@ -38,8 +37,6 @@ import type {
   TaskColumnTrigger,
   TaskDetail,
   TaskLink,
-  TaskLaunchPreview,
-  TaskLaunchTemplateOperation,
   UpdateTaskInput,
 } from "./types.js";
 
@@ -580,104 +577,24 @@ export class TaskService {
     return template;
   }
 
-  private stageLaunch(task: Pick<Task, "launchTemplates">, column: TaskColumn) {
-    const templateId = task.launchTemplates?.[column.id];
+  private effectiveLaunch(
+    task: Pick<Task, "launchTemplateId">,
+    column: TaskColumn
+  ) {
+    const templateId = task.launchTemplateId;
     return templateId
       ? { templateId, agentType: null, model: null }
       : column.trigger;
   }
 
-  private launchRevision(
-    projectId: string,
-    column: TaskColumn,
-    source: "column" | "task",
-    configuration: TemplateRecord
-  ): string {
-    return createHash("sha256")
-      .update(
-        JSON.stringify(
-          {
-            projectId,
-            columnId: column.id,
-            source,
-            trigger: column.trigger,
-            configuration,
-          },
-          (_key, value) =>
-            value && typeof value === "object" && !Array.isArray(value)
-              ? Object.fromEntries(
-                  Object.entries(value).sort(([a], [b]) =>
-                    a < b ? -1 : a > b ? 1 : 0
-                  )
-                )
-              : value
-        )
-      )
-      .digest("hex");
-  }
-
-  private changedLaunchPreview(): TaskError {
-    return new TaskError(
-      "Launch configuration changed. Close this confirmation and preview the move again.",
-      409,
-      "launch_preview_changed"
-    );
-  }
-
-  /** Read-only; errors remain visible and recoverable by clearing the stage preference. */
-  async launchPreview(
-    projectId: string,
-    columnId: string,
-    templateId?: string | null
-  ): Promise<TaskLaunchPreview | null> {
-    const column = await this.requireColumn(columnId);
-    if (column.projectId !== projectId)
-      throw invalid("Column is not in this project.");
-    if (!column.trigger) return null;
-    const launch = templateId ? { templateId } : column.trigger;
-    const base = {
-      columnId,
-      source: templateId ? ("task" as const) : ("column" as const),
-      templateId: launch.templateId,
-    };
-    try {
-      const template = await this.resolveLaunch(projectId, launch);
-      return {
-        ...base,
-        available: true,
-        revision: this.launchRevision(projectId, column, base.source, template),
-        templateName: template.name,
-        configuration: {
-          agentType: template.agentType,
-          model: template.model,
-          persona: template.persona ?? null,
-          fullAccess: template.fullAccess ?? false,
-          directory: template.directory,
-          useWorktree: template.useWorktree ?? false,
-          baseBranch: template.baseBranch ?? null,
-          branchName: template.branchName ?? null,
-        },
-      };
-    } catch (error) {
-      return { ...base, available: false, error: errorMessage(error) };
-    }
-  }
-
   private async validateLaunchPreference(
     projectId: string,
-    operation: TaskLaunchTemplateOperation,
+    templateId: string | null,
     caller: TaskCaller
   ) {
-    const column = await this.requireColumn(operation.columnId);
-    if (column.projectId !== projectId)
-      throw invalid("Launch stage is not in this project.");
-    if (operation.templateId !== null) {
+    if (templateId !== null) {
       try {
-        await this.resolveLaunch(
-          projectId,
-          { templateId: operation.templateId },
-          caller
-        );
+        await this.resolveLaunch(projectId, { templateId: templateId }, caller);
       } catch (error) {
         if (error instanceof TaskError) throw error;
         throw invalid(errorMessage(error));
@@ -950,20 +867,6 @@ export class TaskService {
       agents,
       events,
       attachments: await this.listAttachments(id),
-      launchPreviews: Object.fromEntries(
-        await Promise.all(
-          (await this.ensureColumns(task.projectId))
-            .filter((c) => c.trigger)
-            .map(async (c) => [
-              c.id,
-              await this.launchPreview(
-                task.projectId,
-                c.id,
-                task.launchTemplates?.[c.id]
-              ),
-            ])
-        )
-      ),
     };
   }
 
@@ -1012,29 +915,15 @@ export class TaskService {
     if (!initialColumn)
       throw invalid("columnId is not a column of this project.");
     const actor = actorOf(caller);
-    if (input.launchTemplate)
+    if (input.launchTemplateId !== undefined)
       await this.validateLaunchPreference(
         input.projectId,
-        input.launchTemplate,
+        input.launchTemplateId,
         caller
       );
     const column = await this.store.transaction(async (db) => {
-      for (const columnId of [
-        ...new Set([
-          initialColumn.id,
-          ...(input.launchTemplate ? [input.launchTemplate.columnId] : []),
-        ]),
-      ].sort())
-        if (!(await this.store.lockColumn(columnId, db)))
-          throw notFound("Column");
-      if (input.launchTemplate) {
-        const stage = await this.store.getColumn(
-          input.launchTemplate.columnId,
-          db
-        );
-        if (!stage || stage.projectId !== input.projectId)
-          throw invalid("Launch stage is not in this project.");
-      }
+      if (!(await this.store.lockColumn(initialColumn.id, db)))
+        throw notFound("Column");
       const currentColumn = await this.store.getColumn(initialColumn.id, db);
       if (!currentColumn) throw notFound("Column");
       this.checkCapacity(currentColumn);
@@ -1053,10 +942,10 @@ export class TaskService {
         },
         db
       );
-      if (input.launchTemplate)
+      if (input.launchTemplateId !== undefined)
         await this.store.updateTask(
           id,
-          { launchTemplate: input.launchTemplate },
+          { launchTemplateId: input.launchTemplateId },
           { db }
         );
       return currentColumn;
@@ -1163,14 +1052,14 @@ export class TaskService {
     const actor = actorOf(caller);
     const patch: TaskPatch = {};
     const changed: string[] = [];
-    if (input.launchTemplate) {
+    if (input.launchTemplateId !== undefined) {
       await this.validateLaunchPreference(
         task.projectId,
-        input.launchTemplate,
+        input.launchTemplateId,
         caller
       );
-      patch.launchTemplate = input.launchTemplate;
-      changed.push("launchTemplates");
+      patch.launchTemplateId = input.launchTemplateId;
+      changed.push("launchTemplateId");
     }
 
     if (input.title !== undefined) {
@@ -1222,32 +1111,6 @@ export class TaskService {
       patch.position = input.position;
     }
 
-    let confirmedConfiguration: TemplateRecord | undefined;
-    let confirmedSource: "column" | "task" | undefined;
-    if (input.expectedLaunchRevision) {
-      if (!destination?.trigger) throw this.changedLaunchPreview();
-      const prospective = {
-        ...task,
-        launchTemplates: { ...task.launchTemplates },
-      };
-      if (input.launchTemplate) {
-        if (input.launchTemplate.templateId === null)
-          delete prospective.launchTemplates[input.launchTemplate.columnId];
-        else
-          prospective.launchTemplates[input.launchTemplate.columnId] =
-            input.launchTemplate.templateId;
-      }
-      try {
-        confirmedConfiguration = await this.resolveLaunch(
-          task.projectId,
-          this.stageLaunch(prospective, destination)!,
-          caller
-        );
-      } catch {
-        throw this.changedLaunchPreview();
-      }
-    }
-
     let addedLinks: TaskLink[] = [];
     if (input.links !== undefined) {
       addedLinks = input.links.filter(
@@ -1264,26 +1127,13 @@ export class TaskService {
         !!destination ||
         input.beforeId !== undefined ||
         input.position !== undefined;
-      if (writesOrder || input.launchTemplate) {
+      if (writesOrder) {
         for (const columnId of [
-          ...new Set([
-            task.columnId,
-            destination?.id ?? task.columnId,
-            ...(input.launchTemplate ? [input.launchTemplate.columnId] : []),
-          ]),
+          ...new Set([task.columnId, destination?.id ?? task.columnId]),
         ].sort()) {
           if (!(await this.store.lockColumn(columnId, db)))
             throw notFound("Column");
         }
-      }
-      if (input.launchTemplate) {
-        const stage = await this.store.getColumn(
-          input.launchTemplate.columnId,
-          db
-        );
-        if (!stage || stage.projectId !== task.projectId)
-          throw invalid("Launch stage is not in this project.");
-        if (!(await this.store.lockTask(id, db))) throw notFound("Task");
       }
       if (destination) {
         const currentColumn = await this.store.lockColumn(destination.id, db);
@@ -1295,34 +1145,7 @@ export class TaskService {
           current.archivedAt
         )
           return false;
-        if (input.expectedLaunchRevision) {
-          const bindings = { ...current.launchTemplates };
-          if (input.launchTemplate) {
-            if (input.launchTemplate.templateId === null)
-              delete bindings[input.launchTemplate.columnId];
-            else
-              bindings[input.launchTemplate.columnId] =
-                input.launchTemplate.templateId;
-          }
-          const source = bindings[currentColumn.id] ? "task" : "column";
-          confirmedSource = source;
-          const effectiveLaunch = this.stageLaunch(
-            { launchTemplates: bindings },
-            currentColumn
-          );
-          if (
-            !confirmedConfiguration ||
-            !effectiveLaunch ||
-            effectiveLaunch.templateId !== confirmedConfiguration.id ||
-            this.launchRevision(
-              task.projectId,
-              currentColumn,
-              source,
-              confirmedConfiguration
-            ) !== input.expectedLaunchRevision
-          )
-            throw this.changedLaunchPreview();
-        }
+
         // Column automation and the task's assignee can change after the
         // initial read. Apply the relaunch guard to the locked admission state.
         if (currentColumn.trigger && !input.confirmRelaunch) {
@@ -1425,14 +1248,7 @@ export class TaskService {
     }
 
     if (destination?.trigger) {
-      await this.fireTrigger(
-        await this.requireTask(id),
-        destination,
-        caller,
-        confirmedConfiguration
-          ? { configuration: confirmedConfiguration, source: confirmedSource! }
-          : undefined
-      );
+      await this.fireTrigger(await this.requireTask(id), destination, caller);
     }
 
     this.publish(task.projectId, id);
@@ -1578,17 +1394,12 @@ export class TaskService {
   private async fireTrigger(
     task: Task,
     column: TaskColumn,
-    caller: TaskCaller,
-    confirmed?: { configuration: TemplateRecord; source: "column" | "task" }
+    caller: TaskCaller
   ): Promise<void> {
     const trigger = column.trigger;
     if (!trigger) return;
-    const launch = confirmed
-      ? { templateId: confirmed.configuration.id, agentType: null, model: null }
-      : this.stageLaunch(task, column)!;
-    const source =
-      confirmed?.source ??
-      (task.launchTemplates?.[column.id] ? "task" : "column");
+    const launch = this.effectiveLaunch(task, column)!;
+    const source = task.launchTemplateId ? "task" : "column";
     const system: TaskActor = { kind: "system" };
     await this.store.insertEvent(task.id, "trigger_launching", system, {
       templateId: launch.templateId,
@@ -1597,9 +1408,7 @@ export class TaskService {
     let agent: { id: string };
     let configuration: TemplateRecord;
     try {
-      configuration =
-        confirmed?.configuration ??
-        (await this.resolveLaunch(task.projectId, launch, caller));
+      configuration = await this.resolveLaunch(task.projectId, launch, caller);
       agent = await this.launchFor(task, column, launch, caller, configuration);
     } catch (error) {
       const reason = errorMessage(error);

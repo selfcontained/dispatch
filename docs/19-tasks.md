@@ -49,64 +49,41 @@ In the UI, a column's `…` menu — on its board header or its list group heade
 - An agent without full access cannot start a full-access template this way, whether by a move, a create with `fireOnCreate`, or a manual launch: the move stands and the trigger fails with "restricted agent cannot launch a full-access template". People (HTTP) are trusted.
 - Transitions of one task run one at a time (move, launch, assignment), and the move itself only applies while the task is still in the column it left, so overlapping moves fire the trigger once. A launch that finds the task already moved elsewhere does not assign itself.
 
-## Task-specific stage templates
+## Task-specific launch template
 
-Tasks may store `launchTemplates`, a map from stable column IDs to template IDs
-(migration `0031_task_launch_templates.sql`). Missing entries inherit automation
-unchanged. A task override uses the selected template's entire configuration,
-including persona, prompt, runtime/model, access and workspace settings; it ignores
-that column's runtime/model overrides. Column entry, `assign`, `fireOnCreate`,
-capacity and running-agent safeguards remain authoritative. Choosing a template
-never creates automation in a column without a trigger.
+Tasks store one nullable `launchTemplateId` (migration
+`0031_task_launch_templates.sql`). A task override uses the selected template's
+entire configuration, including persona, prompt, runtime/model, access and
+workspace settings, for every eligible template-trigger column. It ignores that
+column's runtime/model overrides. When null, each column uses its own default.
+Column entry, `assign`, `fireOnCreate`, capacity and running-agent safeguards
+remain authoritative. A preference never creates automation in a column without
+a trigger.
 
-HTTP create/update and MCP `task_create`/`task_update` accept one atomic operation:
+HTTP create/update and MCP `task_create`/`task_update` accept:
 
 ```json
-{
-  "launchTemplate": {
-    "columnId": "tcol_implementation",
-    "templateId": "template-id"
-  }
-}
+{ "launchTemplateId": "template-id" }
 ```
 
-Omit `launchTemplate` to preserve every stage; send `templateId: null` to clear only
-the named stage. It can accompany creation or a move so the next launch uses the
-new choice atomically. An edit/clear alone launches nothing and never changes an
-existing agent. Implementation preferences do not affect review. Task project
-moves are unsupported. Deleted columns remove their bindings; deleted templates
-keep their bindings and produce an explicit unavailable preview/launch failure,
-which can be recovered by choosing another template or clearing the binding.
+Omit the field on update to preserve it; send `launchTemplateId: null` to clear it.
+It can accompany creation or a move atomically. An edit/clear alone launches
+nothing and never changes an existing agent. Deleted templates retain their ID
+and produce an explicit unavailable template/launch failure, recoverable by
+choosing another template or clearing the override.
 
-Task detail/`task_get` expose `launchPreviews` keyed by trigger column ID. Each has
-`source: "column" | "task"`, `templateId`, `templateName`, `available`, effective
-`configuration` (runtime/model/persona/access/directory/worktree/base/branch), or
-an `error`. For an unsaved selection, use
-`POST /api/v1/projects/:projectId/tasks/launch-preview` with `{ columnId, templateId }`,
-or `task_get({ id, launchTemplate: { columnId, templateId } })` (read-only; returns
-`launchPreview`). The create/detail picker defaults to the current or next trigger
-stage and offers “Use column default”. Normal board moves enter the selected
-stage directly and launch through its trigger, including task overrides; no extra
-preview or confirmation is required. The existing working-assignee relaunch
-safeguard still applies.
-The preview's opaque `revision` may be submitted as `expectedLaunchRevision` with
-an HTTP/MCP task update that enters a trigger column. It guards the stage, source,
-trigger policy and full normalized template snapshot using SHA-256 of canonical
-JSON (sorted object keys; template timestamps are ISO strings). Invalid/stale
-choices return 409 `launch_preview_changed` before any mutation or launch; fetch a fresh
-preview before retrying. Supplying a revision without a trigger-entry move is refused.
-Successful admission passes that exact resolved snapshot to launch, with no
-mutable template reread. The precondition is opt-in; normal UI and agent moves may omit it. Draft selections
-remain visibly targeted at their chosen stage when a task's column changes.
+The create/detail picker offers “Use column default”. Normal board and agent
+moves launch directly through the destination column trigger. The existing
+working-assignee relaunch safeguard still applies.
 
 Writes validate the selected template's project, runtime/model, persona and caller
 access ceiling; launches validate again. Restricted agents cannot set or launch a
-full-access selection. Preview does not grant launch authority. Launches reuse the
+full-access selection. Launches reuse the
 shared template resolver and launcher, task briefing and attachments. The
 `trigger_launched` event stores `columnId`, `source` and the resolved template
 `configuration` snapshot, including its prompt. Later task or template edits do
 not rewrite this history. Per-task locking covers preference changes alongside
-existing moves and launches; SQL updates merge only the named stage.
+existing moves and launches.
 
 ## Conversation
 

@@ -82,6 +82,7 @@ const detail: TaskDetail = {
   body: "Original description",
   position: 0,
   assignedAgentId: null,
+  launchTemplateId: null,
   links: [],
   createdBy: { kind: "user" },
   latestFailure: null,

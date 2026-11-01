@@ -17,7 +17,7 @@ const task = {
   id: "t1",
   columnId: "backlog",
   position: 0,
-  launchTemplates: { ready: "selected" },
+  launchTemplateId: "selected",
 } as unknown as Task;
 function Harness() {
   const { moveTask, dialog } = useMoveTask("p1", {

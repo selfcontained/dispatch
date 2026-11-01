@@ -129,20 +129,16 @@ for launching agents.
 
 ## Task-specific launch template
 
-Use full templates for task-specific staffing, bound to the stable stage column
-`id` from `task_list.columnCapacity`. Do not substitute `launch_agent` for column
-automation or change project triggers to staff one task. `task_create` and
-`task_update` accept `launchTemplate: { columnId, templateId }`; null `templateId`
-clears only that stage, omission preserves it. A preference can be set while the
-task is in backlog, and can accompany a move atomically. Editing alone launches
-nothing. Never apply an implementation choice to a later review stage implicitly.
+Use a full template for task-specific staffing. Do not substitute `launch_agent`
+for column automation or change project triggers to staff one task. `task_create`
+and `task_update` accept `launchTemplateId: string | null`; null clears the override,
+omission preserves it. The single choice applies whenever the task enters any
+eligible template-trigger column; when unset, each column uses its own default.
+It can be set in backlog or accompany a move atomically. Editing alone launches
+nothing.
 
-Read `task_get.launchTemplates` and `launchPreviews[columnId]` before a trigger
-entry. `source` identifies inheritance or task override; `configuration` contains
-the effective runtime/model/persona/access/workspace. For an unsaved selection,
-`task_get({ id, launchTemplate: { columnId, templateId } })` returns `launchPreview`
-without saving. Use the effective provider/model for usage and authorization
-checks. A task override uses the full selected template and ignores column
+Read `task_get.launchTemplateId` and `get_template` to inspect effective staffing
+and check provider/model usage and authorization. A task override uses the full selected template and ignores column
 runtime/model overrides; inheritance preserves them. Column launch condition,
 assignment, fire-on-create, capacities and relaunch safeguards still apply.
 Unavailable templates fail visibly; choose another or clear the preference rather
@@ -151,8 +147,3 @@ snapshot after a launch. A restricted caller cannot select or launch full access
 
 Normal `task_update` stage moves launch the selected task template directly through
 the column trigger; no preview, revision or human confirmation is required.
-To opt in to guarding a previewed move, pass its opaque `revision` as `expectedLaunchRevision`
-on `task_update` alongside the destination `column`. A changed binding, template
-or trigger returns `launch_preview_changed` without changing the task or launching.
-Read a fresh preview before retrying. This optional precondition does not grant
-scope or access and is only valid for a trigger-entry move.

@@ -1771,7 +1771,7 @@ describe("task tools", () => {
         title: task.title,
         column: "ready",
         assignedAgentId: null,
-        launchTemplates: {},
+        launchTemplateId: null,
         updatedAt: task.updatedAt,
       },
     ]);
@@ -3048,7 +3048,7 @@ describe("task archive", () => {
   });
 });
 
-describe("task stage template preferences", () => {
+describe("task template overrides", () => {
   const LEAD = "tpl_lead";
   let selected: TemplateRecord | null;
   beforeEach(() => {
@@ -3077,7 +3077,7 @@ describe("task stage template preferences", () => {
     });
   });
 
-  it("inherits runtime overrides, selects the full task template for one stage, and snapshots the actual launch", async () => {
+  it("inherits runtime overrides, selects the full task template for all triggers, and snapshots the actual launch", async () => {
     const implementation = await withTrigger("in_progress", {
       agentType: "claude",
       model: "haiku",
@@ -3090,32 +3090,22 @@ describe("task stage template preferences", () => {
       {
         projectId,
         title: "Large task",
-        launchTemplate: { columnId: implementation, templateId: LEAD },
+        launchTemplateId: LEAD,
       },
       USER
     );
     expect(launches).toHaveLength(0);
-    const detail = await service.getTaskDetail(task.id);
-    const preview = detail.launchPreviews![implementation];
-    expect(preview).toMatchObject({
-      source: "task",
-      templateId: LEAD,
-      configuration: {
-        agentType: "codex",
-        model: "gpt-5.5",
-        useWorktree: true,
-        baseBranch: "main",
-      },
-    });
-    expect(detail.launchPreviews![review]).toMatchObject({
-      source: "column",
-      configuration: { model: "sonnet" },
-    });
+    const configuration = {
+      agentType: "codex",
+      model: "gpt-5.5",
+      useWorktree: true,
+      baseBranch: "main",
+    };
     await service.updateTask(task.id, { columnId: implementation }, USER);
     expect(launches).toHaveLength(1);
     expect(launches[0]).toMatchObject({
       templateId: LEAD,
-      resolvedTemplate: preview.configuration,
+      resolvedTemplate: configuration,
     });
     expect(launches[0].agentType).toBeUndefined();
     const history = (await service.getTaskDetail(task.id)).events.find(
@@ -3125,15 +3115,20 @@ describe("task stage template preferences", () => {
       source: "task",
       columnId: implementation,
       templateId: LEAD,
-      configuration: preview.configuration,
+      configuration: configuration,
     });
-    selected = { ...selected!, model: "gpt-5.6-sol", name: "Edited lead" };
     await service.updateTask(
       task.id,
-      { launchTemplate: { columnId: implementation, templateId: null } },
+      { columnId: review, confirmRelaunch: true },
       USER
     );
-    expect(launches).toHaveLength(1);
+    expect(launches[1]).toMatchObject({
+      templateId: LEAD,
+      resolvedTemplate: configuration,
+    });
+    selected = { ...selected!, model: "gpt-5.6-sol", name: "Edited lead" };
+    await service.updateTask(task.id, { launchTemplateId: null }, USER);
+    expect(launches).toHaveLength(2);
     expect(
       (await service.getTaskDetail(task.id)).events.find(
         (e) => e.id === history.id
@@ -3141,22 +3136,22 @@ describe("task stage template preferences", () => {
     ).toEqual(history.data);
     await service.updateTask(
       task.id,
-      { columnId: review, confirmRelaunch: true },
-      USER
-    );
-    expect(launches[1]).toMatchObject({
-      templateId: TEMPLATE_ID,
-      agentType: "claude",
-      model: "sonnet",
-    });
-    await service.updateTask(
-      task.id,
       { columnId: implementation, confirmRelaunch: true },
       USER
     );
     expect(launches[2]).toMatchObject({
       templateId: TEMPLATE_ID,
+      agentType: "claude",
       model: "haiku",
+    });
+    await service.updateTask(
+      task.id,
+      { columnId: review, confirmRelaunch: true },
+      USER
+    );
+    expect(launches[3]).toMatchObject({
+      templateId: TEMPLATE_ID,
+      model: "sonnet",
     });
   });
 
@@ -3170,7 +3165,7 @@ describe("task stage template preferences", () => {
         projectId,
         title: "Create override",
         columnId: stage,
-        launchTemplate: { columnId: stage, templateId: LEAD },
+        launchTemplateId: LEAD,
       },
       USER
     );
@@ -3184,29 +3179,24 @@ describe("task stage template preferences", () => {
       task.id,
       {
         columnId: stage,
-        launchTemplate: { columnId: stage, templateId: LEAD },
+        launchTemplateId: LEAD,
       },
       USER
     );
     expect(launches.map((l) => l.templateId)).toEqual([LEAD, LEAD]);
   });
 
-  it("rejects foreign columns/templates and restricted full-access selections without partial edits", async () => {
+  it("rejects foreign/unavailable templates and restricted full-access selections without partial edits", async () => {
     const stage = await withTrigger("ready");
     const task = await service.createTask(
       { projectId, title: "Original" },
       USER
     );
-    const foreign = (await service.getBoard(otherProjectId)).columns[0];
-    for (const operation of [
-      { columnId: foreign.id, templateId: LEAD },
-      { columnId: stage, templateId: OTHER_TEMPLATE_ID },
-      { columnId: "deleted", templateId: null },
-    ]) {
+    for (const launchTemplateId of [OTHER_TEMPLATE_ID, "deleted"]) {
       await expect(
         service.updateTask(
           task.id,
-          { title: "Wrong", columnId: stage, launchTemplate: operation },
+          { title: "Wrong", columnId: stage, launchTemplateId },
           USER
         )
       ).rejects.toThrow();
@@ -3214,14 +3204,14 @@ describe("task stage template preferences", () => {
     await expect(
       service.updateTask(
         task.id,
-        { launchTemplate: { columnId: stage, templateId: FULL_TEMPLATE_ID } },
+        { launchTemplateId: FULL_TEMPLATE_ID },
         { kind: "agent", agentId: "restricted" }
       )
     ).rejects.toThrow("restricted agent cannot launch a full-access template");
     expect(await service.requireTask(task.id)).toMatchObject({
       title: "Original",
       columnId: task.columnId,
-      launchTemplates: {},
+      launchTemplateId: null,
     });
     expect(launches).toHaveLength(0);
   });
@@ -3232,22 +3222,15 @@ describe("task stage template preferences", () => {
       {
         projectId,
         title: "Missing lead",
-        launchTemplate: { columnId: stage, templateId: LEAD },
+        launchTemplateId: LEAD,
       },
       USER
     );
     selected = null;
-    expect(
-      (await service.getTaskDetail(task.id)).launchPreviews![stage]
-    ).toMatchObject({ source: "task", available: false });
     const moved = await service.updateTask(task.id, { columnId: stage }, USER);
     expect(moved.latestFailure?.reason).toContain(LEAD);
     expect(launches).toHaveLength(0);
-    await service.updateTask(
-      task.id,
-      { launchTemplate: { columnId: stage, templateId: null } },
-      USER
-    );
+    await service.updateTask(task.id, { launchTemplateId: null }, USER);
     await service.updateTask(task.id, { columnId: task.columnId }, USER);
     await service.updateTask(task.id, { columnId: stage }, USER);
     expect(launches.map((l) => l.templateId)).toEqual([TEMPLATE_ID]);
@@ -3259,7 +3242,7 @@ describe("task stage template preferences", () => {
       {
         projectId,
         title: "Mutable lead",
-        launchTemplate: { columnId: stage, templateId: LEAD },
+        launchTemplateId: LEAD,
       },
       USER
     );
@@ -3275,7 +3258,7 @@ describe("task stage template preferences", () => {
       await expect(
         service.updateTask(
           task.id,
-          { launchTemplate: { columnId: stage, templateId: LEAD } },
+          { launchTemplateId: LEAD },
           { kind: "agent", agentId: "restricted" }
         )
       ).rejects.toThrow();
@@ -3296,7 +3279,7 @@ describe("task stage template preferences", () => {
       {
         projectId,
         title: "Concurrent",
-        launchTemplate: { columnId: stage, templateId: LEAD },
+        launchTemplateId: LEAD,
       },
       USER
     );
@@ -3311,7 +3294,7 @@ describe("task stage template preferences", () => {
     await entered;
     const clearing = service.updateTask(
       task.id,
-      { launchTemplate: { columnId: stage, templateId: null } },
+      { launchTemplateId: null },
       USER
     );
     const duplicate = service.updateTask(task.id, { columnId: stage }, USER);
@@ -3319,33 +3302,11 @@ describe("task stage template preferences", () => {
     release();
     await Promise.all([moving, clearing, duplicate]);
     expect(launches.map((l) => l.templateId)).toEqual([LEAD]);
-    expect((await service.requireTask(task.id)).launchTemplates).toEqual({});
-  });
-
-  it("removes bindings when an unused column is deleted and preserves other stages", async () => {
-    const implementation = await withTrigger("in_progress");
-    const review = await withTrigger("in_review");
-    const task = await service.createTask(
-      {
-        projectId,
-        title: "Cleanup",
-        launchTemplate: { columnId: implementation, templateId: LEAD },
-      },
-      USER
-    );
-    await service.updateTask(
-      task.id,
-      { launchTemplate: { columnId: review, templateId: LEAD } },
-      USER
-    );
-    await service.deleteColumn(implementation);
-    expect((await service.requireTask(task.id)).launchTemplates).toEqual({
-      [review]: LEAD,
-    });
+    expect((await service.requireTask(task.id)).launchTemplateId).toBeNull();
   });
 });
 
-it("uses the same normalized workspace/model options in preview and the shared template launcher", async () => {
+it("passes normalized workspace/model options to the shared template launcher", async () => {
   const saved = template({
     id: TEMPLATE_ID,
     useWorktree: true,
@@ -3377,35 +3338,22 @@ it("uses the same normalized workspace/model options in preview and the shared t
     {
       projectId,
       title: "Normalized",
-      launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+      launchTemplateId: TEMPLATE_ID,
     },
     USER
   );
-  const preview = (await service.getTaskDetail(task.id)).launchPreviews![stage]
-    .configuration!;
-  expect(preview).toMatchObject({
-    baseBranch: "main",
-    branchName: "task/lead",
-    useWorktree: true,
-  });
   await service.updateTask(task.id, { columnId: stage }, USER);
   expect(createAgent).toHaveBeenCalledWith(
     expect.objectContaining({
-      type: preview.agentType,
-      model: preview.model,
-      cwd: preview.directory,
-      fullAccess: preview.fullAccess,
-      useWorktree: preview.useWorktree,
-      baseBranch: preview.baseBranch,
-      worktreeBranch: preview.branchName,
+      type: "claude",
+      model: "haiku",
+      cwd: saved.directory,
+      fullAccess: false,
+      useWorktree: true,
+      baseBranch: "main",
+      worktreeBranch: "task/lead",
     })
   );
-  // Blank base uses the manager's existing main default; no branch means generated at launch.
-  saved.baseBranch = null;
-  saved.branchName = null;
-  expect(
-    (await service.getTaskDetail(task.id)).launchPreviews![stage].configuration
-  ).toMatchObject({ baseBranch: "main", branchName: null });
 });
 
 it("holds creation's task lock through its fire-on-create launch before preference edits", async () => {
@@ -3425,7 +3373,7 @@ it("holds creation's task lock through its fire-on-create launch before preferen
       projectId,
       title: "Create under lock",
       columnId: stage,
-      launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+      launchTemplateId: TEMPLATE_ID,
     },
     USER
   );
@@ -3433,11 +3381,7 @@ it("holds creation's task lock through its fire-on-create launch before preferen
   const id = launches[0].args["task id"];
   let edited = false;
   const editing = service
-    .updateTask(
-      id,
-      { launchTemplate: { columnId: stage, templateId: null } },
-      USER
-    )
+    .updateTask(id, { launchTemplateId: null }, USER)
     .then((result) => {
       edited = true;
       return result;
@@ -3447,7 +3391,7 @@ it("holds creation's task lock through its fire-on-create launch before preferen
   release();
   await Promise.all([creating, editing]);
   expect(launches).toHaveLength(1);
-  expect((await service.requireTask(id)).launchTemplates).toEqual({});
+  expect((await service.requireTask(id)).launchTemplateId).toBeNull();
 });
 
 it("treats an explicit selection of the default template as a full override and rolls back refused admission", async () => {
@@ -3457,13 +3401,6 @@ it("treats an explicit selection of the default template as a full override and 
     { projectId, title: "Same template" },
     USER
   );
-  expect(await service.launchPreview(projectId, stage, null)).toMatchObject({
-    source: "column",
-    configuration: { model: "haiku" },
-  });
-  expect(
-    await service.launchPreview(projectId, stage, TEMPLATE_ID)
-  ).toMatchObject({ source: "task", configuration: { model: null } });
   await service.createTask(
     { projectId, title: "Occupant", columnId: stage },
     USER
@@ -3474,7 +3411,7 @@ it("treats an explicit selection of the default template as a full override and 
       {
         title: "Must roll back",
         columnId: stage,
-        launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+        launchTemplateId: TEMPLATE_ID,
       },
       USER
     )
@@ -3482,7 +3419,7 @@ it("treats an explicit selection of the default template as a full override and 
   expect(await service.requireTask(task.id)).toMatchObject({
     title: "Same template",
     columnId: task.columnId,
-    launchTemplates: {},
+    launchTemplateId: null,
   });
   await expect(
     service.createTask(
@@ -3490,16 +3427,25 @@ it("treats an explicit selection of the default template as a full override and 
         projectId,
         title: "Refused creation",
         columnId: stage,
-        launchTemplate: { columnId: stage, templateId: TEMPLATE_ID },
+        launchTemplateId: TEMPLATE_ID,
       },
       USER
     )
   ).rejects.toMatchObject({ code: "column_capacity_exceeded" });
   expect((await service.getBoard(projectId)).tasks).toHaveLength(2);
   expect(launches).toHaveLength(0);
+  await service.updateColumn(stage, { capacity: null });
+  await service.updateTask(
+    task.id,
+    { columnId: stage, launchTemplateId: TEMPLATE_ID },
+    USER
+  );
+  expect(launches).toHaveLength(1);
+  expect(launches[0].resolvedTemplate).toMatchObject({ model: null });
+  expect(launches[0].model).toBeUndefined();
 });
 
-it("accepts stage selections in multipart task creation and rejects malformed operations", async () => {
+it("accepts a template ID in multipart creation and rejects malformed IDs", async () => {
   const stage = await withTrigger("in_progress");
   const app = Fastify();
   await app.register(fastifyMultipart);
@@ -3508,11 +3454,10 @@ it("accepts stage selections in multipart task creation and rejects malformed op
     withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
   });
   try {
-    const operation = { columnId: stage, templateId: TEMPLATE_ID };
     const form = new FormData();
     form.set("projectId", projectId);
-    form.set("title", "Context with stage preference");
-    form.set("launchTemplate", JSON.stringify(operation));
+    form.set("title", "Context with task override");
+    form.set("launchTemplateId", TEMPLATE_ID);
     const request = new Request("http://localhost/api/v1/tasks", {
       method: "POST",
       body: form,
@@ -3524,17 +3469,12 @@ it("accepts stage selections in multipart task creation and rejects malformed op
       payload: Buffer.from(await request.arrayBuffer()),
     });
     expect(created.statusCode, created.body).toBe(200);
-    expect(created.json().launchTemplates).toEqual({ [stage]: TEMPLATE_ID });
-    for (const launchTemplate of [
-      null,
-      {},
-      { columnId: stage },
-      { columnId: stage, templateId: "" },
-    ]) {
+    expect(created.json().launchTemplateId).toBe(TEMPLATE_ID);
+    for (const launchTemplateId of ["", {}, 12]) {
       const rejected = await app.inject({
         method: "PATCH",
         url: `/api/v1/tasks/${created.json().id}`,
-        payload: { launchTemplate },
+        payload: { launchTemplateId },
       });
       expect(rejected.statusCode).toBe(400);
     }
@@ -3542,135 +3482,4 @@ it("accepts stage selections in multipart task creation and rejects malformed op
   } finally {
     await app.close();
   }
-});
-
-describe("confirmed task launch revisions", () => {
-  it("rejects changed stage bindings, template settings, policy, and non-entry requests without any mutation", async () => {
-    let saved = template({
-      id: "tpl_confirmed",
-      model: "sonnet",
-      fullAccess: false,
-    });
-    service = build(filesRoot, {
-      getTemplate: async (id) => (id === saved.id ? saved : template({ id })),
-    });
-    const stage = await withTrigger("ready", { assign: false });
-    const task = await service.createTask(
-      {
-        projectId,
-        title: "Confirmed",
-        launchTemplate: { columnId: stage, templateId: saved.id },
-      },
-      USER
-    );
-    const revision = (await service.launchPreview(projectId, stage, saved.id))!
-      .revision!;
-    expect(revision).toMatch(/^[a-f0-9]{64}$/);
-    await service.updateTask(
-      task.id,
-      { launchTemplate: { columnId: stage, templateId: TEMPLATE_ID } },
-      USER
-    );
-    const afterEdit = await service.getTaskDetail(task.id);
-    await expect(
-      service.updateTask(
-        task.id,
-        { title: "Wrong", columnId: stage, expectedLaunchRevision: revision },
-        USER
-      )
-    ).rejects.toMatchObject({ code: "launch_preview_changed", status: 409 });
-    expect(await service.getTaskDetail(task.id)).toEqual(afterEdit);
-    await service.updateTask(
-      task.id,
-      { launchTemplate: { columnId: stage, templateId: saved.id } },
-      USER
-    );
-    for (const mutation of [
-      { model: "haiku" },
-      { prompt: "Changed prompt" },
-      { branchName: "new-branch" },
-    ]) {
-      const prior = (await service.getTaskDetail(task.id)).launchPreviews![
-        stage
-      ].revision!;
-      saved = { ...saved, ...mutation };
-      const before = await service.getTaskDetail(task.id);
-      await expect(
-        service.updateTask(
-          task.id,
-          { columnId: stage, title: "Wrong", expectedLaunchRevision: prior },
-          USER
-        )
-      ).rejects.toMatchObject({ code: "launch_preview_changed" });
-      expect(await service.getTaskDetail(task.id)).toEqual(before);
-    }
-    const prior = (await service.getTaskDetail(task.id)).launchPreviews![stage]
-      .revision!;
-    await service.updateColumn(stage, {
-      trigger: { templateId: TEMPLATE_ID, assign: true },
-    });
-    await expect(
-      service.updateTask(
-        task.id,
-        { columnId: stage, expectedLaunchRevision: prior },
-        USER
-      )
-    ).rejects.toMatchObject({ code: "launch_preview_changed" });
-    await expect(
-      service.updateTask(
-        task.id,
-        { title: "Wrong", expectedLaunchRevision: prior },
-        USER
-      )
-    ).rejects.toMatchObject({ code: "launch_preview_changed" });
-    expect(launches).toHaveLength(0);
-    expect((await service.requireTask(task.id)).columnId).toBe(task.columnId);
-  });
-
-  it("canonicalizes revision object keys and launches the exact admitted snapshot without rereading the template", async () => {
-    let saved = template({
-      id: "tpl_confirmed",
-      model: "sonnet",
-      fullAccess: false,
-      useWorktree: false,
-    });
-    service = build(filesRoot, { getTemplate: async () => saved });
-    const stage = await withTrigger("ready", { assign: false });
-    const task = await service.createTask(
-      {
-        projectId,
-        title: "Snapshot",
-        launchTemplate: { columnId: stage, templateId: saved.id },
-      },
-      USER
-    );
-    const preview = (await service.launchPreview(projectId, stage, saved.id))!;
-    saved = Object.fromEntries(
-      Object.entries(saved).reverse()
-    ) as TemplateRecord;
-    expect(
-      (await service.launchPreview(projectId, stage, saved.id))!.revision
-    ).toBe(preview.revision);
-    const original = service.store.transaction.bind(service.store);
-    vi.spyOn(service.store, "transaction").mockImplementationOnce(
-      async (run) => {
-        // Admission resolved the user-confirmed configuration. Later edits must
-        // not cause the launch to silently reread a different configuration.
-        saved = { ...saved, model: "haiku" };
-        return original(run);
-      }
-    );
-    await service.updateTask(
-      task.id,
-      { columnId: stage, expectedLaunchRevision: preview.revision },
-      USER
-    );
-    expect(launches).toHaveLength(1);
-    expect(launches[0].resolvedTemplate).toMatchObject({ model: "sonnet" });
-    expect(
-      (await service.getTaskDetail(task.id)).events.find(
-        (e) => e.kind === "trigger_launched"
-      )?.data.configuration
-    ).toMatchObject({ model: "sonnet" });
-  });
 });

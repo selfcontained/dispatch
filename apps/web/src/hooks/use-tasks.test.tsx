@@ -55,7 +55,7 @@ it("sends multipart for task context and JSON for a plain task", async () => {
     await result.current.create.mutateAsync({
       projectId: "p1",
       title: "Context",
-      launchTemplate: { columnId: "implementation", templateId: "lead" },
+      launchTemplateId: "lead",
       startupFiles: [file],
       startupLinks: ["https://example.com/context"],
     });
@@ -63,10 +63,7 @@ it("sends multipart for task context and JSON for a plain task", async () => {
   const body = api.mock.calls[0]![1]!.body as FormData;
   expect(body).toBeInstanceOf(FormData);
   expect(body.get("title")).toBe("Context");
-  expect(JSON.parse(body.get("launchTemplate") as string)).toEqual({
-    columnId: "implementation",
-    templateId: "lead",
-  });
+  expect(body.get("launchTemplateId")).toBe("lead");
   expect(body.get("startupFiles")).toBe(file);
   expect(JSON.parse(body.get("startupLinks") as string)).toEqual([
     "https://example.com/context",

@@ -347,11 +347,7 @@ export function TaskDetailPanel({
                 </section>
                 {columns.some((c) => c.trigger) && (
                   <DrawerSection label="Launch template">
-                    <TaskLaunchTemplateEditor
-                      key={task.id}
-                      task={task}
-                      columns={columns}
-                    />
+                    <TaskLaunchTemplateEditor key={task.id} task={task} />
                   </DrawerSection>
                 )}
                 <DrawerSection label="Description">

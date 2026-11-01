@@ -84,7 +84,7 @@ function toColumn(row: ColumnRow): TaskColumn {
 /** Derive transient trigger state from the ordered event log on every read. */
 const TASK_SELECT = `
   t.id, t.project_id, t.column_id, t.title, t.body, t.position,
-  t.assigned_agent_id, t.links, t.launch_templates, t.created_by_kind, t.created_by_agent_id,
+  t.assigned_agent_id, t.links, t.launch_template_id, t.created_by_kind, t.created_by_agent_id,
   t.archived_at, t.completed_at, t.created_at, t.updated_at,
   f.reason AS failure_reason, f.created_at AS failure_at,
   l.template_id AS launching_template_id, l.created_at AS launching_at
@@ -129,7 +129,7 @@ type TaskRow = {
   position: number;
   assigned_agent_id: string | null;
   links: TaskLink[];
-  launch_templates: Record<string, string>;
+  launch_template_id: string | null;
   created_by_kind: string;
   created_by_agent_id: string | null;
   archived_at: Date | null;
@@ -152,7 +152,7 @@ function toTask(row: TaskRow): Task {
     position: row.position,
     assignedAgentId: row.assigned_agent_id,
     links: row.links ?? [],
-    launchTemplates: row.launch_templates ?? {},
+    launchTemplateId: row.launch_template_id ?? null,
     createdBy: actorFrom(row.created_by_kind, row.created_by_agent_id),
     latestFailure:
       row.failure_at !== null
@@ -222,7 +222,7 @@ export type InsertColumn = {
 };
 
 export type TaskPatch = {
-  launchTemplate?: import("./types.js").TaskLaunchTemplateOperation;
+  launchTemplateId?: string | null;
   title?: string;
   body?: string;
   columnId?: string;
@@ -580,18 +580,8 @@ export class TaskStore {
           ? "completed_at = COALESCE(completed_at, now())"
           : "completed_at = NULL"
       );
-    if (patch.launchTemplate) {
-      values.push(patch.launchTemplate.columnId);
-      const key = `$${values.length}`;
-      if (patch.launchTemplate.templateId === null)
-        sets.push(`launch_templates = launch_templates - ${key}::text`);
-      else {
-        values.push(patch.launchTemplate.templateId);
-        sets.push(
-          `launch_templates = launch_templates || jsonb_build_object(${key}::text, $${values.length}::text)`
-        );
-      }
-    }
+    if (patch.launchTemplateId !== undefined)
+      set("launch_template_id", patch.launchTemplateId);
     sets.push("updated_at = now()");
     let where = "id = $1";
     if (opts.fromColumnId !== undefined) {

@@ -53,32 +53,6 @@ export type TaskLink = {
   label: string;
 };
 
-export type TaskLaunchTemplateOperation = {
-  columnId: string;
-  templateId: string | null;
-};
-
-export type TaskLaunchPreview = {
-  columnId: string;
-  source: "column" | "task";
-  templateId: string;
-  available: boolean;
-  /** Opaque precondition for a move using this exact resolved choice. */
-  revision?: string;
-  error?: string;
-  templateName?: string;
-  configuration?: {
-    agentType: TaskAgentType;
-    model: string | null;
-    persona: string | null;
-    fullAccess: boolean;
-    directory: string;
-    useWorktree: boolean;
-    baseBranch: string | null;
-    branchName: string | null;
-  };
-};
-
 export type Task = {
   id: string;
   projectId: string;
@@ -90,8 +64,8 @@ export type Task = {
   position: number;
   assignedAgentId: string | null;
   links: TaskLink[];
-  /** Stable stage column IDs; absence inherits column automation. */
-  launchTemplates?: Record<string, string>;
+  /** Full template override; null inherits each column’s automation. */
+  launchTemplateId: string | null;
   createdBy: TaskActor;
   /**
    * The current column entry's last trigger failure not followed by a
@@ -158,7 +132,6 @@ export type TaskAttachment = {
 };
 
 export type TaskDetail = Task & {
-  launchPreviews?: Record<string, TaskLaunchPreview>;
   attachments: TaskAttachment[];
   agents: TaskAgent[];
   events: TaskEvent[];
@@ -171,7 +144,7 @@ export type TaskBoard = {
 };
 
 export type CreateTaskInput = {
-  launchTemplate?: TaskLaunchTemplateOperation;
+  launchTemplateId?: string | null;
   projectId: string;
   title: string;
   body?: string;
@@ -182,9 +155,7 @@ export type CreateTaskInput = {
 };
 
 export type UpdateTaskInput = {
-  /** Optional preview revision; a changed choice refuses the entire move. */
-  expectedLaunchRevision?: string;
-  launchTemplate?: TaskLaunchTemplateOperation;
+  launchTemplateId?: string | null;
   /** Relative insertion anchor; null appends. Takes precedence over position. */
   beforeId?: string | null;
   title?: string;
