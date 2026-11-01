@@ -14,7 +14,7 @@ import type { Template } from "@/hooks/use-templates";
 import { DuplicateTemplateDialog } from "./duplicate-template-dialog";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
-const { api } = await import("@/lib/api");
+import { api } from "@/lib/api";
 const apiMock = vi.mocked(api);
 const template = { id: "source", name: "Saved source" } as Template;
 function Location() {
@@ -37,7 +37,9 @@ function setup() {
   return onOpenChange;
 }
 afterEach(cleanup);
-beforeEach(() => apiMock.mockReset());
+beforeEach(() => {
+  apiMock.mockReset();
+});
 it("requires a trimmed name and cancels without creating anything", async () => {
   const close = setup();
   fireEvent.change(screen.getByLabelText("New template name"), {
