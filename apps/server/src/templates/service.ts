@@ -100,6 +100,26 @@ export class TemplateService {
     return template;
   }
 
+  /** Copy the persisted record only; callers cannot supply draft configuration.
+   * Creation owns validation, defaults, fresh identity and timestamps. No launch
+   * or job/task/trigger relationship is part of creating a template.
+   */
+  async duplicateTemplate(
+    id: string,
+    name: string,
+    callerFullAccess?: boolean
+  ): Promise<TemplateRecord> {
+    const source = await this.store.getTemplate(id);
+    if (!source) throw new Error(`Template "${id}" not found.`);
+    const {
+      id: _id,
+      createdAt: _createdAt,
+      updatedAt: _updatedAt,
+      ...config
+    } = source;
+    return this.addTemplate({ ...config, name }, callerFullAccess);
+  }
+
   async updateTemplate(
     id: string,
     input: Partial<AddTemplateInput>,

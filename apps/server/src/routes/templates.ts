@@ -26,7 +26,7 @@ const directoryField = z
   .transform(resolveTilde);
 
 const AddTemplateBodySchema = z.object({
-  name: z.string().min(1, "Template name is required."),
+  name: z.string().trim().min(1, "Template name is required."),
   directory: directoryField,
   projectId: z.string().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
@@ -133,6 +133,29 @@ export async function registerTemplateRoutes(
       return reply.code(classifyErrorCode(message)).send({ error: message });
     }
   });
+
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/templates/:id/duplicate",
+    async (request, reply) => {
+      const parsed = parseInput(
+        AddTemplateBodySchema.pick({ name: true }),
+        request.body,
+        reply
+      );
+      if (!parsed) return;
+      try {
+        const result = await deps.templateService.duplicateTemplate(
+          request.params.id,
+          parsed.name
+        );
+        deps.publishUiEvent({ type: "template.changed" });
+        return result;
+      } catch (error) {
+        const message = errorMessage(error);
+        return reply.code(classifyErrorCode(message)).send({ error: message });
+      }
+    }
+  );
 
   app.patch<{ Params: { id: string } }>(
     "/api/v1/templates/:id",

@@ -1,10 +1,11 @@
 import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Play, Trash2 } from "lucide-react";
+import { Copy, Play, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
+import { DuplicateTemplateDialog } from "@/components/app/duplicate-template-dialog";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import {
   templateConfigFromDraft,
@@ -94,12 +95,14 @@ function TemplateDetail({
   );
   const { normalizeModel } = useAgentModelCatalog(draft.agentType);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
 
   useEffect(() => {
     setDraft(templateDraftFrom(template));
     setSaveError(null);
+    setDuplicateDialogOpen(false);
     setRemoveDialogOpen(false);
     setLaunchDialogOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,18 +193,28 @@ function TemplateDetail({
             ))}
           </div>
         ) : null}
-        <Button
-          className="mt-4 gap-1.5"
-          disabled={launchTemplate.isPending}
-          onClick={handleLaunch}
-        >
-          {launchTemplate.isPending ? (
-            <ActivityBars size={16} className="mr-1" />
-          ) : (
-            <Play className="h-3.5 w-3.5 fill-current" />
-          )}
-          Launch
-        </Button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            className="gap-1.5"
+            disabled={launchTemplate.isPending}
+            onClick={handleLaunch}
+          >
+            {launchTemplate.isPending ? (
+              <ActivityBars size={16} className="mr-1" />
+            ) : (
+              <Play className="h-3.5 w-3.5 fill-current" />
+            )}
+            Launch
+          </Button>
+          <Button
+            variant="default"
+            className="gap-1.5"
+            onClick={() => setDuplicateDialogOpen(true)}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Duplicate
+          </Button>
+        </div>
       </div>
 
       {/* Inline-editable config form */}
@@ -300,6 +313,12 @@ function TemplateDetail({
           </div>
         </DialogContent>
       </Dialog>
+      <DuplicateTemplateDialog
+        key={template.id}
+        template={template}
+        open={duplicateDialogOpen}
+        onOpenChange={setDuplicateDialogOpen}
+      />
       <LaunchTemplateDialog
         template={template}
         open={launchDialogOpen}

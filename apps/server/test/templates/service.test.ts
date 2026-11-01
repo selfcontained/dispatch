@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import * as personaResolver from "../../src/personas/resolve.js";
 import type { AgentRecord } from "../../src/agents/types.js";
 import { TemplateService } from "../../src/templates/service.js";
 import type { TemplateRecord } from "../../src/templates/store.js";
@@ -303,4 +304,100 @@ describe("TemplateService.launchTemplate model resolution", () => {
       expect.objectContaining({ model: undefined })
     );
   });
+});
+
+describe("TemplateService.duplicateTemplate", () => {
+  it("uses persisted config and preserves the caller's access ceiling", async () => {
+    const service = new TemplateService(
+      {} as never,
+      {} as never,
+      { info: vi.fn() } as never
+    );
+    const source = buildTemplate({ fullAccess: true });
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(source);
+    const create = vi.spyOn(service.store, "createTemplate");
+    await expect(
+      service.duplicateTemplate(source.id, "copy", false)
+    ).rejects.toThrow("Permission denied");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("revalidates project scope rather than silently detaching a copy", async () => {
+    const service = new TemplateService(
+      {} as never,
+      {} as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(
+      buildTemplate({ projectId: "missing" })
+    );
+    vi.spyOn(service.projects, "get").mockResolvedValue(null);
+    const create = vi.spyOn(service.store, "createTemplate");
+    await expect(service.duplicateTemplate("tmpl_123", "copy")).rejects.toThrow(
+      "Project not found"
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+});
+
+it("duplicates persona and project configuration through the existing creation validators", async () => {
+  const createAgent = vi.fn();
+  const service = new TemplateService(
+    {} as never,
+    { createAgent } as never,
+    { info: vi.fn() } as never
+  );
+  const source = buildTemplate({
+    persona: "builder",
+    projectId: "project",
+    directory: "/tmp/project",
+    model: "sonnet",
+    prompt: null,
+    description: "",
+    useWorktree: true,
+    baseBranch: "",
+    branchName: null,
+    fullAccess: true,
+    callable: false,
+    allowFiles: false,
+    selfImprove: true,
+  });
+  const snapshot = structuredClone(source);
+  vi.spyOn(service.store, "getTemplate").mockResolvedValue(source);
+  vi.spyOn(service.projects, "get").mockResolvedValue({
+    repoRoot: source.directory,
+  } as never);
+  const resolve = vi
+    .spyOn(personaResolver, "resolveLaunchPersona")
+    .mockResolvedValue({ slug: "builder" } as never);
+  const create = vi.spyOn(service.store, "createTemplate").mockImplementation(
+    async (config) =>
+      ({
+        ...config,
+        id: "copy",
+        createdAt: "new",
+        updatedAt: "new",
+      }) as TemplateRecord
+  );
+  try {
+    const copy = await service.duplicateTemplate(source.id, "  copy  ", true);
+    expect(copy).toEqual({
+      ...source,
+      id: "copy",
+      name: "copy",
+      createdAt: "new",
+      updatedAt: "new",
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledWith(
+      source.directory,
+      "builder",
+      "task",
+      "catalog"
+    );
+    expect(source).toEqual(snapshot);
+    expect(createAgent).not.toHaveBeenCalled();
+  } finally {
+    resolve.mockRestore();
+  }
 });

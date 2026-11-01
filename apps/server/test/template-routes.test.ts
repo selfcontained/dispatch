@@ -461,3 +461,110 @@ describe("project to folder template relocation", () => {
     });
   });
 });
+
+describe("POST /api/v1/templates/:id/duplicate", () => {
+  it.each([false, true])(
+    "copies every saved field and stays independent (configured=%s)",
+    async (configured) => {
+      const source = await createTemplate(
+        "duplicate-source",
+        configured
+          ? {
+              description: "Saved description",
+              prompt: "Saved {{D:Task|required}}",
+              agentType: "codex",
+              model: "gpt-5.6-sol",
+              useWorktree: true,
+              baseBranch: "develop",
+              branchName: "copy-branch",
+              fullAccess: true,
+              callable: false,
+              allowFiles: false,
+              selfImprove: true,
+            }
+          : {}
+      );
+      const res = await authedInject(
+        "POST",
+        `/api/v1/templates/${source.id}/duplicate`,
+        {
+          name: "  independent copy  ",
+          prompt: "unsaved draft must be ignored",
+          fullAccess: !source.fullAccess,
+        }
+      );
+      expect(res.statusCode).toBe(200);
+      const copy = res.json();
+      const { id, name, createdAt, updatedAt, ...config } = source;
+      expect(copy).toEqual({
+        ...config,
+        id: expect.any(String),
+        name: "independent copy",
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      });
+      expect(copy.id).not.toBe(id);
+      await authedInject("PATCH", `/api/v1/templates/${copy.id}`, {
+        prompt: "copy edited",
+      });
+      const original = (
+        await authedInject("GET", `/api/v1/templates/${id}`)
+      ).json();
+      const { args: _args, ...record } = original;
+      expect(record).toEqual(source);
+      expect(
+        (await ctx.pool.query("SELECT count(*) FROM agents")).rows[0].count
+      ).toBe(0);
+    }
+  );
+
+  it("rejects invalid names, unknown sources, and repeat creates without adding copies", async () => {
+    const source = await createTemplate("source");
+    const url = `/api/v1/templates/${source.id}/duplicate`;
+    for (const payload of [{}, { name: "" }, { name: "   " }, { name: 42 }]) {
+      expect((await authedInject("POST", url, payload)).statusCode).toBe(400);
+    }
+    expect(
+      (await authedInject("POST", url, { name: "source" })).statusCode
+    ).toBe(409);
+    expect((await authedInject("POST", url, { name: "copy" })).statusCode).toBe(
+      200
+    );
+    expect((await authedInject("POST", url, { name: "copy" })).statusCode).toBe(
+      409
+    );
+    expect(
+      (
+        await authedInject(
+          "POST",
+          "/api/v1/templates/00000000-0000-0000-0000-000000000000/duplicate",
+          { name: "copy" }
+        )
+      ).statusCode
+    ).toBe(404);
+    expect(
+      (await authedInject("GET", "/api/v1/templates")).json()
+    ).toHaveLength(2);
+  });
+});
+
+it("copies a job-backed template without reassigning or duplicating its job", async () => {
+  await authedInject("POST", "/api/v1/jobs", {
+    name: "original job",
+    directory: "/tmp",
+    prompt: "job prompt",
+  });
+  const before = (await ctx.pool.query("SELECT * FROM jobs")).rows;
+  const sourceId = before[0].template_id;
+  const result = await authedInject(
+    "POST",
+    `/api/v1/templates/${sourceId}/duplicate`,
+    { name: "standalone copy" }
+  );
+  expect(result.statusCode).toBe(200);
+  expect(result.json().id).not.toBe(sourceId);
+  expect((await ctx.pool.query("SELECT * FROM jobs")).rows).toEqual(before);
+  const visible = (await authedInject("GET", "/api/v1/templates")).json();
+  expect(visible).toHaveLength(1);
+  expect(visible[0].id).toBe(result.json().id);
+});
