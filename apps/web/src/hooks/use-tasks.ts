@@ -65,7 +65,11 @@ export function useTaskActions(projectId: string | null) {
       if (startupFiles.length || startupLinks.length) {
         const form = new FormData();
         for (const [key, value] of Object.entries(fields))
-          if (value !== undefined) form.append(key, String(value));
+          if (value !== undefined)
+            form.append(
+              key,
+              typeof value === "object" ? JSON.stringify(value) : String(value)
+            );
         for (const file of startupFiles) form.append("startupFiles", file);
         form.append("startupLinks", JSON.stringify(startupLinks));
         body = form;

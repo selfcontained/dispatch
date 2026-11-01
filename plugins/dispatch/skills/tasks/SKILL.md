@@ -126,3 +126,24 @@ not invent them. Accepting or coordinating a task means checking its
 acceptance criteria and linked evidence. A PR code review is separate work
 unless requested; see `review-workflow` for PRs and reviews, and `subagents`
 for launching agents.
+
+## Task-specific launch template
+
+Use a full template for task-specific staffing. Do not substitute `launch_agent`
+for column automation or change project triggers to staff one task. `task_create`
+and `task_update` accept `launchTemplateId: string | null`; null clears the override,
+omission preserves it. The single choice applies whenever the task enters any
+eligible template-trigger column; when unset, each column uses its own default.
+It can be set in backlog or accompany a move atomically. Editing alone launches
+nothing.
+
+Read `task_get.launchTemplateId` and `get_template` to inspect effective staffing
+and check provider/model usage and authorization. A task override uses the full selected template and ignores column
+runtime/model overrides; inheritance preserves them. Column launch condition,
+assignment, fire-on-create, capacities and relaunch safeguards still apply.
+Unavailable templates fail visibly; choose another or clear the preference rather
+than silently inheriting. Inspect the actual `trigger_launched.configuration`
+snapshot after a launch. A restricted caller cannot select or launch full access.
+
+Normal `task_update` stage moves launch the selected task template directly through
+the column trigger; no preview, revision or human confirmation is required.

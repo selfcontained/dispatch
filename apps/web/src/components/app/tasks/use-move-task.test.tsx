@@ -13,10 +13,16 @@ afterEach(() => {
   cleanup();
   update.mockReset();
 });
-const task = { id: "t1", columnId: "backlog", position: 0 } as Task;
+const task = {
+  id: "t1",
+  columnId: "backlog",
+  position: 0,
+  launchTemplateId: "selected",
+} as unknown as Task;
 function Harness() {
   const { moveTask, dialog } = useMoveTask("p1", {
     tasks: [task],
+    columns: [{ id: "ready", trigger: { templateId: "default" } }],
   } as TaskBoard);
   return (
     <>
@@ -57,4 +63,17 @@ it("only offers relaunch for agent_working and explains a capacity race on confi
   expect(update).toHaveBeenLastCalledWith(
     expect.objectContaining({ confirmRelaunch: true })
   );
+});
+
+it("moves a task override directly without a preview or revision guard", async () => {
+  update.mockResolvedValue(task);
+  render(<Harness />);
+  fireEvent.click(screen.getByText("Move"));
+  expect(update).toHaveBeenCalledTimes(1);
+  expect(update).toHaveBeenCalledWith({
+    id: "t1",
+    columnId: "ready",
+    beforeId: null,
+  });
+  expect(screen.queryByRole("dialog")).toBeNull();
 });

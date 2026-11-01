@@ -8055,13 +8055,52 @@ describe("Parent-owned child requests", () => {
     try {
       await client.query("BEGIN");
       await client.query("SET LOCAL enable_seqscan = off");
-      const plan = await client.query<{ "QUERY PLAN": string }>(
-        `EXPLAIN SELECT 1 FROM blocks b WHERE ${FAILED_PARENT_INPUT_SQL}`
-      );
-      const text = plan.rows.map((r) => r["QUERY PLAN"]).join("\n");
-      expect(text).toMatch(
-        /Index (Only )?Scan using blocks_pkey on blocks answer/
-      );
+      type PlanNode = {
+        "Node Type": string;
+        "Relation Name"?: string;
+        Alias?: string;
+        "Index Name"?: string;
+        "Index Cond"?: string;
+        Plans?: PlanNode[];
+      };
+      const nodes = (node: PlanNode): PlanNode[] => [
+        node,
+        ...(node.Plans ?? []).flatMap(nodes),
+      ];
+      // Both direct and bitmap scans are valid primary-key access. Exercise
+      // each planner choice instead of depending on table statistics/costs.
+      for (const bitmap of [false, true]) {
+        await client.query(
+          `SET LOCAL enable_bitmapscan = ${bitmap ? "on" : "off"}`
+        );
+        await client.query(
+          `SET LOCAL enable_indexscan = ${bitmap ? "off" : "on"}`
+        );
+        await client.query(
+          `SET LOCAL enable_indexonlyscan = ${bitmap ? "off" : "on"}`
+        );
+        const plan = await client.query<{
+          "QUERY PLAN": Array<{ Plan: PlanNode }>;
+        }>(
+          `EXPLAIN (FORMAT JSON) SELECT 1 FROM blocks b WHERE ${FAILED_PARENT_INPUT_SQL}`
+        );
+        const answer = nodes(plan.rows[0]!["QUERY PLAN"][0]!.Plan).find(
+          (node) =>
+            node["Relation Name"] === "blocks" && node.Alias === "answer"
+        );
+        expect(answer?.["Node Type"]).toMatch(
+          bitmap ? /^Bitmap Heap Scan$/ : /^Index (Only )?Scan$/
+        );
+        const primaryKey =
+          answer &&
+          nodes(answer).find((node) => node["Index Name"] === "blocks_pkey");
+        expect(primaryKey?.["Node Type"]).toMatch(
+          bitmap ? /^Bitmap Index Scan$/ : /^Index (Only )?Scan$/
+        );
+        expect(primaryKey?.["Index Cond"]).toMatch(/\bid\s*=\s*CASE WHEN/);
+        expect(primaryKey?.["Index Cond"]).toContain("b.state");
+        expect(primaryKey?.["Index Cond"]).toContain("::uuid");
+      }
     } finally {
       await client.query("ROLLBACK");
       client.release();

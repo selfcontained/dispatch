@@ -115,6 +115,7 @@ it("creates from Enter in the title with description and column", async () => {
   expect(create).toHaveBeenCalledWith({
     projectId: "p1",
     title: "Ship it",
+    launchTemplateId: null,
     body: "## Deliverable\nA thing",
     columnId: "ready",
   });
@@ -140,6 +141,7 @@ it("creates from ⌘Enter in the description and then assigns", async () => {
   expect(create).toHaveBeenCalledWith({
     projectId: "p1",
     title: "Assigned task",
+    launchTemplateId: null,
     columnId: "doing",
   });
   expect(update).toHaveBeenCalledWith({ id: "tsk_new", assignedAgentId: "a1" });

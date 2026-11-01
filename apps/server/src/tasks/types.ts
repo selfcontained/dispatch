@@ -64,6 +64,8 @@ export type Task = {
   position: number;
   assignedAgentId: string | null;
   links: TaskLink[];
+  /** Full template override; null inherits each column’s automation. */
+  launchTemplateId: string | null;
   createdBy: TaskActor;
   /**
    * The current column entry's last trigger failure not followed by a
@@ -142,6 +144,7 @@ export type TaskBoard = {
 };
 
 export type CreateTaskInput = {
+  launchTemplateId?: string | null;
   projectId: string;
   title: string;
   body?: string;
@@ -152,6 +155,7 @@ export type CreateTaskInput = {
 };
 
 export type UpdateTaskInput = {
+  launchTemplateId?: string | null;
   /** Relative insertion anchor; null appends. Takes precedence over position. */
   beforeId?: string | null;
   title?: string;

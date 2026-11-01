@@ -20,6 +20,8 @@ import type { StreamService, TaskStreamRoot } from "../chat/service.js";
 import { ProjectStore, type ProjectRecord } from "../projects/store.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
 import type { TemplateRecord } from "../templates/store.js";
 import { agentTaskProject } from "./agent-scope.js";
 import { newTaskId, TaskStore, type TaskPatch } from "./store.js";
@@ -107,6 +109,7 @@ export type TaskAgentInfo = {
 };
 
 export type TaskLaunchRequest = {
+  resolvedTemplate?: TemplateRecord;
   name?: string;
   templateId: string;
   projectId: string;
@@ -541,6 +544,64 @@ export class TaskService {
     };
   }
 
+  private async resolveLaunch(
+    projectId: string,
+    launch: {
+      templateId: string;
+      agentType?: AgentType | null;
+      model?: string | null;
+    },
+    caller?: TaskCaller
+  ): Promise<TemplateRecord> {
+    const project = await this.requireProject(projectId);
+    const stored = await this.deps.getTemplate(launch.templateId);
+    if (!stored) throw invalid(`Template ${launch.templateId} not found.`);
+    if (
+      stored.projectId !== project.id &&
+      !(stored.projectId === null && stored.directory === project.repoRoot)
+    )
+      throw invalid(`Template "${stored.name}" belongs to another project.`);
+    const template = resolveTemplateLaunch(stored, {
+      ...(launch.agentType ? { agentType: launch.agentType } : {}),
+      ...(launch.model ? { model: launch.model } : {}),
+    });
+    if (caller && template.fullAccess && isRestricted(caller))
+      throw invalid(RESTRICTED_LAUNCH_REASON);
+    if (template.persona)
+      await resolveLaunchPersona(
+        template.directory,
+        template.persona,
+        "task",
+        "catalog"
+      );
+    return template;
+  }
+
+  private effectiveLaunch(
+    task: Pick<Task, "launchTemplateId">,
+    column: TaskColumn
+  ) {
+    const templateId = task.launchTemplateId;
+    return templateId
+      ? { templateId, agentType: null, model: null }
+      : column.trigger;
+  }
+
+  private async validateLaunchPreference(
+    projectId: string,
+    templateId: string | null,
+    caller: TaskCaller
+  ) {
+    if (templateId !== null) {
+      try {
+        await this.resolveLaunch(projectId, { templateId: templateId }, caller);
+      } catch (error) {
+        if (error instanceof TaskError) throw error;
+        throw invalid(errorMessage(error));
+      }
+    }
+  }
+
   private async uniqueKey(projectId: string, base: string): Promise<string> {
     const taken = new Set(
       (await this.store.listColumns(projectId)).map((c) => c.key)
@@ -817,6 +878,18 @@ export class TaskService {
       startupLinks?: string[];
     } = {}
   ): Promise<Task> {
+    const id = newTaskId();
+    return this.withTaskLock(id, () =>
+      this.createTaskLocked(id, input, caller, context)
+    );
+  }
+
+  private async createTaskLocked(
+    id: string,
+    input: CreateTaskInput,
+    caller: TaskCaller,
+    context: { startupFiles?: StartupFileUpload[]; startupLinks?: string[] }
+  ): Promise<Task> {
     const files = context.startupFiles ?? [];
     if (files.length > MAX_STARTUP_FILE_COUNT)
       throw invalid(
@@ -842,9 +915,16 @@ export class TaskService {
     if (!initialColumn)
       throw invalid("columnId is not a column of this project.");
     const actor = actorOf(caller);
-    const id = newTaskId();
+    if (input.launchTemplateId !== undefined)
+      await this.validateLaunchPreference(
+        input.projectId,
+        input.launchTemplateId,
+        caller
+      );
     const column = await this.store.transaction(async (db) => {
-      const currentColumn = await this.store.lockColumn(initialColumn.id, db);
+      if (!(await this.store.lockColumn(initialColumn.id, db)))
+        throw notFound("Column");
+      const currentColumn = await this.store.getColumn(initialColumn.id, db);
       if (!currentColumn) throw notFound("Column");
       this.checkCapacity(currentColumn);
       await this.store.insertTask(
@@ -862,6 +942,12 @@ export class TaskService {
         },
         db
       );
+      if (input.launchTemplateId !== undefined)
+        await this.store.updateTask(
+          id,
+          { launchTemplateId: input.launchTemplateId },
+          { db }
+        );
       return currentColumn;
     });
     try {
@@ -893,9 +979,7 @@ export class TaskService {
       columnId: column.id,
     });
     if (column.trigger?.fireOnCreate) {
-      await this.withTaskLock(id, async () =>
-        this.fireTrigger(await this.requireTask(id), column, caller)
-      );
+      await this.fireTrigger(await this.requireTask(id), column, caller);
     }
     this.publish(input.projectId, id);
     return await this.requireTask(id);
@@ -968,6 +1052,15 @@ export class TaskService {
     const actor = actorOf(caller);
     const patch: TaskPatch = {};
     const changed: string[] = [];
+    if (input.launchTemplateId !== undefined) {
+      await this.validateLaunchPreference(
+        task.projectId,
+        input.launchTemplateId,
+        caller
+      );
+      patch.launchTemplateId = input.launchTemplateId;
+      changed.push("launchTemplateId");
+    }
 
     if (input.title !== undefined) {
       const title = input.title.trim();
@@ -1052,6 +1145,7 @@ export class TaskService {
           current.archivedAt
         )
           return false;
+
         // Column automation and the task's assignee can change after the
         // initial read. Apply the relaunch guard to the locked admission state.
         if (currentColumn.trigger && !input.confirmRelaunch) {
@@ -1257,15 +1351,18 @@ export class TaskService {
       agentType: AgentType | null;
       model: string | null;
     },
-    caller: TaskCaller
+    caller: TaskCaller,
+    resolvedTemplate?: TemplateRecord
   ): Promise<AgentRecord> {
-    const template = await this.deps.getTemplate(launch.templateId);
-    if (!template) throw new Error(`Template ${launch.templateId} not found.`);
+    const template =
+      resolvedTemplate ??
+      (await this.resolveLaunch(task.projectId, launch, caller));
     if (template.fullAccess && isRestricted(caller))
       throw new Error(RESTRICTED_LAUNCH_REASON);
     const project = await this.requireProject(task.projectId);
     return await this.deps.launchTemplate({
       templateId: template.id,
+      resolvedTemplate: template,
       name: taskAgentName(task.title),
       projectId: task.projectId,
       // Placeholders resolve by lowercase key, so these satisfy
@@ -1301,14 +1398,18 @@ export class TaskService {
   ): Promise<void> {
     const trigger = column.trigger;
     if (!trigger) return;
+    const launch = this.effectiveLaunch(task, column)!;
+    const source = task.launchTemplateId ? "task" : "column";
     const system: TaskActor = { kind: "system" };
     await this.store.insertEvent(task.id, "trigger_launching", system, {
-      templateId: trigger.templateId,
+      templateId: launch.templateId,
     });
     this.publish(task.projectId, task.id);
     let agent: { id: string };
+    let configuration: TemplateRecord;
     try {
-      agent = await this.launchFor(task, column, trigger, caller);
+      configuration = await this.resolveLaunch(task.projectId, launch, caller);
+      agent = await this.launchFor(task, column, launch, caller, configuration);
     } catch (error) {
       const reason = errorMessage(error);
       this.deps.log.warn(
@@ -1316,14 +1417,17 @@ export class TaskService {
         "Task trigger launch failed"
       );
       await this.store.insertEvent(task.id, "trigger_failed", system, {
-        templateId: trigger.templateId,
+        templateId: launch.templateId,
         reason,
       });
       return;
     }
     await this.store.insertEvent(task.id, "trigger_launched", system, {
       agentId: agent.id,
-      templateId: trigger.templateId,
+      templateId: launch.templateId,
+      columnId: column.id,
+      source,
+      configuration,
     });
     if (!trigger.assign) return;
     const current = await this.store.getTask(task.id);

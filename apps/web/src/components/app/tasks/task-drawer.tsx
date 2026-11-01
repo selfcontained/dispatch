@@ -1,3 +1,4 @@
+import { TaskLaunchTemplateEditor } from "./task-launch-template";
 import { TaskAttachments } from "./task-attachments";
 import { TaskDeleteDialog } from "./task-delete-dialog";
 import { useEffect, useMemo, useState } from "react";
@@ -344,6 +345,11 @@ export function TaskDetailPanel({
                     by {creator} · {ago(task.createdAt)}
                   </span>
                 </section>
+                {columns.some((c) => c.trigger) && (
+                  <DrawerSection label="Launch template">
+                    <TaskLaunchTemplateEditor key={task.id} task={task} />
+                  </DrawerSection>
+                )}
                 <DrawerSection label="Description">
                   {editingBody ? (
                     <textarea

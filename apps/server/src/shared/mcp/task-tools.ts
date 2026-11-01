@@ -61,6 +61,14 @@ function toTaskToolError(error: unknown): ToolResult {
   return toToolError(error);
 }
 
+const launchTemplateIdSchema = z
+  .string()
+  .min(1)
+  .nullable()
+  .describe(
+    "Full task template override for every eligible trigger column; null inherits each column default. Editing does not launch."
+  );
+
 const linkSchema = z.object({
   kind: z.enum(["pr", "branch", "url"]),
   url: z.string().max(2048).nullable().optional(),
@@ -173,6 +181,7 @@ export function registerTaskTools(
               title: t.title,
               column: keyOf.get(t.columnId) ?? null,
               assignedAgentId: t.assignedAgentId,
+              launchTemplateId: t.launchTemplateId,
               updatedAt: t.updatedAt,
             }));
           return ok({
@@ -263,7 +272,9 @@ export function registerTaskTools(
       {
         description:
           "Get a task: its column key, body, links, agents that worked it, and its recent activity.",
-        inputSchema: { id: z.string().min(1) },
+        inputSchema: {
+          id: z.string().min(1),
+        },
       },
       async (args) => {
         try {
@@ -343,6 +354,7 @@ export function registerTaskTools(
         description:
           "Create a task on your project's board, in the first column unless you name one. A column with automation may launch an agent for it.",
         inputSchema: {
+          launchTemplateId: launchTemplateIdSchema.optional(),
           title: z.string().min(1).max(500),
           body: z
             .string()
@@ -362,6 +374,9 @@ export function registerTaskTools(
           const task = await service.createTask(
             {
               projectId,
+              ...(args.launchTemplateId !== undefined
+                ? { launchTemplateId: args.launchTemplateId }
+                : {}),
               title: args.title,
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
@@ -371,7 +386,11 @@ export function registerTaskTools(
           const key = (await service.ensureColumns(projectId)).find(
             (c) => c.id === task.columnId
           )?.key;
-          return ok({ id: task.id, column: key ?? null });
+          return ok({
+            id: task.id,
+            column: key ?? null,
+            launchTemplateId: task.launchTemplateId,
+          });
         } catch (error) {
           return toTaskToolError(error);
         }
@@ -387,6 +406,7 @@ export function registerTaskTools(
           'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up (your task briefing lists this board\'s keys); a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended; archived (sent alone) archives or restores it.',
         inputSchema: {
           id: z.string().min(1),
+          launchTemplateId: launchTemplateIdSchema.optional(),
           title: z.string().min(1).max(500).optional(),
           body: z.string().max(50_000).optional(),
           column: z.string().min(1).optional().describe("Column key."),
@@ -434,6 +454,9 @@ export function registerTaskTools(
           const updated = await service.updateTask(
             task.id,
             {
+              ...(args.launchTemplateId !== undefined
+                ? { launchTemplateId: args.launchTemplateId }
+                : {}),
               ...(args.title !== undefined ? { title: args.title } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
@@ -454,6 +477,7 @@ export function registerTaskTools(
             links: updated.links,
             latestFailure: updated.latestFailure,
             launching: updated.launching,
+            launchTemplateId: updated.launchTemplateId,
           });
         } catch (error) {
           return toTaskToolError(error);

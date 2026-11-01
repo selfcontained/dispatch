@@ -12,7 +12,6 @@ import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
   applyAgentConfigDefaults,
   resolveAgentModelForUpdate,
-  validateAgentModel,
 } from "../shared/agent-models.js";
 import {
   TemplateStore,
@@ -20,10 +19,13 @@ import {
   type AddTemplateInput,
   type TemplateRecord,
 } from "./store.js";
+import { resolveTemplateLaunch } from "./resolve-launch.js";
 import { templateWorktreeConfig } from "./worktree-config.js";
 import { assertAccessCeiling } from "../shared/access-ceiling.js";
 
 export type LaunchTemplateInput = {
+  /** Internal validated task snapshot; never accepted from HTTP/MCP input. */
+  resolvedTemplate?: TemplateRecord;
   name?: string;
   templateId: string;
   args?: Record<string, string>;
@@ -199,18 +201,16 @@ export class TemplateService {
   }
 
   async launchTemplate(input: LaunchTemplateInput): Promise<LaunchResult> {
-    const template = await this.store.getTemplate(input.templateId);
+    const stored =
+      input.resolvedTemplate ??
+      (await this.store.getTemplate(input.templateId));
+    const template = stored ? resolveTemplateLaunch(stored, input) : null;
     if (!template) {
       throw new Error(`Template ${input.templateId} not found.`);
     }
 
-    const resolvedType = input.agentType ?? template.agentType;
-    const resolvedModel =
-      input.model !== undefined
-        ? validateAgentModel(resolvedType, input.model ?? undefined)
-        : resolvedType === template.agentType
-          ? (template.model ?? undefined)
-          : undefined;
+    const resolvedType = template.agentType;
+    const resolvedModel = template.model ?? undefined;
 
     // A launch needs something to send or stand on: the saved prompt, the
     // caller's appendix (a task's briefing), or a persona's instructions.

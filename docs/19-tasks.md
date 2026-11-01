@@ -49,6 +49,42 @@ In the UI, a column's `…` menu — on its board header or its list group heade
 - An agent without full access cannot start a full-access template this way, whether by a move, a create with `fireOnCreate`, or a manual launch: the move stands and the trigger fails with "restricted agent cannot launch a full-access template". People (HTTP) are trusted.
 - Transitions of one task run one at a time (move, launch, assignment), and the move itself only applies while the task is still in the column it left, so overlapping moves fire the trigger once. A launch that finds the task already moved elsewhere does not assign itself.
 
+## Task-specific launch template
+
+Tasks store one nullable `launchTemplateId` (migration
+`0031_task_launch_templates.sql`). A task override uses the selected template's
+entire configuration, including persona, prompt, runtime/model, access and
+workspace settings, for every eligible template-trigger column. It ignores that
+column's runtime/model overrides. When null, each column uses its own default.
+Column entry, `assign`, `fireOnCreate`, capacity and running-agent safeguards
+remain authoritative. A preference never creates automation in a column without
+a trigger.
+
+HTTP create/update and MCP `task_create`/`task_update` accept:
+
+```json
+{ "launchTemplateId": "template-id" }
+```
+
+Omit the field on update to preserve it; send `launchTemplateId: null` to clear it.
+It can accompany creation or a move atomically. An edit/clear alone launches
+nothing and never changes an existing agent. Deleted templates retain their ID
+and produce an explicit unavailable template/launch failure, recoverable by
+choosing another template or clearing the override.
+
+The create/detail picker offers “Use column default”. Normal board and agent
+moves launch directly through the destination column trigger. The existing
+working-assignee relaunch safeguard still applies.
+
+Writes validate the selected template's project, runtime/model, persona and caller
+access ceiling; launches validate again. Restricted agents cannot set or launch a
+full-access selection. Launches reuse the
+shared template resolver and launcher, task briefing and attachments. The
+`trigger_launched` event stores `columnId`, `source` and the resolved template
+`configuration` snapshot, including its prompt. Later task or template edits do
+not rewrite this history. Per-task locking covers preference changes alongside
+existing moves and launches.
+
 ## Conversation
 
 A task is a **stream root**: its conversation is the blocks with `stream_id = <task id>`, served by the ordinary stream routes (`GET/POST /api/v1/streams/<taskId>/blocks`, `…/blocks/:blockId/thread`, `…/read`). Unread and open-input counts per task come back under `tasks` in `GET /api/v1/chat/unread`; `stream.changed` / `stream.entry` events carry the task id as `agentId`.

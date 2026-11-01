@@ -46,6 +46,7 @@ const LinkSchema = z.object({
 });
 
 const CreateTaskSchema = z.object({
+  launchTemplateId: z.string().min(1).nullable().optional(),
   projectId: z.string().min(1, "projectId is required."),
   title: z.string().min(1, "title is required."),
   body: z.string().optional(),
@@ -54,6 +55,7 @@ const CreateTaskSchema = z.object({
 });
 
 const UpdateTaskSchema = z.object({
+  launchTemplateId: z.string().min(1).nullable().optional(),
   beforeId: z.string().min(1).nullable().optional(),
   title: z.string().min(1).optional(),
   body: z.string().optional(),
@@ -177,6 +179,8 @@ export async function registerTaskRoutes(
           parsed.isMultipart
         ) ?? []
       );
+      if (parsed.isMultipart && parsed.body.launchTemplateId === "null")
+        parsed.body.launchTemplateId = null;
       if (parsed.isMultipart && parsed.body.position !== undefined)
         parsed.body.position = Number(parsed.body.position);
     } catch (error) {
