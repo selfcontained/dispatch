@@ -60,6 +60,15 @@ export function useTemplateActions() {
     onSuccess: invalidate,
   });
 
+  const duplicateTemplate = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      api<Template>(`/api/v1/templates/${id}/duplicate`, {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: invalidate,
+  });
+
   const updateTemplate = useMutation({
     mutationFn: ({
       id,
@@ -137,5 +146,11 @@ export function useTemplateActions() {
     },
   });
 
-  return { addTemplate, updateTemplate, removeTemplate, launchTemplate };
+  return {
+    addTemplate,
+    duplicateTemplate,
+    updateTemplate,
+    removeTemplate,
+    launchTemplate,
+  };
 }
