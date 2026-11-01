@@ -146,6 +146,12 @@ for (const layout of ["desktop", "mobile"] as const) {
       await expect(
         dialog.getByText(/Applies on the next eligible entry/)
       ).toHaveCount(0);
+      // Radix removes the listbox before its close autofocus and pointer-event
+      // cleanup finish. Wait for both before taking focus for keyboard checks.
+      await expect(
+        dialog.getByRole("combobox", { name: "Launch template", exact: true })
+      ).toBeFocused();
+      await expect(dialog).toHaveCSS("pointer-events", "auto");
       // Keyboard focus must leave room for the full four-pixel ring at every
       // scroll/overflow boundary, including when mobile needs to scroll.
       for (const [name, control] of [
