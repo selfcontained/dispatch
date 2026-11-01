@@ -17,11 +17,13 @@ export function TaskLaunchTemplatePicker({
   value,
   onChange,
   disabled = false,
+  showLabel = true,
 }: {
   projectId: string;
   value: string | null;
   onChange: (value: string | null) => void;
   disabled?: boolean;
+  showLabel?: boolean;
 }) {
   const templateId = value;
   const { data: templates = [], isSuccess: templatesLoaded } = useTemplates();
@@ -35,13 +37,16 @@ export function TaskLaunchTemplatePicker({
   return (
     <div className="space-y-2" data-testid="task-launch-template-picker">
       <label className="block text-xs font-medium text-muted-foreground">
-        Launch template
+        {showLabel && "Launch template"}
         <Select
           value={templateId ?? "__inherit__"}
           disabled={disabled}
           onValueChange={(id) => onChange(id === "__inherit__" ? null : id)}
         >
-          <SelectTrigger aria-label="Launch template" className="mt-1">
+          <SelectTrigger
+            aria-label="Launch template"
+            className={showLabel ? "mt-1" : undefined}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -81,6 +86,7 @@ export function TaskLaunchTemplateEditor({ task }: { task: Task }) {
     <div className="space-y-2">
       <TaskLaunchTemplatePicker
         projectId={task.projectId}
+        showLabel={false}
         value={draft === undefined ? task.launchTemplateId : draft}
         onChange={setDraft}
         disabled={actions.update.isPending}

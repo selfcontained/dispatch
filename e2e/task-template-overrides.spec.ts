@@ -248,6 +248,12 @@ for (const layout of ["desktop", "mobile"] as const) {
           .click();
       const detail = page.getByTestId("task-drawer");
       await expect(detail).toBeVisible();
+      await expect(
+        detail.getByText("Launch template", { exact: true })
+      ).toHaveCount(1);
+      await expect(
+        detail.getByRole("combobox", { name: "Launch template", exact: true })
+      ).toBeVisible();
       const read = async () =>
         (await request.get(`/api/v1/tasks/${task.id}`, { headers })).json();
       expect(
