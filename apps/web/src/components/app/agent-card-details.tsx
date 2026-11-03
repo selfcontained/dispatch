@@ -169,11 +169,7 @@ export function AgentCardDetails({
             className="h-3.5 w-3.5 border-0 bg-transparent [&_svg]:h-3.5 [&_svg]:w-3.5"
           />
         }
-        value={
-          agent.model
-            ? agentModelLabel(modelCatalog, agent.type, agent.model)
-            : (agent.type ?? "agent")
-        }
+        value={`${agent.model ? agentModelLabel(modelCatalog, agent.type, agent.model) : (agent.type ?? "agent")}${agent.effort ? ` · ${agent.effort} effort` : ""}`}
         mono
       />
       <div className="flex items-center justify-between gap-2 pt-1">

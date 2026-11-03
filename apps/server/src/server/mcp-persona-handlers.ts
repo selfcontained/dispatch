@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import { discoverPersonas, resolveLaunchPersona } from "../personas/resolve.js";
 import type { Pool } from "pg";
 
@@ -52,6 +54,7 @@ export type PersonaLaunchOptions = {
   context: string;
   agentType?: (typeof CLI_AGENT_TYPES)[number];
   model?: string;
+  effort?: Effort | null;
   /** Internal: launch the exact checkout-local persona validated by the batch. */
   resolvedPersona?: PersonaDefinition;
   /** Display name; defaults to `<persona>-<parent suffix>`. */
@@ -64,6 +67,7 @@ export type PreparedPersonaLaunch = {
   prompt: string;
   agentType: (typeof CLI_AGENT_TYPES)[number];
   model: string | undefined;
+  effort: Effort | null;
   cwd: string;
   agentArgs: string[];
 };
@@ -127,6 +131,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
     const model = validateAgentModel(agentType, opts.model);
+    const effort = validateAgentEffort(agentType, opts.effort);
 
     const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
     const persona =
@@ -153,7 +158,15 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
             : null;
       if (fullAccessArg) agentArgs.push(fullAccessArg);
     }
-    return { persona, prompt, agentType, model, cwd: parentCwd, agentArgs };
+    return {
+      persona,
+      prompt,
+      agentType,
+      model,
+      effort,
+      cwd: parentCwd,
+      agentArgs,
+    };
   }
 
   /**
@@ -186,6 +199,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         type: prepared.agentType,
         cwd: prepared.cwd,
         model: prepared.model,
+        effort: prepared.effort,
         agentArgs: prepared.agentArgs,
         fullAccess: parent.fullAccess,
         useWorktree: false,
@@ -224,6 +238,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       context: string;
       agentType?: (typeof CLI_AGENT_TYPES)[number];
       model?: string;
+      effort?: Effort | null;
       dryRun?: boolean;
     }
   ): Promise<OwnerReviewResult> {
@@ -267,6 +282,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         context,
         agentType: opts.agentType,
         model: opts.model,
+        effort: opts.effort,
         resolvedPersona: selectedPersonas.get(persona),
       })
     );

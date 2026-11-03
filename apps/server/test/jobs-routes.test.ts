@@ -621,3 +621,41 @@ describe("project and folder job directories", () => {
     expect(reloaded.json().job.directory).toBe("/tmp/folder-root");
   });
 });
+
+describe("job effort", () => {
+  it("persists effort on the job and its backing template and clears both", async () => {
+    const created = await createJob("effort-job", { effort: "high" });
+    expect(created.effort).toBe("high");
+    const templateEffort = async () =>
+      (
+        await ctx.pool.query("SELECT effort FROM templates WHERE id = $1", [
+          created.templateId,
+        ])
+      ).rows[0]?.effort;
+    expect(await templateEffort()).toBe("high");
+    const updated = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: created.id,
+      effort: "medium",
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().effort).toBe("medium");
+    expect(await templateEffort()).toBe("medium");
+    const cleared = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: created.id,
+      effort: null,
+    });
+    expect(cleared.json().effort).toBeNull();
+    expect(await templateEffort()).toBeNull();
+  });
+
+  it("rejects runtime-incompatible effort before saving", async () => {
+    const result = await authedInject("POST", "/api/v1/jobs", {
+      name: "bad-effort-job",
+      directory: "/tmp",
+      agentType: "opencode",
+      effort: "high",
+    });
+    expect(result.statusCode).toBe(400);
+    expect(result.body).toMatch(/effort/i);
+  });
+});

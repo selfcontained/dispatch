@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import { ChevronDown } from "lucide-react";
 import { useAtom } from "jotai";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -73,6 +74,7 @@ export function PersonaLauncher({
     [selectedAgentType, cwd]
   );
   const [selectedModel, setSelectedModel] = useAtom(modelAtom);
+  const [selectedEffort, setSelectedEffort] = useState<Effort | null>(null);
 
   const { options: modelOptions, loading: modelCatalogLoading } =
     useAgentModelCatalog(selectedAgentType);
@@ -126,6 +128,7 @@ export function PersonaLauncher({
             model: modelOptions.some((option) => option.id === selectedModel)
               ? selectedModel
               : null,
+            effort: selectedAgentType === "opencode" ? null : selectedEffort,
             note: note.trim() ? note.trim() : null,
           }),
         }
@@ -271,6 +274,8 @@ export function PersonaLauncher({
         showModelSelect={showModelSelect}
         modelOptions={modelOptions}
         modelCatalogLoading={modelCatalogLoading}
+        selectedEffort={selectedEffort}
+        setSelectedEffort={setSelectedEffort}
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
         personas={personas}

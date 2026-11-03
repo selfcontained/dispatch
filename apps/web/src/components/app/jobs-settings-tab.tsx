@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { useProjects } from "@/hooks/use-projects";
 import { ProjectLocation } from "@/components/app/project-location";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -81,6 +83,7 @@ export function SettingsTab({
   );
   const [agentType, setAgentType] = useState<CliAgentType>(job.agentType);
   const [persona, setPersona] = useState<string | null>(job.persona ?? null);
+  const [effort, setEffort] = useState<Effort | null>(job.effort ?? null);
   const [model, setModel] = useState<string | null>(job.model);
   const {
     options: modelOptions,
@@ -128,6 +131,7 @@ export function SettingsTab({
     setNeedsInputTimeoutMinutes(minutesFromMs(job.needsInputTimeoutMs));
     setAgentType(job.agentType);
     setModel(job.model);
+    setEffort(job.effort ?? null);
     setPersona(job.persona ?? null);
     setFullAccess(job.fullAccess);
     setUseWorktree(job.useWorktree);
@@ -264,6 +268,7 @@ export function SettingsTab({
             onChange={(nextAgentType) => {
               setAgentType(nextAgentType);
               setModel(null);
+              setEffort(null);
             }}
           />
           {modelOptions.length > 0 || modelCatalogLoading ? (
@@ -274,6 +279,12 @@ export function SettingsTab({
               loading={modelCatalogLoading}
             />
           ) : null}
+          <AgentEffortSelect
+            value={effort}
+            onChange={setEffort}
+            agentType={agentType}
+            id={`settings-job-effort-${job.id}`}
+          />
           <div className="space-y-1">
             <label
               className="text-sm text-muted-foreground"
@@ -413,6 +424,7 @@ export function SettingsTab({
                 needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
                 agentType,
                 model: normalizeModel(model),
+                effort,
                 persona,
                 useWorktree,
                 baseBranch: useWorktree ? baseBranch : null,

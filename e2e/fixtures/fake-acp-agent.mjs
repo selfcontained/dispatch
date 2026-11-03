@@ -69,6 +69,7 @@ if (!PROFILE) {
 let conn;
 const cwdBySession = new Map();
 const modelBySession = new Map();
+const effortBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 const RUN = /run:(\d+)/;
 // `signed-out:<file>` fails the turn as an engine whose sign-in lapsed while
@@ -88,10 +89,26 @@ const MODEL_OPTION = (current) => ({
     { value: "other-model", name: "Other model" },
   ],
 });
-const configOptions = (sessionId) =>
-  PROFILE.model
+const configOptions = (sessionId) => [
+  ...(PROFILE.model
     ? [MODEL_OPTION(modelBySession.get(sessionId) ?? "default-model")]
-    : [];
+    : []),
+  ...(ENGINE === "codex"
+    ? [
+        {
+          id: "reasoning_effort",
+          name: "Reasoning effort",
+          category: "thought_level",
+          type: "select",
+          currentValue: effortBySession.get(sessionId) ?? "medium",
+          options: ["low", "medium", "high", "xhigh"].map((value) => ({
+            value,
+            name: value,
+          })),
+        },
+      ]
+    : []),
+];
 
 const agent = {
   async initialize() {
@@ -148,6 +165,8 @@ const agent = {
   async setSessionConfigOption(params) {
     if (params.configId === "model")
       modelBySession.set(params.sessionId, params.value);
+    if (params.configId === "reasoning_effort")
+      effortBySession.set(params.sessionId, params.value);
     return { configOptions: configOptions(params.sessionId) };
   },
   async extMethod(method, params) {

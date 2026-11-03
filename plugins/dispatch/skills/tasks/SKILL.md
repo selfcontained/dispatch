@@ -139,7 +139,7 @@ nothing.
 
 Read `task_get.launchTemplateId` and `get_template` to inspect effective staffing
 and check provider/model usage and authorization. A task override uses the full selected template and ignores column
-runtime/model overrides; inheritance preserves them. Column launch condition,
+runtime/model/effort overrides; inheritance preserves them. Column launch condition,
 assignment, fire-on-create, capacities and relaunch safeguards still apply.
 Unavailable templates fail visibly; choose another or clear the preference rather
 than silently inheriting. Inspect the actual `trigger_launched.configuration`
@@ -147,3 +147,5 @@ snapshot after a launch. A restricted caller cannot select or launch full access
 
 Normal `task_update` stage moves launch the selected task template directly through
 the column trigger; no preview, revision or human confirmation is required.
+
+Column triggers accept an optional `effort` override (`low`, `medium`, `high`, `xhigh`, `max`) through `task_column_update`; null inherits the template. `task_list` shows the saved override and `trigger_launched.configuration.effort` records the actual resolved launch effort, including the Dispatch global default. Effort is validated for the effective runtime.

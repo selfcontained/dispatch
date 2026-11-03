@@ -89,6 +89,7 @@ const column = {
     templateId: "tpl_1",
     agentType: null,
     model: null,
+    effort: null,
     assign: false,
     fireOnCreate: false,
   },
@@ -307,3 +308,32 @@ it.each(["add", "edit"] as const)(
     expect(updateColumn).not.toHaveBeenCalled();
   }
 );
+
+it("saves an effort override and can reset it to inheritance", async () => {
+  renderDialog();
+  fireEvent.keyDown(screen.getByTestId("task-trigger-effort"), {
+    key: "Enter",
+  });
+  fireEvent.click(screen.getByRole("option", { name: "medium" }));
+  fireEvent.click(screen.getByRole("button", { name: /save/i }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({ effort: "medium" }),
+      })
+    )
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Open trigger" }));
+  fireEvent.keyDown(screen.getByTestId("task-trigger-effort"), {
+    key: "Enter",
+  });
+  fireEvent.click(screen.getByRole("option", { name: "Inherit" }));
+  fireEvent.click(screen.getByRole("button", { name: /save/i }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({ effort: null }),
+      })
+    )
+  );
+});

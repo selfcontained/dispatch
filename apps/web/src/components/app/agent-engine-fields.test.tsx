@@ -29,6 +29,8 @@ vi.mock("./use-create-agent-form", async () => {
         createType: createType.value,
         setCreateType: vi.fn(),
         createModel: null,
+        createEffort: null,
+        setCreateEffort: vi.fn(),
         setCreateModel: vi.fn(),
         modelOptions: models.options,
         modelCatalogLoading: models.loading,
@@ -181,7 +183,7 @@ const engineBlock = () => {
   const block = type.parentElement!.parentElement!.parentElement!;
   return block.outerHTML
     .replace(/task-trigger-type/g, "agent-type-select")
-    .replace(/task-trigger-(model|engine)/g, "create-agent-$1")
+    .replace(/task-trigger-(model|engine|effort)/g, "create-agent-$1")
     .replace(/radix-[^"]*/g, "radix")
     .replace(/<select aria-hidden="true".*?<\/select>/g, "")
     .replace(/:r[0-9a-z]+:/g, "id");

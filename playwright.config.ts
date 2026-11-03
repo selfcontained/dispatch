@@ -20,6 +20,7 @@ const agentRuntime =
 // Tests that mutate global settings, create agents via UI, or have explicit
 // serial constraints. These run after the parallel suite with a single worker.
 const serialTests = [
+  "e2e/agent-effort.spec.ts",
   "e2e/settings.spec.ts",
   "e2e/jobs-api.spec.ts",
   "e2e/agent-crud.spec.ts",

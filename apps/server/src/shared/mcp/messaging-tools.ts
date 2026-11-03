@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -9,6 +10,8 @@ export type AgentListing = {
   id: string;
   name: string;
   status: string;
+  model?: string | null;
+  effort?: Effort | null;
   parentAgentId: string | null;
   parentName: string | null;
   /**
@@ -44,7 +47,7 @@ export function registerMessagingTools(
       "list_agents",
       {
         description:
-          "List other agents on this Dispatch server with their IDs, names, and lifecycle statuses. " +
+          "List other agents on this Dispatch server with their IDs, names, models, resolved launch effort, and lifecycle statuses. " +
           "Use this to discover agents you can reach with post (to: <agentId>). " +
           "Each entry carries two separate things. Lineage: parentAgentId/parentName name the agent this one is a " +
           "child of, and relation says how it sits relative to you in that same parent tree (child, descendant, " +

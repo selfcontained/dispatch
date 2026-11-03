@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope } from "@/hooks/use-projects";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -103,6 +105,7 @@ export function AddJobFlow({
     jobAgentTypes[0] ?? "codex"
   );
   const [persona, setPersona] = useState<string | null>(null);
+  const [effort, setEffort] = useState<Effort | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const { options: modelOptions, loading: modelCatalogLoading } =
     useAgentModelCatalog(agentType);
@@ -216,6 +219,7 @@ export function AddJobFlow({
                   onChange={(nextAgentType) => {
                     setAgentType(nextAgentType);
                     setModel(null);
+                    setEffort(null);
                   }}
                 />
                 {modelOptions.length > 0 || modelCatalogLoading ? (
@@ -226,6 +230,12 @@ export function AddJobFlow({
                     loading={modelCatalogLoading}
                   />
                 ) : null}
+                <AgentEffortSelect
+                  value={effort}
+                  onChange={setEffort}
+                  agentType={agentType}
+                  id="create-job-effort"
+                />
               </div>
               <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
                 <span>
@@ -432,6 +442,7 @@ export function AddJobFlow({
               needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
               agentType,
               model,
+              effort,
               persona,
               useWorktree,
               baseBranch: useWorktree ? baseBranch : null,

@@ -1199,6 +1199,60 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it.each([undefined, null, "xhigh"] as const)(
+      "resolves effort from template or explicit %s, never parent",
+      async (effort) => {
+        deps.agentManager.getAgent.mockResolvedValue({
+          id: "agt_test1",
+          name: "parent",
+          cwd: "/repo",
+          type: "claude",
+          fullAccess: true,
+          effort: "low",
+        });
+        deps.templateService.getTemplate.mockResolvedValue(
+          templateRecord({
+            effort: "high",
+            model: "opus",
+            directory: "/template-repo",
+            fullAccess: false,
+          })
+        );
+        await handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "work",
+          templateId: "tmpl_123",
+          effort,
+        });
+        expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            effort: effort ?? "high",
+            model: "opus",
+            cwd: "/template-repo",
+            fullAccess: false,
+          })
+        );
+      }
+    );
+
+    it("leaves effort for global resolution without a template, regardless of parent's effort", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "parent",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: true,
+        effort: "max",
+      });
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ effort: null })
+      );
+    });
+
     it("passes templateId through", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({ id: "tmpl_123" })
@@ -1803,6 +1857,8 @@ describe("createMcpHandlers", () => {
         id: "agt_peer",
         name: "peer",
         status: "running",
+        model: null,
+        effort: null,
         parentAgentId: null,
         parentName: null,
         relation: "unrelated",

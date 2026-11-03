@@ -1,3 +1,4 @@
+import { getDefaultEffort, setDefaultEffort } from "../effort-settings.js";
 import os from "node:os";
 import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
@@ -452,6 +453,24 @@ export async function registerSystemRoutes(
         .send({ error: "webhookUrl must start with https://hooks.slack.com/" });
     }
     return deps.slackNotifier.sendTestMessage(url);
+  });
+
+  app.get("/api/v1/app/settings/effort", async () => ({
+    effort: await getDefaultEffort(deps.pool),
+  }));
+  app.post("/api/v1/app/settings/effort", async (request, reply) => {
+    try {
+      return {
+        effort: await setDefaultEffort(
+          deps.pool,
+          (request.body as { effort?: unknown } | null)?.effort
+        ),
+      };
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : "Invalid effort.",
+      });
+    }
   });
 
   app.get("/api/v1/app/settings/agent-types", async () => {

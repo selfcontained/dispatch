@@ -13,6 +13,10 @@ export function buildHostEnv(
   shellEnv: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const env = { ...shellEnv, ...launch.env };
+  // A host inherits the server/login shell environment. Effort is a session
+  // choice, not a parent-process choice; absent effort must reach settings.json.
+  delete env.CLAUDE_EFFORT;
+  delete env.CLAUDE_CODE_EFFORT_LEVEL;
   const ca = launch.env.DISPATCH_LOCAL_CA_CERTIFICATE;
   delete env.DISPATCH_LOCAL_CA_CERTIFICATE;
   if (ca) {

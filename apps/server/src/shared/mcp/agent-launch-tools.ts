@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS, type Effort } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -19,6 +20,7 @@ export type LaunchAgentInput = {
   prompt: string;
   type?: string;
   model?: string;
+  effort?: Effort | null;
   useWorktree?: boolean;
   createNewBranch?: boolean;
   baseBranch?: string;
@@ -91,15 +93,22 @@ export function registerAgentLaunchTools(
           .enum(CLI_AGENT_TYPES)
           .optional()
           .describe(
-            "Agent type. Defaults to the same type as the launching agent — which may be the one running low. " +
+            "Agent type. Defaults to the template runtime when templateId is supplied, otherwise the launching agent runtime — which may be the one running low. " +
               "Pass the type get_usage suggests when it names one."
           ),
         model: z
           .string()
           .optional()
           .describe(
-            "Model id for the new agent, matching its type. Omit to let the CLI use its default. " +
+            "Model id for the new agent, matching its type. Omit to use the template model when the runtime matches, otherwise the CLI default. " +
               describeAgentModelCatalog()
+          ),
+        effort: z
+          .enum(EFFORT_LEVELS)
+          .nullable()
+          .optional()
+          .describe(
+            "Reasoning effort: low, medium, high, xhigh, max. Explicit value overrides template, then global default; null inherits. Never inherits parent effort. Codex does not support max; OpenCode does not support effort."
           ),
         useWorktree: z
           .boolean()
@@ -129,13 +138,13 @@ export function registerAgentLaunchTools(
           .boolean()
           .optional()
           .describe(
-            "Run the agent with full tool access (no permission prompts). Defaults to the parent's setting."
+            "Run the agent with full tool access (no permission prompts). Defaults to the template's setting, then the parent's setting; cannot exceed the parent's access."
           ),
         templateId: z
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, effort, fullAccess, and cwd use explicit parameters first, then template defaults. Effort never inherits from the launching agent."
           ),
         templateArgs: z
           .record(z.string(), z.string())
@@ -147,7 +156,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Working directory for the new agent. Defaults to the parent's working directory."
+            "Working directory for the new agent. Defaults to the template's directory, then the parent's working directory."
           ),
         child: z
           .boolean()
@@ -168,6 +177,7 @@ export function registerAgentLaunchTools(
         };
         if (args.type !== undefined) input.type = args.type;
         if (args.model !== undefined) input.model = args.model;
+        if (args.effort !== undefined) input.effort = args.effort;
         if (args.useWorktree !== undefined)
           input.useWorktree = args.useWorktree;
         if (args.createNewBranch !== undefined)

@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { useMemo } from "react";
 
 import { AgentModelSelect } from "@/components/app/agent-model-select";
@@ -11,6 +13,8 @@ type AgentEngineFieldsProps = {
   agentType: AgentType;
   onAgentTypeChange: (type: AgentType) => void;
   agentTypes: AgentType[];
+  effort?: Effort | null;
+  onEffortChange?: (effort: Effort | null) => void;
   model: string | null;
   onModelChange: (model: string | null) => void;
   modelOptions: readonly AgentModelOption[];
@@ -30,6 +34,8 @@ export function AgentEngineFields({
   onAgentTypeChange,
   agentTypes,
   model,
+  effort,
+  onEffortChange,
   onModelChange,
   modelOptions,
   modelLoading,
@@ -79,6 +85,14 @@ export function AgentEngineFields({
             options={modelOptions}
             onChange={onModelChange}
             loading={modelLoading}
+          />
+        ) : null}
+        {onEffortChange ? (
+          <AgentEffortSelect
+            value={effort ?? null}
+            onChange={onEffortChange}
+            agentType={agentType}
+            id={idPrefix ? `${idPrefix}-effort` : undefined}
           />
         ) : null}
       </div>

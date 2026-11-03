@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 /**
  * The agent host end to end: a real `dispatch agent-host` process (bun
  * running src/main.ts) driving the fake ACP agent from e2e/fixtures, with
@@ -107,7 +108,11 @@ describe("agent host", () => {
     stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-state-"));
     cwd = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-cwd-"));
     process.env.DISPATCH_AGENT_HOST_COMMAND = JSON.stringify([
-      process.execPath.includes("bun") ? process.execPath : "bun",
+      process.execPath.includes("bun")
+        ? process.execPath
+        : execFileSync("bun", ["-p", "process.execPath"], {
+            encoding: "utf8",
+          }).trim(),
       mainTs,
       "agent-host",
     ]);
@@ -118,6 +123,41 @@ describe("agent host", () => {
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   });
+
+  it.each(["claude", "codex"] as const)(
+    "%s effort survives the runtime launch file and a fresh host resume",
+    async (engine) => {
+      const id = `agt_effort_${engine}`;
+      let resumeSessionId: string | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { runtime } = runtimeWith(stateRoot, () => 0);
+        try {
+          const session = await runtime.launch({
+            ...launchFor(id, cwd),
+            engine,
+            effort: "high",
+            resumeSessionId,
+          });
+          resumeSessionId = session.sessionId;
+          const launch = JSON.parse(
+            readFileSync(path.join(stateRoot, id, "launch.json"), "utf8")
+          );
+          expect(launch.effort).toBe("high");
+          if (engine === "codex") {
+            expect(
+              runtime
+                .getConfigOptions(id)
+                ?.find((option) => option.id === "reasoning_effort")
+                ?.currentValue
+            ).toBe("high");
+          }
+        } finally {
+          await runtime.stop(id, true);
+        }
+      }
+    },
+    30_000
+  );
 
   it("interrupts real host work then starts urgent input in a separate turn", async () => {
     const id = "agt_interrupt";

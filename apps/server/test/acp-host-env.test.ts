@@ -221,3 +221,13 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
     );
   });
 }
+
+it("removes parent and launch environment effort overrides before starting the CLI", () => {
+  const env = buildHostEnv(
+    { engine: "claude", pathPrefix: [], env: { CLAUDE_EFFORT: "medium" } },
+    "/tmp/effort-test",
+    { PATH: "/bin", CLAUDE_EFFORT: "high", CLAUDE_CODE_EFFORT_LEVEL: "max" }
+  );
+  expect(env).not.toHaveProperty("CLAUDE_EFFORT");
+  expect(env).not.toHaveProperty("CLAUDE_CODE_EFFORT_LEVEL");
+});

@@ -31,7 +31,7 @@ async function createTemplate(
     directory: "/tmp",
     ...overrides,
   });
-  expect(res.statusCode).toBe(200);
+  expect(res.statusCode, res.body).toBe(200);
   return res.json();
 }
 
@@ -106,7 +106,7 @@ describe("POST /api/v1/templates (create)", () => {
 describe("GET /api/v1/templates (list)", () => {
   it("returns empty array when no templates exist", async () => {
     const res = await authedInject("GET", "/api/v1/templates");
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual([]);
   });
 
@@ -114,7 +114,7 @@ describe("GET /api/v1/templates (list)", () => {
     await createTemplate("tmpl-a");
     await createTemplate("tmpl-b");
     const res = await authedInject("GET", "/api/v1/templates");
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const templates = res.json();
     expect(templates).toHaveLength(2);
   });
@@ -149,7 +149,7 @@ describe("GET /api/v1/templates/:id (get)", () => {
       "GET",
       `/api/v1/templates/${(created as { id: string }).id}`
     );
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const body = res.json();
     expect(body.name).toBe("get-tmpl");
     expect(body.args).toBeInstanceOf(Array);
@@ -162,7 +162,7 @@ describe("GET /api/v1/templates/:id (get)", () => {
       "GET",
       `/api/v1/templates/${(created as { id: string }).id}`
     );
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     expect(res.json().args).toEqual([]);
   });
 
@@ -187,7 +187,7 @@ describe("PATCH /api/v1/templates/:id (update)", () => {
       prompt: "updated prompt",
       fullAccess: true,
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const body = res.json();
     expect(body.name).toBe("patched-name");
     expect(body.prompt).toBe("updated prompt");
@@ -206,7 +206,7 @@ describe("PATCH /api/v1/templates/:id (update)", () => {
       prompt: null,
       baseBranch: null,
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const body = res.json();
     expect(body.description).toBeNull();
     expect(body.prompt).toBeNull();
@@ -240,7 +240,7 @@ describe("DELETE /api/v1/templates/:id", () => {
     const created = await createTemplate("delete-tmpl");
     const id = (created as { id: string }).id;
     const res = await authedInject("DELETE", `/api/v1/templates/${id}`);
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     expect(res.json().name).toBe("delete-tmpl");
 
     const listRes = await authedInject("GET", "/api/v1/templates");
@@ -284,7 +284,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
       `/api/v1/templates/${id}/launch`,
       {}
     );
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const body = res.json();
     expect(body.agent).toBeDefined();
     expect(body.agent.id).toBeTruthy();
@@ -298,7 +298,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
       startupLinks: ["https://example.com/spec"],
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const agent = res.json().agent;
     // The launch post shows the URL once, as a link attachment, while
     // template runtime instructions stay out of the stream.
@@ -322,7 +322,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
       args: { app: "myapp", env: "staging" },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const agent = res.json().agent;
     expect(agent).toBeDefined();
     expect(agent.templateId).toBe(id);
@@ -337,7 +337,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
       directory: "/var/tmp",
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const agent = res.json().agent;
     expect(agent).toBeDefined();
     expect(agent.cwd).toBe("/var/tmp");
@@ -353,7 +353,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
       model: "opus",
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     expect(res.json().agent.model).toBe("opus");
   });
 
@@ -368,7 +368,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
       model: "",
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     expect(res.json().agent.model).toBeNull();
   });
 
@@ -493,7 +493,7 @@ describe("POST /api/v1/templates/:id/duplicate", () => {
           fullAccess: !source.fullAccess,
         }
       );
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode, res.body).toBe(200);
       const copy = res.json();
       const { id, name, createdAt, updatedAt, ...config } = source;
       expect(copy).toEqual({
@@ -567,4 +567,58 @@ it("copies a job-backed template without reassigning or duplicating its job", as
   const visible = (await authedInject("GET", "/api/v1/templates")).json();
   expect(visible).toHaveLength(1);
   expect(visible[0].id).toBe(result.json().id);
+});
+
+describe("template effort persistence", () => {
+  it("round-trips effort, preserves omitted updates, and clears to inherit", async () => {
+    const template = await createTemplate("effort-template", {
+      effort: "high",
+    });
+    expect(template.effort).toBe("high");
+    const url = `/api/v1/templates/${template.id}`;
+    expect((await authedInject("GET", url)).json().effort).toBe("high");
+    expect(
+      (await authedInject("PATCH", url, { name: "renamed-effort" })).json()
+        .effort
+    ).toBe("high");
+    expect(
+      (await authedInject("PATCH", url, { effort: "xhigh" })).json().effort
+    ).toBe("xhigh");
+    expect(
+      (await authedInject("PATCH", url, { effort: null })).json().effort
+    ).toBeNull();
+  });
+
+  it.each([{ effort: "turbo" }, { effort: "high", agentType: "opencode" }])(
+    "rejects unsupported effort at save: %j",
+    async (overrides) => {
+      const response = await authedInject("POST", "/api/v1/templates", {
+        name: "invalid-effort",
+        directory: "/tmp",
+        ...overrides,
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.body).toMatch(/effort/i);
+    }
+  );
+
+  it("validates the retained effort when changing runtime", async () => {
+    const template = await createTemplate("runtime-effort", { effort: "high" });
+    const url = `/api/v1/templates/${template.id}`;
+    expect(
+      (await authedInject("PATCH", url, { agentType: "opencode" })).statusCode
+    ).toBe(400);
+    expect((await authedInject("GET", url)).json()).toMatchObject({
+      agentType: "claude",
+      effort: "high",
+    });
+    expect(
+      (
+        await authedInject("PATCH", url, {
+          agentType: "opencode",
+          effort: null,
+        })
+      ).statusCode
+    ).toBe(200);
+  });
 });

@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS } from "@dispatch/shared";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
@@ -33,6 +34,13 @@ const AddTemplateBodySchema = z.object({
   prompt: z.string().nullable().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
   model: z.string().nullable().optional(),
+  effort: z
+    .enum(EFFORT_LEVELS, {
+      error:
+        "Effort must be low, medium, high, xhigh, max, or null to inherit.",
+    })
+    .nullable()
+    .optional(),
   persona: z.string().min(1).nullable().optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
@@ -51,6 +59,13 @@ const UpdateTemplateBodySchema = z.object({
   prompt: z.string().nullable().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
   model: z.string().nullable().optional(),
+  effort: z
+    .enum(EFFORT_LEVELS, {
+      error:
+        "Effort must be low, medium, high, xhigh, max, or null to inherit.",
+    })
+    .nullable()
+    .optional(),
   persona: z.string().min(1).nullable().optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
@@ -62,6 +77,13 @@ const UpdateTemplateBodySchema = z.object({
 });
 
 const LaunchBodySchema = z.object({
+  effort: z
+    .enum(EFFORT_LEVELS, {
+      error:
+        "Effort must be low, medium, high, xhigh, max, or null to inherit.",
+    })
+    .nullable()
+    .optional(),
   args: z.record(z.string(), z.string()).optional(),
   directory: directoryField.optional(),
   projectId: z.string().min(1).nullable().optional(),
@@ -85,7 +107,8 @@ function classifyErrorCode(message: string): number {
     message.includes("Missing required") ||
     message.includes("template argument") ||
     message.includes("no prompt") ||
-    message.includes("is not supported for")
+    message.includes("is not supported for") ||
+    /effort/i.test(message)
   )
     return 400;
   return 500;

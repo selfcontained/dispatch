@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { AGENT_TYPES } from "../../agent-type-settings.js";
@@ -230,6 +231,13 @@ export function registerTaskTools(
                 .describe(
                   "Model override; omitted or null inherits the template model. Validated for the effective runtime. " +
                     describeAgentModelCatalog(AGENT_TYPES)
+                ),
+              effort: z
+                .enum(EFFORT_LEVELS)
+                .nullable()
+                .optional()
+                .describe(
+                  "Reasoning effort override: low, medium, high, xhigh, max. Omitted or null inherits the template effort; validated for the effective runtime."
                 ),
               assign: z
                 .boolean()

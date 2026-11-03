@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import path from "node:path";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
@@ -349,6 +351,12 @@ async function handleLaunchAgent(
 ): Promise<LaunchAgentResult> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+  const template = input.templateId
+    ? await deps.templateService.getTemplate(input.templateId)
+    : null;
+  if (input.templateId && !template) {
+    throw new Error(`Template ${input.templateId} not found.`);
+  }
   const selectedPersona = input.persona
     ? await resolveLaunchPersona(
         input.cwd ?? agentWorkspaceDir(parent) ?? parent.cwd,
@@ -378,6 +386,7 @@ async function handleLaunchAgent(
         ? { agentType: input.type as (typeof CLI_AGENT_TYPES)[number] }
         : {}),
       ...(input.model ? { model: input.model } : {}),
+      effort: input.effort ?? template?.effort,
     });
     return {
       personaType: "review",
@@ -410,7 +419,8 @@ async function handleLaunchAgent(
     );
   }
 
-  const agentType = input.type ?? parent.type ?? "claude";
+  const agentType =
+    input.type ?? template?.agentType ?? parent.type ?? "claude";
   if (
     !CLI_AGENT_TYPES.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
   ) {
@@ -430,13 +440,6 @@ async function handleLaunchAgent(
   // is rendered the same way the web UI's launch form renders it, and its
   // worktree config fills in whatever the caller left unset; anything passed
   // explicitly at the call site still wins.
-  const template = input.templateId
-    ? await deps.templateService.getTemplate(input.templateId)
-    : null;
-  if (input.templateId && !template) {
-    throw new Error(`Template ${input.templateId} not found.`);
-  }
-
   const fromTemplate = templateWorktreeConfig(template);
 
   const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
@@ -451,7 +454,8 @@ async function handleLaunchAgent(
   const createNewBranch = input.createNewBranch ?? worktreeFromTemplate;
   const baseBranch = input.baseBranch ?? fromTemplate.baseBranch;
   const worktreeBranch = input.worktreeBranch ?? fromTemplate.worktreeBranch;
-  const fullAccess = parent.fullAccess && input.fullAccess !== false;
+  const fullAccess =
+    parent.fullAccess && (input.fullAccess ?? template?.fullAccess ?? true);
 
   // Placement is an instance-wide setting the web UI already honours; without
   // this the MCP path silently forced "sibling".
@@ -459,7 +463,14 @@ async function handleLaunchAgent(
 
   const model = validateAgentModel(
     agentType as (typeof CLI_AGENT_TYPES)[number],
-    input.model
+    input.model ??
+      (template?.agentType === agentType
+        ? (template.model ?? undefined)
+        : undefined)
+  );
+  const effort = validateAgentEffort(
+    agentType as (typeof CLI_AGENT_TYPES)[number],
+    input.effort ?? template?.effort
   );
 
   // Launching a template is a request for the template's own instructions —
@@ -482,9 +493,10 @@ async function handleLaunchAgent(
   const agent = await deps.agentManager.createAgent({
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
-    cwd: input.cwd ?? parentCwd,
+    cwd: input.cwd ?? template?.directory ?? parentCwd,
     fullAccess,
     model,
+    effort,
     useWorktree,
     createNewBranch,
     baseBranch,
@@ -734,6 +746,8 @@ async function handleListAgentsForAgent(
     id: string;
     name: string;
     status: string;
+    model: string | null;
+    effort: Effort | null;
     parentAgentId: string | null;
     parentName: string | null;
     launchedByAgentId?: string;
@@ -772,6 +786,8 @@ async function handleListAgentsForAgent(
     id: string;
     name: string;
     status: string;
+    model: string | null;
+    effort: Effort | null;
     parentAgentId: string | null;
     parentName: string | null;
     launchedByAgentId?: string;
@@ -795,6 +811,8 @@ async function handleListAgentsForAgent(
       id: a.id,
       name: a.name,
       status: a.status,
+      model: a.model ?? null,
+      effort: a.effort ?? null,
       parentAgentId: visibleParentId,
       parentName,
       ...(launcherName && rawLauncherId

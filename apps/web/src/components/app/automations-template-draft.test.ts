@@ -45,6 +45,7 @@ describe("templateDraftFrom", () => {
       prompt: "",
       agentType: "claude",
       model: null,
+      effort: null,
       persona: null,
       useWorktree: false,
       baseBranch: "main",
@@ -64,6 +65,7 @@ describe("templateDraftFrom", () => {
           prompt: "Do the thing",
           agentType: "codex",
           model: "gpt-5.5",
+          effort: null,
           persona: null,
           useWorktree: true,
           baseBranch: "develop",
@@ -82,6 +84,7 @@ describe("templateDraftFrom", () => {
       prompt: "Do the thing",
       agentType: "codex",
       model: "gpt-5.5",
+      effort: null,
       persona: null,
       useWorktree: true,
       baseBranch: "develop",
@@ -141,4 +144,12 @@ describe("templateConfigFromDraft", () => {
     expect(templateConfigFromDraft(draft({ prompt: "" })).prompt).toBeNull();
     expect(templateConfigFromDraft(draft({ prompt: "go" })).prompt).toBe("go");
   });
+});
+
+it("preserves a template effort through editing and supports clearing it", () => {
+  const edited = templateDraftFrom(template({ effort: "high" }));
+  expect(templateConfigFromDraft(edited).effort).toBe("high");
+  expect(
+    templateConfigFromDraft({ ...edited, effort: null }).effort
+  ).toBeNull();
 });

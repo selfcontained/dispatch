@@ -91,6 +91,7 @@ const empty = {
   templateId: "",
   agentType: null,
   model: null,
+  effort: null,
   assign: true,
   fireOnCreate: false,
 } satisfies TaskColumnTrigger;
@@ -229,9 +230,14 @@ export function TaskTriggerDialog({
                 ...old,
                 // Picking the template's own engine goes back to following it.
                 agentType: value === templateType ? null : value,
+                effort: null,
               }))
             }
             agentTypes={enabledAgentTypes}
+            effort={trigger.effort ?? null}
+            onEffortChange={(effort) =>
+              setTrigger((old) => ({ ...old, effort }))
+            }
             model={trigger.model}
             onModelChange={(model) => setTrigger((old) => ({ ...old, model }))}
             modelOptions={models.options}

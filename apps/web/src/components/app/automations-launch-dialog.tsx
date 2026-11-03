@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { ArgInput } from "@/components/app/arg-input";
 import { ContextPicker } from "@/components/app/context-picker";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useStartupAttachments } from "@/components/app/use-startup-attachments";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -75,6 +77,7 @@ function LaunchTemplateDialogContent({
     templateArgDefaults(args)
   );
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
+  const [effort, setEffort] = useState<Effort | null>(null);
   const [model, setModel] = useState<string | null>(template.model);
   // Each runtime keeps its own pick for the dialog's lifetime, so toggling the
   // agent type to compare and back does not silently drop a chosen model.
@@ -105,6 +108,7 @@ function LaunchTemplateDialogContent({
   useEffect(() => {
     setArgValues(templateArgDefaults(args));
     setAgentType(template.agentType);
+    setEffort(null);
     setModel(template.model);
     modelByAgentType.current = { [template.agentType]: template.model };
   }, [template.agentType, template.model, args]);
@@ -113,6 +117,7 @@ function LaunchTemplateDialogContent({
     (nextAgentType: AgentType) => {
       modelByAgentType.current[agentType] = model;
       setAgentType(nextAgentType);
+      setEffort(null);
       setModel(modelByAgentType.current[nextAgentType] ?? null);
     },
     [agentType, model]
@@ -153,6 +158,7 @@ function LaunchTemplateDialogContent({
         args: launchArgs,
         agentType,
         model: launchModel,
+        effort: effort ?? undefined,
         startupFiles: startupFiles.length > 0 ? startupFiles : undefined,
         startupLinks: startupLinks.length > 0 ? startupLinks : undefined,
       })
@@ -171,6 +177,7 @@ function LaunchTemplateDialogContent({
     argValues,
     launchTemplate,
     model,
+    effort,
     modelCatalogLoaded,
     modelOptions,
     navigate,
@@ -266,6 +273,13 @@ function LaunchTemplateDialogContent({
                 testId="launch-template-model"
               />
             ) : null}
+            <AgentEffortSelect
+              value={effort}
+              onChange={setEffort}
+              agentType={agentType}
+              id="launch-template-effort"
+              inheritLabel={`Inherit (${template.effort ?? "app default"})`}
+            />
           </div>
 
           {args.length > 0 ? (

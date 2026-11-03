@@ -28,21 +28,22 @@ omits prompt bodies — call `get_template` for the one you actually want.
 
 ## Fields
 
-| Field         | Meaning                                              |
-| ------------- | ---------------------------------------------------- |
-| `name`        | Display name, unique within `directory`              |
-| `description` | Shown in Cmd+K and launch views                      |
-| `directory`   | Absolute path of the repo this template runs against |
-| `prompt`      | The agent's first turn                               |
-| `agentType`   | `claude` or `codex`                                  |
-| `model`       | Optional model id, matching the agent type           |
-| `useWorktree` | Give the agent its own git worktree                  |
-| `baseBranch`  | Base branch for that worktree                        |
-| `branchName`  | Branch name for that worktree                        |
-| `fullAccess`  | Pass the CLI's full-access / bypass-approvals flag   |
-| `callable`    | Show it in the Cmd+K command palette                 |
-| `allowFiles`  | Default true: offer files and links at launch        |
-| `selfImprove` | Let the agent revise this saved prompt after a run   |
+| Field         | Meaning                                                                                                                                                                           |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | Display name, unique within `directory`                                                                                                                                           |
+| `description` | Shown in Cmd+K and launch views                                                                                                                                                   |
+| `directory`   | Absolute path of the repo this template runs against                                                                                                                              |
+| `prompt`      | The agent's first turn                                                                                                                                                            |
+| `agentType`   | `claude` or `codex`                                                                                                                                                               |
+| `model`       | Optional model id, matching the agent type                                                                                                                                        |
+| `effort`      | Optional `low`, `medium`, `high`, `xhigh`, or `max`; null inherits the Dispatch global default. Claude accepts all levels; Codex rejects `max`; OpenCode rejects explicit effort. |
+| `useWorktree` | Give the agent its own git worktree                                                                                                                                               |
+| `baseBranch`  | Base branch for that worktree                                                                                                                                                     |
+| `branchName`  | Branch name for that worktree                                                                                                                                                     |
+| `fullAccess`  | Pass the CLI's full-access / bypass-approvals flag                                                                                                                                |
+| `callable`    | Show it in the Cmd+K command palette                                                                                                                                              |
+| `allowFiles`  | Default true: offer files and links at launch                                                                                                                                     |
+| `selfImprove` | Let the agent revise this saved prompt after a run                                                                                                                                |
 
 Templates and jobs accept the same two agent types.
 

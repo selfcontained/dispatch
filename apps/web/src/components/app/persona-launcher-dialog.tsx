@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { Check, ChevronDown, GitBranch } from "lucide-react";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
@@ -45,6 +47,8 @@ export function PersonaLauncherDialog({
   showModelSelect,
   modelOptions,
   modelCatalogLoading,
+  selectedEffort,
+  setSelectedEffort,
   selectedModel,
   setSelectedModel,
   personas,
@@ -72,6 +76,8 @@ export function PersonaLauncherDialog({
   showModelSelect: boolean;
   modelOptions: AgentModelOption[];
   modelCatalogLoading: boolean;
+  selectedEffort: Effort | null;
+  setSelectedEffort: (value: Effort | null) => void;
   selectedModel: string | null;
   setSelectedModel: (model: string | null) => void;
   personas: PersonaSummary[];
@@ -200,6 +206,7 @@ export function PersonaLauncherDialog({
                                   value={agentType}
                                   onSelect={() => {
                                     setSelectedAgentType(agentType);
+                                    setSelectedEffort(null);
                                     onResetLaunchError();
                                     setTypeDropdownOpen(false);
                                     requestAnimationFrame(() =>
@@ -238,6 +245,12 @@ export function PersonaLauncherDialog({
                       testId="launch-reviewer-model"
                     />
                   ) : null}
+                  <AgentEffortSelect
+                    value={selectedEffort}
+                    onChange={setSelectedEffort}
+                    agentType={selectedAgentType}
+                    id="launch-reviewer-effort"
+                  />
                 </div>
 
                 <div className="space-y-2">

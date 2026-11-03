@@ -443,7 +443,9 @@ describe("launch outcome", () => {
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(screen.getByTestId("location").textContent).toBe("/agents/agt_new");
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe("/agents/agt_new")
+    );
   });
 
   it("surfaces a toast and stays open on failure", async () => {
@@ -637,4 +639,17 @@ describe("layout", () => {
     ).toBe(true);
     expect(body.contains(description)).toBe(false);
   });
+});
+
+it("sends the selected reasoning effort override", async () => {
+  queueLaunchedAgent("agt_effort");
+  await renderDialog(makeTemplate({ effort: "high" }));
+  fireEvent.keyDown(screen.getByTestId("launch-template-effort"), {
+    key: "Enter",
+  });
+  fireEvent.click(screen.getByRole("option", { name: "xhigh" }));
+  fireEvent.click(launchButton());
+  await waitFor(() =>
+    expect(lastJsonBody()).toMatchObject({ effort: "xhigh" })
+  );
 });

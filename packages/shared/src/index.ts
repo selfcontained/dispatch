@@ -7,8 +7,8 @@
  * and in the compiled server binary at once, so keep those to plain constants
  * that both sides genuinely have to agree on.
  */
-export { AGENT_TYPES, CLI_AGENT_TYPES } from "./agent-types.js";
-export type { AgentType, CliAgentType } from "./agent-types.js";
+export { AGENT_TYPES, CLI_AGENT_TYPES, EFFORT_LEVELS } from "./agent-types.js";
+export type { AgentType, CliAgentType, Effort } from "./agent-types.js";
 export type {
   AgentActivity,
   AgentGitContext,

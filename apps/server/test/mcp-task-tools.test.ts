@@ -279,3 +279,29 @@ describe("Conductor board watch instruction contract", () => {
     }
   );
 });
+
+it("accepts effort in column trigger MCP input and rejects unknown levels", async () => {
+  await withClient(false, async (client, update) => {
+    const result = await client.callTool({
+      name: "task_column_update",
+      arguments: {
+        column: "ready",
+        trigger: { templateId: "template", effort: "high" },
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(update).toHaveBeenCalledWith("col_own", {
+      trigger: { templateId: "template", effort: "high" },
+    });
+    update.mockClear();
+    const invalid = await client.callTool({
+      name: "task_column_update",
+      arguments: {
+        column: "ready",
+        trigger: { templateId: "template", effort: "turbo" },
+      },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(update).not.toHaveBeenCalled();
+  });
+});

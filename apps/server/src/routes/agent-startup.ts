@@ -13,6 +13,7 @@ export type CreateAgentBody = {
   /** Not accepted — see the create route; typed so it can be refused. */
   agentType?: unknown;
   model?: unknown;
+  effort?: unknown;
   cwd?: unknown;
   agentArgs?: unknown;
   codexArgs?: unknown;

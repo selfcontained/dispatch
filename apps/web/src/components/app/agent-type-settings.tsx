@@ -1,3 +1,4 @@
+import { EffortSettings } from "./effort-settings";
 import { useCallback, useEffect, useState } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -171,6 +172,7 @@ export function AgentTypeSettings({
         })}
       </div>
 
+      <EffortSettings />
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>
   );

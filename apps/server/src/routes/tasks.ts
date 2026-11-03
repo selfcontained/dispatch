@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS } from "@dispatch/shared";
 import {
   parseCreateAgentRequest,
   parseOptionalStringArrayField,
@@ -24,6 +25,7 @@ const TriggerSchema = z.object({
   templateId: z.string().min(1, "trigger.templateId is required."),
   agentType: z.enum(AGENT_TYPES).nullable().optional(),
   model: z.string().nullable().optional(),
+  effort: z.enum(EFFORT_LEVELS).nullable().optional(),
   assign: z.boolean().optional(),
   fireOnCreate: z.boolean().optional(),
 });
@@ -70,6 +72,7 @@ const LaunchSchema = z.object({
   templateId: z.string().min(1, "templateId is required."),
   agentType: z.enum(AGENT_TYPES).nullable().optional(),
   model: z.string().nullable().optional(),
+  effort: z.enum(EFFORT_LEVELS).nullable().optional(),
 });
 
 /**

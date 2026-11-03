@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import { parseMcpInventory } from "./mcp-inventory.js";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import { PermissionRequests } from "./permissions.js";
@@ -35,6 +36,10 @@ export type DriverLaunch = {
   agentId: string;
   cwd: string;
   engine: EngineSpec;
+  /** Claude must choose its model before the SDK resolves launch effort. */
+  model?: string | null;
+  /** Resolved launch effort; null leaves the CLI settings in control. */
+  effort?: Effort | null;
   /** Fixed guidance for engines that support a system prompt; null otherwise. */
   systemPromptAppend: string | null;
   /** Task context plus any first-message guidance, once per host start. */
@@ -621,9 +626,22 @@ export class AcpDriver {
       ...(launch.systemPromptAppend
         ? { systemPrompt: { append: launch.systemPromptAppend } }
         : {}),
-      ...(engine.id === "claude" && engine.fullAccess.kind === "approval"
+      ...(engine.id === "claude" &&
+      (engine.fullAccess.kind === "approval" ||
+        launch.effort != null ||
+        launch.model != null)
         ? {
-            claudeCode: { options: { allowDangerouslySkipPermissions: false } },
+            claudeCode: {
+              options: {
+                ...(engine.fullAccess.kind === "approval"
+                  ? { allowDangerouslySkipPermissions: false }
+                  : {}),
+                // The bundled adapter forwards SDK options; the SDK emits
+                // --effort <level> when creating the Claude CLI process.
+                ...(launch.effort != null ? { effort: launch.effort } : {}),
+                ...(launch.model != null ? { model: launch.model } : {}),
+              },
+            },
           }
         : {}),
     };

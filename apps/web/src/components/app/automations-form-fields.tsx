@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
 import { useMemo } from "react";
 import { GitBranch, Paperclip } from "lucide-react";
@@ -102,6 +104,8 @@ export interface TemplateConfigFieldsProps {
   persona?: string | null;
   onPersonaChange: (value: string | null) => void;
   model: string | null;
+  effort?: Effort | null;
+  onEffortChange: (value: Effort | null) => void;
   onModelChange: (value: string | null) => void;
   enabledAgentTypes: AgentType[];
   name: string;
@@ -137,6 +141,8 @@ export function TemplateConfigFields({
   agentType,
   onAgentTypeChange,
   model,
+  effort,
+  onEffortChange,
   onModelChange,
   persona,
   onPersonaChange,
@@ -194,6 +200,7 @@ export function TemplateConfigFields({
           onChange={(nextAgentType) => {
             onAgentTypeChange(nextAgentType);
             onModelChange(null);
+            onEffortChange(null);
           }}
           agentTypes={enabledAgentTypes}
         />
@@ -205,6 +212,12 @@ export function TemplateConfigFields({
             loading={modelCatalogLoading}
           />
         ) : null}
+        <AgentEffortSelect
+          value={effort ?? null}
+          onChange={onEffortChange}
+          agentType={agentType}
+          id="template-config-effort"
+        />
       </div>
 
       <div className="space-y-1">
