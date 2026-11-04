@@ -83,7 +83,14 @@
         "e2e/*project*",
         "apps/web/src/components/app/project-*",
         "apps/web/src/hooks/use-projects*",
-        "apps/server/test/launch-guidance.test.ts"
+        "apps/server/test/launch-guidance.test.ts",
+        "apps/server/src/effort-settings.ts",
+        "apps/server/src/shared/agent-effort.ts",
+        "apps/server/test/claude-effort-adapter.test.ts",
+        "apps/server/test/claude-effort-sdk.test.ts",
+        "apps/server/test/effort-settings.test.ts",
+        "apps/server/test/launch-effort.test.ts",
+        "docs/reasoning-effort.md"
       ],
       "personas": ["agent-runtime-owner"]
     },
@@ -273,7 +280,9 @@
         "scripts/fixtures/sparkle*",
         "scripts/write-bun-checksums.mjs",
         "scripts/smoke-bun-binary.mjs",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "apps/server/test/helpers/process-liveness.ts",
+        "playwright.config.ts"
       ],
       "personas": ["release-update-owner"]
     },

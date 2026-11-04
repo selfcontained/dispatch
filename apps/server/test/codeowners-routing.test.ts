@@ -10,6 +10,15 @@ const root = path.resolve(import.meta.dirname, "../../..");
 
 // Real files anchor cross-layer routing. Exact sets also catch accidental fan-out.
 const cases: [string, string[]][] = [
+  ["apps/server/src/effort-settings.ts", ["agent-runtime-owner"]],
+  ["apps/server/src/shared/agent-effort.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/claude-effort-adapter.test.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/claude-effort-sdk.test.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/effort-settings.test.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/launch-effort.test.ts", ["agent-runtime-owner"]],
+  ["docs/reasoning-effort.md", ["agent-runtime-owner"]],
+  ["apps/server/test/helpers/process-liveness.ts", ["release-update-owner"]],
+  ["playwright.config.ts", ["release-update-owner"]],
   [".github/workflows/ci.yml", ["release-update-owner"]],
   ["scripts/ci-owner-coverage.ts", ["review-lifecycle-owner"]],
   ["apps/server/src/personas/coverage.ts", ["review-lifecycle-owner"]],

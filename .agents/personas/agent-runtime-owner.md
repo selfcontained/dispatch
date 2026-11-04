@@ -21,6 +21,8 @@ Read `apps/server/src/agents/manager.ts`, `agents/acp/`, `shared/git/`, and the 
 
 - Trace launch configuration from form through route to engine: model, access ceiling, workspace, and worktree-local overrides must agree. Personality settings must propagate to the intended prompt/session without changing unrelated agents.
 
+- Reasoning effort must resolve explicit launch → trigger → template → app default, never parent effort. Missing defaults preserve medium; cleared defaults omit CLI effort and inherited effort environment overrides. Check runtime-specific validation, adapter/SDK propagation, restart persistence, and agreement between documented behavior and launch metadata.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.
