@@ -1,4 +1,5 @@
-import { execFile, execSync } from "node:child_process";
+import { isProcessRunning as processAlive } from "./helpers/process-liveness.js";
+import { execFile, execFileSync, execSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -24,21 +25,16 @@ const STATE_FILE = `/tmp/dispatch-dev-${SUFFIX}.env`;
 const LOG_DIR = `/tmp/dispatch-dev-${SUFFIX}`;
 const HOST_WRAPPER = `/tmp/dispatch-dev-host-${SUFFIX}.sh`;
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function stateValue(name: string): string {
   const line = readFileSync(STATE_FILE, "utf8")
     .split("\n")
     .find((candidate) => candidate.startsWith(`${name}=`));
   if (!line) throw new Error(`${name} missing from ${STATE_FILE}`);
   return line.slice(name.length + 1);
-}
-
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function until(check: () => boolean | Promise<boolean>): Promise<void> {
@@ -325,7 +321,7 @@ describe("dispatch-dev", () => {
         [
           "#!/usr/bin/env bash",
           `export DISPATCH_ACP_ADAPTER_COMMAND='${JSON.stringify([fakeAgent])}'`,
-          `exec bun ${JSON.stringify(mainTs)} agent-host "$@"`,
+          `exec ${shellQuote(execFileSync("bun", ["-p", "process.execPath"], { encoding: "utf8" }).trim())} ${shellQuote(mainTs)} agent-host "$@"`,
           "",
         ].join("\n")
       );
@@ -343,6 +339,9 @@ describe("dispatch-dev", () => {
         await runAsync(upArgs, {
           env: {
             DISPATCH_AGENT_HOST_COMMAND: JSON.stringify([HOST_WRAPPER]),
+            // The host runs fake ACP; executable preflight must not require
+            // an installed, authenticated Claude CLI on the test machine.
+            DISPATCH_CLAUDE_BIN: process.execPath,
             DISPATCH_HOST: "127.0.0.1",
           },
         });

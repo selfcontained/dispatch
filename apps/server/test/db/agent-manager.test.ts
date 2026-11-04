@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { personaCatalog } from "../../src/personas/catalog.js";
 import * as gitContext from "../../src/shared/git/git-context.js";
 import { upsertPersona } from "../../src/personas/authoring.js";
@@ -2821,7 +2822,9 @@ describe("AgentManager", () => {
     const previousAdapter = process.env.DISPATCH_ACP_ADAPTER_COMMAND;
     const repo = path.resolve(import.meta.dirname, "../../../..");
     process.env.DISPATCH_AGENT_HOST_COMMAND = JSON.stringify([
-      "bun",
+      execFileSync("bun", ["-p", "process.execPath"], {
+        encoding: "utf8",
+      }).trim(),
       path.join(repo, "apps/server/src/main.ts"),
       "agent-host",
     ]);

@@ -1,3 +1,4 @@
+import { isProcessRunning } from "./helpers/process-liveness.js";
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -323,7 +324,7 @@ esac
     expect(apiPidLine).toBeDefined();
     const apiPid = Number(apiPidLine!.match(/PID (\d+)/)![1]);
     expect(result.stdout).toContain(`Stopped API server (PID ${apiPid})`);
-    expect(() => process.kill(apiPid, 0)).toThrow();
+    expect(isProcessRunning(apiPid)).toBe(false);
   }, 30_000);
 });
 

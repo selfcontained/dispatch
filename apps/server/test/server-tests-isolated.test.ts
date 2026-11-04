@@ -1,3 +1,4 @@
+import { isProcessRunning as isPidAlive } from "./helpers/process-liveness.js";
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -257,20 +258,10 @@ function isCall(line: string, subcommand: string): boolean {
   return ` ${line} `.includes(` ${subcommand} `);
 }
 
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // By the time the wrapper script itself exits, its own bounded wait/kill
 // loop has already confirmed the tree is gone — but this test process has
-// no wait() relationship with that worker, so a just-killed PID can look
-// briefly alive as an unreaped zombie. A short poll absorbs that without
-// masking an actual survivor (the deadline still throws).
+// no wait() relationship with that worker. Treat unreaped zombies as exited;
+// container PID 1 may never reap them. Poll only genuinely running survivors.
 async function waitForPidDeath(pid: number): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {

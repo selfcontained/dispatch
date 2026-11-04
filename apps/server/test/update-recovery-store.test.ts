@@ -57,6 +57,7 @@ async function fixture() {
   const database = path.join(root, "database.dump");
   const state = path.join(root, "settings.json");
   await writeFile(runtime, "old executable", { mode: 0o755 });
+  await chmod(runtime, 0o755); // Fixture mode must not depend on the runner's umask.
   await writeFile(database, "database snapshot", { mode: 0o600 });
   await writeFile(state, "private settings", { mode: 0o600 });
   const store = await RecoveryStore.open(path.join(root, "recovery"));
@@ -418,6 +419,7 @@ describe("durable update recovery storage", () => {
     const { root, store, transaction, input } = await fixture();
     const publicRoot = path.join(root, "public");
     await mkdir(publicRoot, { mode: 0o755 });
+    await chmod(publicRoot, 0o755); // Intentionally insecure even under umask 0077.
     await expect(RecoveryStore.open(publicRoot)).rejects.toThrow("private");
     const link = path.join(root, "store-link");
     await symlink(store.root, link);
