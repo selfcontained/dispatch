@@ -75,6 +75,14 @@ describe("block_reactions uniqueness migration", () => {
 
 /** Rewinds task migrations, which depend on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
+  // Rewind nullable launch fields too: the runner refuses an older migration
+  // while a later one remains recorded, and replay must recreate its columns.
+  await pool.query("ALTER TABLE agents DROP COLUMN IF EXISTS effort");
+  await pool.query("ALTER TABLE templates DROP COLUMN IF EXISTS effort");
+  await pool.query("ALTER TABLE jobs DROP COLUMN IF EXISTS effort");
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name IN ('0032_template_effort', '0033_agent_effort')"
+  );
   await pool.query("DROP TABLE IF EXISTS message_shares");
   await pool.query(
     "DELETE FROM pgmigrations WHERE name = '0029_message_shares'"
