@@ -37,7 +37,11 @@ test.describe("Create agent dialog", () => {
       trackAgent(agent.id);
       expect(agent.role).toBe("standard");
       expect(agent.persona).toBe("builder");
-      await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
+      // Creating an agent already opens its details; toggling here closes
+      // the card and races the exit animation.
+      await expect(
+        page.getByTestId(`agent-expand-toggle-${agent.id}`)
+      ).toHaveAttribute("aria-expanded", "true");
       const card = page.getByTestId(`agent-card-${agent.id}`);
       await expect(
         card.getByRole("button", { name: "Archive", exact: true })
