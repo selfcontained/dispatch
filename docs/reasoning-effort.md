@@ -1,6 +1,6 @@
 # Per-agent reasoning effort
 
-Dispatch resolves launch effort in this order: explicit launch value, column trigger override, template, app default. Null or an absent field inherits the next level. Effort never inherits from the launching agent. New installations and existing settings without a saved default use `medium`. In Settings → Agent types, choose CLI settings to clear the app default; this is stored as JSON null, distinct from an absent setting.
+Dispatch resolves launch effort in this order: explicit launch value, column trigger override, template, app default. Null or an absent field inherits the next level. Effort never inherits from the launching agent. New installations and existing settings without a saved default use `medium`. In Settings → Agents, choose CLI settings to clear the app default; this is stored as JSON null, distinct from an absent setting.
 
 `GET /api/v1/app/settings/effort` returns `{ "effort": "medium" }` (or null). `POST` to the same path accepts `{ "effort": null }` to defer to engine configuration, or a supported Claude level. Existing sessions retain their resolved launch effort when restarted; changing templates or the app default affects new sessions only.
 

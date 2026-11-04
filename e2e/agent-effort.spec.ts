@@ -181,3 +181,136 @@ test("global effort default is resolved for new agents and can be cleared", asyn
     await cleanupE2EAgents(request);
   }
 });
+
+test("runtime changes clear incompatible trigger overrides and explain inherited launch conflicts", async ({
+  page,
+  request,
+}, testInfo) => {
+  const headers = authHeaders();
+  const projectResponse = await request.post("/api/v1/projects", {
+    headers,
+    data: { name: "Effort compatibility", repoRoot: repo, color: "#7c6ee6" },
+  });
+  expect(projectResponse.ok(), await projectResponse.text()).toBeTruthy();
+  const project = await projectResponse.json();
+  const templateIds: string[] = [];
+  try {
+    const create = async (
+      name: string,
+      agentType: string,
+      effort: string | null
+    ) => {
+      const response = await request.post("/api/v1/templates", {
+        headers,
+        data: {
+          name,
+          directory: repo,
+          projectId: project.id,
+          agentType,
+          effort,
+        },
+      });
+      expect(response.ok(), await response.text()).toBeTruthy();
+      const template = await response.json();
+      templateIds.push(template.id);
+      return template;
+    };
+    const claude = await create("Claude high template", "claude", "high");
+    const opencode = await create(
+      "OpenCode inherited template",
+      "opencode",
+      null
+    );
+    const board = await (
+      await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+        headers,
+      })
+    ).json();
+    const ready = board.columns.find(
+      (column: { key: string }) => column.key === "ready"
+    );
+    expect(
+      (
+        await request.patch(`/api/v1/task-columns/${ready.id}`, {
+          headers,
+          data: {
+            trigger: {
+              templateId: claude.id,
+              effort: "high",
+              agentType: null,
+              model: null,
+              assign: true,
+              fireOnCreate: false,
+            },
+          },
+        })
+      ).ok()
+    ).toBeTruthy();
+    await loadApp(page);
+    await page.goto(`/tasks?project=${project.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.getByTestId("task-column-trigger-ready").click();
+    const dialog = page.getByRole("dialog", { name: /^Trigger ·/ });
+    await dialog.locator("#task-trigger-template").click();
+    await page
+      .getByRole("option", { name: opencode.name, exact: true })
+      .click();
+    await expect(dialog.getByTestId("task-trigger-effort")).toBeDisabled();
+    await expect(dialog.getByTestId("task-trigger-effort")).toContainText(
+      "Inherit"
+    );
+    await expect(
+      dialog.getByRole("button", { name: "Save", exact: true })
+    ).toBeEnabled();
+    await page.screenshot({
+      path: testInfo.outputPath("compatible-trigger-switch.png"),
+      fullPage: true,
+    });
+    const saved = page.waitForResponse(
+      (r) =>
+        r.url().endsWith(`/task-columns/${ready.id}`) &&
+        r.request().method() === "PATCH"
+    );
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    expect((await saved).ok()).toBeTruthy();
+    const storedBoard = await (
+      await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+        headers,
+      })
+    ).json();
+    expect(
+      storedBoard.columns.find(
+        (column: { id: string }) => column.id === ready.id
+      ).trigger
+    ).toMatchObject({ templateId: opencode.id, effort: null });
+
+    await page.goto(`/automations/templates/${claude.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.getByRole("button", { name: "Launch", exact: true }).click();
+    const launch = page.getByRole("dialog");
+    await launch.locator("#launch-template-agent-type").click();
+    await page.getByRole("option", { name: "OpenCode", exact: true }).click();
+    await expect(launch.getByRole("alert")).toContainText(
+      "template without effort"
+    );
+    await expect(
+      launch.getByRole("button", { name: "Launch", exact: true })
+    ).toBeDisabled();
+    await page.screenshot({
+      path: testInfo.outputPath("inherited-effort-conflict.png"),
+      fullPage: true,
+    });
+    await launch.locator("#launch-template-agent-type").click();
+    await page.getByRole("option", { name: "Claude", exact: true }).click();
+    await expect(launch.getByRole("alert")).toHaveCount(0);
+    await expect(
+      launch.getByRole("button", { name: "Launch", exact: true })
+    ).toBeEnabled();
+  } finally {
+    for (const id of templateIds)
+      await request.delete(`/api/v1/templates/${id}`, { headers });
+    await request.delete(`/api/v1/projects/${project.id}`, { headers });
+  }
+});

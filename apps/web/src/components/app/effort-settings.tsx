@@ -40,6 +40,12 @@ export function EffortSettings(): JSX.Element {
       ) : (
         <p className="text-sm text-muted-foreground">Loading…</p>
       )}
+      {query.data?.effort === "max" ? (
+        <p className="text-sm text-muted-foreground">
+          Codex does not support max. Codex launches need a supported template
+          or launch effort override.
+        </p>
+      ) : null}
       {query.error || save.error ? (
         <p role="alert" className="text-sm text-destructive">
           {(query.error ?? save.error)?.message}

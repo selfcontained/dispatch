@@ -12,7 +12,7 @@ export function validateAgentEffort(
   }
   if (type === "opencode")
     throw new Error(
-      "OpenCode does not support launch effort. Clear effort (null) or choose Claude/Codex."
+      "OpenCode does not support launch effort. Remove effort from the template or launch configuration, or choose Claude/Codex."
     );
   if (type === "codex" && effort === "max")
     throw new Error(

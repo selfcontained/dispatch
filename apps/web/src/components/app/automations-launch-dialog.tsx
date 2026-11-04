@@ -31,6 +31,7 @@ import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
+import { effortCompatibilityError } from "@/lib/agent-effort";
 
 export function LaunchTemplateDialog({
   template,
@@ -142,7 +143,13 @@ function LaunchTemplateDialogContent({
     args.length === 0 ||
     args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
 
+  const effortError = effortCompatibilityError(
+    agentType,
+    effort ?? template.effort
+  );
+
   const handleLaunch = useCallback(() => {
+    if (effortError) return;
     const launchArgs = args.length > 0 ? argValues : undefined;
     // Until the catalog arrives we cannot tell a valid selection from a
     // retired model id, so send nothing and let the template's saved model
@@ -178,6 +185,7 @@ function LaunchTemplateDialogContent({
     launchTemplate,
     model,
     effort,
+    effortError,
     modelCatalogLoaded,
     modelOptions,
     navigate,
@@ -218,7 +226,8 @@ function LaunchTemplateDialogContent({
         className="flex min-h-0 flex-1 flex-col"
         onSubmit={(e) => {
           e.preventDefault();
-          if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
+          if (allArgsFilled && !effortError && !launchTemplate.isPending)
+            handleLaunch();
         }}
         onDragOver={
           showFiles
@@ -282,6 +291,12 @@ function LaunchTemplateDialogContent({
             />
           </div>
 
+          {effortError ? (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {effortError}
+            </p>
+          ) : null}
+
           {args.length > 0 ? (
             <div className="mt-3 flex flex-col gap-3">
               {args.map((arg) => (
@@ -319,7 +334,9 @@ function LaunchTemplateDialogContent({
           <Button
             type="submit"
             variant="primary"
-            disabled={!allArgsFilled || launchTemplate.isPending}
+            disabled={
+              !allArgsFilled || Boolean(effortError) || launchTemplate.isPending
+            }
           >
             {launchTemplate.isPending ? (
               <ActivityBars size={16} className="mr-1.5" />
