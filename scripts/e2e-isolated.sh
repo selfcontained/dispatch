@@ -46,6 +46,9 @@ export E2E_PORT="$API_PORT"
 # inside an agent session cannot inherit live mode. Hosts live under this
 # run's own state root and are stopped on teardown.
 export DISPATCH_AGENT_RUNTIME="${E2E_AGENT_RUNTIME:-inert}"
+# Keep real human-terminal PTYs, but skip runner-specific login shell plugins
+# (for example an Oh My Zsh update prompt that consumes the first keystroke).
+export DISPATCH_TEST_TERMINAL_SHELL=1
 export DISPATCH_AGENT_STATE_ROOT="/tmp/dispatch-agents-${RUN_ID}"
 # The adapters ship inside the binary; this stands a fake engine in for both
 # so the runtime can be driven with no engine installed (test seam only).

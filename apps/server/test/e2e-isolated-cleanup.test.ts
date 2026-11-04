@@ -128,6 +128,14 @@ async function waitForCallLine(
 }
 
 describe("e2e-isolated.sh teardown", () => {
+  it("enables an isolated real shell for terminal browser tests", () => {
+    const { run } = fixture({
+      up: "exit 0",
+      playwrightTest: 'test "$DISPATCH_TEST_TERMINAL_SHELL" = 1',
+    });
+    expect(run().status).toBe(0);
+  });
+
   it("targets this project's docker-compose.yml explicitly on both up and down, regardless of cwd assumptions", () => {
     const { run, calls } = fixture();
     const result = run();

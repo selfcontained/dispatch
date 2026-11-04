@@ -23,6 +23,8 @@ Read `apps/server/src/agents/manager.ts`, `agents/acp/`, `shared/git/`, and the 
 
 - Reasoning effort must resolve explicit launch → trigger → template → app default, never parent effort. Missing defaults preserve medium; cleared defaults omit CLI effort and inherited effort environment overrides. Check runtime-specific validation, adapter/SDK propagation, restart persistence, and agreement between documented behavior and launch metadata.
 
+- Human terminal E2E isolation must require an explicit test-harness opt-in, retain real PTY input/output, and omit login startup files. Normal terminals must keep the OS account login shell; never broaden the terminal environment allowlist to include credentials or startup hooks.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

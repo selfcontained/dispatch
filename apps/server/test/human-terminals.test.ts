@@ -9,6 +9,7 @@ import {
   HumanTerminalManager,
   REPLAY_BYTES,
   terminalEnvironment,
+  terminalCommand,
   type PtyProcess,
 } from "../src/terminal/manager.js";
 import {
@@ -62,6 +63,20 @@ afterEach(() => {
 });
 
 describe("human terminal lifecycle", () => {
+  it("isolates E2E shell startup only when explicitly enabled", () => {
+    vi.stubEnv("DISPATCH_TEST_TERMINAL_SHELL", "");
+    expect(terminalCommand("/bin/zsh")).toEqual(["/bin/zsh", "-l"]);
+    expect(terminalCommand(null)).toEqual(["/bin/sh", "-l"]);
+    vi.stubEnv("DISPATCH_TEST_TERMINAL_SHELL", "1");
+    expect(terminalCommand("/bin/zsh")).toEqual(["/bin/sh", "-i"]);
+    expect(
+      terminalEnvironment({
+        ENV: "/tmp/startup",
+        BASH_ENV: "/tmp/startup",
+        DISPATCH_TEST_TERMINAL_SHELL: "1",
+      })
+    ).toEqual({ TERM: "xterm-256color", COLORTERM: "truecolor" });
+  });
   it("keeps one per owner/tab/workspace, rejects foreign owners, replays bounded bytes and expires disconnected processes", () => {
     vi.useFakeTimers();
     const h = harness();

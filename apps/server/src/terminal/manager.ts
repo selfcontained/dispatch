@@ -51,6 +51,14 @@ export type SpawnTerminal = (
   output: (data: Uint8Array) => void
 ) => PtyProcess;
 
+/** E2E keeps real PTY I/O without loading the runner's login-shell plugins. */
+export function terminalCommand(
+  shell = userInfo().shell,
+  isolated = process.env.DISPATCH_TEST_TERMINAL_SHELL === "1"
+): string[] {
+  return isolated ? ["/bin/sh", "-i"] : [shell || "/bin/sh", "-l"];
+}
+
 export const spawnTerminal: SpawnTerminal = (cwd, output) => {
   if (
     typeof Bun === "undefined" ||
@@ -65,8 +73,7 @@ export const spawnTerminal: SpawnTerminal = (cwd, output) => {
     throw new Error(
       "Human terminals require Dispatch to run as an ordinary OS user."
     );
-  const shell = userInfo().shell || "/bin/sh";
-  const proc = Bun.spawn([shell, "-l"], {
+  const proc = Bun.spawn(terminalCommand(), {
     cwd,
     env: terminalEnvironment(),
     terminal: { cols: 80, rows: 24, data: (_terminal, data) => output(data) },

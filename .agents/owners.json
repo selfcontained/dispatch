@@ -90,7 +90,9 @@
         "apps/server/test/claude-effort-sdk.test.ts",
         "apps/server/test/effort-settings.test.ts",
         "apps/server/test/launch-effort.test.ts",
-        "docs/reasoning-effort.md"
+        "docs/reasoning-effort.md",
+        "apps/server/src/terminal/manager.ts",
+        "apps/server/test/human-terminals.test.ts"
       ],
       "personas": ["agent-runtime-owner"]
     },
