@@ -412,6 +412,18 @@
         "stream-delivery-owner",
         "mcp-contract-owner"
       ]
+    },
+    {
+      "paths": [
+        "docs/14-theming.md",
+        "docs/ci.md",
+        "docs/jobs/componentizer.md",
+        "docs/jobs/persona-review.md",
+        "docs/jobs/tech-debt.md",
+        "docs/jobs/test-enforcer.md",
+        "docs/update-backup-recovery-spec.md"
+      ],
+      "personas": ["code-review"]
     }
   ],
   "fallback": ["code-review"]
