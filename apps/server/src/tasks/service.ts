@@ -1,3 +1,4 @@
+import { taskLabelsSchema } from "./labels.js";
 import { taskAgentName } from "@dispatch/shared";
 import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
 import path from "node:path";
@@ -489,7 +490,26 @@ export class TaskService {
           : null,
       })),
       tasks,
+      labels: await this.store.listLabels(projectId),
+      hiddenLabels: await this.store.listLabels(projectId, true),
     };
+  }
+
+  async setLabelHidden(projectId: string, name: string, hidden: boolean) {
+    await this.requireProject(projectId);
+    const parsed = taskLabelsSchema.safeParse([{ name, color: "gray" }]);
+    if (!parsed.success || typeof hidden !== "boolean")
+      throw invalid("A valid label name and hidden boolean are required.");
+    if (
+      !(await this.store.setLabelHidden(
+        projectId,
+        parsed.data[0]!.name,
+        hidden
+      ))
+    )
+      throw notFound("Label");
+    this.publish(projectId);
+    return { hidden };
   }
 
   async resolveColumnKey(projectId: string, key: string): Promise<TaskColumn> {
@@ -906,6 +926,8 @@ export class TaskService {
     if (files.length && !this.deps.filesRoot)
       throw new Error("Task file storage is unavailable.");
     await this.requireProject(input.projectId);
+    const labels = taskLabelsSchema.safeParse(input.labels ?? []);
+    if (!labels.success) throw invalid(labels.error.message);
     const title = input.title.trim();
     if (!title) throw invalid("title is required.");
     const columns = await this.ensureColumns(input.projectId);
@@ -947,6 +969,13 @@ export class TaskService {
           id,
           { launchTemplateId: input.launchTemplateId },
           { db }
+        );
+      if (
+        input.labels !== undefined &&
+        !(await this.store.setLabels(id, input.projectId, labels.data, db))
+      )
+        throw invalid(
+          "Restore a hidden label before adding it to another task."
         );
       return currentColumn;
     });
@@ -1050,8 +1079,14 @@ export class TaskService {
     if (input.beforeId === id)
       throw invalid("beforeId cannot be the moving task.");
     const actor = actorOf(caller);
+    const labels =
+      input.labels === undefined
+        ? undefined
+        : taskLabelsSchema.safeParse(input.labels);
+    if (labels && !labels.success) throw invalid(labels.error.message);
     const patch: TaskPatch = {};
     const changed: string[] = [];
+    if (labels?.success) changed.push("labels");
     if (input.launchTemplateId !== undefined) {
       await this.validateLaunchPreference(
         task.projectId,
@@ -1186,13 +1221,20 @@ export class TaskService {
           );
         patch.position = position;
       }
-      if (Object.keys(patch).length > 0) {
+      if (Object.keys(patch).length > 0 || labels?.success) {
         const updated = await this.store.updateTask(id, patch, {
           ...(destination ? { fromColumnId: task.columnId } : {}),
           db,
         });
         if (!updated) return false;
       }
+      if (
+        labels?.success &&
+        !(await this.store.setLabels(id, task.projectId, labels.data, db))
+      )
+        throw invalid(
+          "Restore a hidden label before adding it to another task."
+        );
       if (changed.length > 0)
         await this.store.insertEvent(
           id,

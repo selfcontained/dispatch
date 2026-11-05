@@ -1,3 +1,4 @@
+import { taskLabelsSchema } from "../tasks/labels.js";
 import {
   parseCreateAgentRequest,
   parseOptionalStringArrayField,
@@ -46,6 +47,7 @@ const LinkSchema = z.object({
 });
 
 const CreateTaskSchema = z.object({
+  labels: taskLabelsSchema.optional(),
   launchTemplateId: z.string().min(1).nullable().optional(),
   projectId: z.string().min(1, "projectId is required."),
   title: z.string().min(1, "title is required."),
@@ -55,6 +57,7 @@ const CreateTaskSchema = z.object({
 });
 
 const UpdateTaskSchema = z.object({
+  labels: taskLabelsSchema.optional(),
   launchTemplateId: z.string().min(1).nullable().optional(),
   beforeId: z.string().min(1).nullable().optional(),
   title: z.string().min(1).optional(),
@@ -109,6 +112,28 @@ export async function registerTaskRoutes(
         archived: request.query.archived === "1",
       })
     )
+  );
+
+  app.patch<{ Params: { projectId: string } }>(
+    "/api/v1/projects/:projectId/task-labels/visibility",
+    async (request, reply) => {
+      const input = parseInput(
+        z.object({
+          name: z.string().trim().min(1).max(40),
+          hidden: z.boolean(),
+        }),
+        request.body,
+        reply
+      );
+      if (!input) return reply;
+      return mapTaskErrors(reply, () =>
+        taskService.setLabelHidden(
+          request.params.projectId,
+          input.name,
+          input.hidden
+        )
+      );
+    }
   );
 
   app.post<{ Params: { projectId: string } }>(
@@ -179,6 +204,8 @@ export async function registerTaskRoutes(
           parsed.isMultipart
         ) ?? []
       );
+      if (parsed.isMultipart && typeof parsed.body.labels === "string")
+        parsed.body.labels = JSON.parse(parsed.body.labels);
       if (parsed.isMultipart && parsed.body.launchTemplateId === "null")
         parsed.body.launchTemplateId = null;
       if (parsed.isMultipart && parsed.body.position !== undefined)

@@ -1,3 +1,4 @@
+import { taskLabelsSchema } from "../../tasks/labels.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { AGENT_TYPES } from "../../agent-type-settings.js";
@@ -152,6 +153,13 @@ export function registerTaskTools(
             .min(1)
             .optional()
             .describe("Only tasks in this column (its key, e.g. in_review)."),
+          labels: z
+            .array(z.string().trim().min(1).max(40))
+            .max(100)
+            .optional()
+            .describe(
+              "Only tasks matching ANY of these project label names (case-insensitive). Omit or [] for all labels; column/global counts are unchanged."
+            ),
           archived: z.boolean().optional().describe("Only archived tasks."),
           assignedToMe: z
             .boolean()
@@ -171,7 +179,17 @@ export function registerTaskTools(
               `Column "${args.column}" not found. Columns: ${board.columns.map((c) => c.key).join(", ")}.`,
               400
             );
+          const labelNames = new Set(
+            (args.labels ?? []).map((name) => name.toLowerCase())
+          );
           const tasks = board.tasks
+            .filter(
+              (t) =>
+                !labelNames.size ||
+                t.labels?.some((label) =>
+                  labelNames.has(label.name.toLowerCase())
+                )
+            )
             .filter(
               (t) => !args.column || keyOf.get(t.columnId) === args.column
             )
@@ -181,6 +199,7 @@ export function registerTaskTools(
               title: t.title,
               column: keyOf.get(t.columnId) ?? null,
               assignedAgentId: t.assignedAgentId,
+              labels: t.labels ?? [],
               launchTemplateId: t.launchTemplateId,
               updatedAt: t.updatedAt,
             }));
@@ -354,6 +373,11 @@ export function registerTaskTools(
         description:
           "Create a task on your project's board, in the first column unless you name one. A column with automation may launch an agent for it.",
         inputSchema: {
+          labels: taskLabelsSchema
+            .optional()
+            .describe(
+              "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; unknown names create definitions."
+            ),
           launchTemplateId: launchTemplateIdSchema.optional(),
           title: z.string().min(1).max(500),
           body: z
@@ -378,6 +402,7 @@ export function registerTaskTools(
                 ? { launchTemplateId: args.launchTemplateId }
                 : {}),
               title: args.title,
+              ...(args.labels !== undefined ? { labels: args.labels } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
             },
@@ -389,6 +414,7 @@ export function registerTaskTools(
           return ok({
             id: task.id,
             column: key ?? null,
+            labels: task.labels ?? [],
             launchTemplateId: task.launchTemplateId,
           });
         } catch (error) {
@@ -406,6 +432,11 @@ export function registerTaskTools(
           'Update a task. Move it with column (a key) as the work changes state, e.g. "in_review" once a PR is up (your task briefing lists this board\'s keys); a column with automation may launch the next agent. assign "self" makes it yours and puts you on its conversation (the task\'s own stream); links are appended; archived (sent alone) archives or restores it.',
         inputSchema: {
           id: z.string().min(1),
+          labels: taskLabelsSchema
+            .optional()
+            .describe(
+              "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; unknown names create definitions."
+            ),
           launchTemplateId: launchTemplateIdSchema.optional(),
           title: z.string().min(1).max(500).optional(),
           body: z.string().max(50_000).optional(),
@@ -458,6 +489,7 @@ export function registerTaskTools(
                 ? { launchTemplateId: args.launchTemplateId }
                 : {}),
               ...(args.title !== undefined ? { title: args.title } : {}),
+              ...(args.labels !== undefined ? { labels: args.labels } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
               ...(links ? { links } : {}),
@@ -477,6 +509,7 @@ export function registerTaskTools(
             links: updated.links,
             latestFailure: updated.latestFailure,
             launching: updated.launching,
+            labels: updated.labels ?? [],
             launchTemplateId: updated.launchTemplateId,
           });
         } catch (error) {

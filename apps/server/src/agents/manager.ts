@@ -1,3 +1,4 @@
+import { matchingProjects } from "../projects/matching.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -1325,6 +1326,25 @@ export class AgentManager {
             input.useWorktree = false;
         }
       }
+    }
+    // Resolve only new, unscoped launches. Membership inherited from a parent
+    // (including no project) and explicit/template selections remain authoritative.
+    if (!input.projectId && !input.parentAgentId) {
+      const projects = (
+        await this.pool.query(
+          'SELECT id, name, repo_root AS "repoRoot" FROM projects'
+        )
+      ).rows;
+      const cwd = await this.validateWorkingDirectory(input.cwd);
+      const matches = await matchingProjects(cwd, projects);
+      if (matches.length > 1)
+        throw new AgentError(
+          `Multiple projects match this directory. Choose a project: ${matches.map((p) => `${p.name} (${p.id})`).join(", ")}.`,
+          409
+        );
+      // Do not replace cwd with the primary checkout: it may be a worktree
+      // or a deliberately selected subdirectory.
+      if (matches.length === 1) input.projectId = matches[0]!.id;
     }
     const taskPersona = Boolean(input.persona && input.role !== "review");
     if (taskPersona && !options.detachLaunch) {

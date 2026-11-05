@@ -1568,3 +1568,320 @@ for (const width of [1280, 390]) {
     });
   });
 }
+
+test("project labels persist, reuse colors and filter without changing capacity counts", async ({
+  page,
+  request,
+}) => {
+  const project = await (
+    await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Labels", repoRoot: repo, color: "#336699" },
+    })
+  ).json();
+  try {
+    await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+      headers,
+    });
+    await page.goto(`/tasks?project=${project.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.getByRole("button", { name: "New task", exact: true }).click();
+    await page.getByLabel("Title", { exact: true }).fill("Labeled task");
+    await page
+      .getByRole("button", { name: "Edit labels", exact: true })
+      .click();
+    const labelPopover = page
+      .getByRole("dialog")
+      .filter({ has: page.getByLabel("Label name", { exact: true }) });
+    const initialBox = await labelPopover.boundingBox();
+    await page.getByLabel("Label name", { exact: true }).fill("Bug");
+    const createBox = await labelPopover.boundingBox();
+    expect(createBox?.height).toBe(initialBox?.height);
+    expect(createBox?.y).toBe(initialBox?.y);
+
+    await page
+      .getByRole("button", { name: "Color #ef6c57", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Create “Bug”", exact: true })
+      .click();
+    await page.keyboard.press("Escape");
+    await page
+      .getByRole("button", { name: "Create task", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Edit labels", exact: true })
+    ).toBeVisible();
+    await expect(page).toHaveURL(/task=tsk_/);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Edit labels", exact: true })
+    ).toContainText("Bug");
+    const board = await (
+      await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+        headers,
+      })
+    ).json();
+    const task = board.tasks[0];
+    expect(task.labels).toEqual([{ name: "Bug", color: "#ef6c57" }]);
+    const other = await (
+      await request.post("/api/v1/tasks", {
+        headers,
+        data: { projectId: project.id, title: "Unlabeled task" },
+      })
+    ).json();
+    const reuse = await (
+      await request.patch(`/api/v1/tasks/${other.id}`, {
+        headers,
+        data: { labels: [{ name: "bug", color: "green" }] },
+      })
+    ).json();
+    expect(reuse.labels).toEqual(task.labels);
+    await request.patch(`/api/v1/tasks/${other.id}`, {
+      headers,
+      data: { labels: [] },
+    });
+    await request.post("/api/v1/tasks", {
+      headers,
+      data: {
+        projectId: project.id,
+        title: "Release task",
+        labels: [{ name: "Release", color: "#74b85c" }],
+      },
+    });
+    await page.goto(`/tasks?project=${project.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("checkbox", { name: "Bug", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Bug", exact: true })
+    ).toBeChecked();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Labeled task", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Unlabeled task", exact: true })
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("checkbox", { name: "Release", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Release", exact: true })
+    ).toBeChecked();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Labeled task", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Unlabeled task", exact: true })
+    ).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.getAll("label")).toEqual([
+      "Bug",
+      "Release",
+    ]);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Labeled task", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toBeVisible();
+    expect(
+      (
+        await (
+          await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+            headers,
+          })
+        ).json()
+      ).columns[0].activeTaskCount
+    ).toBe(3);
+    await page.screenshot({ path: "/tmp/task-labels-multiple-filter-e2e.png" });
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("checkbox", { name: "Bug", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Bug", exact: true })
+    ).not.toBeChecked();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Labeled task", exact: true })
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Clear all", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Unlabeled task", exact: true })
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Labeled task", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Edit labels", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Manage labels", exact: true })
+      .click();
+    await page
+      .getByRole("button", {
+        name: "Remove label Bug from options",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Restore label Bug", exact: true })
+    ).toBeEnabled();
+    expect(
+      (
+        await (
+          await request.get(`/api/v1/tasks/${task.id}`, { headers })
+        ).json()
+      ).labels
+    ).toEqual(task.labels);
+    await page.goto(`/tasks?project=${project.id}&task=${other.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("button", { name: "Edit labels", exact: true })
+      .click();
+    await page.getByLabel("Label name", { exact: true }).fill("Bug");
+    await expect(page.getByText("Type a name to create a label")).toHaveCount(
+      0
+    );
+    await page
+      .getByRole("option", { name: "Restore and add Bug", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Edit labels", exact: true })
+    ).toContainText("Bug");
+    expect(
+      (
+        await (
+          await request.get(`/api/v1/tasks/${other.id}`, { headers })
+        ).json()
+      ).labels
+    ).toEqual(task.labels);
+    await page.screenshot({ path: "/tmp/task-labels-hide-restore-e2e.png" });
+  } finally {
+    await request.delete(`/api/v1/projects/${project.id}`, { headers });
+  }
+});
+
+test("late label restoration cannot alter a reopened task draft or bypass pending submission", async ({
+  page,
+  request,
+}) => {
+  const project = await (
+    await request.post("/api/v1/projects", {
+      headers,
+      data: { name: "Restore isolation", repoRoot: repo, color: "#9575ed" },
+    })
+  ).json();
+  let finish!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  try {
+    await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+      headers,
+    });
+    await request.post("/api/v1/tasks", {
+      headers,
+      data: {
+        projectId: project.id,
+        title: "Existing assignment",
+        labels: [{ name: "Retired", color: "#9575ed" }],
+      },
+    });
+    await request.patch(
+      `/api/v1/projects/${project.id}/task-labels/visibility`,
+      { headers, data: { name: "Retired", hidden: true } }
+    );
+    await page.goto(`/tasks?project=${project.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.getByRole("button", { name: "New task", exact: true }).click();
+    await page.getByLabel("Title", { exact: true }).fill("Cancelled draft");
+    await page
+      .getByRole("button", { name: "Edit labels", exact: true })
+      .click();
+    await page.getByLabel("Label name", { exact: true }).fill("Retired");
+    const visibilityPath = `/api/v1/projects/${project.id}/task-labels/visibility`;
+    await page.route(`**${visibilityPath}`, async (route) => {
+      await gate;
+      await route.continue();
+    });
+    const started = page.waitForRequest(
+      (r) => r.url().endsWith(visibilityPath) && r.method() === "PATCH"
+    );
+    await page
+      .getByRole("option", { name: "Restore and add Retired", exact: true })
+      .click();
+    await started;
+    await expect(
+      page.getByRole("button", { name: "Restoring label…", exact: true })
+    ).toBeDisabled();
+    await page
+      .getByLabel("Title", { exact: true })
+      .evaluate((input) =>
+        (input.closest("form") as HTMLFormElement).requestSubmit()
+      );
+    expect(
+      (
+        await (
+          await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
+            headers,
+          })
+        ).json()
+      ).tasks
+    ).toHaveLength(1);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "New task", exact: true }).click();
+    await page.getByLabel("Title", { exact: true }).fill("Fresh draft");
+    await expect(
+      page.getByRole("button", { name: "Edit labels", exact: true })
+    ).toHaveText("Add labels");
+    const response = page.waitForResponse(
+      (r) =>
+        r.url().endsWith(visibilityPath) && r.request().method() === "PATCH"
+    );
+    finish();
+    await response;
+    await expect(
+      page.getByRole("button", { name: "Edit labels", exact: true })
+    ).toHaveText("Add labels");
+    await page.screenshot({
+      path: "/tmp/task-labels-fresh-draft-after-restore.png",
+    });
+    const created = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/api/v1/tasks") && r.request().method() === "POST"
+    );
+    await page
+      .getByRole("button", { name: "Create task", exact: true })
+      .click();
+    expect((await (await created).json()).labels).toEqual([]);
+  } finally {
+    finish();
+    await page.unrouteAll({ behavior: "wait" });
+    await request.delete(`/api/v1/projects/${project.id}`, { headers });
+  }
+});

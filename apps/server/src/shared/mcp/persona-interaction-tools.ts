@@ -252,7 +252,7 @@ export function registerPersonaInteractionTools(
       "launch_owner_reviews",
       {
         description:
-          "Launch all code owner reviewers selected by .agents/owners.json for committed, uncommitted, and untracked changes in your workspace. Every matching rule contributes owners; each persona launches once with your context and its matched paths. Returns selected owners, uncovered files, launched agents, and failures. Use dryRun to preview routing without launching. After launching, end the turn; reviewers post their review blocks to you automatically.",
+          "Launch all code owner reviewers selected by .agents/owners.json for committed, uncommitted, and untracked changes in your workspace. Every matching rule contributes owners; each persona launches once with your context and its matched paths. Returns selected owners, uncovered files, launched agents, and failures. Optionally supply personas to rerun only owners from the resolved plan; omission launches all owners. Partial selection does not satisfy whole-change review coverage. Use dryRun to preview routing without launching. After launching, end the turn; reviewers post their review blocks to you automatically.",
         inputSchema: {
           context: z
             .string()
@@ -267,6 +267,13 @@ export function registerPersonaInteractionTools(
             .optional()
             .describe(
               "Optional reviewer model; omit to use the normal reviewer default."
+            ),
+          personas: z
+            .array(z.string().min(1))
+            .min(1)
+            .optional()
+            .describe(
+              "Optional subset of resolved owner persona slugs. Omit to launch all owners."
             ),
           dryRun: z
             .boolean()
@@ -291,7 +298,7 @@ export function registerPersonaInteractionTools(
             content: [
               {
                 type: "text",
-                text: `${status} ${result.uncoveredFiles.length} file(s) lack an explicit owner.${warnings.length ? `\n${warnings.join("\n")}` : ""}${result.launched.length ? "\nEnd this turn after launching all reviewers. Do not poll or wait; Dispatch will deliver each posted review automatically." : ""}`,
+                text: `${status}${result.omittedOwners?.length ? ` ${result.omittedOwners.length} owner(s) omitted; this partial rerun does not establish whole-change review coverage.` : ""} ${result.uncoveredFiles.length} file(s) lack an explicit owner.${warnings.length ? `\n${warnings.join("\n")}` : ""}${result.launched.length ? "\nEnd this turn after launching all reviewers. Do not poll or wait; Dispatch will deliver each posted review automatically." : ""}`,
               },
             ],
             structuredContent: result,

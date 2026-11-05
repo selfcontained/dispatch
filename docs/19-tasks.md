@@ -180,3 +180,43 @@ Board and explicit task subscriptions are independent: `task_unwatch` preserves 
 Insert triggers atomically queue each new source item with its live subscription coverage. Coverage is determined by the fanout statement's READ COMMITTED snapshot: an uncommitted subscription is not visible, and a previously inserted source is not replayed even if its transaction commits after subscribing. Row locks serialize fanout with unsubscribe; pending coverage admitted before unsubscribe is deleted with that subscription. Acceptance rechecks every represented source's original coverage immediately before runtime submission. Unsubscribe that wins this check withdraws uncovered activity; a notice already accepted may finish. Cleanup deletes exact inbox row identities, so an old acceptance cannot delete a later subscription generation's pending activity. New activity that arrives during delivery gets another wakeup, including when its debounce expires before that delivery finishes.
 
 Watch notices combine creation, moves, title/body updates, assignment/unassignment, links, archive/restore, agent removal, trigger failures, and new conversation posts (including thread replies and answers) into one prompt after a short debounce. Notices skip the watcher's own activity and posts already addressed to it. They include event/message IDs for `task_get`, `get_message`, and `get_thread`, with up to 15 item excerpts per notice. Unavailable agents catch up when running again. Agent retention/deletion cascades subscriptions and inboxes; archived agents are cleaned during recovery or delivery. Agents removed from a task lose explicit watches and are excluded from board activity for that task, while their board subscription still covers other tasks. Task/project deletion cascades pending activity. Completion is reported through the emitted move/state change; there is no invented completion event. Deleting a task does not produce a durable deletion notice because its events and inbox are deleted together. Notification-origin posts are excluded to prevent delivery loops.
+
+### Project labels
+
+Task create and update accept optional `labels: [{ name, color }]`. Names are trimmed,
+1–40 characters, exclude control characters, and are unique within a project ignoring
+case. A task has at most 20 labels; duplicate names collapse to one. Colors are
+`gray` (default), `red`, `orange`, `green`, `blue`, `purple`, or a six-digit hex color. The compact color picker shares the project palette and custom-color controls. Existing project
+labels retain their original spelling and color when reused. Tasks reference stored
+project definitions; an identical name in another project is independent.
+
+Omit `labels` on update to preserve assignments; send `[]` to clear them. HTTP
+and MCP task reads return resolved labels, including an empty array on older tasks.
+Board reads also return all reusable project `labels`. The create/details picker
+creates labels inline and reuses existing names. Cards show up to three names and
+an overflow count; the board's repeatable `label` URL parameters match **any** selected label and filter visible tasks without
+changing column occupancy or launch admission. Editing labels never launches agents.
+
+The picker’s **Manage labels** view can hide a label from future choices and
+restore it later. Hiding preserves every existing task assignment, name, and
+color. Hidden labels remain visible/removable on tasks that already use them;
+adding them to another task requires restoration. Searching for a hidden name
+offers Restore rather than creating a duplicate. Board filters can still find
+existing tasks by hidden labels.
+
+`PATCH /api/v1/projects/:projectId/task-labels/visibility` accepts `{ name, hidden }`.
+Names resolve case-insensitively within that project. Board reads return active
+`labels` and `hiddenLabels` separately. Visibility changes publish the existing
+project task-change event and never launch agents.
+
+MCP agents read assigned labels in `task_get` and `task_list`. `task_create` and
+`task_update` accept `labels: [{ name, color }]`; update replaces assignments,
+omission preserves them, and `[]` clears them. To remove one label, read the
+current list and update with the remaining labels. Reusing an existing name keeps
+its project color. `task_list({ labels: ["Bug", "Release"] })` matches tasks with
+**any** named label, case-insensitively, while preserving global column counts.
+
+The board label filter supports multiple selections and a Clear all action.
+Repeated parameters such as `?label=Bug&label=Release` retain this inclusive filter
+through reloads and back/forward navigation. Label selection composes with the
+current project, column, assignee, search and layout filters.

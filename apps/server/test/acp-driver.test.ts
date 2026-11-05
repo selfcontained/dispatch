@@ -51,6 +51,176 @@ function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
 }
 
 describe("AcpDriver", () => {
+  const sqliteExit =
+    "Codex process has exited with code 1: Error: failed to initialize sqlite state runtime under /tmp/disposable: failed to initialize state runtime at /tmp/disposable";
+
+  it.each([null, "existing-session"])(
+    "retries initialize only, then opens exactly one session (%s)",
+    async (sessionId) => {
+      const bad = createFakeAcpAgent({
+        initialize: async () => {
+          throw new acp.RequestError(1001, sqliteExit);
+        },
+      });
+      const good = createFakeAcpAgent();
+      const spawn = vi
+        .fn()
+        .mockReturnValueOnce(bad.child)
+        .mockReturnValue(good.child);
+      const driver = new AcpDriver({ spawn, resolveBinary, logger });
+      const request = launch({ sessionId }, "codex");
+      await driver.start(request);
+      try {
+        expect(spawn).toHaveBeenCalledTimes(2);
+        expect(spawn.mock.calls[0]).toEqual(spawn.mock.calls[1]);
+        expect(bad.seen.newSession).toEqual([]);
+        expect(bad.seen.resumeSession).toEqual([]);
+        expect(bad.seen.setMode).toEqual([]);
+        expect(bad.seen.prompts).toEqual([]);
+        expect(bad.signals).toContain("SIGKILL");
+        expect(good.seen.newSession).toHaveLength(sessionId ? 0 : 1);
+        expect(good.seen.resumeSession).toHaveLength(sessionId ? 1 : 0);
+        if (sessionId)
+          expect(good.seen.resumeSession[0]?.sessionId).toBe(sessionId);
+        await driver.prompt("agt_1", "once");
+        expect(good.seen.prompts).toEqual(["once"]);
+      } finally {
+        await driver.stop("agt_1");
+      }
+    }
+  );
+
+  it.each([
+    ["codex", "Codex process has exited with code 1: auth failure"],
+    ["codex", sqliteExit.replace("code 1:", "code 2:")],
+    ["codex", sqliteExit.replace("sqlite state", "other state")],
+    ["claude", sqliteExit],
+    ["opencode", sqliteExit],
+  ] as const)(
+    "does not retry unrelated initialization failure (%s, %s)",
+    async (engine, message) => {
+      const fake = createFakeAcpAgent({
+        initialize: async () => {
+          throw new acp.RequestError(1001, message);
+        },
+      });
+      const { driver, spawn } = driverWith(fake);
+      await expect(driver.start(launch({}, engine))).rejects.toThrow(message);
+      expect(spawn).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("reports exhaustion and retains each original error", async () => {
+    const fakes = Array.from({ length: 3 }, () =>
+      createFakeAcpAgent({
+        initialize: async () => {
+          throw new acp.RequestError(1001, sqliteExit);
+        },
+      })
+    );
+    let index = 0;
+    const spawn = vi.fn(() => fakes[index++]!.child);
+    const driver = new AcpDriver({ spawn, resolveBinary, logger });
+    const err = await driver
+      .start(launch({}, "codex"))
+      .catch((error: unknown) => error);
+    expect(err).toBeInstanceOf(AggregateError);
+    expect((err as AggregateError).message).toContain(
+      "exhausted after 3 attempts"
+    );
+    expect((err as AggregateError).errors).toHaveLength(3);
+    for (const failure of (err as AggregateError).errors) {
+      expect(failure.message).toContain(sqliteExit);
+      expect(failure.cause).toBeInstanceOf(Error);
+    }
+    expect(spawn).toHaveBeenCalledTimes(3);
+    expect(
+      fakes.every(
+        (fake) =>
+          fake.seen.newSession.length === 0 && fake.signals.includes("SIGKILL")
+      )
+    ).toBe(true);
+  });
+
+  it("cancels pending backoff without another attempt", async () => {
+    const fake = createFakeAcpAgent({
+      initialize: async () => {
+        throw new acp.RequestError(1001, sqliteExit);
+      },
+    });
+    const localLogger = {
+      ...logger,
+      warn: vi.fn(() => {
+        driver.killAll();
+      }),
+    };
+    const spawn = vi.fn(() => fake.child);
+    const driver = new AcpDriver({ spawn, resolveBinary, logger: localLogger });
+    await expect(driver.start(launch({}, "codex"))).rejects.toThrow();
+    expect(localLogger.warn).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it("never retries a signature occurring after initialization", async () => {
+    const fake = createFakeAcpAgent({
+      sessionError: new acp.RequestError(1001, sqliteExit),
+    });
+    const { driver, spawn } = driverWith(fake);
+    await expect(driver.start(launch({}, "codex"))).rejects.toThrow(sqliteExit);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(fake.seen.newSession).toHaveLength(1);
+  });
+
+  it("shutdown fences a late initialize response before session creation", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const fake = createFakeAcpAgent({
+      initialize: async () => {
+        entered();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      },
+    });
+    const { driver, spawn } = driverWith(fake);
+    const started = driver.start(launch({}, "codex"));
+    const rejected = expect(started).rejects.toThrow("cancelled");
+    await ready;
+    await driver.stop("agt_1");
+    release();
+    await rejected;
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(fake.seen.newSession).toEqual([]);
+    expect(fake.seen.resumeSession).toEqual([]);
+    expect(fake.seen.prompts).toEqual([]);
+  });
+
+  it("rejects competing starts while initialization is pending", async () => {
+    let entered!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const fake = createFakeAcpAgent({
+      initialize: async () => {
+        entered();
+        await new Promise(() => {});
+      },
+    });
+    const { driver, spawn } = driverWith(fake);
+    const started = driver.start(launch({}, "codex"));
+    const rejected = expect(started).rejects.toThrow("cancelled");
+    await ready;
+    await expect(driver.start(launch({}, "codex"))).rejects.toThrow(
+      "already running"
+    );
+    driver.killAll();
+    await rejected;
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
   it.each([true, false])(
     "native images respect the negotiated capability (%s)",
     async (supportsImages) => {

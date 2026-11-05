@@ -1769,6 +1769,7 @@ describe("task tools", () => {
       {
         id: task.id,
         title: task.title,
+        labels: [],
         column: "ready",
         assignedAgentId: null,
         launchTemplateId: null,
@@ -3482,4 +3483,229 @@ it("accepts a template ID in multipart creation and rejects malformed IDs", asyn
   } finally {
     await app.close();
   }
+});
+
+it("persists reusable project labels, preserves omitted edits and clears explicitly", async () => {
+  const task = await service.createTask(
+    {
+      projectId,
+      title: "Labels",
+      labels: [
+        { name: " Bug ", color: "red" },
+        { name: "bug", color: "red" },
+        { name: "Release", color: "blue" },
+      ],
+    },
+    USER
+  );
+  expect(task.labels).toEqual([
+    { name: "bug", color: "red" },
+    { name: "Release", color: "blue" },
+  ]);
+  const reused = await service.createTask(
+    { projectId, title: "Reuse", labels: [{ name: "BUG", color: "green" }] },
+    USER
+  );
+  expect(reused.labels).toEqual([{ name: "bug", color: "red" }]);
+  expect(
+    (await service.updateTask(task.id, { title: "Renamed" }, USER)).labels
+  ).toEqual(task.labels);
+  expect((await service.getTaskDetail(task.id)).labels).toEqual(task.labels);
+  expect((await service.getBoard(projectId)).labels).toEqual(task.labels);
+  const other = await service.createTask(
+    {
+      projectId: otherProjectId,
+      title: "Other",
+      labels: [{ name: "bug", color: "green" }],
+    },
+    USER
+  );
+  expect(other.labels).toEqual([{ name: "bug", color: "green" }]);
+  expect(
+    (await service.updateTask(task.id, { labels: [] }, USER)).labels
+  ).toEqual([]);
+  expect(launches).toEqual([]);
+});
+
+it("validates every label before changing task or definitions", async () => {
+  const task = await service.createTask({ projectId, title: "Original" }, USER);
+  for (const name of [" ", "x".repeat(41), "bad\nname"]) {
+    await expect(
+      service.updateTask(
+        task.id,
+        { title: "Changed", labels: [{ name, color: "blue" }] },
+        USER
+      )
+    ).rejects.toBeInstanceOf(TaskError);
+  }
+  await expect(
+    service.createTask(
+      {
+        projectId,
+        title: "Invalid",
+        labels: [{ name: "Oops", color: "unknown" }],
+      },
+      USER
+    )
+  ).rejects.toBeInstanceOf(TaskError);
+  expect((await service.requireTask(task.id)).title).toBe("Original");
+  expect((await service.getBoard(projectId)).labels).toEqual([]);
+});
+
+it("persists project-palette and custom hex label colors without changing legacy definitions", async () => {
+  const task = await service.createTask(
+    {
+      projectId,
+      title: "Custom palette",
+      labels: [
+        { name: "Custom", color: "#123abc" },
+        { name: "Project purple", color: "#9575ed" },
+      ],
+    },
+    USER
+  );
+  expect((await service.getTaskDetail(task.id)).labels).toEqual(task.labels);
+  expect(task.labels).toContainEqual({ name: "Custom", color: "#123abc" });
+  await expect(
+    service.updateTask(
+      task.id,
+      { labels: [{ name: "Invalid", color: "#abc" }] },
+      USER
+    )
+  ).rejects.toBeInstanceOf(TaskError);
+  expect((await service.requireTask(task.id)).labels).toEqual(task.labels);
+});
+
+it("hides project label choices without changing assignments, and restores them", async () => {
+  const task = await service.createTask(
+    {
+      projectId,
+      title: "Keep labels",
+      labels: [{ name: "Release", color: "#74b85c" }],
+    },
+    USER
+  );
+  await service.setLabelHidden(projectId, "release", true);
+  const board = await service.getBoard(projectId);
+  expect(board.labels).toEqual([]);
+  expect(board.hiddenLabels).toEqual(task.labels);
+  expect((await service.getTaskDetail(task.id)).labels).toEqual(task.labels);
+  expect(
+    (
+      await service.updateTask(
+        task.id,
+        { labels: task.labels, title: "Still assigned" },
+        USER
+      )
+    ).labels
+  ).toEqual(task.labels);
+  await expect(
+    service.createTask(
+      { projectId, title: "Cannot reuse hidden", labels: task.labels },
+      USER
+    )
+  ).rejects.toBeInstanceOf(TaskError);
+  expect((await service.getBoard(projectId)).tasks).toHaveLength(1);
+  await expect(
+    service.setLabelHidden(otherProjectId, "Release", false)
+  ).rejects.toBeInstanceOf(TaskError);
+  await service.setLabelHidden(projectId, "Release", false);
+  expect((await service.getBoard(projectId)).labels).toEqual(task.labels);
+  expect((await service.getBoard(projectId)).hiddenLabels).toEqual([]);
+  expect(
+    (
+      await service.createTask(
+        { projectId, title: "Reuse restored", labels: task.labels },
+        USER
+      )
+    ).labels
+  ).toEqual(task.labels);
+  expect(launches).toEqual([]);
+});
+
+it("MCP agents read, replace, remove and clear task labels, with inclusive label filtering", async () => {
+  await insertAgent("agt_labels");
+  const call = tools("agt_labels", projectId);
+  const created = await call("task_create", {
+    title: "MCP labeled",
+    labels: [
+      { name: "Bug", color: "red" },
+      { name: "Release", color: "#74b85c" },
+    ],
+  });
+  expect(created.isError).toBeUndefined();
+  const id = created.structuredContent!.id as string;
+  const release = { name: "Release", color: "#74b85c" };
+  const bug = { name: "Bug", color: "red" };
+  expect(created.structuredContent!.labels).toEqual([bug, release]);
+  expect((await call("task_get", { id })).structuredContent!.labels).toEqual([
+    bug,
+    release,
+  ]);
+  expect(
+    (await call("task_update", { id, labels: [release] })).structuredContent!
+      .labels
+  ).toEqual([release]);
+  expect(
+    (await call("task_update", { id, title: "Preserved labels" }))
+      .structuredContent!.labels
+  ).toEqual([release]);
+  expect(
+    (await call("task_update", { id, labels: [release, bug] }))
+      .structuredContent!.labels
+  ).toEqual([bug, release]);
+  expect(
+    (await call("task_update", { id, labels: [] })).structuredContent!.labels
+  ).toEqual([]);
+  expect((await call("task_get", { id })).structuredContent!.labels).toEqual(
+    []
+  );
+  const bugTask = (
+    await call("task_create", { title: "Bug task", labels: [bug] })
+  ).structuredContent!.id;
+  const releaseTask = (
+    await call("task_create", {
+      title: "Release task",
+      column: "ready",
+      labels: [release],
+    })
+  ).structuredContent!.id;
+  await call("task_create", { title: "No label" });
+  const list = (await call("task_list", { labels: ["bUg", "Release"] }))
+    .structuredContent!;
+  expect((list.tasks as Array<{ id: string }>).map((t) => t.id).sort()).toEqual(
+    [bugTask, releaseTask].sort()
+  );
+  expect(
+    (list.columnCapacity as Array<{ activeTaskCount: number }>).reduce(
+      (sum, c) => sum + c.activeTaskCount,
+      0
+    )
+  ).toBe(4);
+  expect(
+    (
+      (await call("task_list", { labels: ["Bug", "Release"], column: "ready" }))
+        .structuredContent!.tasks as Array<{ id: string }>
+    ).map((t) => t.id)
+  ).toEqual([releaseTask]);
+  expect(
+    (await call("task_list", { labels: [] })).structuredContent!
+      .tasks as unknown[]
+  ).toHaveLength(4);
+  const invalid = await call("task_update", {
+    id: bugTask,
+    title: "Should not change",
+    labels: [{ name: " ", color: "red" }],
+  });
+  expect(invalid.isError).toBe(true);
+  expect((await service.requireTask(bugTask as string)).title).toBe("Bug task");
+  const foreign = await service.createTask(
+    { projectId: otherProjectId, title: "Other project", labels: [bug] },
+    USER
+  );
+  expect(
+    (await call("task_update", { id: foreign.id, labels: [] })).isError
+  ).toBe(true);
+  expect((await service.requireTask(foreign.id)).labels).toEqual([bug]);
+  expect(launches).toEqual([]);
 });

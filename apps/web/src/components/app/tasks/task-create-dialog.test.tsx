@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,10 +10,12 @@ import {
 } from "@testing-library/react";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
+import { useState } from "react";
 import { TaskCreateDialog } from "./task-create-dialog";
 
 const create = vi.fn();
 const update = vi.fn();
+const visibility = vi.fn();
 // The assignee chips read turn steps and schedules through React Query,
 // which this dialog test does not stand up.
 vi.mock("@/hooks/use-agent-activity", () => ({
@@ -25,6 +28,14 @@ vi.mock("@/hooks/use-agent-activity", () => ({
   }),
 }));
 vi.mock("@/hooks/use-tasks", () => ({
+  useTaskLabelVisibility: () => ({
+    isPending: false,
+    error: null,
+    mutateAsync: visibility,
+  }),
+  useTaskBoard: () => ({
+    data: { labels: [], hiddenLabels: [{ name: "Retired", color: "gray" }] },
+  }),
   useTaskActions: () => ({
     create: { mutateAsync: create },
     update: { mutateAsync: update },
@@ -36,8 +47,17 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = () => false;
   Element.prototype.releasePointerCapture = () => {};
   Element.prototype.scrollIntoView = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
 });
 beforeEach(() => {
+  visibility.mockResolvedValue({ hidden: false });
   create.mockResolvedValue({ id: "tsk_new" } as Task);
   update.mockResolvedValue({});
 });
@@ -113,6 +133,7 @@ it("creates from Enter in the title with description and column", async () => {
   fireEvent.submit(title.closest("form")!);
   await waitFor(() => expect(onCreated).toHaveBeenCalled());
   expect(create).toHaveBeenCalledWith({
+    labels: [],
     projectId: "p1",
     title: "Ship it",
     launchTemplateId: null,
@@ -139,6 +160,7 @@ it("creates from ⌘Enter in the description and then assigns", async () => {
   fireEvent.keyDown(description, { key: "Enter", metaKey: true });
   await waitFor(() => expect(onCreated).toHaveBeenCalled());
   expect(create).toHaveBeenCalledWith({
+    labels: [],
     projectId: "p1",
     title: "Assigned task",
     launchTemplateId: null,
@@ -262,4 +284,104 @@ it("accepts pasted and dropped files and reports the shared file limit", () => {
   expect(screen.getByRole("alert").textContent).toContain("maximum of 10");
   fireEvent.click(screen.getByRole("button", { name: "Remove pasted.txt" }));
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+function startRestore() {
+  fireEvent.click(screen.getByRole("button", { name: "Edit labels" }));
+  fireEvent.change(screen.getByLabelText("Label name"), {
+    target: { value: "Retired" },
+  });
+  fireEvent.click(
+    screen.getByRole("option", { name: "Restore and add Retired" })
+  );
+}
+
+it("blocks submission until Restore and add applies the intended label", async () => {
+  let finish!: () => void;
+  visibility.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ hidden: false });
+      })
+  );
+  renderDialog();
+  fireEvent.change(screen.getByLabelText("Title"), {
+    target: { value: "Restored task" },
+  });
+  startRestore();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Restoring label…",
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true);
+  fireEvent.submit(screen.getByLabelText("Title").closest("form")!);
+  expect(create).not.toHaveBeenCalled();
+  await act(async () => {
+    finish();
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Edit labels" }).textContent
+    ).toContain("Retired")
+  );
+  fireEvent.submit(screen.getByLabelText("Title").closest("form")!);
+  await waitFor(() =>
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: [{ name: "Retired", color: "gray" }] })
+    )
+  );
+});
+
+it("ignores a late restoration after cancelling and opening a fresh draft", async () => {
+  let finish!: () => void;
+  visibility.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ hidden: false });
+      })
+  );
+  function Harness() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>Open new task</button>
+        <TaskCreateDialog
+          open={open}
+          onOpenChange={setOpen}
+          projectId="p1"
+          columns={columns}
+          agents={agents}
+          onCreated={() => {}}
+        />
+      </>
+    );
+  }
+  render(<Harness />);
+  fireEvent.change(screen.getByLabelText("Title"), {
+    target: { value: "Old draft" },
+  });
+  startRestore();
+  fireEvent.keyDown(screen.getByLabelText("Label name"), { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open new task" }));
+  fireEvent.change(screen.getByLabelText("Title"), {
+    target: { value: "Fresh draft" },
+  });
+  expect(
+    screen.getByRole("button", { name: "Edit labels" }).textContent
+  ).toContain("Add labels");
+  await act(async () => {
+    finish();
+  });
+  expect(
+    screen.getByRole("button", { name: "Edit labels" }).textContent
+  ).toContain("Add labels");
+  fireEvent.submit(screen.getByLabelText("Title").closest("form")!);
+  await waitFor(() =>
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Fresh draft", labels: [] })
+    )
+  );
 });

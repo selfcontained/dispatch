@@ -72,6 +72,7 @@
         "packages/shared/src/usage-types.ts",
         "patches/@agentclientprotocol__claude-agent-acp@*.patch",
         "patches/@agentclientprotocol__codex-acp@*.patch",
+        "patches/README.md",
         "apps/server/test/claude-adapter-*.test.ts",
         "apps/server/test/codex-adapter-*.test.ts",
         "apps/server/test/helpers/fake-acp-agent.ts",
@@ -138,6 +139,7 @@
         "apps/server/test/*chat*",
         "e2e/*chat*",
         "e2e/*stream*",
+        "e2e/pending-interrupt.spec.ts",
         "apps/server/src/stream-manager.ts",
         "apps/web/src/hooks/use-sse*",
         "packages/shared/src/conversation-delivery.ts",
@@ -352,7 +354,12 @@
       "personas": ["browser-feedback-owner"]
     },
     {
-      "paths": ["pnpm-lock.yaml"],
+      "paths": [
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "package.json",
+        "apps/server/package.json"
+      ],
       "personas": ["code-review"]
     },
     {
@@ -412,6 +419,18 @@
         "stream-delivery-owner",
         "mcp-contract-owner"
       ]
+    },
+    {
+      "paths": [
+        "docs/14-theming.md",
+        "docs/ci.md",
+        "docs/jobs/componentizer.md",
+        "docs/jobs/persona-review.md",
+        "docs/jobs/tech-debt.md",
+        "docs/jobs/test-enforcer.md",
+        "docs/update-backup-recovery-spec.md"
+      ],
+      "personas": ["code-review"]
     }
   ],
   "fallback": ["code-review"]

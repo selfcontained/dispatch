@@ -83,6 +83,7 @@ function toColumn(row: ColumnRow): TaskColumn {
 
 /** Derive transient trigger state from the ordered event log on every read. */
 const TASK_SELECT = `
+  COALESCE((SELECT json_agg(json_build_object('name', lab.name, 'color', lab.color) ORDER BY lower(lab.name)) FROM task_label_assignments a JOIN task_labels lab ON lab.id = a.label_id WHERE a.task_id = t.id), '[]'::json) AS labels,
   t.id, t.project_id, t.column_id, t.title, t.body, t.position,
   t.assigned_agent_id, t.links, t.launch_template_id, t.created_by_kind, t.created_by_agent_id,
   t.archived_at, t.completed_at, t.created_at, t.updated_at,
@@ -121,6 +122,7 @@ const TASK_SELECT = `
   ) l ON true`;
 
 type TaskRow = {
+  labels: import("./types.js").TaskLabel[];
   id: string;
   project_id: string;
   column_id: string;
@@ -144,6 +146,7 @@ type TaskRow = {
 
 function toTask(row: TaskRow): Task {
   return {
+    labels: row.labels ?? [],
     id: row.id,
     projectId: row.project_id,
     columnId: row.column_id,
@@ -418,6 +421,58 @@ export class TaskStore {
       [columnId]
     );
     return Number(rows[0]?.count ?? 0);
+  }
+
+  async listLabels(projectId: string, hidden = false) {
+    const { rows } = await this.pool.query<import("./types.js").TaskLabel>(
+      "SELECT name, color FROM task_labels WHERE project_id = $1 AND (hidden_at IS NOT NULL) = $2 ORDER BY lower(name)",
+      [projectId, hidden]
+    );
+    return rows;
+  }
+
+  async setLabels(
+    taskId: string,
+    projectId: string,
+    labels: import("./types.js").TaskLabel[],
+    db: Queryable
+  ) {
+    const ids: string[] = [];
+    for (const label of [...labels].sort((a, b) =>
+      a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+    )) {
+      const { rows } = await db.query<{
+        id: string;
+        hidden: boolean;
+        assigned: boolean;
+      }>(
+        `INSERT INTO task_labels(id,project_id,name,color) VALUES($1,$2,$3,$4)
+         ON CONFLICT (project_id, lower(name)) DO UPDATE SET name = task_labels.name
+         RETURNING id, hidden_at IS NOT NULL AS hidden,
+           EXISTS(SELECT 1 FROM task_label_assignments a WHERE a.task_id = $5 AND a.label_id = task_labels.id) AS assigned`,
+        [randomUUID(), projectId, label.name, label.color, taskId]
+      );
+      const row = rows[0]!;
+      if (row.hidden && !row.assigned) return false;
+      ids.push(row.id);
+    }
+    await db.query("DELETE FROM task_label_assignments WHERE task_id = $1", [
+      taskId,
+    ]);
+    for (const id of ids)
+      await db.query(
+        "INSERT INTO task_label_assignments(task_id,label_id) VALUES($1,$2)",
+        [taskId, id]
+      );
+    return true;
+  }
+
+  async setLabelHidden(projectId: string, name: string, hidden: boolean) {
+    const result = await this.pool.query(
+      `UPDATE task_labels SET hidden_at = CASE WHEN $3 THEN COALESCE(hidden_at,now()) ELSE NULL END WHERE project_id = $1 AND lower(name) = lower($2)`,
+      [projectId, name, hidden]
+    );
+    return result.rowCount === 1;
   }
 
   // ── Tasks ────────────────────────────────────────────────────────
