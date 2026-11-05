@@ -12,7 +12,6 @@ import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -216,6 +215,12 @@ function AgentCardImpl({
                 <div className="space-y-1.5">
                   <AgentCardDetails
                     agent={agent}
+                    personaParentName={
+                      agent.parentAgentId
+                        ? (agents.find((a) => a.id === agent.parentAgentId)
+                            ?.name ?? agent.parentAgentId.slice(-6))
+                        : undefined
+                    }
                     diffStats={diffStats}
                     refreshDiffStats={refreshDiffStats}
                     fullAccessEnabled={fullAccessEnabled}
@@ -227,21 +232,6 @@ function AgentCardImpl({
 
                 {agent.lastError && agent.status !== "running" ? (
                   <AgentMeta label="Last error" value={agent.lastError} />
-                ) : null}
-                {agent.persona ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
-                      Persona
-                    </span>
-                    <Badge variant="running">{agent.persona}</Badge>
-                    {agent.parentAgentId ? (
-                      <span className="text-[10px] text-muted-foreground">
-                        from{" "}
-                        {agents.find((a) => a.id === agent.parentAgentId)
-                          ?.name ?? agent.parentAgentId.slice(-6)}
-                      </span>
-                    ) : null}
-                  </div>
                 ) : null}
                 {childAgents.length > 0 ? (
                   <div className="space-y-1.5 border-t border-border/50 pt-2">
