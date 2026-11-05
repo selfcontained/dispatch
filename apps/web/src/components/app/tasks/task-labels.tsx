@@ -187,30 +187,17 @@ export function TaskLabelPicker({
         className="flex h-64 max-h-[var(--radix-popover-content-available-height)] w-64 max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0"
       >
         {manage ? (
-          <div className="flex min-h-0 flex-1 flex-col p-2">
-            <div className="mb-1 flex shrink-0 items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-7 shrink-0"
-                aria-label="Back to label picker"
-                onClick={() => {
-                  setManage(false);
-                  setName("");
-                }}
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-              </Button>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 px-2 pb-1 pt-2">
               <Input
                 aria-label="Find project labels"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Find a label…"
-                className="h-8 min-w-0 flex-1 text-xs"
+                className="h-8 min-w-0 text-xs"
               />
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-1">
               {[...existing, ...hidden]
                 .filter((l) =>
                   l.name.toLowerCase().includes(name.trim().toLowerCase())
@@ -376,19 +363,6 @@ export function TaskLabelPicker({
                 </Button>
               </div>
             )}
-            <div className="mt-auto shrink-0 px-2 pb-1">
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-7 w-full justify-start px-1 text-[11px] text-muted-foreground"
-                onClick={() => {
-                  setManage(true);
-                  setName("");
-                }}
-              >
-                Manage labels
-              </Button>
-            </div>
           </div>
         )}
         {visibility.error && (
@@ -396,6 +370,27 @@ export function TaskLabelPicker({
             {visibility.error.message}
           </p>
         )}
+        <div className="flex h-8 shrink-0 items-center border-t border-border/60 bg-muted/20 px-2">
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label={manage ? "Back to label picker" : "Manage labels"}
+            className="h-6 w-full justify-start gap-1.5 px-1 text-[11px] text-muted-foreground"
+            onClick={() => {
+              setManage(!manage);
+              setName("");
+            }}
+          >
+            {manage ? (
+              <>
+                <ArrowLeft className="h-3 w-3" />
+                Back
+              </>
+            ) : (
+              "Manage"
+            )}
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
