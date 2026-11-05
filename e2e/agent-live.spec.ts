@@ -296,6 +296,8 @@ test.describe("Live agent", () => {
     await expect(stop).toHaveAttribute("aria-haspopup", "menu", {
       timeout: TURN_TIMEOUT,
     });
+    // The idle mobile composer is one line; focus it to reveal Stop.
+    await page.getByTestId("chat-composer-input").focus();
     await stop.click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
