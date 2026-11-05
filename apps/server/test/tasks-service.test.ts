@@ -1769,6 +1769,7 @@ describe("task tools", () => {
       {
         id: task.id,
         title: task.title,
+        labels: [],
         column: "ready",
         assignedAgentId: null,
         launchTemplateId: null,
@@ -3482,4 +3483,71 @@ it("accepts a template ID in multipart creation and rejects malformed IDs", asyn
   } finally {
     await app.close();
   }
+});
+
+it("persists reusable project labels, preserves omitted edits and clears explicitly", async () => {
+  const task = await service.createTask(
+    {
+      projectId,
+      title: "Labels",
+      labels: [
+        { name: " Bug ", color: "red" },
+        { name: "bug", color: "red" },
+        { name: "Release", color: "blue" },
+      ],
+    },
+    USER
+  );
+  expect(task.labels).toEqual([
+    { name: "bug", color: "red" },
+    { name: "Release", color: "blue" },
+  ]);
+  const reused = await service.createTask(
+    { projectId, title: "Reuse", labels: [{ name: "BUG", color: "green" }] },
+    USER
+  );
+  expect(reused.labels).toEqual([{ name: "bug", color: "red" }]);
+  expect(
+    (await service.updateTask(task.id, { title: "Renamed" }, USER)).labels
+  ).toEqual(task.labels);
+  expect((await service.getTaskDetail(task.id)).labels).toEqual(task.labels);
+  expect((await service.getBoard(projectId)).labels).toEqual(task.labels);
+  const other = await service.createTask(
+    {
+      projectId: otherProjectId,
+      title: "Other",
+      labels: [{ name: "bug", color: "green" }],
+    },
+    USER
+  );
+  expect(other.labels).toEqual([{ name: "bug", color: "green" }]);
+  expect(
+    (await service.updateTask(task.id, { labels: [] }, USER)).labels
+  ).toEqual([]);
+  expect(launches).toEqual([]);
+});
+
+it("validates every label before changing task or definitions", async () => {
+  const task = await service.createTask({ projectId, title: "Original" }, USER);
+  for (const name of [" ", "x".repeat(41), "bad\nname"]) {
+    await expect(
+      service.updateTask(
+        task.id,
+        { title: "Changed", labels: [{ name, color: "blue" }] },
+        USER
+      )
+    ).rejects.toBeInstanceOf(TaskError);
+  }
+  await expect(
+    service.createTask(
+      {
+        projectId,
+        title: "Invalid",
+        labels: [{ name: "Oops", color: "unknown" }],
+      },
+      USER
+    )
+  ).rejects.toBeInstanceOf(TaskError);
+  expect((await service.requireTask(task.id)).title).toBe("Original");
+  expect((await service.getBoard(projectId)).labels).toEqual([]);
 });

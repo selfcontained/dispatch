@@ -83,6 +83,7 @@ function toColumn(row: ColumnRow): TaskColumn {
 
 /** Derive transient trigger state from the ordered event log on every read. */
 const TASK_SELECT = `
+  COALESCE((SELECT json_agg(json_build_object('name', lab.name, 'color', lab.color) ORDER BY lower(lab.name)) FROM task_label_assignments a JOIN task_labels lab ON lab.id = a.label_id WHERE a.task_id = t.id), '[]'::json) AS labels,
   t.id, t.project_id, t.column_id, t.title, t.body, t.position,
   t.assigned_agent_id, t.links, t.launch_template_id, t.created_by_kind, t.created_by_agent_id,
   t.archived_at, t.completed_at, t.created_at, t.updated_at,
@@ -121,6 +122,7 @@ const TASK_SELECT = `
   ) l ON true`;
 
 type TaskRow = {
+  labels: import("./types.js").TaskLabel[];
   id: string;
   project_id: string;
   column_id: string;
@@ -144,6 +146,7 @@ type TaskRow = {
 
 function toTask(row: TaskRow): Task {
   return {
+    labels: row.labels ?? [],
     id: row.id,
     projectId: row.project_id,
     columnId: row.column_id,
@@ -418,6 +421,38 @@ export class TaskStore {
       [columnId]
     );
     return Number(rows[0]?.count ?? 0);
+  }
+
+  async listLabels(projectId: string) {
+    const { rows } = await this.pool.query<import("./types.js").TaskLabel>(
+      "SELECT name, color FROM task_labels WHERE project_id = $1 ORDER BY lower(name)",
+      [projectId]
+    );
+    return rows;
+  }
+
+  async setLabels(
+    taskId: string,
+    projectId: string,
+    labels: import("./types.js").TaskLabel[],
+    db: Queryable
+  ) {
+    await db.query("DELETE FROM task_label_assignments WHERE task_id = $1", [
+      taskId,
+    ]);
+    for (const label of [...labels].sort((a, b) =>
+      a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+    )) {
+      const { rows } = await db.query<{ id: string }>(
+        `INSERT INTO task_labels(id,project_id,name,color) VALUES($1,$2,$3,$4)
+        ON CONFLICT (project_id, lower(name)) DO UPDATE SET name = task_labels.name RETURNING id`,
+        [randomUUID(), projectId, label.name, label.color]
+      );
+      await db.query(
+        "INSERT INTO task_label_assignments(task_id,label_id) VALUES($1,$2)",
+        [taskId, rows[0]!.id]
+      );
+    }
   }
 
   // ── Tasks ────────────────────────────────────────────────────────

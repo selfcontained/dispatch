@@ -1,3 +1,5 @@
+import { TaskLabelPicker } from "./task-labels";
+import type { TaskLabel } from "../../../../../server/src/tasks/types";
 import { TaskLaunchTemplatePicker } from "./task-launch-template";
 import { ContextPicker } from "../context-picker";
 import { useStartupAttachments } from "../use-startup-attachments";
@@ -59,6 +61,7 @@ export function TaskCreateDialog({
   const context = useStartupAttachments();
   const formRef = useRef<HTMLFormElement>(null);
   const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
+  const [labels, setLabels] = useState<TaskLabel[]>([]);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [column, setColumn] = useState("");
@@ -72,6 +75,7 @@ export function TaskCreateDialog({
     context.resetAttachments();
     setLaunchTemplateId(null);
     setTitle("");
+    setLabels([]);
     setBody("");
     setColumn(columnId ?? columns[0]?.id ?? "");
     setAssignee(null);
@@ -91,6 +95,7 @@ export function TaskCreateDialog({
     try {
       task ??= await actions.create.mutateAsync({
         projectId,
+        labels,
         title: title.trim(),
         launchTemplateId,
         ...(context.startupFiles.length
@@ -255,6 +260,12 @@ export function TaskCreateDialog({
               />
             </div>
           </div>
+          <TaskLabelPicker
+            projectId={projectId}
+            value={labels}
+            onChange={setLabels}
+            disabled={saving || !!created}
+          />
           {columns.some((c) => c.trigger) && (
             <TaskLaunchTemplatePicker
               key={open ? "open" : "closed"}
