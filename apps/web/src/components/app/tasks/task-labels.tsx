@@ -1,3 +1,4 @@
+import { Command as CommandPrimitive } from "cmdk";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
@@ -21,7 +22,6 @@ import {
 } from "@/components/ui/popover";
 import {
   Command,
-  CommandInput,
   CommandList,
   CommandGroup,
   CommandItem,
@@ -188,12 +188,12 @@ export function TaskLabelPicker({
       >
         {manage ? (
           <div className="flex min-h-0 flex-1 flex-col p-2">
-            <div className="mb-2 flex shrink-0 items-center gap-1">
+            <div className="mb-1 flex shrink-0 items-center gap-1">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
+                className="h-8 w-7 shrink-0"
                 aria-label="Back to label picker"
                 onClick={() => {
                   setManage(false);
@@ -202,15 +202,14 @@ export function TaskLabelPicker({
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
               </Button>
-              <span className="text-xs font-medium">Project labels</span>
+              <Input
+                aria-label="Find project labels"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Find a label…"
+                className="h-8 min-w-0 flex-1 text-xs"
+              />
             </div>
-            <Input
-              aria-label="Find project labels"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Find a label…"
-              className="mb-1 h-8 shrink-0 text-xs"
-            />
             <div className="min-h-0 flex-1 overflow-y-auto">
               {[...existing, ...hidden]
                 .filter((l) =>
@@ -253,10 +252,6 @@ export function TaskLabelPicker({
                   </div>
                 ))}
             </div>
-            <p className="mt-2 shrink-0 text-[10px] leading-4 text-muted-foreground">
-              Hidden labels stay on existing tasks. Restore them here to use
-              them again.
-            </p>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
@@ -268,14 +263,20 @@ export function TaskLabelPicker({
                 canCreate ? "h-20 shrink-0" : "min-h-0 flex-1"
               )}
             >
-              <CommandInput
-                aria-label="Label name"
-                placeholder="Find or create a label…"
-                value={name}
-                maxLength={40}
-                onValueChange={setName}
-                className="h-8 text-xs"
-              />
+              <div className="shrink-0 px-2 pb-1 pt-2">
+                <CommandPrimitive.Input
+                  asChild
+                  value={name}
+                  onValueChange={setName}
+                >
+                  <Input
+                    aria-label="Label name"
+                    placeholder="Find or create a label…"
+                    maxLength={40}
+                    className="h-8 min-w-0 text-xs"
+                  />
+                </CommandPrimitive.Input>
+              </div>
               {(matching.length > 0 || !canCreate) && (
                 <CommandList className="min-h-0 flex-1 max-h-none overflow-y-auto">
                   <CommandGroup>
