@@ -82,7 +82,6 @@ export function TaskLabelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [manage, setManage] = useState(false);
-  const [notice, setNotice] = useState("");
   const visibility = useTaskLabelVisibility(projectId);
   const { data, isLoading } = useTaskBoard(open ? projectId : null);
   const [name, setName] = useState("");
@@ -98,13 +97,9 @@ export function TaskLabelPicker({
     if (disabled || visibility.isPending) return;
     try {
       await visibility.mutateAsync({ name: label.name, hidden: hide });
-      setNotice(
-        hide
-          ? `“${label.name}” hidden. Existing tasks keep it.`
-          : `“${label.name}” restored.`
-      );
+      return true;
     } catch {
-      /* Mutation error is displayed below. */
+      return false; // Mutation error is displayed below.
     }
   };
   const options = [
@@ -120,7 +115,7 @@ export function TaskLabelPicker({
     l.name.toLowerCase().includes(name.trim().toLowerCase())
   );
   const toggle = (label: TaskLabel) => {
-    if (disabled) return;
+    if (disabled || visibility.isPending) return;
     if (selected(label))
       onChange(
         value.filter((l) => l.name.toLowerCase() !== label.name.toLowerCase())
@@ -135,7 +130,16 @@ export function TaskLabelPicker({
     (c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127
   );
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) {
+          setName("");
+          setManage(false);
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -256,7 +260,9 @@ export function TaskLabelPicker({
                           selected(label) ? "Applied to task" : "Not applied"
                         }
                         disabled={
-                          disabled || (!selected(label) && value.length >= 20)
+                          disabled ||
+                          visibility.isPending ||
+                          (!selected(label) && value.length >= 20)
                         }
                         onSelect={() => toggle(label)}
                         className="min-h-8 gap-2"
@@ -276,7 +282,30 @@ export function TaskLabelPicker({
                         )}
                       </CommandItem>
                     ))}
-                    {!matching.length && !canCreate && (
+                    {hiddenMatch && !selected(hiddenMatch) && (
+                      <CommandItem
+                        value={hiddenMatch.name}
+                        aria-label={`Restore and add ${hiddenMatch.name}`}
+                        disabled={
+                          disabled || visibility.isPending || value.length >= 20
+                        }
+                        onSelect={() => {
+                          void (async () => {
+                            if (await setHidden(hiddenMatch, false)) {
+                              onChange([...value, hiddenMatch]);
+                              setName("");
+                            }
+                          })();
+                        }}
+                        className="min-h-9 gap-2"
+                      >
+                        <LabelName label={hiddenMatch} />
+                        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                          Hidden · Restore &amp; add
+                        </span>
+                      </CommandItem>
+                    )}
+                    {!matching.length && !canCreate && !hiddenMatch && (
                       <p className="px-2 py-3 text-xs text-muted-foreground">
                         {isLoading
                           ? "Loading labels…"
@@ -287,24 +316,6 @@ export function TaskLabelPicker({
                 </CommandList>
               )}
             </Command>
-            {hiddenMatch && !selected(hiddenMatch) && (
-              <div className="px-2 pb-2">
-                <p className="mb-1 text-[10px] text-muted-foreground">
-                  This label is hidden from choices.
-                </p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={disabled || visibility.isPending}
-                  className="h-7 text-xs"
-                  onClick={() => {
-                    void setHidden(hiddenMatch, false);
-                  }}
-                >
-                  Restore label
-                </Button>
-              </div>
-            )}
             {canCreate && (
               <div className="px-2 pb-2 pt-1">
                 <ColorPicker
@@ -343,21 +354,12 @@ export function TaskLabelPicker({
                 onClick={() => {
                   setManage(true);
                   setName("");
-                  setNotice("");
                 }}
               >
                 Manage labels
               </Button>
             </div>
           </>
-        )}
-        {notice && (
-          <p
-            role="status"
-            className="px-3 pb-2 text-[10px] leading-4 text-muted-foreground"
-          >
-            {notice}
-          </p>
         )}
         {visibility.error && (
           <p role="alert" className="px-3 pb-2 text-xs text-destructive">

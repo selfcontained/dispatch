@@ -1682,20 +1682,29 @@ test("project labels persist, reuse colors and filter without changing capacity 
         ).json()
       ).labels
     ).toEqual(task.labels);
-    await page.keyboard.press("Escape");
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.goto(`/tasks?project=${project.id}&task=${other.id}`, {
+      waitUntil: "domcontentloaded",
+    });
     await page
       .getByRole("button", { name: "Edit labels", exact: true })
       .click();
+    await page.getByLabel("Label name", { exact: true }).fill("Bug");
+    await expect(page.getByText("Type a name to create a label")).toHaveCount(
+      0
+    );
     await page
-      .getByRole("button", { name: "Manage labels", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Restore label Bug", exact: true })
+      .getByRole("option", { name: "Restore and add Bug", exact: true })
       .click();
     await expect(
-      page.getByRole("button", { name: "Hide label Bug", exact: true })
-    ).toBeEnabled();
+      page.getByRole("button", { name: "Edit labels", exact: true })
+    ).toContainText("Bug");
+    expect(
+      (
+        await (
+          await request.get(`/api/v1/tasks/${other.id}`, { headers })
+        ).json()
+      ).labels
+    ).toEqual(task.labels);
     await page.screenshot({ path: "/tmp/task-labels-hide-restore-e2e.png" });
   } finally {
     await request.delete(`/api/v1/projects/${project.id}`, { headers });

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { TaskLabelPicker } from "./task-labels";
 const visibilityMutation = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ hidden: true })
@@ -72,7 +78,7 @@ it("blocks successive replacement actions while an open picker is saving", () =>
   ]);
 });
 
-it("restores hidden choices and manages visibility without editing task assignments", () => {
+it("restores and adds a hidden search result without contradictory empty-state text", async () => {
   const onChange = vi.fn();
   render(
     <TaskLabelPicker projectId="project" value={[]} onChange={onChange} />
@@ -82,17 +88,24 @@ it("restores hidden choices and manages visibility without editing task assignme
     target: { value: "Retired" },
   });
   expect(screen.queryByRole("button", { name: "Create “Retired”" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Restore label" }));
+  expect(screen.queryByText("Type a name to create a label")).toBeNull();
+  fireEvent.click(
+    screen.getByRole("option", { name: "Restore and add Retired" })
+  );
   expect(visibilityMutation).toHaveBeenCalledWith({
     name: "Retired",
     hidden: false,
   });
-  expect(onChange).not.toHaveBeenCalled();
+  await waitFor(() =>
+    expect(onChange).toHaveBeenCalledWith([{ name: "Retired", color: "gray" }])
+  );
   fireEvent.click(screen.getByRole("button", { name: "Manage labels" }));
   fireEvent.click(screen.getByRole("button", { name: "Hide label Alpha" }));
   expect(visibilityMutation).toHaveBeenCalledWith({
     name: "Alpha",
     hidden: true,
   });
-  expect(onChange).not.toHaveBeenCalled();
+  expect(onChange).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Back to label picker" }));
+  expect(screen.queryByRole("status")).toBeNull();
 });
