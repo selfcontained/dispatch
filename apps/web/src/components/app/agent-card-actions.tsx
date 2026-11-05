@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { Archive, Pause, Pencil, Play } from "lucide-react";
 
 import { PersonaLauncher } from "@/components/app/persona-launcher";
@@ -7,6 +8,7 @@ import { type AgentType } from "@/lib/agent-types";
 
 export type AgentCardActionsProps = {
   agent: Agent;
+  pinControl?: ReactNode;
   isStopped: boolean;
   enabledAgentTypes: AgentType[];
   closeOnSessionAction: boolean;
@@ -25,6 +27,7 @@ export type AgentCardActionsProps = {
  */
 export function AgentCardActions({
   agent,
+  pinControl,
   isStopped,
   enabledAgentTypes,
   closeOnSessionAction,
@@ -54,7 +57,8 @@ export function AgentCardActions({
           />
           {/* Keep review visible for every parent agent; lifecycle controls stay on the right. */}
         </div>
-        <div className="flex h-9 shrink-0 items-center gap-[18px]">
+        <div className="flex min-h-9 shrink-0 items-center gap-2 px-0.5">
+          {pinControl}
           {isStopped && agent.status !== "archiving" ? (
             <Button
               size="sm"

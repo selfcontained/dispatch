@@ -1113,15 +1113,17 @@ describe("AgentCardDetails wiring", () => {
     expect(screen.getByTitle("/repo/app")).toBeTruthy();
   });
 
-  it("flags full access, and says nothing otherwise", () => {
+  it("only labels restricted access in sidebar details", () => {
     const { rerender } = renderCard({
       agent: makeAgent({ fullAccess: true }),
       expandedAgentId: AGENT_ID,
     });
-    expect(screen.getByText("Full access")).toBeTruthy();
+    expect(screen.queryByText("Full access")).toBeNull();
+    expect(screen.queryByText("Restricted access")).toBeNull();
 
     rerender({ agent: makeAgent({ fullAccess: false }) });
     expect(screen.queryByText("Full access")).toBeNull();
+    expect(screen.getByText("Restricted access")).toBeTruthy();
     expect(screen.queryByText("Sandboxed")).toBeNull();
   });
 

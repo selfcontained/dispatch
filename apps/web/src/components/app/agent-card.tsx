@@ -143,6 +143,28 @@ function AgentCardImpl({
     };
   }, [nativeDragHandlers]);
 
+  const pinControl = onTogglePin ? (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-9 w-9 shrink-0 rounded-full p-0 text-muted-foreground [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+      aria-label={isPinned ? "Unpin session" : "Pin session"}
+      title={isPinned ? "Unpin session" : "Pin session"}
+      data-agent-control="true"
+      data-testid={`agent-pin-toggle-${agent.id}`}
+      aria-pressed={isPinned}
+      onClick={() => onTogglePin(agent.id)}
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted/30">
+        {isPinned ? (
+          <PinOff className="h-3.5 w-3.5" />
+        ) : (
+          <Pin className="h-3.5 w-3.5" />
+        )}
+      </span>
+    </Button>
+  ) : null;
+
   return (
     <React.Fragment>
       <motion.div
@@ -261,26 +283,9 @@ function AgentCardImpl({
                   </div>
                 ) : null}
               </div>
-              {onTogglePin ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 min-h-9 gap-2 text-muted-foreground [@media(pointer:coarse)]:min-h-11"
-                  data-agent-control="true"
-                  data-testid={`agent-pin-toggle-${agent.id}`}
-                  aria-pressed={isPinned}
-                  onClick={() => onTogglePin(agent.id)}
-                >
-                  {isPinned ? (
-                    <PinOff className="h-3.5 w-3.5" />
-                  ) : (
-                    <Pin className="h-3.5 w-3.5" />
-                  )}
-                  {isPinned ? "Unpin session" : "Pin session"}
-                </Button>
-              ) : null}
               {agent.role !== "review" ? (
                 <AgentCardActions
+                  pinControl={pinControl}
                   agent={agent}
                   isStopped={isStopped}
                   enabledAgentTypes={enabledAgentTypes}
@@ -293,6 +298,8 @@ function AgentCardImpl({
                   setDeleteTarget={setDeleteTarget}
                   setDeleteConfirmOpen={setDeleteConfirmOpen}
                 />
+              ) : pinControl ? (
+                <div className="px-0.5 pb-1 pt-2">{pinControl}</div>
               ) : null}
             </motion.div>
           ) : null}
