@@ -112,7 +112,15 @@ test("pending delivery can stop runtime work without a persisted turn", async ({
       const composerStop = page
         .getByTestId("chat-composer")
         .getByTestId("chat-stop-turn");
-      if (width < 768) await expect(composerStop).toBeHidden();
+      if (width < 768) {
+        // Wait for the active turn to render before checking the rest state;
+        // toBeHidden alone also passes before the composer mounts.
+        await expect(
+          mainComposer.getByTestId("chat-composer-input")
+        ).toBeVisible();
+        await expect(composerStop).toHaveAttribute("data-active", "true");
+        await expect(composerStop).toBeHidden();
+      }
       await revealStop(mainComposer);
       await expect(composerStop).toBeVisible();
       await expect(composerStop).toBeEnabled();
