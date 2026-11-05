@@ -138,6 +138,7 @@
         "apps/server/test/*chat*",
         "e2e/*chat*",
         "e2e/*stream*",
+        "e2e/pending-interrupt.spec.ts",
         "apps/server/src/stream-manager.ts",
         "apps/web/src/hooks/use-sse*",
         "packages/shared/src/conversation-delivery.ts",
