@@ -13,6 +13,7 @@ import {
   timestampedFileName,
   resolveFilesDir,
   sanitizeUploadedFileName,
+  storedFileNamePattern,
   toFileKey,
 } from "../src/shared/files.js";
 import { claimedMimeType } from "../src/files/file-type.js";
@@ -226,5 +227,32 @@ describe("stored filename policy", () => {
     expect(() => timestampedFileName("a".repeat(228) + ".png")).toThrow(
       /255 bytes.*suffix/
     );
+  });
+});
+
+describe("storedFileNamePattern", () => {
+  const at = new Date("2026-10-25T16:10:11.281Z");
+  it("matches every stored form of the uploaded name", () => {
+    const re = new RegExp(storedFileNamePattern("shot (1).png"));
+    expect(re.test(timestampedFileName("shot (1).png", at))).toBe(true);
+    expect(re.test(timestampedFileName("shot (1).png", at, "-2"))).toBe(true);
+    expect(re.test(timestampedFileName("shot (1).png", at, "-12"))).toBe(true);
+  });
+  it("does not match other names, prefixes, suffixes or extensions", () => {
+    const re = new RegExp(storedFileNamePattern("shot.png"));
+    expect(re.test(timestampedFileName("shot-final.png", at))).toBe(false);
+    expect(re.test(timestampedFileName("my-shot.png", at))).toBe(false);
+    expect(re.test(timestampedFileName("shot.jpg", at))).toBe(false);
+    expect(re.test(timestampedFileName("shotXpng", at))).toBe(false);
+    expect(re.test(timestampedFileName("shot.png", at, "(1)"))).toBe(false);
+    expect(re.test(timestampedFileName("shot.png", at, "-draft"))).toBe(false);
+    expect(re.test("shot.png")).toBe(false);
+  });
+  it("keeps an extensionless name apart from the same base with an extension", () => {
+    const re = new RegExp(storedFileNamePattern("README"));
+    expect(re.test(timestampedFileName("README", at))).toBe(true);
+    expect(re.test(timestampedFileName("README", at, "-2"))).toBe(true);
+    expect(re.test(timestampedFileName("README.txt", at))).toBe(false);
+    expect(re.test(timestampedFileName("README.md", at, "-2"))).toBe(false);
   });
 });
