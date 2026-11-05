@@ -44,11 +44,9 @@ export function registerPortfolioBoundary(app: FastifyInstance) {
       isPortfolioAuthorization(request.headers.authorization) &&
       (!request.routeOptions.config.portfolioReader || request.method !== "GET")
     ) {
-      return reply
-        .code(403)
-        .send({
-          error: "Portfolio credentials only authorize portfolio reads.",
-        });
+      return reply.code(403).send({
+        error: "Portfolio credentials only authorize portfolio reads.",
+      });
     }
   });
 }
@@ -94,11 +92,9 @@ export async function registerPortfolioRoutes(
         const [key, position] = query.cursor.split(":");
         const found = snapshots.get(key!);
         if (!found || found.grant !== binding)
-          return reply
-            .code(410)
-            .send({
-              error: "Export expired or scope changed; restart collection.",
-            });
+          return reply.code(410).send({
+            error: "Export expired or scope changed; restart collection.",
+          });
         id = key!;
         offset = Number(position);
         snapshot = found;
@@ -155,12 +151,10 @@ export async function registerPortfolioRoutes(
           snapshots.set(id, snapshot);
         } catch (error) {
           if (error instanceof ExportTooLarge)
-            return reply
-              .code(413)
-              .send({
-                error:
-                  "Export exceeds bounded snapshot capacity; collection unavailable.",
-              });
+            return reply.code(413).send({
+              error:
+                "Export exceeds bounded snapshot capacity; collection unavailable.",
+            });
           throw error;
         } finally {
           pending--;
