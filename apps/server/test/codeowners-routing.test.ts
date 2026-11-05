@@ -15,11 +15,11 @@ const cases: [string, string[]][] = [
   ["apps/server/src/personas/coverage.ts", ["review-lifecycle-owner"]],
   ["apps/server/test/owner-coverage.test.ts", ["review-lifecycle-owner"]],
   [
-    "patches/@agentclientprotocol__claude-agent-acp@0.91.0.patch",
+    "patches/@agentclientprotocol__claude-agent-acp@0.100.0.patch",
     ["agent-runtime-owner"],
   ],
   [
-    "patches/@agentclientprotocol__codex-acp@2.2.2.patch",
+    "patches/@agentclientprotocol__codex-acp@2.5.0.patch",
     ["agent-runtime-owner"],
   ],
   ["apps/server/test/claude-adapter-steering.test.ts", ["agent-runtime-owner"]],

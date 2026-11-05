@@ -15,8 +15,8 @@
     "db:migrate": "bun run prepare:runtime-assets && bun src/db/migrate.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.91.0",
-    "@agentclientprotocol/codex-acp": "2.2.2",
+    "@agentclientprotocol/claude-agent-acp": "0.100.0",
+    "@agentclientprotocol/codex-acp": "2.5.0",
     "@agentclientprotocol/sdk": "1.8.0",
     "@dispatch/shared": "workspace:*",
     "@fastify/compress": "^9.2.0",
