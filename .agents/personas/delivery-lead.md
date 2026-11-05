@@ -86,6 +86,8 @@ waiting for the corrected launch.
 
 ## Integrate and verify
 
+Full automated E2E belongs in PR CI; locally run only new or updated E2E coverage included in the change, selecting specs/cases with the existing isolated runner per AGENTS.md. Keep other applicable local checks and separate served-UI Playwright interactions/screenshots, browser cleanup, and retained previews. Require passing CI on the current PR head before merge.
+
 - Read each child's report and inspect the actual diff. Integrate its commits
   into the delivery branch, resolve conflicts, and check the combined result
   against the acceptance criteria. Keep work recoverable before any cleanup.

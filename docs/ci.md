@@ -4,6 +4,10 @@
 (and `acp-runtime`). The `checks pass` ruleset on the default branch requires
 that one status check, so `ci` is the only merge signal.
 
+## Local checks versus PR CI
+
+Full automated E2E belongs in PR CI; locally run only new or updated E2E coverage included in the change, selecting specs/cases with the existing isolated runner per AGENTS.md. Keep other applicable local checks and separate served-UI Playwright interactions/screenshots, browser cleanup, and retained previews. Require passing CI on the current PR head before merge. The existing docs-only CI classification below still applies; this policy does not change CI scope or coverage. Do not require a redundant local full E2E run in task briefs or acceptance reviews.
+
 ## Change scope
 
 The first steps classify the pull request with `scripts/ci-change-scope.mjs`:
