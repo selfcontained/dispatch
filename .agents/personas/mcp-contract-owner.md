@@ -21,6 +21,8 @@ Trace changed tools through `shared/mcp/server.ts`, the tool registration module
 
 - Preview attachments require an explicit type, safe URL and useful title through post/update/persistence/rendering; never infer preview identity from a host. Dispatch guidance shares only the web LAN preview with users, keeps API/DB addresses internal, and still provides cleanup commands.
 
+- The versioned portfolio HTTP contract is a separate read-only integration surface. Validate bounded pagination, cursor expiry/restart, explicit inclusion/coverage and current-state window semantics; never imply historical reconstruction or credential provisioning.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

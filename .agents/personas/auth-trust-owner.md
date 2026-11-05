@@ -19,6 +19,8 @@ Trace changed authentication and trust boundaries across server hooks, routes, b
 
 - HTTP request diagnostics must preserve useful failures while excluding credentials, request bodies, raw query values and sensitive route parameters, including when debug logging is enabled.
 
+- Portfolio reader credentials must remain read-only and distinct from account/MCP credentials, including first-run mode and cookie-bearing requests. Recheck revocation and project allowlists on every page; cached snapshots must never outlive their authorization.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

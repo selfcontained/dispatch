@@ -23,6 +23,8 @@ Trace the affected producer, stored message, route, and browser consumer in `age
 
 - Inbox resources include typed PRs/previews and legacy PR-shaped links only. Filter resource posts before bounds on server and live cache, preserve shared-stream/root and child-author scope, and keep type replacement/removal consistent across reload and SSE. Generic-link batches must not crowd out resources.
 
+- Portfolio exports require matching explicit project membership for both outcome author and stream (agent or task), including child threads and archived sources. Bounded snapshots must replay stable pages and label missing/purged evidence rather than imply complete history.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.
