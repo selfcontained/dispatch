@@ -1,5 +1,12 @@
 import React from "react";
-import { Check, Copy, Folder, FolderTree, GitBranch } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Folder,
+  FolderTree,
+  GitBranch,
+  UserRound,
+} from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -65,6 +72,7 @@ function CompactMetaRow({
 
 export type AgentCardDetailsProps = {
   agent: Agent;
+  personaParentName?: string;
   diffStats: DiffStats | null | undefined;
   refreshDiffStats: () => void;
   fullAccessEnabled: boolean;
@@ -84,6 +92,7 @@ export type AgentCardDetailsProps = {
  */
 export function AgentCardDetails({
   agent,
+  personaParentName,
   diffStats,
   refreshDiffStats,
   fullAccessEnabled,
@@ -169,6 +178,21 @@ export function AgentCardDetails({
         }
         mono
       />
+      {agent.persona ? (
+        <div className="space-y-0.5">
+          <CompactMetaRow
+            label="Persona"
+            icon={<UserRound className="h-3.5 w-3.5" />}
+            value={agent.persona}
+            mono
+          />
+          {personaParentName ? (
+            <div className="pl-[26px] text-[10px] text-muted-foreground">
+              from {personaParentName}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           {workspaceDir ? (
