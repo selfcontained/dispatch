@@ -279,3 +279,25 @@ describe("Conductor board watch instruction contract", () => {
     }
   );
 });
+
+it.each([false, true])(
+  "advertises task label assignment and any-label filtering to MCP agents (job=%s)",
+  async (job) => {
+    await withClient(job, async (client) => {
+      const inventory = (await client.listTools()).tools;
+      for (const name of ["task_create", "task_update"]) {
+        const tool = inventory.find((t) => t.name === name)!;
+        expect(tool).toBeDefined();
+        expect(tool.inputSchema.properties?.labels).toMatchObject({
+          type: "array",
+          items: { type: "object", properties: { name: { type: "string" } } },
+        });
+        expect(tool.inputSchema.required ?? []).not.toContain("labels");
+      }
+      expect(
+        inventory.find((t) => t.name === "task_list")!.inputSchema.properties
+          ?.labels
+      ).toMatchObject({ type: "array", items: { type: "string" } });
+    });
+  }
+);

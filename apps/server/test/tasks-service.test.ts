@@ -3622,3 +3622,90 @@ it("hides project label choices without changing assignments, and restores them"
   ).toEqual(task.labels);
   expect(launches).toEqual([]);
 });
+
+it("MCP agents read, replace, remove and clear task labels, with inclusive label filtering", async () => {
+  await insertAgent("agt_labels");
+  const call = tools("agt_labels", projectId);
+  const created = await call("task_create", {
+    title: "MCP labeled",
+    labels: [
+      { name: "Bug", color: "red" },
+      { name: "Release", color: "#74b85c" },
+    ],
+  });
+  expect(created.isError).toBeUndefined();
+  const id = created.structuredContent!.id as string;
+  const release = { name: "Release", color: "#74b85c" };
+  const bug = { name: "Bug", color: "red" };
+  expect(created.structuredContent!.labels).toEqual([bug, release]);
+  expect((await call("task_get", { id })).structuredContent!.labels).toEqual([
+    bug,
+    release,
+  ]);
+  expect(
+    (await call("task_update", { id, labels: [release] })).structuredContent!
+      .labels
+  ).toEqual([release]);
+  expect(
+    (await call("task_update", { id, title: "Preserved labels" }))
+      .structuredContent!.labels
+  ).toEqual([release]);
+  expect(
+    (await call("task_update", { id, labels: [release, bug] }))
+      .structuredContent!.labels
+  ).toEqual([bug, release]);
+  expect(
+    (await call("task_update", { id, labels: [] })).structuredContent!.labels
+  ).toEqual([]);
+  expect((await call("task_get", { id })).structuredContent!.labels).toEqual(
+    []
+  );
+  const bugTask = (
+    await call("task_create", { title: "Bug task", labels: [bug] })
+  ).structuredContent!.id;
+  const releaseTask = (
+    await call("task_create", {
+      title: "Release task",
+      column: "ready",
+      labels: [release],
+    })
+  ).structuredContent!.id;
+  await call("task_create", { title: "No label" });
+  const list = (await call("task_list", { labels: ["bUg", "Release"] }))
+    .structuredContent!;
+  expect((list.tasks as Array<{ id: string }>).map((t) => t.id).sort()).toEqual(
+    [bugTask, releaseTask].sort()
+  );
+  expect(
+    (list.columnCapacity as Array<{ activeTaskCount: number }>).reduce(
+      (sum, c) => sum + c.activeTaskCount,
+      0
+    )
+  ).toBe(4);
+  expect(
+    (
+      (await call("task_list", { labels: ["Bug", "Release"], column: "ready" }))
+        .structuredContent!.tasks as Array<{ id: string }>
+    ).map((t) => t.id)
+  ).toEqual([releaseTask]);
+  expect(
+    (await call("task_list", { labels: [] })).structuredContent!
+      .tasks as unknown[]
+  ).toHaveLength(4);
+  const invalid = await call("task_update", {
+    id: bugTask,
+    title: "Should not change",
+    labels: [{ name: " ", color: "red" }],
+  });
+  expect(invalid.isError).toBe(true);
+  expect((await service.requireTask(bugTask as string)).title).toBe("Bug task");
+  const foreign = await service.createTask(
+    { projectId: otherProjectId, title: "Other project", labels: [bug] },
+    USER
+  );
+  expect(
+    (await call("task_update", { id: foreign.id, labels: [] })).isError
+  ).toBe(true);
+  expect((await service.requireTask(foreign.id)).labels).toEqual([bug]);
+  expect(launches).toEqual([]);
+});

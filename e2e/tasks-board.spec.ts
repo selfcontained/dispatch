@@ -1642,17 +1642,62 @@ test("project labels persist, reuse colors and filter without changing capacity 
       headers,
       data: { labels: [] },
     });
+    await request.post("/api/v1/tasks", {
+      headers,
+      data: {
+        projectId: project.id,
+        title: "Release task",
+        labels: [{ name: "Release", color: "#74b85c" }],
+      },
+    });
     await page.goto(`/tasks?project=${project.id}`, {
       waitUntil: "domcontentloaded",
     });
-    await page.getByRole("combobox", { name: "Filter by label" }).click();
-    await page.getByRole("option", { name: "Bug", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("checkbox", { name: "Bug", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Bug", exact: true })
+    ).toBeChecked();
+    await page.keyboard.press("Escape");
     await expect(
       page.getByRole("button", { name: "Labeled task", exact: true })
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Unlabeled task", exact: true })
     ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("checkbox", { name: "Release", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Release", exact: true })
+    ).toBeChecked();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Labeled task", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Unlabeled task", exact: true })
+    ).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.getAll("label")).toEqual([
+      "Bug",
+      "Release",
+    ]);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Labeled task", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toBeVisible();
     expect(
       (
         await (
@@ -1661,10 +1706,27 @@ test("project labels persist, reuse colors and filter without changing capacity 
           })
         ).json()
       ).columns[0].activeTaskCount
-    ).toBe(2);
-    await page.screenshot({ path: "/tmp/task-labels-e2e.png" });
-    await page.getByRole("combobox", { name: "Filter by label" }).click();
-    await page.getByRole("option", { name: "All labels", exact: true }).click();
+    ).toBe(3);
+    await page.screenshot({ path: "/tmp/task-labels-multiple-filter-e2e.png" });
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("checkbox", { name: "Bug", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Bug", exact: true })
+    ).not.toBeChecked();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Labeled task", exact: true })
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Release task", exact: true })
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Filter by labels", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Clear all", exact: true }).click();
+    await page.keyboard.press("Escape");
     await expect(
       page.getByRole("button", { name: "Unlabeled task", exact: true })
     ).toBeVisible();

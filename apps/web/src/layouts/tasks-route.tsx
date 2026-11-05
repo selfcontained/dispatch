@@ -1,3 +1,4 @@
+import { TaskLabelFilter } from "@/components/app/tasks/task-label-filter";
 import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -93,13 +94,21 @@ function TasksContent({ projectId }: { projectId: string }) {
     (assignee === ATTENTION
       ? needsAttention(task, attention)
       : task.assignedAgentId === assignee);
+  const selectedLabels = new Set(
+    params
+      .getAll("label")
+      .filter(Boolean)
+      .map((name) => name.toLowerCase())
+  );
   const tasks = board
     ? (archived ? board.tasks : visibleTasks(board.tasks, columns)).filter(
         (task) =>
           task.title.toLowerCase().includes(search.toLowerCase()) &&
           matchesAssignee(task) &&
-          (!params.get("label") ||
-            task.labels?.some((label) => label.name === params.get("label")))
+          (!selectedLabels.size ||
+            task.labels?.some((label) =>
+              selectedLabels.has(label.name.toLowerCase())
+            ))
       )
     : [];
   const attentionCount = board
@@ -307,26 +316,12 @@ function TasksContent({ projectId }: { projectId: string }) {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
-            <Select
-              value={params.get("label") ?? "__all"}
-              onValueChange={(value) =>
-                updateParam("label", value === "__all" ? null : value)
-              }
-            >
-              <SelectTrigger aria-label="Filter by label" className="h-8 w-32">
-                <SelectValue placeholder="All labels" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all">All labels</SelectItem>
-                {[...(board?.labels ?? []), ...(board?.hiddenLabels ?? [])].map(
-                  (label) => (
-                    <SelectItem key={label.name} value={label.name}>
-                      {label.name}
-                    </SelectItem>
-                  )
-                )}
-              </SelectContent>
-            </Select>
+            <TaskLabelFilter
+              labels={[
+                ...(board?.labels ?? []),
+                ...(board?.hiddenLabels ?? []),
+              ]}
+            />
             <Select value={assignee} onValueChange={setAssignee}>
               <SelectTrigger
                 aria-label="Filter by assignee"

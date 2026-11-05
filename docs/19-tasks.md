@@ -194,7 +194,7 @@ Omit `labels` on update to preserve assignments; send `[]` to clear them. HTTP
 and MCP task reads return resolved labels, including an empty array on older tasks.
 Board reads also return all reusable project `labels`. The create/details picker
 creates labels inline and reuses existing names. Cards show up to three names and
-an overflow count; the board's `label` URL parameter filters visible tasks without
+an overflow count; the board's repeatable `label` URL parameters match **any** selected label and filter visible tasks without
 changing column occupancy or launch admission. Editing labels never launches agents.
 
 The picker’s **Manage labels** view can hide a label from future choices and
@@ -208,3 +208,15 @@ existing tasks by hidden labels.
 Names resolve case-insensitively within that project. Board reads return active
 `labels` and `hiddenLabels` separately. Visibility changes publish the existing
 project task-change event and never launch agents.
+
+MCP agents read assigned labels in `task_get` and `task_list`. `task_create` and
+`task_update` accept `labels: [{ name, color }]`; update replaces assignments,
+omission preserves them, and `[]` clears them. To remove one label, read the
+current list and update with the remaining labels. Reusing an existing name keeps
+its project color. `task_list({ labels: ["Bug", "Release"] })` matches tasks with
+**any** named label, case-insensitively, while preserving global column counts.
+
+The board label filter supports multiple selections and a Clear all action.
+Repeated parameters such as `?label=Bug&label=Release` retain this inclusive filter
+through reloads and back/forward navigation. Label selection composes with the
+current project, column, assignee, search and layout filters.
