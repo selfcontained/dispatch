@@ -442,11 +442,7 @@
       "personas": ["code-review"]
     },
     {
-      "paths": [
-        "playwright.config.ts",
-        "scripts/playwright-policy.test.mjs",
-        "apps/server/vitest.pg14.config.ts"
-      ],
+      "paths": ["playwright.config.ts", "scripts/playwright-policy.test.mjs"],
       "personas": ["release-update-owner"]
     },
     {

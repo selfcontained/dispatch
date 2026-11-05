@@ -7,7 +7,8 @@ manifest, exception registry, or approval framework.
 
 The default `pnpm run test:e2e` runs nine journeys in seven files against an
 isolated database, HTTP server, and real agent hosts using the deterministic
-fake ACP engine. It does not invoke provider CLIs or paid models. Previously,
+fake ACP engine. Availability checks use a version-only executable stub; no
+provider CLI installation or login is required. It does not invoke paid models. Previously,
 the default inert runtime skipped the live agent journeys.
 
 | File                       | Journey                                                                          |
@@ -43,12 +44,11 @@ equivalent unit test.
 | Stream/MCP permutations, token aggregation, jobs SSE                                  | Existing stream-service/routes, MCP transport, agent-usage, jobs service/route tests remain; live thread and cross-agent handoff journeys retain end-to-end wiring                  |
 | Update, notification, certificate and terminal browser checks                         | Existing release/auth/terminal/service tests remain. Browser-specific acceptance checks are no longer universal PR regression gates                                                 |
 
-The full server, frontend and extension suites still run. PostgreSQL 14
-compatibility retains every test that uses its database. Its second execution
-of `dispatch-dev.test.ts` is removed: that test provisions its own PostgreSQL 17
-stack regardless of `TEST_DATABASE_URL`, and remains in the main suite. This change does not use broad path-based
-skipping to obtain its savings and does not claim to fix historical flakes in
-the retired browser tests.
+The full server, frontend and extension suites still run once, against PostgreSQL 17. The PostgreSQL 14 CI run is removed by explicit project decision. Raising
+the installer's minimum from 14 to 17 is a separate backlog task; until then,
+the published minimum remains 14 without a dedicated CI compatibility run.
+This change does not use broad path-based skipping to obtain its savings and
+does not claim to fix historical flakes in retired browser tests.
 
 ## Commands
 

@@ -99,6 +99,9 @@ esac
     DISPATCH_AGENT_RUNTIME: "inert",
     E2E_AGENT_RUNTIME: "inert",
     DISPATCH_ACP_ADAPTER_COMMAND: "must-not-inherit-provider",
+    DISPATCH_CODEX_BIN: "/missing/real-provider",
+    DISPATCH_CLAUDE_BIN: "/missing/real-provider",
+    DISPATCH_OPENCODE_BIN: "/missing/real-provider",
   };
 
   const run = () =>
@@ -163,7 +166,7 @@ describe("e2e-isolated.sh teardown", () => {
   it("always runs core journeys with the fake ACP host despite inherited runtime settings", () => {
     const { run } = fixture({
       up: "exit 0",
-      playwrightTest: `node -e 'const assert = require("node:assert/strict"); assert.equal(process.env.DISPATCH_AGENT_RUNTIME, "acp"); const command = JSON.parse(process.env.DISPATCH_ACP_ADAPTER_COMMAND); assert.equal(command.length, 1); assert.ok(command[0].endsWith("/e2e/fixtures/fake-acp-agent.mjs"));'`,
+      playwrightTest: `node -e 'const assert = require("node:assert/strict"); assert.equal(process.env.DISPATCH_AGENT_RUNTIME, "acp"); const command = JSON.parse(process.env.DISPATCH_ACP_ADAPTER_COMMAND); assert.equal(command.length, 1); assert.ok(command[0].endsWith("/e2e/fixtures/fake-acp-agent.mjs")); const { spawnSync } = require("node:child_process"); for (const key of ["DISPATCH_CODEX_BIN", "DISPATCH_CLAUDE_BIN", "DISPATCH_OPENCODE_BIN"]) { const bin = process.env[key]; assert.ok(bin.endsWith("/e2e/fixtures/fake-engine-cli.sh")); assert.equal(spawnSync(bin, ["--version"]).status, 0); assert.equal(spawnSync(bin, ["login"]).status, 64); }'`,
     });
     const result = run();
     expect(result.status, result.stderr).toBe(0);

@@ -46,6 +46,12 @@ export DISPATCH_AGENT_STATE_ROOT="/tmp/dispatch-agents-${RUN_ID}"
 # so the runtime can be driven with no engine installed (test seam only).
 export DISPATCH_ACP_ADAPTER_COMMAND="[\"$ROOT_DIR/e2e/fixtures/fake-acp-agent.mjs\"]"
 
+# Launch admission and the settings UI probe the engine binaries separately
+# from the ACP adapter. Never depend on a provider CLI installed on the runner.
+export DISPATCH_CODEX_BIN="$ROOT_DIR/e2e/fixtures/fake-engine-cli.sh"
+export DISPATCH_CLAUDE_BIN="$ROOT_DIR/e2e/fixtures/fake-engine-cli.sh"
+export DISPATCH_OPENCODE_BIN="$ROOT_DIR/e2e/fixtures/fake-engine-cli.sh"
+
 # `pnpm install` does not fetch Playwright browser binaries, so a Playwright
 # version bump in the lockfile leaves the newly pinned revision missing and
 # every browser test fails at launch with "Executable doesn't exist at
