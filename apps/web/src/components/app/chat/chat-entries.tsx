@@ -728,7 +728,8 @@ export function Post({
           {grouped ? (
             deliveryIndicator ? null : (
               <span
-                className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
+                // Hidden on phones: the body runs under it there.
+                className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible max-sm:hidden"
                 title={formatDateTime(at)}
                 data-testid="chat-gutter-time"
               >
@@ -754,7 +755,12 @@ export function Post({
         {grouped ? (
           deliveryIndicator ? (
             <div
-              className="flex items-center leading-tight"
+              className={cn(
+                "flex items-center leading-tight",
+                // Shifted, not margined: as a flex box beside the action
+                // float it ignores a negative margin.
+                !flush && "max-sm:-translate-x-11"
+              )}
               data-testid="chat-grouped-receipt-header"
             >
               {timestamp}
@@ -765,7 +771,12 @@ export function Post({
             // Wrapping keeps the recipient readable on narrow screens: rather
             // than squeezing "→ recipient" to nothing beside a long sender,
             // it drops to its own line.
-            className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight"
+            // On phones the body runs under the avatar, so the header is at
+            // least avatar-tall to keep the body clear of it.
+            className={cn(
+              "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight",
+              !flush && "max-sm:min-h-8"
+            )}
             {...(side
               ? {
                   "aria-label": `${author.name} → ${side.recipientName}`,
@@ -824,7 +835,10 @@ export function Post({
         <div
           className={cn(
             "clear-both min-w-0 text-sm text-foreground",
-            POST_BODY_MEASURE
+            POST_BODY_MEASURE,
+            // On phones the body takes the avatar column's width too (w-8 +
+            // gap-3); on desktop it stays indented under the author.
+            !flush && "max-sm:-ml-11 max-sm:max-w-none"
           )}
         >
           {children}
