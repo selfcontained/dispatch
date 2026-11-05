@@ -13,6 +13,7 @@ let adapter: {
   CodexEventHandler: { prototype: any };
   CodexAcpClient: { prototype: any };
   CodexAcpServer: { prototype: any };
+  dispatchReceiptId: (params: unknown) => string | undefined;
 };
 beforeAll(async () => {
   const sourcePath = createRequire(import.meta.url).resolve(
@@ -30,7 +31,8 @@ beforeAll(async () => {
       .replaceAll(
         "import.meta.url",
         JSON.stringify(pathToFileURL(sourcePath).href)
-      ) + "\nexport { CodexEventHandler, CodexAcpClient, CodexAcpServer };\n"
+      ) +
+      "\nexport { CodexEventHandler, CodexAcpClient, CodexAcpServer, dispatchReceiptId };\n"
   );
   adapter = await import(/* @vite-ignore */ pathToFileURL(modulePath).href);
 });
@@ -52,10 +54,13 @@ describe("installed Codex adapter Dispatch contracts", () => {
   it("publishes turn start/completion ids, status and error", async () => {
     const sessionState = {
       currentTurnId: null,
+      interruptTurnId: null,
       toolCallReports: { releaseOpen: vi.fn() },
+      openToolCalls: { clear: vi.fn(), finishOutstanding: () => [] },
     };
     const handler = {
       sessionState,
+      session: { protocolVersion: 1 },
       flushPendingErrors: vi.fn(),
       plans: { flush: vi.fn(), clearTurn: vi.fn() },
       subagents: { notificationSessionId: () => params.sessionId },
@@ -109,7 +114,17 @@ describe("installed Codex adapter Dispatch contracts", () => {
     ).toBeNull();
   });
 
-  it("forwards prompt and steer receipts as clientUserMessageId", async () => {
+  it("accepts only UUID receipt ids", () => {
+    expect(adapter.dispatchReceiptId(params)).toBe(receiptId);
+    expect(
+      adapter.dispatchReceiptId({ _meta: { "dispatch/steering": { id: "x" } } })
+    ).toBeUndefined();
+    expect(adapter.dispatchReceiptId({})).toBeUndefined();
+  });
+
+  it("forwards prompt and steer client ids to turn/start and turn/steer", async () => {
+    // Upstream plumbing the receipt rides on: the patched prompt path passes
+    // dispatchReceiptId(params) as sendPrompt's clientUserMessageId.
     const runTurn = vi.fn();
     const turnSteer = vi.fn();
     const client = {
@@ -124,13 +139,16 @@ describe("installed Codex adapter Dispatch contracts", () => {
       undefined,
       false,
       "/tmp",
-      []
+      [],
+      undefined,
+      undefined,
+      receiptId
     );
     await adapter.CodexAcpClient.prototype.steerTurn.call(client, {
       threadId: params.sessionId,
       turnId: "turn-1",
       prompt: params.prompt,
-      receiptId,
+      clientUserMessageId: receiptId,
     });
     expect(runTurn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -168,24 +186,35 @@ describe("installed Codex adapter Dispatch contracts", () => {
     expect(startNewTurnFromSteering).not.toHaveBeenCalled();
   });
 
-  it("forwards steer receipt through active-turn injection", async () => {
-    const steerTurn = vi.fn();
-    await adapter.CodexAcpServer.prototype.injectSteerIntoActiveTurn.call(
-      {
-        runWithProcessCheck: (fn: () => unknown) => fn(),
-        codexAcpClient: { steerTurn },
-      },
-      params,
-      "turn-1",
-      {}
-    );
-    expect(steerTurn).toHaveBeenCalledWith({
-      threadId: params.sessionId,
-      turnId: "turn-1",
-      prompt: params.prompt,
-      receiptId,
-    });
-  });
+  it.each([
+    ["the receipt", params, receiptId],
+    ["a minted id without a receipt", { ...params, _meta: {} }, undefined],
+  ])(
+    "injects a steer into the running turn with %s as clientUserMessageId",
+    async (_label, request, expected) => {
+      const proto = adapter.CodexAcpServer.prototype;
+      const injectSteerIntoActiveTurn = vi.fn(async () => true);
+      await expect(
+        proto.performSteeringRequest.call(
+          {
+            getSessionState: () => ({ supportedInputModalities: ["text"] }),
+            assertSteerInputSupported: proto.assertSteerInputSupported,
+            getSteerableTurnId: async () => "turn-1",
+            injectSteerIntoActiveTurn,
+          },
+          proto.parseSessionSteerParams.call({}, request)
+        )
+      ).resolves.toEqual({ outcome: "injected" });
+      const clientId = (
+        injectSteerIntoActiveTurn.mock.calls[0] as unknown[]
+      )[3];
+      if (expected) expect(clientId).toBe(expected);
+      else
+        expect(clientId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+        );
+    }
+  );
 
   it("returns the prompt's own turn id and preserves response metadata", async () => {
     const onTurnStarted = vi.fn();
