@@ -28,8 +28,10 @@ mock external seams rather than asserting that mocks call other mocks.
   aggregate still includes DB, process, Git and release integration coverage.
 - `pnpm run check:test-policy`: admission/reliability guard plus its unit tests.
   Playwright collection does not launch a browser or server.
-- `pnpm run test:e2e -- <spec>`: focused browser test through the isolated runner.
-- `pnpm run test:e2e`: full existing browser/API regression suite during migration.
+- `pnpm run test:e2e --no-deps <spec>`: focused changed browser coverage through
+  the isolated runner, excluding project dependencies.
+- `pnpm run test:e2e`: full existing browser/API regression suite in PR CI during
+  migration; do not run unmodified full regression coverage locally.
 - `pnpm run test:e2e:runtime`: all fake-ACP runtime specs, including message
   sharing and stream-follow. This runs real hosts against the fake engine; it
   does not invoke paid external models. The default inert suite intentionally
