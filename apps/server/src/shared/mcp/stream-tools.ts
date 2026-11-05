@@ -154,7 +154,9 @@ const attachmentSchema = z.discriminatedUnion("type", [
       .string()
       .min(1)
       .optional()
-      .describe("A file you attached before, by the fileName in its block."),
+      .describe(
+        "A file you attached before: the fileName in its block, or the name you uploaded it under (its newest upload is used)."
+      ),
     fileId: z.int().positive().optional(),
     description: z
       .string()

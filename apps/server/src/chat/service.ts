@@ -59,7 +59,11 @@ import {
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import type { QueuedPromptAction } from "../agents/runtime.js";
-import { isValidStoredFileName, resolveFilesDir } from "../shared/files.js";
+import {
+  isValidStoredFileName,
+  resolveFilesDir,
+  storedFileNamePattern,
+} from "../shared/files.js";
 import { agentTree, parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
@@ -4909,13 +4913,14 @@ export class StreamService {
         "file attachments take either fileName or fileId, not both."
       );
     }
-    const result = await this.deps.pool.query<{
+    type FileRow = {
       id: number;
       agent_id: string;
       file_name: string;
       size_bytes: number;
       mime_type: string;
-    }>(
+    };
+    const result = await this.deps.pool.query<FileRow>(
       `SELECT id, agent_id, file_name, size_bytes, mime_type FROM files
         WHERE agent_id = ANY($1::text[])
           AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END
@@ -4923,10 +4928,22 @@ export class StreamService {
         LIMIT 1`,
       [agentIds, fileName ?? null, fileId ?? null]
     );
-    const match = result.rows[0];
+    let match: FileRow | undefined = result.rows[0];
+    if (!match && fileName) {
+      // Uploads are stored under a timestamped name; an agent usually asks
+      // for the name it uploaded. The newest upload of that name wins.
+      const byOriginal = await this.deps.pool.query<FileRow>(
+        `SELECT id, agent_id, file_name, size_bytes, mime_type FROM files
+          WHERE agent_id = ANY($1::text[]) AND file_name ~ $2::text
+          ORDER BY array_position($1::text[], agent_id), id DESC
+          LIMIT 1`,
+        [agentIds, storedFileNamePattern(fileName)]
+      );
+      match = byOriginal.rows[0];
+    }
     if (!match) {
       throw new StreamValidationError(
-        `Unknown file ${fileName ? `"${fileName}"` : `#${fileId}`} — attach it by path to upload it first.`
+        `Unknown file ${fileName ? `"${fileName}"` : `#${fileId}`} — use the fileName from its block or list_files, or attach it by path to upload it first.`
       );
     }
     if (!isValidStoredFileName(match.file_name)) {

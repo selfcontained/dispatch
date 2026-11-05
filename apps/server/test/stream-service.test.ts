@@ -932,6 +932,36 @@ describe("StreamService.post", () => {
     expect(blank.attachments[0]).not.toHaveProperty("caption");
   });
 
+  it("resolves a file by the name it was uploaded under, newest first, within allowed owners", async () => {
+    const older = await seedFiles(A, "board-2026-10-25-14-51-52-910.png");
+    const newest = await seedFiles(A, "board-2026-10-25-15-12-09-004.png");
+    await seedFiles(A, "board-final-2026-10-25-15-30-00-000.png");
+    await seedFiles(B, "board-2026-10-25-16-00-00-000.png");
+    const block = await service.post(A, {
+      text: "by original name",
+      attachments: [{ type: "file", fileName: "board.png" }],
+    });
+    expect(block.attachments[0]).toMatchObject({
+      fileId: newest,
+      fileName: "board-2026-10-25-15-12-09-004.png",
+      ownerAgentId: A,
+    });
+    // The exact stored name still wins over the fallback.
+    const exact = await service.post(A, {
+      text: "by stored name",
+      attachments: [
+        { type: "file", fileName: "board-2026-10-25-14-51-52-910.png" },
+      ],
+    });
+    expect(exact.attachments[0]).toMatchObject({ fileId: older });
+    await expect(
+      service.post(A, {
+        text: "wrong extension",
+        attachments: [{ type: "file", fileName: "board.jpg" }],
+      })
+    ).rejects.toThrow(/Unknown file "board.jpg"/);
+  });
+
   it("resolves maximum-length files by name and ID only within allowed owners", async () => {
     const name = `${"a".repeat(248)}(1).png`;
     const fileId = await seedFiles(A, name);
@@ -1049,9 +1079,17 @@ describe("StreamService.post", () => {
     ]);
     expect(block.attachments[0]).not.toHaveProperty("path");
 
-    // A basename that merely resembles a share, another agent's file, or a
-    // local path are all unknown.
-    for (const fileName of ["shot.png", "theirs.png", "/tmp/report.pdf"]) {
+    // The name a share was uploaded under finds its stored file; another
+    // agent's file or a local path are unknown.
+    const byUploadName = await service.post(A, {
+      text: "see",
+      attachments: [{ type: "file", fileName: "shot.png" }],
+    });
+    expect(byUploadName.attachments[0]).toMatchObject({
+      fileName: "shot-2026-01-01-00-00-00-000.png",
+      ownerAgentId: A,
+    });
+    for (const fileName of ["theirs.png", "/tmp/report.pdf"]) {
       await expect(
         service.post(A, {
           text: "see",

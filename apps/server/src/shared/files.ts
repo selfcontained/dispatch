@@ -45,6 +45,19 @@ export function timestampedFileName(
   return result;
 }
 
+/**
+ * A POSIX regular expression matching every stored name that
+ * {@link timestampedFileName} can produce from `name`: the original base, the
+ * generated timestamp, any suffix, then the original extension. Agents refer
+ * to a file they uploaded by the name they gave it, not the stamped one.
+ */
+export function storedFileNamePattern(name: string): string {
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+  const ext = path.extname(name);
+  const base = path.basename(name, ext);
+  return `^${escape(base)}-\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{3}[^/]*${escape(ext)}$`;
+}
+
 export function sanitizeUploadedFileName(name: string): string {
   const ext = path.extname(name).toLowerCase();
   const baseName = path.basename(name, path.extname(name)).normalize("NFKD");
