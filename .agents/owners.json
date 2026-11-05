@@ -78,8 +78,6 @@
         "apps/server/test/claude-adapter-*.test.ts",
         "apps/server/test/codex-adapter-*.test.ts",
         "apps/server/test/helpers/fake-acp-agent.ts",
-        "apps/server/test/helpers/preserved-restart-driver.mjs",
-        "apps/server/test/preserved-restart-driver.test.ts",
         "apps/server/src/projects/**",
         "apps/server/src/routes/projects.ts",
         "apps/server/test/*project*",
@@ -245,7 +243,6 @@
         "apps/server/test/e2e-isolated-cleanup.test.ts",
         "apps/server/test/server-tests-isolated.test.ts",
         "apps/server/test/helpers/process-tree-fixture.ts",
-        "apps/server/test/helpers/restart-evidence.ts",
         "e2e/*release*",
         "apps/macos/**",
         "docs/macos-native-recovery.md",
@@ -433,6 +430,23 @@
         "docs/jobs/test-enforcer.md",
         "docs/update-backup-recovery-spec.md"
       ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": [
+        "package.json",
+        "apps/server/package.json",
+        "apps/server/vitest.unit.config.ts",
+        "docs/testing-strategy.md"
+      ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": ["playwright.config.ts", "scripts/playwright-policy.test.mjs"],
+      "personas": ["release-update-owner"]
+    },
+    {
+      "paths": ["e2e/**"],
       "personas": ["code-review"]
     }
   ],

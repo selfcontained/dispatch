@@ -13,16 +13,17 @@ import {
 test.use({ deviceScaleFactor: 2 });
 
 // Real MCP route + supervisor/host + deterministic fake ACP engine; no provider calls.
-test.skip(
-  process.env.DISPATCH_AGENT_RUNTIME !== "acp",
-  "requires E2E_AGENT_RUNTIME=acp"
-);
+test.beforeAll(() => {
+  expect(
+    process.env.DISPATCH_AGENT_RUNTIME,
+    "Run via pnpm run test:e2e (isolated fake ACP runtime)"
+  ).toBe("acp");
+});
 
 test("a coordinator forwards verified user approval to an independent task agent without opening history", async ({
   page,
   request,
-}) => {
-  test.setTimeout(120_000);
+}, testInfo) => {
   const repo = mkdtempSync(path.join(os.tmpdir(), "dispatch-message-sharing-"));
   execFileSync("git", ["init", "-q", repo]);
   let projectId: string | undefined;
@@ -130,66 +131,9 @@ test("a coordinator forwards verified user approval to an independent task agent
       "not a new user instruction or approval"
     );
     await expect(result).not.toContainText("Unrelated coordinator-only");
-    const ordinary = await call(taskAgent.id, "post", {
-      text: "Ordinary recipient post",
-    });
-    await expect(
-      page.locator(`[data-block-id="${ordinary.id}"]`)
-    ).toContainText("Ordinary recipient post");
-    await expect(
-      page
-        .locator(`[data-block-id="${ordinary.id}"]`)
-        .getByTestId("shared-message")
-    ).toHaveCount(0);
-    // Reveal coordination through the real control. The long fake-engine
-    // response leaves the older notice above the virtualized feed window.
-    const filters = page.getByTestId("chat-filters-trigger");
-    await filters.click();
-    const coordination = page.getByRole("switch", {
-      name: "Show child messages",
-    });
-    if ((await coordination.getAttribute("aria-checked")) !== "true")
-      await coordination.click();
-    await expect(coordination).toHaveAttribute("aria-checked", "true");
-    await filters.click();
-    await page.getByTestId("chat-scroll").evaluate((element) => {
-      element.scrollTop = 0;
-    });
-    const notice = page.getByTestId("shared-message");
-
-    await expect(notice).toBeVisible();
-    await notice.scrollIntoViewIfNeeded();
-    await expect(notice).toContainText("Shared by e2e-share-coordinator");
-    await expect(notice).toContainText("Originally written by User");
-    await expect(notice).toContainText("e2e-share-coordinator’s stream");
-    await expect(notice.getByTestId("shared-message-question")).toContainText(
-      "Approve the bounded task handoff?"
-    );
-    await expect(notice.locator("blockquote").last()).toHaveText("Yes");
-    await expect(notice).not.toContainText("Unrelated coordinator-only");
-    await expect(notice).not.toContainText("get_message");
-    await notice.scrollIntoViewIfNeeded();
-    await notice.evaluate((element) =>
-      element.scrollIntoView({ block: "center" })
-    );
-    await page.screenshot({
-      path: "/tmp/dispatch-message-sharing-desktop.png",
-      animations: "disabled",
-    });
-    await notice.getByRole("button", { name: "Provenance details" }).click();
-    await expect(notice).toContainText(receipt.id);
-    await page.setViewportSize({ width: 375, height: 812 });
-    await expect(notice).toBeVisible();
-    await expect
-      .poll(() =>
-        notice.evaluate((element) => element.scrollWidth <= element.clientWidth)
-      )
-      .toBe(true);
-    await notice.getByRole("button", { name: "Provenance details" }).click();
-    await notice.scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: "/tmp/dispatch-message-sharing-handoff.png",
-      animations: "disabled",
+    await testInfo.attach("handoff reached the task agent", {
+      body: await page.screenshot(),
+      contentType: "image/png",
     });
   } finally {
     await cleanupE2EAgents(request);

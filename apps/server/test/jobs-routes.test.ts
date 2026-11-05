@@ -68,6 +68,10 @@ describe("POST /api/v1/jobs (create)", () => {
       agentType: "codex",
       useWorktree: true,
       baseBranch: "develop",
+      branchName: "jobs/configurable",
+      timeoutMs: 600000,
+      needsInputTimeoutMs: 3600000,
+      enabled: true,
       fullAccess: true,
       autoArchive: false,
       singleton: false,
@@ -76,6 +80,10 @@ describe("POST /api/v1/jobs (create)", () => {
     expect(body.agentType).toBe("codex");
     expect(body.useWorktree).toBe(true);
     expect(body.baseBranch).toBe("develop");
+    expect(body.branchName).toBe("jobs/configurable");
+    expect(body.timeoutMs).toBe(600000);
+    expect(body.needsInputTimeoutMs).toBe(3600000);
+    expect(body.enabled).toBe(true);
     expect(body.fullAccess).toBe(true);
     expect(body.autoArchive).toBe(false);
     expect(body.singleton).toBe(false);
@@ -128,12 +136,17 @@ describe("GET /api/v1/jobs (list)", () => {
   });
 
   it("returns created jobs with nextRun field", async () => {
-    await createJob("list-a");
+    await createJob("list-a", { schedule: "0 */6 * * *" });
     await createJob("list-b");
     const res = await authedInject("GET", "/api/v1/jobs");
     expect(res.statusCode).toBe(200);
     const jobs = res.json();
     expect(jobs).toHaveLength(2);
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "list-a", schedule: "0 */6 * * *" }),
+      ])
+    );
     expect(jobs[0].nextRun).toBeNull();
   });
 });
@@ -145,9 +158,23 @@ describe("PATCH /api/v1/jobs (update)", () => {
       jobId: await jobId("patch-me"),
       prompt: "updated prompt",
       singleton: false,
+      schedule: "*/45 * * * *",
+      timeoutMs: 900000,
+      needsInputTimeoutMs: 1800000,
+      agentType: "codex",
+      fullAccess: true,
+      enabled: true,
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
+    expect(body).toMatchObject({
+      schedule: "*/45 * * * *",
+      timeoutMs: 900000,
+      needsInputTimeoutMs: 1800000,
+      agentType: "codex",
+      fullAccess: true,
+      enabled: true,
+    });
     expect(body.prompt).toBe("updated prompt");
     expect(body.singleton).toBe(false);
   });
@@ -213,6 +240,14 @@ describe("POST /api/v1/jobs/enable", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().enabled).toBe(true);
+    const list = await authedInject("GET", "/api/v1/jobs");
+    expect(list.json()).toEqual([
+      expect.objectContaining({
+        id: res.json().id,
+        enabled: true,
+        nextRun: expect.any(String),
+      }),
+    ]);
   });
 
   it("rejects enabling a job without a schedule", async () => {
@@ -237,6 +272,14 @@ describe("POST /api/v1/jobs/disable", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().enabled).toBe(false);
+    const list = await authedInject("GET", "/api/v1/jobs");
+    expect(list.json()).toEqual([
+      expect.objectContaining({
+        id: res.json().id,
+        enabled: false,
+        nextRun: null,
+      }),
+    ]);
   });
 });
 
@@ -295,6 +338,21 @@ describe("POST /api/v1/jobs/run", () => {
     expect(body.jobId).toBe(job.id);
     expect(body.runId).toBeTruthy();
     expect(body.agentId).toBeTruthy();
+    expect(body.status).toBe("running");
+    const history = await authedInject(
+      "GET",
+      `/api/v1/jobs/history?jobId=${job.id}`
+    );
+    expect(history.statusCode).toBe(200);
+    expect(history.json().job.name).toBe("run-me");
+    expect(history.json().runs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: body.runId,
+          config: expect.objectContaining({ triggerSource: "manual" }),
+        }),
+      ])
+    );
     // Mark the run as completed and wait for the 2s monitor poll to see it,
     // preventing "Cannot use pool after end" errors during teardown.
     await ctx.pool.query(

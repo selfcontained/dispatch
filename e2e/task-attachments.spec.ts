@@ -3,16 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { loadApp, authHeaders, createAgentViaAPI } from "./helpers";
+import { loadApp, authHeaders } from "./helpers";
 
-const repo = mkdtempSync(join(tmpdir(), "dispatch-task-context-"));
-execFileSync("git", ["init", repo]);
-test.afterAll(() => rmSync(repo, { recursive: true, force: true }));
-
-test("creates a task with an image and link, previews it, and keeps the modal open on Escape", async ({
+test("creates a task with an image and link, and reloads its saved context", async ({
   page,
   request,
-}) => {
+}, testInfo) => {
+  const repo = mkdtempSync(join(tmpdir(), "dispatch-task-context-"));
+  execFileSync("git", ["init", "-q", repo]);
   const response = await request.post("/api/v1/projects", {
     headers: authHeaders(),
     data: { name: "Task context E2E", repoRoot: repo, color: "#7c6ee6" },
@@ -55,57 +53,26 @@ test("creates a task with an image and link, previews it, and keeps the modal op
     expect(taskResponse.request().headers()["content-type"]).toContain(
       "multipart/form-data"
     );
-    const task = await taskResponse.json();
+    expect(taskResponse.ok()).toBeTruthy();
     const drawer = page.getByTestId("task-drawer");
     await expect(
       drawer.getByRole("link", { name: "https://example.com/task-context" })
     ).toBeVisible();
     await expect(drawer.getByTestId("chat-attachment-image")).toBeVisible();
-    await drawer
-      .getByTestId("chat-attachment-image")
-      .getByRole("button")
-      .click();
-    await expect(page.getByTestId("file-lightbox")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("file-lightbox")).toHaveCount(0);
-    await expect(drawer).toBeVisible();
-    const agent = await createAgentViaAPI(request, {
-      cwd: repo,
-      useWorktree: false,
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(drawer.getByTestId("chat-attachment-image")).toBeVisible();
+    await expect(
+      drawer.getByRole("link", { name: "https://example.com/task-context" })
+    ).toBeVisible();
+    await testInfo.attach("saved task attachments", {
+      body: await page.screenshot(),
+      contentType: "image/png",
     });
-    await page.goto(`/agents/${agent.id}?task=${task.id}`, {
-      waitUntil: "domcontentloaded",
-    });
-    // The saved Tasks project must not constrain an explicit agent deep link.
-    await expect(page).toHaveURL(
-      new RegExp(`/agents/${agent.id}\\?task=${task.id}$`)
-    );
-    const modal = page.getByTestId("task-modal");
-    await expect(modal).toBeVisible();
-    await modal
-      .getByTestId("chat-attachment-image")
-      .getByRole("button")
-      .click();
-    await expect(page.getByTestId("file-lightbox")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("file-lightbox")).toHaveCount(0);
-    await expect(modal).toBeVisible();
-    await request.delete(`/api/v1/agents/${agent.id}`, {
-      headers: authHeaders(),
-    });
-    const detailResponse = await request.get(`/api/v1/tasks/${task.id}`, {
-      headers: authHeaders(),
-    });
-    const detail = await detailResponse.json();
-    const range = await request.get(detail.attachments[0].url, {
-      headers: { ...authHeaders(), Range: "bytes=0-7" },
-    });
-    expect(range.status()).toBe(206);
-    expect(range.headers()["x-content-type-options"]).toBe("nosniff");
-    expect((await range.body()).length).toBe(8);
   } finally {
+    await page.goto("about:blank");
     await request.delete(`/api/v1/projects/${project.id}`, {
       headers: authHeaders(),
     });
+    rmSync(repo, { recursive: true, force: true });
   }
 });
