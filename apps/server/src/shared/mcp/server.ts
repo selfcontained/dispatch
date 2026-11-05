@@ -282,6 +282,7 @@ export type McpRequestContext = UsageCallbacks & {
       agentType?: LaunchPersonaAgentType;
       model?: string;
       dryRun?: boolean;
+      personas?: string[];
     }
   ) => Promise<import("../../personas/codeowners.js").OwnerReviewResult>;
   listPersonas?: (agentCwd: string) => Promise<

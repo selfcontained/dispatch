@@ -149,6 +149,69 @@ describe("ACP code owner launches", () => {
       { detachLaunch: true }
     );
   });
+  it.each([false, true])(
+    "selects and deduplicates a subset (dryRun=%s)",
+    async (dryRun) => {
+      const { handlers, agentManager } = setup();
+      vi.mocked(runCommand).mockResolvedValue({
+        exitCode: 0,
+        stdout: "src/a.ts\0unowned.txt\0",
+        stderr: "",
+      });
+      const result = await handlers.launchOwnerReviews("parent", {
+        context: "Subset review",
+        personas: ["owner-two", "owner-two"],
+        dryRun,
+      });
+      expect(result.owners).toEqual([
+        { persona: "owner-two", files: ["src/a.ts"] },
+      ]);
+      expect(result.omittedOwners).toEqual([
+        { persona: "owner-one", files: ["src/a.ts"] },
+      ]);
+      expect(result.uncoveredFiles).toEqual(["unowned.txt"]);
+      expect(result.launched.map((owner) => owner.persona)).toEqual(
+        dryRun ? [] : ["owner-two"]
+      );
+      expect(agentManager.createAgent).toHaveBeenCalledTimes(dryRun ? 0 : 1);
+      if (!dryRun)
+        expect(assemblePersonaPrompt).toHaveBeenCalledWith(
+          expect.objectContaining({ slug: "owner-two" }),
+          expect.stringContaining('Matched changed paths:\n"src/a.ts"')
+        );
+    }
+  );
+  it.each(
+    [[], ["owner-one", "typo"], ["unrelated-persona"]].map((personas) => ({
+      personas,
+    }))
+  )("rejects invalid selection %j before launching", async ({ personas }) => {
+    const { handlers, agentManager } = setup();
+    for (const dryRun of [false, true]) {
+      await expect(
+        handlers.launchOwnerReviews("parent", {
+          context: "Review",
+          personas,
+          dryRun,
+        })
+      ).rejects.toThrow(/at least one|not in the resolved owner plan/);
+    }
+    expect(agentManager.createAgent).not.toHaveBeenCalled();
+  });
+  it("validates all selected definitions before launching, including dry runs", async () => {
+    const { handlers, agentManager } = setup();
+    vi.mocked(loadPersonaBySlug).mockResolvedValue(null);
+    for (const dryRun of [false, true]) {
+      await expect(
+        handlers.launchOwnerReviews("parent", {
+          context: "Review",
+          personas: ["owner-one", "owner-two"],
+          dryRun,
+        })
+      ).rejects.toThrow("not found");
+    }
+    expect(agentManager.createAgent).not.toHaveBeenCalled();
+  });
   it("routes against a moved workspace and its base, not the original checkout", async () => {
     const { handlers, agentManager } = setup({
       workspacePath: "/moved",

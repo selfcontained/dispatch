@@ -54,6 +54,8 @@ export type OwnerReviewPlan = {
   uncoveredFiles: string[];
 };
 export type OwnerReviewResult = OwnerReviewPlan & {
+  /** Present for explicit selection; omitted owners have not been launched. */
+  omittedOwners?: OwnerReviewPlan["owners"];
   launched: Array<{
     persona: string;
     agentId: string;
