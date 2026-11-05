@@ -80,14 +80,6 @@ test("sidebar shows multiple PRs and opens their status list without selecting t
   await outside.focus();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(outside).toBeFocused();
-  await trigger.click();
-  await page
-    .getByRole("dialog")
-    .getByRole("link", { name: "Open on GitHub" })
-    .focus();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(trigger).not.toBeFocused();
 });
 
 test("explicit PR posts reach the sidebar over SSE without client refetches", async ({

@@ -275,7 +275,13 @@ test.describe("Changes viewport rendering", () => {
     await page
       .getByTestId(`agent-row-${other.id}`)
       .click({ position: { x: 4, y: 8 } });
+    // The route updates before the focused session resolves; avoid clicking
+    // the previous agent's still-rendered tab during that transition.
+    await expect(page.getByTestId("current-session-name")).toHaveText(
+      other.name
+    );
     await page.getByTestId("center-tab-changes").click();
+    await expect(page).toHaveURL(new RegExp(`/agents/${other.id}/changes$`));
     await expect(
       page.getByTestId("changes-diff-pane").locator("table.diff").first()
     ).toBeVisible();
