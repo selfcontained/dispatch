@@ -31,7 +31,7 @@ If the core state object is not found (first run), bootstrap it during this run 
 - Flaky tests are treated as defects and fixed when reasonably possible.
 - Simple real product bugs exposed by the suite are fixed directly.
 - Non-trivial real product bugs result in a Linear ticket and are called out in the final report.
-- When the suite is green, the highest-value missing unit or E2E coverage is added without creating noisy or brittle tests.
+- When the suite is green, evaluate consolidation and lower-level replacements first. Add coverage only for a justified remaining gap at the lowest suitable level. A run with no worthwhile changes or additions is successful when that decision is recorded.
 - If this run produces code changes, the work is not complete until the changes are committed, pushed, opened as a PR, CI is green, and the PR is merged.
 
 ## Phase 1: Scope the run
@@ -44,14 +44,14 @@ Do not treat every run as a fresh audit of the whole test surface.
 4. If `next_focus` was already handled by newer commits, skip it, pick the top relevant item from the backlog list, and note that in the state update.
 5. If the suite is red locally, stability work overrides `next_focus`.
 6. If the suite is green but the `flakes` list has relevant unresolved items, triage those before taking on unrelated coverage work or a new backlog item. Only skip a flake entry if newer commits already addressed it, it is clearly stale, or it is no longer actionable; record that decision in the state update and prune the item if appropriate.
-7. If the suite is already green and there are no relevant unresolved flake entries, use `next_focus`, the backlog list, and recent diffs to decide where the highest-value coverage or flake-reduction work is.
+7. If the suite is already green and there are no relevant unresolved flake entries, use `next_focus`, the backlog list, and recent diffs to evaluate consolidation and lower-level replacements before justified coverage gaps. It is acceptable to conclude that no changes are worthwhile.
 
 ## Priority order
 
 1. Restore local test health.
 2. Triage and address queued flake reports from the `flakes` list.
 3. Remove or reduce newly observed flakiness.
-4. Add meaningful coverage after the suite is stable and queued flakes have been handled or intentionally deferred.
+4. After stability work, evaluate consolidation and lower-level replacements before coverage additions. Add tests only for a justified remaining gap; this step may finish without additions.
 5. If changes were made, land them completely.
 
 Do not spend meaningful time adding coverage while unresolved local failures still need action.
@@ -71,7 +71,7 @@ Do not spend meaningful time adding coverage while unresolved local failures sti
 - Keep changes scoped to test health and coverage unless a simple product bug fix is needed.
 - Do not skip, quarantine, or disable a flaky test unless explicitly instructed.
 - Do not end the run with a human handoff like "push this", "open a PR", or "review this" when you can complete those steps yourself.
-- Do not use a specialized E2E review persona for the final review pass. Use one general review agent that inspects the actual diff from this run.
+- Use the mapped code owners for the final review pass, including the testing strategy owner for browser coverage and policy changes. Review only the diff from this run.
 
 ## Dispatch behavior
 
@@ -96,14 +96,13 @@ Do not spend meaningful time adding coverage while unresolved local failures sti
 3. Triage every failure from the local run and the CI scan.
 4. Fix failures and flakiness.
 5. Re-run the affected tests, then the applicable non-E2E commands again (keep local E2E limited to new or updated coverage included in the change) to confirm stability.
-6. Once applicable local checks and the CI scan are green, look for the highest-value coverage gaps.
-7. Add targeted tests.
+6. Once applicable local checks and the CI scan are green, evaluate redundant coverage and opportunities for lower-level replacements first, then assess any remaining coverage gaps.
+7. Consolidate or replace tests where justified. Add targeted tests only for a concrete remaining gap at the lowest suitable level. If neither changes nor additions are worthwhile, record that conclusion and continue without adding tests.
 8. Re-run the affected suites and final validation commands.
-9. If files changed, launch exactly one review agent to review only the diff from this run.
-   - the review agent should focus on correctness issues, flaky-test risk, cleanup leakage, and over-scoped or low-value test additions
-   - if it finds actionable issues, fix them and re-run the relevant validation before continuing
-   - do not launch multiple reviewers
-   - do not turn review into an open-ended loop; one review round is enough
+9. If files changed, launch the mapped owner reviews for only the diff from this run.
+   - reviewers should focus on correctness, test placement, flaky-test risk, cleanup leakage, and low-value or duplicate coverage
+   - fix actionable findings and re-run relevant validation; ask the original reviewer to verify and resolve each finding before landing
+   - do not duplicate reviewer launches or expand review to unrelated existing debt
 10. If files changed, complete the landing flow:
 
 - commit the changes on the job branch

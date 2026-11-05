@@ -1091,6 +1091,14 @@
           "owner": "testing-strategy-owner",
           "reason": "Audited existing operation; retain during migration, replace with observable readiness or lower-level coverage when this behavior changes.",
           "expires": "2027-02-01"
+        },
+        {
+          "key": "timeout-or-retry:48e0067d1c8e9e1d",
+          "count": 4,
+          "operation": "timeout: 15000",
+          "owner": "testing-strategy-owner",
+          "reason": "Preserves the four existing 15-second app-shell readiness bounds, now written explicitly so shorthand cannot bypass the policy guard. No timeout increase.",
+          "expires": "2027-02-01"
         }
       ]
     },

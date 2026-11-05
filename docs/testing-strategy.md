@@ -84,7 +84,9 @@ explicit timeout/retry properties. Comments and formatting do not affect keys.
 A risk exception records the exact operation hash, occurrence count, reason,
 owner and expiry. An increased wait or duplicate occurrence needs a new review.
 Removed risks require removing their exceptions. `.only` and `networkidle` are
-forbidden even with exceptions. These checks cover normal test API usage, not
+forbidden even with exceptions. Shorthand timeout/retry options such as
+`{ timeout }` and `{ retries }` are also forbidden: their operation hash would
+not include the binding value. Use explicit options for review. These checks cover normal test API usage, not
 arbitrary obfuscation; reviewers must inspect new helper abstractions too.
 
 Existing risks have a time-bounded migration exception through 2027-02-01.

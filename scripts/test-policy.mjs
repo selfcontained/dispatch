@@ -30,14 +30,21 @@ export function inspectSource(source, file = "test.ts") {
     }
     if (ts.isStringLiteral(node) && node.text === "networkidle")
       rule = "networkidle";
-    if (ts.isPropertyAssignment(node)) {
+    if (
+      ts.isPropertyAssignment(node) ||
+      ts.isShorthandPropertyAssignment(node)
+    ) {
       const name = node.name.getText(ast).replace(/["']/g, "");
       if (
         ["retries", "timeout", "actionTimeout", "navigationTimeout"].includes(
           name
         )
       )
-        rule = "timeout-or-retry";
+        // A shorthand hash would only cover the name, not its value. Require
+        // explicit options so an exception cannot silently approve a binding.
+        rule = ts.isShorthandPropertyAssignment(node)
+          ? "shorthand-timeout-or-retry"
+          : "timeout-or-retry";
     }
     if (rule) {
       const code = printer.printNode(ts.EmitHint.Unspecified, node, ast);
@@ -135,7 +142,11 @@ export function validatePolicy(
       const risk = risks.find((item) => item.key === key);
       const exception = entry.exceptions.find((item) => item.key === key);
       used.add(key);
-      if (risk.rule === "only" || risk.rule === "networkidle") {
+      if (
+        risk.rule === "only" ||
+        risk.rule === "networkidle" ||
+        risk.rule === "shorthand-timeout-or-retry"
+      ) {
         errors.push(`${file}:${risk.line}: ${risk.rule} is forbidden`);
         continue;
       }

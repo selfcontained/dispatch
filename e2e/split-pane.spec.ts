@@ -7,21 +7,22 @@ async function waitForAppShell(
 ): Promise<void> {
   // Generous timeouts because parallel test SSE events can delay atom
   // hydration, especially after a page reload.
-  const timeout = 15_000;
   await page
     .getByTestId("agent-sidebar")
-    .waitFor({ state: "visible", timeout });
-  await page.getByTestId("agent-pane").waitFor({ state: "visible", timeout });
+    .waitFor({ state: "visible", timeout: 15_000 });
+  await page
+    .getByTestId("agent-pane")
+    .waitFor({ state: "visible", timeout: 15_000 });
   await page
     .getByTestId("agent-sidebar")
     .getByText(agentName)
     .first()
-    .waitFor({ state: "visible", timeout });
+    .waitFor({ state: "visible", timeout: 15_000 });
   // Wait for the agent to actually be focused (URL-routed) so per-agent
   // atoms like splitPaneState are active.
   await page
     .getByTestId("current-session-name")
-    .waitFor({ state: "attached", timeout });
+    .waitFor({ state: "attached", timeout: 15_000 });
 }
 
 /** Seed split-pane state directly in localStorage — deterministic, avoids

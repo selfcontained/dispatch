@@ -135,3 +135,36 @@ test("rejects malformed expiry dates and default timeout setters", () => {
   assert.ok(inspectSource("page.setDefaultTimeout(90000);").length);
   assert.ok(inspectSource("page.setDefaultNavigationTimeout(90000);").length);
 });
+
+test("rejects shorthand timeout/retry options even with an exception", () => {
+  for (const option of [
+    "timeout",
+    "retries",
+    "actionTimeout",
+    "navigationTimeout",
+  ]) {
+    const code = `const ${option} = 60000; test.describe.configure({ ${option} });`;
+    const risks = inspectSource(code);
+    assert.equal(risks.length, 1);
+    assert.equal(risks[0].rule, "shorthand-timeout-or-retry");
+    const p = fixture();
+    p.files[file].exceptions = [
+      {
+        key: risks[0].key,
+        count: 1,
+        owner: "testing-strategy-owner",
+        reason: "Cannot approve an unresolved binding",
+        expires: "2027-01-01",
+      },
+    ];
+    assert.match(check(p, ["a"], code).join(), /forbidden/);
+  }
+  const code =
+    'const timeout = 60000; const retries = 3; test.describe.configure({ retries }); test("a", async ({ page }) => { await expect(page.locator("button")).toBeVisible({ timeout }); });';
+  const p = fixture();
+  p.files[file].exceptions = [];
+  assert.equal(
+    check(p, ["a"], code).filter((error) => error.includes("forbidden")).length,
+    2
+  );
+});
