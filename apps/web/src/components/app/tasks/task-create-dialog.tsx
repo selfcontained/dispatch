@@ -4,7 +4,7 @@ import { TaskLaunchTemplatePicker } from "./task-launch-template";
 import { ContextPicker } from "../context-picker";
 import { useStartupAttachments } from "../use-startup-attachments";
 import { getClipboardFilesFromEvent } from "../create-agent-dialog-clipboard";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
@@ -62,6 +62,12 @@ export function TaskCreateDialog({
   const formRef = useRef<HTMLFormElement>(null);
   const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
   const [labels, setLabels] = useState<TaskLabel[]>([]);
+  const [labelsPending, setLabelsPending] = useState(false);
+  const labelsPendingRef = useRef(false);
+  const onLabelsPendingChange = useCallback((pending: boolean) => {
+    labelsPendingRef.current = pending;
+    setLabelsPending(pending);
+  }, []);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [column, setColumn] = useState("");
@@ -76,6 +82,7 @@ export function TaskCreateDialog({
     setLaunchTemplateId(null);
     setTitle("");
     setLabels([]);
+    onLabelsPendingChange(false);
     setBody("");
     setColumn(columnId ?? columns[0]?.id ?? "");
     setAssignee(null);
@@ -84,9 +91,9 @@ export function TaskCreateDialog({
     // Only on opening: a board refetch must not reset the form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, columnId]);
-  const canSave = Boolean(title.trim()) && !saving;
+  const canSave = Boolean(title.trim()) && !saving && !labelsPending;
   const save = async () => {
-    if (!canSave) return;
+    if (!canSave || labelsPendingRef.current) return;
     setSaving(true);
     setError(null);
     const message = (err: unknown) =>
@@ -261,6 +268,8 @@ export function TaskCreateDialog({
             </div>
           </div>
           <TaskLabelPicker
+            key={`${projectId}:${columnId ?? ""}:${open}`}
+            onPendingChange={onLabelsPendingChange}
             projectId={projectId}
             value={labels}
             onChange={setLabels}
@@ -292,11 +301,13 @@ export function TaskCreateDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={!canSave}>
-              {saving
-                ? "Creating…"
-                : created
-                  ? "Retry assignment"
-                  : "Create task"}
+              {labelsPending
+                ? "Restoring label…"
+                : saving
+                  ? "Creating…"
+                  : created
+                    ? "Retry assignment"
+                    : "Create task"}
             </Button>
           </div>
         </form>

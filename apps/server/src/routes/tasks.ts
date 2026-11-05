@@ -114,6 +114,28 @@ export async function registerTaskRoutes(
     )
   );
 
+  app.patch<{ Params: { projectId: string } }>(
+    "/api/v1/projects/:projectId/task-labels/visibility",
+    async (request, reply) => {
+      const input = parseInput(
+        z.object({
+          name: z.string().trim().min(1).max(40),
+          hidden: z.boolean(),
+        }),
+        request.body,
+        reply
+      );
+      if (!input) return reply;
+      return mapTaskErrors(reply, () =>
+        taskService.setLabelHidden(
+          request.params.projectId,
+          input.name,
+          input.hidden
+        )
+      );
+    }
+  );
+
   app.post<{ Params: { projectId: string } }>(
     "/api/v1/projects/:projectId/task-columns",
     async (request, reply) => {

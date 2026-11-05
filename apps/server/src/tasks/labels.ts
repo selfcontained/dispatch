@@ -18,7 +18,9 @@ export const taskLabelsSchema = z
         .min(1)
         .max(40)
         .regex(/^[^\x00-\x1f\x7f]+$/),
-      color: z.enum(LABEL_COLORS).default("gray"),
+      color: z
+        .union([z.enum(LABEL_COLORS), z.string().regex(/^#[0-9a-fA-F]{6}$/)])
+        .default("gray"),
     })
   )
   .max(20)

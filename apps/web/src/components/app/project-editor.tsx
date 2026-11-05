@@ -1,3 +1,4 @@
+import { ColorPicker, PROJECT_COLORS, isHexColor } from "./color-picker";
 import {
   Popover,
   PopoverContent,
@@ -5,7 +6,7 @@ import {
 } from "@/components/ui/popover";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Upload, Info } from "lucide-react";
+import { Upload, Info } from "lucide-react";
 import { useProjectActions, type Project } from "@/hooks/use-projects";
 import { api } from "@/lib/api";
 import { PathInput } from "./path-input";
@@ -22,16 +23,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-const COLORS = [
-  "#9575ed",
-  "#38b7a0",
-  "#dda348",
-  "#e17b9a",
-  "#649feb",
-  "#ef6c57",
-  "#74b85c",
-  "#a5aab7",
-];
 export function ProjectEditor({
   project,
   onClose,
@@ -44,7 +35,7 @@ export function ProjectEditor({
   const [name, setName] = useState(project?.name ?? "");
   const [repoRoot, setRepoRoot] = useState(project?.repoRoot ?? "");
   const [previewRoot, setPreviewRoot] = useState(repoRoot);
-  const [color, setColor] = useState(project?.color ?? COLORS[0]!);
+  const [color, setColor] = useState(project?.color ?? PROJECT_COLORS[0]!);
   const [icon, setIcon] = useState<string | null>(
     project?.iconOverride?.startsWith("data:") ? project.iconOverride : null
   );
@@ -74,7 +65,7 @@ export function ProjectEditor({
     staleTime: 0,
   });
   const iconSrc = icon ?? preview.data?.dataUrl;
-  const validColor = /^#[0-9a-fA-F]{6}$/.test(color);
+  const validColor = isHexColor(color);
   return (
     <>
       <Dialog
@@ -247,42 +238,11 @@ export function ProjectEditor({
               </fieldset>
               <fieldset className="space-y-2">
                 <legend className="text-sm">Color</legend>
-                <div className="flex flex-wrap gap-2">
-                  {COLORS.map((c) => (
-                    <Button
-                      key={c}
-                      type="button"
-                      size="icon"
-                      variant="default"
-                      aria-label={`Color ${c}`}
-                      aria-pressed={color.toLowerCase() === c}
-                      className="h-7 w-7 rounded-full border-white/15 text-black"
-                      style={{ background: c }}
-                      onClick={() => setColor(c)}
-                    >
-                      {color.toLowerCase() === c && (
-                        <Check className="h-4 w-4" />
-                      )}
-                    </Button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="color"
-                    aria-label="Choose custom project color"
-                    value={validColor ? color : "#9575ed"}
-                    onChange={(e) => setColor(e.target.value)}
-                    className="h-9 w-12 shrink-0 cursor-pointer p-1"
-                  />
-                  <Input
-                    aria-label="Project color hex"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    pattern="#[0-9a-fA-F]{6}"
-                    maxLength={7}
-                    className="w-28 font-mono"
-                  />
-                </div>
+                <ColorPicker
+                  value={color}
+                  onChange={setColor}
+                  label="Project color"
+                />
               </fieldset>
               {(error || action.error) && (
                 <p role="alert" className="text-sm text-destructive">
