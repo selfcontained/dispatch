@@ -48,6 +48,7 @@ export default {
           blocked: "hsl(var(--status-blocked) / <alpha-value>)",
           waiting: "hsl(var(--status-waiting) / <alpha-value>)",
           done: "hsl(var(--status-done) / <alpha-value>)",
+          merged: "hsl(var(--status-merged) / <alpha-value>)",
           idle: "hsl(var(--status-idle) / <alpha-value>)",
           reviewing: "hsl(var(--status-reviewing) / <alpha-value>)",
         },

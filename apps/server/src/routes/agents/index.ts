@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
+import { registerAgentPullRequestRoutes } from "./pull-request-routes.js";
+
 import type { AgentRouteDeps } from "./shared.js";
 import { registerAgentCrudRoutes } from "./crud-routes.js";
 import { registerAgentEventRoutes } from "./events-routes.js";
@@ -17,6 +19,7 @@ export async function registerAgentRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
+  await registerAgentPullRequestRoutes(app, deps);
   await registerAgentWorkspaceRoutes(app, deps);
   await registerAgentEventRoutes(app, deps);
   await registerAgentCrudRoutes(app, deps);

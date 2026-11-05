@@ -17,6 +17,7 @@ export const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 export type AgentRouteDeps = {
   pool: Pool;
+  pullRequests?: import("../../agents/pull-request-refresher.js").PullRequestRefresher;
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
   publishUiEvent: PublishUiEvent;

@@ -230,3 +230,5 @@ export {
   isInboxResource,
 } from "./inbox-resources.js";
 export type { InboxResource } from "./inbox-resources.js";
+
+export type { AgentPullRequest } from "./pull-requests.js";

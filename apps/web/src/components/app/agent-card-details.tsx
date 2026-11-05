@@ -1,4 +1,5 @@
 import React from "react";
+import { AgentPullRequests } from "./agent-pull-requests";
 import { Check, Copy, Folder, FolderTree, GitBranch } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
@@ -169,6 +170,7 @@ export function AgentCardDetails({
         }
         mono
       />
+      <AgentPullRequests agentId={agent.id} agentName={agent.name} />
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           {workspaceDir ? (

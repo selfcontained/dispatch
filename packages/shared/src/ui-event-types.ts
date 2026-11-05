@@ -30,6 +30,11 @@ import type { MacAppUpdateSnapshot } from "./mac-app-update-types.js";
  *     it across the boundary instead.
  */
 export type SharedUiEvent =
+  | {
+      type: "agent.pull_requests_changed";
+      agentId: string;
+      pullRequests: import("./pull-requests.js").AgentPullRequest[];
+    }
   | { type: "agent.deleted"; agentId: string }
   | { type: "files.changed"; agentId: string }
   | { type: "files.seen"; agentId: string; keys: string[] }
