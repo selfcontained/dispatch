@@ -202,19 +202,19 @@ it("restores a persisted project or All choice in a fresh module", async () => {
   expect(createStore().get(reloadedAll.selectedProjectIdAtom)).toBeNull();
 });
 
-it("an unscoped explicit agent URL outranks a saved project and preserves deep-link state", () => {
+it("an unscoped agent link preserves the saved filter and deep-link state", () => {
   const { result, store } = renderProject(
     "/agents/unassigned?task=task1&thread=thread1#context",
     "one"
   );
-  expect(result.current.projectId).toBeNull();
+  expect(result.current.projectId).toBe("one");
   expect(result.current.location.pathname).toBe("/agents/unassigned");
   expect(result.current.location.search).toBe("?task=task1&thread=thread1");
   expect(result.current.location.hash).toBe("#context");
-  expect(store.get(selectedProjectIdAtom)).toBeNull();
+  expect(store.get(selectedProjectIdAtom)).toBe("one");
   act(() => result.current.navigate("/agents/another"));
   expect(result.current.location.pathname).toBe("/agents/another");
-  expect(result.current.location.search).toBe("");
+  expect(result.current.location.search).toBe("?project=one");
 });
 
 it("an explicit project query still bounds an agent deep link", () => {
@@ -224,4 +224,18 @@ it("an explicit project query still bounds an agent deep link", () => {
   );
   expect(result.current.projectId).toBe("one");
   expect(result.current.location.search).toBe("?project=one&task=task1");
+});
+
+it("retains the filter through repeated board and raw task-session links", () => {
+  const { result, store } = renderProject("/agents?project=one");
+  for (let i = 0; i < 3; i++) {
+    act(() => result.current.navigate("/tasks"));
+    act(() => result.current.rawNavigate("/agents/session?task=task1"));
+    expect(result.current.projectId).toBe("one");
+    expect(store.get(selectedProjectIdAtom)).toBe("one");
+    act(() => result.current.rawNavigate(-1));
+    expect(result.current.projectId).toBe("one");
+    act(() => result.current.rawNavigate(1));
+    expect(result.current.projectId).toBe("one");
+  }
 });

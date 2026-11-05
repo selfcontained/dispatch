@@ -30,6 +30,7 @@ export function createFakeAcpAgent(
     inventory?: (
       params: Record<string, unknown>
     ) => Promise<Record<string, unknown>>;
+    initialize?: () => Promise<void>;
     supportsImages?: boolean;
     pickupReceipts?: boolean;
     promptReceipts?: boolean;
@@ -113,6 +114,7 @@ export function createFakeAcpAgent(
   const agent: acp.Agent = {
     async initialize(params) {
       seen.initialize.push(params);
+      await opts.initialize?.();
       return {
         protocolVersion: acp.PROTOCOL_VERSION,
         agentInfo: { name: "fake-acp-agent", version: "0.0.0" },
@@ -146,8 +148,8 @@ export function createFakeAcpAgent(
       return {};
     },
     async newSession(params) {
-      if (opts.sessionError) throw opts.sessionError;
       seen.newSession.push(params);
+      if (opts.sessionError) throw opts.sessionError;
       const sessionId = `sess_${++sessionCounter}`;
       announce(sessionId);
       return { sessionId, configOptions: opts.configOptions ?? [] };

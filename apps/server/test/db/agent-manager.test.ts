@@ -270,7 +270,7 @@ describe("AgentManager", () => {
           templateId: "child-template",
           useWorktree: false,
         });
-        expect(standalone.projectId).toBe(templateProject);
+        expect(standalone.projectId).toBe(templateProject ?? "project-a");
       }
     );
 

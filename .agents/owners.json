@@ -138,6 +138,7 @@
         "apps/server/test/*chat*",
         "e2e/*chat*",
         "e2e/*stream*",
+        "e2e/pending-interrupt.spec.ts",
         "apps/server/src/stream-manager.ts",
         "apps/web/src/hooks/use-sse*",
         "packages/shared/src/conversation-delivery.ts",
@@ -430,6 +431,18 @@
     {
       "paths": [".github/workflows/ci.yml", "scripts/e2e-isolated.sh"],
       "personas": ["testing-strategy-owner", "release-update-owner"]
+    },
+    {
+      "paths": [
+        "docs/14-theming.md",
+        "docs/ci.md",
+        "docs/jobs/componentizer.md",
+        "docs/jobs/persona-review.md",
+        "docs/jobs/tech-debt.md",
+        "docs/jobs/test-enforcer.md",
+        "docs/update-backup-recovery-spec.md"
+      ],
+      "personas": ["code-review"]
     }
   ],
   "fallback": ["code-review"]

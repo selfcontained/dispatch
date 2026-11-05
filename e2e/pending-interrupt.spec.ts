@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { block, blockEntry } from "../apps/web/src/test-utils/blocks";
 import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
 
@@ -95,6 +95,16 @@ test("pending delivery can stop runtime work without a persisted turn", async ({
           },
         })
     );
+    // An empty mobile composer rests as one line even mid-turn; focusing it
+    // reveals Stop.
+    const revealStop = async (composer: Locator) => {
+      if ((page.viewportSize()?.width ?? 1440) >= 768) return;
+      await composer.getByTestId("chat-composer-input").focus();
+    };
+    const mainComposer = page.getByTestId("chat-composer");
+    const threadComposer = page
+      .locator('[data-testid="chat-thread-panel"]:visible')
+      .getByTestId("chat-composer");
     await loadApp(page);
     for (const width of [1440, 320]) {
       await page.setViewportSize({ width, height: 900 });
@@ -102,6 +112,16 @@ test("pending delivery can stop runtime work without a persisted turn", async ({
       const composerStop = page
         .getByTestId("chat-composer")
         .getByTestId("chat-stop-turn");
+      if (width < 768) {
+        // Wait for the active turn to render before checking the rest state;
+        // toBeHidden alone also passes before the composer mounts.
+        await expect(
+          mainComposer.getByTestId("chat-composer-input")
+        ).toBeVisible();
+        await expect(composerStop).toHaveAttribute("data-active", "true");
+        await expect(composerStop).toBeHidden();
+      }
+      await revealStop(mainComposer);
       await expect(composerStop).toBeVisible();
       await expect(composerStop).toBeEnabled();
       await expect(page.getByTestId("chat-stop-turn")).toHaveCount(1);
@@ -127,6 +147,7 @@ test("pending delivery can stop runtime work without a persisted turn", async ({
         interrupt: true,
         keepDelivery: true,
       });
+      await revealStop(mainComposer);
       await composerStop.click();
       await expect(composerStop).toBeDisabled();
       await expect.poll(() => cancels).toBe(width === 1440 ? 1 : 3);
@@ -137,6 +158,7 @@ test("pending delivery can stop runtime work without a persisted turn", async ({
         .locator('[data-testid="chat-thread-panel"]:visible')
         .getByTestId("chat-composer")
         .getByTestId("chat-stop-turn");
+      await revealStop(threadComposer);
       await expect(threadStop).toBeVisible();
       await expect(threadStop).toBeEnabled();
       await threadStop.click();
@@ -165,6 +187,7 @@ test("pending delivery can stop runtime work without a persisted turn", async ({
       .getByTestId("chat-stop-turn");
     await expect(stop).toBeEnabled();
     failStop = true;
+    await revealStop(threadComposer);
     await stop.click();
     const stopError = page.getByTestId("chat-thread-action-error");
     await expect(stopError).toContainText("Temporary stop failure");
@@ -174,6 +197,7 @@ test("pending delivery can stop runtime work without a persisted turn", async ({
     });
     await expect(stop).toBeEnabled();
     failStop = false;
+    await revealStop(threadComposer);
     await stop.click();
     await expect(stopError).toHaveCount(0);
     await page.screenshot({
