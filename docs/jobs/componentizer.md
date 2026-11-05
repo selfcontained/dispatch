@@ -77,7 +77,7 @@ If a refactoring turns out to be riskier than expected (component is tightly cou
 ## Phase 3: Validate
 
 1. Run `pnpm run finalize:web` (type check + production build).
-2. Run local E2E only for new or updated E2E tests included in the change, selecting those specs/cases with the isolated runner (for example, `pnpm run test:e2e e2e/tasks-board.spec.ts`). Leave full regression E2E to PR CI and require passing current-head CI before merge. Preserve all other applicable checks and the separate served-UI Playwright interaction/screenshot, browser cleanup, and retained-preview requirements in AGENTS.md.
+2. Run local E2E only for new or updated E2E tests included in the change, selecting those specs/cases with the isolated runner and `--no-deps` to exclude dependent projects (for example, `pnpm run test:e2e --no-deps e2e/tasks-board.spec.ts`). Leave full regression E2E to PR CI and require passing current-head CI before merge. Preserve all other applicable checks and the separate served-UI Playwright interaction/screenshot, browser cleanup, and retained-preview requirements in AGENTS.md.
 3. All checks must pass. Fix any failures your changes introduced.
 4. If the refactored component has a clear UI path, validate it visually via Playwright (navigate to the page, confirm it renders correctly, take a screenshot).
 

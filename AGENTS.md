@@ -53,7 +53,7 @@ Before marking any task as done, run the following checks and fix any failures:
 
 1. **Type checking**: `pnpm run check` (runs `tsc --noEmit` for backend + web).
 2. **Web finalization**: If any files under `apps/web/` changed, run `pnpm run finalize:web` (type check + production build).
-3. **E2E tests**: Full automated regression E2E runs in PR GitHub Actions, not as a mandatory local check. Only when the change includes new or updated E2E tests, run that coverage locally with the existing isolated runner, selecting the changed specs (for example, `pnpm run test:e2e e2e/tasks-board.spec.ts`) or cases (`pnpm run test:e2e e2e/tasks-board.spec.ts --grep "case name"`). The runner creates its own isolated DB and server. Do not run the unmodified full suite locally.
+3. **E2E tests**: Full automated regression E2E runs in PR GitHub Actions, not as a mandatory local check. Only when the change includes new or updated E2E tests, run that coverage locally with the existing isolated runner and `--no-deps` to exclude dependent projects, selecting the changed specs (for example, `pnpm run test:e2e --no-deps e2e/tasks-board.spec.ts`) or cases (`pnpm run test:e2e --no-deps e2e/tasks-board.spec.ts --grep "case name"`). The runner creates its own isolated DB and server. Do not run the unmodified full suite locally.
 4. **Unit tests**: `pnpm run test` (Vitest) if backend logic changed.
 
 - Keep all other applicable local checks, including lint, format, and build checks required by the task. Real served-UI Playwright interactions, screenshots, browser cleanup, and retained previews above are separate from the automated E2E suite and remain required for UI changes.

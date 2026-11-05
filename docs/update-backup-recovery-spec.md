@@ -173,7 +173,7 @@ Test Linux x64/arm64 and macOS Apple Silicon/Intel where supported. Use isolated
 - Verify rollback interruption, damaged backups, and failure of old-version readiness produce recoverable evidence and no repeated automatic attempts.
 - Verify a post-commit restore requires approval, preserves current data, and states potential loss of newer work.
 - Prove backup restoration in release CI with seeded databases/files and old/new artifacts. Schema/file/host compatibility metadata is a release gate, with missing metadata excluded from automatic installation.
-- Validate Updates and recovery UI through Playwright interactions and attached screenshots; close the browser afterward. Run applicable repository type/build checks and backend unit tests during implementation. Run local E2E only for new or updated E2E coverage included in the change, selecting those tests with the isolated runner per AGENTS.md; require current-head PR CI, including full regression E2E for full-scope changes, before merge.
+- Validate Updates and recovery UI through Playwright interactions and attached screenshots; close the browser afterward. Run applicable repository type/build checks and backend unit tests during implementation. Run local E2E only for new or updated E2E coverage included in the change, selecting those tests with the isolated runner and `--no-deps` to exclude dependent projects per AGENTS.md; require current-head PR CI, including full regression E2E for full-scope changes, before merge.
 - OS service-manager and signed-bundle recovery need explicitly approved VM/disposable-host validation under the repository's VM rules. Ordinary code changes do not authorize provisioning or using a VM.
 
 ## Decisions to confirm before implementation

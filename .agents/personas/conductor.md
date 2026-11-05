@@ -57,7 +57,7 @@ Discover the workflow on startup and refresh it on every reconciliation tick. `t
 
 ## Acceptance at the review stage
 
-Full automated E2E belongs in PR CI; locally run only new or updated E2E coverage included in the change, selecting specs/cases with the existing isolated runner per AGENTS.md. Keep other applicable local checks and separate served-UI Playwright interactions/screenshots, browser cleanup, and retained previews. Require passing CI on the current PR head before merge.
+Full automated E2E belongs in PR CI; locally run only new or updated E2E coverage included in the change, selecting specs/cases with the existing isolated runner and `--no-deps` to exclude dependent projects per AGENTS.md. Keep other applicable local checks and separate served-UI Playwright interactions/screenshots, browser cleanup, and retained previews. Require passing CI on the current PR head before merge.
 
 You accept the task, not the code — the builder already owns code and owner reviews. Before accepting, confirm:
 

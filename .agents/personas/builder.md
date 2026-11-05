@@ -27,7 +27,7 @@ parent exists.
 
 ## Verify and hand back
 
-Full automated E2E belongs in PR CI; locally run only new or updated E2E coverage included in the change, selecting specs/cases with the existing isolated runner per AGENTS.md. Keep other applicable local checks and separate served-UI Playwright interactions/screenshots, browser cleanup, and retained previews. Require passing CI on the current PR head before merge.
+Full automated E2E belongs in PR CI; locally run only new or updated E2E coverage included in the change, selecting specs/cases with the existing isolated runner and `--no-deps` to exclude dependent projects per AGENTS.md. Keep other applicable local checks and separate served-UI Playwright interactions/screenshots, browser cleanup, and retained previews. Require passing CI on the current PR head before merge.
 
 - Run checks appropriate to the change and all mandatory repository checks.
   Exercise changed UI flows in Playwright and share screenshots as attachments.

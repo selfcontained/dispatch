@@ -85,7 +85,7 @@ Do not spend meaningful time adding coverage while unresolved local failures sti
 1. Run:
    - `pnpm run check`
    - `pnpm run test`
-   - Run local E2E only for new or updated E2E tests included in the change, selecting those specs/cases with the isolated runner (for example, `pnpm run test:e2e e2e/tasks-board.spec.ts`). Leave full regression E2E to PR CI and require passing current-head CI before merge. Preserve all other applicable checks and the separate served-UI Playwright interaction/screenshot, browser cleanup, and retained-preview requirements in AGENTS.md.
+   - Run local E2E only for new or updated E2E tests included in the change, selecting those specs/cases with the isolated runner and `--no-deps` to exclude dependent projects (for example, `pnpm run test:e2e --no-deps e2e/tasks-board.spec.ts`). Leave full regression E2E to PR CI and require passing current-head CI before merge. Preserve all other applicable checks and the separate served-UI Playwright interaction/screenshot, browser cleanup, and retained-preview requirements in AGENTS.md.
    - If any file under `apps/web/` changes during the run, also run `pnpm run finalize:web`
 2. Check recent GitHub Actions CI runs for test failures:
    - `gh run list --limit 50` and inspect any failed runs with `gh run view <id> --log-failed`
