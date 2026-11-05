@@ -101,10 +101,10 @@ test("explicit membership survives template moves and project deletion clears me
   expect(mixed.status()).toBe(400);
   const folder = await request.post("/api/v1/agents", {
     headers,
-    data: { type: "codex", cwd: repo, name: "unassigned" },
+    data: { type: "codex", cwd: repo, name: "auto-linked" },
   });
   expect(folder.ok(), await folder.text()).toBeTruthy();
-  expect((await folder.json()).agent.projectId).toBeNull();
+  expect((await folder.json()).agent.projectId).toBe(project.id);
   const launch = await request.post("/api/v1/agents", {
     headers,
     data: { type: "codex", projectId: project.id, name: "assigned" },

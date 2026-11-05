@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -794,4 +794,49 @@ describe("task agent names", () => {
       await ctx.pool.query("DELETE FROM projects WHERE id = $1", [project.id]);
     }
   );
+});
+
+describe("automatic launch project membership", () => {
+  it("links folders, prompts on ambiguity, and honors explicit selection", async () => {
+    const directory = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), "dispatch-link-"))
+    );
+    const ids: string[] = [];
+    try {
+      const { ProjectStore } = await import("../src/projects/store.js");
+      const store = new ProjectStore(ctx.pool);
+      const add = async (name: string, repoRoot = directory) => {
+        const p = await store.create({
+          name,
+          repoRoot,
+          color: "#123456",
+          iconOverride: null,
+        });
+        ids.push(p.id);
+        return p;
+      };
+      expect((await createAgent({ cwd: directory })).projectId).toBeNull();
+      const first = await add("First");
+      const linked = await createAgent({ cwd: directory });
+      expect(linked.projectId).toBe(first.id);
+      expect(linked.cwd).toBe(directory);
+      const nested = path.join(directory, "nested");
+      await mkdir(nested);
+      const second = await add("Second", nested);
+      const ambiguous = await authedInject("POST", "/api/v1/agents", {
+        cwd: nested,
+        useWorktree: false,
+      });
+      expect(ambiguous.statusCode).toBe(409);
+      expect(ambiguous.json().error).toContain("Choose a project:");
+      expect(ambiguous.json().error).toContain(first.id);
+      expect(ambiguous.json().error).toContain(second.id);
+      expect(
+        (await createAgent({ cwd: undefined, projectId: second.id })).projectId
+      ).toBe(second.id);
+    } finally {
+      await ctx.pool.query("DELETE FROM projects WHERE id = ANY($1)", [ids]);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
