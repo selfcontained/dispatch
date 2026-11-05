@@ -12,6 +12,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { Agent } from "@/components/app/types";
 import { lastAgentIdAtomFamily, selectedProjectIdAtom } from "@/lib/store";
 import { useProjectScope } from "./use-projects";
+import { useAgentsViewRouting } from "./use-agents-view-routing";
 import { useAgents } from "./use-agents";
 import { useAgentSelectionMemory } from "./use-agent-selection-memory";
 import { useSectionNavigate } from "./use-section-navigate";
@@ -54,6 +55,11 @@ function mount(
         routeAgentId ?? null,
         projectId
       );
+      const routing = useAgentsViewRouting({
+        routeAgentId,
+        agentsLoaded,
+        validatedSelectedAgentId,
+      });
       useAgentSelectionMemory({
         projectId,
         agents,
@@ -71,6 +77,7 @@ function mount(
       });
       return {
         location,
+        tab: routing.onTabChange,
         rawNavigate,
         section,
         close,
@@ -281,4 +288,28 @@ it("explicit project queries reject foreign agents even with an explicit agent U
   const { result, store } = mount("/agents/b1?project=pa", "pb");
   expect(result.current.selected).toBeNull();
   expect(store.get(lastAgentIdAtomFamily("pa"))).toBeNull();
+});
+
+it("keeps a foreign raw session selected through tabs and legacy chat redirect", async () => {
+  const { result } = mount("/agents/b1/chat", "pa");
+  await waitFor(() =>
+    expect(result.current.location.pathname).toBe("/agents/b1")
+  );
+  expect(result.current.location.search).toBe("");
+  act(() => result.current.tab("files"));
+  expect(result.current.location.pathname).toBe("/agents/b1/files");
+  expect(result.current.location.search).toBe("");
+  expect(result.current.selected).toBe("b1");
+  act(() => result.current.tab("changes"));
+  expect(result.current.location.pathname).toBe("/agents/b1/changes");
+  expect(result.current.selected).toBe("b1");
+});
+it("Close clears direct-link memory while preserving the sidebar project's memory", () => {
+  const { result, store } = mount("/agents/b1", "pa");
+  act(() => store.set(lastAgentIdAtomFamily("pa"), "a1"));
+  expect(store.get(lastAgentIdAtomFamily(null))).toBe("b1");
+  act(() => result.current.close());
+  expect(store.get(lastAgentIdAtomFamily(null))).toBeNull();
+  expect(store.get(lastAgentIdAtomFamily("pa"))).toBe("a1");
+  expect(result.current.location.search).toBe("?project=pa");
 });

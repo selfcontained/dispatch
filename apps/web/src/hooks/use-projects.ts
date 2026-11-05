@@ -114,7 +114,16 @@ export function useProjectNavigate() {
       const query = new URLSearchParams(
         url?.search ?? (typeof to === "string" ? "" : to.search) ?? ""
       );
-      if (!query.has("project") && id) query.set("project", id);
+      const currentSession = matchPath("/agents/:agentId/*", location.pathname);
+      const targetSession =
+        pathname && matchPath("/agents/:agentId/*", pathname);
+      const withinUnscopedSession =
+        currentSession &&
+        targetSession &&
+        currentSession.params.agentId === targetSession.params.agentId &&
+        !new URLSearchParams(location.search).has("project");
+      if (!query.has("project") && id && !withinUnscopedSession)
+        query.set("project", id);
       if (!query.size) return navigate(to, options);
       return navigate(
         typeof to === "string"
@@ -123,7 +132,7 @@ export function useProjectNavigate() {
         options
       );
     },
-    [navigate, id]
+    [navigate, id, location.pathname, location.search]
   );
 }
 export function useProjectActions() {
