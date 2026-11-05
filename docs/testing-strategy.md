@@ -44,7 +44,7 @@ equivalent unit test.
 | Stream/MCP permutations, token aggregation, jobs SSE                                  | Existing stream-service/routes, MCP transport, agent-usage, jobs service/route tests remain; live thread and cross-agent handoff journeys retain end-to-end wiring                  |
 | Update, notification, certificate and terminal browser checks                         | Existing release/auth/terminal/service tests remain. Browser-specific acceptance checks are no longer universal PR regression gates                                                 |
 
-The full server, frontend and extension suites still run once, against PostgreSQL 17. The PostgreSQL 14 CI run is removed by explicit project decision. Raising
+The routine server, frontend and extension suites run once, with server database tests against PostgreSQL 17. The PostgreSQL 14 CI run is removed by explicit project decision. Raising
 the installer's minimum from 14 to 17 is a separate backlog task; until then,
 the published minimum remains 14 without a dedicated CI compatibility run.
 This change does not use broad path-based skipping to obtain its savings and
@@ -58,7 +58,9 @@ does not claim to fix historical flakes in retired browser tests.
 - `pnpm run test:e2e:live`: compatibility alias for the agent lifecycle file;
   live fake-engine coverage is now part of the default suite too.
 - `pnpm run test:unit`: Docker-free server unit subset plus frontend/extension.
-- `pnpm run test`: complete existing server/frontend/extension suites.
+- `pnpm run test`: routine server/frontend/extension regression suites.
+- `pnpm --filter @dispatch/server run test:acceptance:dev`: explicit full-stack
+  dev startup/restart/recovery validation; not included in routine CI.
 
 CI retains one diagnostic retry but fails on retry-pass results, and uploads
 JSON/JUnit and failure traces. A runner integration test verifies this behavior.
@@ -84,3 +86,27 @@ Use observed cost and regression value to decide future additions. Needing a
 real browser explains a validation method; it does not by itself justify a
 permanent test on every PR. Broader enforcement should follow experience with
 this smaller suite, not precede it.
+
+## Backend dev-tool boundary
+
+Routine CI tests `dispatch-dev` orchestration through saved-state fixtures and
+fail-closed doubles for Docker, pnpm and Bun. These verify duplicate-start
+rejection, stale-state cleanup, status/URL/log output and environment isolation
+without starting PostgreSQL, the API, Vite or agent hosts. Existing focused
+cleanup/restart tests retain volume preservation, failed-start cleanup, state
+retention and host-preserving recovery decisions. These are lightweight CLI
+contract tests, not pure in-process unit tests.
+
+Three distinct full-stack scenarios remain in `dispatch-dev.acceptance.ts`:
+startup/down/data retention/wipe, ordinary restart stopping a host, and preserved
+host recovery across API restart and database recreation. Run their explicit
+acceptance command when changing those process boundaries. They use the fake
+ACP engine and isolated stacks; they are not a second routine agent lifecycle
+suite or a nightly job. The nine browser journeys cover core user-facing agent
+lifecycle wiring in CI. Neither browser journeys nor mocks are claimed to prove
+full-stack crash/recovery behavior.
+
+The previous eight-case dev test file cost 129.874s in Linux CI. An investigative
+local run excluding that file passed 4,208 tests in 35.36s; the pure unit subset
+passed 237 tests in 0.259s. These local times are not CI savings estimates. The
+replacement and final CI timings are recorded in the PR validation report.

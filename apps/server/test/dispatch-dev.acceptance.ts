@@ -1,0 +1,473 @@
+import { execFile, execSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
+
+import { firstTurnIdentity } from "./helpers/preserved-restart-driver.mjs";
+
+import { afterAll, describe, expect, it } from "vitest";
+
+import { RestartEvidence } from "./helpers/restart-evidence.js";
+
+const execFileAsync = promisify(execFile);
+
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
+const BIN = path.join(REPO_ROOT, "bin", "dispatch-dev");
+const SUFFIX = `test-${process.pid}-${Date.now()}`;
+const STATE_FILE = `/tmp/dispatch-dev-${SUFFIX}.env`;
+const LOG_DIR = `/tmp/dispatch-dev-${SUFFIX}`;
+const HOST_WRAPPER = `/tmp/dispatch-dev-host-${SUFFIX}.sh`;
+
+function stateValue(name: string): string {
+  const line = readFileSync(STATE_FILE, "utf8")
+    .split("\n")
+    .find((candidate) => candidate.startsWith(`${name}=`));
+  if (!line) throw new Error(`${name} missing from ${STATE_FILE}`);
+  return line.slice(name.length + 1);
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function until(check: () => boolean | Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("condition did not become true within 20s");
+}
+
+let restartEvidence: RestartEvidence | undefined;
+
+function run(
+  args: string,
+  options?: { expectFail?: boolean; env?: Record<string, string> }
+): string {
+  const startedAt = new Date().toISOString();
+  try {
+    const output = execSync(
+      `${BIN} ${args}${args ? " " : ""}--suffix ${SUFFIX}`,
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        timeout: 60_000,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ...options?.env,
+          // Clear agent ID so it doesn't leak into suffix
+          DISPATCH_AGENT_ID: "",
+          // A parent dev stack can export its restart ports. Each test stack must
+          // allocate its own ports instead of probing or connecting to that stack.
+          RESTART_API_PORT: "",
+          RESTART_DB_PORT: "",
+          RESTART_VITE_PORT: "",
+        },
+      }
+    ).trim();
+    restartEvidence?.command({ args, startedAt, stdout: output });
+    return output;
+  } catch (error) {
+    restartEvidence?.command({ args, startedAt, error });
+    if (options?.expectFail) {
+      const err = error as { stderr?: string; stdout?: string };
+      // Combine stdout + stderr since the script writes to both
+      return `${err.stdout ?? ""}\n${err.stderr ?? ""}`.trim();
+    }
+    throw error;
+  }
+}
+
+// Lifecycle commands must yield while the API is replaced, allowing this
+// fixture's HTTP client to process closure of pooled connections from that API.
+async function runAsync(
+  args: string,
+  options?: { env?: Record<string, string> }
+): Promise<string> {
+  const startedAt = new Date().toISOString();
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      BIN,
+      [...args.split(" "), "--suffix", SUFFIX],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        timeout: 60_000,
+        env: {
+          ...process.env,
+          ...options?.env,
+          DISPATCH_AGENT_ID: "",
+          RESTART_API_PORT: "",
+          RESTART_DB_PORT: "",
+          RESTART_VITE_PORT: "",
+        },
+      }
+    );
+    restartEvidence?.command({ args, startedAt, stdout, stderr });
+    return stdout.trim();
+  } catch (error) {
+    restartEvidence?.command({ args, startedAt, error });
+    throw error;
+  }
+}
+
+async function restartAfterFirstTurn(
+  journal: string,
+  agentId: string,
+  hostPid: number
+): Promise<string> {
+  const identity = firstTurnIdentity(journal, agentId);
+  const driver = path.join(
+    REPO_ROOT,
+    "apps/server/test/helpers/preserved-restart-driver.mjs"
+  );
+  const args = [
+    driver,
+    JSON.stringify({
+      bin: BIN,
+      cwd: REPO_ROOT,
+      suffix: SUFFIX,
+      journal,
+      identity,
+      hostPid,
+      deadline: Date.now() + 60_000,
+    }),
+  ];
+  const options = {
+    cwd: REPO_ROOT,
+    encoding: "utf8" as const,
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      DISPATCH_AGENT_ID: "",
+      RESTART_API_PORT: "",
+      RESTART_DB_PORT: "",
+      RESTART_VITE_PORT: "",
+    },
+  };
+  const startedAt = new Date().toISOString();
+  try {
+    // Settle the preserved turn inside the child so the first blocks read is
+    // immediate after return, while the parent can process old socket closures.
+    const result = await execFileAsync(process.execPath, args, options);
+    restartEvidence?.command({
+      args: `restart after first-turn barrier ${JSON.stringify(identity)}`,
+      startedAt,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+    return result.stdout.trim();
+  } catch (error) {
+    restartEvidence?.command({
+      args: `restart after first-turn barrier ${JSON.stringify(identity)}`,
+      startedAt,
+      error,
+    });
+    throw error;
+  }
+}
+
+describe("dispatch-dev", () => {
+  afterAll(() => {
+    // Ensure cleanup even if tests fail
+    try {
+      run("down --wipe");
+    } catch {
+      // already down
+    }
+  });
+
+  it("starts and stops a full stack", () => {
+    // --- up ---
+    const upOutput = run("up", {
+      env: {
+        DISPATCH_HOST: "127.0.0.1",
+        DISPATCH_LOCAL_TLS: "1",
+        DISPATCH_UPDATE_OWNER: "macos-app",
+        DISPATCH_MAC_INSTANCE_ID: "parent-mac-instance",
+        DISPATCH_LISTEN_HOSTS: "127.0.0.2",
+      },
+    });
+    expect(upOutput).toContain("Database ready on port");
+    expect(upOutput).toContain("API server starting on port");
+    expect(upOutput).toContain("Vite dev server starting on port");
+    expect(upOutput).toContain("Dev environment ready");
+    const apiPort = stateValue("DEV_API_PORT");
+    const health = JSON.parse(
+      execSync(`curl -fsS http://127.0.0.1:${apiPort}/api/v1/health`, {
+        encoding: "utf8",
+      })
+    );
+    expect(health.status).toBe("ok");
+    expect(health.updateOwner).toBeUndefined();
+    expect(health.macInstanceId).toBeUndefined();
+
+    // State file written
+    expect(existsSync(STATE_FILE)).toBe(true);
+    const state = readFileSync(STATE_FILE, "utf8");
+    expect(state).toContain(`DEV_SUFFIX=${SUFFIX}`);
+    expect(state).toMatch(/DEV_API_PORT=\d+/);
+    expect(state).toMatch(/DEV_API_PID=\d+/);
+    expect(state).toMatch(/DEV_DB_PORT=\d+/);
+    expect(state).toContain(
+      `DEV_RELEASE_CACHE_DIR=${REPO_ROOT}/.dispatch/dev-cache/release-${SUFFIX}`
+    );
+
+    // --- status ---
+    const statusOutput = run("status");
+    expect(statusOutput).toContain("db:   running");
+    expect(statusOutput).toContain("api:  running");
+    expect(statusOutput).toContain("vite:");
+    expect(statusOutput).toContain("release cache:");
+
+    // --- url ---
+    const urlOutput = run("url");
+    expect(urlOutput).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+    // --- logs ---
+    const logsOutput = run("logs");
+    expect(logsOutput.length).toBeGreaterThan(0);
+
+    // --- down ---
+    // Stopping a stack keeps its database: pulling a change that needs a
+    // restart should not cost the agents on it.
+    const downOutput = run("down");
+    expect(downOutput).toContain("Stopped API server");
+    expect(downOutput).toContain("Stopped database container (data kept");
+    expect(downOutput).toContain("Dev environment torn down");
+    expect(existsSync(STATE_FILE)).toBe(false);
+    expect(existsSync(LOG_DIR)).toBe(true);
+
+    // --- down --wipe ---
+    // Starting over is the explicit ask, and takes the data and the logs.
+    const wipeOutput = run("up") && run("down --wipe");
+    expect(wipeOutput).toContain("Removed database container and its data");
+    expect(existsSync(STATE_FILE)).toBe(false);
+    expect(existsSync(LOG_DIR)).toBe(false);
+  }, 120_000);
+
+  it.each([
+    { preserveHosts: false, upArgs: "up --live" },
+    {
+      preserveHosts: true,
+      upArgs: "up --live --preserve-agent-hosts",
+    },
+  ])(
+    "$upArgs handles an in-flight detached agent host across restart",
+    async ({ preserveHosts, upArgs }) => {
+      const fakeAgent = path.join(
+        REPO_ROOT,
+        "e2e",
+        "fixtures",
+        "fake-acp-agent.mjs"
+      );
+      const mainTs = path.join(REPO_ROOT, "apps", "server", "src", "main.ts");
+      writeFileSync(
+        HOST_WRAPPER,
+        [
+          "#!/usr/bin/env bash",
+          `export DISPATCH_ACP_ADAPTER_COMMAND='${JSON.stringify([fakeAgent])}'`,
+          `exec bun ${JSON.stringify(mainTs)} agent-host "$@"`,
+          "",
+        ].join("\n")
+      );
+      chmodSync(HOST_WRAPPER, 0o700);
+
+      let hostPid = 0;
+      restartEvidence = new RestartEvidence({
+        repoRoot: REPO_ROOT,
+        suffix: SUFFIX,
+        stateFile: STATE_FILE,
+        logDir: LOG_DIR,
+        preserveHosts,
+      });
+      try {
+        await runAsync(upArgs, {
+          env: {
+            DISPATCH_AGENT_HOST_COMMAND: JSON.stringify([HOST_WRAPPER]),
+            DISPATCH_HOST: "127.0.0.1",
+          },
+        });
+        const port = Number(stateValue("DEV_API_PORT"));
+        const api = `http://127.0.0.1:${port}/api/v1`;
+        const created = await fetch(`${api}/agents`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: "dispatch-dev-restart-host",
+            type: "claude",
+            cwd: "/tmp",
+            useWorktree: false,
+          }),
+        });
+        expect(created.status).toBe(201);
+        const agentId = ((await created.json()) as { agent: { id: string } })
+          .agent.id;
+        restartEvidence.agentId = agentId;
+        await until(async () => {
+          const response = await fetch(`${api}/agents/${agentId}`);
+          const body = (await response.json()) as { agent: { status: string } };
+          return body.agent.status === "running";
+        });
+
+        const agentDir = path.join(LOG_DIR, "agents", agentId);
+        hostPid = Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"));
+        expect(processAlive(hostPid)).toBe(true);
+
+        const prompted = await fetch(`${api}/streams/${agentId}/blocks`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "sleep:10000" }),
+        });
+        expect(prompted.ok).toBe(true);
+        const journal = path.join(agentDir, "journal.jsonl");
+        await until(() =>
+          readFileSync(journal, "utf8").includes('"state":"started"')
+        );
+
+        expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
+          preserveHosts ? "1" : "0"
+        );
+        expect(processAlive(hostPid)).toBe(true);
+        restartEvidence.snapshot("before-restart");
+        const restart = preserveHosts
+          ? await restartAfterFirstTurn(journal, agentId, hostPid)
+          : await runAsync("restart");
+        restartEvidence.snapshot("after-restart");
+        expect(restart).toContain("Stopped API server");
+        expect(restart).toContain("Dev environment ready");
+        expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
+          preserveHosts ? "1" : "0"
+        );
+
+        if (preserveHosts) {
+          expect(
+            Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"))
+          ).toBe(hostPid);
+          expect(processAlive(hostPid)).toBe(true);
+
+          // The child already verified successful journal settlement using
+          // the original 20s condition deadline; do not grant another wait.
+          let turn:
+            | {
+                settled: boolean;
+                error?: string;
+                result?: { text: string } | null;
+              }
+            | undefined;
+          await until(() =>
+            restartEvidence!.observeRequest(
+              "first-blocks-read-after-preserved-restart",
+              "GET",
+              `${api}/streams/${agentId}/blocks`,
+              async () => {
+                const feed = (await (
+                  await fetch(`${api}/streams/${agentId}/blocks`)
+                ).json()) as {
+                  entries: Array<{ block?: { turn?: typeof turn } }>;
+                };
+                turn = feed.entries.find((entry) => entry.block?.turn)?.block
+                  ?.turn;
+                return (
+                  turn?.settled === true &&
+                  turn.error === undefined &&
+                  turn.result?.text.includes("sleep:10000") === true
+                );
+              }
+            )
+          );
+          expect(turn?.settled).toBe(true);
+          expect(turn?.error).toBeUndefined();
+          expect(turn?.result?.text).toContain("sleep:10000");
+
+          // A missing DB container used to send this path through cmd_down,
+          // which killed a still-working host despite the preserve opt-in.
+          const secondPrompt = await fetch(`${api}/streams/${agentId}/blocks`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text: "sleep:15000" }),
+          });
+          expect(secondPrompt.ok).toBe(true);
+          await until(() =>
+            readFileSync(journal, "utf8").includes("sleep:15000")
+          );
+          execSync(`docker stop dispatch-postgres-${SUFFIX}`, {
+            encoding: "utf8",
+            timeout: 20_000,
+          });
+          restartEvidence.snapshot("before-database-recreation");
+          const recovered = await runAsync("restart");
+          restartEvidence.snapshot("after-database-recreation");
+          expect(recovered).toContain(
+            "recreating it without stopping agent hosts"
+          );
+          expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe("1");
+          expect(
+            Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"))
+          ).toBe(hostPid);
+          expect(processAlive(hostPid)).toBe(true);
+          const readRecovered = () =>
+            restartEvidence!.observeRequest(
+              "blocks-read-after-database-recreation",
+              "GET",
+              `${api}/streams/${agentId}/blocks`,
+              async () => {
+                const response = await fetch(
+                  `${api}/streams/${agentId}/blocks`
+                );
+                if (!response.ok) return false;
+                const feed = (await response.json()) as {
+                  entries: Array<{ block?: { turn?: typeof turn } }>;
+                };
+                return feed.entries.some(
+                  (entry) =>
+                    entry.block?.turn?.settled === true &&
+                    entry.block.turn.error === undefined &&
+                    entry.block.turn.result?.text.includes("sleep:15000") ===
+                      true
+                );
+              }
+            );
+          await until(readRecovered);
+        } else {
+          await until(() => !processAlive(hostPid));
+        }
+
+        if (process.env.DISPATCH_RESTART_EVIDENCE === "1") {
+          restartEvidence.captureSuccess();
+        }
+        await runAsync("down --wipe");
+        if (preserveHosts) {
+          await until(() => !processAlive(hostPid));
+        }
+      } catch (error) {
+        // Capture before finally wipes logs; diagnostic failures must never
+        // replace the original assertion or transport error. No retry here.
+        restartEvidence.captureFailure(error);
+        throw error;
+      } finally {
+        restartEvidence = undefined;
+        try {
+          await runAsync("down --wipe");
+        } catch {
+          // already down
+        }
+        rmSync(HOST_WRAPPER, { force: true });
+      }
+    },
+    120_000
+  );
+});

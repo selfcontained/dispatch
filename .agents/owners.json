@@ -240,6 +240,7 @@
         "apps/server/test/*release*",
         "apps/server/test/*update*",
         "apps/server/test/dispatch-dev*",
+        "apps/server/vitest.dev-acceptance.config.ts",
         "apps/server/test/e2e-isolated-cleanup.test.ts",
         "apps/server/test/server-tests-isolated.test.ts",
         "apps/server/test/helpers/process-tree-fixture.ts",
