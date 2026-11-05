@@ -288,6 +288,49 @@ describe("portfolio export", () => {
     await app.close();
   });
 
+  it("screens full source fields before truncation can expose nearly complete credentials", async () => {
+    const crossing = (cap: number) => " ".repeat(cap - 67) + token;
+    await pool.query(
+      "UPDATE tasks SET body=$1, title=$2, links=$3 WHERE id='t1'",
+      [
+        crossing(4096),
+        crossing(500),
+        JSON.stringify([
+          { kind: "url", label: crossing(200), url: crossing(2048) },
+        ]),
+      ]
+    );
+    await pool.query(
+      "UPDATE blocks SET text=$1 WHERE id='00000000-0000-4000-8000-000000000001'",
+      [crossing(4096)]
+    );
+    await pool.query("UPDATE projects SET name=$1 WHERE id='one'", [
+      crossing(80),
+    ]);
+    await pool.query("UPDATE task_columns SET name=$1, key=$2 WHERE id='c1'", [
+      crossing(200),
+      crossing(100),
+    ]);
+    const result = await page();
+    for (const id of [
+      "t1",
+      "one",
+      "c1",
+      "00000000-0000-4000-8000-000000000001",
+    ]) {
+      expect(result.records.find((r: any) => r.id === id).data).toEqual({
+        coverage: "withheld_sensitive_content",
+      });
+    }
+    expect(JSON.stringify(result)).not.toContain("dpr_");
+    // Each field must be protected independently, including JSON link strings.
+    await pool.query("UPDATE tasks SET body='safe',title='safe' WHERE id='t1'");
+    expect(
+      (await page()).records.find((r: any) => r.id === "t1").data.coverage
+    ).toBe("withheld_sensitive_content");
+    await app.close();
+  });
+
   it("fails explicitly at snapshot record capacity instead of returning partial inventory", async () => {
     await pool.query(
       "INSERT INTO projects(id,name,repo_root) SELECT 'bulk-'||n,'Bulk','/bulk-'||n FROM generate_series(1,10001) n"

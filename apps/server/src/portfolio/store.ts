@@ -23,6 +23,8 @@ export class PortfolioStore {
       await db.query("SET LOCAL statement_timeout = '10s'");
       const at = (await db.query("SELECT transaction_timestamp() AS at"))
         .rows[0].at as Date;
+      const sensitive =
+        /(?:-----BEGIN [A-Z ]*PRIVATE KEY|\b(?:Bearer\s+\S+|(?:password|secret|token|api[_-]?key)["']?\s*[=:]\s*["']?\S+)|\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]+|dpr_[a-f0-9]{64})|https?:\/\/[^\s/]+:[^\s/]+@)/i;
       const records: Evidence[] = [];
       let bytes = 0;
       const read = async (
@@ -32,15 +34,23 @@ export class PortfolioStore {
       ) => {
         for (let offset = 0; ; offset += 100) {
           const rows = (
-            await db.query(`${sql} OFFSET $${values.length + 1}`, [
+            await db.query(`${sql} OFFSET $${values.length + 2}`, [
               ...values,
+              sensitive.source.replaceAll("\\b", "\\y"),
               offset,
             ])
           ).rows;
           for (const row of rows) {
             bytes += Buffer.byteLength(JSON.stringify(row));
             if (bytes > MAX_EXPORT_BYTES) throw new ExportTooLarge();
-            records.push({ type, ...row });
+            const { sensitive: withheld, ...source } = row;
+            records.push({
+              type,
+              ...source,
+              ...(withheld
+                ? { data: { coverage: "withheld_sensitive_content" } }
+                : {}),
+            } as Evidence);
             if (records.length > MAX_EXPORT_RECORDS) throw new ExportTooLarge();
           }
           if (rows.length < 100) break;
@@ -51,7 +61,7 @@ export class PortfolioStore {
         "project",
         `SELECT id, id AS "projectId", created_at AS "createdAt", updated_at AS "updatedAt",
         CASE WHEN id = ANY($1::text[]) THEN jsonb_build_object('scope','included','name',left(name,80))
-        ELSE jsonb_build_object('scope','excluded') END AS data
+        ELSE jsonb_build_object('scope','excluded') END AS data, (id = ANY($1::text[]) AND name ~* $3) AS sensitive
         FROM projects ORDER BY id LIMIT $2`,
         args
       );
@@ -70,7 +80,7 @@ export class PortfolioStore {
       await read(
         "column",
         `SELECT id, project_id AS "projectId", created_at AS "createdAt", updated_at AS "updatedAt",
-        jsonb_build_object('key',left(key,100),'name',left(name,200),'position',position,'isDone',is_done) AS data
+        jsonb_build_object('key',left(key,100),'name',left(name,200),'position',position,'isDone',is_done) AS data, (key ~* $3 OR name ~* $3) AS sensitive
         FROM task_columns WHERE project_id = ANY($1::text[]) ORDER BY id LIMIT $2`,
         args
       );
@@ -81,7 +91,7 @@ export class PortfolioStore {
           'bodyTruncated',length(body)>4096,'titleTruncated',length(title)>500,
           'links',COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',l->>'kind','label',left(l->>'label',200),'url',left(l->>'url',2048)))
             FROM (SELECT value AS l FROM jsonb_array_elements(links) WITH ORDINALITY e(value,n) WHERE n<=20) bounded),'[]'::jsonb),
-          'linksTruncated',jsonb_array_length(links)>20,'archivedAt',archived_at,'completedAt',completed_at) AS data
+          'linksTruncated',jsonb_array_length(links)>20,'archivedAt',archived_at,'completedAt',completed_at) AS data, (title ~* $3 OR body ~* $3 OR links::text ~* $3) AS sensitive
         FROM tasks WHERE project_id = ANY($1::text[]) ORDER BY id LIMIT $2`,
         args
       );
@@ -91,7 +101,7 @@ export class PortfolioStore {
         jsonb_build_object('parentId',CASE WHEN p.project_id=a.project_id THEN p.id END,
           'status',a.status,'archivedAt',a.deleted_at,
           'outcomeCoverage',CASE WHEN EXISTS(SELECT 1 FROM blocks b WHERE b.author_agent_id=a.id AND b.origin='turn' AND b.text<>'')
-             THEN 'retained_blocks_only' ELSE 'unavailable' END) AS data
+             THEN 'retained_blocks_only' ELSE 'unavailable' END) AS data, (a.status ~* $3) AS sensitive
         FROM agents a LEFT JOIN agents p ON p.id=a.parent_agent_id
         WHERE a.project_id = ANY($1::text[]) ORDER BY a.id LIMIT $2`,
         args
@@ -101,7 +111,7 @@ export class PortfolioStore {
         `SELECT b.id::text, a.project_id AS "projectId", b.created_at AS "createdAt", b.updated_at AS "updatedAt",
         jsonb_build_object('sessionId',a.id,'streamId',b.stream_id,'threadId',b.thread_id,'replyTo',b.reply_to,
           'toSessionId',recipient.id,'text',left(b.text,4096),'textTruncated',length(b.text)>4096,'kind',b.kind,
-          'coverage',CASE WHEN b.text='' THEN 'unavailable' ELSE 'reported' END) AS data
+          'coverage',CASE WHEN b.text='' THEN 'unavailable' ELSE 'reported' END) AS data, (b.text ~* $5) AS sensitive
         FROM blocks b JOIN agents a ON a.id=b.author_agent_id
         LEFT JOIN agents root ON root.id=b.stream_id
         LEFT JOIN tasks t ON t.id=b.stream_id
@@ -117,8 +127,6 @@ export class PortfolioStore {
       if (records.length > MAX_EXPORT_RECORDS) throw new ExportTooLarge();
       // Source prose is never trusted as a secret-free channel. Fail closed for
       // credential-shaped content instead of partially redacting its prefix.
-      const sensitive =
-        /(?:-----BEGIN [A-Z ]*PRIVATE KEY|\b(?:Bearer\s+\S+|(?:password|secret|token|api[_-]?key)["']?\s*[=:]\s*["']?\S+)|\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]+|dpr_[a-f0-9]{64})|https?:\/\/[^\s/]+:[^\s/]+@)/i;
       const containsSensitive = (value: unknown): boolean => {
         if (typeof value === "string") return sensitive.test(value);
         if (value !== null && typeof value === "object")

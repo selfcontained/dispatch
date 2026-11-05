@@ -102,7 +102,8 @@ launch/system prompts, files, environment or whole transcripts are exported.
 Text is capped at 4,096 characters per task body/outcome, task titles at 500,
 links at 20 (labels 200, URLs 2,048). Flags identify body/title/link-count/outcome
 truncation. Column labels and included project names are bounded metadata.
-Credential-shaped content causes the entire record's data to be withheld with
+Full source fields are screened before truncation. Credential-shaped content
+causes the entire record's data to be withheld with
 `coverage: withheld_sensitive_content`; source ID and timestamps remain.
 Pattern screening cannot identify arbitrary secrets embedded in natural language.
 Allowlisting a project therefore requires that its reported prose be appropriate
