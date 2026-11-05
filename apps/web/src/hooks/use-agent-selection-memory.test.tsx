@@ -48,7 +48,7 @@ function mount(
       const location = useLocation();
       const rawNavigate = useNavigate();
       const routeAgentId = useMatch("/agents/:agentId/*")?.params.agentId;
-      const { projectId } = useProjectScope();
+      const { selectionProjectId: projectId } = useProjectScope();
       const { agents, agentsLoaded, validatedSelectedAgentId } = useAgents(
         true,
         routeAgentId ?? null,
