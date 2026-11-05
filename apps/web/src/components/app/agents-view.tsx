@@ -95,7 +95,7 @@ export function AgentsView({
   triggerNavAnimation,
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
-  const { projectId } = useProjectScope();
+  const { projectId, selectionProjectId } = useProjectScope();
   const { agentId: routeAgentId } = useParams();
   const navTo = useProjectNavigate();
 
@@ -111,10 +111,10 @@ export function AgentsView({
     overflowAgentId,
     setOverflowAgentId,
     agentVisualState,
-  } = useAgents(true, routeAgentId ?? null, projectId);
+  } = useAgents(true, routeAgentId ?? null, selectionProjectId);
 
   useAgentSelectionMemory({
-    projectId,
+    projectId: selectionProjectId,
     agents,
     agentsLoaded,
     selectedAgentId: validatedSelectedAgentId,

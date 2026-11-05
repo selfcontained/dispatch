@@ -27,8 +27,8 @@ export function useAgentActions({
   refreshFiles,
 }: UseAgentActionsParams) {
   const navigate = useProjectNavigate();
-  const { projectId } = useProjectScope();
-  const remember = useSetAtom(lastAgentIdAtomFamily(projectId));
+  const { selectionProjectId } = useProjectScope();
+  const remember = useSetAtom(lastAgentIdAtomFamily(selectionProjectId));
   const queryClient = useQueryClient();
 
   const ensureAuxExpanded = useCallback(

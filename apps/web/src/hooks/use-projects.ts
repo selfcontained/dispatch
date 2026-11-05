@@ -24,11 +24,18 @@ export function useProjectScope() {
   const savedId = useAtomValue(selectedProjectIdAtom);
   const { data: projects = [], isSuccess, isFetching } = useProjects();
   const id = projectIdForLocation(location, savedId);
+  const projectId =
+    isSuccess && !isFetching && !projects.some((p) => p.id === id)
+      ? null
+      : id || null;
   return {
-    projectId:
-      isSuccess && !isFetching && !projects.some((p) => p.id === id)
+    projectId,
+    // An unscoped direct session link does not constrain the selected session.
+    selectionProjectId:
+      matchPath("/agents/:agentId/*", location.pathname) &&
+      !new URLSearchParams(location.search).has("project")
         ? null
-        : id || null,
+        : projectId,
     project: projects.find((p) => p.id === id),
     projects,
   };
@@ -37,10 +44,6 @@ export function useProjectScope() {
 function projectIdForLocation(location: Location, savedId: string | null) {
   const explicitId = new URLSearchParams(location.search).get("project");
   if (explicitId !== null) return explicitId || null;
-  // An explicit agent link without a scope must stay reachable even when a
-  // different project was last selected. All projects contains that agent;
-  // only an explicit project query is allowed to restrict the deep link.
-  if (matchPath("/agents/:agentId/*", location.pathname)) return null;
   // Preserve the original All projects view when returning to a bare history
   // entry, without adding a query parameter to every default dashboard URL.
   return location.state?.dispatchProjectScope === "all" ? null : savedId;
@@ -68,6 +71,13 @@ export function useProjectSelection() {
     // in place of the choice originally shown on this page.
     if (!isProjectDashboard(location.pathname)) return;
     const query = new URLSearchParams(location.search);
+    // A direct session link is independent of the sidebar filter. Keep it
+    // unscoped so persisting the filter cannot restrict the linked session.
+    if (
+      !query.has("project") &&
+      matchPath("/agents/:agentId/*", location.pathname)
+    )
+      return;
     if (!query.has("project") && projectId === null) {
       if (location.state?.dispatchProjectScope !== "all") {
         navigate(location, {
@@ -104,7 +114,16 @@ export function useProjectNavigate() {
       const query = new URLSearchParams(
         url?.search ?? (typeof to === "string" ? "" : to.search) ?? ""
       );
-      if (!query.has("project") && id) query.set("project", id);
+      const currentSession = matchPath("/agents/:agentId/*", location.pathname);
+      const targetSession =
+        pathname && matchPath("/agents/:agentId/*", pathname);
+      const withinUnscopedSession =
+        currentSession &&
+        targetSession &&
+        currentSession.params.agentId === targetSession.params.agentId &&
+        !new URLSearchParams(location.search).has("project");
+      if (!query.has("project") && id && !withinUnscopedSession)
+        query.set("project", id);
       if (!query.size) return navigate(to, options);
       return navigate(
         typeof to === "string"
@@ -113,7 +132,7 @@ export function useProjectNavigate() {
         options
       );
     },
-    [navigate, id]
+    [navigate, id, location.pathname, location.search]
   );
 }
 export function useProjectActions() {
