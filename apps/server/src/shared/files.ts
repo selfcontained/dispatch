@@ -48,14 +48,16 @@ export function timestampedFileName(
 /**
  * A POSIX regular expression matching every stored name that
  * {@link timestampedFileName} can produce from `name`: the original base, the
- * generated timestamp, any suffix, then the original extension. Agents refer
- * to a file they uploaded by the name they gave it, not the stamped one.
+ * generated timestamp, the numeric `-N` suffix callers add for a batch, then
+ * the original extension. Nothing looser: an extensionless name must not
+ * match a stamped `name.txt`. Agents refer to a file they uploaded by the
+ * name they gave it, not the stamped one.
  */
 export function storedFileNamePattern(name: string): string {
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
   const ext = path.extname(name);
   const base = path.basename(name, ext);
-  return `^${escape(base)}-\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{3}[^/]*${escape(ext)}$`;
+  return `^${escape(base)}-\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{3}(-\\d+)?${escape(ext)}$`;
 }
 
 export function sanitizeUploadedFileName(name: string): string {

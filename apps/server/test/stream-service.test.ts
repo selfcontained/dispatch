@@ -960,6 +960,20 @@ describe("StreamService.post", () => {
         attachments: [{ type: "file", fileName: "board.jpg" }],
       })
     ).rejects.toThrow(/Unknown file "board.jpg"/);
+    // An extensionless name is its own file, not a prefix of `README.txt`.
+    const readme = await seedFiles(A, "README-2026-10-25-17-00-00-000", 5);
+    await seedFiles(A, "README-2026-10-25-17-30-00-000.txt", 5);
+    const plain = await service.post(A, {
+      text: "extensionless",
+      attachments: [{ type: "file", fileName: "README" }],
+    });
+    expect(plain.attachments[0]).toMatchObject({ fileId: readme });
+    await expect(
+      service.post(A, {
+        text: "never uploaded",
+        attachments: [{ type: "file", fileName: "LICENSE" }],
+      })
+    ).rejects.toThrow(/Unknown file "LICENSE"/);
   });
 
   it("resolves maximum-length files by name and ID only within allowed owners", async () => {
