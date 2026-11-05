@@ -412,6 +412,24 @@
         "stream-delivery-owner",
         "mcp-contract-owner"
       ]
+    },
+    {
+      "paths": [
+        "e2e/**",
+        "scripts/test-policy*",
+        "playwright.config.ts",
+        "apps/server/vitest*.ts",
+        "apps/server/package.json",
+        "package.json",
+        "docs/testing-strategy.md",
+        "docs/jobs/**",
+        "scripts/playwright-policy.test.mjs"
+      ],
+      "personas": ["testing-strategy-owner"]
+    },
+    {
+      "paths": [".github/workflows/ci.yml", "scripts/e2e-isolated.sh"],
+      "personas": ["testing-strategy-owner", "release-update-owner"]
     }
   ],
   "fallback": ["code-review"]

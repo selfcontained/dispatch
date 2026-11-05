@@ -21,10 +21,8 @@ const agentRuntime =
 // serial constraints. These run after the parallel suite with a single worker.
 const serialTests = [
   "e2e/settings.spec.ts",
-  "e2e/jobs-api.spec.ts",
   "e2e/agent-crud.spec.ts",
   "e2e/agent-live.spec.ts",
-  "e2e/persona-recheck-ui.spec.ts",
   "e2e/mobile-layout.spec.ts",
   "e2e/drawer.spec.ts",
   "e2e/web-notifications.spec.ts",
@@ -35,7 +33,13 @@ export default defineConfig({
   testDir: "./e2e",
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: "list",
+  // The retry is diagnostic: a retry-pass must still fail CI.
+  failOnFlakyTests: !!process.env.CI,
+  reporter: [
+    ["list"],
+    ["json", { outputFile: "test-results/results.json" }],
+    ["junit", { outputFile: "test-results/junit.xml" }],
+  ],
   use: {
     baseURL,
     headless: true,

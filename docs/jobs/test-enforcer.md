@@ -1,6 +1,6 @@
 Keep Dispatch's local test signal trustworthy.
 
-Restore local test health first. Fix flaky tests when found. If the suite is green, spend the remaining effort on the highest-value missing coverage.
+Restore local test health first. Fix flaky tests when found. If the suite is green, prioritize consolidation and lower-level replacements before adding coverage. A run may make no changes. Follow [testing strategy](../testing-strategy.md).
 
 This job runs on a recurring schedule, so lean on the Brain shared memory to pass context between runs and avoid rediscovering the same failures, flakes, and coverage gaps every time.
 
@@ -111,7 +111,7 @@ Do not spend meaningful time adding coverage while unresolved local failures sti
 - create a PR targeting `main`
 - wait for CI to finish
 - if CI fails because of your diff, fix it, push again, and keep polling
-- if CI fails for a likely unrelated flake, retry once and re-check
+- For test failures, preserve the first failure and diagnose its cause. Follow [testing strategy](../testing-strategy.md): a diagnostic rerun does not resolve a flaky-test defect; fix the cause or report a blocker. Do not infer “unrelated” from untouched files. Infrastructure-only failures may be retried once after recording the evidence.
 - merge the PR only after CI is green
 
 If required tooling, credentials, or environment capabilities are missing, document that precisely and use the appropriate terminal job report.
@@ -252,8 +252,8 @@ Required landing behavior:
 - create the PR yourself; do not stop after preparing a branch
 - poll PR status until CI leaves `IN_PROGRESS`
 - if CI fails due to your diff, fix it and continue the loop
-- if CI fails for an unrelated flake or transient infra issue, retry once and continue the loop
-- if the retry fails again for an unrelated reason, call `job_needs_input` with the PR URL and a one-line summary
+- For test failures, preserve the first failure and diagnose its cause. Follow [testing strategy](../testing-strategy.md): a diagnostic rerun does not resolve a flaky-test defect; fix the cause or report a blocker. Do not infer “unrelated” from untouched files. Infrastructure-only failures may be retried once after recording the evidence.
+- if a diagnosed infrastructure-only retry fails again, call `job_needs_input` with the PR URL and a one-line summary
 - call `job_complete` only after the PR is merged
 
 If this run produced no code changes and no worthwhile test additions, `job_complete` may be called without opening a PR, but the report must explicitly say no changes were necessary.

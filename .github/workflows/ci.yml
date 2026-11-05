@@ -136,6 +136,9 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
+      - name: Enforce test strategy
+        run: pnpm run check:test-policy
+
       - name: Install Playwright browsers
         if: steps.scope.outputs.scope != 'docs'
         run: pnpm exec playwright install chromium
@@ -154,6 +157,7 @@ jobs:
         if: steps.scope.outputs.scope != 'docs'
         run: pnpm run ci
         env:
+          E2E_SKIP_WEB_BUILD: "1"
           DISPATCH_TEST_POSTGRES_CONTAINER: ${{ steps.postgres.outputs.container }}
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
@@ -192,7 +196,7 @@ jobs:
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
-        if: failure()
+        if: always() && steps.scope.outputs.scope != 'docs'
         with:
           name: playwright-report
           path: test-results/

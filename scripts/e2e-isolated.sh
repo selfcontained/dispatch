@@ -188,8 +188,12 @@ trap 'forward_and_wait TERM 143' TERM
 echo "==> Starting isolated Postgres (project: ${PROJECT}, port: ${DB_PORT})"
 $COMPOSE -p "$PROJECT" -f "${ROOT_DIR}/docker-compose.yml" up -d --wait
 
-echo "==> Building web bundle"
-pnpm run build:web
+if [ "${E2E_SKIP_WEB_BUILD:-}" = "1" ]; then
+  test -f "$ROOT_DIR/apps/web/dist/index.html" || { echo "Missing web build; run pnpm run build:web first" >&2; exit 1; }
+else
+  echo "==> Building web bundle"
+  pnpm run build:web
+fi
 
 echo "==> Running Playwright tests (API port: ${API_PORT})"
 E2E_SKIP_WEB_BUILD=1 pnpm exec playwright test "$@" &
