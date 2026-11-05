@@ -141,6 +141,8 @@ export type TaskDetail = Task & {
 };
 
 export type TaskBoard = {
+  /** Hidden choices remain assigned to existing tasks and can be restored. */
+  hiddenLabels?: TaskLabel[];
   labels?: TaskLabel[];
   projectId: string;
   columns: TaskColumn[];

@@ -423,10 +423,10 @@ export class TaskStore {
     return Number(rows[0]?.count ?? 0);
   }
 
-  async listLabels(projectId: string) {
+  async listLabels(projectId: string, hidden = false) {
     const { rows } = await this.pool.query<import("./types.js").TaskLabel>(
-      "SELECT name, color FROM task_labels WHERE project_id = $1 ORDER BY lower(name)",
-      [projectId]
+      "SELECT name, color FROM task_labels WHERE project_id = $1 AND (hidden_at IS NOT NULL) = $2 ORDER BY lower(name)",
+      [projectId, hidden]
     );
     return rows;
   }
@@ -437,22 +437,42 @@ export class TaskStore {
     labels: import("./types.js").TaskLabel[],
     db: Queryable
   ) {
-    await db.query("DELETE FROM task_label_assignments WHERE task_id = $1", [
-      taskId,
-    ]);
+    const ids: string[] = [];
     for (const label of [...labels].sort((a, b) =>
       a.name.toLowerCase().localeCompare(b.name.toLowerCase())
     )) {
-      const { rows } = await db.query<{ id: string }>(
+      const { rows } = await db.query<{
+        id: string;
+        hidden: boolean;
+        assigned: boolean;
+      }>(
         `INSERT INTO task_labels(id,project_id,name,color) VALUES($1,$2,$3,$4)
-        ON CONFLICT (project_id, lower(name)) DO UPDATE SET name = task_labels.name RETURNING id`,
-        [randomUUID(), projectId, label.name, label.color]
+         ON CONFLICT (project_id, lower(name)) DO UPDATE SET name = task_labels.name
+         RETURNING id, hidden_at IS NOT NULL AS hidden,
+           EXISTS(SELECT 1 FROM task_label_assignments a WHERE a.task_id = $5 AND a.label_id = task_labels.id) AS assigned`,
+        [randomUUID(), projectId, label.name, label.color, taskId]
       );
+      const row = rows[0]!;
+      if (row.hidden && !row.assigned) return false;
+      ids.push(row.id);
+    }
+    await db.query("DELETE FROM task_label_assignments WHERE task_id = $1", [
+      taskId,
+    ]);
+    for (const id of ids)
       await db.query(
         "INSERT INTO task_label_assignments(task_id,label_id) VALUES($1,$2)",
-        [taskId, rows[0]!.id]
+        [taskId, id]
       );
-    }
+    return true;
+  }
+
+  async setLabelHidden(projectId: string, name: string, hidden: boolean) {
+    const result = await this.pool.query(
+      `UPDATE task_labels SET hidden_at = CASE WHEN $3 THEN COALESCE(hidden_at,now()) ELSE NULL END WHERE project_id = $1 AND lower(name) = lower($2)`,
+      [projectId, name, hidden]
+    );
+    return result.rowCount === 1;
   }
 
   // ── Tasks ────────────────────────────────────────────────────────
