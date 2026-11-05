@@ -1591,7 +1591,15 @@ test("project labels persist, reuse colors and filter without changing capacity 
     await page
       .getByRole("button", { name: "Edit labels", exact: true })
       .click();
+    const labelPopover = page
+      .getByRole("dialog")
+      .filter({ has: page.getByLabel("Label name", { exact: true }) });
+    const initialBox = await labelPopover.boundingBox();
     await page.getByLabel("Label name", { exact: true }).fill("Bug");
+    const createBox = await labelPopover.boundingBox();
+    expect(createBox?.height).toBe(initialBox?.height);
+    expect(createBox?.y).toBe(initialBox?.y);
+
     await page
       .getByRole("button", { name: "Color #ef6c57", exact: true })
       .click();
@@ -1670,7 +1678,10 @@ test("project labels persist, reuse colors and filter without changing capacity 
       .getByRole("button", { name: "Manage labels", exact: true })
       .click();
     await page
-      .getByRole("button", { name: "Hide label Bug", exact: true })
+      .getByRole("button", {
+        name: "Remove label Bug from options",
+        exact: true,
+      })
       .click();
     await expect(
       page.getByRole("button", { name: "Restore label Bug", exact: true })

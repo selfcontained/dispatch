@@ -100,7 +100,9 @@ it("restores and adds a hidden search result without contradictory empty-state t
     expect(onChange).toHaveBeenCalledWith([{ name: "Retired", color: "gray" }])
   );
   fireEvent.click(screen.getByRole("button", { name: "Manage labels" }));
-  fireEvent.click(screen.getByRole("button", { name: "Hide label Alpha" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove label Alpha from options" })
+  );
   expect(visibilityMutation).toHaveBeenCalledWith({
     name: "Alpha",
     hidden: true,

@@ -1,5 +1,14 @@
+import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { ArrowLeft, Check, ChevronDown, EyeOff, Plus, Tag } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  EyeOff,
+  Plus,
+  Tag,
+  X,
+} from "lucide-react";
 import type { TaskLabel } from "../../../../../server/src/tasks/types";
 import { useTaskBoard, useTaskLabelVisibility } from "@/hooks/use-tasks";
 import { Badge } from "@/components/ui/badge";
@@ -175,11 +184,11 @@ export function TaskLabelPicker({
         align="start"
         sideOffset={4}
         collisionPadding={8}
-        className="w-64 max-w-[calc(100vw-2rem)] p-0"
+        className="flex h-64 max-h-[var(--radix-popover-content-available-height)] w-64 max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0"
       >
         {manage ? (
-          <div className="p-2">
-            <div className="mb-2 flex items-center gap-1">
+          <div className="flex min-h-0 flex-1 flex-col p-2">
+            <div className="mb-2 flex shrink-0 items-center gap-1">
               <Button
                 type="button"
                 variant="ghost"
@@ -200,9 +209,9 @@ export function TaskLabelPicker({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Find a label…"
-              className="mb-1 h-8 text-xs"
+              className="mb-1 h-8 shrink-0 text-xs"
             />
-            <div className="max-h-48 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               {[...existing, ...hidden]
                 .filter((l) =>
                   l.name.toLowerCase().includes(name.trim().toLowerCase())
@@ -217,28 +226,47 @@ export function TaskLabelPicker({
                       type="button"
                       variant="ghost"
                       disabled={disabled || visibility.isPending}
-                      className="ml-auto h-7 shrink-0 px-1.5 text-[11px]"
-                      aria-label={`${isHidden(label) ? "Restore" : "Hide"} label ${label.name}`}
+                      className={cn(
+                        "ml-auto h-7 shrink-0 text-muted-foreground",
+                        isHidden(label) ? "px-1.5 text-[11px]" : "w-7 p-0"
+                      )}
+                      aria-label={
+                        isHidden(label)
+                          ? `Restore label ${label.name}`
+                          : `Remove label ${label.name} from options`
+                      }
+                      title={
+                        isHidden(label)
+                          ? "Restore label"
+                          : "Remove from options; keep task assignments"
+                      }
                       onClick={() => {
                         void setHidden(label, !isHidden(label));
                       }}
                     >
-                      {isHidden(label) ? "Restore" : "Hide"}
+                      {isHidden(label) ? (
+                        "Restore"
+                      ) : (
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
                     </Button>
                   </div>
                 ))}
             </div>
-            <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+            <p className="mt-2 shrink-0 text-[10px] leading-4 text-muted-foreground">
               Hidden labels stay on existing tasks. Restore them here to use
               them again.
             </p>
           </div>
         ) : (
-          <>
+          <div className="flex min-h-0 flex-1 flex-col">
             <Command
               label="Label name"
               shouldFilter={false}
-              className="rounded-md border-0 bg-transparent shadow-none backdrop-blur-none [&>div]:border-0"
+              className={cn(
+                "rounded-md border-0 bg-transparent shadow-none backdrop-blur-none [&>div]:border-0 [&>div:has(>input)]:shrink-0",
+                canCreate ? "h-20 shrink-0" : "min-h-0 flex-1"
+              )}
             >
               <CommandInput
                 aria-label="Label name"
@@ -249,7 +277,7 @@ export function TaskLabelPicker({
                 className="h-8 text-xs"
               />
               {(matching.length > 0 || !canCreate) && (
-                <CommandList className="max-h-48">
+                <CommandList className="min-h-0 flex-1 max-h-none overflow-y-auto">
                   <CommandGroup>
                     {matching.map((label) => (
                       <CommandItem
@@ -317,11 +345,11 @@ export function TaskLabelPicker({
               )}
             </Command>
             {canCreate && (
-              <div className="px-2 pb-2 pt-1">
+              <div className="shrink-0 px-2 pb-2 pt-1">
                 <ColorPicker
                   value={color}
                   onChange={setColor}
-                  disabled={disabled}
+                  disabled={disabled || visibility.isPending}
                   label="Label color"
                 />
                 <Button
@@ -330,6 +358,7 @@ export function TaskLabelPicker({
                   aria-label={`Create “${name.trim()}”`}
                   disabled={
                     disabled ||
+                    visibility.isPending ||
                     invalid ||
                     !isHexColor(color) ||
                     value.length >= 20
@@ -346,7 +375,7 @@ export function TaskLabelPicker({
                 </Button>
               </div>
             )}
-            <div className="px-2 pb-1">
+            <div className="mt-auto shrink-0 px-2 pb-1">
               <Button
                 type="button"
                 variant="ghost"
@@ -359,7 +388,7 @@ export function TaskLabelPicker({
                 Manage labels
               </Button>
             </div>
-          </>
+          </div>
         )}
         {visibility.error && (
           <p role="alert" className="px-3 pb-2 text-xs text-destructive">
