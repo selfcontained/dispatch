@@ -60,7 +60,8 @@ export function TaskLabelPicker({
   onChange: (labels: TaskLabel[]) => void;
   disabled?: boolean;
 }) {
-  const { data } = useTaskBoard(projectId);
+  const [open, setOpen] = useState(false);
+  const { data } = useTaskBoard(open ? projectId : null);
   const [name, setName] = useState("");
   const [color, setColor] = useState("gray");
   const existing = data?.labels ?? [];
@@ -68,6 +69,7 @@ export function TaskLabelPicker({
     l.name.toLowerCase().includes(name.trim().toLowerCase())
   );
   const add = (label: TaskLabel) => {
+    if (disabled) return;
     if (
       value.length < 20 &&
       !value.some((l) => l.name.toLowerCase() === label.name.toLowerCase())
@@ -76,7 +78,7 @@ export function TaskLabelPicker({
     setName("");
   };
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -95,10 +97,17 @@ export function TaskLabelPicker({
               key={l.name}
               variant="default"
               size="sm"
-              onClick={() => onChange(value.filter((v) => v.name !== l.name))}
+              disabled={disabled}
+              className="max-w-full min-w-0"
+              onClick={() => {
+                if (!disabled) onChange(value.filter((v) => v.name !== l.name));
+              }}
               aria-label={`Remove label ${l.name}`}
             >
-              {l.name} ×
+              <span className="min-w-0 truncate">{l.name}</span>
+              <span aria-hidden="true" className="shrink-0">
+                ×
+              </span>
             </Button>
           ))}
         </div>
@@ -116,7 +125,11 @@ export function TaskLabelPicker({
               className="w-full justify-start"
               variant="ghost"
               key={l.name}
-              disabled={value.some((v) => v.name === l.name)}
+              disabled={
+                disabled ||
+                value.length >= 20 ||
+                value.some((v) => v.name === l.name)
+              }
               onClick={() => add(l)}
             >
               <TaskLabels labels={[l]} />
@@ -128,7 +141,11 @@ export function TaskLabelPicker({
             (l) => l.name.toLowerCase() === name.trim().toLowerCase()
           ) && (
             <>
-              <Select value={color} onValueChange={setColor}>
+              <Select
+                disabled={disabled}
+                value={color}
+                onValueChange={setColor}
+              >
                 <SelectTrigger aria-label="Label color">
                   <SelectValue />
                 </SelectTrigger>
@@ -143,15 +160,19 @@ export function TaskLabelPicker({
               <Button
                 type="button"
                 disabled={
+                  disabled ||
                   value.length >= 20 ||
                   [...name].some(
                     (char) =>
                       char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127
                   )
                 }
+                className="max-w-full min-w-0"
+                aria-label={`Create “${name.trim()}”`}
                 onClick={() => add({ name: name.trim(), color })}
               >
-                Create “{name.trim()}”
+                <span className="shrink-0">Create</span>
+                <span className="min-w-0 truncate">“{name.trim()}”</span>
               </Button>
             </>
           )}
