@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { parseMcpInventory } from "./mcp-inventory.js";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import { PermissionRequests } from "./permissions.js";
@@ -432,7 +433,21 @@ function describeExit(exit: ExitInfo): string {
     : `the agent exited with code ${exit.code}`;
 }
 
+function isCodexSqliteInitializationExit(message: string): boolean {
+  // Stable wording from the incident; paths/PIDs and restartable metadata
+  // are neither required nor logged by the retry policy.
+  return (
+    /Codex process has exited with code 1:/.test(message) &&
+    /failed to initialize sqlite state runtime under [^\r\n]+: failed to initialize state runtime at /.test(
+      message
+    )
+  );
+}
+
+class InitializationExit extends Error {}
+
 export class AcpDriver {
+  private readonly starting = new Map<string, AbortController>();
   private readonly permissions: PermissionRequests;
   private readonly live = new Map<string, Live>();
   private readonly listeners = new Set<DriverListener>();
@@ -481,9 +496,49 @@ export class AcpDriver {
   async start(
     launch: DriverLaunch
   ): Promise<{ sessionId: string; resumed: boolean }> {
-    if (this.live.has(launch.agentId)) {
+    if (this.live.has(launch.agentId) || this.starting.has(launch.agentId)) {
       throw new Error(`the agent is already running for ${launch.agentId}`);
     }
+    const controller = new AbortController();
+    this.starting.set(launch.agentId, controller);
+    const failures: Error[] = [];
+    try {
+      // Three attempts total; independent hosts remain concurrent. Delay is
+      // 250–500ms then 500–1000ms, capped at one second.
+      for (let attempt = 1; ; attempt++) {
+        controller.signal.throwIfAborted();
+        try {
+          return await this.startAttempt(launch, controller.signal);
+        } catch (err) {
+          if (!(err instanceof InitializationExit) || controller.signal.aborted)
+            throw err;
+          failures.push(err);
+          if (attempt === 3) {
+            throw new AggregateError(
+              failures,
+              `Codex SQLite initialization retry exhausted after ${attempt} attempts: ${err.message}`
+            );
+          }
+          this.opts.logger.warn(
+            { agentId: launch.agentId, attempt, maxAttempts: 3 },
+            "Codex SQLite initialization exited before session creation; retrying"
+          );
+          await delay(
+            Math.min(1000, 250 * 2 ** (attempt - 1) * (1 + Math.random())),
+            undefined,
+            { signal: controller.signal }
+          );
+        }
+      }
+    } finally {
+      this.starting.delete(launch.agentId);
+    }
+  }
+
+  private async startAttempt(
+    launch: DriverLaunch,
+    signal: AbortSignal
+  ): Promise<{ sessionId: string; resumed: boolean }> {
     const { engine } = launch;
     const env: NodeJS.ProcessEnv = {
       ...engine.envDefaults,
@@ -491,7 +546,10 @@ export class AcpDriver {
       ...engine.env,
     };
     const bin = await this.resolveBinary(engine.bin, env);
+    signal.throwIfAborted();
     const child = this.spawnFn(bin, engine.args, { cwd: launch.cwd, env });
+    const killOnAbort = () => signalChild(child, "SIGKILL");
+    signal.addEventListener("abort", killOnAbort, { once: true });
     // Both listeners go on before any await: a spawn failure (ENOENT, EACCES,
     // missing cwd) is an `error` event with no `exit`, and an unhandled one
     // would take the whole server down.
@@ -634,6 +692,8 @@ export class AcpDriver {
     let pickupReceiptsSupported = false;
     let promptReceiptsSupported = false;
     const sessionCapabilities = unstableSessionCapabilities();
+    let initializing = true;
+    let abandoned = false;
     const handshake = (async () => {
       const initialized = await conn.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
@@ -645,6 +705,9 @@ export class AcpDriver {
             : {}),
         },
       });
+      if (abandoned) throw new Error("Startup attempt abandoned");
+      signal.throwIfAborted();
+      initializing = false;
       supportsImages =
         initialized.agentCapabilities?.promptCapabilities?.image === true;
       const inventory = initialized._meta?.["dispatch/mcpInventory"];
@@ -723,13 +786,23 @@ export class AcpDriver {
 
     type Outcome =
       | { ok: true; session: { sessionId: string; resumed: boolean } }
-      | { ok: false; reason: string };
+      | { ok: false; reason: string; cause?: unknown };
+    let abortStartup!: () => void;
+    const aborted = new Promise<Outcome>((resolve) => {
+      abortStartup = () =>
+        resolve({ ok: false, reason: "Agent startup cancelled" });
+      signal.addEventListener("abort", abortStartup, { once: true });
+      if (signal.aborted) abortStartup();
+    });
+    let handshakeTimer: NodeJS.Timeout | undefined;
     const outcome = await Promise.race<Outcome>([
+      aborted,
       handshake.then(
         (session) => ({ ok: true, session }),
         (err) => ({
           ok: false,
           reason: describeRpcError(err, engine.id).message,
+          cause: err,
         })
       ),
       exited.then((exit) => ({
@@ -737,26 +810,50 @@ export class AcpDriver {
         reason: `${describeExit(exit)} during startup`,
       })),
       new Promise<Outcome>((resolve) =>
-        setTimeout(
+        (handshakeTimer = setTimeout(
           () =>
             resolve({
               ok: false,
               reason: `the engine did not complete the ACP handshake within ${HANDSHAKE_TIMEOUT_MS / 1000}s`,
             }),
           HANDSHAKE_TIMEOUT_MS
-        ).unref?.()
+        )).unref?.()
       ),
     ]);
+    clearTimeout(handshakeTimer);
+    signal.removeEventListener("abort", abortStartup);
+    signal.removeEventListener("abort", killOnAbort);
     if (!outcome.ok) {
+      abandoned = true;
       handshake.catch(() => {});
       signalChild(child, "SIGKILL");
       // A spawn failure aborts the handshake too, and that rejection can win
       // the race; the child's own exit reason is the useful one.
-      const reason = settledExit
-        ? `${describeExit(settledExit)} during startup`
-        : outcome.reason;
+      const reason = signal.aborted
+        ? "Agent startup cancelled"
+        : settledExit
+          ? `${describeExit(settledExit)} during startup`
+          : outcome.reason;
       const tail = stderrTail.length ? `\n${stderrTail.join("\n")}` : "";
-      throw new Error(`Agent connection failed: ${reason}${tail}`);
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      // Never overlap attempts if a child cannot be reaped.
+      const reaped = await Promise.race([
+        exited.then(() => true),
+        delay(TEARDOWN_STEP_MS).then(() => false),
+      ]);
+      const message = `Agent connection failed: ${reason}${tail}`;
+      if (
+        reaped &&
+        initializing &&
+        !signal.aborted &&
+        engine.id === "codex" &&
+        isCodexSqliteInitializationExit(outcome.reason)
+      ) {
+        throw new InitializationExit(message, { cause: outcome.cause });
+      }
+      throw new Error(message, { cause: outcome.cause });
     }
 
     const entry: Live = {
@@ -1309,6 +1406,7 @@ export class AcpDriver {
 
   /** Close the session, then walk stdin EOF, SIGTERM, SIGKILL until exit. */
   async stop(agentId: string): Promise<void> {
+    this.starting.get(agentId)?.abort();
     const entry = this.live.get(agentId);
     if (!entry) return;
     entry.stopping = true;
@@ -1347,6 +1445,7 @@ export class AcpDriver {
    * purpose, so no await can be cut short between the signal and the exit.
    */
   killAll(): string[] {
+    for (const controller of this.starting.values()) controller.abort();
     const killed: string[] = [];
     for (const [agentId, entry] of this.live) {
       this.permissions.cancel(agentId);
