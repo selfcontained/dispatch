@@ -41,11 +41,28 @@ afterEach(() => {
 });
 
 function fixture(
-  opts: { up?: string; down?: string; playwrightTest?: string } = {}
+  opts: {
+    up?: string;
+    down?: string;
+    playwrightTest?: string;
+    webBuild?: "present" | "missing";
+    skipBuild?: boolean;
+  } = {}
 ) {
   const dir = mkdtempSync("/tmp/dispatch-e2e-isolated-regression-");
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
 
+  let scriptToRun = script;
+  if (opts.webBuild) {
+    mkdirSync(path.join(dir, "scripts"));
+    scriptToRun = path.join(dir, "scripts/e2e-isolated.sh");
+    writeFileSync(scriptToRun, readFileSync(script));
+    if (opts.webBuild === "present") {
+      mkdirSync(path.join(dir, "apps/web/dist"), { recursive: true });
+      writeFileSync(path.join(dir, "apps/web/dist/index.html"), "fixture");
+    }
+  }
+  const pnpmCalls = path.join(dir, "pnpm-calls");
   const tools = path.join(dir, "bin");
   mkdirSync(tools);
   const calls = path.join(dir, "docker-calls");
@@ -66,6 +83,7 @@ esac
   writeFileSync(
     path.join(tools, "pnpm"),
     `#!/bin/bash
+printf '%s\\n' "$*" >> ${JSON.stringify(pnpmCalls)}
 case "$*" in
   "exec playwright test"*) ${opts.playwrightTest ?? "exit 0"} ;;
   *) exit 0 ;;
@@ -77,19 +95,27 @@ esac
   const env = {
     ...process.env,
     PATH: `${tools}:${process.env.PATH}`,
+    E2E_SKIP_WEB_BUILD: opts.skipBuild ? "1" : "0",
+    DISPATCH_AGENT_RUNTIME: "inert",
+    E2E_AGENT_RUNTIME: "inert",
+    DISPATCH_ACP_ADAPTER_COMMAND: "must-not-inherit-provider",
+    DISPATCH_CODEX_BIN: "/missing/real-provider",
+    DISPATCH_CLAUDE_BIN: "/missing/real-provider",
+    DISPATCH_OPENCODE_BIN: "/missing/real-provider",
   };
 
   const run = () =>
-    spawnSync("/bin/bash", [script], {
+    spawnSync("/bin/bash", [scriptToRun], {
       cwd: repoRoot,
       encoding: "utf8",
       timeout: 15_000,
       env,
     });
 
-  const runAsync = () => spawn("/bin/bash", [script], { cwd: repoRoot, env });
+  const runAsync = () =>
+    spawn("/bin/bash", [scriptToRun], { cwd: repoRoot, env });
 
-  return { run, runAsync, calls };
+  return { run, runAsync, calls, pnpmCalls };
 }
 
 function readCalls(file: string): string[] {
@@ -137,6 +163,15 @@ async function waitForCallLine(
 }
 
 describe("e2e-isolated.sh teardown", () => {
+  it("always runs core journeys with the fake ACP host despite inherited runtime settings", () => {
+    const { run } = fixture({
+      up: "exit 0",
+      playwrightTest: `node -e 'const assert = require("node:assert/strict"); assert.equal(process.env.DISPATCH_AGENT_RUNTIME, "acp"); const command = JSON.parse(process.env.DISPATCH_ACP_ADAPTER_COMMAND); assert.equal(command.length, 1); assert.ok(command[0].endsWith("/e2e/fixtures/fake-acp-agent.mjs")); const { spawnSync } = require("node:child_process"); for (const key of ["DISPATCH_CODEX_BIN", "DISPATCH_CLAUDE_BIN", "DISPATCH_OPENCODE_BIN"]) { const bin = process.env[key]; assert.ok(bin.endsWith("/e2e/fixtures/fake-engine-cli.sh")); assert.equal(spawnSync(bin, ["--version"]).status, 0); assert.equal(spawnSync(bin, ["login"]).status, 64); }'`,
+    });
+    const result = run();
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it("targets this project's docker-compose.yml explicitly on both up and down, regardless of cwd assumptions", () => {
     const { run, calls } = fixture();
     const result = run();
@@ -292,5 +327,36 @@ describe("e2e-isolated.sh teardown", () => {
       `Run failed (exit ${result.status}); capturing Postgres diagnostics before teardown`
     );
     expect(result.stderr).toContain("fake postgres log line");
+  });
+});
+
+describe("e2e-isolated.sh build reuse", () => {
+  it("reuses an explicitly requested existing build and still runs Playwright", () => {
+    const { run, pnpmCalls } = fixture({
+      up: "exit 0",
+      webBuild: "present",
+      skipBuild: true,
+    });
+    const result = run();
+    expect(result.status, result.stderr).toBe(0);
+    expect(readCalls(pnpmCalls)).not.toContain("run build:web");
+    expect(readCalls(pnpmCalls)).toContain("exec playwright test");
+  });
+  it("fails closed and tears down if a reused build is missing", () => {
+    const { run, calls, pnpmCalls } = fixture({
+      up: "exit 0",
+      webBuild: "missing",
+      skipBuild: true,
+    });
+    const result = run();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Missing web build");
+    expect(readCalls(pnpmCalls)).not.toContain("exec playwright test");
+    expect(readCalls(calls).some((line) => isCall(line, "down"))).toBe(true);
+  });
+  it("builds by default even when a previous build exists", () => {
+    const { run, pnpmCalls } = fixture({ up: "exit 0", webBuild: "present" });
+    expect(run().status).toBe(0);
+    expect(readCalls(pnpmCalls)).toContain("run build:web");
   });
 });

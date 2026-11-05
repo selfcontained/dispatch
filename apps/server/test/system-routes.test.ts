@@ -23,11 +23,10 @@ describe("GET /ping", () => {
 });
 
 describe("GET /api/v1/health", () => {
-  it("returns ok with db timestamp", async () => {
+  it("returns ok with db timestamp without authentication", async () => {
     const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/health",
-      headers: { cookie: sessionCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();

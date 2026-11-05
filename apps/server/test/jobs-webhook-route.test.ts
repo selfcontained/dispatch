@@ -74,6 +74,10 @@ describe("POST /api/v1/jobs/webhook/:secret", () => {
       },
     });
     expect(disableRes.statusCode).toBe(200);
+    expect(disableRes.json()).toMatchObject({
+      webhookEnabled: false,
+      webhookSecret: null,
+    });
 
     const res = await ctx.app.inject({
       method: "POST",

@@ -76,7 +76,7 @@ const cases: [string, string[]][] = [
     ["jobs-owner", "mcp-contract-owner"],
   ],
   ["packages/shared/src/scheduled-messages.ts", ["jobs-owner"]],
-  ["e2e/scheduled-messages.spec.ts", ["jobs-owner"]],
+  ["e2e/jobs-webhook-ui.spec.ts", ["code-review", "jobs-owner"]],
   ["apps/server/src/stream-manager.ts", ["stream-delivery-owner"]],
   [
     "apps/web/src/hooks/use-sse.ts",

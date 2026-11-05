@@ -327,6 +327,11 @@ describe("POST /api/v1/focus", () => {
     expect(res.statusCode).toBe(204);
   });
 
+  it("clears focus when agentId is omitted", async () => {
+    const res = await authedInject("POST", "/api/v1/focus", {});
+    expect(res.statusCode).toBe(204);
+  });
+
   it("rejects empty string agentId", async () => {
     const res = await authedInject("POST", "/api/v1/focus", {
       agentId: "   ",
