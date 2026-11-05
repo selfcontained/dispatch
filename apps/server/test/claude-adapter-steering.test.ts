@@ -7,6 +7,7 @@ const sessionId = "steering-test";
 function fixture(active = true) {
   const turn = {
     promptUuid: "original-prompt",
+    received: 1,
     settled: false,
     resolve: vi.fn(),
   };
@@ -45,6 +46,9 @@ function fixture(active = true) {
       "stopBackgroundWorkflows"
     ),
     forceCancelGraceMs: 30_000,
+    // Prompts received before a cancel are cancelled by it (see cancelTurns).
+    promptsReceived: 1,
+    cancelledThrough: new Map<string, number>(),
     logger: { error: vi.fn() },
   };
   // Minimal session/transport doubles; the methods under test are the actual
@@ -130,6 +134,7 @@ describe("patched Claude adapter steering", () => {
     const uuid = session.input.push.mock.calls[0]![0].uuid;
     const queued = {
       promptUuid: "queued-prompt",
+      received: 1,
       settled: false,
       resolve: vi.fn(),
     };
@@ -226,6 +231,7 @@ describe("patched Claude adapter steering", () => {
       );
       const replacement = {
         promptUuid: "replacement",
+        received: 2,
         settled: false,
         resolve: vi.fn(),
       };
@@ -239,6 +245,32 @@ describe("patched Claude adapter steering", () => {
       expect(session.query.interrupt).not.toHaveBeenCalled();
     }
   );
+
+  it("still interrupts the target when a prompt received after the cancel is queued", async () => {
+    const { agent, session, steer, cancel } = fixture();
+    await steer();
+    const uuid = session.input.push.mock.calls[0]![0].uuid;
+    // Received after the cancel started: cancelTurns leaves it queued, and
+    // Claude Code keeps it through the interrupt.
+    const later = {
+      promptUuid: "received-after-cancel",
+      received: 2,
+      settled: false,
+      resolve: vi.fn(),
+    };
+    session.query.cancelAsyncMessage.mockImplementation(async (id: string) => {
+      if (id === uuid) {
+        agent.promptsReceived = 2;
+        session.turnQueue.push(later);
+      }
+      return true;
+    });
+    await cancel();
+    expect(session.query.cancelAsyncMessage.mock.calls).toEqual([[uuid]]);
+    expect(session.query.interrupt).toHaveBeenCalledOnce();
+    expect(later.resolve).not.toHaveBeenCalled();
+    expect(later.settled).toBe(false);
+  });
 
   it.each(["consumed", "error", "unsupported"])(
     "retains orphan tracking and interrupts when withdrawal is %s",
@@ -313,6 +345,7 @@ function consumerFixture() {
 function makeTurn(uuid: string) {
   return {
     promptUuid: uuid,
+    received: 0,
     events: { inserted: vi.fn(), running: vi.fn() },
     settled: false,
     isLocalOnlyCommand: true,

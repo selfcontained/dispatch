@@ -1,3 +1,4 @@
+import { TaskLabelPicker, TaskLabels } from "./task-labels";
 import { TaskLaunchTemplateEditor } from "./task-launch-template";
 import { TaskAttachments } from "./task-attachments";
 import { TaskDeleteDialog } from "./task-delete-dialog";
@@ -311,6 +312,20 @@ export function TaskDetailPanel({
                     "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm"
                   )}
                 >
+                  <span className="text-xs text-muted-foreground">Labels</span>
+                  <div className="space-y-2">
+                    <TaskLabels labels={task.labels} />
+                    <TaskLabelPicker
+                      projectId={task.projectId}
+                      value={task.labels ?? []}
+                      disabled={actions.update.isPending}
+                      onChange={(labels) => {
+                        void actions.update
+                          .mutateAsync({ id, labels })
+                          .catch(() => {});
+                      }}
+                    />
+                  </div>
                   <span className="text-xs text-muted-foreground">Status</span>
                   {task.archivedAt ? (
                     <span className="text-sm text-muted-foreground">

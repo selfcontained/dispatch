@@ -1,3 +1,4 @@
+import { TaskLabels } from "./task-labels";
 import { useEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -137,6 +138,7 @@ export function TaskCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <TaskLabels labels={task.labels} />
       <TaskCardDetails task={task} columns={columns} agents={agents} />
       <TaskMoveSheet
         task={task}
@@ -179,6 +181,7 @@ export function TaskCardOverlay({
           {task.title}
         </span>
       </div>
+      <TaskLabels labels={task.labels} />
       <TaskCardDetails task={task} columns={columns} agents={agents} />
     </article>
   );

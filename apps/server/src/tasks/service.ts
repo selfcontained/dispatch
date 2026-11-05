@@ -1,3 +1,4 @@
+import { taskLabelsSchema } from "./labels.js";
 import { taskAgentName } from "@dispatch/shared";
 import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
 import path from "node:path";
@@ -489,6 +490,7 @@ export class TaskService {
           : null,
       })),
       tasks,
+      labels: await this.store.listLabels(projectId),
     };
   }
 
@@ -906,6 +908,8 @@ export class TaskService {
     if (files.length && !this.deps.filesRoot)
       throw new Error("Task file storage is unavailable.");
     await this.requireProject(input.projectId);
+    const labels = taskLabelsSchema.safeParse(input.labels ?? []);
+    if (!labels.success) throw invalid(labels.error.message);
     const title = input.title.trim();
     if (!title) throw invalid("title is required.");
     const columns = await this.ensureColumns(input.projectId);
@@ -948,6 +952,8 @@ export class TaskService {
           { launchTemplateId: input.launchTemplateId },
           { db }
         );
+      if (input.labels !== undefined)
+        await this.store.setLabels(id, input.projectId, labels.data, db);
       return currentColumn;
     });
     try {
@@ -1050,8 +1056,14 @@ export class TaskService {
     if (input.beforeId === id)
       throw invalid("beforeId cannot be the moving task.");
     const actor = actorOf(caller);
+    const labels =
+      input.labels === undefined
+        ? undefined
+        : taskLabelsSchema.safeParse(input.labels);
+    if (labels && !labels.success) throw invalid(labels.error.message);
     const patch: TaskPatch = {};
     const changed: string[] = [];
+    if (labels?.success) changed.push("labels");
     if (input.launchTemplateId !== undefined) {
       await this.validateLaunchPreference(
         task.projectId,
@@ -1186,13 +1198,15 @@ export class TaskService {
           );
         patch.position = position;
       }
-      if (Object.keys(patch).length > 0) {
+      if (Object.keys(patch).length > 0 || labels?.success) {
         const updated = await this.store.updateTask(id, patch, {
           ...(destination ? { fromColumnId: task.columnId } : {}),
           db,
         });
         if (!updated) return false;
       }
+      if (labels?.success)
+        await this.store.setLabels(id, task.projectId, labels.data, db);
       if (changed.length > 0)
         await this.store.insertEvent(
           id,
