@@ -315,6 +315,7 @@ export function TaskDetailPanel({
                   <span className="text-xs text-muted-foreground">Labels</span>
                   <div className="min-w-0">
                     <TaskLabelPicker
+                      key={task.id}
                       projectId={task.projectId}
                       value={task.labels ?? []}
                       disabled={actions.update.isPending}

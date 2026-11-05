@@ -1,6 +1,6 @@
 import { Command as CommandPrimitive } from "cmdk";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Settings,
   ArrowLeft,
@@ -84,13 +84,24 @@ export function TaskLabelPicker({
   value,
   onChange,
   disabled = false,
+  onPendingChange,
 }: {
   projectId: string;
   value: TaskLabel[];
   onChange: (labels: TaskLabel[]) => void;
   disabled?: boolean;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const generation = useRef(0);
+  const restoring = useRef(false);
+  useEffect(() => {
+    const scope = ++generation.current;
+    return () => {
+      generation.current = scope + 1;
+      onPendingChange?.(false);
+    };
+  }, [projectId, onPendingChange]);
   const [manage, setManage] = useState(false);
   const visibility = useTaskLabelVisibility(projectId);
   const { data, isLoading } = useTaskBoard(open ? projectId : null);
@@ -131,6 +142,30 @@ export function TaskLabelPicker({
         value.filter((l) => l.name.toLowerCase() !== label.name.toLowerCase())
       );
     else if (value.length < 20) onChange([...value, label]);
+  };
+  const restoreAndAdd = async (label: TaskLabel) => {
+    if (
+      disabled ||
+      visibility.isPending ||
+      restoring.current ||
+      value.length >= 20
+    )
+      return;
+    const started = generation.current;
+    restoring.current = true;
+    onPendingChange?.(true);
+    try {
+      const restored = await setHidden(label, false);
+      // Closing the draft or switching entities expires its selection callback.
+      if (generation.current !== started) return;
+      if (restored) {
+        onChange([...value, label]);
+        setName("");
+      }
+    } finally {
+      restoring.current = false;
+      if (generation.current === started) onPendingChange?.(false);
+    }
   };
   const canCreate =
     !!name.trim() &&
@@ -307,12 +342,7 @@ export function TaskLabelPicker({
                           disabled || visibility.isPending || value.length >= 20
                         }
                         onSelect={() => {
-                          void (async () => {
-                            if (await setHidden(hiddenMatch, false)) {
-                              onChange([...value, hiddenMatch]);
-                              setName("");
-                            }
-                          })();
+                          void restoreAndAdd(hiddenMatch);
                         }}
                         className="min-h-9 gap-2"
                       >
