@@ -346,9 +346,11 @@ function PullRequestRow({
   const closeFocusRef = useRef<HTMLButtonElement | null>(null);
   const contentId = useId();
   const openOnPointerDown = useRef(false);
+  const dismissedOutside = useRef(false);
   const toggleDetails = (event: React.MouseEvent<HTMLButtonElement>) => {
     const wasOpen = event.detail === 0 ? open : openOnPointerDown.current;
     closeFocusRef.current = event.currentTarget;
+    dismissedOutside.current = false;
     // Keep the current anchor through exit animation; only opening picks a new one.
     if (!wasOpen) triggerRef.current = event.currentTarget;
     setOpen(!wasOpen);
@@ -434,12 +436,18 @@ function PullRequestRow({
             target
               .closest("[data-pr-details-trigger]")
               ?.getAttribute("data-pr-details-trigger") === contentId
-          )
+          ) {
             event.preventDefault();
+          } else {
+            dismissedOutside.current = true;
+          }
         }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          (closeFocusRef.current ?? triggerRef.current)?.focus();
+          if (!dismissedOutside.current) {
+            (closeFocusRef.current ?? triggerRef.current)?.focus();
+          }
+          dismissedOutside.current = false;
         }}
         side="bottom"
         align="start"

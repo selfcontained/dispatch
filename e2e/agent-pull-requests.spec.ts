@@ -67,6 +67,27 @@ test("sidebar shows multiple PRs and opens their status list without selecting t
   await expect(
     page.getByRole("heading", { name: "Pull request #42", exact: true })
   ).toBeHidden();
+  const trigger = page.getByRole("button", {
+    name: "Details for pull request #42: Open",
+    exact: true,
+  });
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  const outside = page.getByRole("button", {
+    name: "Details for pull request #43: Merged",
+    exact: true,
+  });
+  await outside.focus();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(outside).toBeFocused();
+  await trigger.click();
+  await page
+    .getByRole("dialog")
+    .getByRole("link", { name: "Open on GitHub" })
+    .focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(trigger).not.toBeFocused();
 });
 
 test("explicit PR posts reach the sidebar over SSE without client refetches", async ({

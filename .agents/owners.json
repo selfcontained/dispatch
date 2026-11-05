@@ -31,6 +31,8 @@
         "apps/web/src/components/app/agent-pane*",
         "apps/web/src/components/app/agent-*",
         "apps/server/test/*agent*",
+        "apps/server/test/pull-request*.test.ts",
+        "packages/shared/src/pull-requests.ts",
         "apps/server/test/codex-reset.test.ts",
         "apps/server/test/provider-plans.test.ts",
         "apps/server/test/lifecycle-routes.test.ts",
@@ -283,6 +285,7 @@
       "paths": [
         "apps/web/src/**",
         "apps/web/eslint.config.js",
+        "apps/web/tailwind.config.ts",
         "apps/web/package.json",
         "e2e/settings.spec.ts",
         "e2e/changes-virtualization.spec.ts",
