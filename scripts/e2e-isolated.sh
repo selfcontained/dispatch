@@ -38,14 +38,9 @@ export DISPATCH_DB_PORT="$DB_PORT"
 # that dies before `cleanup` leaves a container Docker keeps bringing back.
 export DISPATCH_DB_RESTART="no"
 export E2E_PORT="$API_PORT"
-# Agent runtime defaults to inert (no real agent processes). Live mode is an
-# explicit opt-in via E2E_AGENT_RUNTIME=acp (`pnpm run test:e2e:live`), which
-# runs real agent hosts against the fake ACP engine in e2e/fixtures, so no
-# provider CLI or login is needed. It is deliberately a dedicated variable
-# rather than DISPATCH_AGENT_RUNTIME itself, so a suite run started from
-# inside an agent session cannot inherit live mode. Hosts live under this
-# run's own state root and are stopped on teardown.
-export DISPATCH_AGENT_RUNTIME="${E2E_AGENT_RUNTIME:-inert}"
+# Core journeys exercise real hosts with the deterministic fake ACP engine.
+# Do not inherit runtime selection from the enclosing agent session.
+export DISPATCH_AGENT_RUNTIME="acp"
 export DISPATCH_AGENT_STATE_ROOT="/tmp/dispatch-agents-${RUN_ID}"
 # The adapters ship inside the binary; this stands a fake engine in for both
 # so the runtime can be driven with no engine installed (test seam only).

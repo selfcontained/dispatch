@@ -17,18 +17,6 @@ const filesRoot =
 const agentRuntime =
   process.env.DISPATCH_AGENT_RUNTIME === "acp" ? "acp" : "inert";
 
-// Tests that mutate global settings, create agents via UI, or have explicit
-// serial constraints. These run after the parallel suite with a single worker.
-const serialTests = [
-  "e2e/settings.spec.ts",
-  "e2e/agent-crud.spec.ts",
-  "e2e/agent-live.spec.ts",
-  "e2e/mobile-layout.spec.ts",
-  "e2e/drawer.spec.ts",
-  "e2e/web-notifications.spec.ts",
-  "e2e/chat-surface.spec.ts",
-];
-
 export default defineConfig({
   testDir: "./e2e",
   forbidOnly: !!process.env.CI,
@@ -68,27 +56,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 60_000,
   },
-  projects: [
-    {
-      name: "parallel",
-      testIgnore: [...serialTests, "e2e/mobile-terminal.spec.ts"],
-      fullyParallel: false,
-      workers: 4,
-    },
-    {
-      name: "serial",
-      testMatch: serialTests,
-      fullyParallel: false,
-      workers: 1,
-      dependencies: ["parallel"],
-    },
-    {
-      // This exercises real password setup for the human terminal. Run last so
-      // global auth changes cannot affect tests that expect a fresh installation.
-      name: "terminal",
-      testMatch: "e2e/mobile-terminal.spec.ts",
-      workers: 1,
-      dependencies: ["serial"],
-    },
-  ],
+  // Each journey owns its records. No global-settings suite or dependency chain.
+  workers: 4,
+  fullyParallel: false,
 });

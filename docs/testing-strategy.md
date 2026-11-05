@@ -1,142 +1,84 @@
-# Testing strategy
+# Browser suite reduction
 
-Use the lowest test level that can reproduce the failure. A UI change does not
-implicitly require a new permanent browser test. Interactive UI validation and
-regression coverage serve different purposes.
+This records the implemented suite and its measurements. It is not a new
+manifest, exception registry, or approval framework.
 
-## Choose the boundary
+## What runs
 
-| Behavior                                                                       | Default test                                     |
-| ------------------------------------------------------------------------------ | ------------------------------------------------ |
-| Rules, formatting, transformations, state machines                             | Unit                                             |
-| UI branching, form validation, mutation payloads, loading/error state          | React Testing Library component/hook             |
-| SQL, authentication, route contracts, Git/filesystem, processes, SSE transport | Integration with real resources at that boundary |
-| Geometry, touch/drag, focus, history, scroll anchoring, native browser APIs    | Focused browser regression                       |
-| Critical user journey across frontend, server, persistence or runtime          | End-to-end                                       |
+The default `pnpm run test:e2e` runs nine journeys in seven files against an
+isolated database, HTTP server, and real agent hosts using the deterministic
+fake ACP engine. It does not invoke provider CLIs or paid models. Previously,
+the default inert runtime skipped the live agent journeys.
 
-Do not replace SQL or filesystem integration with mocks. Do not use jsdom to
-prove layout or browser behavior. Prefer real relevant component children and
-mock external seams rather than asserting that mocks call other mocks.
+| File                       | Journey                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| `agent-live.spec.ts`       | Create, converse, cancel, pause/resume, converse again, archive                  |
+| `agent-live.spec.ts`       | Restricted approval, reload, allow/reject, cancel                                |
+| `agent-live.spec.ts`       | A thread reply reaches the engine and stays in its thread                        |
+| `inline-answers.spec.ts`   | Answer a question/form and reopen persisted answers                              |
+| `message-sharing.spec.ts`  | Forward a verifiable approval across agent hosts without granting history access |
+| `tasks-board.spec.ts`      | Create a task, move to a triggered column, open the launched agent               |
+| `task-attachments.spec.ts` | Create a task with uploaded context and reopen it                                |
+| `jobs-webhook-ui.spec.ts`  | Save/reload/disable/reload a webhook configuration                               |
+| `worktree.spec.ts`         | Archive an agent while preserving outstanding work                               |
 
-## Commands and migration
+These are independent, scoped journeys. There is no serial-project dependency
+chain, mobile/desktop duplication, or hidden extended suite moved to a nightly
+schedule. Removed tests remain recoverable in Git history.
 
-- `pnpm run test:unit`: no Docker; explicit server pure-unit subset, web
-  component/hook tests and extension tests. The initial server subset is in
-  `apps/server/vitest.unit.config.ts`; move more tests into it only after checking
-  transitive dependencies for database, network, subprocess or host-state access.
-- `pnpm run test`: complete existing server, web and extension suites. The server
-  aggregate still includes DB, process, Git and release integration coverage.
-- `pnpm run check:test-policy`: admission/reliability guard plus its unit tests.
-  Playwright collection does not launch a browser or server.
-- `pnpm run test:e2e --no-deps <spec>`: focused changed browser coverage through
-  the isolated runner, excluding project dependencies.
-- `pnpm run test:e2e`: full existing browser/API regression suite in PR CI during
-  migration; do not run unmodified full regression coverage locally.
-- `pnpm run test:e2e:runtime`: all fake-ACP runtime specs, including message
-  sharing and stream-follow. This runs real hosts against the fake engine; it
-  does not invoke paid external models. The default inert suite intentionally
-  skips these cases; a default green run is not runtime coverage.
+## What was removed, and what still protects it
 
-Keep full CI regression coverage while moving assertions in small batches.
-Do not turn path-based skipping on until its coverage mapping is validated.
-The Postgres 14 full compatibility suite remains required until its DB subset
-has been exhaustively classified. Core journeys and browser-only regressions
-are recorded separately in the manifest; legacy cases remain visible migration
-work, not precedent for new E2E tests.
+The original suite collected 286 cases. The first migration reduced that to
+263; this revision reduces it to nine. This deliberately reduces automated
+browser coverage, rather than claiming every removed visual assertion has an
+equivalent unit test.
 
-The first migration removes 19 request-only Playwright cases:
+| Removed browser checks                                                                | Remaining coverage / deliberate tradeoff                                                                                                                                            |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API-only health, focus, jobs                                                          | Real-DB route coverage strengthened in this PR; 19 Playwright cases removed                                                                                                         |
+| Worktree configuration/branch variants                                                | Git origin/base integration, real-DB archive branch cleanup, local-config filesystem tests, archive logic and dialog component tests; one real browser preservation journey remains |
+| Task drag, touch, header geometry, filters and modal permutations                     | Task service/transport integration and task component/hook tests remain; the short create/trigger journey replaces the 500-line mixed scenario                                      |
+| Scroll/windowing, virtualization, pane geometry, responsive shell, focus permutations | Existing feed/windowing/state/component tests remain. Pixel/gesture behavior is intentionally checked during relevant implementation/review, not on every PR                        |
+| Form/settings/dropdown/rendering variations                                           | Existing component tests for create-agent, tasks, jobs, templates, chat blocks and settings remain; core persistence journeys provide wiring checks                                 |
+| Stream/MCP permutations, token aggregation, jobs SSE                                  | Existing stream-service/routes, MCP transport, agent-usage, jobs service/route tests remain; live thread and cross-agent handoff journeys retain end-to-end wiring                  |
+| Update, notification, certificate and terminal browser checks                         | Existing release/auth/terminal/service tests remain. Browser-specific acceptance checks are no longer universal PR regression gates                                                 |
 
-| Removed spec                 | Preserved coverage                                                                                                                                                                        |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `api-health.spec.ts` (2)     | `system-routes.test.ts` unauthenticated real-DB health; `agents-routes.test.ts` list shape and records                                                                                    |
-| `focus-tracking.spec.ts` (3) | `agents-routes.test.ts` valid, null and omitted focus; `focus-tracker.test.ts` expiry/refresh logic                                                                                       |
-| `jobs-api.spec.ts` (14)      | `jobs-routes.test.ts` create/full config/list/update/enable/disable/run/history/errors; `jobs-webhook-route.test.ts` secret, unauthenticated execution, trigger source and revoked secret |
+The full server, frontend and extension suites still run. PostgreSQL 14
+compatibility coverage is unchanged. This change does not use broad path-based
+skipping to obtain its savings and does not claim to fix historical flakes in
+the retired browser tests.
 
-`jobs-webhook-ui.spec.ts` replaces five order-dependent checks with one real
-save/reload/disable/reload journey. Toggle display and payload cases are covered
-by `jobs-settings-tab.test.tsx`; HTTP persistence and secret revocation by the
-server route tests. The journey creates and removes its own job and saves via
-UI rather than bypassing Save with an API update.
+## Commands
 
-## Browser admission gate
+- `pnpm run test:e2e`: the nine core journeys; builds the frontend unless CI
+  explicitly supplies its existing build.
+- `pnpm run test:e2e e2e/tasks-board.spec.ts`: one changed journey locally.
+- `pnpm run test:e2e:live`: compatibility alias for the agent lifecycle file;
+  live fake-engine coverage is now part of the default suite too.
+- `pnpm run test:unit`: Docker-free server unit subset plus frontend/extension.
+- `pnpm run test`: complete existing server/frontend/extension suites.
 
-`e2e/test-policy.json` records each collected case, its owner, risk, layer and
-reason a lower-level test is insufficient. The guard compares actual Playwright
-collection, including parameterized viewports, with this manifest. New, renamed,
-deleted or duplicate cases require an explicit manifest change. Empty/error
-collection fails. Supporting helpers are checked too.
+CI retains one diagnostic retry but fails on retry-pass results, and uploads
+JSON/JUnit and failure traces. A runner integration test verifies this behavior.
+The prior proposed AST policy gate, counted exceptions, browser manifest and
+new testing-strategy reviewer were removed rather than codifying an unproven
+system.
 
-A test change must explain:
+## Measurement
 
-1. Which actual failure it catches and why this level is necessary.
-2. Existing overlap, and which lower-level test could replace it.
-3. Isolation, timing and resource cleanup.
-4. Expected runtime and any exception to the reliability rules.
+Before: CI run 42072787008 at `58ef2ffa` took **10m16s** overall. Playwright
+reported **235.681s**, 250 passed and 13 skipped. Backend test execution took
+123.27s on PostgreSQL 17 and 110.49s on PostgreSQL 14; frontend tests took 17.07s.
+Per-file test durations overlap across workers and must not be summed as elapsed
+wall time.
 
-The testing strategy owner reviews manifest/guard changes and all browser specs;
-subsystem owners still review their own coverage. Updating the manifest is an
-approval request in the diff, not permission to bless arbitrary coverage. Run
-`node scripts/test-policy.mjs --inventory` to inspect case names and risk keys;
-there is deliberately no automatic accept/update command.
+The revised nine-journey prototype passed locally in **25.2s**, including live
+agent execution. This is not a matched CI comparison. After fixing the Stop control assumption that no other agents were active,
+three repetitions at the normal four-worker concurrency passed **27/27** with
+retries disabled in **36.3s** (shared startup). Current-head CI is recorded in
+the PR validation report before completion.
 
-AST checks ratchet fixed waits, skip/fixme/slow calls, test timeout setters and
-explicit timeout/retry properties. Comments and formatting do not affect keys.
-A risk exception records the exact operation hash, occurrence count, reason,
-owner and expiry. An increased wait or duplicate occurrence needs a new review.
-Removed risks require removing their exceptions. `.only` and `networkidle` are
-forbidden even with exceptions. Shorthand timeout/retry options such as
-`{ timeout }` and `{ retries }` are also forbidden: their operation hash would
-not include the binding value. Use explicit options for review. These checks cover normal test API usage, not
-arbitrary obfuscation; reviewers must inspect new helper abstractions too.
-
-Existing risks have a time-bounded migration exception through 2027-02-01.
-That baseline preserves evidence; it is not an assertion that those waits or
-skips are sound. Retire exceptions when touching that behavior. New exceptions
-must explain the concrete need (for example, a bounded negative observation)
-and how they will be removed or re-evaluated. No blanket retry, timeout or sleep
-increases. No automatic baseline regeneration.
-
-## Reliable results
-
-CI allows one diagnostic Playwright retry and fails if any test is flaky, even
-when its retry passes. JSON/JUnit results and first-attempt traces/screenshots
-are uploaded after test execution regardless of pass/fail. Use per-test output
-paths and attachments, never shared `/tmp` screenshot names in new tests.
-
-Wait for concrete state, responses or events. Scope event assertions to the
-entity under test. Prefer fake clocks for time-dependent unit/component tests.
-A geometry assertion should express a user-visible invariant, not accidental
-pixel equality; investigate the defect before adding a tolerance.
-
-A rerun is a diagnostic experiment, never a repair. Record the initial failure,
-classification, hypothesis and changed experimental condition. Do not call a
-failure unrelated just because the file was untouched. A passing rerun does not
-resolve a flaky-test defect. Fix the cause or record an explicit blocker.
-Quarantine requires user approval, an owner, issue and expiry; core journeys
-must not disappear silently. Do not compensate by permanently serializing the
-whole suite or raising global timeouts.
-
-For a flake fix, run the focused case repeatedly with retries disabled at normal
-worker concurrency; include an isolation/order check when implicated. Ten
-successful repetitions are useful evidence, not proof of zero flakiness.
-Measure first-attempt failures separately from final outcomes. Separate test
-execution, setup/build and CI queue time. Establish p50/p95 from comparable runs
-before making wall-clock budgets mandatory. Do not use a coverage percentage or
-unit:E2E count ratio as the strategy.
-
-## Next migration batches
-
-1. Token aggregation and remaining worktree API/filesystem variations into real
-   DB/Git integration tests; jobs SSE into entity-scoped transport integration.
-2. Form/popover/settings variations into existing component tests; retain
-   explicit browser focus/layout regressions.
-3. Curate roughly 8–12 independently diagnostic core journeys, including fake
-   ACP send/receive/stop/approval, task trigger, thread answer, attachment,
-   template/job persistence and safe worktree archive. Keep layout/scroll/touch
-   regressions separately; do not concatenate unrelated assertions to meet a
-   count target.
-4. After coverage and stability evidence, reduce duplicate compatibility work
-   and introduce conservative path selection with an unknown-change fallback.
-
-A green maintenance run may remove duplication, improve reliability or make no
-changes. Adding tests is not an obligation or a success metric.
+Use observed cost and regression value to decide future additions. Needing a
+real browser explains a validation method; it does not by itself justify a
+permanent test on every PR. Broader enforcement should follow experience with
+this smaller suite, not precede it.

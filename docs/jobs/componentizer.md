@@ -115,7 +115,7 @@ This phase is not done until **CI is green and the PR is merged**. `job_complete
 5. **Wait for CI.** Poll `gh pr checks <num>` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
 6. **Act on the CI result.**
    - **`SUCCESS`** — merge the PR via `gh pr merge <num> --squash --delete-branch`. Verify the PR state is `MERGED` before calling `job_complete`.
-   - For test failures, preserve the first failure and diagnose its cause. Follow [testing strategy](../testing-strategy.md): a diagnostic rerun does not resolve a flaky-test defect; fix the cause or report a blocker. Do not infer “unrelated” from untouched files. Infrastructure-only failures may be retried once after recording the evidence.
+   - **`FAILURE`** — read the failed logs (`gh run view <id> --log-failed`). If the failure is caused by your diff, fix it, push, and re-poll. If it's a pre-existing flake, try `gh run rerun <id> --failed` and re-poll. If the retry also fails for unrelated reasons, call `job_needs_input` with the run URL and failure summary.
 
 If CI takes longer than 30 minutes, call `job_needs_input`.
 

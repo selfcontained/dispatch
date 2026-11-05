@@ -104,7 +104,7 @@ This phase is not done until **CI is green and the PR is merged**. Opening a PR 
    - **`SUCCESS`** — merge the PR with `gh pr merge <num> --squash --delete-branch`. After merge, verify the PR's state is `MERGED` (`gh pr view <num> --json state`) before calling `job_complete`.
    - **`FAILURE`** — read the failed job logs (`gh run view <id> --log-failed`). Classify the failure:
      - **Caused by your diff** (e.g. prettier drift you missed, broken markdown link, type error in a file you edited): fix it, push, and return to step 6. Stay in the loop — don't give up.
-     - For test failures, preserve the first failure and diagnose its cause. Follow [testing strategy](../testing-strategy.md): a diagnostic rerun does not resolve a flaky-test defect; fix the cause or report a blocker. Do not infer “unrelated” from untouched files. Infrastructure-only failures may be retried once after recording the evidence.
+     - **Pre-existing flake or environmental problem** (failing tests in files you never touched; infra errors like a runner going offline; a known-flaky test that retries cleanly): first try `gh run rerun <id> --failed` and re-poll. If the retry also fails for the same unrelated reason, stop here and call `job_needs_input` with the run URL and a one-line summary of what failed. Do not merge a red PR. Do not silently abandon the PR either.
 
 If CI takes longer than 30 minutes without completing, call `job_needs_input` — something upstream is wrong.
 

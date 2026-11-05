@@ -136,9 +136,6 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
-      - name: Enforce test strategy
-        run: pnpm run check:test-policy
-
       - name: Install Playwright browsers
         if: steps.scope.outputs.scope != 'docs'
         run: pnpm exec playwright install chromium

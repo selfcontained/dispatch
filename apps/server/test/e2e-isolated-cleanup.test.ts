@@ -96,6 +96,9 @@ esac
     ...process.env,
     PATH: `${tools}:${process.env.PATH}`,
     E2E_SKIP_WEB_BUILD: opts.skipBuild ? "1" : "0",
+    DISPATCH_AGENT_RUNTIME: "inert",
+    E2E_AGENT_RUNTIME: "inert",
+    DISPATCH_ACP_ADAPTER_COMMAND: "must-not-inherit-provider",
   };
 
   const run = () =>
@@ -157,6 +160,15 @@ async function waitForCallLine(
 }
 
 describe("e2e-isolated.sh teardown", () => {
+  it("always runs core journeys with the fake ACP host despite inherited runtime settings", () => {
+    const { run } = fixture({
+      up: "exit 0",
+      playwrightTest: `node -e 'const assert = require("node:assert/strict"); assert.equal(process.env.DISPATCH_AGENT_RUNTIME, "acp"); const command = JSON.parse(process.env.DISPATCH_ACP_ADAPTER_COMMAND); assert.equal(command.length, 1); assert.ok(command[0].endsWith("/e2e/fixtures/fake-acp-agent.mjs"));'`,
+    });
+    const result = run();
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it("targets this project's docker-compose.yml explicitly on both up and down, regardless of cwd assumptions", () => {
     const { run, calls } = fixture();
     const result = run();

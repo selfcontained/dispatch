@@ -416,24 +416,6 @@
     },
     {
       "paths": [
-        "e2e/**",
-        "scripts/test-policy*",
-        "playwright.config.ts",
-        "apps/server/vitest*.ts",
-        "apps/server/package.json",
-        "package.json",
-        "docs/testing-strategy.md",
-        "docs/jobs/**",
-        "scripts/playwright-policy.test.mjs"
-      ],
-      "personas": ["testing-strategy-owner"]
-    },
-    {
-      "paths": [".github/workflows/ci.yml", "scripts/e2e-isolated.sh"],
-      "personas": ["testing-strategy-owner", "release-update-owner"]
-    },
-    {
-      "paths": [
         "docs/14-theming.md",
         "docs/ci.md",
         "docs/jobs/componentizer.md",
@@ -442,6 +424,23 @@
         "docs/jobs/test-enforcer.md",
         "docs/update-backup-recovery-spec.md"
       ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": [
+        "package.json",
+        "apps/server/package.json",
+        "apps/server/vitest.unit.config.ts",
+        "docs/testing-strategy.md"
+      ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": ["playwright.config.ts", "scripts/playwright-policy.test.mjs"],
+      "personas": ["release-update-owner"]
+    },
+    {
+      "paths": ["e2e/**"],
       "personas": ["code-review"]
     }
   ],

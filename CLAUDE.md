@@ -91,21 +91,6 @@ If you were started in a git worktree (check: does your working directory contai
 - When the persisted value needs to be keyed by another value (cwd, agent ID, route segment, etc.), use jotai's `atomFamily` to produce one atom per key rather than building a custom prefix scheme on top of plain atoms. Example: `atomFamily((cwd: string) => atomWithLocalStorage(\`dispatch:foo:${cwd}\`, default))`.
 - This is the one place where Jotai is preferred over local state even for feature-specific UI — the persistence machinery belongs in a shared spot, and the atom's identity stays stable across mounts so the value reads back correctly when the dialog/component remounts.
 
-## Testing Strategy
-
-- Follow [docs/testing-strategy.md](docs/testing-strategy.md). Prefer unit tests
-  for logic, component/hook tests for UI state, integration tests for real DB,
-  API, Git and transport contracts, and browser tests only for native browser
-  behavior or critical user journeys.
-- A UI change and its interactive Playwright validation do not automatically
-  require a permanent E2E test. Check existing coverage before adding one.
-- Browser cases and reliability exceptions must be declared in
-  `e2e/test-policy.json` and reviewed by the testing strategy owner. Run
-  `pnpm run check:test-policy` when changing tests or test infrastructure.
-- Do not repair failures by adding sleeps, retries, skips or longer timeouts.
-  Preserve the first failure and diagnose it. A passing diagnostic rerun does
-  not resolve a flaky-test defect. Quarantine requires explicit user approval.
-
 ## Pre-Completion Checks (Mandatory)
 
 Before marking any task as done, run the following checks and fix any failures:
