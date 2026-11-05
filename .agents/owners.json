@@ -399,6 +399,19 @@
     {
       "paths": ["apps/site/**"],
       "personas": ["code-review"]
+    },
+    {
+      "paths": [
+        "apps/server/src/portfolio/**",
+        "apps/server/src/routes/portfolio.ts",
+        "apps/server/test/portfolio-export.test.ts",
+        "docs/portfolio-export-v1.md"
+      ],
+      "personas": [
+        "auth-trust-owner",
+        "stream-delivery-owner",
+        "mcp-contract-owner"
+      ]
     }
   ],
   "fallback": ["code-review"]

@@ -1,3 +1,7 @@
+import {
+  registerPortfolioBoundary,
+  registerPortfolioRoutes,
+} from "./routes/portfolio.js";
 import { installRequestLifecycle } from "./server/request-lifecycle.js";
 import { createCodexResetCoordinator } from "./agents/codex-reset.js";
 import { consumeCodexLimitReset } from "./agents/provider-plans.js";
@@ -699,6 +703,7 @@ async function registerRoutes() {
   // Auth hook — runs before every /api/ route except auth + health endpoints
   // ---------------------------------------------------------------------------
   registerBrowserOriginProtection(app, process.env.DISPATCH_ALLOWED_ORIGINS);
+  registerPortfolioBoundary(app);
   app.addHook("onRequest", async (request, reply) => {
     // Authorize the matched route, not its potentially percent-encoded URL.
     // Keep the existing auth response for unmatched /api paths as well.
@@ -706,6 +711,7 @@ async function registerRoutes() {
 
     // Static files, auth endpoints, health check, and WebSocket endpoints are always open.
     if (!url?.startsWith("/api/")) return;
+    if (request.routeOptions.config.portfolioReader) return;
     if (url.startsWith("/api/v1/auth/")) return;
     if (url === "/api/v1/health") return;
     if (url === "/api/v1/app/branding") return;
@@ -782,6 +788,7 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
+  await registerPortfolioRoutes(app, pool);
   await registerProjectRoutes(app, {
     pool,
     taskService,
