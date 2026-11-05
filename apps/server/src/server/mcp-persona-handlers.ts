@@ -225,6 +225,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       agentType?: (typeof CLI_AGENT_TYPES)[number];
       model?: string;
       dryRun?: boolean;
+      personas?: string[];
     }
   ): Promise<OwnerReviewResult> {
     const parent = await agentManager.getAgent(parentId);
@@ -238,8 +239,32 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const config = await loadCodeowners(root);
     const baseRef = await resolveReviewBase(parent, cwd);
     const files = await collectOwnerReviewFiles(root, baseRef, runCommand);
-    const plan = resolveCodeowners(config, files, baseRef);
-    if (opts.dryRun) return { ...plan, launched: [], failures: [] };
+    const resolvedPlan = resolveCodeowners(config, files, baseRef);
+    let plan = resolvedPlan;
+    let omittedOwners: OwnerReviewResult["omittedOwners"];
+    if (opts.personas !== undefined) {
+      if (!opts.personas.length)
+        throw new Error("personas must contain at least one owner persona.");
+      const requested = new Set(opts.personas);
+      for (const slug of requested) {
+        if (!resolvedPlan.owners.some((owner) => owner.persona === slug))
+          throw new Error(
+            `Persona "${slug}" is not in the resolved owner plan. Available owners: ${resolvedPlan.owners.map((owner) => owner.persona).join(", ") || "(none)"}.`
+          );
+      }
+      omittedOwners = resolvedPlan.owners.filter(
+        (owner) => !requested.has(owner.persona)
+      );
+      plan = {
+        ...resolvedPlan,
+        owners: resolvedPlan.owners.filter((owner) =>
+          requested.has(owner.persona)
+        ),
+      };
+    }
+    const selection = omittedOwners === undefined ? {} : { omittedOwners };
+    if (opts.dryRun && opts.personas === undefined)
+      return { ...plan, launched: [], failures: [] };
     // Resolve the whole selection before launching any agent. Ownership is
     // local to this checkout, even though manual persona launches can fall back.
     const selectedPersonas = new Map<string, PersonaDefinition>();
@@ -261,15 +286,21 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         );
       selectedPersonas.set(owner.persona, persona);
     }
-    return launchOwnerReviewPlan(plan, opts.context, (persona, context) =>
-      launchPersonaAgent(parentId, {
-        persona,
-        context,
-        agentType: opts.agentType,
-        model: opts.model,
-        resolvedPersona: selectedPersonas.get(persona),
-      })
+    if (opts.dryRun)
+      return { ...plan, ...selection, launched: [], failures: [] };
+    const result = await launchOwnerReviewPlan(
+      plan,
+      opts.context,
+      (persona, context) =>
+        launchPersonaAgent(parentId, {
+          persona,
+          context,
+          agentType: opts.agentType,
+          model: opts.model,
+          resolvedPersona: selectedPersonas.get(persona),
+        })
     );
+    return { ...result, ...selection };
   }
 
   async function listPersonas(agentCwd: string) {
