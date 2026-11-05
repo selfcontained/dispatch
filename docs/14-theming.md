@@ -156,7 +156,7 @@ That's it — the theme picker, localStorage persistence and flash-free loading 
 
 1. Run `pnpm run finalize:web` to verify the build compiles.
 2. Start a dev server and visually check: sidebar, status footer, badges, buttons, the stream, the drawer, settings pane, and the create-agent dialog.
-3. Run `pnpm run test:e2e` to confirm no regressions.
+3. Run local E2E only for new or updated E2E tests included in the change, selecting those specs/cases with the isolated runner and `--no-deps` to exclude dependent projects (for example, `pnpm run test:e2e --no-deps e2e/tasks-board.spec.ts`). Leave full regression E2E to PR CI and require passing current-head CI before merge. Preserve all other applicable checks and the separate served-UI Playwright interaction/screenshot, browser cleanup, and retained-preview requirements in AGENTS.md.
 
 ## Color design tips
 
