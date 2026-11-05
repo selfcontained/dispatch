@@ -2,6 +2,7 @@ import { Command as CommandPrimitive } from "cmdk";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
+  Settings,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -383,11 +384,14 @@ export function TaskLabelPicker({
           >
             {manage ? (
               <>
-                <ArrowLeft className="h-3 w-3" />
+                <ArrowLeft className="h-3 w-3 shrink-0" aria-hidden="true" />
                 Back
               </>
             ) : (
-              "Manage"
+              <>
+                <Settings className="h-3 w-3 shrink-0" aria-hidden="true" />
+                Manage
+              </>
             )}
           </Button>
         </div>
