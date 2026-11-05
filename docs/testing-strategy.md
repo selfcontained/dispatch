@@ -44,7 +44,9 @@ equivalent unit test.
 | Update, notification, certificate and terminal browser checks                         | Existing release/auth/terminal/service tests remain. Browser-specific acceptance checks are no longer universal PR regression gates                                                 |
 
 The full server, frontend and extension suites still run. PostgreSQL 14
-compatibility coverage is unchanged. This change does not use broad path-based
+compatibility retains every test that uses its database. Its second execution
+of `dispatch-dev.test.ts` is removed: that test provisions its own PostgreSQL 17
+stack regardless of `TEST_DATABASE_URL`, and remains in the main suite. This change does not use broad path-based
 skipping to obtain its savings and does not claim to fix historical flakes in
 the retired browser tests.
 

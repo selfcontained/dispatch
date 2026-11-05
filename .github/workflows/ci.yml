@@ -160,7 +160,7 @@ jobs:
 
       - name: Server tests on PostgreSQL 14
         if: steps.scope.outputs.scope != 'docs'
-        run: pnpm --filter @dispatch/server test
+        run: pnpm --filter @dispatch/server run test --config vitest.pg14.config.ts
         env:
           DISPATCH_TEST_POSTGRES_CONTAINER: ${{ steps.postgres14.outputs.container }}
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres14.outputs.port }}/postgres
