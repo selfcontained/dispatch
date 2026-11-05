@@ -1,12 +1,5 @@
 import React from "react";
-import {
-  AlertTriangle,
-  Check,
-  Copy,
-  Folder,
-  FolderTree,
-  GitBranch,
-} from "lucide-react";
+import { Check, Copy, Folder, FolderTree, GitBranch } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -217,22 +210,14 @@ export function AgentCardDetails({
             </Tooltip>
           ) : null}
         </div>
-        {fullAccessEnabled ? (
-          <div
-            className="inline-flex min-h-6 items-center gap-1 rounded-full border border-status-waiting/35 bg-status-waiting/10 px-2 py-0.5 text-[10px] text-status-waiting"
-            title="Launched with the engine's permission prompts turned off."
-          >
-            <AlertTriangle className="h-3 w-3" />
-            <span>Full access</span>
-          </div>
-        ) : (
+        {!fullAccessEnabled ? (
           <span
             className="text-[10px] text-muted-foreground"
             title="Uses engine permission checks; approval requests appear in chat."
           >
             Restricted access
           </span>
-        )}
+        ) : null}
       </div>
     </div>
   );
