@@ -393,6 +393,9 @@ export function useSSE(authState: AuthState): void {
           // Without this, a tab that was hidden/disconnected during a
           // `release.cached_info_changed` event would keep stale release
           // state forever (the query has staleTime: Infinity).
+          void queryClient.invalidateQueries({
+            queryKey: ["agent-pull-requests"],
+          });
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -536,6 +539,16 @@ export function useSSE(authState: AuthState): void {
           });
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
+          });
+          return;
+        }
+
+        if (payload.type === "agent.pull_requests_changed") {
+          void queryClient.cancelQueries({
+            queryKey: ["agent-pull-requests", payload.agentId],
+          });
+          queryClient.setQueryData(["agent-pull-requests", payload.agentId], {
+            pullRequests: payload.pullRequests,
           });
           return;
         }

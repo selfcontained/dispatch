@@ -1,3 +1,4 @@
+import { PullRequestRefresher } from "./agents/pull-request-refresher.js";
 import {
   registerPortfolioBoundary,
   registerPortfolioRoutes,
@@ -205,6 +206,13 @@ const updateCheckTracker = new SubsystemTracker({
   description: "Checks the configured release channel for Dispatch updates.",
   expectedCadenceMs: 6 * 60 * 60 * 1000,
 });
+const pullRequests = new PullRequestRefresher({
+  pool,
+  listAgentIds: async () =>
+    (await agentManager.listAgents()).map((agent) => agent.id),
+  publish: (event) => uiEventBroker.publish(event),
+  warn: (error) => app.log.warn({ err: error }, "PR status refresh failed"),
+});
 const diffStatsRefresher = new DiffStatsRefresher({
   getAgent: async (id) => {
     const agent = await agentManager.getAgent(id);
@@ -329,6 +337,7 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
   publishUiEvent: (event) => uiEventBroker.publish(event),
   reconciliationTracker,
   onAgentsArchived: async (agentIds) => {
+    pullRequests.signal();
     for (const agentId of agentIds) {
       const run = await jobService.getLatestRunForAgent(agentId);
       if (run?.continuationPending) {
@@ -416,7 +425,12 @@ const brainStore = new BrainStore(pool);
 const streamService = new StreamService({
   onTaskActivity: (id) => taskWatches.schedule(id),
   pool,
-  publishUiEvent: (event) => uiEventBroker.publish(event),
+  publishUiEvent: (event) => {
+    uiEventBroker.publish(event);
+    if (event.type === "stream.entry")
+      pullRequests.observeBlock(event.entry.block);
+    if (event.type === "stream.changed") pullRequests.signal();
+  },
   hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
   filesRoot: config.filesRoot,
@@ -604,6 +618,7 @@ const updateRecoveryRuntime = createUpdateRecoveryRuntime({
     stopRetentionSweep = null;
     authRuntime.stopSessionCleanupTimer();
     autoCheckRuntime.stopScheduler();
+    await pullRequests.stop();
     scheduledMessages.stop();
     streamManager.stopAll();
     await Promise.race([
@@ -991,6 +1006,7 @@ async function registerRoutes() {
     addStreamViewer: (agentId, stream) =>
       streamManager.addViewer(agentId, stream),
     diffStatsRefresher,
+    pullRequests,
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
     onArchiveError: (agentId, error) =>
@@ -1085,6 +1101,7 @@ export async function initializeApp(options?: {
     for (const agent of agents) {
       void diffStatsRefresher.signal(agent.id);
     }
+    pullRequests.start();
     agentLifecycleRuntime.startReconcileLoop();
     stopRetentionSweep = startRetentionSweep({
       pool,
@@ -1195,6 +1212,7 @@ async function cleanupAppResources(): Promise<void> {
   stopRetentionSweep = null;
   authRuntime.stopSessionCleanupTimer();
   autoCheckRuntime.stopScheduler();
+  await pullRequests.stop();
   scheduledMessages.stop();
   await serviceResources.shutdown();
 

@@ -796,6 +796,7 @@ describe("useSSE message handling", () => {
     expectInvalidatedSet(invalidateQueries, [
       ["agent-turn-label"],
       ["scheduled-messages-upcoming"],
+      ["agent-pull-requests"],
       ["jobs"],
       ["templates"],
       ["projects"],
@@ -824,6 +825,22 @@ describe("useSSE message handling", () => {
         ["scheduled-messages", "agent-1"],
       ])
     );
+  });
+
+  it("applies server PR status changes without fetching", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    const pullRequests = [
+      { url: "https://github.com/a/b/pull/1", title: "Fix", status: "Merged" },
+    ];
+    emit({
+      type: "agent.pull_requests_changed",
+      agentId: "agent-1",
+      pullRequests,
+    });
+    expect(
+      queryClient.getQueryData(["agent-pull-requests", "agent-1"])
+    ).toEqual({ pullRequests });
+    expect(invalidateQueries).not.toHaveBeenCalled();
   });
 
   it("inserts an upserted agent in sorted position", () => {

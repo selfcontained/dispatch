@@ -1,4 +1,5 @@
 import React from "react";
+import { AgentPullRequests } from "./agent-pull-requests";
 import {
   Check,
   Copy,
@@ -178,6 +179,7 @@ export function AgentCardDetails({
         }
         mono
       />
+
       {agent.persona ? (
         <div className="space-y-0.5">
           <CompactMetaRow
@@ -193,6 +195,8 @@ export function AgentCardDetails({
           ) : null}
         </div>
       ) : null}
+      <AgentPullRequests agentId={agent.id} agentName={agent.name} />
+
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           {workspaceDir ? (

@@ -43,6 +43,7 @@
   --status-blocked: 0 84% 60%;
   --status-waiting: 45 96% 64%;
   --status-done: 198 93% 60%;
+  --status-merged: 270 70% 68%;
   --status-idle: 240 4% 46%;
   --status-reviewing: 210 80% 62%;
 
@@ -98,6 +99,7 @@
   --status-blocked: 330 100% 68%;
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
+  --status-merged: 270 80% 72%;
   --status-idle: 220 8% 50%;
   --status-reviewing: 270 80% 72%;
 
@@ -140,6 +142,7 @@
   --status-blocked: 0 84% 60%;
   --status-waiting: 45 93% 58%;
   --status-done: 198 93% 60%;
+  --status-merged: 270 70% 68%;
   --status-idle: 0 0% 35%;
   --status-reviewing: 210 90% 65%;
 
@@ -182,6 +185,7 @@
   --status-blocked: 1 71% 52%;
   --status-waiting: 45 100% 35%;
   --status-done: 205 82% 45%;
+  --status-merged: 285 65% 62%;
   --status-idle: 194 14% 40%;
   --status-reviewing: 285 65% 62%;
 
@@ -229,6 +233,7 @@
   --status-blocked: 0 72% 51%;
   --status-waiting: 46 97% 42%;
   --status-done: 217 91% 50%;
+  --status-merged: 262 72% 50%;
   --status-idle: 220 8% 52%;
   --status-reviewing: 262 72% 50%;
 
@@ -277,6 +282,7 @@
   --status-blocked: 325 100% 62%;
   --status-waiting: 57 100% 79%;
   --status-done: 191 99% 50%;
+  --status-merged: 268 80% 72%;
   --status-idle: 262 20% 45%;
   --status-reviewing: 268 80% 72%;
 
@@ -319,6 +325,7 @@
   --status-blocked: 330 100% 68%;
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
+  --status-merged: 270 80% 74%;
   --status-idle: 220 8% 40%;
   --status-reviewing: 270 80% 74%;
 
@@ -361,6 +368,7 @@
   --status-blocked: 0 49% 44%;
   --status-waiting: 46 52% 54%;
   --status-done: 153 76% 64%;
+  --status-merged: 270 70% 74%;
   --status-idle: 132 12% 40%;
   --status-reviewing: 185 80% 62%;
 
@@ -407,6 +415,7 @@
   --status-blocked: 354 52% 61%;
   --status-waiting: 233 28% 73%;
   --status-done: 229 57% 71%;
+  --status-merged: 267 72% 72%;
   --status-idle: 222 8% 44%;
   --status-reviewing: 290 70% 74%;
 
@@ -459,6 +468,7 @@
   --status-blocked: 1 71% 52%;
   --status-waiting: 45 100% 35%;
   --status-done: 205 82% 45%;
+  --status-merged: 270 60% 50%;
   --status-idle: 196 13% 45%;
   --status-reviewing: 237 43% 52%;
 
@@ -512,6 +522,7 @@
   --status-blocked: 343 81% 75%;
   --status-waiting: 41 86% 83%;
   --status-done: 217 92% 76%;
+  --status-merged: 267 84% 81%;
   --status-idle: 231 11% 47%;
   --status-reviewing: 267 84% 81%;
 
@@ -554,6 +565,7 @@
   --status-blocked: 350 86% 42%;
   --status-waiting: 30 100% 35%;
   --status-done: 217 100% 42%;
+  --status-merged: 270 70% 35%;
   --status-idle: 220 14% 40%;
   --status-reviewing: 270 70% 35%;
 
