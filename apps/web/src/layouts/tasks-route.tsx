@@ -97,7 +97,9 @@ function TasksContent({ projectId }: { projectId: string }) {
     ? (archived ? board.tasks : visibleTasks(board.tasks, columns)).filter(
         (task) =>
           task.title.toLowerCase().includes(search.toLowerCase()) &&
-          matchesAssignee(task)
+          matchesAssignee(task) &&
+          (!params.get("label") ||
+            task.labels?.some((label) => label.name === params.get("label")))
       )
     : [];
   const attentionCount = board
@@ -305,6 +307,24 @@ function TasksContent({ projectId }: { projectId: string }) {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
+            <Select
+              value={params.get("label") ?? "__all"}
+              onValueChange={(value) =>
+                updateParam("label", value === "__all" ? null : value)
+              }
+            >
+              <SelectTrigger aria-label="Filter by label" className="h-8 w-32">
+                <SelectValue placeholder="All labels" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">All labels</SelectItem>
+                {board?.labels?.map((label) => (
+                  <SelectItem key={label.name} value={label.name}>
+                    {label.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={assignee} onValueChange={setAssignee}>
               <SelectTrigger
                 aria-label="Filter by assignee"

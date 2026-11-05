@@ -25,6 +25,7 @@ vi.mock("@/hooks/use-agent-activity", () => ({
   }),
 }));
 vi.mock("@/hooks/use-tasks", () => ({
+  useTaskBoard: () => ({ data: { labels: [] } }),
   useTaskActions: () => ({
     create: { mutateAsync: create },
     update: { mutateAsync: update },
@@ -113,6 +114,7 @@ it("creates from Enter in the title with description and column", async () => {
   fireEvent.submit(title.closest("form")!);
   await waitFor(() => expect(onCreated).toHaveBeenCalled());
   expect(create).toHaveBeenCalledWith({
+    labels: [],
     projectId: "p1",
     title: "Ship it",
     launchTemplateId: null,
@@ -139,6 +141,7 @@ it("creates from ⌘Enter in the description and then assigns", async () => {
   fireEvent.keyDown(description, { key: "Enter", metaKey: true });
   await waitFor(() => expect(onCreated).toHaveBeenCalled());
   expect(create).toHaveBeenCalledWith({
+    labels: [],
     projectId: "p1",
     title: "Assigned task",
     launchTemplateId: null,

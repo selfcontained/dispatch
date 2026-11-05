@@ -1,3 +1,4 @@
+import { taskLabelsSchema } from "../tasks/labels.js";
 import {
   parseCreateAgentRequest,
   parseOptionalStringArrayField,
@@ -46,6 +47,7 @@ const LinkSchema = z.object({
 });
 
 const CreateTaskSchema = z.object({
+  labels: taskLabelsSchema.optional(),
   launchTemplateId: z.string().min(1).nullable().optional(),
   projectId: z.string().min(1, "projectId is required."),
   title: z.string().min(1, "title is required."),
@@ -55,6 +57,7 @@ const CreateTaskSchema = z.object({
 });
 
 const UpdateTaskSchema = z.object({
+  labels: taskLabelsSchema.optional(),
   launchTemplateId: z.string().min(1).nullable().optional(),
   beforeId: z.string().min(1).nullable().optional(),
   title: z.string().min(1).optional(),
@@ -179,6 +182,8 @@ export async function registerTaskRoutes(
           parsed.isMultipart
         ) ?? []
       );
+      if (parsed.isMultipart && typeof parsed.body.labels === "string")
+        parsed.body.labels = JSON.parse(parsed.body.labels);
       if (parsed.isMultipart && parsed.body.launchTemplateId === "null")
         parsed.body.launchTemplateId = null;
       if (parsed.isMultipart && parsed.body.position !== undefined)

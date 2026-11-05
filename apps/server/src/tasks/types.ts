@@ -53,7 +53,10 @@ export type TaskLink = {
   label: string;
 };
 
+export type TaskLabel = { name: string; color: string };
+
 export type Task = {
+  labels?: TaskLabel[];
   id: string;
   projectId: string;
   columnId: string;
@@ -138,12 +141,15 @@ export type TaskDetail = Task & {
 };
 
 export type TaskBoard = {
+  labels?: TaskLabel[];
   projectId: string;
   columns: TaskColumn[];
   tasks: Task[];
 };
 
 export type CreateTaskInput = {
+  /** Replace labels; omit to preserve. Names: 1–40 characters; at most 20. */
+  labels?: TaskLabel[];
   launchTemplateId?: string | null;
   projectId: string;
   title: string;
@@ -155,6 +161,8 @@ export type CreateTaskInput = {
 };
 
 export type UpdateTaskInput = {
+  /** Replace labels; omit to preserve. Names: 1–40 characters; at most 20. */
+  labels?: TaskLabel[];
   launchTemplateId?: string | null;
   /** Relative insertion anchor; null appends. Takes precedence over position. */
   beforeId?: string | null;

@@ -180,3 +180,19 @@ Board and explicit task subscriptions are independent: `task_unwatch` preserves 
 Insert triggers atomically queue each new source item with its live subscription coverage. Coverage is determined by the fanout statement's READ COMMITTED snapshot: an uncommitted subscription is not visible, and a previously inserted source is not replayed even if its transaction commits after subscribing. Row locks serialize fanout with unsubscribe; pending coverage admitted before unsubscribe is deleted with that subscription. Acceptance rechecks every represented source's original coverage immediately before runtime submission. Unsubscribe that wins this check withdraws uncovered activity; a notice already accepted may finish. Cleanup deletes exact inbox row identities, so an old acceptance cannot delete a later subscription generation's pending activity. New activity that arrives during delivery gets another wakeup, including when its debounce expires before that delivery finishes.
 
 Watch notices combine creation, moves, title/body updates, assignment/unassignment, links, archive/restore, agent removal, trigger failures, and new conversation posts (including thread replies and answers) into one prompt after a short debounce. Notices skip the watcher's own activity and posts already addressed to it. They include event/message IDs for `task_get`, `get_message`, and `get_thread`, with up to 15 item excerpts per notice. Unavailable agents catch up when running again. Agent retention/deletion cascades subscriptions and inboxes; archived agents are cleaned during recovery or delivery. Agents removed from a task lose explicit watches and are excluded from board activity for that task, while their board subscription still covers other tasks. Task/project deletion cascades pending activity. Completion is reported through the emitted move/state change; there is no invented completion event. Deleting a task does not produce a durable deletion notice because its events and inbox are deleted together. Notification-origin posts are excluded to prevent delivery loops.
+
+### Project labels
+
+Task create and update accept optional `labels: [{ name, color }]`. Names are trimmed,
+1–40 characters, exclude control characters, and are unique within a project ignoring
+case. A task has at most 20 labels; duplicate names collapse to one. Colors are
+`gray` (default), `red`, `orange`, `green`, `blue`, or `purple`. Existing project
+labels retain their original spelling and color when reused. Tasks reference stored
+project definitions; an identical name in another project is independent.
+
+Omit `labels` on update to preserve assignments; send `[]` to clear them. HTTP
+and MCP task reads return resolved labels, including an empty array on older tasks.
+Board reads also return all reusable project `labels`. The create/details picker
+creates labels inline and reuses existing names. Cards show up to three names and
+an overflow count; the board's `label` URL parameter filters visible tasks without
+changing column occupancy or launch admission. Editing labels never launches agents.

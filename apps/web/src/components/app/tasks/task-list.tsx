@@ -1,3 +1,4 @@
+import { TaskLabels } from "./task-labels";
 import { useState } from "react";
 import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
@@ -135,6 +136,7 @@ export function TaskList({
                     onClick={() => openTask(task.id)}
                   >
                     {task.title}
+                    <TaskLabels labels={task.labels} />
                   </button>
                   <div className="hidden md:block">
                     <StatusSelect
