@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronDown, Tag } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import type { TaskLabel } from "../../../../../server/src/tasks/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { TaskLabels } from "./task-labels";
+import { TaskLabelBadge } from "./task-label-badge";
+import { selectTriggerClassName } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 /** Repeated label URL parameters compose with the board's existing navigation. */
 export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
@@ -57,17 +59,27 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
           type="button"
           variant="ghost"
           aria-label="Filter by labels"
-          className="h-8 max-w-36 shrink-0 gap-1.5 px-2 text-xs font-normal text-muted-foreground"
+          className={cn(
+            selectTriggerClassName,
+            "h-8 w-36 min-w-0 flex-1 basis-0 gap-2 md:flex-none md:basis-auto text-foreground font-normal hover:bg-white/[0.04]"
+          )}
         >
-          <Tag className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">
-            {selected.length === 0
-              ? "All labels"
-              : selected.length === 1
-                ? selected[0]
-                : `Labels · ${selected.length}`}
+            {selected.length === 0 ? (
+              "All labels"
+            ) : selected.length === 1 ? (
+              <TaskLabelBadge
+                label={
+                  labels.find(
+                    (l) => l.name.toLowerCase() === selected[0].toLowerCase()
+                  ) ?? { name: selected[0], color: "gray" }
+                }
+              />
+            ) : (
+              `Labels · ${selected.length}`
+            )}
           </span>
-          <ChevronDown className="h-3 w-3 shrink-0" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -104,7 +116,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
                   onCheckedChange={() => toggle(label.name)}
                   className="h-4 w-4"
                 />
-                <TaskLabels labels={[label]} />
+                <TaskLabelBadge label={label} />
               </label>
             ))}
           {!options.length && (

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { TaskLabel } from "../../../../../server/src/tasks/types";
 import { useTaskBoard, useTaskLabelVisibility } from "@/hooks/use-tasks";
-import { Badge } from "@/components/ui/badge";
+import { TaskLabelBadge } from "./task-label-badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,41 +29,11 @@ import {
 } from "@/components/ui/command";
 import { ColorPicker, PROJECT_COLORS, isHexColor } from "../color-picker";
 
-const legacyColors: Record<string, string> = {
-  gray: "#a5aab7",
-  red: "#ef6c57",
-  orange: "#dda348",
-  green: "#74b85c",
-  blue: "#649feb",
-  purple: "#9575ed",
-};
-function LabelName({ label }: { label: TaskLabel }) {
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        className="h-2 w-2 shrink-0 rounded-full"
-        style={{
-          backgroundColor:
-            legacyColors[label.color] ??
-            (isHexColor(label.color) ? label.color : legacyColors.gray),
-        }}
-      />
-      <span className="min-w-0 truncate">{label.name}</span>
-    </>
-  );
-}
 export function TaskLabels({ labels = [] }: { labels?: TaskLabel[] }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1">
       {labels.slice(0, 3).map((label) => (
-        <Badge
-          key={label.name}
-          title={label.name}
-          className="max-w-32 gap-1.5 rounded border-border/60 bg-muted/30 px-1.5 py-0 text-[11px] font-normal normal-case tracking-normal text-muted-foreground"
-        >
-          <LabelName label={label} />
-        </Badge>
+        <TaskLabelBadge key={label.name} label={label} />
       ))}
       {labels.length > 3 && (
         <span
@@ -200,7 +170,7 @@ export function TaskLabelPicker({
                   key={l.name}
                   className="flex min-w-0 items-center gap-1.5"
                 >
-                  <LabelName label={l} />
+                  <TaskLabelBadge label={l} />
                 </span>
               ))}
               {value.length > 2 && (
@@ -243,7 +213,7 @@ export function TaskLabelPicker({
                     key={label.name}
                     className="flex min-h-8 items-center gap-2 px-1 text-xs"
                   >
-                    <LabelName label={label} />
+                    <TaskLabelBadge label={label} />
                     <Button
                       type="button"
                       variant="ghost"
@@ -319,7 +289,7 @@ export function TaskLabelPicker({
                         onSelect={() => toggle(label)}
                         className="min-h-8 gap-2"
                       >
-                        <LabelName label={label} />
+                        <TaskLabelBadge label={label} />
                         {isHidden(label) && (
                           <EyeOff
                             className="h-3 w-3 shrink-0 text-muted-foreground"
@@ -346,7 +316,7 @@ export function TaskLabelPicker({
                         }}
                         className="min-h-9 gap-2"
                       >
-                        <LabelName label={hiddenMatch} />
+                        <TaskLabelBadge label={hiddenMatch} />
                         <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
                           Hidden · Restore &amp; add
                         </span>

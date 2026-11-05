@@ -308,11 +308,11 @@ function TasksContent({ projectId }: { projectId: string }) {
               </Button>
             </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
             <Input
               aria-label="Search tasks"
               placeholder="Search tasks"
-              className="h-8 min-w-0 flex-1 md:w-44 md:flex-none"
+              className="h-8 min-w-0 flex-1 basis-full md:w-44 md:flex-none md:basis-auto"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -325,7 +325,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             <Select value={assignee} onValueChange={setAssignee}>
               <SelectTrigger
                 aria-label="Filter by assignee"
-                className="h-8 w-40 shrink-0"
+                className="h-8 w-40 min-w-0 flex-1 basis-0 md:flex-none md:basis-auto"
               >
                 <SelectValue />
               </SelectTrigger>
