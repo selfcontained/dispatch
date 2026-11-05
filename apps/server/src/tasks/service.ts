@@ -491,7 +491,25 @@ export class TaskService {
       })),
       tasks,
       labels: await this.store.listLabels(projectId),
+      hiddenLabels: await this.store.listLabels(projectId, true),
     };
+  }
+
+  async setLabelHidden(projectId: string, name: string, hidden: boolean) {
+    await this.requireProject(projectId);
+    const parsed = taskLabelsSchema.safeParse([{ name, color: "gray" }]);
+    if (!parsed.success || typeof hidden !== "boolean")
+      throw invalid("A valid label name and hidden boolean are required.");
+    if (
+      !(await this.store.setLabelHidden(
+        projectId,
+        parsed.data[0]!.name,
+        hidden
+      ))
+    )
+      throw notFound("Label");
+    this.publish(projectId);
+    return { hidden };
   }
 
   async resolveColumnKey(projectId: string, key: string): Promise<TaskColumn> {
@@ -952,8 +970,13 @@ export class TaskService {
           { launchTemplateId: input.launchTemplateId },
           { db }
         );
-      if (input.labels !== undefined)
-        await this.store.setLabels(id, input.projectId, labels.data, db);
+      if (
+        input.labels !== undefined &&
+        !(await this.store.setLabels(id, input.projectId, labels.data, db))
+      )
+        throw invalid(
+          "Restore a hidden label before adding it to another task."
+        );
       return currentColumn;
     });
     try {
@@ -1205,8 +1228,13 @@ export class TaskService {
         });
         if (!updated) return false;
       }
-      if (labels?.success)
-        await this.store.setLabels(id, task.projectId, labels.data, db);
+      if (
+        labels?.success &&
+        !(await this.store.setLabels(id, task.projectId, labels.data, db))
+      )
+        throw invalid(
+          "Restore a hidden label before adding it to another task."
+        );
       if (changed.length > 0)
         await this.store.insertEvent(
           id,

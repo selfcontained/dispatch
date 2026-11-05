@@ -1,4 +1,4 @@
-import { TaskLabelPicker, TaskLabels } from "./task-labels";
+import { TaskLabelPicker } from "./task-labels";
 import { TaskLaunchTemplateEditor } from "./task-launch-template";
 import { TaskAttachments } from "./task-attachments";
 import { TaskDeleteDialog } from "./task-delete-dialog";
@@ -313,8 +313,7 @@ export function TaskDetailPanel({
                   )}
                 >
                   <span className="text-xs text-muted-foreground">Labels</span>
-                  <div className="space-y-2">
-                    <TaskLabels labels={task.labels} />
+                  <div className="min-w-0">
                     <TaskLabelPicker
                       projectId={task.projectId}
                       value={task.labels ?? []}

@@ -25,6 +25,11 @@ vi.mock("@/hooks/use-agent-activity", () => ({
   }),
 }));
 vi.mock("@/hooks/use-tasks", () => ({
+  useTaskLabelVisibility: () => ({
+    isPending: false,
+    error: null,
+    mutateAsync: vi.fn(),
+  }),
   useTaskBoard: () => ({ data: { labels: [] } }),
   useTaskActions: () => ({
     create: { mutateAsync: create },

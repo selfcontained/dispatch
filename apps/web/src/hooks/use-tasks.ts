@@ -33,6 +33,19 @@ export function useTaskBoard(projectId: string | null, archived = false) {
     enabled: !!projectId,
   });
 }
+export function useTaskLabelVisibility(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; hidden: boolean }) =>
+      api(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/task-labels/visibility`,
+        { method: "PATCH", body: JSON.stringify(input) }
+      ),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: taskKeys.all });
+    },
+  });
+}
 export function useTaskDetail(id: string | null) {
   return useQuery<TaskDetail>({
     queryKey: taskKeys.detail(id ?? ""),

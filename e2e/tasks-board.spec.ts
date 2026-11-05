@@ -1592,8 +1592,9 @@ test("project labels persist, reuse colors and filter without changing capacity 
       .getByRole("button", { name: "Edit labels", exact: true })
       .click();
     await page.getByLabel("Label name", { exact: true }).fill("Bug");
-    await page.getByRole("combobox", { name: "Label color" }).click();
-    await page.getByRole("option", { name: "red", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Color #ef6c57", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Create “Bug”", exact: true })
       .click();
@@ -1608,14 +1609,14 @@ test("project labels persist, reuse colors and filter without changing capacity 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("button", { name: "Edit labels", exact: true })
-    ).toHaveText("Labels (1)");
+    ).toContainText("Bug");
     const board = await (
       await request.get(`/api/v1/projects/${project.id}/tasks/board`, {
         headers,
       })
     ).json();
     const task = board.tasks[0];
-    expect(task.labels).toEqual([{ name: "Bug", color: "red" }]);
+    expect(task.labels).toEqual([{ name: "Bug", color: "#ef6c57" }]);
     const other = await (
       await request.post("/api/v1/tasks", {
         headers,
@@ -1659,6 +1660,43 @@ test("project labels persist, reuse colors and filter without changing capacity 
     await expect(
       page.getByRole("button", { name: "Unlabeled task", exact: true })
     ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Labeled task", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Edit labels", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Manage labels", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Hide label Bug", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Restore label Bug", exact: true })
+    ).toBeEnabled();
+    expect(
+      (
+        await (
+          await request.get(`/api/v1/tasks/${task.id}`, { headers })
+        ).json()
+      ).labels
+    ).toEqual(task.labels);
+    await page.keyboard.press("Escape");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page
+      .getByRole("button", { name: "Edit labels", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Manage labels", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Restore label Bug", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Hide label Bug", exact: true })
+    ).toBeEnabled();
+    await page.screenshot({ path: "/tmp/task-labels-hide-restore-e2e.png" });
   } finally {
     await request.delete(`/api/v1/projects/${project.id}`, { headers });
   }

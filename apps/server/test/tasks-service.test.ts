@@ -3551,3 +3551,74 @@ it("validates every label before changing task or definitions", async () => {
   expect((await service.requireTask(task.id)).title).toBe("Original");
   expect((await service.getBoard(projectId)).labels).toEqual([]);
 });
+
+it("persists project-palette and custom hex label colors without changing legacy definitions", async () => {
+  const task = await service.createTask(
+    {
+      projectId,
+      title: "Custom palette",
+      labels: [
+        { name: "Custom", color: "#123abc" },
+        { name: "Project purple", color: "#9575ed" },
+      ],
+    },
+    USER
+  );
+  expect((await service.getTaskDetail(task.id)).labels).toEqual(task.labels);
+  expect(task.labels).toContainEqual({ name: "Custom", color: "#123abc" });
+  await expect(
+    service.updateTask(
+      task.id,
+      { labels: [{ name: "Invalid", color: "#abc" }] },
+      USER
+    )
+  ).rejects.toBeInstanceOf(TaskError);
+  expect((await service.requireTask(task.id)).labels).toEqual(task.labels);
+});
+
+it("hides project label choices without changing assignments, and restores them", async () => {
+  const task = await service.createTask(
+    {
+      projectId,
+      title: "Keep labels",
+      labels: [{ name: "Release", color: "#74b85c" }],
+    },
+    USER
+  );
+  await service.setLabelHidden(projectId, "release", true);
+  const board = await service.getBoard(projectId);
+  expect(board.labels).toEqual([]);
+  expect(board.hiddenLabels).toEqual(task.labels);
+  expect((await service.getTaskDetail(task.id)).labels).toEqual(task.labels);
+  expect(
+    (
+      await service.updateTask(
+        task.id,
+        { labels: task.labels, title: "Still assigned" },
+        USER
+      )
+    ).labels
+  ).toEqual(task.labels);
+  await expect(
+    service.createTask(
+      { projectId, title: "Cannot reuse hidden", labels: task.labels },
+      USER
+    )
+  ).rejects.toBeInstanceOf(TaskError);
+  expect((await service.getBoard(projectId)).tasks).toHaveLength(1);
+  await expect(
+    service.setLabelHidden(otherProjectId, "Release", false)
+  ).rejects.toBeInstanceOf(TaskError);
+  await service.setLabelHidden(projectId, "Release", false);
+  expect((await service.getBoard(projectId)).labels).toEqual(task.labels);
+  expect((await service.getBoard(projectId)).hiddenLabels).toEqual([]);
+  expect(
+    (
+      await service.createTask(
+        { projectId, title: "Reuse restored", labels: task.labels },
+        USER
+      )
+    ).labels
+  ).toEqual(task.labels);
+  expect(launches).toEqual([]);
+});

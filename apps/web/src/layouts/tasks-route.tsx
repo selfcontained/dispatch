@@ -318,11 +318,13 @@ function TasksContent({ projectId }: { projectId: string }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all">All labels</SelectItem>
-                {board?.labels?.map((label) => (
-                  <SelectItem key={label.name} value={label.name}>
-                    {label.name}
-                  </SelectItem>
-                ))}
+                {[...(board?.labels ?? []), ...(board?.hiddenLabels ?? [])].map(
+                  (label) => (
+                    <SelectItem key={label.name} value={label.name}>
+                      {label.name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
             <Select value={assignee} onValueChange={setAssignee}>
