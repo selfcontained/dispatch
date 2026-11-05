@@ -772,10 +772,11 @@ export function Post({
             // than squeezing "→ recipient" to nothing beside a long sender,
             // it drops to its own line.
             // On phones the body runs under the avatar, so the header is at
-            // least avatar-tall to keep the body clear of it.
+            // least as tall as the avatar plus its seat badge (6px below it
+            // and a 2px ring) to keep the body clear of both.
             className={cn(
               "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight",
-              !flush && "max-sm:min-h-8"
+              !flush && "max-sm:min-h-10"
             )}
             {...(side
               ? {
