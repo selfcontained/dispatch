@@ -59,8 +59,6 @@ does not claim to fix historical flakes in retired browser tests.
   live fake-engine coverage is now part of the default suite too.
 - `pnpm run test:unit`: Docker-free server unit subset plus frontend/extension.
 - `pnpm run test`: routine server/frontend/extension regression suites.
-- `pnpm --filter @dispatch/server run test:acceptance:dev`: explicit full-stack
-  dev startup/restart/recovery validation; not included in routine CI.
 
 CI retains one diagnostic retry but fails on retry-pass results, and uploads
 JSON/JUnit and failure traces. A runner integration test verifies this behavior.
@@ -97,14 +95,11 @@ cleanup/restart tests retain volume preservation, failed-start cleanup, state
 retention and host-preserving recovery decisions. These are lightweight CLI
 contract tests, not pure in-process unit tests.
 
-Three distinct full-stack scenarios remain in `dispatch-dev.acceptance.ts`:
-startup/down/data retention/wipe, ordinary restart stopping a host, and preserved
-host recovery across API restart and database recreation. Run their explicit
-acceptance command when changing those process boundaries. They use the fake
-ACP engine and isolated stacks; they are not a second routine agent lifecycle
-suite or a nightly job. The nine browser journeys cover core user-facing agent
-lifecycle wiring in CI. Neither browser journeys nor mocks are claimed to prove
-full-stack crash/recovery behavior.
+The full-stack dev startup/restart/recovery scenarios and their dedicated
+harness are deleted, not retained as a manual command or nightly suite. The
+nine browser journeys cover core user-facing agent lifecycle wiring in CI.
+Full-stack crash/recovery behavior is no longer a permanent regression guarantee;
+neither browser journeys nor mocks are claimed to prove that removed coverage.
 
 The previous eight-case dev test file cost 129.874s in Linux CI. An investigative
 local run excluding that file passed 4,208 tests in 35.36s; the pure unit subset
