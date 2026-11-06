@@ -92,6 +92,7 @@ vi.mock(
   "@/components/app/agent-pane",
   stubModule("AgentPane", "ChatFiltersButton")
 );
+vi.mock("./tasks/task-modal", stubModule("TaskModal"));
 vi.mock("@/components/app/split-drop-zones", stubModule("SplitDropZones"));
 // The real split renders whichever panes it is handed into its two slots, so
 // the stub does too — otherwise the elements AgentsView builds are only ever
@@ -529,13 +530,14 @@ describe("AgentsView agent pane", () => {
     expect(propsOf("CenterPaneSplit").agentHeaderAccessory).not.toBeNull();
   });
 
-  it("gives the split no Agent pane when neither slot shows it", () => {
+  it("keeps one task modal owner when Changes and Files replace the Agent pane", () => {
     focusOn("a1");
     Object.assign(H.state, {
       isSplit: true,
-      splitState: { left: "changes", right: "changes" },
+      splitState: { left: "changes", right: "files" },
     });
     mount({ path: "/agents/a1" });
+    expect(screen.getAllByTestId("stub-TaskModal")).toHaveLength(1);
     expect(propsOf("CenterPaneSplit").agentElement).toBeNull();
     expect(propsOf("CenterPaneSplit").agentHeaderAccessory).toBeNull();
   });

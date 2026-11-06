@@ -1,3 +1,4 @@
+import { TaskModal } from "./tasks/task-modal";
 import { useProjectNavigate, useProjectScope } from "@/hooks/use-projects";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { PendingInputsButton } from "./chat/pending-inputs-button";
@@ -769,6 +770,7 @@ export function AgentsView({
         </GlassSidebar>
       ) : null}
 
+      <TaskModal agents={agents} isMobile={isMobile} />
       <AgentsViewDialogs
         paletteOpen={paletteOpen}
         setPaletteOpen={setPaletteOpen}

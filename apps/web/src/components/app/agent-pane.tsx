@@ -1,5 +1,4 @@
 import { useProjects } from "@/hooks/use-projects";
-import { TaskModal } from "./tasks/task-modal";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { useAtom } from "jotai";
@@ -254,7 +253,6 @@ export function AgentPane({
           </div>
         )}
       </div>
-      <TaskModal agents={agents ?? []} isMobile={isMobile} />
     </div>
   );
 }
