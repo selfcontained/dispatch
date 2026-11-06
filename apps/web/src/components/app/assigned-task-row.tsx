@@ -1,5 +1,5 @@
 import { ListChecks } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useAssignedTasks, useTaskBoard } from "@/hooks/use-tasks";
 import { Button } from "@/components/ui/button";
 import { BLOCK_PARAM, FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
@@ -12,6 +12,7 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
   const task = assigned.data?.[0];
   const board = useTaskBoard(task?.projectId ?? null);
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
   // Resolve against the current authorized board as well as the assignment list.
   // Refetch errors must not leave a cached task identity/status visible.
   const current = board.data?.tasks.find(
@@ -39,7 +40,11 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
         if (params.has(THREAD_PARAM)) next.delete(BLOCK_PARAM);
         next.set("task", current.id);
         next.set(TASK_PANE_PARAM, "conversation");
-        setParams(next, { state: TASK_MODAL_STATE });
+        const alreadyOpen = params.has("task");
+        setParams(next, {
+          replace: alreadyOpen,
+          state: alreadyOpen ? location.state : TASK_MODAL_STATE,
+        });
       }}
     >
       <ListChecks

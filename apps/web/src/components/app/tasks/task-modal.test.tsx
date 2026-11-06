@@ -19,13 +19,21 @@ const task = {
   columnId: "c1",
   assignedAgentId: "a2",
 };
+const otherTask = {
+  ...task,
+  id: "tsk_other",
+  title: "Another task",
+  assignedAgentId: "a3",
+};
 const failing = vi.hoisted(() => ({
   task: null as Error | null,
   board: null as Error | null,
   refetch: vi.fn(),
 }));
 vi.mock("@/hooks/use-tasks", () => ({
-  useAssignedTasks: () => ({ data: [task] }),
+  useAssignedTasks: (agentId: string) => ({
+    data: [agentId === "a3" ? otherTask : task],
+  }),
   useTaskDetail: (id: string | null) => ({
     data: id && !failing.task ? task : undefined,
     error: id ? failing.task : null,
@@ -37,7 +45,10 @@ vi.mock("@/hooks/use-tasks", () => ({
         ? {
             projectId,
             columns: [{ id: "c1", name: "Building" }],
-            tasks: [{ ...task, position: 0 }],
+            tasks: [
+              { ...task, position: 0 },
+              { ...otherTask, position: 0 },
+            ],
           }
         : undefined,
     error: projectId ? failing.board : null,
@@ -105,7 +116,7 @@ function Where() {
     </>
   );
 }
-const renderStream = (entry: string) =>
+const renderStream = (entry: string, includeOther = false) =>
   render(
     <MemoryRouter
       initialEntries={["/agents/a1?from=before", entry]}
@@ -118,6 +129,7 @@ const renderStream = (entry: string) =>
             <>
               <div data-testid="stream">stream</div>
               <AssignedTaskRow agentId="a2" />
+              {includeOther && <AssignedTaskRow agentId="a3" />}
               <TaskModal agents={[]} isMobile={false} />
               <Where />
             </>
@@ -246,6 +258,37 @@ it("clears pane on deep-linked modal close while preserving underlying targets",
   expect(where()).toBe("/agents/a1?block=b1&thread=t1&task=tsk_2&pane=details");
   fireEvent.click(screen.getByRole("button", { name: "Close task" }));
   expect(where()).toBe("/agents/a1?block=b1&thread=t1");
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(where()).toBe("/agents/a1?from=before");
+});
+
+it.each([false, true])(
+  "closes after repeated sidebar selections (switch=%s)",
+  (switchTask) => {
+    renderStream("/agents/a1?project=p1", true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Task: Build the board, Building" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: switchTask
+          ? "Task: Another task, Building"
+          : "Task: Build the board, Building",
+      })
+    );
+    expect(where()).toContain(switchTask ? "task=tsk_other" : "task=tsk_1");
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    expect(where()).toBe("/agents/a1?project=p1");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  }
+);
+it("preserves deep-link history when selecting another assigned task", () => {
+  renderStream("/agents/a1?project=p1&task=tsk_1", true);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Task: Another task, Building" })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+  expect(where()).toBe("/agents/a1?project=p1");
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(where()).toBe("/agents/a1?from=before");
 });
