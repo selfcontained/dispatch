@@ -50,8 +50,10 @@ loads at runtime or publishes it, then add it to `isDocsPath` and its test.
 The default-branch ruleset requires both exact checks `ci` and `PR metadata`
 from GitHub Actions (integration 15368). `ci` validates actual code/merge state;
 `PR metadata` independently rejects session links in title/body. Hygiene is
-outside code CI so correcting a description can recover its metadata check
-without replacing a failed/pending code check.
+outside code CI, so metadata recovery never replaces a failed/pending code
+check. The lightweight job fetches current PR metadata using only
+`pull-requests: read`; it does not check out or execute PR code, publish custom
+checks, or print title/body contents.
 
 Opening, pushing commits, reopening, and changing the target base still run
 `ci` through the existing docs/full classifier. Unknown edited payloads also
@@ -65,7 +67,7 @@ Code and routing runs have separate per-PR concurrency groups; description
 edits cannot cancel code validation. Code pushes still cancel superseded code
 runs. The separate `pr-metadata.yml` workflow always emits `PR metadata` for
 opened/synchronize/reopened/edited events on its own per-PR concurrency group.
-It uses hosted Ubuntu and only the existing shell guard. Review comments,
+It uses hosted Ubuntu and applies the existing session-link predicate to current API metadata, validating the original expected head/target/repository/state. Review comments,
 approvals, labels and draft transitions are not subscribed events.
 
 User-approved rollout deliberately allows older PRs without a metadata result
@@ -73,6 +75,15 @@ to remain blocked until their next legitimate update. Review is unaffected;
 merge waits for both required checks. No privileged seeder or unsolicited
 PR edits are used. After this cutover, a legitimate title/body correction
 runs only hosted metadata/routing jobs; a push still validates actual code.
+GitHub can retain each historical failed metadata suite as required even when
+a newer edit passes. After removing a forbidden link, manually rerun each
+specific failed `PR metadata` workflow run in Actions (or `gh run rerun RUN_ID
+--failed`). That lightweight retry reads current metadata and updates the same
+suite; a new edit alone does not guarantee recovery. Never rerun code CI merely
+to repair metadata. A changed head/target or API error fails closed; use checks
+for the current head/target rather than manufacturing success on a stale run.
+Metadata corrections therefore have a disclosed manual recovery step when a
+historical failed suite remains required.
 The existing `ci` requirement, source restrictions and other ruleset settings
 remain in force. An old hygiene-failed code run still requires genuine code
 validation (for example an owner-authorized reopen); metadata never manufactures
@@ -114,7 +125,7 @@ changes what a code change runs.
 `scripts/ci-event-policy.test.mjs` exercises workflow expressions with known
 metadata edits, pushes, reopenings, base edits and unknown edits; checks all
 expensive steps including always-run cleanup; preserves owned-command wrappers;
-and executes the existing guard against bad/corrected metadata. Its nullable
+and tests the existing predicate against current bad/corrected API metadata, stale events, races and identity/API failures using mocked reads. Its nullable
 JavaScript fixtures simulate only the used expression subset. Live Actions
 check-name, cancellation and required-check behavior must be verified separately.
 

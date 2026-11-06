@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { spawnSync } from "node:child_process";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 
@@ -129,20 +128,97 @@ test("metadata always emits independently required guard, code keeps cleanup sup
   );
   assert.ok(!job.steps.some((step) => step.name?.includes("session links")));
 });
-test("hygiene rejects links, corrected metadata recovers without executing input", () => {
-  for (const [body, status] of [
-    ["https://claude.ai/code/session/private-id", 1],
-    ["Review complete $(exit 99)", 0],
-  ]) {
-    const result = spawnSync(
-      "bash",
-      ["-c", metadata.jobs.metadata.steps[0].run],
-      {
-        env: { ...process.env, PR_TITLE: "PR", PR_BODY: body },
-        encoding: "utf8",
-      }
-    );
-    assert.equal(result.status, status);
-    assert.ok(!result.stdout.includes("private-id"));
-  }
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+async function checkCurrentMetadata({
+  body = "corrected $(untrusted)",
+  head = "head",
+  target = "main",
+  state = "open",
+  race = false,
+  apiFailure = false,
+} = {}) {
+  const failures = [];
+  const logs = [];
+  let reads = 0;
+  const expected = {
+    head: { sha: "head", repo: { full_name: "owner/repo" } },
+    base: { ref: "main", repo: { full_name: "owner/repo" } },
+    body: "claude.ai/code/session/stale-event",
+  };
+  const github = {
+    rest: {
+      pulls: {
+        get: async () => {
+          if (apiFailure) throw new Error("API unavailable");
+          reads++;
+          return {
+            data: {
+              ...expected,
+              state,
+              head: { ...expected.head, sha: head },
+              base: { ...expected.base, ref: target },
+              title: "PR",
+              body: race && reads === 2 ? "changed" : body,
+            },
+          };
+        },
+      },
+    },
+  };
+  await new AsyncFunction(
+    "github",
+    "context",
+    "core",
+    metadata.jobs.metadata.steps[0].with.script
+  )(
+    github,
+    {
+      repo: { owner: "owner", repo: "repo" },
+      payload: { number: 123, pull_request: expected },
+    },
+    {
+      setFailed: (message) => failures.push(message),
+      info: (message) => logs.push(message),
+    }
+  );
+  return { failures, logs, reads };
+}
+test("metadata uses only PR read permission and never publishes custom checks", () => {
+  assert.deepEqual(metadata.jobs.metadata.permissions, {
+    "pull-requests": "read",
+  });
+  assert.equal(
+    metadata.jobs.metadata.steps[0].uses,
+    "actions/github-script@v8"
+  );
 });
+test("retry reads corrected current metadata despite the original bad event", async () => {
+  const result = await checkCurrentMetadata();
+  assert.equal(result.failures.length, 0);
+  assert.equal(result.reads, 2);
+  assert.ok(!result.logs.join("").includes("untrusted"));
+});
+test("current bad metadata fails without logging link contents", async () => {
+  const result = await checkCurrentMetadata({
+    body: "CLAUDE.ai/code/session/private-id",
+  });
+  assert.equal(result.failures.length, 1);
+  assert.match(
+    result.failures[0],
+    /rerun this specific failed PR metadata run/
+  );
+  assert.ok(
+    !result.failures.concat(result.logs).join("").includes("private-id")
+  );
+});
+for (const options of [
+  { head: "changed" },
+  { target: "changed" },
+  { state: "closed" },
+  { race: true },
+  { apiFailure: true },
+]) {
+  test(`metadata read fails closed on ${JSON.stringify(options)}`, async () => {
+    await assert.rejects(checkCurrentMetadata(options));
+  });
+}

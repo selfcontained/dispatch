@@ -16,15 +16,38 @@ jobs:
   metadata:
     name: PR metadata
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     steps:
+      # Read current metadata so a manual retry clears this exact failed suite
+      # after correction. Reruns otherwise retain the original event snapshot.
+      # No checkout, PR code execution, custom check writes, or metadata logging.
       - name: No Claude Code session links in the PR title or description
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          lines=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" \
-            | grep -in 'claude\.ai/code/session' | cut -d: -f1 | tr '\n' ' ') || true
-          if [ -n "$lines" ]; then
-            echo "::error::Remove the Claude Code session link from the PR title/description (line 1 is the title, line 2 onward is the description). Offending lines: $lines"
-            exit 1
-          fi
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const expected = context.payload.pull_request;
+            const number = context.payload.number;
+            if (!expected || !Number.isSafeInteger(number) || number <= 0) {
+              throw new Error('Expected a pull request event');
+            }
+            const read = async () => {
+              const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
+              if (pr.state !== 'open' || pr.head.sha !== expected.head.sha ||
+                  pr.base.ref !== expected.base.ref ||
+                  pr.base.repo.full_name !== expected.base.repo.full_name ||
+                  pr.head.repo?.full_name !== expected.head.repo?.full_name) {
+                throw new Error('PR head, target, repository or state changed; use checks for the current head and target');
+              }
+              return { title: pr.title ?? '', body: pr.body ?? '' };
+            };
+            const current = await read();
+            const verified = await read();
+            if (current.title !== verified.title || current.body !== verified.body) {
+              throw new Error('PR metadata changed during validation; retry the latest metadata run');
+            }
+            if (/claude\.ai\/code\/session/i.test(`${current.title}\n${current.body}`)) {
+              core.setFailed('Remove the Claude Code session link from the PR title/description, then rerun this specific failed PR metadata run. A new edit alone may leave this failed suite required.');
+            } else {
+              core.info('Current PR metadata passes for the expected head and target.');
+            }
