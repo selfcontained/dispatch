@@ -92,6 +92,30 @@ function launchFor(agentId: string, cwd: string): RuntimeLaunch {
   };
 }
 
+async function expectEcho(
+  runtime: AgentRuntime,
+  seen: Seen[],
+  agentId: string,
+  text: string
+) {
+  const start = seen.length;
+  const turn = runtime.prompt(agentId, text);
+  await turn.accepted;
+  await turn.settled;
+  await until(() =>
+    seen
+      .slice(start)
+      .some(
+        ({ agentId: id, event }) =>
+          id === agentId &&
+          event.type === "update" &&
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text" &&
+          event.update.content.text.includes(text)
+      )
+  );
+}
+
 const until = async (check: () => boolean, ms = 10_000) => {
   const deadline = Date.now() + ms;
   while (!check()) {
@@ -107,7 +131,9 @@ describe("agent host", () => {
 
   beforeAll(() => {
     stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-state-"));
-    cwd = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-cwd-"));
+    cwd = mkdtempSync(path.join(os.tmpdir(), "unrelated-user-repo-"));
+    execFileSync("git", ["init", "-q", cwd]);
+    writeFileSync(path.join(cwd, "user-notes.txt"), "preserve user work\n");
     process.env.DISPATCH_AGENT_HOST_COMMAND = JSON.stringify([
       process.execPath.includes("bun") ? process.execPath : "bun",
       mainTs,
@@ -129,8 +155,8 @@ describe("agent host", () => {
     async (mode) => {
       const force = mode === "force";
       const id = `agt_owned_${mode[0]}`;
-      const wrapper = path.join(cwd, `adapter-${mode}.mjs`);
-      const pidFile = path.join(cwd, `child-${mode}.pid`);
+      const wrapper = path.join(stateRoot, `adapter-${mode}.mjs`);
+      const pidFile = path.join(stateRoot, `child-${mode}.pid`);
       writeFileSync(
         wrapper,
         `#!/usr/bin/env node
@@ -148,7 +174,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         ["-e", "setInterval(() => {}, 1000)"],
         { stdio: "ignore" }
       );
-      const { runtime } = runtimeWith(stateRoot, () => 0);
+      const { runtime, seen } = runtimeWith(stateRoot, () => 0);
       const launch = launchFor(id, cwd);
       launch.bins.adapter = { bin: wrapper };
       const alive = (pid: number) => {
@@ -163,7 +189,19 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
           return false;
         }
       };
+      const secondId = `agt_peer_${mode[0]}`;
+      const before = execFileSync("git", ["status", "--porcelain"], {
+        cwd,
+        encoding: "utf8",
+      });
       try {
+        await runtime.launch(launchFor(secondId, cwd));
+        await expectEcho(
+          runtime,
+          seen,
+          secondId,
+          "normal completion before cleanup"
+        );
         await runtime.launch(launch);
         const { child: pid, adapter } = JSON.parse(
           readFileSync(pidFile, "utf8")
@@ -173,12 +211,82 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         else await runtime.stop(id, force);
         await until(() => !alive(pid));
         expect(alive(control.pid!)).toBe(true);
+        expect(await runtime.isAlive(secondId)).toBe(true);
+        await expectEcho(
+          runtime,
+          seen,
+          secondId,
+          "normal completion after other session cleanup"
+        );
+        expect(readFileSync(path.join(cwd, "user-notes.txt"), "utf8")).toBe(
+          "preserve user work\n"
+        );
+        expect(
+          execFileSync("git", ["status", "--porcelain"], {
+            cwd,
+            encoding: "utf8",
+          })
+        ).toBe(before);
       } finally {
-        await runtime.stop(id, true);
-        control.kill("SIGKILL");
+        try {
+          await runtime.stop(id, true);
+        } finally {
+          try {
+            await runtime.stop(secondId, true);
+          } finally {
+            control.kill("SIGKILL");
+          }
+        }
       }
     }
   );
+
+  it("reports unavailable enumeration without claiming another session", async () => {
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    const target = "agt_scan";
+    const peer = "agt_peer";
+    const originalPath = process.env.PATH;
+    const before = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+    });
+    try {
+      await runtime.launch(launchFor(target, cwd));
+      await runtime.launch(launchFor(peer, cwd));
+      process.env.PATH = "/nonexistent-owned-test";
+      try {
+        await expect(runtime.stop(target, true)).rejects.toThrow(
+          "Unable to enumerate owned processes"
+        );
+      } finally {
+        process.env.PATH = originalPath;
+      }
+      expect(await runtime.isAlive(target)).toBe(false);
+      expect(await runtime.isAlive(peer)).toBe(true);
+      await expectEcho(
+        runtime,
+        seen,
+        peer,
+        "still usable after enumeration failure"
+      );
+      expect(
+        execFileSync("git", ["status", "--porcelain"], {
+          cwd,
+          encoding: "utf8",
+        })
+      ).toBe(before);
+      expect(readFileSync(path.join(cwd, "user-notes.txt"), "utf8")).toBe(
+        "preserve user work\n"
+      );
+    } finally {
+      process.env.PATH = originalPath;
+      try {
+        await runtime.stop(target, true);
+      } finally {
+        await runtime.stop(peer, true);
+      }
+    }
+  });
 
   it("interrupts real host work then starts urgent input in a separate turn", async () => {
     const id = "agt_interrupt";

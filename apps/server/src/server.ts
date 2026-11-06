@@ -165,6 +165,9 @@ const config = loadConfig();
 const app = Fastify({
   routerOptions: { maxParamLength: MAX_ENCODED_FILE_NAME_LENGTH },
   ...httpLoggingOptions(),
+  // Browser SSE requests stay active until we close them. The default only
+  // closes idle connections, so app.close() can otherwise block an update.
+  forceCloseConnections: true,
   ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
 });
 installRequestLifecycle(app, {
@@ -1207,10 +1210,15 @@ async function cleanupAppResources(): Promise<void> {
     return;
   }
   shuttingDown = true;
+  const stage = async (name: string, close: () => Promise<unknown>) => {
+    app.log.info({ stage: name }, "Shutdown stage started");
+    await close();
+    app.log.info({ stage: name }, "Shutdown stage completed");
+  };
   stopLocalTlsWatch?.();
   stopLocalTlsWatch = undefined;
 
-  await closeAdditionalListeners?.();
+  await stage("additional-listeners", async () => closeAdditionalListeners?.());
   closeAdditionalListeners = undefined;
   streamManager.stopAll();
   agentLifecycleRuntime.stopReconcileLoop();
@@ -1220,12 +1228,14 @@ async function cleanupAppResources(): Promise<void> {
   autoCheckRuntime.stopScheduler();
   await pullRequests.stop();
   scheduledMessages.stop();
-  await serviceResources.shutdown();
+  await stage("service-resources", () => serviceResources.shutdown());
 
   notificationRuntime.clearPendingWebNotifications();
 
-  await jobService.shutdown();
-  await agentLifecycleRuntime.waitForActiveArchives(10_000);
+  await stage("jobs", () => jobService.shutdown());
+  await stage("archives", () =>
+    agentLifecycleRuntime.waitForActiveArchives(10_000)
+  );
   // Let deliveries that are about to settle record their outcome; anything
   // still waiting on the quiet gate is swept to not-delivered at next start.
   if (!(await streamService.waitForInFlightDeliveries(5_000))) {
@@ -1235,8 +1245,8 @@ async function cleanupAppResources(): Promise<void> {
     );
   }
 
-  await pool.end().catch(() => null);
-  await app.close().catch(() => null);
+  await stage("database", () => pool.end().catch(() => null));
+  await stage("http", () => app.close().catch(() => null));
 }
 
 async function shutdown(code: number): Promise<void> {

@@ -44,7 +44,7 @@ function CompactMetaRow({
   truncateStart?: boolean;
 }): JSX.Element {
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div className="flex min-h-7 items-center justify-between gap-3">
       <span className="shrink-0 text-muted-foreground/75" title={label}>
         {icon ?? (
           <span className="text-[10px] uppercase tracking-wide">{label}</span>
@@ -112,7 +112,7 @@ export function AgentCardDetails({
   const modelCatalog = useAgentModelCatalogData();
 
   return (
-    <div className="relative space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
+    <div className="relative flex flex-col gap-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
       {/* Concentric with the rounded-xl corner: 11px inner radius minus this
           3px gap leaves the ~8px radius of the 16px-tall pill. */}
       <div className="absolute right-[3px] top-[3px]">

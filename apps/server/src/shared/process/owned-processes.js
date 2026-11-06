@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 /** An inherited capability, unique to one launch (nested launches retain it). */
@@ -17,24 +18,50 @@ function members(marker, pid) {
       "ps",
       pid
         ? ["eww", "-p", String(pid), "-o", "pid=,command="]
-        : ["eww", "-axo", "pid=,command="],
+        : process.platform === "linux"
+          ? ["axeww", "-o", "pid=,command="]
+          : ["eww", "-axo", "pid=,command="],
       {
         encoding: "utf8",
         maxBuffer: 32 * 1024 * 1024,
         timeout: 2000,
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
       }
     );
   } catch (error) {
     if (pid && error.status === 1) return [];
     // execFileSync errors contain stdout (all environments). Never propagate it.
-    throw new Error("Unable to enumerate owned processes");
+    const stderr = String(error.stderr ?? "")
+      .replace(/[A-Za-z_][A-Za-z0-9_]*=[^\s]*/g, "[redacted assignment]")
+      .slice(0, 2048)
+      .trim();
+    throw new Error(
+      `Unable to enumerate owned processes (status=${error.status ?? "none"}, code=${error.code ?? "none"}, signal=${error.signal ?? "none"})${stderr ? `: ${stderr}` : ""}`
+    );
   }
   return output.split("\n").flatMap((line) => {
     const match = line.match(/^\s*(\d+)\s+(.*)$/);
-    return match && match[2].split(/\s+/).includes(marker)
-      ? [Number(match[1])]
-      : [];
+    if (!match || !match[2].split(/\s+/).includes(marker)) return [];
+    const memberPid = Number(match[1]);
+    if (process.platform === "linux") {
+      try {
+        // Arguments can contain marker-shaped text. Confirm the actual inherited
+        // environment on Linux, including NUL boundaries, before claiming it.
+        if (
+          !readFileSync(`/proc/${memberPid}/environ`, "utf8")
+            .split("\0")
+            .includes(marker)
+        )
+          return [];
+      } catch (error) {
+        if (["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code))
+          return [];
+        throw new Error(
+          `Unable to verify owned process ${memberPid} (${error.code})`
+        );
+      }
+    }
+    return [memberPid];
   });
 }
 
