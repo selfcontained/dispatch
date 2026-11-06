@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import {
   createPullRequestReader,
   githubPullRequestUrl,
+  mapPullRequestChecks,
 } from "../src/agents/pull-request-reader.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 
@@ -29,7 +30,21 @@ describe("session pull requests", () => {
     "reads %s (draft %s) as %s and coalesces requests",
     async (state, isDraft, status) => {
       const run = vi.fn().mockResolvedValue({
-        stdout: JSON.stringify({ state, isDraft, title: "Fix" }),
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: {
+                state,
+                isDraft,
+                title: "Fix",
+                headRefOid: "abc",
+                commits: {
+                  nodes: [{ commit: { oid: "abc", statusCheckRollup: null } }],
+                },
+              },
+            },
+          },
+        }),
       });
       const read = createPullRequestReader(run);
       const results = await Promise.all([
@@ -134,3 +149,126 @@ describe("session pull requests", () => {
     }
   });
 });
+
+describe("current-head checks mapping", () => {
+  it("distinguishes no checks from unavailable", () => {
+    expect(mapPullRequestChecks("abc", []).summary.status).toBe("none");
+    expect(mapPullRequestChecks("abc", null).availability).toBe("unavailable");
+  });
+  it("combines check runs and legacy contexts without repeated nodes", () => {
+    const run = (conclusion: string | null) => ({
+      __typename: "CheckRun",
+      name: conclusion ?? "running",
+      status: conclusion ? "COMPLETED" : "IN_PROGRESS",
+      conclusion,
+    });
+    const legacy = {
+      __typename: "StatusContext",
+      context: "deploy",
+      state: "ERROR",
+      targetUrl: "javascript:bad",
+    };
+    const ci = mapPullRequestChecks("abc", [
+      run("SUCCESS"),
+      run("NEUTRAL"),
+      run("SKIPPED"),
+      run("CANCELLED"),
+      run(null),
+      legacy,
+      legacy,
+    ]);
+    expect(ci.summary).toEqual({
+      status: "failing",
+      total: 6,
+      passed: 1,
+      failed: 2,
+      skipped: 2,
+      pending: 1,
+    });
+    expect(ci.checks.at(-1)?.detailsUrl).toBeNull();
+  });
+  it("preserves lifecycle when GitHub returns partial checks errors", async () => {
+    const read = createPullRequestReader(
+      vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({
+          errors: [{ message: "forbidden" }],
+          data: {
+            repository: {
+              pullRequest: {
+                state: "OPEN",
+                isDraft: true,
+                headRefOid: "new",
+                title: "Draft",
+              },
+            },
+          },
+        }),
+      })
+    );
+    const pr = await read("https://github.com/a/b/pull/1", "Old");
+    expect(pr.status).toBe("Draft");
+    expect(pr.ci?.availability).toBe("unavailable");
+    expect(pr.ci?.headSha).toBe("new");
+  });
+});
+
+it("uses the latest rerun rather than counting a cancelled historical attempt", () => {
+  const attempt = (databaseId: number, conclusion: string) => ({
+    __typename: "CheckRun",
+    databaseId,
+    name: "ci",
+    status: "COMPLETED",
+    conclusion,
+    checkSuite: { app: { slug: "github-actions" } },
+  });
+  const ci = mapPullRequestChecks("abc", [
+    attempt(2, "SUCCESS"),
+    attempt(1, "CANCELLED"),
+  ]);
+  expect(ci.summary).toMatchObject({ status: "passing", total: 1, failed: 0 });
+});
+
+it.each(["head-race", "truncated", "empty"])(
+  "handles bounded transport %s safely",
+  async (scenario) => {
+    const pr = {
+      title: "Draft",
+      state: "OPEN",
+      isDraft: true,
+      headRefOid: "new",
+      commits: {
+        nodes: [
+          {
+            commit: {
+              oid: scenario === "head-race" ? "old" : "new",
+              statusCheckRollup:
+                scenario === "empty"
+                  ? null
+                  : {
+                      contexts: {
+                        pageInfo: { hasNextPage: scenario === "truncated" },
+                        nodes: [],
+                      },
+                    },
+            },
+          },
+        ],
+      },
+    };
+    const run = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ data: { repository: { pullRequest: pr } } }),
+    });
+    const result = await createPullRequestReader(run)(
+      "https://github.com/a/b/pull/1",
+      "Old"
+    );
+    expect(result.status).toBe("Draft");
+    expect(result.ci?.headSha).toBe("new");
+    expect(result.ci?.availability).toBe(
+      scenario === "empty" ? "available" : "unavailable"
+    );
+    expect(result.ci?.checks).toEqual([]);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][1]).toContain("graphql");
+  }
+);

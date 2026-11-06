@@ -89,27 +89,8 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
-/** Presentation contract for the CI design preview; collection is not wired yet. */
-type CiSnapshot = {
-  checkedAt: string;
-  headSha: string;
-  availability: "available" | "unavailable";
-  summary: {
-    status: "passing" | "failing" | "pending" | "none";
-    total: number;
-    passed: number;
-    failed: number;
-    pending: number;
-    skipped: number;
-  };
-  checks: {
-    name: string;
-    status: string;
-    conclusion: string | null;
-    detailsUrl: string | null;
-  }[];
-};
-export type PresentedPullRequest = AgentPullRequest & { ci?: CiSnapshot };
+type CiSnapshot = NonNullable<AgentPullRequest["ci"]>;
+export type PresentedPullRequest = AgentPullRequest;
 
 function ciPresentation(ci: CiSnapshot | undefined) {
   if (!ci || ci.availability === "unavailable")
@@ -171,6 +152,14 @@ function checkResult(check: CiSnapshot["checks"][number]) {
 
 function CompactChecks({ ci }: { ci?: CiSnapshot }) {
   const state = ciPresentation(ci);
+  const variant = import.meta.env.DEV
+    ? new URLSearchParams(window.location.search).get("failure-style")
+    : null;
+  const solidFailure = !variant || variant === "solid";
+  const ringWidth =
+    variant === "original" ? 1.5 : variant === "solid" || !variant ? 2.5 : 3;
+  const xWidth = variant === "original" || variant === "ring" ? 1.5 : 2.5;
+  const xMin = variant === "original" || variant === "ring" ? 8 : 8.5;
   if (!ci || ci.availability === "unavailable" || ci.summary.total === 0) {
     const Icon = state.icon;
     return (
@@ -242,37 +231,51 @@ function CompactChecks({ ci }: { ci?: CiSnapshot }) {
           fillOpacity={0.1}
           className={state.color}
         />
-        {groups.map(({ label, count, color }) => {
-          const share = (count / ci.summary.total) * 100;
-          const start = offset;
-          offset += share;
-          return (
-            <circle
-              key={label}
-              cx="12"
-              cy="12"
-              r="10"
-              transform="rotate(-90 12 12)"
-              pathLength="100"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeDasharray={`${Math.max(0, share - (groups.length > 1 ? 2 : 0))} 100`}
-              strokeDashoffset={-start}
-              className={color}
-            />
-          );
-        })}
+        {ci.summary.failed > 0 && solidFailure && (
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={ringWidth}
+            className="text-status-blocked"
+          />
+        )}
+        {(!ci.summary.failed || !solidFailure) &&
+          groups.map(({ label, count, color }) => {
+            const share = (count / ci.summary.total) * 100;
+            const start = offset;
+            offset += share;
+            return (
+              <circle
+                key={label}
+                cx="12"
+                cy="12"
+                r="10"
+                transform="rotate(-90 12 12)"
+                pathLength="100"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={ci.summary.failed ? ringWidth : 1.5}
+                strokeDasharray={`${Math.max(0, share - (groups.length > 1 ? 2 : 0))} 100`}
+                strokeDashoffset={-start}
+                className={color}
+              />
+            );
+          })}
         <g
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth={ci.summary.failed ? xWidth : 1.5}
           strokeLinecap="round"
           strokeLinejoin="round"
           className={state.color}
         >
           {ci.summary.failed ? (
-            <path d="M8 8 L16 16 M16 8 L8 16" />
+            <path
+              d={`M${xMin} ${xMin} L${24 - xMin} ${24 - xMin} M${24 - xMin} ${xMin} L${xMin} ${24 - xMin}`}
+            />
           ) : ci.summary.pending ? (
             <>
               <circle cx="12" cy="12" r="4.25" />
@@ -458,25 +461,23 @@ function PullRequestRow({
           >
             <X aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
-          {pr.ci && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="ml-auto"
-              data-agent-control="true"
-              aria-label={`Check details for pull request ${ref.number}`}
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              aria-controls={open ? contentId : undefined}
-              onPointerDownCapture={() => {
-                openOnPointerDown.current = open;
-              }}
-              onClick={toggleDetails}
-              data-pr-details-trigger={contentId}
-            >
-              <CompactChecks ci={isError ? undefined : pr.ci} />
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto"
+            data-agent-control="true"
+            aria-label={`Check details for pull request ${ref.number}`}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            aria-controls={open ? contentId : undefined}
+            onPointerDownCapture={() => {
+              openOnPointerDown.current = open;
+            }}
+            onClick={toggleDetails}
+            data-pr-details-trigger={contentId}
+          >
+            <CompactChecks ci={isError ? undefined : pr.ci} />
+          </Button>
         </div>
       </div>
       <PopoverContent
@@ -525,62 +526,62 @@ function PullRequestRow({
             <ExternalLink aria-hidden="true" className="h-3 w-3" />
           </a>
         </div>
-        {pr.ci && (
-          <>
-            <div className="border-t border-border px-3 pt-3 pb-2">
-              <h4 className="text-xs font-semibold">Checks</h4>
-              {(pr.ci.availability !== "available" || !pr.ci.checks.length) && (
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  {ci.label}
-                </p>
-              )}
-            </div>
-            {pr.ci.availability === "available" && (
-              <ul className="max-h-64 overflow-y-auto px-3 pb-3">
-                {[...pr.ci.checks]
-                  .sort(
-                    (a, b) =>
-                      a.name.localeCompare(b.name) ||
-                      (a.detailsUrl ?? "").localeCompare(b.detailsUrl ?? "")
-                  )
-                  .map((check, index) => {
-                    const result = checkResult(check);
-                    const CheckIcon = result.icon;
-                    return (
-                      <li
-                        key={`${check.name}-${index}`}
-                        className="flex items-center gap-2 border-b border-border/40 py-2 text-[11px] last:border-0"
-                      >
-                        <CheckIcon
-                          aria-hidden="true"
-                          className={cn("h-3.5 w-3.5 shrink-0", result.color)}
-                        />
-                        {check.detailsUrl ? (
-                          <a
-                            href={check.detailsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex min-w-0 flex-1 items-center gap-1.5 hover:underline"
-                          >
-                            <span className="truncate">{check.name}</span>
-                            <ExternalLink
-                              aria-hidden="true"
-                              className="h-2.5 w-2.5 shrink-0 text-muted-foreground"
-                            />
-                          </a>
-                        ) : (
-                          <span className="min-w-0 flex-1 truncate">
-                            {check.name}
-                          </span>
-                        )}
-                        <span className={cn("shrink-0", result.color)}>
-                          {result.label}
-                        </span>
-                      </li>
-                    );
-                  })}
-              </ul>
+        <>
+          <div className="border-t border-border px-3 pt-3 pb-2">
+            <h4 className="text-xs font-semibold">Checks</h4>
+            {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                {ci.label}
+              </p>
             )}
+          </div>
+          {pr.ci?.availability === "available" && (
+            <ul className="max-h-64 overflow-y-auto px-3 pb-3">
+              {[...pr.ci.checks]
+                .sort(
+                  (a, b) =>
+                    a.name.localeCompare(b.name) ||
+                    (a.detailsUrl ?? "").localeCompare(b.detailsUrl ?? "")
+                )
+                .map((check, index) => {
+                  const result = checkResult(check);
+                  const CheckIcon = result.icon;
+                  return (
+                    <li
+                      key={`${check.name}-${index}`}
+                      className="flex items-center gap-2 border-b border-border/40 py-2 text-[11px] last:border-0"
+                    >
+                      <CheckIcon
+                        aria-hidden="true"
+                        className={cn("h-3.5 w-3.5 shrink-0", result.color)}
+                      />
+                      {check.detailsUrl ? (
+                        <a
+                          href={check.detailsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex min-w-0 flex-1 items-center gap-1.5 hover:underline"
+                        >
+                          <span className="truncate">{check.name}</span>
+                          <ExternalLink
+                            aria-hidden="true"
+                            className="h-2.5 w-2.5 shrink-0 text-muted-foreground"
+                          />
+                        </a>
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate">
+                          {check.name}
+                        </span>
+                      )}
+                      <span className={cn("shrink-0", result.color)}>
+                        {result.label}
+                      </span>
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
+          {pr.ci && (
             <div className="flex justify-between gap-3 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
               <span title={pr.ci.checkedAt}>
                 Checked{" "}
@@ -591,11 +592,13 @@ function PullRequestRow({
               </span>
               <span>
                 Commit{" "}
-                <span className="font-mono">{pr.ci.headSha.slice(0, 7)}</span>
+                <span className="font-mono">
+                  {pr.ci.headSha.slice(0, 7) || "Unknown"}
+                </span>
               </span>
             </div>
-          </>
-        )}
+          )}
+        </>
       </PopoverContent>
     </Popover>
   );

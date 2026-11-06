@@ -425,3 +425,53 @@ describe("server PR orchestration", () => {
     await f.service.stop();
   });
 });
+
+it("publishes same-head CI transitions and new heads without lifecycle notices", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const ci = (
+    headSha: string,
+    pending: number
+  ): NonNullable<AgentPullRequest["ci"]> => ({
+    headSha,
+    checkedAt: new Date().toISOString(),
+    availability: "available",
+    summary: {
+      status: pending ? "pending" : "passing",
+      total: 1,
+      passed: pending ? 0 : 1,
+      failed: 0,
+      pending,
+      skipped: 0,
+    },
+    checks: [],
+  });
+  f.read.mockImplementation(async (url, title) => ({
+    url,
+    title,
+    status: "Draft",
+    ci: ci("first", 1),
+  }));
+  await f.service.refresh();
+  f.read.mockImplementation(async (url, title) => ({
+    url,
+    title,
+    status: "Draft",
+    ci: ci("first", 0),
+  }));
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+  await f.service.refresh();
+  expect(f.service.get("a")[0].ci?.summary.status).toBe("passing");
+  f.read.mockImplementation(async (url, title) => ({
+    url,
+    title,
+    status: "Draft",
+    ci: ci("second", 1),
+  }));
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+  await f.service.refresh();
+  expect(f.service.get("a")[0].ci?.headSha).toBe("second");
+  expect(f.service.get("a")[0].ci?.summary.status).toBe("pending");
+  expect(f.notify).not.toHaveBeenCalled();
+  await f.service.stop();
+});
