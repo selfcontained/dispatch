@@ -154,6 +154,7 @@ export function mapPullRequestChecks(
     if ((latest.get(key) ?? -1) > attempt) continue;
     latest.set(key, attempt);
     checks.set(key, {
+      identity: key,
       name,
       status,
       conclusion,

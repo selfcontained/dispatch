@@ -18,6 +18,8 @@ export type CiSnapshot = {
     skipped: number;
   };
   checks: {
+    /** Stable provider/workflow/context identity, independent of rerun attempt. */
+    identity?: string;
     name: string;
     status: string;
     conclusion: string | null;
