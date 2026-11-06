@@ -1495,7 +1495,7 @@ describe("assignment", () => {
       streamId: task.id,
       input: {
         to: agentId,
-        text: `You're assigned to task ${task.id} — Ship it with @Reviewer. This stream is the task's conversation; reply here.`,
+        text: `You're assigned to task ${task.id} — Ship it with @Reviewer. Ordinary replies stay in your own channel; use post with taskId or replyTo to report in task chat.`,
         allowInert: true,
         resolveMentions: false,
       },

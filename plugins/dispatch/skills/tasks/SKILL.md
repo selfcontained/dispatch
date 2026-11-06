@@ -74,9 +74,10 @@ call changes nothing.
 ## Conversation and evidence
 
 The task has its own stream. A DISPATCH POST identifies the task and its
-conversation; reply in that context, or use `post({ replyTo })` to answer a
-specific block. `get_message` and `get_thread` recover context. For a new
-top-level message, use `task_comment({ id, text, to? })`; `to` addresses another
+conversation; ordinary replies stay in your own channel. Explicitly use
+`post({ replyTo, text })` to answer a specific task block. `get_message` and `get_thread` recover context. For a new
+top-level message, use `post({ taskId, text, to? })` (or the compatible
+`task_comment({ id, text, to? })`); `to` addresses another
 agent on the task. Any agent in the task's project may comment. Commenting
 does not assign you or put you on the task.
 

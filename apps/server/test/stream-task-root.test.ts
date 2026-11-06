@@ -299,7 +299,7 @@ describe("task stream root", () => {
       expect(startupPrompt).toContain("Project: Tasks (/repo/tasks)");
       expect(startupPrompt).toContain("https://example.com/design");
       expect(startupPrompt).toContain(`Conversation: stream ${task.id}`);
-      expect(startupPrompt).toContain("Post progress there with task_comment.");
+      expect(startupPrompt).toContain("task_comment remains available.");
       const detail = await tasks.getTaskDetail(task.id);
       expect(detail.assignedAgentId).toBe(ASSIGNEE);
       expect(detail.agents).toEqual([
@@ -379,7 +379,7 @@ describe("task stream root", () => {
       {
         author_kind: "user",
         to_agent_id: ASSIGNEE,
-        text: `You're assigned to task ${task.id} — Ship it with @Helper. This stream is the task's conversation; reply here.`,
+        text: `You're assigned to task ${task.id} — Ship it with @Helper. Ordinary replies stay in your own channel; use post with taskId or replyTo to report in task chat.`,
         delivered: true,
       },
     ]);
@@ -389,13 +389,136 @@ describe("task stream root", () => {
       `Task ${task.id} — Ship it with @Helper (Backlog). This is the task's conversation.`
     );
     expect(prompts[0]!.text).toContain(
-      "Your reply appears in the task's conversation"
+      "Ordinary replies stay in your own channel"
     );
     await tasks.updateTask(task.id, { assignedAgentId: HELPER }, USER);
     await settle();
     expect(prompts.map((prompt) => prompt.agentId)).toEqual([ASSIGNEE, HELPER]);
     expect(prompts[1]!.text).toContain(`You're assigned to task ${task.id}`);
     expect((await tasks.getTaskDetail(task.id)).assignedAgentId).toBe(HELPER);
+  });
+
+  it.each(["question", "form"] as const)(
+    "posts user-directed task %s and preserves child ownership",
+    async (kind) => {
+      const task = await newTask();
+      const structured =
+        kind === "question"
+          ? { question: { options: [{ label: "Proceed" }] } }
+          : {
+              form: {
+                fields: [{ id: "name", label: "Name", type: "text" as const }],
+              },
+            };
+      const ask = await streams.post(ASSIGNEE, {
+        taskId: task.id,
+        text: "Choose",
+        ...structured,
+      });
+      expect(ask).toMatchObject({ streamId: task.id, kind, toAgentId: null });
+      expect(ask.data).not.toHaveProperty("parentHandled");
+      if (kind === "question") {
+        await streams.answerQuestion(task.id, ask.id, { value: "Proceed" });
+      } else {
+        await streams.submitForm(task.id, ask.id, { values: { name: "Ada" } });
+      }
+      await settle();
+      expect(prompts.map((p) => p.agentId)).toEqual([ASSIGNEE]);
+      expect(prompts[0]!.text).toContain(
+        "Ordinary replies stay in your own channel"
+      );
+      await pool.query(`UPDATE agents SET parent_agent_id = $1 WHERE id = $2`, [
+        ASSIGNEE,
+        HELPER,
+      ]);
+      const childAsk = await streams.post(HELPER, {
+        taskId: task.id,
+        text: "Parent decision",
+        ...structured,
+      });
+      expect(childAsk).toMatchObject({
+        streamId: task.id,
+        toAgentId: ASSIGNEE,
+        data: { parentHandled: true },
+      });
+    }
+  );
+
+  it("keeps addressed task prompts at home while explicit posts stay in task chat", async () => {
+    const task = await newTask();
+    const res = await postBlock(task.id, { text: "Any progress?" });
+    const block = res.json().block;
+    const source = {
+      source: "chat" as const,
+      chatMessageId: block.id,
+      userMessage: true,
+    };
+    const home = await streams.resolvePromptSource(ASSIGNEE, source);
+    expect(home.conversation).toEqual({ streamId: ASSIGNEE, threadId: null });
+    // Older queued sources may still carry their task location.
+    expect(
+      (
+        await streams.resolvePromptSource(ASSIGNEE, {
+          ...source,
+          conversation: { streamId: task.id, threadId: null },
+        })
+      ).conversation
+    ).toEqual(home.conversation);
+    const event = await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 1, 'turn', $2) RETURNING *`,
+      [ASSIGNEE, JSON.stringify({ state: "started", prompt: home })]
+    );
+    const turnRow = {
+      id: Number(event.rows[0].id),
+      agentId: ASSIGNEE,
+      seq: 1,
+      kind: "turn" as const,
+      key: null,
+      payload: { state: "started", prompt: home },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const turnId = await streams.recordTurnStarted({
+      agentId: ASSIGNEE,
+      turnRow,
+      prompt: home,
+    });
+    expect(await streams.store.getById(turnId!)).toMatchObject({
+      streamId: ASSIGNEE,
+      threadId: null,
+    });
+    await pool.query(
+      `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+      [turnRow.id, JSON.stringify({ blockId: turnId })]
+    );
+    const update = await streams.post(ASSIGNEE, {
+      taskId: task.id,
+      text: "Checks passed.",
+    });
+    expect(update.streamId).toBe(task.id);
+    const reply = await streams.post(ASSIGNEE, {
+      replyTo: block.id,
+      text: "Here are the results.",
+    });
+    expect(reply.streamId).toBe(task.id);
+    expect(reply.replyTo).toBe(block.id);
+    expect(
+      (await streams.post(ASSIGNEE, { text: "Continuing work." })).streamId
+    ).toBe(ASSIGNEE);
+    expect(
+      (await streams.resolvePromptSource(ASSIGNEE, source)).conversation
+    ).toEqual(home.conversation);
+    await expect(
+      streams.post(STRANGER, { taskId: task.id, text: "No access" })
+    ).rejects.toThrow();
+    await expect(
+      streams.post(ASSIGNEE, {
+        taskId: task.id,
+        replyTo: block.id,
+        text: "Ambiguous",
+      })
+    ).rejects.toThrow();
   });
 
   it("delivers a person's post to the current assignee", async () => {
@@ -440,6 +563,25 @@ describe("task stream root", () => {
     await settle();
     expect(prompts.map((p) => p.agentId)).toEqual([HELPER]);
     expect(prompts[0]!.text).toContain("Addressed to you by @mention.");
+    const block = res.json().block;
+    for (const opener of [
+      block,
+      (
+        await postBlock(task.id, {
+          text: "@Helper more detail",
+          replyTo: block.id,
+        })
+      ).json().block,
+    ]) {
+      expect(
+        (
+          await streams.resolvePromptSource(HELPER, {
+            source: "chat",
+            chatMessageId: opener.id,
+          })
+        ).conversation
+      ).toEqual({ streamId: HELPER, threadId: null });
+    }
   });
 
   it("lands an agent's reply back in the task's stream", async () => {
