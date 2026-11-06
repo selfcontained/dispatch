@@ -568,3 +568,57 @@ it("copies a job-backed template without reassigning or duplicating its job", as
   expect(visible).toHaveLength(1);
   expect(visible[0].id).toBe(result.json().id);
 });
+
+describe("template effort persistence", () => {
+  it("round-trips effort, preserves omitted updates, and clears to inherit", async () => {
+    const template = await createTemplate("effort-template", {
+      effort: "high",
+    });
+    expect(template.effort).toBe("high");
+    const url = `/api/v1/templates/${template.id}`;
+    expect((await authedInject("GET", url)).json().effort).toBe("high");
+    expect(
+      (await authedInject("PATCH", url, { name: "renamed-effort" })).json()
+        .effort
+    ).toBe("high");
+    expect(
+      (await authedInject("PATCH", url, { effort: "xhigh" })).json().effort
+    ).toBe("xhigh");
+    expect(
+      (await authedInject("PATCH", url, { effort: null })).json().effort
+    ).toBeNull();
+  });
+
+  it.each([{ effort: "turbo" }, { effort: "high", agentType: "opencode" }])(
+    "rejects unsupported effort at save: %j",
+    async (overrides) => {
+      const response = await authedInject("POST", "/api/v1/templates", {
+        name: "invalid-effort",
+        directory: "/tmp",
+        ...overrides,
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.body).toMatch(/effort/i);
+    }
+  );
+
+  it("validates the retained effort when changing runtime", async () => {
+    const template = await createTemplate("runtime-effort", { effort: "high" });
+    const url = `/api/v1/templates/${template.id}`;
+    expect(
+      (await authedInject("PATCH", url, { agentType: "opencode" })).statusCode
+    ).toBe(400);
+    expect((await authedInject("GET", url)).json()).toMatchObject({
+      agentType: "claude",
+      effort: "high",
+    });
+    expect(
+      (
+        await authedInject("PATCH", url, {
+          agentType: "opencode",
+          effort: null,
+        })
+      ).statusCode
+    ).toBe(200);
+  });
+});

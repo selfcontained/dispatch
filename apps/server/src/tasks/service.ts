@@ -1,5 +1,7 @@
 import { TASK_LABEL_NAME_MAX_LENGTH } from "@dispatch/shared";
 import { taskLabelsSchema } from "./labels.js";
+import type { Effort } from "@dispatch/shared";
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import { taskAgentName } from "@dispatch/shared";
 import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
 import path from "node:path";
@@ -120,6 +122,7 @@ export type TaskLaunchRequest = {
   appendix?: string;
   agentType?: AgentType;
   model?: string | null;
+  effort?: Effort | null;
 };
 
 export type TaskServiceDeps = {
@@ -573,7 +576,17 @@ export class TaskService {
       );
     }
     let model: string | null = null;
+    let effort: Effort | null = null;
     try {
+      effort = validateAgentEffort(
+        agentType ?? template.agentType,
+        trigger.effort
+      );
+      // Validate the inherited effort too, especially when the runtime changes.
+      validateAgentEffort(
+        agentType ?? template.agentType,
+        effort ?? template.effort
+      );
       model =
         validateAgentModel(
           agentType ?? template.agentType,
@@ -586,6 +599,7 @@ export class TaskService {
       templateId: template.id,
       agentType,
       model,
+      effort,
       assign: trigger.assign ?? true,
       fireOnCreate: trigger.fireOnCreate ?? false,
     };
@@ -597,6 +611,7 @@ export class TaskService {
       templateId: string;
       agentType?: AgentType | null;
       model?: string | null;
+      effort?: Effort | null;
     },
     caller?: TaskCaller
   ): Promise<TemplateRecord> {
@@ -611,6 +626,7 @@ export class TaskService {
     const template = resolveTemplateLaunch(stored, {
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
       ...(launch.model ? { model: launch.model } : {}),
+      ...(launch.effort ? { effort: launch.effort } : {}),
     });
     if (caller && template.fullAccess && isRestricted(caller))
       throw invalid(RESTRICTED_LAUNCH_REASON);
@@ -1422,6 +1438,7 @@ export class TaskService {
       templateId: string;
       agentType: AgentType | null;
       model: string | null;
+      effort?: Effort | null;
     },
     caller: TaskCaller,
     resolvedTemplate?: TemplateRecord
@@ -1455,6 +1472,7 @@ export class TaskService {
       }),
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
       ...(launch.model ? { model: launch.model } : {}),
+      ...(launch.effort ? { effort: launch.effort } : {}),
     });
   }
 
@@ -1477,7 +1495,7 @@ export class TaskService {
       templateId: launch.templateId,
     });
     this.publish(task.projectId, task.id);
-    let agent: { id: string };
+    let agent: AgentRecord;
     let configuration: TemplateRecord;
     try {
       configuration = await this.resolveLaunch(task.projectId, launch, caller);
@@ -1499,7 +1517,7 @@ export class TaskService {
       templateId: launch.templateId,
       columnId: column.id,
       source,
-      configuration,
+      configuration: { ...configuration, effort: agent.effort ?? null },
     });
     if (!trigger.assign) return;
     const current = await this.store.getTask(task.id);
@@ -1659,6 +1677,7 @@ export class TaskService {
         templateId: input.templateId,
         agentType: input.agentType ?? null,
         model: input.model ?? null,
+        effort: input.effort ?? null,
       });
       const column = await this.requireColumn(task.columnId);
       const actor = actorOf(caller);

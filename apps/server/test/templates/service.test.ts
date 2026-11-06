@@ -16,6 +16,7 @@ function buildTemplate(
     prompt: "Review {{D:Target}}",
     agentType: "claude",
     model: null,
+    effort: null,
     useWorktree: false,
     baseBranch: null,
     branchName: null,
@@ -400,4 +401,51 @@ it("duplicates persona and project configuration through the existing creation v
   } finally {
     resolve.mockRestore();
   }
+});
+
+describe("template launch effort", () => {
+  it.each([
+    [undefined, "high"],
+    [null, "high"],
+    ["medium", "medium"],
+    ["xhigh", "xhigh"],
+  ] as const)("resolves override %s to %s", async (effort, expected) => {
+    const createAgent = vi.fn(async () => buildAgent());
+    const service = new TemplateService(
+      {} as never,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(
+      buildTemplate({ effort: "high" })
+    );
+    await service.launchTemplate({
+      templateId: "tmpl_123",
+      effort,
+      args: { target: "src" },
+    });
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ effort: expected })
+    );
+  });
+
+  it("rejects unsupported effort before creating an agent", async () => {
+    const createAgent = vi.fn(async () => buildAgent());
+    const service = new TemplateService(
+      {} as never,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(
+      buildTemplate({ effort: "high" })
+    );
+    await expect(
+      service.launchTemplate({
+        templateId: "tmpl_123",
+        agentType: "opencode",
+        args: { target: "src" },
+      })
+    ).rejects.toThrow(/effort/i);
+    expect(createAgent).not.toHaveBeenCalled();
+  });
 });

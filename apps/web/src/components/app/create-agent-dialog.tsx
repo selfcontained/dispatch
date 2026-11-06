@@ -121,6 +121,8 @@ function CreateAgentDialogContent({
                   agentType={form.createType}
                   onAgentTypeChange={form.setCreateType}
                   agentTypes={enabledAgentTypes}
+                  effort={form.createEffort}
+                  onEffortChange={form.setCreateEffort}
                   model={form.createModel}
                   onModelChange={form.setCreateModel}
                   modelOptions={form.modelOptions}

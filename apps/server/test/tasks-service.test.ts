@@ -1086,6 +1086,7 @@ describe("columns", () => {
       templateId: TEMPLATE_ID,
       agentType: null,
       model: null,
+      effort: null,
       assign: true,
       fireOnCreate: false,
     });
@@ -1146,6 +1147,61 @@ describe("tasks", () => {
 });
 
 describe("triggers", () => {
+  it.each([
+    [undefined, "high"],
+    ["medium", "medium"],
+  ] as const)(
+    "resolves trigger effort %s and records the actual launch",
+    async (effort, expected) => {
+      service = build(filesRoot, {
+        getTemplate: async (id) => template({ id, effort: "high" }),
+        launchTemplate: async (input) => {
+          launches.push(input);
+          const id = `agt_effort_${++agentSeq}`;
+          await insertAgent(id);
+          return { id, effort: input.resolvedTemplate?.effort } as AgentRecord;
+        },
+      });
+      const ready = await withTrigger("ready", { effort, assign: false });
+      const board = await service.getBoard(projectId);
+      expect(board.columns.find((c) => c.id === ready)?.trigger?.effort).toBe(
+        effort ?? null
+      );
+      const task = await service.createTask(
+        { projectId, title: "Effort task" },
+        USER
+      );
+      await service.updateTask(task.id, { columnId: ready }, USER);
+      expect(launches[0]?.resolvedTemplate?.effort).toBe(expected);
+      const event = (await service.getTaskDetail(task.id)).events.find(
+        (e) => e.kind === "trigger_launched"
+      );
+      expect(event?.data).toMatchObject({
+        configuration: { effort: expected },
+      });
+    }
+  );
+
+  it("records the resolved global effort returned by the launcher", async () => {
+    service = build(filesRoot, {
+      launchTemplate: async () => {
+        const id = `agt_effort_${++agentSeq}`;
+        await insertAgent(id);
+        return { id, effort: "medium" } as AgentRecord;
+      },
+    });
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      { projectId, title: "Default effort task" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    const event = (await service.getTaskDetail(task.id)).events.find(
+      (e) => e.kind === "trigger_launched"
+    );
+    expect(event?.data).toMatchObject({ configuration: { effort: "medium" } });
+  });
+
   it("fires once per entry, never on an edit inside the column", async () => {
     const ready = await withTrigger("ready", { assign: false });
     const task = await service.createTask({ projectId, title: "Fix it" }, USER);
@@ -1694,6 +1750,7 @@ describe("task tools", () => {
     const review = await withTrigger("in_review", {
       agentType: "claude",
       model: "sonnet",
+      effort: null,
       assign: false,
       fireOnCreate: true,
     });
@@ -1741,6 +1798,7 @@ describe("task tools", () => {
             templateName: "Builder",
             agentType: null,
             model: null,
+            effort: null,
             assign: true,
             fireOnCreate: false,
           },
@@ -1753,6 +1811,7 @@ describe("task tools", () => {
             templateName: "Builder",
             agentType: "claude",
             model: "sonnet",
+            effort: null,
             assign: false,
             fireOnCreate: true,
           },
@@ -1852,6 +1911,7 @@ describe("task tools", () => {
         templateId: TEMPLATE_ID,
         agentType: "claude",
         model: "sonnet",
+        effort: null,
         assign: false,
         fireOnCreate: true,
       },
@@ -1871,6 +1931,7 @@ describe("task tools", () => {
         templateName: "Builder",
         agentType: "claude",
         model: "sonnet",
+        effort: null,
         assign: false,
         fireOnCreate: true,
       },
@@ -1889,6 +1950,7 @@ describe("task tools", () => {
       templateName: "Builder",
       agentType: null,
       model: null,
+      effort: null,
       assign: true,
       fireOnCreate: false,
     });

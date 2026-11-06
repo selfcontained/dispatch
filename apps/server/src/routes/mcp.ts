@@ -217,6 +217,8 @@ export async function registerMcpRoutes(
               id: a.id,
               name: a.name,
               status: a.status,
+              model: a.model ?? null,
+              effort: a.effort ?? null,
               cwd: a.cwd,
             }));
           },

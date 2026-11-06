@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -34,6 +36,7 @@ export type LaunchTemplateInput = {
   /** Per-launch override. Undefined keeps the template's saved model; null
    * forces the CLI default. */
   model?: string | null;
+  effort?: Effort | null;
   startupFiles?: SeedFileInput[];
   /** Raw startup links, recorded as link attachments on the launch post. */
   startupLinks?: string[];
@@ -89,6 +92,7 @@ export class TemplateService {
       description: input.description ?? null,
       prompt: input.prompt ?? null,
       ...applyAgentConfigDefaults(input),
+      effort: validateAgentEffort(input.agentType ?? "claude", input.effort),
       callable: input.callable ?? true,
       allowFiles: input.allowFiles ?? true,
       selfImprove: input.selfImprove ?? false,
@@ -160,6 +164,12 @@ export class TemplateService {
       updates.description = input.description;
     if (input.directory !== undefined) updates.directory = input.directory;
     if (input.prompt !== undefined) updates.prompt = input.prompt;
+    const nextEffort = validateAgentEffort(
+      input.agentType ?? existing.agentType,
+      input.effort === undefined ? existing.effort : input.effort
+    );
+    if (input.effort !== undefined || nextEffort !== existing.effort)
+      updates.effort = nextEffort;
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
@@ -274,6 +284,7 @@ export class TemplateService {
       name: input.name?.trim() || sanitizeAgentName(template.name),
       type: resolvedType,
       model: resolvedModel,
+      effort: template.effort,
       persona: template.persona ?? undefined,
       cwd,
       initialPrompt: finalPrompt,

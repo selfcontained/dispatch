@@ -1,4 +1,6 @@
 import { matchingProjects } from "../projects/matching.js";
+import type { Effort } from "@dispatch/shared";
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -144,6 +146,7 @@ type CreateAgentInput = {
   cwd: string;
   agentArgs?: string[];
   model?: string;
+  effort?: Effort | null;
   fullAccess?: boolean;
   useWorktree?: boolean;
   /**
@@ -195,6 +198,7 @@ type PreparedCreateInputs = {
   filesDir: string;
   agentArgs: string[];
   model: string | undefined;
+  effort: Effort | null;
   fullAccess: boolean;
   useWorktree: boolean;
   createNewBranch: boolean;
@@ -1616,6 +1620,7 @@ export class AgentManager {
     await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
+    const effort = validateAgentEffort(type, input.effort);
     const role: AgentRole = input.role ?? "standard";
     const fullAccess = input.fullAccess ?? false;
     const fullAccessArg =
@@ -1700,6 +1705,7 @@ export class AgentManager {
       filesDir,
       agentArgs,
       model: input.model,
+      effort,
       fullAccess,
       useWorktree,
       createNewBranch,
@@ -1717,8 +1723,8 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())
       `,
       [
         p.id,
@@ -1741,6 +1747,7 @@ export class AgentManager {
         p.normalizedBaseBranch ?? null,
         input.templateId ?? null,
         input.projectId ?? null,
+        p.effort,
       ]
     );
   }
@@ -2021,6 +2028,7 @@ export class AgentManager {
       fullAccess: agent.fullAccess,
       bins,
       model: agent.model ?? null,
+      effort: agent.effort ?? null,
       systemPrompt,
       personaContext: extractPersonaContext(agent.agentArgs ?? []),
       mcp: {
@@ -2388,6 +2396,7 @@ export class AgentManager {
         files_dir AS "filesDir",
         agent_args AS "agentArgs",
         model,
+        effort,
         full_access AS "fullAccess",
         setup_phase AS "setupPhase",
         archive_phase AS "archivePhase",

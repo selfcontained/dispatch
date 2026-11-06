@@ -51,6 +51,40 @@ function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
 }
 
 describe("AcpDriver", () => {
+  it.each(["low", "medium", "high", "xhigh", "max"] as const)(
+    "passes Claude %s effort to SDK options on new and resumed sessions",
+    async (effort) => {
+      for (const sessionId of [null, "saved-session"]) {
+        const fake = createFakeAcpAgent();
+        const { driver } = driverWith(fake);
+        await driver.start(launch({ effort, sessionId, model: "opus" }));
+        try {
+          const request = sessionId
+            ? fake.seen.resumeSession[0]
+            : fake.seen.newSession[0];
+          expect(request?._meta).toMatchObject({
+            claudeCode: { options: { effort, model: "opus" } },
+          });
+        } finally {
+          await driver.stop("agt_1");
+        }
+      }
+    }
+  );
+
+  it("omits Claude effort SDK options when no launch effort is resolved", async () => {
+    const fake = createFakeAcpAgent();
+    const { driver } = driverWith(fake);
+    await driver.start(launch({ effort: null }));
+    try {
+      expect(fake.seen.newSession[0]?._meta).not.toHaveProperty(
+        "claudeCode.options.effort"
+      );
+    } finally {
+      await driver.stop("agt_1");
+    }
+  });
+
   const sqliteExit =
     "Codex process has exited with code 1: Error: failed to initialize sqlite state runtime under /tmp/disposable: failed to initialize state runtime at /tmp/disposable";
 

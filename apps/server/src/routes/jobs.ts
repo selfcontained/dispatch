@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS } from "@dispatch/shared";
 import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
@@ -31,6 +32,7 @@ const AddJobBodySchema = z.object({
   needsInputTimeoutMs: z.number().int().positive().optional(),
   agentType: z.enum(CLI_AGENT_TYPES).optional(),
   model: z.string().nullable().optional(),
+  effort: z.enum(EFFORT_LEVELS).nullable().optional(),
   persona: z.string().min(1).nullable().optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
@@ -90,7 +92,9 @@ export async function registerJobRoutes(
       return result;
     } catch (error) {
       const message = errorMessage(error);
-      return reply.code(500).send({ error: message });
+      return reply
+        .code(/effort/i.test(message) ? 400 : 500)
+        .send({ error: message });
     }
   });
 
@@ -103,7 +107,9 @@ export async function registerJobRoutes(
       return result;
     } catch (error) {
       const message = errorMessage(error);
-      return reply.code(500).send({ error: message });
+      return reply
+        .code(/effort/i.test(message) ? 400 : 500)
+        .send({ error: message });
     }
   });
 

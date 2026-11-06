@@ -83,7 +83,7 @@ async function renderDialog(template: Template) {
           template={template}
           open
           onOpenChange={onOpenChange}
-          agentTypes={["claude", "codex"]}
+          agentTypes={["claude", "codex", "opencode"]}
         />
         <LocationProbe />
       </MemoryRouter>
@@ -443,7 +443,9 @@ describe("launch outcome", () => {
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(screen.getByTestId("location").textContent).toBe("/agents/agt_new");
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe("/agents/agt_new")
+    );
   });
 
   it("surfaces a toast and stays open on failure", async () => {
@@ -637,4 +639,56 @@ describe("layout", () => {
     ).toBe(true);
     expect(body.contains(description)).toBe(false);
   });
+});
+
+it("sends the selected reasoning effort override", async () => {
+  queueLaunchedAgent("agt_effort");
+  await renderDialog(makeTemplate({ effort: "high" }));
+  fireEvent.keyDown(screen.getByTestId("launch-template-effort"), {
+    key: "Enter",
+  });
+  fireEvent.click(screen.getByRole("option", { name: "xhigh" }));
+  fireEvent.click(launchButton());
+  await waitFor(() =>
+    expect(lastJsonBody()).toMatchObject({ effort: "xhigh" })
+  );
+});
+
+it("explains incompatible inherited effort before an OpenCode launch", async () => {
+  await renderDialog(makeTemplate({ effort: "high" }));
+  fireEvent.click(agentTypeSelect());
+  fireEvent.click(await screen.findByRole("option", { name: /OpenCode/ }));
+  expect(screen.getByRole("alert").textContent).toContain(
+    "template without effort"
+  );
+  expect(launchButton().disabled).toBe(true);
+  fireEvent.submit(dialogForm());
+  expect(launchCalls()).toHaveLength(0);
+  fireEvent.click(agentTypeSelect());
+  fireEvent.click(await screen.findByRole("option", { name: /Claude/ }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(launchButton().disabled).toBe(false);
+});
+
+it("allows a supported override to resolve inherited max effort for Codex", async () => {
+  queueLaunchedAgent("agt_effort_codex");
+  await renderDialog(makeTemplate({ effort: "max" }));
+  fireEvent.click(agentTypeSelect());
+  fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
+  expect(screen.getByRole("alert").textContent).toContain(
+    "Codex does not support max"
+  );
+  expect(launchButton().disabled).toBe(true);
+  fireEvent.keyDown(screen.getByTestId("launch-template-effort"), {
+    key: "Enter",
+  });
+  fireEvent.click(screen.getByRole("option", { name: /^medium$/ }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(launchButton());
+  await waitFor(() =>
+    expect(lastJsonBody()).toMatchObject({
+      agentType: "codex",
+      effort: "medium",
+    })
+  );
 });

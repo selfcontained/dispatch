@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS, type Effort } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -19,6 +20,7 @@ export type LaunchAgentInput = {
   prompt: string;
   type?: string;
   model?: string;
+  effort?: Effort | null;
   useWorktree?: boolean;
   createNewBranch?: boolean;
   baseBranch?: string;
@@ -101,6 +103,13 @@ export function registerAgentLaunchTools(
             "Model id for the new agent, matching its type. Omit to let the CLI use its default. " +
               describeAgentModelCatalog()
           ),
+        effort: z
+          .enum(EFFORT_LEVELS)
+          .nullable()
+          .optional()
+          .describe(
+            "Reasoning effort: low, medium, high, xhigh, max. Explicit value overrides template, then CLI default; null inherits. Never inherits parent effort. Codex does not support max; OpenCode does not support effort."
+          ),
         useWorktree: z
           .boolean()
           .optional()
@@ -135,7 +144,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; effort uses explicit parameters first, then template defaults. Effort never inherits from the launching agent."
           ),
         templateArgs: z
           .record(z.string(), z.string())
@@ -168,6 +177,7 @@ export function registerAgentLaunchTools(
         };
         if (args.type !== undefined) input.type = args.type;
         if (args.model !== undefined) input.model = args.model;
+        if (args.effort !== undefined) input.effort = args.effort;
         if (args.useWorktree !== undefined)
           input.useWorktree = args.useWorktree;
         if (args.createNewBranch !== undefined)

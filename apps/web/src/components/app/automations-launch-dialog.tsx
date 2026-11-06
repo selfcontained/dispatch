@@ -1,3 +1,4 @@
+import { AgentConfigRow } from "./agent-config-row";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Play } from "lucide-react";
@@ -6,6 +7,8 @@ import { toast } from "sonner";
 import { ArgInput } from "@/components/app/arg-input";
 import { ContextPicker } from "@/components/app/context-picker";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useStartupAttachments } from "@/components/app/use-startup-attachments";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -28,7 +31,7 @@ import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
-import { cn } from "@/lib/utils";
+import { effortCompatibilityError } from "@/lib/agent-effort";
 
 export function LaunchTemplateDialog({
   template,
@@ -75,6 +78,7 @@ function LaunchTemplateDialogContent({
     templateArgDefaults(args)
   );
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
+  const [effort, setEffort] = useState<Effort | null>(null);
   const [model, setModel] = useState<string | null>(template.model);
   // Each runtime keeps its own pick for the dialog's lifetime, so toggling the
   // agent type to compare and back does not silently drop a chosen model.
@@ -105,6 +109,7 @@ function LaunchTemplateDialogContent({
   useEffect(() => {
     setArgValues(templateArgDefaults(args));
     setAgentType(template.agentType);
+    setEffort(null);
     setModel(template.model);
     modelByAgentType.current = { [template.agentType]: template.model };
   }, [template.agentType, template.model, args]);
@@ -113,6 +118,7 @@ function LaunchTemplateDialogContent({
     (nextAgentType: AgentType) => {
       modelByAgentType.current[agentType] = model;
       setAgentType(nextAgentType);
+      setEffort(null);
       setModel(modelByAgentType.current[nextAgentType] ?? null);
     },
     [agentType, model]
@@ -137,7 +143,13 @@ function LaunchTemplateDialogContent({
     args.length === 0 ||
     args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
 
+  const effortError = effortCompatibilityError(
+    agentType,
+    effort ?? template.effort
+  );
+
   const handleLaunch = useCallback(() => {
+    if (effortError) return;
     const launchArgs = args.length > 0 ? argValues : undefined;
     // Until the catalog arrives we cannot tell a valid selection from a
     // retired model id, so send nothing and let the template's saved model
@@ -153,6 +165,7 @@ function LaunchTemplateDialogContent({
         args: launchArgs,
         agentType,
         model: launchModel,
+        effort: effort ?? undefined,
         startupFiles: startupFiles.length > 0 ? startupFiles : undefined,
         startupLinks: startupLinks.length > 0 ? startupLinks : undefined,
       })
@@ -171,6 +184,8 @@ function LaunchTemplateDialogContent({
     argValues,
     launchTemplate,
     model,
+    effort,
+    effortError,
     modelCatalogLoaded,
     modelOptions,
     navigate,
@@ -211,7 +226,8 @@ function LaunchTemplateDialogContent({
         className="flex min-h-0 flex-1 flex-col"
         onSubmit={(e) => {
           e.preventDefault();
-          if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
+          if (allArgsFilled && !effortError && !launchTemplate.isPending)
+            handleLaunch();
         }}
         onDragOver={
           showFiles
@@ -243,12 +259,7 @@ function LaunchTemplateDialogContent({
           data-testid="launch-template-body"
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-1"
         >
-          <div
-            className={cn(
-              "grid gap-3",
-              showModelSelect && "min-[420px]:grid-cols-2"
-            )}
-          >
+          <AgentConfigRow showModel={showModelSelect}>
             <AgentTypeSelect
               label="Agent type"
               id="launch-template-agent-type"
@@ -266,7 +277,20 @@ function LaunchTemplateDialogContent({
                 testId="launch-template-model"
               />
             ) : null}
-          </div>
+            <AgentEffortSelect
+              value={effort}
+              onChange={setEffort}
+              agentType={agentType}
+              id="launch-template-effort"
+              inheritLabel={`Inherit (${template.effort ?? "default"})`}
+            />
+          </AgentConfigRow>
+
+          {effortError ? (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {effortError}
+            </p>
+          ) : null}
 
           {args.length > 0 ? (
             <div className="mt-3 flex flex-col gap-3">
@@ -305,7 +329,9 @@ function LaunchTemplateDialogContent({
           <Button
             type="submit"
             variant="primary"
-            disabled={!allArgsFilled || launchTemplate.isPending}
+            disabled={
+              !allArgsFilled || Boolean(effortError) || launchTemplate.isPending
+            }
           >
             {launchTemplate.isPending ? (
               <ActivityBars size={16} className="mr-1.5" />

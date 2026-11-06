@@ -826,6 +826,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         engine: input.engine,
         bins: input.bins,
         model: input.model,
+        effort: input.effort ?? null,
         fullAccess: input.fullAccess ?? true,
         systemPrompt: input.systemPrompt,
         personaContext: await preparePersonaContext(dir, input.personaContext),

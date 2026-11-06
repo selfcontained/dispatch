@@ -56,6 +56,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     enabled: false,
     agentType: "claude",
     model: null,
+    effort: null,
     persona: null,
     useWorktree: false,
     baseBranch: null,
@@ -102,6 +103,7 @@ function basePayload() {
     needsInputTimeoutMs: 86_400_000,
     agentType: "claude",
     model: null,
+    effort: null,
     persona: null,
     useWorktree: false,
     baseBranch: null,
@@ -510,6 +512,7 @@ describe("agent type and model", () => {
       agentType: "codex",
       // A model id belongs to one agent type; switching types must drop it.
       model: null,
+      effort: null,
       persona: null,
     });
   });

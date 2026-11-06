@@ -221,3 +221,16 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
     );
   });
 }
+
+it("preserves CLI effort defaults unless the launch explicitly overrides them", () => {
+  const shell = { CLAUDE_EFFORT: "low", CLAUDE_CODE_EFFORT_LEVEL: "low" };
+  const launch = { env: {}, pathPrefix: [], engine: "claude" as const };
+  expect(buildHostEnv(launch, "/tmp/effort-env", shell)).toMatchObject(shell);
+  const overridden = buildHostEnv(
+    { ...launch, effort: "high" },
+    "/tmp/effort-env",
+    shell
+  );
+  expect(overridden.CLAUDE_EFFORT).toBeUndefined();
+  expect(overridden.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+});

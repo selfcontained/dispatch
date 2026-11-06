@@ -1,3 +1,4 @@
+import { applyLaunchEffort } from "../launch-effort.js";
 import { firstPromptContext } from "../persona-context.js";
 import type { PromptSource } from "../prompt-source.js";
 /**
@@ -474,6 +475,8 @@ async function main(): Promise<void> {
       agentId,
       cwd: launch.cwd,
       engine: spec,
+      effort: launch.effort ?? null,
+      model: launch.model,
       systemPromptAppend:
         spec.personaDelivery === "system_prompt" ? launch.systemPrompt : null,
       firstPromptAppend: firstPromptContext(
@@ -494,7 +497,6 @@ async function main(): Promise<void> {
     });
     sessionId = session.sessionId;
     resumed = session.resumed;
-    running = true;
     // A chosen model is applied through the engine's own model option; an
     // engine that publishes none, or refuses the value, keeps its default.
     if (launch.model) {
@@ -518,6 +520,8 @@ async function main(): Promise<void> {
           });
       }
     }
+    await applyLaunchEffort(driver, agentId, launch.engine, launch.effort);
+    running = true;
     await writeFile(
       hostFile(stateDir, "session"),
       JSON.stringify({ sessionId, resumed: session.resumed }),
@@ -545,6 +549,8 @@ async function main(): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ agentId, err: message }, "host: engine failed to start");
     startupError = message;
+    running = false;
+    driver.killAll();
     send(client, { type: "error", message });
     setTimeout(() => process.exit(1), EXIT_LINGER_MS);
   }

@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -26,7 +27,14 @@ export type JobTools = {
     }
   ) => Promise<{ runId: string; status: string }>;
   listAgents: () => Promise<
-    Array<{ id: string; name: string; status: string; cwd: string }>
+    Array<{
+      id: string;
+      name: string;
+      status: string;
+      cwd: string;
+      model?: string | null;
+      effort?: Effort | null;
+    }>
   >;
   getFeedbackSummary: (params: {
     start: Date;
@@ -233,7 +241,7 @@ export function registerJobTools(
     "list_agents",
     {
       description:
-        "List all agents from this Dispatch server with their IDs, names, and statuses.",
+        "List all agents from this Dispatch server with their IDs, names, models, resolved launch effort, and statuses.",
       inputSchema: {},
     },
     async () => {

@@ -1,3 +1,4 @@
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -194,6 +195,7 @@ export class JobService {
           name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
           type: agentType,
           model: agentConfig.model ?? undefined,
+          effort: agentConfig.effort,
           persona: agentConfig.persona ?? undefined,
           cwd: template?.directory ?? job.directory,
           agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
@@ -464,6 +466,7 @@ export class JobService {
         name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
         type: agentConfig.agentType as JobAgentType,
         model: agentConfig.model ?? undefined,
+        effort: agentConfig.effort,
         persona: agentConfig.persona ?? undefined,
         cwd: template?.directory ?? job.directory,
         agentArgs: buildAgentArgs(
@@ -642,7 +645,10 @@ export class JobService {
         "task",
         "catalog"
       );
-    const agentConfig = applyAgentConfigDefaults(input);
+    const agentConfig = {
+      ...applyAgentConfigDefaults(input),
+      effort: validateAgentEffort(input.agentType ?? "claude", input.effort),
+    };
 
     // Create a backing template for this job (hidden from Cmd+K by default).
     // If job creation fails, clean up the template to avoid orphans.
@@ -791,6 +797,15 @@ export class JobService {
     if (input.timeoutMs !== undefined) config.timeoutMs = input.timeoutMs;
     if (input.needsInputTimeoutMs !== undefined)
       config.needsInputTimeoutMs = input.needsInputTimeoutMs;
+    const previousEffort = backingTemplate
+      ? backingTemplate.effort
+      : existing.effort;
+    const nextEffort = validateAgentEffort(
+      input.agentType ?? backingTemplate?.agentType ?? existing.agentType,
+      input.effort === undefined ? previousEffort : input.effort
+    );
+    if (input.effort !== undefined || nextEffort !== existing.effort)
+      config.effort = nextEffort;
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
@@ -864,6 +879,7 @@ export class JobService {
         if (input.agentType !== undefined)
           templateUpdates.agentType = input.agentType;
         if (config.model !== undefined) templateUpdates.model = config.model;
+        if (config.effort !== undefined) templateUpdates.effort = config.effort;
         if (input.useWorktree !== undefined)
           templateUpdates.useWorktree = input.useWorktree;
         if (input.baseBranch !== undefined)
