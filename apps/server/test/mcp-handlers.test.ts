@@ -502,7 +502,7 @@ describe("createMcpHandlers", () => {
       expect(result.warnings?.[0]).toContain("No content is trimmed");
     });
 
-    it("refuses a persona launched from a child agent", async () => {
+    it("launches a child-requested reviewer beside the child and addresses the child", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_child",
         name: "child-agent",
@@ -513,13 +513,20 @@ describe("createMcpHandlers", () => {
         parentAgentId: "agt_root",
       } as any);
 
-      await expect(
-        handlers.launchPersonaAgent("agt_child", {
-          persona: "security",
-          context: "review this PR",
-        })
-      ).rejects.toThrow("cannot launch persona agents");
-      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+      await handlers.launchPersonaAgent("agt_child", {
+        persona: "security",
+        context: "review this PR",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentAgentId: "agt_root",
+          launchedByAgentId: "agt_child",
+          cwd: "/repo",
+          fullAccess: false,
+          initialPrompt: expect.stringContaining('to: "agt_child"'),
+        }),
+        { detachLaunch: true }
+      );
     });
 
     it("keeps engine selection separate from persona context assembly", async () => {

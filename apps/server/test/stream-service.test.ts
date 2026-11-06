@@ -7666,6 +7666,55 @@ describe("shown-block context boundaries", () => {
       },
     });
   }
+  it("routes a child-requested sibling reviewer to its requester and returns finding replies to the reviewer", async () => {
+    // A is the display parent, B requested C's review. C stays beside B.
+    await pool.query("UPDATE agents SET parent_agent_id=$1 WHERE id=$2", [
+      A,
+      B,
+    ]);
+    await pool.query("UPDATE agents SET launched_by_agent_id=$1 WHERE id=$2", [
+      B,
+      C,
+    ]);
+    const { svc, injected } = setup();
+    try {
+      await svc.prepareLaunchContext({ agentId: C, launchedByAgentId: B });
+      const review = await svc.post(C, {
+        to: B,
+        review: {
+          summary: "Child checkout reviewed",
+          findings: [
+            {
+              severity: "minor",
+              title: "Fix child code",
+              body: "Scoped finding",
+            },
+          ],
+        },
+      });
+      await svc.waitForInFlightDeliveries(1000);
+      expect(injected.map((i) => i.agentId)).toEqual([B]);
+      expect(review.streamId).toBe(A);
+      const finding = (await svc.getReview(B, review.id)).findings[0]!;
+      await svc.post(B, {
+        to: C,
+        replyTo: finding.id,
+        text: "Fixed in child checkout",
+      });
+      await svc.waitForInFlightDeliveries(1000);
+      expect(injected.map((i) => i.agentId)).toEqual([B, C]);
+      await svc.update(C, finding.id, { state: { status: "fixed" } });
+      await svc.waitForInFlightDeliveries(1000);
+      expect(
+        (await svc.getReview(B, review.id)).findings[0]!.state.status
+      ).toBe("resolved");
+      expect(injected.every((i) => i.agentId !== A)).toBe(true);
+    } finally {
+      await pool.query("UPDATE agents SET parent_agent_id=NULL WHERE id=$1", [
+        B,
+      ]);
+    }
+  });
   it("does not grant an enclosing launch thread to a foreign review recipient, including automatic context", async () => {
     const { svc, injected } = setup();
     const launch = await svc.ensureLaunchBlock(C);

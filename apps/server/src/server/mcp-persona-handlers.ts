@@ -172,12 +172,15 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   }> {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
+    // Lineage stays flat for display; the requester owns workspace, runtime
+    // permissions, provenance and feedback. Never prepare from the display parent.
+    const displayParentId = parent.parentAgentId ?? parentId;
     if (parent.parentAgentId) {
-      throw new Error(
-        "This agent was itself launched as a child agent, and child agents cannot launch persona agents " +
-          "(the UI only renders one level of sub agents). Ask the agent that launched you to run it, " +
-          "or do this work in an independent agent (launch_agent with child: false)."
-      );
+      const displayParent = await agentManager.getAgent(displayParentId);
+      if (!displayParent || displayParent.projectId !== parent.projectId)
+        throw new Error(
+          "Review display parent must belong to the requester's project."
+        );
     }
     const prepared = await preparePersonaLaunch(parent, opts);
     const agent = await agentManager.createAgent(
@@ -191,7 +194,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         useWorktree: false,
         persona: opts.persona,
         role: "review",
-        parentAgentId: parentId,
+        parentAgentId: displayParentId,
         launchedByAgentId: parentId,
         personaContext: opts.context,
         initialPrompt: buildPersonaKickoffPrompt(parentId),
@@ -230,10 +233,6 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   ): Promise<OwnerReviewResult> {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
-    if (parent.parentAgentId)
-      throw new Error(
-        "Child agents cannot launch owner reviews. Ask the parent agent to launch them."
-      );
     const cwd = agentWorkspaceDir(parent) ?? parent.cwd;
     const root = await resolveWorktreeRoot(cwd);
     const config = await loadCodeowners(root);
