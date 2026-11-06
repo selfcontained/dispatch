@@ -163,7 +163,7 @@ it("opens the agent's task over the stream and closes back to it", () => {
   fireEvent.click(
     screen.getByRole("button", { name: "Task: Build the board, Building" })
   );
-  expect(where()).toBe("/agents/a1?project=p1&task=tsk_1&pane=conversation");
+  expect(where()).toBe("/agents/a1?project=p1&task=tsk_1&pane=details");
   expect(screen.getByRole("dialog").textContent).toContain("tsk_1");
   // The stream stays mounted under the modal: its scroll is untouched.
   expect(screen.getByTestId("stream")).toBe(stream);
@@ -228,7 +228,7 @@ it("closes an attachment preview on Escape, not the task", () => {
 it("selects Details when paging and preserves the modal closing history", () => {
   renderStream("/agents/a1");
   fireEvent.click(screen.getByRole("button", { name: /^Task:/ }));
-  expect(where()).toContain("pane=conversation");
+  expect(where()).toContain("pane=details");
   fireEvent.click(screen.getByRole("button", { name: "Next task" }));
   expect(where()).toBe("/agents/a1?task=tsk_2&pane=details");
   fireEvent.click(screen.getByRole("button", { name: "Close task" }));
@@ -246,7 +246,7 @@ it.each(["block=b1", "thread=t1", "block=b1&thread=t1"])(
     const active = target.includes("thread=")
       ? "/agents/a1?project=p1"
       : underlying;
-    expect(where()).toBe(`${active}&task=tsk_1&pane=conversation`);
+    expect(where()).toBe(`${active}&task=tsk_1&pane=details`);
     fireEvent.click(screen.getByRole("button", { name: "Next task" }));
     expect(where()).toBe(`${active}&task=tsk_2&pane=details`);
     fireEvent.click(screen.getByRole("button", { name: "Close task" }));

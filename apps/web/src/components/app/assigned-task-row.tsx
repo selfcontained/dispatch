@@ -39,7 +39,7 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
         next.delete(FINDING_PARAM);
         if (params.has(THREAD_PARAM)) next.delete(BLOCK_PARAM);
         next.set("task", current.id);
-        next.set(TASK_PANE_PARAM, "conversation");
+        next.set(TASK_PANE_PARAM, "details");
         const alreadyOpen = params.has("task");
         setParams(next, {
           replace: alreadyOpen,
