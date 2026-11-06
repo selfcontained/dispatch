@@ -359,6 +359,7 @@ export function PullRequestRow({
             className="mr-auto"
           >
             {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
+            <span className="sr-only">{STATES[status].label}</span>
           </AgentMetadataLink>
           {(isError ||
             pr.ci?.availability !== "available" ||
