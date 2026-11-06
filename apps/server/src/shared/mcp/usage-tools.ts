@@ -8,6 +8,13 @@ import { CLI_AGENT_TYPES } from "../agent-types.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
+/** Keep undocumented provider counters out of agent-facing eligibility decisions. */
+function agentPlan(plan: ProviderPlan) {
+  if (!plan.limitResets) return plan;
+  const { applicable: _applicable, ...limitResets } = plan.limitResets;
+  return { ...plan, limitResets };
+}
+
 export type UsageCallbacks = {
   redeemCodexReset?: RedeemCodexReset;
   providerPlans?: (request?: {
@@ -173,7 +180,16 @@ export function registerUsageTools(
       },
       async ({ idempotencyKey }) => {
         try {
-          const result = await callbacks.redeemCodexReset!(idempotencyKey);
+          const redemption = await callbacks.redeemCodexReset!(idempotencyKey);
+          const result = {
+            ...redemption,
+            usage: redemption.usage
+              ? {
+                  ...redemption.usage,
+                  providers: redemption.usage.providers.map(agentPlan),
+                }
+              : null,
+          };
           return {
             content: [{ type: "text", text: jsonText(result) }],
             structuredContent: result,
@@ -198,7 +214,7 @@ export function registerUsageTools(
         "headroomPercent (its tightest window), supported model ids, the provider's quota windows with remaining percentages and reset times, observation timestamps, and source (live or local). " +
         "Quotas are shared across agents using the same provider login; model-specific windows are identified by the provider's window id/label. " +
         "Do not assume each model has a separate budget or that remaining percentages represent a token count. " +
-        "Missing reports mean unknown capacity, not unlimited usage. Reports may be stale; inspect observedAt and unavailableReason.",
+        "Reset available counts describe inventory, not guaranteed redemption eligibility; the provider redemption outcome is authoritative. Missing reports mean unknown capacity, not unlimited usage. Reports may be stale; inspect observedAt and unavailableReason.",
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -237,15 +253,17 @@ export function registerUsageTools(
             ),
           }));
           return {
-            ...(plan ?? {
-              engine,
-              plan: null,
-              observedAt: null,
-              unavailableReason:
-                engine === "opencode"
-                  ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
-                  : "No usage report available.",
-            }),
+            ...(plan
+              ? agentPlan(plan)
+              : {
+                  engine,
+                  plan: null,
+                  observedAt: null,
+                  unavailableReason:
+                    engine === "opencode"
+                      ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
+                      : "No usage report available.",
+                }),
             type: engine,
             enabled: enabled.includes(engine),
             ...verdict(plan, windows),
