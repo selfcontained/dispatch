@@ -10,6 +10,8 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { runInNewContext } from "node:vm";
+import { parse } from "yaml";
 
 import { checkOwnerCoverage } from "../src/personas/coverage.js";
 
@@ -304,20 +306,39 @@ describe("explicit PR head owner coverage", () => {
     ).toThrow("merge base required");
   });
 
-  it("wires the gate unconditionally after dependencies, including docs-only CI", () => {
-    const workflow = readFileSync(
-      path.resolve(import.meta.dirname, "../../../.github/workflows/ci.yml"),
-      "utf8"
+  it("wires the gate for every code run including docs, but skips metadata routing", () => {
+    const workflow = parse(
+      readFileSync(
+        path.resolve(import.meta.dirname, "../../../.github/workflows/ci.yml"),
+        "utf8"
+      )
     );
-    const step = workflow
-      .split("      - name: Require explicit PR owner coverage")[1]
-      .split("      - name:")[0];
-    expect(step).toContain("bun scripts/ci-owner-coverage.ts");
-    expect(step).not.toContain("if:");
-    expect(step).toContain("pull_request.base.sha");
-    expect(step).toContain("pull_request.head.sha");
-    expect(workflow.indexOf("name: Install dependencies")).toBeLessThan(
-      workflow.indexOf("name: Require explicit PR owner coverage")
+    const steps = workflow.jobs.ci.steps;
+    const gateIndex = steps.findIndex(
+      (step: { name?: string }) =>
+        step.name === "Require explicit PR owner coverage"
     );
+    const step = steps[gateIndex];
+    expect(step.run).toBe("bun scripts/ci-owner-coverage.ts");
+    // Scope classification must not bypass ownership on docs or missing output.
+    // Metadata routing has no checkout/dependencies and must not execute code.
+    for (const scope of ["full", "docs", undefined]) {
+      for (const metadataOnly of [false, true]) {
+        expect(
+          runInNewContext(step.if, {
+            env: { PR_METADATA_ONLY: String(metadataOnly) },
+            steps: { scope: { outputs: { scope } } },
+          })
+        ).toBe(!metadataOnly);
+      }
+    }
+    expect(step.env.PR_BASE_SHA).toContain("pull_request.base.sha");
+    expect(step.env.PR_HEAD_SHA).toContain("pull_request.head.sha");
+    expect(
+      steps.findIndex(
+        (candidate: { name?: string }) =>
+          candidate.name === "Install dependencies"
+      )
+    ).toBeLessThan(gateIndex);
   });
 });
