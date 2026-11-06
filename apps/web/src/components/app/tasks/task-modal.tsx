@@ -1,5 +1,6 @@
+import { useTaskDrawerTarget } from "./use-task-drawer-target";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,8 @@ export function TaskModal({
 }) {
   const [params, setParams] = useSearchParams();
   const id = params.get("task");
-  const taskQuery = useTaskDetail(id);
+  const target = useTaskDrawerTarget(id);
+  const taskQuery = useTaskDetail(target);
   const task = taskQuery.data;
   const projectId = task?.projectId ?? null;
   const boardQuery = useTaskBoard(projectId);
@@ -38,6 +40,11 @@ export function TaskModal({
   const { moveTask, dialog } = useMoveTask(projectId ?? "", board);
   const location = useLocation();
   const navigate = useNavigate();
+  useLayoutEffect(() => {
+    if (!id && contentRef.current?.contains(document.activeElement)) {
+      openerRef.current?.focus({ preventScroll: true });
+    }
+  }, [id]);
   // Paging between tasks replaces the entry; closing pops the one opening
   // pushed, so Back after closing leaves rather than reopening. A deep link
   // has no such entry and drops the param in place.
@@ -66,9 +73,9 @@ export function TaskModal({
     <>
       <Dialog
         modal={false}
-        open={Boolean(id)}
+        open={Boolean(target)}
         onOpenChange={(open) => {
-          if (!open) setTask(null);
+          if (!open && id) setTask(null);
         }}
       >
         <TaskDrawerShell open={Boolean(id)} isMobile={isMobile} close={close}>
@@ -82,19 +89,15 @@ export function TaskModal({
                   ? document.activeElement
                   : null;
             }}
-            onCloseAutoFocus={(event) => {
-              if (openerRef.current?.isConnected) {
-                event.preventDefault();
-                openerRef.current.focus({ preventScroll: true });
-              }
-            }}
+            onCloseAutoFocus={(event) => event.preventDefault()}
+            aria-hidden={!id || undefined}
+            {...(!id ? { inert: "" } : {})}
             // An attachment preview inside the conversation closes on Escape
             // itself; Radix sees the key first and would close the task.
             onEscapeKeyDown={(event) => {
               if (
-                contentRef.current?.querySelector(
-                  '[data-testid="file-lightbox"]'
-                )
+                !id ||
+                document.querySelector('[data-testid="file-lightbox"]')
               )
                 event.preventDefault();
             }}
@@ -106,9 +109,10 @@ export function TaskModal({
             <DialogDescription className="sr-only">
               The task, beside the stream you were reading.
             </DialogDescription>
-            {id && projectId && board ? (
+            {target && projectId && board ? (
               <TaskDetailPanel
-                id={id}
+                id={target}
+                active={Boolean(id)}
                 projectId={projectId}
                 columns={columns}
                 boardTasks={board.tasks}

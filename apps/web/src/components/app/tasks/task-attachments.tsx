@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { fileMedia } from "@dispatch/shared";
 import { useState } from "react";
 import type { TaskAttachment } from "../../../../../server/src/tasks/types";
@@ -42,12 +43,15 @@ export function TaskAttachments({
           />
         ))}
       </div>
-      <FileLightbox
-        files={files}
-        fileId={fileId}
-        fileIds={files.map((file) => file.id)}
-        setFileId={setFileId}
-      />
+      {createPortal(
+        <FileLightbox
+          files={files}
+          fileId={fileId}
+          fileIds={files.map((file) => file.id)}
+          setFileId={setFileId}
+        />,
+        document.body
+      )}
     </>
   );
 }

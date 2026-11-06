@@ -1,3 +1,4 @@
+import { useTaskDrawerTarget } from "./use-task-drawer-target";
 import { DrawerFrame } from "../drawer";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { glassPanel } from "@/lib/glass";
@@ -5,7 +6,7 @@ import { TaskLabelPicker } from "./task-labels";
 import { TaskLaunchTemplateEditor } from "./task-launch-template";
 import { TaskAttachments } from "./task-attachments";
 import { TaskDeleteDialog } from "./task-delete-dialog";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useTaskChatUnread } from "@/hooks/use-chat-unread-summary";
@@ -141,14 +142,19 @@ export function TaskDrawer({
   open = true,
   ...props
 }: TaskDetailProps & { open?: boolean }) {
+  const target = useTaskDrawerTarget(open && props.id ? props.id : null);
+  const heldProps = useRef(props);
+  if (open && props.id) heldProps.current = props;
   return (
     <TaskDrawerShell open={open} isMobile={props.isMobile} close={props.close}>
       <aside
         data-testid="task-drawer"
         aria-label="Task"
         className="flex h-full min-h-0 flex-col"
+        aria-hidden={!open || undefined}
+        {...(!open ? { inert: "" } : {})}
       >
-        {props.id && <TaskDetailPanel {...props} />}
+        {target && <TaskDetailPanel {...heldProps.current} active={open} />}
       </aside>
     </TaskDrawerShell>
   );
@@ -170,9 +176,11 @@ export function TaskDetailPanel({
   moveTask,
   isMobile,
   headerAction,
+  active = true,
 }: TaskDetailProps & {
   /** Rendered in the header before the close button. */
   headerAction?: React.ReactNode;
+  active?: boolean;
 }) {
   const { data: task, isLoading } = useTaskDetail(id);
   const actions = useTaskActions(projectId);
@@ -182,12 +190,15 @@ export function TaskDetailPanel({
   const explicitPane = params.get(TASK_PANE_PARAM);
   const linkedConversation =
     params.has(BLOCK_PARAM) || params.has(THREAD_PARAM);
-  const pane =
+  const requestedPane =
     explicitPane === "details" || explicitPane === "conversation"
       ? explicitPane
       : linkedConversation
         ? "conversation"
         : "details";
+  const heldPane = useRef(requestedPane);
+  if (active) heldPane.current = requestedPane;
+  const pane = active ? requestedPane : heldPane.current;
   const changePane = (value: string) => {
     const next = new URLSearchParams(params);
     next.set(TASK_PANE_PARAM, value);
@@ -701,7 +712,7 @@ export function TaskDetailPanel({
             <TaskConversation
               key={task.id}
               taskId={task.id}
-              active={pane === "conversation"}
+              active={active && pane === "conversation"}
               assignee={assignee}
               isMobile={isMobile}
               memberIds={memberIds}

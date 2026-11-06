@@ -1,7 +1,14 @@
+import { createPortal } from "react-dom";
 // @vitest-environment jsdom
 import { useEffect, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import {
   MemoryRouter,
   Route,
@@ -94,7 +101,14 @@ function Preview() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
   return open ? (
-    <div data-testid="file-lightbox" role="dialog" aria-label="File viewer" />
+    createPortal(
+      <div
+        data-testid="file-lightbox"
+        role="dialog"
+        aria-label="File viewer"
+      />,
+      document.body
+    )
   ) : (
     <button onClick={() => setOpen(true)}>Preview</button>
   );
@@ -281,4 +295,20 @@ it("preserves deep-link history when selecting another assigned task", () => {
   expect(where()).toBe("/agents/a1?project=p1");
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(where()).toBe("/agents/a1?from=before");
+});
+
+it("retains the actual task panel inert during close, while restoring focus immediately", async () => {
+  renderStream("/agents/a1?project=p1");
+  const row = screen.getByRole("button", { name: /^Task:/ });
+  row.focus();
+  fireEvent.click(row);
+  const close = screen.getByRole("button", { name: "Close task" });
+  close.focus();
+  fireEvent.click(close);
+  expect(document.activeElement).toBe(row);
+  const panel = screen.getByTestId("task-panel");
+  expect(panel.textContent).toContain("tsk_1");
+  expect(panel.closest("[inert]")).not.toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(screen.queryByTestId("task-panel")).toBeNull());
 });
