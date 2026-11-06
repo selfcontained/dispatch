@@ -20,18 +20,73 @@ function fixture(count = 1) {
     })
   );
   const publish = vi.fn();
+  const notify = vi.fn().mockResolvedValue(undefined);
   const listAgentIds = vi.fn().mockResolvedValue(["a", "b"]);
   const service = new PullRequestRefresher({
     pool: { query } as unknown as Pool,
     read,
     publish,
+    notify,
     listAgentIds,
     warn: vi.fn(),
   });
-  return { rows, query, read, publish, service, listAgentIds };
+  return { rows, query, read, publish, notify, service, listAgentIds };
 }
 afterEach(() => vi.useRealTimers());
 describe("server PR orchestration", () => {
+  it("announces observed transitions once to each existing owner, retaining baseline through errors", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.rows.push({ ...f.rows[0], author_agent_id: "b" });
+    f.rows.push({ ...f.rows[0], id: "duplicate" });
+    let status: AgentPullRequest["status"] = "Draft";
+    f.read.mockImplementation(async (url, title) => ({ url, title, status }));
+    await f.service.refresh();
+    expect(f.notify).not.toHaveBeenCalled();
+    for (const next of [
+      "Open",
+      "Draft",
+      "Open",
+      "Unavailable",
+      "Closed",
+      "Open",
+      "Merged",
+    ] as const) {
+      status = next;
+      vi.setSystemTime(Date.now() + 6 * 60 * 60_000);
+      await Promise.all([f.service.refresh(), f.service.refresh()]);
+    }
+    expect(f.notify).toHaveBeenCalledTimes(12);
+    expect(f.notify.mock.calls.map(([id]) => id)).toEqual(
+      Array(6).fill(["a", "b"]).flat()
+    );
+    expect(f.notify).toHaveBeenCalledWith(
+      "a",
+      expect.objectContaining({ status: "Open" }),
+      expect.objectContaining({ status: "Closed" })
+    );
+    vi.setSystemTime(Date.now() + 24 * 60 * 60_000);
+    await f.service.refresh();
+    expect(f.notify).toHaveBeenCalledTimes(12);
+  });
+  it("publishes cache updates despite recipient failures and ignores unchanged polls", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    await f.service.refresh();
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    await f.service.refresh();
+    expect(f.notify).not.toHaveBeenCalled();
+    f.notify.mockRejectedValue(new Error("recipient unavailable"));
+    f.read.mockImplementation(async (url, title) => ({
+      url,
+      title,
+      status: "Closed",
+    }));
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    await f.service.refresh();
+    expect(f.service.get("a")[0].status).toBe("Closed");
+    expect(f.notify).toHaveBeenCalledTimes(1);
+  });
   it("deduplicates across agents and ignores ordinary links with PR-looking URLs", async () => {
     const f = fixture();
     f.rows.push({ ...f.rows[0], author_agent_id: "b" });

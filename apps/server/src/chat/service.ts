@@ -2677,6 +2677,46 @@ export class StreamService {
   }
 
   /** Durable scheduled-message notice; never sends an agent-to-agent prompt. */
+  /** Persist a system observation in the owner's home, without creating PR inventory. */
+  async pullRequestTransition(
+    agentId: string,
+    previous: import("@dispatch/shared").AgentPullRequest,
+    current: import("@dispatch/shared").AgentPullRequest
+  ): Promise<Block> {
+    return this.withWrite(await this.streamOf(agentId), async () => {
+      await this.requireAgent(agentId);
+      const streamId = await this.streamOf(agentId);
+      const home = await this.homeOf(agentId);
+      const live = await this.canDeliver(agentId, true);
+      const block = await this.store.insert({
+        streamId,
+        author: { kind: "agent", agentId },
+        toAgentId: agentId,
+        kind: "text",
+        threadId: home?.threadId ?? null,
+        replyTo: home?.replyTo ?? null,
+        text: `Dispatch system: tracked PR status changed ${previous.status} → ${current.status}. ${current.title}: ${current.url}`,
+        data: {
+          pullRequestTransition: {
+            previous: previous.status,
+            current: current.status,
+          },
+        },
+        state: null,
+        attachments: [{ type: "pr", url: current.url, title: current.title }],
+        delivered: live ? null : false,
+      });
+      await this.publishEntry(streamId, block.id);
+      if (live)
+        await this.deliverBlock(block, {
+          kind: "agent",
+          agentId,
+          name: "Dispatch system",
+        });
+      return block;
+    });
+  }
+
   async scheduledNotice(
     agentId: string,
     scheduleId: string,
