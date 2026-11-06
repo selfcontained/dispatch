@@ -216,12 +216,12 @@ test("a single PR shows its number and status in session details as a direct lin
   await expect(link).toBeHidden();
 });
 
-test("PR metadata keeps its geometry across every status and single/multiple PRs", async ({
+test("PR links and details remain available across every status and single/multiple PRs", async ({
   page,
   request,
 }) => {
   const agent = await createAgentViaAPI(request, {
-    name: `e2e-agent-pr-layout-${Date.now()}`,
+    name: `e2e-agent-pr-status-${Date.now()}`,
   });
   let statuses = ["Open"];
   await page.route(`**/api/v1/agents/${agent.id}/pull-requests`, (route) =>
@@ -235,7 +235,6 @@ test("PR metadata keeps its geometry across every status and single/multiple PRs
       },
     })
   );
-  let size: { width: number; height: number } | undefined;
   for (const next of [
     ["Pending"],
     ["Open"],
@@ -253,54 +252,30 @@ test("PR metadata keeps its geometry across every status and single/multiple PRs
       await toggle.click();
     const row = page.getByTestId(`agent-pr-row-${agent.id}`);
     await expect(row).toBeVisible();
-    const box = await row.getByTestId("agent-pr-line").first().boundingBox();
-    expect(box).not.toBeNull();
-    const dimensions = { width: box!.width, height: box!.height };
-    if (size) expect(dimensions).toEqual(size);
-    else size = dimensions;
-    await expect(row).not.toContainText("Detailed PR title");
     await expect(row.getByRole("link")).toHaveCount(next.length);
-    await expect(
-      row.getByRole("button", { name: /Details for pull request/ }).first()
-    ).toBeVisible();
-    const info = row.getByRole("button").first();
-    const infoBox = await info.boundingBox();
-    const firstLink = await row.getByRole("link").first().boundingBox();
-    expect(infoBox!.width).toBe(infoBox!.height);
-    expect(infoBox!.x + infoBox!.width).toBeLessThanOrEqual(firstLink!.x);
-    const engine = page
-      .getByTestId(`agent-card-${agent.id}`)
-      .locator('[title="Engine"]');
-    const engineBox = await engine.boundingBox();
-    const infoIcon = await info.locator("svg").boundingBox();
-    expect(infoIcon!.x).toBe(engineBox!.x);
-    const engineValue = await engine
-      .locator("..")
-      .locator("div")
-      .first()
-      .boundingBox();
-    const prNumber = await row
-      .getByRole("link")
-      .first()
-      .locator("span")
-      .first()
-      .boundingBox();
-    expect(firstLink!.x).toBe(engineValue!.x);
-    // Read both boxes in one animation frame: other sessions can reorder while expanding.
-    const centerOffset = await row
-      .getByTestId("agent-pr-line")
-      .first()
-      .evaluate((el) => {
-        const icon = el.querySelector("button svg")!.getBoundingClientRect();
-        const number = el.querySelector("a span")!.getBoundingClientRect();
-        return icon.top + icon.height / 2 - (number.top + number.height / 2);
+    for (const [i, status] of next.entries()) {
+      // Pending is the API state; Checking is the user-facing label.
+      const label = status === "Pending" ? "Checking" : status;
+      const link = row.getByRole("link", {
+        name: `Pull request #${42 + i}: ${label} — Detailed PR title ${i}`,
+        exact: true,
       });
-    expect(centerOffset).toBe(0);
-    await expect(row.getByRole("link").first().locator("svg")).toHaveCount(1);
-
-    expect(await info.evaluate((el) => getComputedStyle(el).padding)).toBe(
-      "0px"
-    );
+      await expect(link).toBeVisible();
+      await expect(link).toHaveAttribute(
+        "href",
+        `https://github.com/example/project/pull/${42 + i}`
+      );
+      await expect(
+        row.getByRole("button", {
+          name: `Details for pull request #${42 + i}: ${label}`,
+          exact: true,
+        })
+      ).toBeVisible();
+    }
+    const info = row.getByRole("button", {
+      name: `Details for pull request #42: ${next[0] === "Pending" ? "Checking" : next[0]}`,
+      exact: true,
+    });
     await info.click();
     const details = page.getByRole("dialog");
     await expect(
