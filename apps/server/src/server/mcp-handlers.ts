@@ -358,7 +358,10 @@ async function handleLaunchAgent(
   }
   const selectedPersona = input.persona
     ? await resolveLaunchPersona(
-        input.cwd ?? agentWorkspaceDir(parent) ?? parent.cwd,
+        input.cwd ??
+          template?.directory ??
+          agentWorkspaceDir(parent) ??
+          parent.cwd,
         input.persona
       )
     : null;

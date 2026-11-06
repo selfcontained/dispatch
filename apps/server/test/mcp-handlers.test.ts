@@ -883,6 +883,36 @@ describe("createMcpHandlers", () => {
       ).toMatchObject({ role: "review", persona: "security" });
     });
 
+    it("resolves a template task persona from the workspace where the helper will run", async () => {
+      const { resolveWorktreeRoot } =
+        await import("../src/shared/git/git-context.js");
+      vi.mocked(resolveWorktreeRoot).mockResolvedValueOnce("/template-repo");
+      vi.mocked(loadPersonaBySlug).mockResolvedValueOnce({
+        slug: "builder",
+        name: "Builder",
+        description: "Build",
+        type: "task",
+        body: "Template repo instructions",
+      });
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ directory: "/template-repo" })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "builder",
+        prompt: "Implement feature",
+        templateId: "tmpl_123",
+        persona: "builder",
+      });
+      expect(resolveWorktreeRoot).toHaveBeenLastCalledWith("/template-repo");
+      expect(loadPersonaBySlug).toHaveBeenLastCalledWith(
+        "/template-repo",
+        "builder"
+      );
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/template-repo", persona: "builder" })
+      );
+    });
+
     it("uses normal launch options for a task persona", async () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValueOnce({
         slug: "builder",
