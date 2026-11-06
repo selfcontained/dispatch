@@ -1,8 +1,12 @@
+import { useTaskDrawerTarget } from "./use-task-drawer-target";
+import { DrawerFrame } from "../drawer";
+import { GlassSidebar } from "@/components/ui/glass-sidebar";
+import { glassPanel } from "@/lib/glass";
 import { TaskLabelPicker } from "./task-labels";
 import { TaskLaunchTemplateEditor } from "./task-launch-template";
 import { TaskAttachments } from "./task-attachments";
 import { TaskDeleteDialog } from "./task-delete-dialog";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useTaskChatUnread } from "@/hooks/use-chat-unread-summary";
@@ -93,16 +97,66 @@ export type TaskDetailProps = {
   isMobile: boolean;
 };
 
-/** The Tasks surface's side drawer over the board. */
-export function TaskDrawer(props: TaskDetailProps) {
+/** Shared task drawer shell on the board and over an agent session. */
+export function TaskDrawerShell({
+  open,
+  isMobile,
+  close,
+  children,
+}: {
+  open: boolean;
+  isMobile: boolean;
+  close: () => void;
+  children: React.ReactNode;
+}) {
+  if (isMobile)
+    return (
+      <GlassSidebar
+        open={open}
+        onOpenChange={(value) => {
+          if (!value) close();
+        }}
+        side="right"
+        mobile
+        label="Task"
+      >
+        {children}
+      </GlassSidebar>
+    );
   return (
-    <aside
-      data-testid="task-drawer"
-      aria-label="Task"
-      className="fixed inset-0 z-40 flex h-dvh flex-col md:h-auto bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(600px,100%)] md:border-l md:border-border md:shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.6)]"
-    >
-      <TaskDetailPanel {...props} />
-    </aside>
+    <DrawerFrame open={open} pinned={false} testId="task-drawer-wrapper">
+      <div
+        className={cn(
+          "flex h-full min-h-0 flex-col rounded-l-lg border-l text-foreground shadow-2xl",
+          glassPanel
+        )}
+      >
+        {children}
+      </div>
+    </DrawerFrame>
+  );
+}
+
+/** The same sliding task drawer on every surface. */
+export function TaskDrawer({
+  open = true,
+  ...props
+}: TaskDetailProps & { open?: boolean }) {
+  const target = useTaskDrawerTarget(open && props.id ? props.id : null);
+  const heldProps = useRef(props);
+  if (open && props.id) heldProps.current = props;
+  return (
+    <TaskDrawerShell open={open} isMobile={props.isMobile} close={props.close}>
+      <aside
+        data-testid="task-drawer"
+        aria-label="Task"
+        className="flex h-full min-h-0 flex-col"
+        aria-hidden={!open || undefined}
+        {...(!open ? { inert: "" } : {})}
+      >
+        {target && <TaskDetailPanel {...heldProps.current} active={open} />}
+      </aside>
+    </TaskDrawerShell>
   );
 }
 
@@ -122,9 +176,11 @@ export function TaskDetailPanel({
   moveTask,
   isMobile,
   headerAction,
+  active = true,
 }: TaskDetailProps & {
   /** Rendered in the header before the close button. */
   headerAction?: React.ReactNode;
+  active?: boolean;
 }) {
   const { data: task, isLoading } = useTaskDetail(id);
   const actions = useTaskActions(projectId);
@@ -134,12 +190,15 @@ export function TaskDetailPanel({
   const explicitPane = params.get(TASK_PANE_PARAM);
   const linkedConversation =
     params.has(BLOCK_PARAM) || params.has(THREAD_PARAM);
-  const pane =
+  const requestedPane =
     explicitPane === "details" || explicitPane === "conversation"
       ? explicitPane
       : linkedConversation
         ? "conversation"
         : "details";
+  const heldPane = useRef(requestedPane);
+  if (active) heldPane.current = requestedPane;
+  const pane = active ? requestedPane : heldPane.current;
   const changePane = (value: string) => {
     const next = new URLSearchParams(params);
     next.set(TASK_PANE_PARAM, value);
@@ -201,7 +260,7 @@ export function TaskDetailPanel({
       : task?.createdBy.kind;
   return (
     <>
-      <header className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-card/60 px-2 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] text-xs text-muted-foreground">
+      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[env(safe-area-inset-top)] text-xs text-muted-foreground">
         <Button
           size="icon"
           variant="ghost"
@@ -653,7 +712,7 @@ export function TaskDetailPanel({
             <TaskConversation
               key={task.id}
               taskId={task.id}
-              active={pane === "conversation"}
+              active={active && pane === "conversation"}
               assignee={assignee}
               isMobile={isMobile}
               memberIds={memberIds}

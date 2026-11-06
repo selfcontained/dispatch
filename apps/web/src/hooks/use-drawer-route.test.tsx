@@ -13,7 +13,10 @@ function setup(search: string) {
     </MemoryRouter>
   );
   return renderHook(
-    () => ({ route: useDrawerRoute(), search: useLocation().search }),
+    () => ({
+      route: useDrawerRoute(),
+      search: useLocation().search,
+    }),
     { wrapper }
   );
 }
@@ -54,4 +57,10 @@ describe("useDrawerRoute", () => {
     act(() => result.current.route.back());
     expect(result.current.search).toBe("?file=x");
   });
+});
+
+it("replaces the task pane when opening an agent thread, preserving scope", () => {
+  const { result } = setup("?project=p1&task=task1&pane=conversation");
+  act(() => result.current.route.openThread("thread1"));
+  expect(result.current.search).toBe("?project=p1&thread=thread1");
 });

@@ -32,6 +32,8 @@ export function useDrawerRoute(): DrawerRoute {
     (blockId: string, finding?: string) => {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
+        next.delete("task");
+        next.delete("pane");
         next.set(THREAD_PARAM, blockId);
         if (finding) next.set(FINDING_PARAM, finding);
         else next.delete(FINDING_PARAM);

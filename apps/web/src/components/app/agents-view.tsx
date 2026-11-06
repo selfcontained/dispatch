@@ -1,3 +1,4 @@
+import { TaskModal } from "./tasks/task-modal";
 import { useProjectNavigate, useProjectScope } from "@/hooks/use-projects";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { PendingInputsButton } from "./chat/pending-inputs-button";
@@ -14,7 +15,7 @@ import {
 const FilesPane = lazy(() =>
   import("./files-pane").then((module) => ({ default: module.FilesPane }))
 );
-import { Routes, Route, useParams } from "react-router-dom";
+import { Routes, Route, useParams, useSearchParams } from "react-router-dom";
 import { useAtom } from "jotai";
 
 import { chatShowChildAgentsAtom, type CenterTab } from "@/lib/store";
@@ -298,7 +299,16 @@ export function AgentsView({
   const drawerRoute = useDrawerRoute();
   const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
     drawerRoute;
-  const threadDrawerOpen = drawerRoute.depth > 0 && hasActiveAgent;
+  const [taskPaneParams] = useSearchParams();
+  const threadDrawerOpen =
+    drawerRoute.depth > 0 && hasActiveAgent && !taskPaneParams.has("task");
+  const taskPaneOpen = taskPaneParams.has("task");
+  useEffect(() => {
+    if (isMobile && taskPaneOpen) {
+      setMobileLeftOpen(false);
+      setMobileDrawerOpen(false);
+    }
+  }, [isMobile, taskPaneOpen, setMobileLeftOpen, setMobileDrawerOpen]);
   const pinnedReserve = drawerPinnedReserve(leftOpen);
   // On a phone with no agent selected the center pane is an empty prompt,
   // so the sidebar opens in its place. Only on entering that state, so
@@ -519,7 +529,7 @@ export function AgentsView({
     ) : null;
 
   return (
-    <div className="h-full min-h-0 overflow-hidden text-foreground">
+    <div className="relative h-full min-h-0 overflow-hidden text-foreground">
       <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
         <NavigationSidebar
           isMobile={isMobile}
@@ -678,7 +688,12 @@ export function AgentsView({
           </DrawerFrame>
           {!isMobile ? (
             <Drawer
-              drawerOpen={drawerOpen && hasActiveAgent && !threadDrawerOpen}
+              drawerOpen={
+                drawerOpen &&
+                hasActiveAgent &&
+                !threadDrawerOpen &&
+                !taskPaneOpen
+              }
               files={visibleFiles}
               selectedAgentId={focusedAgentId}
               selectedAgentName={focusedAgent?.name ?? null}
@@ -769,6 +784,7 @@ export function AgentsView({
         </GlassSidebar>
       ) : null}
 
+      <TaskModal agents={agents} isMobile={isMobile} />
       <AgentsViewDialogs
         paletteOpen={paletteOpen}
         setPaletteOpen={setPaletteOpen}

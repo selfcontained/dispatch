@@ -1,7 +1,14 @@
+import { createPortal } from "react-dom";
 // @vitest-environment jsdom
 import { useEffect, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import {
   MemoryRouter,
   Route,
@@ -9,17 +16,31 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { AssignedTaskChip } from "@/components/app/agent-pane";
+import { AssignedTaskRow } from "@/components/app/assigned-task-row";
 import { TaskModal } from "./task-modal";
 
-const task = { id: "tsk_1", projectId: "p1", title: "Build the board" };
+const task = {
+  id: "tsk_1",
+  projectId: "p1",
+  title: "Build the board",
+  columnId: "c1",
+  assignedAgentId: "a2",
+};
+const otherTask = {
+  ...task,
+  id: "tsk_other",
+  title: "Another task",
+  assignedAgentId: "a3",
+};
 const failing = vi.hoisted(() => ({
   task: null as Error | null,
   board: null as Error | null,
   refetch: vi.fn(),
 }));
 vi.mock("@/hooks/use-tasks", () => ({
-  useAssignedTasks: () => ({ data: [task] }),
+  useAssignedTasks: (agentId: string) => ({
+    data: [agentId === "a3" ? otherTask : task],
+  }),
   useTaskDetail: (id: string | null) => ({
     data: id && !failing.task ? task : undefined,
     error: id ? failing.task : null,
@@ -28,7 +49,14 @@ vi.mock("@/hooks/use-tasks", () => ({
   useTaskBoard: (projectId: string | null) => ({
     data:
       projectId && !failing.board
-        ? { projectId, columns: [], tasks: [{ ...task, position: 0 }] }
+        ? {
+            projectId,
+            columns: [{ id: "c1", name: "Building" }],
+            tasks: [
+              { ...task, position: 0 },
+              { ...otherTask, position: 0 },
+            ],
+          }
         : undefined,
     error: projectId ? failing.board : null,
     refetch: failing.refetch,
@@ -37,6 +65,9 @@ vi.mock("@/hooks/use-tasks", () => ({
 }));
 // The panel is the drawer's own; here only what the modal hands it matters.
 vi.mock("./task-drawer", () => ({
+  TaskDrawerShell: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   TaskDetailPanel: ({
     id,
     close,
@@ -70,7 +101,14 @@ function Preview() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
   return open ? (
-    <div data-testid="file-lightbox" role="dialog" aria-label="File viewer" />
+    createPortal(
+      <div
+        data-testid="file-lightbox"
+        role="dialog"
+        aria-label="File viewer"
+      />,
+      document.body
+    )
   ) : (
     <button onClick={() => setOpen(true)}>Preview</button>
   );
@@ -94,7 +132,7 @@ function Where() {
     </>
   );
 }
-const renderStream = (entry: string) =>
+const renderStream = (entry: string, includeOther = false) =>
   render(
     <MemoryRouter
       initialEntries={["/agents/a1?from=before", entry]}
@@ -106,7 +144,8 @@ const renderStream = (entry: string) =>
           element={
             <>
               <div data-testid="stream">stream</div>
-              <AssignedTaskChip agentId="a1" />
+              <AssignedTaskRow agentId="a2" />
+              {includeOther && <AssignedTaskRow agentId="a3" />}
               <TaskModal agents={[]} isMobile={false} />
               <Where />
             </>
@@ -122,15 +161,12 @@ it("opens the agent's task over the stream and closes back to it", () => {
   renderStream("/agents/a1?project=p1");
   const stream = screen.getByTestId("stream");
   fireEvent.click(
-    screen.getByRole("button", { name: "Task: Build the board" })
+    screen.getByRole("button", { name: "Task: Build the board, Building" })
   );
-  expect(where()).toBe("/agents/a1?project=p1&task=tsk_1&pane=conversation");
+  expect(where()).toBe("/agents/a1?project=p1&task=tsk_1&pane=details");
   expect(screen.getByRole("dialog").textContent).toContain("tsk_1");
   // The stream stays mounted under the modal: its scroll is untouched.
   expect(screen.getByTestId("stream")).toBe(stream);
-  expect(
-    screen.getByRole("link", { name: /Open in Tasks/ }).getAttribute("href")
-  ).toBe("/tasks?task=tsk_1&project=p1");
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(where()).toBe("/agents/a1?project=p1");
@@ -156,12 +192,6 @@ it("opens from a deep link and closes in place", () => {
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-it("links through to the task on the Tasks surface", () => {
-  renderStream("/agents/a1?task=tsk_1");
-  fireEvent.click(screen.getByRole("link", { name: /Open in Tasks/ }));
-  expect(where()).toBe("/tasks?task=tsk_1&project=p1");
-});
-
 it("keeps a way out when the task fails to load", () => {
   failing.task = new Error("Task not found");
   renderStream("/agents/a1?task=tsk_gone");
@@ -178,9 +208,6 @@ it("shows the board's failure instead of loading forever, and closes", () => {
   renderStream("/agents/a1?task=tsk_1");
   expect(screen.getByRole("alert").textContent).toContain("Board unavailable");
   expect(screen.queryByText("Loading task…")).toBeNull();
-  expect(
-    screen.getByRole("link", { name: /Open in Tasks/ }).getAttribute("href")
-  ).toBe("/tasks?task=tsk_1&project=p1");
   fireEvent.click(screen.getAllByRole("button", { name: "Close task" })[0]);
   expect(where()).toBe("/agents/a1");
 });
@@ -201,7 +228,7 @@ it("closes an attachment preview on Escape, not the task", () => {
 it("selects Details when paging and preserves the modal closing history", () => {
   renderStream("/agents/a1");
   fireEvent.click(screen.getByRole("button", { name: /^Task:/ }));
-  expect(where()).toContain("pane=conversation");
+  expect(where()).toContain("pane=details");
   fireEvent.click(screen.getByRole("button", { name: "Next task" }));
   expect(where()).toBe("/agents/a1?task=tsk_2&pane=details");
   fireEvent.click(screen.getByRole("button", { name: "Close task" }));
@@ -216,9 +243,12 @@ it.each(["block=b1", "thread=t1", "block=b1&thread=t1"])(
     const underlying = `/agents/a1?project=p1&${target}`;
     renderStream(underlying);
     fireEvent.click(screen.getByRole("button", { name: /^Task:/ }));
-    expect(where()).toBe(`${underlying}&task=tsk_1&pane=conversation`);
+    const active = target.includes("thread=")
+      ? "/agents/a1?project=p1"
+      : underlying;
+    expect(where()).toBe(`${active}&task=tsk_1&pane=details`);
     fireEvent.click(screen.getByRole("button", { name: "Next task" }));
-    expect(where()).toBe(`${underlying}&task=tsk_2&pane=details`);
+    expect(where()).toBe(`${active}&task=tsk_2&pane=details`);
     fireEvent.click(screen.getByRole("button", { name: "Close task" }));
     expect(where()).toBe(underlying);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
@@ -234,4 +264,51 @@ it("clears pane on deep-linked modal close while preserving underlying targets",
   expect(where()).toBe("/agents/a1?block=b1&thread=t1");
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(where()).toBe("/agents/a1?from=before");
+});
+
+it.each([false, true])(
+  "closes after repeated sidebar selections (switch=%s)",
+  (switchTask) => {
+    renderStream("/agents/a1?project=p1", true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Task: Build the board, Building" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: switchTask
+          ? "Task: Another task, Building"
+          : "Task: Build the board, Building",
+      })
+    );
+    expect(where()).toContain(switchTask ? "task=tsk_other" : "task=tsk_1");
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    expect(where()).toBe("/agents/a1?project=p1");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  }
+);
+it("preserves deep-link history when selecting another assigned task", () => {
+  renderStream("/agents/a1?project=p1&task=tsk_1", true);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Task: Another task, Building" })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+  expect(where()).toBe("/agents/a1?project=p1");
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(where()).toBe("/agents/a1?from=before");
+});
+
+it("retains the actual task panel inert during close, while restoring focus immediately", async () => {
+  renderStream("/agents/a1?project=p1");
+  const row = screen.getByRole("button", { name: /^Task:/ });
+  row.focus();
+  fireEvent.click(row);
+  const close = screen.getByRole("button", { name: "Close task" });
+  close.focus();
+  fireEvent.click(close);
+  expect(document.activeElement).toBe(row);
+  const panel = screen.getByTestId("task-panel");
+  expect(panel.textContent).toContain("tsk_1");
+  expect(panel.closest("[inert]")).not.toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(screen.queryByTestId("task-panel")).toBeNull());
 });

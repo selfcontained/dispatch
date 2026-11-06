@@ -517,3 +517,110 @@ it("discards deletion confirmation on selection change and never closes the repl
     vi.unstubAllGlobals();
   }
 });
+
+it("keeps the shared sliding frame mounted across task open and close", async () => {
+  const { TaskDrawerShell } = await import("./task-drawer");
+  const view = render(
+    <TaskDrawerShell open={false} isMobile={false} close={() => {}}>
+      <span>Task content</span>
+    </TaskDrawerShell>
+  );
+  const frame = screen.getByTestId("task-drawer-wrapper");
+  const closedTransform = frame.style.transform;
+  view.rerender(
+    <TaskDrawerShell open isMobile={false} close={() => {}}>
+      <span>Task content</span>
+    </TaskDrawerShell>
+  );
+  expect(screen.getByTestId("task-drawer-wrapper")).toBe(frame);
+  expect(frame.style.transform).not.toBe(closedTransform);
+  view.rerender(
+    <TaskDrawerShell open={false} isMobile={false} close={() => {}}>
+      <span>Task content</span>
+    </TaskDrawerShell>
+  );
+  expect(screen.getByTestId("task-drawer-wrapper")).toBe(frame);
+  expect(frame.style.transform).toBe(closedTransform);
+});
+
+it("retains board task content inert through the closing slide", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  client.setQueryData(taskKeys.detail(detail.id), detail);
+  const props = {
+    id: detail.id,
+    projectId: detail.projectId,
+    columns: [],
+    boardTasks: [detail],
+    agents: [],
+    close: vi.fn(),
+    openTask: vi.fn(),
+    moveTask: vi.fn(),
+    isMobile: false,
+  };
+  const tree = (open: boolean) => (
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <TaskDrawer {...props} id={open ? detail.id : ""} open={open} />
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+  const view = render(tree(true));
+  expect(
+    screen.getByRole("button", { name: "Original description" })
+  ).toBeTruthy();
+  view.rerender(tree(false));
+  const drawer = screen.getByTestId("task-drawer");
+  expect(drawer.textContent).toContain("Original description");
+  expect(drawer.hasAttribute("inert")).toBe(true);
+  await waitFor(() =>
+    expect(drawer.textContent).not.toContain("Original description")
+  );
+});
+
+it("keeps Conversation selected when closing clears its URL pane", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  client.setQueryData(taskKeys.detail(detail.id), detail);
+  function Board() {
+    const [params, setParams] = useSearchParams();
+    return (
+      <>
+        <button onClick={() => setParams({})}>Clear route</button>
+        <TaskDrawer
+          id={params.get("task") ?? ""}
+          open={params.has("task")}
+          projectId={detail.projectId}
+          columns={[]}
+          boardTasks={[detail]}
+          agents={[]}
+          close={() => setParams({})}
+          openTask={vi.fn()}
+          moveTask={vi.fn()}
+          isMobile={false}
+        />
+      </>
+    );
+  }
+  render(
+    <MemoryRouter initialEntries={[`/?task=${detail.id}&pane=conversation`]}>
+      <QueryClientProvider client={client}>
+        <Board />
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+  expect(
+    screen.getByRole("tab", { name: "Conversation" }).getAttribute("data-state")
+  ).toBe("active");
+  fireEvent.click(screen.getByRole("button", { name: "Clear route" }));
+  const conversation = screen.getByTestId("task-conversation");
+  expect(
+    conversation.closest('[role="tabpanel"]')?.getAttribute("data-state")
+  ).toBe("active");
+  expect(conversation.getAttribute("data-active")).toBe("false");
+  await waitFor(() =>
+    expect(screen.queryByTestId("task-conversation")).toBeNull()
+  );
+});
