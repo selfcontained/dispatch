@@ -165,7 +165,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
           return false;
         }
       };
-      const secondId = `${id}_independent`;
+      const secondId = `agt_peer_${mode[0]}`;
       const before = execFileSync("git", ["status", "--porcelain"], {
         cwd,
         encoding: "utf8",
@@ -210,6 +210,53 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       }
     }
   );
+
+  it("reports unavailable enumeration without claiming another session", async () => {
+    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const target = "agt_scan";
+    const peer = "agt_peer";
+    const originalPath = process.env.PATH;
+    const before = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+    });
+    try {
+      await runtime.launch(launchFor(target, cwd));
+      await runtime.launch(launchFor(peer, cwd));
+      process.env.PATH = "/nonexistent-owned-test";
+      try {
+        await expect(runtime.stop(target, true)).rejects.toThrow(
+          "Unable to enumerate owned processes"
+        );
+      } finally {
+        process.env.PATH = originalPath;
+      }
+      expect(await runtime.isAlive(target)).toBe(false);
+      expect(await runtime.isAlive(peer)).toBe(true);
+      const turn = runtime.prompt(
+        peer,
+        "still usable after enumeration failure"
+      );
+      await turn.accepted;
+      await turn.settled;
+      expect(
+        execFileSync("git", ["status", "--porcelain"], {
+          cwd,
+          encoding: "utf8",
+        })
+      ).toBe(before);
+      expect(readFileSync(path.join(cwd, "user-notes.txt"), "utf8")).toBe(
+        "preserve user work\n"
+      );
+    } finally {
+      process.env.PATH = originalPath;
+      try {
+        await runtime.stop(target, true);
+      } finally {
+        await runtime.stop(peer, true);
+      }
+    }
+  });
 
   it("interrupts real host work then starts urgent input in a separate turn", async () => {
     const id = "agt_interrupt";
