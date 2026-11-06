@@ -7715,6 +7715,97 @@ describe("shown-block context boundaries", () => {
       ]);
     }
   });
+  it.each(["question", "form"] as const)(
+    "routes reviewer %s requests to the initiating child",
+    async (kind) => {
+      await pool.query(
+        "UPDATE agents SET role='review', launched_by_agent_id=$1 WHERE id=$2",
+        [B, C]
+      );
+      const { svc, injected } = setup();
+      const payload =
+        kind === "question"
+          ? { question: { options: [{ label: "Yes" }] } }
+          : {
+              form: {
+                fields: [{ id: "answer", label: "Answer", type: "text" }],
+              },
+            };
+      for (const to of [undefined, B]) {
+        const request = await svc.post(C, {
+          to,
+          text: "Clarify child scope",
+          ...payload,
+        });
+        expect(request.toAgentId).toBe(B);
+        expect(request.data).toMatchObject({ parentHandled: true });
+      }
+      await svc.waitForInFlightDeliveries(1000);
+      expect(injected.map((i) => i.agentId)).toEqual([B, B]);
+    }
+  );
+  it("keeps concurrent root and child review recipients independent", async () => {
+    const D = "agt_root_review_peer";
+    await pool.query("UPDATE agents SET parent_agent_id=$1 WHERE id=$2", [
+      A,
+      B,
+    ]);
+    await pool.query(
+      "INSERT INTO agents(id,name,cwd,status,parent_agent_id,launched_by_agent_id) VALUES($1,'Root reviewer','/tmp','running',$2,$2)",
+      [D, A]
+    );
+    await pool.query("UPDATE agents SET launched_by_agent_id=$1 WHERE id=$2", [
+      B,
+      C,
+    ]);
+    const { svc, injected } = build({
+      deps: {
+        getAgent: async (id) =>
+          [C, D].includes(id)
+            ? { id, name: id, filesDir: null, status: "running" }
+            : getAgent(id),
+      },
+    });
+    try {
+      await svc.prepareLaunchContext({ agentId: C, launchedByAgentId: B });
+      await svc.prepareLaunchContext({ agentId: D, launchedByAgentId: A });
+      const [childReview, rootReview] = await Promise.all([
+        svc.post(C, {
+          to: B,
+          review: { summary: "Child-only result", findings: [] },
+        }),
+        svc.post(D, {
+          to: A,
+          review: { summary: "Root-only result", findings: [] },
+        }),
+      ]);
+      await svc.waitForInFlightDeliveries(1000);
+      expect(childReview.toAgentId).toBe(B);
+      expect(rootReview.toAgentId).toBe(A);
+      expect(childReview.streamId).toBe(A);
+      expect(rootReview.streamId).toBe(A);
+      expect(injected).toHaveLength(2);
+      expect(injected.find((i) => i.agentId === B)!.text).toContain(
+        "Child-only result"
+      );
+      expect(injected.find((i) => i.agentId === B)!.text).not.toContain(
+        "Root-only result"
+      );
+      expect(injected.find((i) => i.agentId === A)!.text).toContain(
+        "Root-only result"
+      );
+      expect(injected.find((i) => i.agentId === A)!.text).not.toContain(
+        "Child-only result"
+      );
+      expect((await svc.getReview(B, childReview.id)).id).toBe(childReview.id);
+      expect((await svc.getReview(A, rootReview.id)).id).toBe(rootReview.id);
+    } finally {
+      await pool.query("UPDATE agents SET parent_agent_id=NULL WHERE id=$1", [
+        B,
+      ]);
+      await pool.query("DELETE FROM agents WHERE id=$1", [D]);
+    }
+  });
   it("does not grant an enclosing launch thread to a foreign review recipient, including automatic context", async () => {
     const { svc, injected } = setup();
     const launch = await svc.ensureLaunchBlock(C);

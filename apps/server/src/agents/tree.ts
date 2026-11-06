@@ -67,3 +67,18 @@ export async function parentAgentId(
   );
   return result.rows[0]?.parent_agent_id ?? null;
 }
+
+/** Review requests belong to their launcher even when display lineage is flat.
+ * Ordinary agents retain their existing parent ownership.
+ */
+export async function requestOwnerAgentId(
+  db: Queryable,
+  agentId: string
+): Promise<string | null> {
+  const result = await db.query<{ owner_id: string | null }>(
+    `SELECT CASE WHEN role = 'review' THEN COALESCE(launched_by_agent_id, parent_agent_id)
+      ELSE parent_agent_id END AS owner_id FROM agents WHERE id = $1`,
+    [agentId]
+  );
+  return result.rows[0]?.owner_id ?? null;
+}

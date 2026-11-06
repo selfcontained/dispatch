@@ -70,7 +70,7 @@ export type PreparedPersonaLaunch = {
 
 /**
  * A persona is a profile: instructions plus defaults, applied to an ordinary
- * launch. This resolves the profile against the parent's worktree (repo
+ * launch. This resolves the profile against the requester's worktree (repo
  * personas win over built-ins), assembles the briefing, and
  * returns everything `createAgent` needs. Nothing here is review-specific:
  * a QA persona, a docs persona and a reviewer all take this path.
@@ -157,9 +157,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   }
 
   /**
-   * Launch a child that runs as a persona, in the parent's worktree, in the
-   * parent's stream, on its launch card. What the child does with its findings is the persona's
-   * business: a reviewer posts a `review` block to the parent.
+   * Launch a reviewer in the requester's worktree and shared stream, beside
+   * the requester when it is a child. The launcher remains the feedback
+   * recipient even when display lineage uses its parent.
    */
   async function launchPersonaAgent(
     parentId: string,

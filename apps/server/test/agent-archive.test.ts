@@ -620,6 +620,7 @@ describe("executeArchive", () => {
         id: string;
         parentAgentId?: string | null;
         launchedByAgentId?: string | null;
+        role?: string;
       }[]
     ) =>
       makePool(async (sql: string, params?: unknown[]) => {
@@ -630,6 +631,7 @@ describe("executeArchive", () => {
               (row) =>
                 row.parentAgentId === targetId ||
                 (sql.includes("launched_by_agent_id") &&
+                  row.role === "review" &&
                   row.launchedByAgentId === targetId)
             )
             .map((row) => ({ id: row.id }));
