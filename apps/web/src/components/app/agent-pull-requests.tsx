@@ -1,8 +1,8 @@
 import { useId, useRef, useState } from "react";
+import { AgentLinkControls } from "./agent-link-controls";
 import { previewPullRequests } from "./agent-pull-requests.preview";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
-  X,
   ExternalLink,
   Clock,
   CircleCheck,
@@ -388,20 +388,13 @@ export function PullRequestRow({
               <CompactChecks ci={isError ? undefined : pr.ci} />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0"
-            data-agent-control="true"
-            aria-label={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
-            title={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDismiss();
-            }}
-          >
-            <X aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
+          <AgentLinkControls
+            url={pr.url}
+            copyLabel={`Copy pull request ${ref.number} URL`}
+            copiedLabel={`Copied pull request ${ref.number} URL`}
+            dismissLabel={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
+            onDismiss={onDismiss}
+          />
         </div>
       </div>
       <PopoverContent
