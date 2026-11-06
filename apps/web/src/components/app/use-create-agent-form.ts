@@ -289,8 +289,7 @@ export function useCreateAgentForm({
           model: modelOptions.some((option) => option.id === createModel)
             ? createModel
             : undefined,
-          effort:
-            createType === "opencode" ? undefined : (createEffort ?? undefined),
+          effort: createEffort ?? undefined,
           fullAccess: createFullAccess,
           useWorktree: submitUseWorktree,
           createNewBranch: submitUseWorktree
@@ -411,7 +410,10 @@ export function useCreateAgentForm({
     createModel,
     createEffort,
     setCreateEffort,
-    setCreateModel,
+    setCreateModel: (model: string | null) => {
+      setCreateModel(model);
+      setCreateEffort(null);
+    },
     modelOptions,
     modelCatalogLoading,
     createBaseBranch,

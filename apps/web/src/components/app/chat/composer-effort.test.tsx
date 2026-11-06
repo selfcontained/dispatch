@@ -95,7 +95,10 @@ it("edits engine-reported effort independently of model and follows updated capa
       {
         ...options[1],
         currentValue: "changed",
-        choices: [{ value: "changed", name: "Updated" }],
+        choices: [
+          { value: "changed", name: "Updated" },
+          { value: "retry", name: "Retry" },
+        ],
       },
     ],
   });
@@ -103,4 +106,10 @@ it("edits engine-reported effort independently of model and follows updated capa
   fireEvent.click(effort);
   expect(screen.queryByRole("radio", { name: "Thorough" })).toBeNull();
   expect(screen.getByRole("radio", { name: "Updated" })).toBeTruthy();
+  apiMock.mockRejectedValueOnce(new Error("Session stopped"));
+  fireEvent.click(screen.getByRole("radio", { name: "Retry" }));
+  await screen.findByRole("alert");
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  fireEvent.click(effort);
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 });

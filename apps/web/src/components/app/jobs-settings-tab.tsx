@@ -280,7 +280,10 @@ export function SettingsTab({
               <AgentModelSelect
                 value={model}
                 options={modelOptions}
-                onChange={setModel}
+                onChange={(value) => {
+                  setModel(value);
+                  setEffort(null);
+                }}
                 loading={modelCatalogLoading}
               />
             ) : null}

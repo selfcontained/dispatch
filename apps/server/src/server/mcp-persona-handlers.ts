@@ -131,7 +131,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
     const model = validateAgentModel(agentType, opts.model);
-    const effort = validateAgentEffort(agentType, opts.effort);
+    const effort = validateAgentEffort(agentType, opts.effort, model);
 
     const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
     const persona =

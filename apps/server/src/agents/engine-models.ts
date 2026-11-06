@@ -171,3 +171,25 @@ function sameModels(
     )
   );
 }
+
+/** Persist the live session's effort, including removal when a model has no option. */
+export async function recordEngineEffort(
+  pool: Pool,
+  agent: { id: string; effort?: string | null },
+  options: readonly SessionConfigOption[]
+): Promise<boolean> {
+  const option = options.find(
+    (o) =>
+      o.type === "select" &&
+      (o.category === "thought_level" ||
+        /effort|reasoning|thinking/i.test(o.id))
+  );
+  const value = option?.type === "select" ? String(option.currentValue) : null;
+  const effort = value === "default" ? null : value;
+  if (effort === (agent.effort ?? null)) return false;
+  await pool.query(
+    "UPDATE agents SET effort = $2, updated_at = NOW() WHERE id = $1",
+    [agent.id, effort]
+  );
+  return true;
+}

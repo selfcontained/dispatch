@@ -475,7 +475,7 @@ async function main(): Promise<void> {
       agentId,
       cwd: launch.cwd,
       engine: spec,
-      effort: launch.effort ?? null,
+      effort: resume ? null : (launch.effort ?? null),
       model: launch.model,
       systemPromptAppend:
         spec.personaDelivery === "system_prompt" ? launch.systemPrompt : null,
@@ -520,7 +520,21 @@ async function main(): Promise<void> {
           });
       }
     }
-    await applyLaunchEffort(driver, agentId, launch.engine, launch.effort);
+    await applyLaunchEffort(
+      driver,
+      agentId,
+      launch.engine,
+      launch.effort,
+      resume
+        ? {
+            onError: (err) =>
+              logger.warn(
+                { agentId, effort: launch.effort, err: String(err) },
+                "host: saved effort is unavailable; keeping engine settings on resume"
+              ),
+          }
+        : undefined
+    );
     running = true;
     await writeFile(
       hostFile(stateDir, "session"),

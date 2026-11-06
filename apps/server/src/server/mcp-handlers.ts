@@ -358,14 +358,15 @@ async function handleLaunchAgent(
   }
   const selectedPersona = input.persona
     ? await resolveLaunchPersona(
-        input.cwd ??
-          template?.directory ??
-          agentWorkspaceDir(parent) ??
-          parent.cwd,
+        input.cwd ?? agentWorkspaceDir(parent) ?? parent.cwd,
         input.persona
       )
     : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
+    if (template)
+      throw new Error(
+        "Review personas cannot be combined with templateId. Launch the template directly or launch the review persona without a template."
+      );
     if (input.cwd && input.cwd !== (agentWorkspaceDir(parent) ?? parent.cwd)) {
       throw new Error(
         "Review personas run in the parent workspace; omit cwd for a review launch."
@@ -388,7 +389,7 @@ async function handleLaunchAgent(
         ? { agentType: input.type as (typeof CLI_AGENT_TYPES)[number] }
         : {}),
       ...(input.model ? { model: input.model } : {}),
-      effort: input.effort ?? template?.effort,
+      effort: input.effort,
     });
     return {
       personaType: "review",
@@ -473,7 +474,12 @@ async function handleLaunchAgent(
   );
   const effort = validateAgentEffort(
     agentType as (typeof CLI_AGENT_TYPES)[number],
-    input.effort ?? template?.effort,
+    input.effort !== undefined
+      ? input.effort
+      : template?.agentType === agentType &&
+          (template.model ?? undefined) === model
+        ? template.effort
+        : null,
     model
   );
 

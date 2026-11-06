@@ -578,20 +578,21 @@ export class TaskService {
     let model: string | null = null;
     let effort: Effort | null = null;
     try {
-      effort = validateAgentEffort(
-        agentType ?? template.agentType,
-        trigger.effort
-      );
-      // Validate the inherited effort too, especially when the runtime changes.
-      validateAgentEffort(
-        agentType ?? template.agentType,
-        effort ?? template.effort
-      );
       model =
         validateAgentModel(
           agentType ?? template.agentType,
           trigger.model ?? undefined
         ) ?? null;
+      const resolved = resolveTemplateLaunch(template, {
+        agentType: agentType ?? undefined,
+        model: model ?? undefined,
+        effort: trigger.effort ?? undefined,
+      });
+      effort = validateAgentEffort(
+        agentType ?? template.agentType,
+        trigger.effort,
+        resolved.model
+      );
     } catch (error) {
       throw invalid(errorMessage(error));
     }

@@ -1147,6 +1147,49 @@ describe("tasks", () => {
 });
 
 describe("triggers", () => {
+  it("validates trigger effort against the effective model, not the CLI default", async () => {
+    const { setLearnedAgentModels, forgetLearnedAgentModels } =
+      await import("../src/shared/agent-models.js");
+    setLearnedAgentModels(
+      "claude",
+      [
+        { id: "a", label: "A", effort: [{ value: "low", name: "Low" }] },
+        { id: "b", label: "B", effort: [{ value: "max", name: "Max" }] },
+      ],
+      "a"
+    );
+    service = build({
+      getTemplate: async (id) =>
+        template({ id, agentType: "claude", model: "a", effort: null }),
+    });
+    try {
+      await expect(
+        withTrigger("ready", { model: "b", effort: "max" })
+      ).resolves.toBeTruthy();
+      await expect(
+        withTrigger("ready", { model: "b", effort: "low" })
+      ).rejects.toThrow(/not supported/);
+    } finally {
+      forgetLearnedAgentModels();
+    }
+  });
+  it("drops inherited effort when the trigger selects another runtime", async () => {
+    service = build({
+      getTemplate: async (id) =>
+        template({ id, agentType: "claude", effort: "max" }),
+    });
+    const ready = await withTrigger("ready", {
+      agentType: "opencode",
+      assign: false,
+    });
+    const task = await service.createTask(
+      { projectId, title: "Different runtime" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]?.resolvedTemplate?.effort).toBeNull();
+  });
+
   it.each([
     [undefined, "high"],
     ["medium", "medium"],

@@ -64,7 +64,12 @@ const UpdateTemplateBodySchema = z.object({
 });
 
 const LaunchBodySchema = z.object({
-  effort: z.string().min(1).max(128).nullable().optional(),
+  effort: z
+    .string()
+    .max(128)
+    .nullable()
+    .optional()
+    .transform((value) => (value === "" ? null : value)),
   args: z.record(z.string(), z.string()).optional(),
   directory: directoryField.optional(),
   projectId: z.string().min(1).nullable().optional(),

@@ -236,7 +236,7 @@ describe("launch payload", () => {
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
     const body = lastJsonBody();
-    expect(body).toEqual({ agentType: "claude", model: null });
+    expect(body).toEqual({ agentType: "claude", model: null, effort: null });
     expect("args" in body).toBe(false);
     expect("startupFiles" in body).toBe(false);
     expect("startupLinks" in body).toBe(false);
@@ -255,6 +255,7 @@ describe("launch payload", () => {
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
     expect(lastJsonBody()).toEqual({
+      effort: null,
       args: { branch: "main" },
       agentType: "claude",
       model: null,
@@ -291,6 +292,7 @@ describe("launch payload", () => {
     fireEvent.click(launchButton());
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
     expect(lastJsonBody()).toEqual({
+      effort: null,
       args: {
         branch: "",
         notes: "Edited notes",
@@ -322,7 +324,11 @@ describe("launch payload", () => {
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "codex", model: null });
+    expect(lastJsonBody()).toEqual({
+      effort: null,
+      agentType: "codex",
+      model: null,
+    });
   });
 });
 
@@ -336,7 +342,11 @@ describe("model override", () => {
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "claude", model: "sonnet" });
+    expect(lastJsonBody()).toEqual({
+      effort: null,
+      agentType: "claude",
+      model: "sonnet",
+    });
   });
 
   it("sends the picked model instead of the template's", async () => {
@@ -347,7 +357,11 @@ describe("model override", () => {
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "claude", model: "opus" });
+    expect(lastJsonBody()).toEqual({
+      effort: null,
+      agentType: "claude",
+      model: "opus",
+    });
   });
 
   it("sends null when the saved model is cleared back to the CLI default", async () => {
@@ -358,7 +372,11 @@ describe("model override", () => {
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "claude", model: null });
+    expect(lastJsonBody()).toEqual({
+      effort: null,
+      agentType: "claude",
+      model: null,
+    });
   });
 
   it("drops a model that the newly selected agent type cannot run", async () => {
@@ -372,7 +390,11 @@ describe("model override", () => {
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "codex", model: null });
+    expect(lastJsonBody()).toEqual({
+      effort: null,
+      agentType: "codex",
+      model: null,
+    });
   });
 
   it("restores the template's model when switching back to its agent type", async () => {
@@ -415,6 +437,7 @@ describe("model override", () => {
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
     expect(lastJsonBody()).toEqual({
+      effort: null,
       agentType: "codex",
       model: "gpt-5.6-sol",
     });
@@ -515,7 +538,11 @@ describe("file attachments", () => {
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
     // Still the plain JSON branch — nothing was attached.
-    expect(lastJsonBody()).toEqual({ agentType: "claude", model: null });
+    expect(lastJsonBody()).toEqual({
+      effort: null,
+      agentType: "claude",
+      model: null,
+    });
   });
 
   it("arms the drop zone only for file drags", async () => {
@@ -669,20 +696,19 @@ it("sends the selected reasoning effort override", async () => {
   );
 });
 
-it("explains incompatible inherited effort before an OpenCode launch", async () => {
+it("uses CLI effort when switching away from the template runtime", async () => {
+  queueLaunchedAgent("default_effort");
   await renderDialog(makeTemplate({ effort: "high" }));
   fireEvent.click(agentTypeSelect());
   fireEvent.click(await screen.findByRole("option", { name: /OpenCode/ }));
-  expect(screen.getByRole("alert").textContent).toContain(
-    'The saved effort "high" is not available'
-  );
-  expect(launchButton().disabled).toBe(true);
-  fireEvent.submit(dialogForm());
-  expect(launchCalls()).toHaveLength(0);
-  fireEvent.click(agentTypeSelect());
-  fireEvent.click(await screen.findByRole("option", { name: /Claude/ }));
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(launchButton().disabled).toBe(false);
+  fireEvent.click(launchButton());
+  await waitFor(() =>
+    expect(lastJsonBody()).toMatchObject({
+      agentType: "opencode",
+      effort: null,
+    })
+  );
 });
 
 it("allows a supported override to resolve inherited max effort for Codex", async () => {
@@ -690,10 +716,8 @@ it("allows a supported override to resolve inherited max effort for Codex", asyn
   await renderDialog(makeTemplate({ effort: "max" }));
   fireEvent.click(agentTypeSelect());
   fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
-  expect(screen.getByRole("alert").textContent).toContain(
-    'The saved effort "max" is not available'
-  );
-  expect(launchButton().disabled).toBe(true);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(launchButton().disabled).toBe(false);
   fireEvent.click(screen.getByTestId("launch-template-effort"));
   fireEvent.click(screen.getByRole("radio", { name: "Medium" }));
   expect(screen.queryByRole("alert")).toBeNull();

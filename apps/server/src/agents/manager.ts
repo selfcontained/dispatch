@@ -63,7 +63,7 @@ import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
-import { recordEngineModels } from "./engine-models.js";
+import { recordEngineModels, recordEngineEffort } from "./engine-models.js";
 import { syncTurnUsage } from "./usage-recorder.js";
 import type {
   PromptSource,
@@ -545,7 +545,8 @@ export class AgentManager {
       { id: agent.id, type: agent.type, model: agent.model ?? null },
       options
     );
-    if (modelChanged)
+    const effortChanged = await recordEngineEffort(this.pool, agent, options);
+    if (modelChanged || effortChanged)
       this.eventBus.publish(await this.getRequiredAgent(agentId));
     if (modelsChanged) {
       for (const listener of this.modelsLearnedListeners) {

@@ -42,7 +42,11 @@ export function resolveTemplateLaunch(
     model: validateAgentModel(agentType, model ?? undefined) ?? null,
     effort: validateAgentEffort(
       agentType,
-      overrides.effort ?? template.effort,
+      overrides.effort !== undefined
+        ? overrides.effort
+        : agentType === template.agentType && model === template.model
+          ? template.effort
+          : null,
       model
     ),
     persona: template.persona ?? null,

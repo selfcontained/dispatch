@@ -168,19 +168,24 @@ export class TemplateService {
       updates.description = input.description;
     if (input.directory !== undefined) updates.directory = input.directory;
     if (input.prompt !== undefined) updates.prompt = input.prompt;
-    const nextEffort = validateAgentEffort(
-      input.agentType ?? existing.agentType,
-      input.effort === undefined ? existing.effort : input.effort,
-      input.model === undefined ? existing.model : input.model
-    );
-    if (input.effort !== undefined || nextEffort !== existing.effort)
-      updates.effort = nextEffort;
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
       existingAgentType: existing.agentType,
       existingModel: existing.model,
     });
+    const nextEffort = validateAgentEffort(
+      input.agentType ?? existing.agentType,
+      input.effort !== undefined
+        ? input.effort
+        : input.agentType && input.agentType !== existing.agentType
+          ? null
+          : existing.effort,
+      nextModel
+    );
+    if (input.effort !== undefined || nextEffort !== existing.effort)
+      updates.effort = nextEffort;
+
     if (input.agentType !== undefined) updates.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)
       updates.model = nextModel;

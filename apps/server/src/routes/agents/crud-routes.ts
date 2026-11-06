@@ -352,11 +352,11 @@ export async function registerAgentCrudRoutes(
     let model: string | undefined;
     let effort: Effort | null;
     try {
-      effort = validateAgentEffort(agentType, body.effort);
       model = validateAgentModel(
         agentType,
         typeof body.model === "string" ? body.model : undefined
       );
+      effort = validateAgentEffort(agentType, body.effort, model);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }

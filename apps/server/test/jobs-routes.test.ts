@@ -681,6 +681,26 @@ describe("project and folder job directories", () => {
 });
 
 describe("job effort", () => {
+  it("clears saved effort on type-only updates, including the backing template", async () => {
+    const created = await createJob("effort-type-change", {
+      agentType: "claude",
+      model: "opus",
+      effort: "max",
+    });
+    const result = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: created.id,
+      agentType: "codex",
+    });
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toMatchObject({ model: null, effort: null });
+    const row = (
+      await ctx.pool.query("SELECT model,effort FROM templates WHERE id = $1", [
+        created.templateId,
+      ])
+    ).rows[0];
+    expect(row).toEqual({ model: null, effort: null });
+  });
+
   it("persists effort on the job and its backing template and clears both", async () => {
     const created = await createJob("effort-job", { effort: "high" });
     expect(created.effort).toBe("high");

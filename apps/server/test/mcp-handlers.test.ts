@@ -457,6 +457,45 @@ describe("createMcpHandlers", () => {
   });
 
   describe("launchPersonaAgent", () => {
+    it("validates reviewer effort against the requested model rather than the default", async () => {
+      const { setLearnedAgentModels, forgetLearnedAgentModels } =
+        await import("../src/shared/agent-models.js");
+      setLearnedAgentModels(
+        "codex",
+        [
+          { id: "a", label: "A", effort: [{ value: "low", name: "Low" }] },
+          { id: "b", label: "B", effort: [{ value: "max", name: "Max" }] },
+        ],
+        "a"
+      );
+      try {
+        await handlers.launchPersonaAgent("agt_test1", {
+          persona: "security",
+          context: "review",
+          agentType: "codex",
+          model: "b",
+          effort: "max",
+        });
+        expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({ model: "b", effort: "max" }),
+          expect.objectContaining({ detachLaunch: true })
+        );
+        deps.agentManager.createAgent.mockClear();
+        await expect(
+          handlers.launchPersonaAgent("agt_test1", {
+            persona: "security",
+            context: "review",
+            agentType: "codex",
+            model: "b",
+            effort: "low",
+          })
+        ).rejects.toThrow(/not supported/);
+        expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+      } finally {
+        forgetLearnedAgentModels();
+      }
+    });
+
     it("launches a persona child in the parent's worktree and stream, detached", async () => {
       const result = await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
@@ -1324,6 +1363,24 @@ describe("createMcpHandlers", () => {
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
+    it("rejects mixing a review persona with a template from another workspace", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          directory: "/other",
+          agentType: "codex",
+          effort: "max",
+        })
+      );
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "review",
+          prompt: "review",
+          templateId: "tmpl_123",
+          persona: "security",
+        })
+      ).rejects.toThrow("Review personas cannot be combined with templateId");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
     it("passes templateId through", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({ id: "tmpl_123" })

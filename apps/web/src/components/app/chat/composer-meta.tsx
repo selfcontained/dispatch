@@ -233,6 +233,9 @@ function ModelChip({
       {effort ? (
         <EffortPicker
           id="composer-effort-chip"
+          onOpenChange={(open) => {
+            if (!open) setEffort.reset();
+          }}
           compact
           value={effort.currentValue}
           choices={effort.choices}

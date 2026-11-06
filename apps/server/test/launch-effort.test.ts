@@ -65,3 +65,13 @@ describe("launch effort", () => {
     }
   );
 });
+
+it("resumes an existing agent when its saved effort is no longer supported", async () => {
+  const onError = vi.fn();
+  const runtime = driver([reasoning]);
+  await expect(
+    applyLaunchEffort(runtime, "agent", "codex", "removed", { onError })
+  ).resolves.toBeUndefined();
+  expect(onError).toHaveBeenCalledOnce();
+  expect(runtime.setConfigOption).not.toHaveBeenCalled();
+});

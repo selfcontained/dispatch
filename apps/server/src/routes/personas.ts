@@ -228,13 +228,14 @@ export async function registerPersonaRoutes(
     let model: string | undefined;
     let effort: Effort | null;
     try {
-      effort = validateAgentEffort(
-        body.agentType as (typeof CLI_AGENT_TYPES)[number],
-        body.effort
-      );
       model = validateAgentModel(
         body.agentType as (typeof CLI_AGENT_TYPES)[number],
         typeof body.model === "string" ? body.model : undefined
+      );
+      effort = validateAgentEffort(
+        body.agentType as (typeof CLI_AGENT_TYPES)[number],
+        body.effort,
+        model
       );
     } catch (error) {
       return reply.code(400).send({

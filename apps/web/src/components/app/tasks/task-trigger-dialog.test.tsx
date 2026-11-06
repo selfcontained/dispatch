@@ -407,33 +407,22 @@ it("preserves compatible explicit effort across template runtime changes", async
   );
 });
 
-it("blocks an inherited OpenCode conflict instead of silently clearing template effort", () => {
+it("uses CLI effort when the trigger overrides the template runtime", async () => {
   templates[0] = { ...templates[0]!, effort: "high" };
   renderDialog();
   fireEvent.click(screen.getByRole("combobox", { name: "Type" }));
   fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
-  expect(screen.getByRole("alert").textContent).toContain(
-    'The saved effort "high" is not available'
-  );
-  expect(screen.getByRole("alert").textContent).toContain(
-    "Choose an available level or change the template"
-  );
-  expect(screen.getByTestId("task-trigger-effort")).toHaveProperty(
-    "disabled",
-    false
-  );
-  expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
-    "disabled",
-    true
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect(updateColumn).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("combobox", { name: "Type" }));
-  fireEvent.click(screen.getByRole("option", { name: "Claude" }));
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
-    "disabled",
-    false
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({
+          agentType: "opencode",
+          effort: null,
+        }),
+      })
+    )
   );
 });
 
@@ -443,13 +432,7 @@ it("resolves inherited Codex max conflict with an explicit compatible override",
     ...column,
     trigger: { ...column.trigger!, agentType: "codex" },
   });
-  expect(screen.getByRole("alert").textContent).toContain(
-    'The saved effort "max" is not available'
-  );
-  expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
-    "disabled",
-    true
-  );
+  expect(screen.queryByRole("alert")).toBeNull();
   fireEvent.click(screen.getByTestId("task-trigger-effort"));
   fireEvent.click(screen.getByRole("radio", { name: "High" }));
   expect(screen.queryByRole("alert")).toBeNull();

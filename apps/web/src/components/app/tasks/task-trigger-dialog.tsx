@@ -149,9 +149,13 @@ export function TaskTriggerDialog({
   const effortCatalog = useAgentEffortCatalog();
   const effortChoices = effortCatalog(
     agentType,
-    trigger.model ?? chosen?.model ?? null
+    trigger.model ?? (agentType === templateType ? chosen?.model : null) ?? null
   );
-  const resolvedEffort = trigger.effort ?? chosen?.effort ?? null;
+  const inheritsEffort =
+    agentType === templateType &&
+    (!trigger.model || trigger.model === chosen?.model);
+  const resolvedEffort =
+    trigger.effort ?? (inheritsEffort ? chosen?.effort : null) ?? null;
   const effortConflict = effortCompatibilityError(
     resolvedEffort,
     effortChoices
@@ -269,7 +273,7 @@ export function TaskTriggerDialog({
             }
             agentTypes={enabledAgentTypes}
             effortDefaultLabel={
-              chosen?.effort
+              inheritsEffort && chosen?.effort
                 ? `Inherit (${effortChoices?.find((c) => c.value === chosen.effort)?.name ?? chosen.effort})`
                 : "Default"
             }
@@ -278,7 +282,9 @@ export function TaskTriggerDialog({
               setTrigger((old) => ({ ...old, effort }))
             }
             model={trigger.model}
-            onModelChange={(model) => setTrigger((old) => ({ ...old, model }))}
+            onModelChange={(model) =>
+              setTrigger((old) => ({ ...old, model, effort: null }))
+            }
             modelOptions={models.options}
             modelLoading={models.loading}
             onTypeOpenChange={setTypeDropdownOpen}

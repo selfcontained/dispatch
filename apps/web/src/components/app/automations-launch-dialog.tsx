@@ -81,7 +81,7 @@ function LaunchTemplateDialogContent({
     templateArgDefaults(args)
   );
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
-  const [effort, setEffort] = useState<Effort | null>(null);
+  const [effort, setEffort] = useState<Effort | null>(template.effort ?? null);
   const [model, setModel] = useState<string | null>(template.model);
   // Each runtime keeps its own pick for the dialog's lifetime, so toggling the
   // agent type to compare and back does not silently drop a chosen model.
@@ -112,10 +112,10 @@ function LaunchTemplateDialogContent({
   useEffect(() => {
     setArgValues(templateArgDefaults(args));
     setAgentType(template.agentType);
-    setEffort(null);
+    setEffort(template.effort ?? null);
     setModel(template.model);
     modelByAgentType.current = { [template.agentType]: template.model };
-  }, [template.agentType, template.model, args]);
+  }, [template.agentType, template.model, template.effort, args]);
 
   const handleAgentTypeChange = useCallback(
     (nextAgentType: AgentType) => {
@@ -131,6 +131,7 @@ function LaunchTemplateDialogContent({
     (nextModel: string | null) => {
       modelByAgentType.current[agentType] = nextModel;
       setModel(nextModel);
+      setEffort(null);
     },
     [agentType]
   );
@@ -147,10 +148,7 @@ function LaunchTemplateDialogContent({
     args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
 
   const effortChoices = useAgentEffortChoices(agentType, model);
-  const effortError = effortCompatibilityError(
-    effort ?? template.effort,
-    effortChoices
-  );
+  const effortError = effortCompatibilityError(effort, effortChoices);
 
   const handleLaunch = useCallback(() => {
     if (effortError) return;
@@ -169,7 +167,7 @@ function LaunchTemplateDialogContent({
         args: launchArgs,
         agentType,
         model: launchModel,
-        effort: effort ?? undefined,
+        effort,
         startupFiles: startupFiles.length > 0 ? startupFiles : undefined,
         startupLinks: startupLinks.length > 0 ? startupLinks : undefined,
       })
@@ -287,7 +285,6 @@ function LaunchTemplateDialogContent({
               onChange={setEffort}
               agentType={agentType}
               id="launch-template-effort"
-              inheritLabel={`Inherit (${template.effort ? (effortChoices?.find((c) => c.value === template.effort)?.name ?? template.effort) : "Default"})`}
             />
           </AgentConfigRow>
 

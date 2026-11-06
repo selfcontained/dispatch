@@ -804,23 +804,26 @@ export class JobService {
     const previousEffort = backingTemplate
       ? backingTemplate.effort
       : existing.effort;
-    const nextEffort = validateAgentEffort(
-      input.agentType ?? backingTemplate?.agentType ?? existing.agentType,
-      input.effort === undefined ? previousEffort : input.effort,
-      input.model === undefined
-        ? backingTemplate
-          ? backingTemplate.model
-          : existing.model
-        : input.model
-    );
-    if (input.effort !== undefined || nextEffort !== existing.effort)
-      config.effort = nextEffort;
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
       existingAgentType: existing.agentType,
       existingModel: existing.model,
     });
+    const nextEffort = validateAgentEffort(
+      input.agentType ?? backingTemplate?.agentType ?? existing.agentType,
+      input.effort !== undefined
+        ? input.effort
+        : input.agentType &&
+            input.agentType !==
+              (backingTemplate?.agentType ?? existing.agentType)
+          ? null
+          : previousEffort,
+      nextModel
+    );
+    if (input.effort !== undefined || nextEffort !== existing.effort)
+      config.effort = nextEffort;
+
     const previousPersona = backingTemplate
       ? backingTemplate.persona
       : existing.persona;

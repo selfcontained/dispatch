@@ -3,7 +3,7 @@ import type { AcpDriver } from "./driver.js";
 import type { AcpEngineId } from "./engine-spec.js";
 
 /** Apply after model selection, before accepting the first prompt. */
-export async function applyLaunchEffort(
+async function applyStrictLaunchEffort(
   driver: Pick<AcpDriver, "getConfigOptions" | "setConfigOption">,
   agentId: string,
   engine: AcpEngineId,
@@ -35,5 +35,21 @@ export async function applyLaunchEffort(
     throw new Error(
       `${engine} did not apply effort "${effort}". Choose a supported model and effort.`
     );
+  }
+}
+
+/** A removed engine capability must not make an existing session unrecoverable. */
+export async function applyLaunchEffort(
+  driver: Pick<AcpDriver, "getConfigOptions" | "setConfigOption">,
+  agentId: string,
+  engine: AcpEngineId,
+  effort?: Effort | null,
+  resume?: { onError: (error: unknown) => void }
+): Promise<void> {
+  try {
+    await applyStrictLaunchEffort(driver, agentId, engine, effort);
+  } catch (error) {
+    if (!resume) throw error;
+    resume.onError(error);
   }
 }

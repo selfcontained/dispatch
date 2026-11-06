@@ -349,3 +349,36 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(response.statusCode).toBe(409);
   });
 });
+
+it("checks the selected reviewer model's effort before posting a review request", async () => {
+  const { setLearnedAgentModels, forgetLearnedAgentModels } =
+    await import("../src/shared/agent-models.js");
+  setLearnedAgentModels(
+    "codex",
+    [
+      { id: "a", label: "A", effort: [{ value: "low", name: "Low" }] },
+      { id: "b", label: "B", effort: [{ value: "max", name: "Max" }] },
+    ],
+    "a"
+  );
+  try {
+    for (const [effort, status] of [
+      ["max", 200],
+      ["low", 400],
+    ] as const) {
+      const r = await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/agt_parent/launch-persona",
+        payload: {
+          persona: "security-review",
+          agentType: "codex",
+          model: "b",
+          effort,
+        },
+      });
+      expect(r.statusCode).toBe(status);
+    }
+  } finally {
+    forgetLearnedAgentModels();
+  }
+});

@@ -40,6 +40,7 @@ export function EffortPicker({
   value,
   choices,
   onChange,
+  onOpenChange,
   defaultLabel = "Default",
   allowDefault = true,
   description = "Higher levels spend more time thinking.",
@@ -51,6 +52,7 @@ export function EffortPicker({
   id: string;
   value: string | null;
   choices: readonly AgentConfigChoice[];
+  onOpenChange?: (open: boolean) => void;
   onChange: (value: string | null) => void | Promise<unknown>;
   defaultLabel?: string;
   allowDefault?: boolean;
@@ -60,7 +62,11 @@ export function EffortPicker({
   pending?: boolean;
   error?: string;
 }): JSX.Element {
-  const [open, setOpen] = useState(false);
+  const [open, setIsOpen] = useState(false);
+  const setOpen = (next: boolean) => {
+    setIsOpen(next);
+    onOpenChange?.(next);
+  };
   const levels = choices.filter((choice) => choice.value !== "default");
   const selected = levels.findIndex((choice) => choice.value === value);
   const isDefault = value === null || value === "default";

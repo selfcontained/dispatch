@@ -617,3 +617,21 @@ describe("template effort persistence", () => {
     ).toBe("future-level");
   });
 });
+
+it("clears saved effort when only a template's runtime is changed", async () => {
+  const created = await authedInject("POST", "/api/v1/templates", {
+    name: "runtime-effort",
+    directory: "/tmp",
+    agentType: "claude",
+    model: "opus",
+    effort: "max",
+  });
+  expect(created.statusCode).toBe(200);
+  const updated = await authedInject(
+    "PATCH",
+    `/api/v1/templates/${created.json().id}`,
+    { agentType: "codex" }
+  );
+  expect(updated.statusCode).toBe(200);
+  expect(updated.json()).toMatchObject({ model: null, effort: null });
+});

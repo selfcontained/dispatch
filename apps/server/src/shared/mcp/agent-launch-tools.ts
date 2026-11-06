@@ -111,7 +111,7 @@ export function registerAgentLaunchTools(
           .nullable()
           .optional()
           .describe(
-            "Reasoning effort: an engine-reported level. Explicit value overrides template, then CLI default; null inherits. Never inherits parent effort."
+            "Reasoning effort: an engine-reported level. Explicit value overrides template, then CLI default; null selects the CLI default. Template effort is inherited only when type and model are unchanged. Never inherits parent effort."
           ),
         useWorktree: z
           .boolean()
@@ -147,7 +147,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; type, model, effort, fullAccess, and cwd use explicit parameters first, then template defaults. Effort never inherits from the launching agent."
+            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; type, model, effort, fullAccess, and cwd use explicit parameters first, then template defaults. Effort never inherits from the launching agent. Cannot be combined with a review persona; launch that persona separately."
           ),
         templateArgs: z
           .record(z.string(), z.string())

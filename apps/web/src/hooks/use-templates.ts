@@ -119,7 +119,7 @@ export function useTemplateActions() {
         // Empty string is the wire form of "CLI default" for multipart; only
         // an absent field falls back to the template's saved model.
         if (model !== undefined) formData.append("model", model ?? "");
-        if (effort != null) formData.append("effort", effort);
+        if (effort !== undefined) formData.append("effort", effort ?? "");
         if (startupLinks) {
           formData.append("startupLinks", JSON.stringify(startupLinks));
         }

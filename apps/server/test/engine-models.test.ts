@@ -280,3 +280,26 @@ describe("recordEngineModels", () => {
     ).toEqual(["ultra", "new"]);
   });
 });
+
+it("persists changed live effort and clears it when the model stops offering effort", async () => {
+  const { recordEngineEffort } = await import("../src/agents/engine-models.js");
+  const pool = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+  await recordEngineEffort(pool as never, { id: "a", effort: "high" }, [
+    {
+      id: "effort",
+      name: "Effort",
+      type: "select",
+      currentValue: "low",
+      options: [{ value: "low", name: "Low" }],
+    },
+  ]);
+  expect(pool.query).toHaveBeenLastCalledWith(
+    expect.stringContaining("SET effort"),
+    ["a", "low"]
+  );
+  await recordEngineEffort(pool as never, { id: "a", effort: "low" }, []);
+  expect(pool.query).toHaveBeenLastCalledWith(
+    expect.stringContaining("SET effort"),
+    ["a", null]
+  );
+});

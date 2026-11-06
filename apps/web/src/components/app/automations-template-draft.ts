@@ -151,7 +151,7 @@ export function useTemplateDraft(
       onEffortChange: (value: Effort | null) =>
         setDraft((prev) => ({ ...prev, effort: value })),
       onModelChange: (value: string | null) =>
-        setDraft((prev) => ({ ...prev, model: value })),
+        setDraft((prev) => ({ ...prev, model: value, effort: null })),
       onUseWorktreeChange: (checked: boolean) =>
         setDraft((prev) => ({ ...prev, useWorktree: checked })),
       onBaseBranchChange: (value: string) =>
