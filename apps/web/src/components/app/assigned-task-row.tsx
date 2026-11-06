@@ -56,10 +56,10 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
         <span
           className="flex items-center gap-1 text-[10px]"
           style={{
-            color: columnAccent(
+            color: `hsl(${columnAccent(
               column,
               columns.findIndex((item) => item.id === column.id)
-            ),
+            )})`,
           }}
         >
           <span
