@@ -1,3 +1,4 @@
+import { TASK_LABEL_NAME_MAX_LENGTH } from "@dispatch/shared";
 import { taskLabelsSchema } from "./labels.js";
 import { taskAgentName } from "@dispatch/shared";
 import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
@@ -305,6 +306,32 @@ export class TaskService {
     );
     if (projectId !== expectedProjectId)
       throw new TaskError("You can only watch your own project's board.", 403);
+  }
+
+  private async validateNewLabelLengths(
+    projectId: string,
+    labels: { name: string }[]
+  ) {
+    const long = labels.filter(
+      (label) => label.name.length > TASK_LABEL_NAME_MAX_LENGTH
+    );
+    if (!long.length) return;
+    const existing = [
+      ...(await this.store.listLabels(projectId)),
+      ...(await this.store.listLabels(projectId, true)),
+    ];
+    if (
+      long.some(
+        (label) =>
+          !existing.some(
+            (known) => known.name.toLowerCase() === label.name.toLowerCase()
+          )
+      )
+    ) {
+      throw invalid(
+        `New task label names must be ${TASK_LABEL_NAME_MAX_LENGTH} characters or fewer. Existing labels can still be selected or removed.`
+      );
+    }
   }
 
   async watchBoard(projectId: string, agentId: string): Promise<void> {
@@ -928,6 +955,7 @@ export class TaskService {
     await this.requireProject(input.projectId);
     const labels = taskLabelsSchema.safeParse(input.labels ?? []);
     if (!labels.success) throw invalid(labels.error.message);
+    await this.validateNewLabelLengths(input.projectId, labels.data);
     const title = input.title.trim();
     if (!title) throw invalid("title is required.");
     const columns = await this.ensureColumns(input.projectId);
@@ -1084,6 +1112,8 @@ export class TaskService {
         ? undefined
         : taskLabelsSchema.safeParse(input.labels);
     if (labels && !labels.success) throw invalid(labels.error.message);
+    if (labels?.success)
+      await this.validateNewLabelLengths(task.projectId, labels.data);
     const patch: TaskPatch = {};
     const changed: string[] = [];
     if (labels?.success) changed.push("labels");

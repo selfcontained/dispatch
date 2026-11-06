@@ -376,7 +376,7 @@ export function registerTaskTools(
           labels: taskLabelsSchema
             .optional()
             .describe(
-              "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; unknown names create definitions."
+              "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; new names must be 16 characters or fewer. Existing longer names remain usable."
             ),
           launchTemplateId: launchTemplateIdSchema.optional(),
           title: z.string().min(1).max(500),
@@ -435,7 +435,7 @@ export function registerTaskTools(
           labels: taskLabelsSchema
             .optional()
             .describe(
-              "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; unknown names create definitions."
+              "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; new names must be 16 characters or fewer. Existing longer names remain usable."
             ),
           launchTemplateId: launchTemplateIdSchema.optional(),
           title: z.string().min(1).max(500).optional(),

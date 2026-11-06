@@ -25,7 +25,7 @@ export function TaskLabelBadge({ label }: { label: TaskLabel }) {
             (isHexColor(label.color) ? label.color : legacyColors.gray),
         }}
       />
-      <span className="min-w-0 truncate">{label.name}</span>
+      <span className="min-w-0 whitespace-normal break-all">{label.name}</span>
     </Badge>
   );
 }

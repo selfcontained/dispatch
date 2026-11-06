@@ -8,7 +8,7 @@ export const LABEL_COLORS = [
   "blue",
   "purple",
 ] as const;
-/** Project names are trimmed, case-insensitive, 1–40 characters; max 20 per task. */
+/** Transport accepts legacy names up to 40; service limits new definitions to 16. */
 export const taskLabelsSchema = z
   .array(
     z.object({

@@ -232,3 +232,6 @@ export {
 export type { InboxResource } from "./inbox-resources.js";
 
 export type { AgentPullRequest } from "./pull-requests.js";
+
+/** Maximum trimmed length for newly created task label names (UTF-16 units). */
+export const TASK_LABEL_NAME_MAX_LENGTH = 16;
