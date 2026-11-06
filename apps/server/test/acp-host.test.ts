@@ -13,6 +13,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
+import { spawn, execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -118,6 +120,62 @@ describe("agent host", () => {
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   });
+
+  it.each(["graceful", "force", "early-exit"])(
+    "cleans detached owned children through real runtime (%s)",
+    async (mode) => {
+      const force = mode === "force";
+      const id = `agt_owned_${mode}`;
+      const wrapper = path.join(cwd, `adapter-${mode}.mjs`);
+      const pidFile = path.join(cwd, `child-${mode}.pid`);
+      writeFileSync(
+        wrapper,
+        `#!/usr/bin/env node
+import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify({ child: child.pid, adapter: process.pid }));
+child.unref();
+await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
+`,
+        { mode: 0o755 }
+      );
+      const control = spawn(
+        process.execPath,
+        ["-e", "setInterval(() => {}, 1000)"],
+        { stdio: "ignore" }
+      );
+      const { runtime } = runtimeWith(stateRoot, () => 0);
+      const launch = launchFor(id, cwd);
+      launch.bins.adapter = { bin: wrapper };
+      const alive = (pid: number) => {
+        try {
+          return !execFileSync("ps", ["-p", String(pid), "-o", "stat="], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          })
+            .trim()
+            .startsWith("Z");
+        } catch {
+          return false;
+        }
+      };
+      try {
+        await runtime.launch(launch);
+        const { child: pid, adapter } = JSON.parse(
+          readFileSync(pidFile, "utf8")
+        );
+        expect(alive(pid)).toBe(true);
+        if (mode === "early-exit") process.kill(adapter, "SIGKILL");
+        else await runtime.stop(id, force);
+        await until(() => !alive(pid));
+        expect(alive(control.pid!)).toBe(true);
+      } finally {
+        await runtime.stop(id, true);
+        control.kill("SIGKILL");
+      }
+    }
+  );
 
   it("interrupts real host work then starts urgent input in a separate turn", async () => {
     const id = "agt_interrupt";
