@@ -356,10 +356,10 @@ export function PullRequestRow({
             rel="noopener noreferrer"
             aria-label={`Pull request ${ref.number}: ${STATES[status].label} — ${pr.title}`}
             title={`${ref.repo} ${ref.number} · ${STATES[status].label}`}
-            className="group inline-flex h-5 shrink-0 items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="group mr-auto inline-flex h-5 min-w-0 items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="max-w-16 truncate font-mono text-[11px] leading-none text-foreground group-hover:underline">
-              {ref.number}
+            <span className="max-w-24 truncate font-mono text-[11px] leading-none text-foreground group-hover:underline">
+              {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
             </span>
             <ExternalLink
               aria-hidden="true"
@@ -367,26 +367,13 @@ export function PullRequestRow({
             />
             <span className="sr-only">{STATES[status].label}</span>
           </a>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            data-agent-control="true"
-            aria-label={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
-            title={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDismiss();
-            }}
-          >
-            <X aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
           {(isError ||
             pr.ci?.availability !== "available" ||
             pr.ci.summary.total > 0) && (
             <Button
               variant="ghost"
               size="icon-sm"
-              className="ml-auto"
+              className="shrink-0"
               data-agent-control="true"
               aria-label={`Check details for pull request ${ref.number}`}
               aria-haspopup="dialog"
@@ -401,6 +388,20 @@ export function PullRequestRow({
               <CompactChecks ci={isError ? undefined : pr.ci} />
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            data-agent-control="true"
+            aria-label={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
+            title={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDismiss();
+            }}
+          >
+            <X aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
       <PopoverContent
