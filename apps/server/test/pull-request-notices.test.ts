@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { mapPullRequestChecks } from "../src/agents/pull-request-reader.js";
 import { AgentError } from "../src/agents/errors.js";
 import { PullRequestRefresher } from "../src/agents/pull-request-refresher.js";
 import type { Pool } from "pg";
@@ -171,6 +172,33 @@ describe("PR observation delivery", () => {
       ).rows
     ).toEqual(beforeNotices.rows);
     expect(injected).toHaveLength(1);
+    const checksCurrent = {
+      ...previous,
+      ci: mapPullRequestChecks("head", [
+        {
+          __typename: "CheckRun",
+          name: "test",
+          status: "COMPLETED",
+          conclusion: "FAILURE",
+        },
+      ]),
+    };
+    for (const id of ["stopped", "archived", "child"]) {
+      const notice = await service.pullRequestChecksChanged(
+        id,
+        previous,
+        checksCurrent,
+        async (write) => write()
+      );
+      expect(notice?.text).toContain("tracked PR checks changed");
+      expect(notice?.toAgentId).toBe(id);
+      if (id === "child") {
+        expect(notice?.streamId).toBe("parent");
+        expect(notice?.threadId).toBeTruthy();
+      } else expect(notice?.delivered).toBe(false);
+    }
+    await service.waitForInFlightDeliveries(1000);
+    expect(injected).toHaveLength(2);
     const stopped = await service.pullRequestTransition(
       "stopped",
       previous,
@@ -183,7 +211,7 @@ describe("PR observation delivery", () => {
       current
     );
     expect(archived.delivered).toBe(false);
-    expect(injected).toHaveLength(1);
+    expect(injected).toHaveLength(2);
     expect(
       (await pool.query("SELECT status FROM agents WHERE id = 'archived'"))
         .rows[0].status

@@ -44,17 +44,38 @@ suite. The classifier's own tests run on every pull request.
 To add a path to the allowlist, check that nothing builds, tests, packages,
 loads at runtime or publishes it, then add it to `isDocsPath` and its test.
 
-## Branch protection and merge policy
+## Branch protection and event routing
 
-`ci` stays one job: GitHub reports a skipped _job_ as success for a required
-check, which would let a misrouted run pass. Skipped _steps_ leave `ci` as the
-single result, which is green only when every step that applied passed and red
-or pending otherwise.
+The default-branch ruleset requires both exact checks `ci` and `PR metadata`
+from GitHub Actions (integration 15368). `ci` validates actual code/merge state;
+`PR metadata` independently rejects session links in title/body. Hygiene is
+outside code CI so correcting a description can recover its metadata check
+without replacing a failed/pending code check.
 
-Runs are grouped per pull request with `cancel-in-progress`, so a new push or
-description edit cancels the run it supersedes. The cancelled run's `ci` result
-belongs to the old head (or is replaced by the new run on the same head), so
-the current head always waits for its own run.
+Opening, pushing commits, reopening, and changing the target base still run
+`ci` through the existing docs/full classifier. Unknown edited payloads also
+validate. A positively identified title/body-only edit instead names the job
+`CI routing`, runs on hosted Ubuntu, and executes only a routing message: no
+checkout, dependencies, database, tests, builds, artifact upload or cleanup.
+This path never emits a skipped or successful job called `ci`. GitHub treats
+skipped required jobs as successful, so check identity is part of the guard.
+
+Code and routing runs have separate per-PR concurrency groups; description
+edits cannot cancel code validation. Code pushes still cancel superseded code
+runs. The separate `pr-metadata.yml` workflow always emits `PR metadata` for
+opened/synchronize/reopened/edited events on its own per-PR concurrency group.
+It uses hosted Ubuntu and only the existing shell guard. Review comments,
+approvals, labels and draft transitions are not subscribed events.
+
+User-approved rollout deliberately allows older PRs without a metadata result
+to remain blocked until their next legitimate update. Review is unaffected;
+merge waits for both required checks. No privileged seeder or unsolicited
+PR edits are used. After this cutover, a legitimate title/body correction
+runs only hosted metadata/routing jobs; a push still validates actual code.
+The existing `ci` requirement, source restrictions and other ruleset settings
+remain in force. An old hygiene-failed code run still requires genuine code
+validation (for example an owner-authorized reopen); metadata never manufactures
+or restores code success.
 
 ## Why other suites are not split
 
@@ -87,18 +108,16 @@ or thirteen (Linux). Cancelling superseded runs frees the runner as soon as a
 pull request moves on. Both reduce the queue that causes the long waits; neither
 changes what a code change runs.
 
-## Metadata transition (seeding stage only)
+## Event-policy verification
 
-`pr-metadata.yml` emits the exact `PR metadata` check on opened, synchronize,
-reopened and edited PR events, independently of code CI. It uses hosted Ubuntu
-and runs only the session-link shell guard, without checkout or dependencies.
-This stage deliberately retains the existing required `ci` hygiene gate and
-edited-event behavior. It does not yet reduce expensive restarts.
+`scripts/ci-event-policy.test.mjs` exercises workflow expressions with known
+metadata edits, pushes, reopenings, base edits and unknown edits; checks all
+expensive steps including always-run cleanup; preserves owned-command wrappers;
+and executes the existing guard against bad/corrected metadata. Its nullable
+JavaScript fixtures simulate only the used expression subset. Live Actions
+check-name, cancellation and required-check behavior must be verified separately.
 
-The inspected default-branch ruleset requires `ci` from GitHub Actions
-(integration 15368). Requiring the additional metadata check needs separate user
-authorization; this code does not change protection. Until that transition is
-verified, removing edited-event CI would weaken enforcement. The intended
-cutover must retain validation for base retargets and never emit skipped or
-successful `ci` checks for title/body-only events. Moving hygiene out of code CI
-at cutover allows corrected metadata to recover without repeating code checks.
+The metadata check measured 3 seconds hosted during Stage A; passing code CI
+measured 4m39s on the macOS runner. These are observations, not controlled
+resource benchmarks or attribution of historical OOMs. Stage B leaves actual
+code suites unchanged and removes their execution for title/body-only edits.

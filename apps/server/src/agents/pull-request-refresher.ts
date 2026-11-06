@@ -1,3 +1,4 @@
+import { checkChanges } from "./pull-request-check-notice.js";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
 import type { Pool } from "pg";
 import type { PublishUiEvent } from "../server/ui-events.js";
@@ -21,6 +22,7 @@ type Options = {
     current: AgentPullRequest,
     commit: CommitPullRequestNotice
   ) => Promise<void>;
+  notifyChecks?: Options["notify"];
   warn: (error: unknown) => void;
 };
 
@@ -61,6 +63,7 @@ export class PullRequestRefresher {
     {
       value: AgentPullRequest;
       lifecycle?: AgentPullRequest;
+      checks?: AgentPullRequest;
       due: number;
       failures: number;
       checkedAt: number;
@@ -308,41 +311,42 @@ export class PullRequestRefresher {
           )
             ? value
             : previous?.lifecycle;
-          if (
+          const lifecycleChanged =
             lifecycle === value &&
             previous?.lifecycle &&
-            previous.lifecycle.status !== value.status
-          ) {
+            previous.lifecycle.status !== value.status;
+          const checksChanged =
+            previous &&
+            checkChanges(previous.checks ?? previous.value, value).length > 0;
+          for (const notify of [
+            lifecycleChanged ? this.options.notify : undefined,
+            checksChanged ? this.options.notifyChecks : undefined,
+          ]) {
+            if (!notify || !previous) continue;
             for (const [id, urls] of agents) {
-              if (
-                urls.has(url) &&
-                existingOwners.get(id)?.has(url) &&
-                this.options.notify
-              ) {
-                const before = previous.lifecycle;
+              if (urls.has(url) && existingOwners.get(id)?.has(url) && notify) {
+                const before =
+                  notify === this.options.notifyChecks
+                    ? (previous.checks ?? previous.value)
+                    : previous.lifecycle!;
                 notices.push(async () => {
                   if (!this.isDismissed(id, url))
-                    await this.options.notify!(
-                      id,
-                      before,
-                      value,
-                      async (write) => {
-                        if (this.isDismissed(id, url)) return undefined;
-                        const key = `${id}:${url}`;
-                        const writes =
-                          this.noticeWrites.get(key) ??
-                          new Set<Promise<unknown>>();
-                        const flight = Promise.resolve().then(write);
-                        writes.add(flight);
-                        this.noticeWrites.set(key, writes);
-                        try {
-                          return await flight;
-                        } finally {
-                          writes.delete(flight);
-                          if (!writes.size) this.noticeWrites.delete(key);
-                        }
+                    await notify(id, before, value, async (write) => {
+                      if (this.isDismissed(id, url)) return undefined;
+                      const key = `${id}:${url}`;
+                      const writes =
+                        this.noticeWrites.get(key) ??
+                        new Set<Promise<unknown>>();
+                      const flight = Promise.resolve().then(write);
+                      writes.add(flight);
+                      this.noticeWrites.set(key, writes);
+                      try {
+                        return await flight;
+                      } finally {
+                        writes.delete(flight);
+                        if (!writes.size) this.noticeWrites.delete(key);
                       }
-                    );
+                    });
                 });
               }
             }
@@ -350,6 +354,8 @@ export class PullRequestRefresher {
           this.urls.set(url, {
             value,
             lifecycle,
+            checks:
+              value.ci?.availability === "available" ? value : previous?.checks,
             failures,
             checkedAt: Date.now(),
             due: Date.now() + delay,

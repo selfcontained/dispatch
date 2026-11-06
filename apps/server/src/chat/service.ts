@@ -1,3 +1,4 @@
+import { formatCheckNotice } from "../agents/pull-request-check-notice.js";
 import * as z from "zod/v4";
 import {
   loadMessageShare,
@@ -2698,6 +2699,33 @@ export class StreamService {
       write
     ) => write()
   ): Promise<Block | undefined> {
+    return this.persistPullRequestNotice(agentId, previous, current, commit);
+  }
+
+  async pullRequestChecksChanged(
+    agentId: string,
+    previous: import("@dispatch/shared").AgentPullRequest,
+    current: import("@dispatch/shared").AgentPullRequest,
+    commit: import("../agents/pull-request-refresher.js").CommitPullRequestNotice
+  ): Promise<Block | undefined> {
+    const text = formatCheckNotice(previous, current);
+    if (!text) return undefined;
+    return this.persistPullRequestNotice(
+      agentId,
+      previous,
+      current,
+      commit,
+      text
+    );
+  }
+
+  private async persistPullRequestNotice(
+    agentId: string,
+    previous: import("@dispatch/shared").AgentPullRequest,
+    current: import("@dispatch/shared").AgentPullRequest,
+    commit: import("../agents/pull-request-refresher.js").CommitPullRequestNotice,
+    checksText?: string
+  ): Promise<Block | undefined> {
     return this.withWrite(await this.streamOf(agentId), async () => {
       await this.requireAgent(agentId);
       const streamId = await this.streamOf(agentId);
@@ -2721,11 +2749,20 @@ export class StreamService {
           kind: "text",
           threadId: home?.threadId ?? null,
           replyTo: home?.replyTo ?? null,
-          text: `Dispatch system: tracked PR status changed ${previous.status} → ${current.status}. ${current.title}: ${current.url}`,
+          text:
+            checksText ??
+            `Dispatch system: tracked PR status changed ${previous.status} → ${current.status}. ${current.title}: ${current.url}`,
           data: {
             pullRequestTransition: {
               previous: previous.status,
               current: current.status,
+              ...(checksText
+                ? {
+                    observation: "checks",
+                    headSha: current.ci?.headSha,
+                    checkedAt: current.ci?.checkedAt,
+                  }
+                : {}),
             },
           },
           state: null,
