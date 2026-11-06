@@ -425,7 +425,7 @@ describe("task stream root", () => {
       await settle();
       expect(prompts.map((p) => p.agentId)).toEqual([ASSIGNEE]);
       expect(prompts[0]!.text).toContain(
-        "Ordinary replies stay in your own channel"
+        "Ordinary replies stay at your own home root"
       );
       await pool.query(`UPDATE agents SET parent_agent_id = $1 WHERE id = $2`, [
         ASSIGNEE,

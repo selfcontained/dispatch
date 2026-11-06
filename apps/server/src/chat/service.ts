@@ -2500,6 +2500,21 @@ export class StreamService {
     };
   }
 
+  /** Resolve existing history without creating a launch card or waking an agent. */
+  async chatLocation(agentId: string, blockId?: string) {
+    await this.requireAgent(agentId);
+    const block = blockId
+      ? await this.readableMessage(agentId, blockId, true)
+      : await this.store.findLaunchBlock(agentId);
+    return block
+      ? {
+          streamId: block.streamId,
+          threadId: block.threadId,
+          blockId: block.id,
+        }
+      : null;
+  }
+
   async getConversationContext(agentId: string) {
     await this.requireAgent(agentId);
     const streamId = await this.streamOf(agentId);

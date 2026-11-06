@@ -1131,13 +1131,13 @@ export class BlockStore {
       `SELECT b.stream_id,
               (t.id IS NOT NULL) AS is_task,
               COUNT(*) FILTER (WHERE b.read_at IS NULL)::text AS unread,
-              COUNT(*) FILTER (WHERE ${OPEN_INPUT_SQL})::text AS pending
+              COUNT(*) FILTER (WHERE ${OPEN_INPUT_SQL} OR ${FAILED_PARENT_INPUT_SQL})::text AS pending
          FROM blocks b
          LEFT JOIN agents a ON a.id = b.stream_id AND a.deleted_at IS NULL
          LEFT JOIN tasks t ON t.id = b.stream_id
-        WHERE b.author_kind = 'agent' AND b.to_agent_id IS NULL
+        WHERE b.author_kind = 'agent' AND (b.to_agent_id IS NULL OR ${FAILED_PARENT_INPUT_SQL})
           AND (a.id IS NOT NULL OR t.id IS NOT NULL)
-          AND (b.read_at IS NULL OR ${OPEN_INPUT_SQL})
+          AND (b.read_at IS NULL OR ${OPEN_INPUT_SQL} OR ${FAILED_PARENT_INPUT_SQL})
         GROUP BY b.stream_id, t.id`
     );
     const agents: ChatUnreadSummary["agents"] = {};
@@ -1225,3 +1225,19 @@ export const OPEN_INPUT_SQL = `(b.kind IN ('question', 'form')
             AND b.state->'submission' IS NULL
             AND b.state->'cancellation' IS NULL
           )))`;
+
+const ANSWER_BLOCK_ID_SQL = `COALESCE(b.state->'answer'->>'blockId', b.state->'submission'->>'blockId')`;
+// Compare as uuid so the lookup uses blocks_pkey; casting `answer.id::text`
+// instead scans every block once per outer row. Only canonical lowercase ids
+// are cast — the ones a text comparison could match — so a malformed value
+// matches nothing rather than failing the query.
+export const FAILED_PARENT_INPUT_SQL = `(b.to_agent_id IS NOT NULL
+  AND b.data->>'parentHandled' = 'true'
+  AND ((b.delivered = false AND ${OPEN_INPUT_SQL}) OR EXISTS (
+    SELECT 1 FROM blocks answer
+    WHERE answer.id = CASE
+        WHEN ${ANSWER_BLOCK_ID_SQL} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        THEN (${ANSWER_BLOCK_ID_SQL})::uuid
+      END
+      AND answer.delivered = false
+  )))`;

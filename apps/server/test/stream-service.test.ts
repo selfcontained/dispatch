@@ -1368,7 +1368,7 @@ describe("StreamService.post", () => {
       expect.stringMatching(/^- file: .*diff\.patch \([\w/-]+, 2 KB\)$/),
       "- link: https://gh/pr/1 — PR",
       "--- END DISPATCH POST ---",
-      `From another agent. Reply with post (to: "${A}") only if a reply is needed; routine updates need no acknowledgement.`,
+      `From another agent. Ordinary replies stay at your own home root. Reply with post({ to: "${A}", replyTo: "${block.id}", text: "<answer>" }) only if needed; routine updates need no acknowledgement. This preserves the source discussion anchor without moving future output.`,
     ]);
     // Pending first, then the same row once delivery settled it.
     expect(
@@ -1408,7 +1408,7 @@ describe("StreamService.post", () => {
     await settled(svc, reply.id);
     expect(injected[0]?.text).toContain(`In the thread under ${root.id}.`);
     expect(injected[0]?.text).toContain(
-      `Reply with post (to: "${A}", replyTo: "${root.id}")`
+      `Reply with post({ to: "${A}", replyTo: "${root.id}"`
     );
   });
 });
@@ -1784,7 +1784,7 @@ describe("StreamService.sendUserPost", () => {
         `--- DISPATCH POST (id: ${res.block.id}, from: user) ---`,
         "do the thing",
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.block.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
+        `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${res.block.id}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`,
       ].join("\n"),
     });
     expect(events).toHaveLength(2);
@@ -1919,7 +1919,7 @@ describe("StreamService.sendUserPost", () => {
         "- file: /files-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
         "- link: https://example.com/spec — Spec",
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.block.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
+        `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${res.block.id}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`,
       ].join("\n")
     );
   });
@@ -2073,10 +2073,10 @@ describe("StreamService.sendUserPost", () => {
     await settled(svc, res.block.id);
     expect(injected[0]?.text).toContain(`In the thread under ${root.id}.`);
     expect(injected[0]?.text).toContain(
-      `Your reply appears in this thread as you write it.`
+      `Your reply appears at your own home root as you write it.`
     );
     expect(injected[0]?.text).toContain(
-      `(with replyTo: "${root.id}" to keep it in this thread)`
+      `post({ replyTo: "${res.block.id}", text: "<answer>" })`
     );
     // A reply to the reply keeps the root.
     const nested = await svc.sendUserPost(A, {
@@ -2152,7 +2152,7 @@ describe("StreamService.answerQuestion", () => {
         "Yes",
         `This answers your question ${q.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.reply.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
+        `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${res.reply.id}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`,
       ].join("\n")
     );
     // Value-less options match on their label; but the question is taken.
@@ -2396,7 +2396,7 @@ describe("StreamService.submitForm", () => {
         "Name: Ada\nCount: 2\nReady: true",
         `This answers your form ${form.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${res.reply.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
+        `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${res.reply.id}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`,
       ].join("\n")
     );
     await expect(
@@ -9326,6 +9326,66 @@ describe("agent-owned homes", () => {
     await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
       B,
     ]);
+  });
+
+  it("resolves inert legacy locations without creating history or delivering prompts", async () => {
+    const { svc, injected } = build({ access: inert });
+    expect(await svc.chatLocation(B)).toBeNull();
+    const legacy = await svc.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: B },
+      text: "Legacy",
+    });
+    expect(await svc.chatLocation(B, legacy.id)).toEqual({
+      streamId: A,
+      threadId: null,
+      blockId: legacy.id,
+    });
+    expect(await svc.store.findLaunchBlock(B)).toBeNull();
+    const launch = await svc.ensureLaunchBlock(B);
+    expect(await svc.chatLocation(B)).toEqual({
+      streamId: A,
+      threadId: null,
+      blockId: launch.id,
+    });
+    expect(injected).toEqual([]);
+    await pool.query("UPDATE agents SET parent_agent_id = NULL WHERE id = $1", [
+      B,
+    ]);
+    expect(await svc.chatLocation(B, legacy.id)).toMatchObject({
+      blockId: legacy.id,
+    });
+    const privatePost = await svc.post(A, { text: "Unrelated private work" });
+    await expect(svc.chatLocation(B, privatePost.id)).rejects.toBeInstanceOf(
+      StreamNotFoundError
+    );
+  });
+
+  it("keeps failed child-owned requests discoverable through child pending counts and original answer anchors", async () => {
+    const { svc } = build({ access: inert });
+    const ask = await svc.post(B, {
+      question: { options: [{ label: "Yes" }] },
+    });
+    expect((await svc.store.unreadSummary()).agents[B]?.pendingQuestions).toBe(
+      1
+    );
+    expect((await svc.feed(A)).openInputs).toEqual([]);
+    expect((await svc.feed(B)).openInputs?.map((b) => b.id)).toContain(ask.id);
+    const answer = await svc.answerQuestion(B, ask.id, { value: "Yes" });
+    expect((await svc.store.unreadSummary()).agents[B]?.pendingQuestions).toBe(
+      1
+    );
+    expect(
+      (await svc.feed(B)).openInputs?.find((b) => b.id === ask.id)?.inputReply
+        ?.id
+    ).toBe(answer.reply.id);
+    const recovered = build();
+    await recovered.svc.retryDelivery(B, answer.reply.id);
+    await settled(recovered.svc, answer.reply.id);
+    expect(
+      (await recovered.svc.store.unreadSummary()).agents[B]?.pendingQuestions ??
+        0
+    ).toBe(0);
   });
 
   it("rejects incompatible destinations and unrelated homes without granting project access", async () => {
