@@ -313,10 +313,8 @@ it.each(["add", "edit"] as const)(
 
 it("saves an effort override and can reset it to inheritance", async () => {
   renderDialog();
-  fireEvent.keyDown(screen.getByTestId("task-trigger-effort"), {
-    key: "Enter",
-  });
-  fireEvent.click(screen.getByRole("option", { name: "medium" }));
+  fireEvent.click(screen.getByTestId("task-trigger-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "Medium" }));
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith(
@@ -326,10 +324,8 @@ it("saves an effort override and can reset it to inheritance", async () => {
     )
   );
   fireEvent.click(screen.getByRole("button", { name: "Open trigger" }));
-  fireEvent.keyDown(screen.getByTestId("task-trigger-effort"), {
-    key: "Enter",
-  });
-  fireEvent.click(screen.getByRole("option", { name: "Default" }));
+  fireEvent.click(screen.getByTestId("task-trigger-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "Default" }));
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenLastCalledWith(
@@ -385,7 +381,7 @@ it("preserves compatible explicit effort across template runtime changes", async
   fireEvent.keyDown(templatePicker(), { key: "Enter" });
   fireEvent.click(screen.getByRole("option", { name: "Codex builder" }));
   expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
-    "high"
+    "High"
   );
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
@@ -440,10 +436,8 @@ it("resolves inherited Codex max conflict with an explicit compatible override",
     "disabled",
     true
   );
-  fireEvent.keyDown(screen.getByTestId("task-trigger-effort"), {
-    key: "Enter",
-  });
-  fireEvent.click(screen.getByRole("option", { name: "high" }));
+  fireEvent.click(screen.getByTestId("task-trigger-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "High" }));
   expect(screen.queryByRole("alert")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
@@ -474,7 +468,7 @@ it("keeps max when an explicit Claude runtime overrides the newly selected Codex
     "Claude"
   );
   expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
-    "max"
+    "Max"
   );
   expect(screen.queryByRole("alert")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Save" }));

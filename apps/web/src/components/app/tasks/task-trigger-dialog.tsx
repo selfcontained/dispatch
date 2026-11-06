@@ -1,4 +1,4 @@
-import { effortCompatibilityError } from "@/lib/agent-effort";
+import { EFFORT_LABELS, effortCompatibilityError } from "@/lib/agent-effort";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Plus, Settings2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -260,7 +260,9 @@ export function TaskTriggerDialog({
             }
             agentTypes={enabledAgentTypes}
             effortDefaultLabel={
-              chosen?.effort ? `Inherit (${chosen.effort})` : "Default"
+              chosen?.effort
+                ? `Inherit (${EFFORT_LABELS[chosen.effort]})`
+                : "Default"
             }
             effort={trigger.effort ?? null}
             onEffortChange={(effort) =>

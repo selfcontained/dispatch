@@ -221,9 +221,7 @@ it("renders the installed engine's block the same in both hosts", async () => {
   expect(
     screen.getByRole("combobox", { name: "Type" }).parentElement!.parentElement!
       .className
-  ).toContain(
-    "min-[420px]:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)]"
-  );
+  ).toContain("grid-cols-[minmax(6rem,1fr)_minmax(0,1.4fr)_4.75rem]");
   cleanup();
 
   const create = await blockIn("create", true);
@@ -251,6 +249,6 @@ it("hides the model picker without a catalog in both hosts", async () => {
   const create = await blockIn("create", false);
   const trigger = await blockIn("trigger", false);
   expect(trigger).toBe(create);
-  expect(trigger).toContain("min-[420px]:grid-cols-2");
+  expect(trigger).toContain("grid-cols-[minmax(0,1fr)_4.75rem]");
   expect(trigger).toContain("OpenCode · /usr/local/bin/opencode");
 });

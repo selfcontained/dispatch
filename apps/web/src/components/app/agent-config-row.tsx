@@ -16,10 +16,12 @@ export function AgentConfigRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-1 gap-3 [&>*]:min-w-0",
+        "grid grid-cols-1 gap-2 sm:gap-3 [&>*]:min-w-0",
         showModel && showEffort
-          ? "min-[420px]:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)]"
-          : (showModel || showEffort) && "min-[420px]:grid-cols-2",
+          ? "grid-cols-[minmax(6rem,1fr)_minmax(0,1.4fr)_4.75rem]"
+          : showEffort
+            ? "grid-cols-[minmax(0,1fr)_4.75rem]"
+            : showModel && "grid-cols-2",
         className
       )}
     >

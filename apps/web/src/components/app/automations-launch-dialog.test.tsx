@@ -644,10 +644,8 @@ describe("layout", () => {
 it("sends the selected reasoning effort override", async () => {
   queueLaunchedAgent("agt_effort");
   await renderDialog(makeTemplate({ effort: "high" }));
-  fireEvent.keyDown(screen.getByTestId("launch-template-effort"), {
-    key: "Enter",
-  });
-  fireEvent.click(screen.getByRole("option", { name: "xhigh" }));
+  fireEvent.click(screen.getByTestId("launch-template-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "Extra high" }));
   fireEvent.click(launchButton());
   await waitFor(() =>
     expect(lastJsonBody()).toMatchObject({ effort: "xhigh" })
@@ -679,10 +677,8 @@ it("allows a supported override to resolve inherited max effort for Codex", asyn
     "Codex does not support max"
   );
   expect(launchButton().disabled).toBe(true);
-  fireEvent.keyDown(screen.getByTestId("launch-template-effort"), {
-    key: "Enter",
-  });
-  fireEvent.click(screen.getByRole("option", { name: /^medium$/ }));
+  fireEvent.click(screen.getByTestId("launch-template-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "Medium" }));
   expect(screen.queryByRole("alert")).toBeNull();
   fireEvent.click(launchButton());
   await waitFor(() =>

@@ -31,7 +31,7 @@ import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
-import { effortCompatibilityError } from "@/lib/agent-effort";
+import { EFFORT_LABELS, effortCompatibilityError } from "@/lib/agent-effort";
 
 export function LaunchTemplateDialog({
   template,
@@ -282,7 +282,7 @@ function LaunchTemplateDialogContent({
               onChange={setEffort}
               agentType={agentType}
               id="launch-template-effort"
-              inheritLabel={`Inherit (${template.effort ?? "default"})`}
+              inheritLabel={`Inherit (${template.effort ? EFFORT_LABELS[template.effort] : "Default"})`}
             />
           </AgentConfigRow>
 

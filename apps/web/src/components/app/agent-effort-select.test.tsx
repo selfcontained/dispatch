@@ -16,29 +16,32 @@ describe("AgentEffortSelect", () => {
     const { rerender } = render(
       <AgentEffortSelect value={null} onChange={onChange} agentType="claude" />
     );
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
-    fireEvent.click(screen.getByRole("option", { name: "xhigh" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Effort:/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Extra high" }));
     expect(onChange).toHaveBeenCalledWith("xhigh");
     rerender(
       <AgentEffortSelect value="xhigh" onChange={onChange} agentType="claude" />
     );
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
-    fireEvent.click(screen.getByRole("option", { name: "Default" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Effort:/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Default" }));
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
   it("does not offer unsupported Codex max", () => {
     render(
       <AgentEffortSelect value={null} onChange={vi.fn()} agentType="codex" />
     );
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
-    expect(screen.queryByRole("option", { name: "max" })).toBeNull();
-    expect(screen.getByRole("option", { name: "xhigh" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Effort:/ }));
+    expect(screen.queryByRole("radio", { name: "Max" })).toBeNull();
+    expect(screen.getByRole("radio", { name: "Extra high" })).toBeTruthy();
   });
   it("explains and disables OpenCode effort", () => {
     render(
       <AgentEffortSelect value={null} onChange={vi.fn()} agentType="opencode" />
     );
-    expect(screen.getByRole("combobox")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: /^Effort:/ })).toHaveProperty(
+      "disabled",
+      true
+    );
     expect(
       screen.getByTitle("OpenCode does not support launch effort.")
     ).toBeTruthy();

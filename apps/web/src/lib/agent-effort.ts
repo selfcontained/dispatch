@@ -1,6 +1,14 @@
 import type { Effort } from "@dispatch/shared";
 import type { AgentType } from "./agent-types";
 
+export const EFFORT_LABELS: Record<Effort, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
 /** Check the resolved template/override value without changing null inheritance. */
 export function effortCompatibilityError(
   agentType: AgentType,
