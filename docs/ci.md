@@ -1,8 +1,8 @@
 # Pull request CI
 
-`.github/workflows/ci.yml` runs one job, `ci`, on every pull request to `main`
-(and `acp-runtime`). The `checks pass` ruleset on the default branch requires
-that one status check, so `ci` is the only merge signal.
+`.github/workflows/ci.yml` runs the static required job `ci` on subscribed pull
+request events to `main` (and `acp-runtime`). The default-branch ruleset requires
+both exact checks `ci` and `PR metadata` from GitHub Actions.
 
 ## Local checks versus PR CI
 
@@ -44,17 +44,43 @@ suite. The classifier's own tests run on every pull request.
 To add a path to the allowlist, check that nothing builds, tests, packages,
 loads at runtime or publishes it, then add it to `isDocsPath` and its test.
 
-## Branch protection and merge policy
+## Branch protection and reliable check identity
 
-`ci` stays one job: GitHub reports a skipped _job_ as success for a required
-check, which would let a misrouted run pass. Skipped _steps_ leave `ci` as the
-single result, which is green only when every step that applied passed and red
-or pending otherwise.
+Both `ci` and `PR metadata` are required from GitHub Actions integration15368.
+Code CI retains its actual `ci` job on opened/synchronize/reopened/edited events,
+including base retargets. It always performs the existing docs/full validation.
+Runs are grouped per PR with cancellation of superseded runs. Title/body edits
+therefore still replace code validation; avoiding those expensive restarts is
+an unresolved optimization, not a guarantee of this reliability correction.
 
-Runs are grouped per pull request with `cancel-in-progress`, so a new push or
-description edit cancels the run it supersedes. The cancelled run's `ci` result
-belongs to the old head (or is replaced by the new run on the same head), so
-the current head always waits for its own run.
+The attempted dynamic `CI routing` job is withdrawn. Live GitHub UI showed that
+a newer routing-only CI suite left required `ci` Expected even when an older
+`ci` passed and the API's visible rollup was successful. Do not infer merge
+eligibility from latest-only check summaries or a successful aggregate alone.
+The required context must be satisfied in the actual GitHub merge gate.
+
+The independent metadata job checks current title/body with only
+`pull-requests: read`, no checkout, PR code execution, custom check publishing,
+metadata logging or write permissions. Human roles and rerun rights are unchanged.
+It validates the original expected head/target/repositories/open state and
+observed metadata stability; API errors and identity changes fail closed.
+The duplicated event-snapshot hygiene step is removed from code CI: metadata
+failures should be repaired through the separate lightweight job.
+
+GitHub can retain a failed metadata suite after a corrected edit passes. Correct
+metadata, then rerun each remaining failed `PR metadata` workflow run shown as
+required (`gh run rerun RUN_ID --failed`). This uses existing maintainer access;
+a PR author without rerun access needs a maintainer. The reader re-evaluates
+current metadata in that same run. Correction alone is not automatic recovery.
+Inspect the full required rollup and actual merge gate afterward.
+
+This retry applies only to current-reader runs on the same head and target.
+Legacy snapshot-only runs cannot acquire the reader by retrying; coordinate
+current-head code validation separately instead of repeatedly rerunning them.
+Changed-head/target runs also need checks appropriate to the current identity.
+Two reads are not an atomic snapshot. Older PRs without a metadata check may
+remain blocked until their next legitimate update, as explicitly approved;
+no privileged seeder or unsolicited edits to others' PRs are used.
 
 ## Why other suites are not split
 
@@ -87,18 +113,13 @@ or thirteen (Linux). Cancelling superseded runs frees the runner as soon as a
 pull request moves on. Both reduce the queue that causes the long waits; neither
 changes what a code change runs.
 
-## Metadata transition (seeding stage only)
+## Bounded policy verification
 
-`pr-metadata.yml` emits the exact `PR metadata` check on opened, synchronize,
-reopened and edited PR events, independently of code CI. It uses hosted Ubuntu
-and runs only the session-link shell guard, without checkout or dependencies.
-This stage deliberately retains the existing required `ci` hygiene gate and
-edited-event behavior. It does not yet reduce expensive restarts.
+`scripts/ci-event-policy.test.mjs` verifies required job identity/event coverage,
+owned-command wrappers, independent metadata execution and the current-reader
+predicate against mocked API success/failure/race/identity cases. These local
+checks do not prove GitHub merge-gate selection: live validation remains required.
 
-The inspected default-branch ruleset requires `ci` from GitHub Actions
-(integration 15368). Requiring the additional metadata check needs separate user
-authorization; this code does not change protection. Until that transition is
-verified, removing edited-event CI would weaken enforcement. The intended
-cutover must retain validation for base retargets and never emit skipped or
-successful `ci` checks for title/body-only events. Moving hygiene out of code CI
-at cutover allows corrected metadata to recover without repeating code checks.
+Actual code suites remain lean and unchanged. Passing CI measured4m46s on the
+macOS runner; hosted metadata jobs measured approximately4–6s. These are wall-time
+observations, not controlled host resource benchmarks or historical OOM attribution.
