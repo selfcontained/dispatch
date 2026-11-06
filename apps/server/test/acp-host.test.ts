@@ -115,7 +115,10 @@ describe("agent host", () => {
     ]);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    // Preserve the owned state until all hosts are stopped, even on assertion failure.
+    const { runtime } = runtimeWith(stateRoot, () => 0);
+    for (const id of await runtime.listHosted()) await runtime.stop(id, true);
     delete process.env.DISPATCH_AGENT_HOST_COMMAND;
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
@@ -125,7 +128,7 @@ describe("agent host", () => {
     "cleans detached owned children through real runtime (%s)",
     async (mode) => {
       const force = mode === "force";
-      const id = `agt_owned_${mode}`;
+      const id = `agt_owned_${mode[0]}`;
       const wrapper = path.join(cwd, `adapter-${mode}.mjs`);
       const pidFile = path.join(cwd, `child-${mode}.pid`);
       writeFileSync(

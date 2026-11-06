@@ -420,10 +420,18 @@ const ownedChildren = new WeakMap<object, string>();
  */
 function signalChild(child: ChildProcessLike, signal: NodeJS.Signals): void {
   const marker = ownedChildren.get(child);
-  if (marker && signal === "SIGKILL") killOwnedProcesses(marker);
+  let cleanupError: unknown;
+  if (marker && signal === "SIGKILL") {
+    try {
+      killOwnedProcesses(marker);
+    } catch (err) {
+      cleanupError = err;
+    }
+  }
   if (child.pid && process.platform !== "win32") {
     try {
       process.kill(-child.pid, signal);
+      if (cleanupError) throw cleanupError;
       return;
     } catch {
       // ESRCH: the group is gone already. Anything else: fall back to the
@@ -431,6 +439,7 @@ function signalChild(child: ChildProcessLike, signal: NodeJS.Signals): void {
     }
   }
   child.kill(signal);
+  if (cleanupError) throw cleanupError;
 }
 
 function describeExit(exit: ExitInfo): string {

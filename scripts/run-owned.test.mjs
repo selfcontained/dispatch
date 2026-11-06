@@ -86,3 +86,37 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     }
   );
 }
+
+test(
+  "scan failure still terminates the known child and wrapper",
+  { skip: process.platform === "win32", timeout: 5000 },
+  async () => {
+    const wrapper = spawn(
+      process.execPath,
+      [
+        "scripts/run-owned.mjs",
+        process.execPath,
+        "-e",
+        `console.log(process.pid); ${sleeper}`,
+      ],
+      {
+        env: { ...process.env, PATH: "/nonexistent-owned-test" },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    const exited = once(wrapper, "exit");
+    const [out] = await once(wrapper.stdout, "data");
+    const pid = Number(out.toString().trim());
+    try {
+      wrapper.kill("SIGTERM");
+      const [code] = await exited;
+      assert.equal(code, 1);
+      await gone(pid);
+    } finally {
+      wrapper.kill("SIGKILL");
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+  }
+);

@@ -19,6 +19,10 @@ function finish(code) {
   } catch {
     console.error("Owned process cleanup failed");
     code = 1;
+  } finally {
+    // The ChildProcess handle is owned even if enumeration is unavailable.
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill("SIGKILL");
   }
   process.exitCode = code;
 }
