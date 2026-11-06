@@ -577,3 +577,27 @@ it("silently baselines checks, coalesces for every owner, preserves baseline acr
   expect(f.notify.mock.calls[2][0]).toBe("b");
   await f.service.stop();
 });
+
+it("refreshes only an owned PR and preserves observations on failure", async () => {
+  const f = fixture(2);
+  await f.service.refresh();
+  f.read.mockClear();
+  await expect(
+    f.service.refreshOne("b", f.service.get("a")[0].url)
+  ).rejects.toThrow("tracked");
+  expect(f.read).not.toHaveBeenCalled();
+  const url = f.service.get("a")[0].url;
+  await f.service.refreshOne("a", url);
+  expect(f.read.mock.calls.map(([target]) => target)).toEqual([url]);
+  const before = f.service.get("a");
+  f.read.mockRejectedValue(new Error("offline"));
+  await expect(f.service.refreshOne("a", url)).rejects.toThrow(
+    "authentication"
+  );
+  expect(f.service.get("a")).toEqual(before);
+  await f.service.dismiss("a", url);
+  f.read.mockClear();
+  await expect(f.service.refreshOne("a", url)).rejects.toThrow("tracked");
+  expect(f.read).not.toHaveBeenCalled();
+  await f.service.stop();
+});

@@ -7,7 +7,17 @@ import {
   killOwnedProcesses,
 } from "../apps/server/src/shared/process/owned-processes.js";
 
-const sleeper = "setInterval(() => {}, 1000)";
+// Fixtures self-expire even if test cancellation interrupts setup/finally.
+const sleeper =
+  "setInterval(() => {}, 1000); setTimeout(() => process.exit(0), 4000)";
+function kill(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+}
 function alive(pid) {
   try {
     const state = execFileSync("ps", ["-p", String(pid), "-o", "stat="], {
@@ -27,7 +37,7 @@ async function gone(pid) {
 for (const detached of [false, true]) {
   test(
     `cleanup after early leader exit (detached=${detached}) preserves control`,
-    { skip: process.platform === "win32" },
+    { skip: process.platform === "win32", timeout: 5000 },
     async () => {
       const control = spawn(process.execPath, ["-e", sleeper], {
         stdio: "ignore",
@@ -56,8 +66,12 @@ for (const detached of [false, true]) {
         await gone(pid);
         assert.ok(alive(control.pid));
       } finally {
-        killOwnedProcesses(owned.marker);
-        control.kill("SIGKILL");
+        // Independent fixture cleanup must not depend on the helper under test.
+        try {
+          kill(pid);
+        } finally {
+          control.kill("SIGKILL");
+        }
       }
     }
   );
@@ -65,7 +79,7 @@ for (const detached of [false, true]) {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   test(
     `command boundary cleans up on ${signal}`,
-    { skip: process.platform === "win32" },
+    { skip: process.platform === "win32", timeout: 5000 },
     async () => {
       const wrapper = spawn(
         process.execPath,
@@ -77,12 +91,21 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
         ],
         { stdio: ["ignore", "pipe", "ignore"] }
       );
-      const exited = once(wrapper, "exit");
-      const [out] = await once(wrapper.stdout, "data");
-      const pid = Number(out.toString().trim());
-      wrapper.kill(signal);
-      await exited;
-      await gone(pid);
+      let pid;
+      try {
+        const exited = once(wrapper, "exit");
+        const [out] = await once(wrapper.stdout, "data");
+        pid = Number(out.toString().trim());
+        wrapper.kill(signal);
+        await exited;
+        await gone(pid);
+      } finally {
+        try {
+          kill(pid);
+        } finally {
+          wrapper.kill("SIGKILL");
+        }
+      }
     }
   );
 }
@@ -104,19 +127,79 @@ test(
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
-    const exited = once(wrapper, "exit");
-    const [out] = await once(wrapper.stdout, "data");
-    const pid = Number(out.toString().trim());
+    let pid;
     try {
+      const exited = once(wrapper, "exit");
+      const [out] = await once(wrapper.stdout, "data");
+      pid = Number(out.toString().trim());
       wrapper.kill("SIGTERM");
       const [code] = await exited;
       assert.equal(code, 1);
       await gone(pid);
     } finally {
-      wrapper.kill("SIGKILL");
       try {
-        process.kill(pid, "SIGKILL");
-      } catch {}
+        kill(pid);
+      } finally {
+        wrapper.kill("SIGKILL");
+      }
+    }
+  }
+);
+
+test("enumeration failure preserves diagnostics without stdout or raw errors", async (t) => {
+  if (process.platform === "win32") return t.skip();
+  const { default: childProcess } = await import("node:child_process");
+  const { syncBuiltinESMExports } = await import("node:module");
+  const control = spawn(process.execPath, ["-e", sleeper], { stdio: "ignore" });
+  try {
+    t.mock.method(childProcess, "execFileSync", () => {
+      throw Object.assign(new Error("SECRET stdout in original message"), {
+        status: 2,
+        stderr: Buffer.from("ps: unsupported option; TOKEN=secret"),
+        stdout: Buffer.from("SECRET process environments"),
+      });
+    });
+    syncBuiltinESMExports();
+    assert.throws(
+      () => killOwnedProcesses(ownedEnvironment({}).marker),
+      (error) => {
+        assert.match(error.message, /status=2/);
+        assert.match(error.message, /ps: unsupported option/);
+        assert.doesNotMatch(error.message, /SECRET|TOKEN=secret/);
+        assert.equal(error.cause, undefined);
+        return true;
+      }
+    );
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    control.kill("SIGKILL");
+  }
+  await gone(control.pid);
+});
+
+test(
+  "Linux argv marker does not claim an unrelated process",
+  { skip: process.platform !== "linux", timeout: 5000 },
+  async () => {
+    const owned = ownedEnvironment(process.env);
+    const control = spawn(process.execPath, ["-e", sleeper, owned.marker], {
+      stdio: "ignore",
+    });
+    const child = spawn(process.execPath, ["-e", sleeper], {
+      env: owned.env,
+      stdio: "ignore",
+    });
+    try {
+      killOwnedProcesses(owned.marker);
+      await gone(child.pid);
+      assert.ok(alive(control.pid));
+    } finally {
+      try {
+        child.kill("SIGKILL");
+      } finally {
+        control.kill("SIGKILL");
+      }
     }
   }
 );
