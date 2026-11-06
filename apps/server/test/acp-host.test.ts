@@ -107,7 +107,9 @@ describe("agent host", () => {
 
   beforeAll(() => {
     stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-state-"));
-    cwd = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-cwd-"));
+    cwd = mkdtempSync(path.join(os.tmpdir(), "unrelated-user-repo-"));
+    execFileSync("git", ["init", "-q", cwd]);
+    writeFileSync(path.join(cwd, "user-notes.txt"), "preserve user work\n");
     process.env.DISPATCH_AGENT_HOST_COMMAND = JSON.stringify([
       process.execPath.includes("bun") ? process.execPath : "bun",
       mainTs,
@@ -129,8 +131,8 @@ describe("agent host", () => {
     async (mode) => {
       const force = mode === "force";
       const id = `agt_owned_${mode[0]}`;
-      const wrapper = path.join(cwd, `adapter-${mode}.mjs`);
-      const pidFile = path.join(cwd, `child-${mode}.pid`);
+      const wrapper = path.join(stateRoot, `adapter-${mode}.mjs`);
+      const pidFile = path.join(stateRoot, `child-${mode}.pid`);
       writeFileSync(
         wrapper,
         `#!/usr/bin/env node
@@ -163,7 +165,15 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
           return false;
         }
       };
+      const secondId = `${id}_independent`;
+      const before = execFileSync("git", ["status", "--porcelain"], {
+        cwd,
+        encoding: "utf8",
+      });
       try {
+        await runtime.launch(launchFor(secondId, cwd));
+        await runtime.prompt(secondId, "normal completion before cleanup")
+          .settled;
         await runtime.launch(launch);
         const { child: pid, adapter } = JSON.parse(
           readFileSync(pidFile, "utf8")
@@ -173,9 +183,30 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         else await runtime.stop(id, force);
         await until(() => !alive(pid));
         expect(alive(control.pid!)).toBe(true);
+        expect(await runtime.isAlive(secondId)).toBe(true);
+        await runtime.prompt(
+          secondId,
+          "normal completion after other session cleanup"
+        ).settled;
+        expect(readFileSync(path.join(cwd, "user-notes.txt"), "utf8")).toBe(
+          "preserve user work\n"
+        );
+        expect(
+          execFileSync("git", ["status", "--porcelain"], {
+            cwd,
+            encoding: "utf8",
+          })
+        ).toBe(before);
       } finally {
-        await runtime.stop(id, true);
-        control.kill("SIGKILL");
+        try {
+          await runtime.stop(id, true);
+        } finally {
+          try {
+            await runtime.stop(secondId, true);
+          } finally {
+            control.kill("SIGKILL");
+          }
+        }
       }
     }
   );
