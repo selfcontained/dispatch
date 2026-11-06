@@ -281,7 +281,7 @@ export function AgentPullRequests({
       {prs
         .filter((pr) => !hidden.includes(`${agentId}:${pr.url}`))
         .map((pr) => (
-          <PullRequestRow
+          <RefreshablePullRequestRow
             key={pr.url}
             pr={pr}
             agentId={agentId}
@@ -296,12 +296,12 @@ export function AgentPullRequests({
 
 export function PullRequestRow({
   onDismiss,
-  agentId,
+  refresh,
   pr,
   isError,
 }: {
   onDismiss: () => void;
-  agentId?: string;
+  refresh?: ReturnType<typeof usePullRequestRefresh>;
   pr: PresentedPullRequest;
   agentName?: string;
   isError: boolean;
@@ -513,20 +513,22 @@ export function PullRequestRow({
                 })}
             </ul>
           )}
-          {pr.ci && (
-            <div className="flex justify-between gap-3 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-              <span title={pr.ci.checkedAt}>
+          {(pr.ci || refresh) && (
+            <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
+              <span title={pr.ci?.checkedAt}>
                 Last checked{" "}
-                {new Date(pr.ci.checkedAt).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {pr.ci
+                  ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "Never"}
               </span>
-              {agentId && <RefreshPullRequest agentId={agentId} url={pr.url} />}
+              {refresh && <RefreshPullRequest refresh={refresh} />}
               <span className="ml-auto">
                 Commit{" "}
                 <span className="font-mono">
-                  {pr.ci.headSha.slice(0, 7) || "Unknown"}
+                  {pr.ci?.headSha.slice(0, 7) || "Unknown"}
                 </span>
               </span>
             </div>
@@ -537,15 +539,19 @@ export function PullRequestRow({
   );
 }
 
-function RefreshPullRequest({
+function RefreshablePullRequestRow({
   agentId,
-  url,
-}: {
+  ...props
+}: Omit<React.ComponentProps<typeof PullRequestRow>, "refresh"> & {
   agentId: string;
-  url: string;
 }) {
+  const refresh = usePullRequestRefresh(agentId, props.pr.url);
+  return <PullRequestRow {...props} refresh={refresh} />;
+}
+
+function usePullRequestRefresh(agentId: string, url: string) {
   const client = useQueryClient();
-  const refresh = useMutation({
+  return useMutation({
     mutationFn: () =>
       api(`/api/v1/agents/${agentId}/pull-requests/refresh`, {
         method: "POST",
@@ -559,6 +565,13 @@ function RefreshPullRequest({
       });
     },
   });
+}
+
+function RefreshPullRequest({
+  refresh,
+}: {
+  refresh: ReturnType<typeof usePullRequestRefresh>;
+}) {
   return (
     <div>
       <Button

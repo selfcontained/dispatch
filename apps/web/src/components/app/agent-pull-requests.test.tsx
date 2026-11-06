@@ -304,8 +304,54 @@ it("targets a single PR, disables refresh while pending and retains checks on fa
     "/api/v1/agents/a/pull-requests/refresh",
     expect.objectContaining({ body: JSON.stringify({ url: pr.url }) })
   );
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(
+    screen.getByRole("button", { name: "Check details for pull request #1" })
+  );
+  const reopened = await screen.findByRole("button", {
+    name: "Refresh pull request checks",
+  });
+  expect(reopened.hasAttribute("disabled")).toBe(true);
   reject(new Error("offline"));
   await screen.findByRole("alert");
   expect(screen.getByText("Build")).toBeTruthy();
-  expect(button.hasAttribute("disabled")).toBe(false);
+  expect(reopened.hasAttribute("disabled")).toBe(false);
+});
+
+it("offers refresh before a CI snapshot is available", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  vi.mocked(api).mockResolvedValue({
+    pullRequests: [
+      {
+        url: "https://github.com/a/b/pull/2",
+        title: "Unavailable",
+        status: "Unavailable",
+      },
+    ],
+  });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <AgentPullRequests agentId="a" />
+    </QueryClientProvider>
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Check details for pull request #2",
+    })
+  );
+  expect(
+    await screen.findByRole("button", { name: "Refresh pull request checks" })
+  ).toBeTruthy();
+  expect(screen.getByText(/Never/)).toBeTruthy();
 });
