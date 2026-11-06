@@ -513,24 +513,44 @@ export function PullRequestRow({
                 })}
             </ul>
           )}
+          {refresh?.isPending && (
+            <p
+              role="status"
+              className="px-3 pb-2 text-[11px] text-muted-foreground"
+            >
+              Refreshing checks…
+            </p>
+          )}
+          {refresh?.isError && (
+            <p
+              role="alert"
+              className="px-3 pb-3 break-words text-[11px] leading-relaxed text-destructive"
+            >
+              {refresh.error instanceof Error
+                ? refresh.error.message
+                : "Could not refresh. Please try again."}
+            </p>
+          )}
           {(pr.ci || refresh) && (
-            <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-              <span title={pr.ci?.checkedAt}>
-                Last checked{" "}
-                {pr.ci
-                  ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "Never"}
-              </span>
-              {refresh && <RefreshPullRequest refresh={refresh} />}
-              <span className="ml-auto">
-                Commit{" "}
-                <span className="font-mono">
-                  {pr.ci?.headSha.slice(0, 7) || "Unknown"}
+            <div className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                <span title={pr.ci?.checkedAt}>
+                  Last checked{" "}
+                  {pr.ci
+                    ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "Never"}
                 </span>
-              </span>
+                {refresh && <RefreshPullRequest refresh={refresh} />}
+                <span className="ml-auto">
+                  Commit{" "}
+                  <span className="font-mono">
+                    {pr.ci?.headSha.slice(0, 7) || "Unknown"}
+                  </span>
+                </span>
+              </div>
             </div>
           )}
         </>
@@ -590,18 +610,6 @@ function RefreshPullRequest({
           className={cn("h-3 w-3", refresh.isPending && "animate-spin")}
         />
       </Button>
-      {refresh.isPending && (
-        <span role="status" className="sr-only">
-          Refreshing checks
-        </span>
-      )}
-      {refresh.isError && (
-        <p role="alert" className="text-destructive">
-          {refresh.error instanceof Error
-            ? refresh.error.message
-            : "Could not refresh. Please try again."}
-        </p>
-      )}
     </div>
   );
 }
