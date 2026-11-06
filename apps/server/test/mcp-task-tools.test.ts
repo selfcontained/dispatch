@@ -320,7 +320,7 @@ it("accepts effort in column trigger MCP input and rejects unknown levels", asyn
       name: "task_column_update",
       arguments: {
         column: "ready",
-        trigger: { templateId: "template", effort: "turbo" },
+        trigger: { templateId: "template", effort: "" },
       },
     });
     expect(invalid.isError).toBe(true);

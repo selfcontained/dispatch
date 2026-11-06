@@ -39,13 +39,13 @@ describe("launch effort", () => {
   it("rejects unsupported models, levels and runtimes instead of silently falling back", async () => {
     await expect(
       applyLaunchEffort(driver(), "agent", "codex", "high")
-    ).rejects.toThrow("does not expose reasoning_effort");
+    ).rejects.toThrow("does not expose effort");
     await expect(
       applyLaunchEffort(driver([reasoning]), "agent", "codex", "max")
     ).rejects.toThrow('does not support effort "max"');
     await expect(
       applyLaunchEffort(driver(), "agent", "opencode", "high")
-    ).rejects.toThrow("OpenCode does not support");
+    ).rejects.toThrow("opencode does not expose effort");
   });
 
   it("rejects an adapter that did not apply the selected effort", async () => {

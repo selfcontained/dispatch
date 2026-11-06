@@ -1,6 +1,14 @@
 import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
-export type AgentModelOption = { id: string; label: string };
+export type AgentModelOption = {
+  id: string;
+  label: string;
+  /** Absent until observed; empty means unsupported. */ effort?: import("@dispatch/shared").AgentConfigChoice[];
+};
+const learnedDefaults = new Map<AgentType, string>();
+export function agentModelDefaults(): Partial<Record<AgentType, string>> {
+  return Object.fromEntries(learnedDefaults);
+}
 
 /**
  * Seed model catalog for the launchers Dispatch supports: what the picker
@@ -56,18 +64,21 @@ const learned = new Map<AgentType, readonly AgentModelOption[]>();
 
 export function setLearnedAgentModels(
   agentType: AgentType,
-  options: readonly AgentModelOption[]
+  options: readonly AgentModelOption[],
+  defaultModel?: string
 ): void {
   if (options.length === 0) return;
+  if (defaultModel) learnedDefaults.set(agentType, defaultModel);
   learned.set(
     agentType,
-    options.map((o) => ({ id: o.id, label: o.label }))
+    options.map((o) => ({ ...o }))
   );
 }
 
 /** Tests reset what earlier tests taught. */
 export function forgetLearnedAgentModels(): void {
   learned.clear();
+  learnedDefaults.clear();
 }
 
 export function getAgentModelOptions(

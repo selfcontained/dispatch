@@ -1,22 +1,26 @@
-import { EFFORT_LEVELS, type AgentType, type Effort } from "@dispatch/shared";
+import type { AgentType, Effort } from "@dispatch/shared";
+import { getAgentModelOptions, agentModelDefaults } from "./agent-models.js";
 
+/** Stored settings remain forward-compatible; the live engine validates at launch. */
 export function validateAgentEffort(
   type: AgentType,
-  effort: unknown
+  effort: unknown,
+  model?: string | null
 ): Effort | null {
-  if (effort === undefined || effort === null) return null;
-  if (typeof effort !== "string" || !EFFORT_LEVELS.includes(effort as Effort)) {
+  if (effort == null) return null;
+  if (typeof effort !== "string" || !effort.trim() || effort.length > 128) {
     throw new Error(
-      `Invalid effort "${String(effort)}". Use low, medium, high, xhigh, max, or null to inherit.`
+      "Invalid effort. Choose an engine-reported level or null to inherit."
     );
   }
-  if (type === "opencode")
+  model ??= agentModelDefaults()[type];
+  const choices = model
+    ? getAgentModelOptions(type).find((option) => option.id === model)?.effort
+    : undefined;
+  if (choices && !choices.some((choice) => choice.value === effort)) {
     throw new Error(
-      "OpenCode does not support launch effort. Remove effort from the template or launch configuration, or choose Claude/Codex."
+      `Effort "${effort}" is not supported for this model. Choose a reported level or Default.`
     );
-  if (type === "codex" && effort === "max")
-    throw new Error(
-      "Codex does not support effort max. Use low, medium, high, or xhigh (subject to model support)."
-    );
-  return effort as Effort;
+  }
+  return effort;
 }

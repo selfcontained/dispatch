@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { EffortPicker } from "@/components/app/effort-picker";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,7 @@ function ModelChip({
   const catalog = useAgentModelCatalogData();
   const config = useAgentConfig(agentId, active);
   const setConfig = useSetAgentConfig(agentId);
+  const setEffort = useSetAgentConfig(agentId);
   const [open, setOpen] = useState(false);
   const options = useMemo(
     () => pickableOptions(config.data?.options ?? []),
@@ -170,67 +172,86 @@ function ModelChip({
     (agent.model
       ? agentModelLabel(catalog, agent.type, agent.model)
       : "Default model");
-  const effortLabel = choiceName(effort);
-  const disabled = !running || options.length === 0;
+  const disabled = !running || !model;
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setConfig.reset();
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(CHIP_CLASS, "max-w-full justify-self-start")}
-          disabled={disabled}
-          title={
-            running ? "Change the model" : "Start the agent to change its model"
-          }
-          data-testid="composer-model-chip"
-        >
-          <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
-          <span className="truncate">{label}</span>
-          {effortLabel ? (
-            <span className="composer-model-effort shrink-0 text-muted-foreground/70">
-              · {effortLabel}
-            </span>
-          ) : null}
-          {disabled ? null : (
-            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        side="top"
-        className="w-72 space-y-3 p-3"
-        data-testid="composer-model-picker"
+    <div className="flex min-w-0 items-center gap-1">
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setConfig.reset();
+        }}
       >
-        {options.map((option) => (
-          <ConfigSelect
-            key={option.id}
-            option={option}
-            disabled={setConfig.isPending}
-            onChange={(value) =>
-              setConfig.mutate({ configId: option.id, value })
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(CHIP_CLASS, "max-w-full justify-self-start")}
+            disabled={disabled}
+            title={
+              running
+                ? "Change the model"
+                : "Start the agent to change its model"
             }
-          />
-        ))}
-        <p className="text-[11px] text-muted-foreground">
-          {setConfig.isPending
-            ? "Applying…"
-            : "Applies from the next turn of this session."}
-        </p>
-        {setConfig.error ? (
-          <p role="alert" className="text-[11px] text-destructive">
-            {setConfig.error.message}
+            data-testid="composer-model-chip"
+          >
+            <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">{label}</span>
+            {disabled ? null : (
+              <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          side="top"
+          className="w-72 space-y-3 p-3"
+          data-testid="composer-model-picker"
+        >
+          {(model ? [model] : []).map((option) => (
+            <ConfigSelect
+              key={option.id}
+              option={option}
+              disabled={setConfig.isPending}
+              onChange={(value) =>
+                setConfig.mutate({ configId: option.id, value })
+              }
+            />
+          ))}
+          <p className="text-[11px] text-muted-foreground">
+            {setConfig.isPending
+              ? "Applying…"
+              : "Applies from the next turn of this session."}
           </p>
-        ) : null}
-      </PopoverContent>
-    </Popover>
+          {setConfig.error ? (
+            <p role="alert" className="text-[11px] text-destructive">
+              {setConfig.error.message}
+            </p>
+          ) : null}
+        </PopoverContent>
+      </Popover>
+      {effort ? (
+        <EffortPicker
+          id="composer-effort-chip"
+          compact
+          value={effort.currentValue}
+          choices={effort.choices}
+          allowDefault={effort.choices.some(
+            (choice) => choice.value === "default"
+          )}
+          disabled={!running}
+          pending={setEffort.isPending}
+          error={setEffort.error?.message}
+          description="Applies from the next turn of this session."
+          onChange={(value) =>
+            setEffort.mutateAsync({
+              configId: effort.id,
+              value: value ?? "default",
+            })
+          }
+        />
+      ) : null}
+    </div>
   );
 }
 

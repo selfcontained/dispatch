@@ -1,4 +1,4 @@
-import { EFFORT_LEVELS, type Effort } from "@dispatch/shared";
+import { type Effort } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -392,11 +392,13 @@ export function registerCrudTools(
             .describe("Agent runtime type."),
           model: modelSchema("create", JOB_AGENT_TYPES),
           effort: z
-            .enum(EFFORT_LEVELS)
+            .string()
+            .min(1)
+            .max(128)
             .nullable()
             .optional()
             .describe(
-              "Reasoning effort: low, medium, high, xhigh, max. Null inherits the CLI default; runtime support is validated."
+              "Reasoning effort: an engine-reported level. Null inherits the CLI default; runtime support is validated."
             ),
           persona: z
             .string()
@@ -539,11 +541,13 @@ export function registerCrudTools(
             .describe("Agent runtime type."),
           model: modelSchema("update", JOB_AGENT_TYPES),
           effort: z
-            .enum(EFFORT_LEVELS)
+            .string()
+            .min(1)
+            .max(128)
             .nullable()
             .optional()
             .describe(
-              "Reasoning effort: low, medium, high, xhigh, max. Null inherits the CLI default; runtime support is validated."
+              "Reasoning effort: an engine-reported level. Null inherits the CLI default; runtime support is validated."
             ),
           persona: z
             .string()
@@ -783,11 +787,13 @@ export function registerCrudTools(
             .describe("Agent runtime type."),
           model: modelSchema("create", TEMPLATE_AGENT_TYPES),
           effort: z
-            .enum(EFFORT_LEVELS)
+            .string()
+            .min(1)
+            .max(128)
             .nullable()
             .optional()
             .describe(
-              "Reasoning effort: low, medium, high, xhigh, max. Null inherits the CLI default; runtime support is validated."
+              "Reasoning effort: an engine-reported level. Null inherits the CLI default; runtime support is validated."
             ),
           persona: z
             .string()
@@ -876,11 +882,13 @@ export function registerCrudTools(
             .describe("Agent runtime type."),
           model: modelSchema("update", TEMPLATE_AGENT_TYPES),
           effort: z
-            .enum(EFFORT_LEVELS)
+            .string()
+            .min(1)
+            .max(128)
             .nullable()
             .optional()
             .describe(
-              "Reasoning effort: low, medium, high, xhigh, max. Null inherits the CLI default; runtime support is validated."
+              "Reasoning effort: an engine-reported level. Null inherits the CLI default; runtime support is validated."
             ),
           persona: z
             .string()

@@ -1,4 +1,4 @@
-import { EFFORT_LEVELS, type Effort } from "@dispatch/shared";
+import { type Effort } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -104,11 +104,13 @@ export function registerAgentLaunchTools(
               describeAgentModelCatalog()
           ),
         effort: z
-          .enum(EFFORT_LEVELS)
+          .string()
+          .min(1)
+          .max(128)
           .nullable()
           .optional()
           .describe(
-            "Reasoning effort: low, medium, high, xhigh, max. Explicit value overrides template, then CLI default; null inherits. Never inherits parent effort. Codex does not support max; OpenCode does not support effort."
+            "Reasoning effort: an engine-reported level. Explicit value overrides template, then CLI default; null inherits. Never inherits parent effort."
           ),
         useWorktree: z
           .boolean()

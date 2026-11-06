@@ -44,7 +44,21 @@ vi.mock("@/components/app/dashboard-context", () => ({
   }),
 }));
 
+const effortFixture = vi.hoisted(
+  () => (type: string) =>
+    (type === "opencode"
+      ? []
+      : type === "codex"
+        ? ["low", "medium", "high", "xhigh"]
+        : ["low", "medium", "high", "xhigh", "max"]
+    ).map((value) => ({
+      value,
+      name: value[0]!.toUpperCase() + value.slice(1),
+    }))
+);
 vi.mock("@/hooks/use-agent-model-catalog", () => ({
+  useAgentEffortChoices: effortFixture,
+  useAgentEffortCatalog: () => effortFixture,
   useAgentModelCatalog: () => ({
     options: [{ id: "m1", label: "Model One" }],
     loading: false,
@@ -351,7 +365,7 @@ it.each([
     fireEvent.keyDown(templatePicker(), { key: "Enter" });
     fireEvent.click(screen.getByRole("option", { name: "Other runtime" }));
     expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
-      agentType === "opencode" ? "—" : "Default"
+      "Default"
     );
     expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
       "disabled",
@@ -399,14 +413,14 @@ it("blocks an inherited OpenCode conflict instead of silently clearing template 
   fireEvent.click(screen.getByRole("combobox", { name: "Type" }));
   fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
   expect(screen.getByRole("alert").textContent).toContain(
-    'Template "Builder" uses high effort'
+    'The saved effort "high" is not available'
   );
   expect(screen.getByRole("alert").textContent).toContain(
-    "edit the template to inherit effort"
+    "Choose an available level or change the template"
   );
   expect(screen.getByTestId("task-trigger-effort")).toHaveProperty(
     "disabled",
-    true
+    false
   );
   expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
     "disabled",
@@ -430,7 +444,7 @@ it("resolves inherited Codex max conflict with an explicit compatible override",
     trigger: { ...column.trigger!, agentType: "codex" },
   });
   expect(screen.getByRole("alert").textContent).toContain(
-    "Choose low, medium, high, or xhigh as an override"
+    'The saved effort "max" is not available'
   );
   expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
     "disabled",

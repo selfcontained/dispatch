@@ -706,14 +706,14 @@ describe("job effort", () => {
     expect(await templateEffort()).toBeNull();
   });
 
-  it("rejects runtime-incompatible effort before saving", async () => {
+  it("rejects malformed effort before saving", async () => {
     const result = await authedInject("POST", "/api/v1/jobs", {
       name: "bad-effort-job",
       directory: "/tmp",
       agentType: "opencode",
-      effort: "high",
+      effort: "",
     });
     expect(result.statusCode).toBe(400);
-    expect(result.body).toMatch(/effort/i);
+    expect(result.json().error).toBeTruthy();
   });
 });

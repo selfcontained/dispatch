@@ -647,7 +647,11 @@ export class JobService {
       );
     const agentConfig = {
       ...applyAgentConfigDefaults(input),
-      effort: validateAgentEffort(input.agentType ?? "claude", input.effort),
+      effort: validateAgentEffort(
+        input.agentType ?? "claude",
+        input.effort,
+        input.model
+      ),
     };
 
     // Create a backing template for this job (hidden from Cmd+K by default).
@@ -802,7 +806,12 @@ export class JobService {
       : existing.effort;
     const nextEffort = validateAgentEffort(
       input.agentType ?? backingTemplate?.agentType ?? existing.agentType,
-      input.effort === undefined ? previousEffort : input.effort
+      input.effort === undefined ? previousEffort : input.effort,
+      input.model === undefined
+        ? backingTemplate
+          ? backingTemplate.model
+          : existing.model
+        : input.model
     );
     if (input.effort !== undefined || nextEffort !== existing.effort)
       config.effort = nextEffort;

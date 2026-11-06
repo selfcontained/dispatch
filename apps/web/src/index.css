@@ -1620,7 +1620,6 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 }
 
 @container composer-footer (max-width: 22rem) {
-  .composer-model-effort,
   .composer-usage-full {
     display: none;
   }

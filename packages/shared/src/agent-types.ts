@@ -17,5 +17,5 @@ export type AgentType = (typeof AGENT_TYPES)[number];
 export const CLI_AGENT_TYPES = ["claude", "codex", "opencode"] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 
-export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
-export type Effort = (typeof EFFORT_LEVELS)[number];
+/** An engine-owned effort value, validated against its model capabilities. */
+export type Effort = string;

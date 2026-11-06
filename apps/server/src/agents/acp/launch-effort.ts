@@ -9,19 +9,17 @@ export async function applyLaunchEffort(
   engine: AcpEngineId,
   effort?: Effort | null
 ): Promise<void> {
-  // Claude receives --effort at process creation through its SDK options.
-  if (effort == null || engine === "claude") return;
-  if (engine === "opencode") {
-    throw new Error(
-      "OpenCode does not support launch effort. Clear effort to inherit its settings."
-    );
-  }
+  if (effort == null) return;
   const option = driver
     .getConfigOptions(agentId)
-    ?.find((item) => item.id === "reasoning_effort");
+    ?.find(
+      (item) =>
+        item.category === "thought_level" ||
+        /effort|reasoning|thinking/i.test(item.id)
+    );
   if (!option || option.type !== "select") {
     throw new Error(
-      "This Codex runtime does not expose reasoning_effort. Update Codex or leave effort at Default."
+      `${engine} does not expose effort for this model. Leave effort at Default.`
     );
   }
   const values = option.options.flatMap((item) =>
@@ -29,13 +27,13 @@ export async function applyLaunchEffort(
   );
   if (!values.includes(effort)) {
     throw new Error(
-      `Codex does not support effort "${effort}" for this model. Choose ${values.join(", ") || "another model"}.`
+      `${engine} does not support effort "${effort}" for this model. Choose ${values.join(", ") || "another model"}.`
     );
   }
   const result = await driver.setConfigOption(agentId, option.id, effort);
   if (result.find((item) => item.id === option.id)?.currentValue !== effort) {
     throw new Error(
-      `Codex did not apply effort "${effort}". Choose a supported model and effort.`
+      `${engine} did not apply effort "${effort}". Choose a supported model and effort.`
     );
   }
 }

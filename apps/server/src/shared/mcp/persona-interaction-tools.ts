@@ -1,4 +1,3 @@
-import { EFFORT_LEVELS } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -264,11 +263,13 @@ export function registerPersonaInteractionTools(
             ),
           agentType: z.enum(LAUNCH_PERSONA_AGENT_TYPES).optional(),
           effort: z
-            .enum(EFFORT_LEVELS)
+            .string()
+            .min(1)
+            .max(128)
             .nullable()
             .optional()
             .describe(
-              "Launch reasoning effort: low, medium, high, xhigh, max; null inherits the CLI default. Codex rejects max; OpenCode rejects effort."
+              "Launch reasoning effort: an engine-reported level; null inherits the CLI default."
             ),
           model: z
             .string()

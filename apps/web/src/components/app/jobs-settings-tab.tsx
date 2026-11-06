@@ -285,6 +285,7 @@ export function SettingsTab({
               />
             ) : null}
             <AgentEffortSelect
+              model={model}
               value={effort}
               onChange={setEffort}
               agentType={agentType}

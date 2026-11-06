@@ -40,7 +40,11 @@ export function resolveTemplateLaunch(
     ...template,
     agentType,
     model: validateAgentModel(agentType, model ?? undefined) ?? null,
-    effort: validateAgentEffort(agentType, overrides.effort ?? template.effort),
+    effort: validateAgentEffort(
+      agentType,
+      overrides.effort ?? template.effort,
+      model
+    ),
     persona: template.persona ?? null,
     fullAccess: template.fullAccess ?? false,
     useWorktree: workspace.useWorktree,

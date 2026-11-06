@@ -89,6 +89,7 @@ export function AgentEngineFields({
         ) : null}
         {onEffortChange ? (
           <AgentEffortSelect
+            model={model}
             inheritLabel={effortDefaultLabel}
             value={effort ?? null}
             onChange={onEffortChange}

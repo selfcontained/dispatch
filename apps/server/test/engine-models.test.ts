@@ -2,10 +2,12 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  loadLearnedAgentModels,
   modelOptionOf,
   recordEngineModels,
 } from "../src/agents/engine-models.js";
 import {
+  agentModelDefaults,
   forgetLearnedAgentModels,
   getAgentModelOptions,
 } from "../src/shared/agent-models.js";
@@ -217,5 +219,64 @@ describe("recordEngineModels", () => {
     );
     expect(first.modelsChanged).toBe(true);
     expect(again.modelsChanged).toBe(false);
+  });
+  it("learns exact per-model effort choices, persists them, and refreshes changed capabilities", async () => {
+    const p = pool();
+    const deps = { pool: p as never, logger };
+    const models = [
+      { value: "a", name: "A" },
+      { value: "b", name: "B" },
+    ];
+    const effort = (values: string[]): SessionConfigOption => ({
+      id: "reasoning",
+      category: "thought_level",
+      type: "select",
+      name: "Effort",
+      currentValue: values[0]!,
+      options: values.map((value) => ({ value, name: `Engine ${value}` })),
+    });
+    await recordEngineModels(
+      deps,
+      { id: "agt_1", type: "codex", model: null },
+      [modelOption("a", models), effort(["default", "future"])]
+    );
+    expect(agentModelDefaults().codex).toBe("a");
+    expect(getAgentModelOptions("codex")).toEqual([
+      {
+        id: "a",
+        label: "A",
+        effort: [{ value: "future", name: "Engine future" }],
+      },
+      { id: "b", label: "B" },
+    ]);
+    await recordEngineModels(deps, { id: "agt_1", type: "codex", model: "b" }, [
+      modelOption("b", models),
+      effort(["ultra"]),
+    ]);
+    expect(getAgentModelOptions("codex")[0]?.effort?.[0]?.value).toBe("future");
+    expect(getAgentModelOptions("codex")[1]?.effort?.[0]?.value).toBe("ultra");
+    const updated = await recordEngineModels(
+      deps,
+      { id: "agt_1", type: "codex", model: "b" },
+      [modelOption("b", models), effort(["ultra", "new"])]
+    );
+    expect(updated.modelsChanged).toBe(true);
+    const writes = p.query.mock.calls.filter((call) =>
+      String(call[0]).includes("INSERT INTO settings")
+    );
+    const stored = (writes.at(-1)?.[1] as string[])[1]!;
+    forgetLearnedAgentModels();
+    const reload = {
+      query: vi.fn().mockImplementation((_sql, args) =>
+        Promise.resolve({
+          rows: args[0] === "agent_models:codex" ? [{ value: stored }] : [],
+        })
+      ),
+    };
+    await loadLearnedAgentModels(reload as never);
+    expect(agentModelDefaults().codex).toBe("a");
+    expect(
+      getAgentModelOptions("codex")[1]?.effort?.map((choice) => choice.value)
+    ).toEqual(["ultra", "new"]);
   });
 });

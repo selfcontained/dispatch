@@ -27,11 +27,14 @@ import {
   type Template,
 } from "@/hooks/use-templates";
 import { type AgentType } from "@/lib/agent-types";
-import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
+import {
+  useAgentModelCatalog,
+  useAgentEffortChoices,
+} from "@/hooks/use-agent-model-catalog";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
-import { EFFORT_LABELS, effortCompatibilityError } from "@/lib/agent-effort";
+import { effortCompatibilityError } from "@/lib/agent-effort";
 
 export function LaunchTemplateDialog({
   template,
@@ -143,9 +146,10 @@ function LaunchTemplateDialogContent({
     args.length === 0 ||
     args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
 
+  const effortChoices = useAgentEffortChoices(agentType, model);
   const effortError = effortCompatibilityError(
-    agentType,
-    effort ?? template.effort
+    effort ?? template.effort,
+    effortChoices
   );
 
   const handleLaunch = useCallback(() => {
@@ -278,11 +282,12 @@ function LaunchTemplateDialogContent({
               />
             ) : null}
             <AgentEffortSelect
+              model={model}
               value={effort}
               onChange={setEffort}
               agentType={agentType}
               id="launch-template-effort"
-              inheritLabel={`Inherit (${template.effort ? EFFORT_LABELS[template.effort] : "Default"})`}
+              inheritLabel={`Inherit (${template.effort ? (effortChoices?.find((c) => c.value === template.effort)?.name ?? template.effort) : "Default"})`}
             />
           </AgentConfigRow>
 

@@ -1620,7 +1620,7 @@ export class AgentManager {
     await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
-    const effort = validateAgentEffort(type, input.effort);
+    const effort = validateAgentEffort(type, input.effort, input.model);
     const role: AgentRole = input.role ?? "standard";
     const fullAccess = input.fullAccess ?? false;
     const fullAccessArg =

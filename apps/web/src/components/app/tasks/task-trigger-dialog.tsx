@@ -1,4 +1,4 @@
-import { EFFORT_LABELS, effortCompatibilityError } from "@/lib/agent-effort";
+import { effortCompatibilityError } from "@/lib/agent-effort";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Plus, Settings2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,10 @@ import {
 import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
 import { useDashboardContext } from "@/components/app/dashboard-context";
-import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
+import {
+  useAgentModelCatalog,
+  useAgentEffortCatalog,
+} from "@/hooks/use-agent-model-catalog";
 import { useProjects } from "@/hooks/use-projects";
 import { useTemplates } from "@/hooks/use-templates";
 import type { TaskColumn, TaskColumnTrigger } from "@/hooks/use-tasks";
@@ -143,25 +146,33 @@ export function TaskTriggerDialog({
   const templateType = (chosen?.agentType ?? "claude") as AgentType;
   const agentType = (trigger.agentType ?? templateType) as AgentType;
   const models = useAgentModelCatalog(agentType);
+  const effortCatalog = useAgentEffortCatalog();
+  const effortChoices = effortCatalog(
+    agentType,
+    trigger.model ?? chosen?.model ?? null
+  );
   const resolvedEffort = trigger.effort ?? chosen?.effort ?? null;
-  const effortConflict = effortCompatibilityError(agentType, resolvedEffort)
-    ? `${trigger.effort ? "The trigger" : `Template "${chosen?.name ?? ""}"`} uses ${resolvedEffort} effort, which ${agentType === "opencode" ? "OpenCode" : "Codex"} does not support. ${agentType === "opencode" ? "Choose a compatible runtime or template, or edit the template to inherit effort." : "Choose low, medium, high, or xhigh as an override, or choose a compatible runtime or template."}`
-    : null;
+  const effortConflict = effortCompatibilityError(
+    resolvedEffort,
+    effortChoices
+  );
   const selectTemplate = (templateId: string, nextTemplateType: AgentType) => {
-    setTrigger((old) => {
-      const nextType = old.agentType ?? nextTemplateType;
-      return {
-        ...old,
-        templateId,
-        // An explicit runtime keeps ownership when the template changes.
-        // Only discard an override made invalid by an effective runtime change.
-        effort:
-          nextType !== agentType &&
-          effortCompatibilityError(nextType, old.effort)
-            ? null
-            : old.effort,
-      };
-    });
+    const nextTemplate = projectTemplates.find(
+      (template) => template.id === templateId
+    );
+    setTrigger((old) => ({
+      ...old,
+      templateId,
+      effort: effortCompatibilityError(
+        old.effort,
+        effortCatalog(
+          old.agentType ?? nextTemplateType,
+          old.model ?? nextTemplate?.model ?? null
+        )
+      )
+        ? null
+        : old.effort,
+    }));
   };
   const toggle = (key: "assign" | "fireOnCreate") =>
     setTrigger((old) => ({ ...old, [key]: !old[key] }));
@@ -253,15 +264,13 @@ export function TaskTriggerDialog({
                 ...old,
                 // Picking the template's own engine goes back to following it.
                 agentType: value === templateType ? null : value,
-                effort: !effortCompatibilityError(value, old.effort)
-                  ? old.effort
-                  : null,
+                effort: null,
               }))
             }
             agentTypes={enabledAgentTypes}
             effortDefaultLabel={
               chosen?.effort
-                ? `Inherit (${EFFORT_LABELS[chosen.effort]})`
+                ? `Inherit (${effortChoices?.find((c) => c.value === chosen.effort)?.name ?? chosen.effort})`
                 : "Default"
             }
             effort={trigger.effort ?? null}

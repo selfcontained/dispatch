@@ -429,7 +429,7 @@ describe("template launch effort", () => {
     );
   });
 
-  it("rejects unsupported effort before creating an agent", async () => {
+  it("rejects malformed effort before creating an agent", async () => {
     const createAgent = vi.fn(async () => buildAgent());
     const service = new TemplateService(
       {} as never,
@@ -437,7 +437,7 @@ describe("template launch effort", () => {
       { info: vi.fn() } as never
     );
     vi.spyOn(service.store, "getTemplate").mockResolvedValue(
-      buildTemplate({ effort: "high" })
+      buildTemplate({ effort: "" })
     );
     await expect(
       service.launchTemplate({

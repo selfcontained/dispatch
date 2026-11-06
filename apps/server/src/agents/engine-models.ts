@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import { getSetting, setSetting } from "../db/settings.js";
 import {
   getAgentModelOptions,
+  agentModelDefaults,
   setLearnedAgentModels,
   type AgentModelOption,
 } from "../shared/agent-models.js";
@@ -13,7 +14,11 @@ import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
 /** The settings key an engine's learned list lives under. */
 const settingKey = (agentType: AgentType) => `agent_models:${agentType}`;
 
-type StoredEngineModels = { models: AgentModelOption[]; seenAt: string };
+type StoredEngineModels = {
+  models: AgentModelOption[];
+  defaultModel?: string;
+  seenAt: string;
+};
 
 export type EngineModelReport = {
   /** The model the engine is running now. */
@@ -77,7 +82,7 @@ export async function loadLearnedAgentModels(pool: Pool): Promise<void> {
     try {
       const stored = JSON.parse(raw) as StoredEngineModels;
       if (Array.isArray(stored.models)) {
-        setLearnedAgentModels(agentType, stored.models);
+        setLearnedAgentModels(agentType, stored.models, stored.defaultModel);
       }
     } catch {
       // A corrupt entry is replaced the next time the engine reports.
@@ -99,13 +104,42 @@ export async function recordEngineModels(
 ): Promise<{ modelChanged: boolean; modelsChanged: boolean }> {
   const report = modelOptionOf(options);
   if (!report) return { modelChanged: false, modelsChanged: false };
+  const previous = getAgentModelOptions(agent.type);
+  const effortOption = options.find(
+    (o) =>
+      o.type === "select" &&
+      (o.category === "thought_level" ||
+        /effort|reasoning|thinking/i.test(o.id))
+  );
+  const effort =
+    effortOption?.type === "select"
+      ? effortOption.options
+          .flatMap((entry) => ("options" in entry ? entry.options : [entry]))
+          .filter((choice) => choice.value !== "default")
+          .map((choice) => ({
+            value: choice.value,
+            name: choice.name,
+            ...(choice.description ? { description: choice.description } : {}),
+          }))
+      : [];
+  report.choices = report.choices.map((choice) => {
+    const known =
+      choice.id === report.current
+        ? effort
+        : previous.find((old) => old.id === choice.id)?.effort;
+    return known === undefined ? choice : { ...choice, effort: known };
+  });
+  const defaultModel =
+    agent.model === null ? report.current : agentModelDefaults()[agent.type];
   const modelsChanged =
     report.choices.length > 0 &&
-    !sameModels(getAgentModelOptions(agent.type), report.choices);
+    (!sameModels(previous, report.choices) ||
+      defaultModel !== agentModelDefaults()[agent.type]);
   if (report.choices.length > 0) {
-    setLearnedAgentModels(agent.type, report.choices);
+    setLearnedAgentModels(agent.type, report.choices, defaultModel);
     const stored: StoredEngineModels = {
       models: report.choices,
+      defaultModel,
       seenAt: new Date().toISOString(),
     };
     await setSetting(deps.pool, settingKey(agent.type), JSON.stringify(stored));
@@ -129,6 +163,11 @@ function sameModels(
 ): boolean {
   return (
     a.length === b.length &&
-    a.every((o, i) => o.id === b[i]?.id && o.label === b[i]?.label)
+    a.every(
+      (o, i) =>
+        o.id === b[i]?.id &&
+        o.label === b[i]?.label &&
+        JSON.stringify(o.effort) === JSON.stringify(b[i]?.effort)
+    )
   );
 }

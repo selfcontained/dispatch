@@ -217,6 +217,7 @@ export function TemplateConfigFields({
           />
         ) : null}
         <AgentEffortSelect
+          model={model}
           value={effort ?? null}
           onChange={onEffortChange}
           agentType={agentType}

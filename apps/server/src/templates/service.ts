@@ -92,7 +92,11 @@ export class TemplateService {
       description: input.description ?? null,
       prompt: input.prompt ?? null,
       ...applyAgentConfigDefaults(input),
-      effort: validateAgentEffort(input.agentType ?? "claude", input.effort),
+      effort: validateAgentEffort(
+        input.agentType ?? "claude",
+        input.effort,
+        input.model
+      ),
       callable: input.callable ?? true,
       allowFiles: input.allowFiles ?? true,
       selfImprove: input.selfImprove ?? false,
@@ -166,7 +170,8 @@ export class TemplateService {
     if (input.prompt !== undefined) updates.prompt = input.prompt;
     const nextEffort = validateAgentEffort(
       input.agentType ?? existing.agentType,
-      input.effort === undefined ? existing.effort : input.effort
+      input.effort === undefined ? existing.effort : input.effort,
+      input.model === undefined ? existing.model : input.model
     );
     if (input.effort !== undefined || nextEffort !== existing.effort)
       updates.effort = nextEffort;

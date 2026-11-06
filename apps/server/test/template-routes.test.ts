@@ -589,8 +589,8 @@ describe("template effort persistence", () => {
     ).toBeNull();
   });
 
-  it.each([{ effort: "turbo" }, { effort: "high", agentType: "opencode" }])(
-    "rejects unsupported effort at save: %j",
+  it.each([{ effort: "" }, { effort: 123 }])(
+    "rejects malformed effort at save: %j",
     async (overrides) => {
       const response = await authedInject("POST", "/api/v1/templates", {
         name: "invalid-effort",
@@ -598,27 +598,22 @@ describe("template effort persistence", () => {
         ...overrides,
       });
       expect(response.statusCode).toBe(400);
-      expect(response.body).toMatch(/effort/i);
+      expect(response.json().error).toBeTruthy();
     }
   );
 
-  it("validates the retained effort when changing runtime", async () => {
-    const template = await createTemplate("runtime-effort", { effort: "high" });
-    const url = `/api/v1/templates/${template.id}`;
-    expect(
-      (await authedInject("PATCH", url, { agentType: "opencode" })).statusCode
-    ).toBe(400);
-    expect((await authedInject("GET", url)).json()).toMatchObject({
-      agentType: "claude",
-      effort: "high",
+  it("retains engine-owned values without imposing a static enum", async () => {
+    const template = await createTemplate("future-effort", {
+      effort: "ultra",
+      agentType: "codex",
     });
+    expect(template.effort).toBe("ultra");
     expect(
       (
-        await authedInject("PATCH", url, {
-          agentType: "opencode",
-          effort: null,
+        await authedInject("PATCH", `/api/v1/templates/${template.id}`, {
+          effort: "future-level",
         })
-      ).statusCode
-    ).toBe(200);
+      ).json().effort
+    ).toBe("future-level");
   });
 });

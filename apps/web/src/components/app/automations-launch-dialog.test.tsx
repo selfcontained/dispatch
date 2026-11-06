@@ -154,13 +154,30 @@ function lastJsonBody(): Record<string, unknown> {
   return JSON.parse(body as string) as Record<string, unknown>;
 }
 
+const effortFixture = (values: string[]) =>
+  values.map((value) => ({
+    value,
+    name: value[0]!.toUpperCase() + value.slice(1),
+  }));
 const MODEL_CATALOG = {
+  defaults: { claude: "opus", codex: "gpt-5.6-sol", opencode: "sample" },
   models: {
     claude: [
-      { id: "opus", label: "Opus" },
+      {
+        id: "opus",
+        label: "Opus",
+        effort: effortFixture(["low", "medium", "high", "xhigh", "max"]),
+      },
       { id: "sonnet", label: "Sonnet" },
     ],
-    codex: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }],
+    opencode: [{ id: "sample", label: "Sample", effort: [] }],
+    codex: [
+      {
+        id: "gpt-5.6-sol",
+        label: "GPT-5.6 Sol",
+        effort: effortFixture(["low", "medium", "high", "xhigh"]),
+      },
+    ],
   },
 };
 
@@ -645,7 +662,7 @@ it("sends the selected reasoning effort override", async () => {
   queueLaunchedAgent("agt_effort");
   await renderDialog(makeTemplate({ effort: "high" }));
   fireEvent.click(screen.getByTestId("launch-template-effort"));
-  fireEvent.click(screen.getByRole("radio", { name: "Extra high" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Xhigh" }));
   fireEvent.click(launchButton());
   await waitFor(() =>
     expect(lastJsonBody()).toMatchObject({ effort: "xhigh" })
@@ -657,7 +674,7 @@ it("explains incompatible inherited effort before an OpenCode launch", async () 
   fireEvent.click(agentTypeSelect());
   fireEvent.click(await screen.findByRole("option", { name: /OpenCode/ }));
   expect(screen.getByRole("alert").textContent).toContain(
-    "template without effort"
+    'The saved effort "high" is not available'
   );
   expect(launchButton().disabled).toBe(true);
   fireEvent.submit(dialogForm());
@@ -674,7 +691,7 @@ it("allows a supported override to resolve inherited max effort for Codex", asyn
   fireEvent.click(agentTypeSelect());
   fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
   expect(screen.getByRole("alert").textContent).toContain(
-    "Codex does not support max"
+    'The saved effort "max" is not available'
   );
   expect(launchButton().disabled).toBe(true);
   fireEvent.click(screen.getByTestId("launch-template-effort"));

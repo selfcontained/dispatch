@@ -4,7 +4,15 @@ import { useCallback, useMemo } from "react";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 
-export type AgentModelOption = { id: string; label: string };
+export type AgentModelOption = {
+  id: string;
+  label: string;
+  effort?: import("@dispatch/shared").AgentConfigChoice[];
+};
+type CatalogResponse = {
+  models: AgentModelCatalog;
+  defaults?: Partial<Record<AgentType, string>>;
+};
 export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
 
 /**
@@ -30,7 +38,7 @@ export function useAgentModelCatalog(agentType: AgentType): {
    * untouched so a failed fetch never wipes a saved model. */
   normalizeModel: (value: string | null) => string | null;
 } {
-  const { data, isLoading } = useQuery<{ models: AgentModelCatalog }>({
+  const { data, isLoading } = useQuery<CatalogResponse>({
     queryKey: ["agent-models"],
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: 5 * 60 * 1000,
@@ -70,11 +78,33 @@ export function agentModelLabel(
 
 /** The whole catalog, for a component that labels many agents' models at once. */
 export function useAgentModelCatalogData(): AgentModelCatalog | undefined {
-  const { data } = useQuery<{ models: AgentModelCatalog }>({
+  const { data } = useQuery<CatalogResponse>({
     queryKey: ["agent-models"],
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: 5 * 60 * 1000,
     gcTime: Infinity,
   });
   return data?.models;
+}
+
+/** Shares the model catalog cache: no separate hardcoded effort list. */
+export function useAgentEffortCatalog() {
+  const { data } = useQuery<CatalogResponse>({
+    queryKey: ["agent-models"],
+    queryFn: () => api("/api/v1/agent-models"),
+    staleTime: 5 * 60 * 1000,
+    gcTime: Infinity,
+  });
+  return (agentType: AgentType, model: string | null) => {
+    const selected = model ?? data?.defaults?.[agentType];
+    return data?.models?.[agentType]?.find((option) => option.id === selected)
+      ?.effort;
+  };
+}
+
+export function useAgentEffortChoices(
+  agentType: AgentType,
+  model: string | null
+) {
+  return useAgentEffortCatalog()(agentType, model);
 }

@@ -79,7 +79,7 @@ async function dropTasks(): Promise<void> {
   await pool.query("ALTER TABLE templates DROP COLUMN IF EXISTS effort");
   await pool.query("ALTER TABLE jobs DROP COLUMN IF EXISTS effort");
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name = '0036_launch_effort'"
+    "DELETE FROM pgmigrations WHERE name IN ('0036_launch_effort', '0037_engine_effort_values')"
   );
   await pool.query("DROP TABLE IF EXISTS agent_pr_dismissals");
   await pool.query(

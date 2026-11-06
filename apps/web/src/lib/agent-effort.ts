@@ -1,25 +1,14 @@
-import type { Effort } from "@dispatch/shared";
-import type { AgentType } from "./agent-types";
+import type { AgentConfigChoice, Effort } from "@dispatch/shared";
 
-export const EFFORT_LABELS: Record<Effort, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Max",
-};
-
-/** Check the resolved template/override value without changing null inheritance. */
 export function effortCompatibilityError(
-  agentType: AgentType,
-  effort: Effort | null | undefined
+  effort: Effort | null | undefined,
+  choices: readonly AgentConfigChoice[] | undefined
 ): string | null {
-  if (effort == null) return null;
-  if (agentType === "opencode") {
-    return `OpenCode does not support ${effort} effort. Choose another agent type or a template without effort.`;
-  }
-  if (agentType === "codex" && effort === "max") {
-    return "Codex does not support max effort. Choose low, medium, high or xhigh, or another agent type.";
-  }
-  return null;
+  if (
+    effort == null ||
+    choices === undefined ||
+    choices.some((choice) => choice.value === effort)
+  )
+    return null;
+  return `The saved effort "${effort}" is not available for this model. Choose an available level or change the template.`;
 }
