@@ -1,4 +1,6 @@
-import { Check, Copy, X } from "lucide-react";
+import type { ComponentProps } from "react";
+import { cn } from "@/lib/utils";
+import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCopyText } from "@/hooks/use-copy";
 
@@ -49,5 +51,24 @@ export function AgentLinkControls({
         <X aria-hidden="true" className="h-3.5 w-3.5" />
       </Button>
     </div>
+  );
+}
+
+export function AgentMetadataLink({
+  children,
+  className,
+  ...props
+}: ComponentProps<"a">) {
+  return (
+    <a
+      {...props}
+      className={cn(
+        "flex min-w-0 items-center gap-1 rounded-sm font-mono text-xs leading-4 text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className
+      )}
+    >
+      <span className="truncate">{children}</span>
+      <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
+    </a>
   );
 }

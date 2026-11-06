@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { AgentLinkControls } from "./agent-link-controls";
+import { AgentLinkControls, AgentMetadataLink } from "./agent-link-controls";
 import { previewPullRequests } from "./agent-pull-requests.preview";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
@@ -271,7 +271,7 @@ export function AgentPullRequests({
       </div>
     ) : null;
   return (
-    <div data-testid={`agent-pr-row-${agentId}`} className="space-y-1">
+    <div data-testid={`agent-pr-row-${agentId}`} className="contents">
       {hasDismissError && (
         <p role="alert" className="text-xs text-destructive">
           Could not dismiss PR. Please try again.
@@ -349,24 +349,17 @@ export function PullRequestRow({
           />
         </Button>
         <div className="flex min-w-0 items-center gap-2">
-          <a
+          <AgentMetadataLink
             data-agent-control="true"
             href={pr.url}
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Pull request ${ref.number}: ${STATES[status].label} — ${pr.title}`}
             title={`${ref.repo} ${ref.number} · ${STATES[status].label}`}
-            className="group mr-auto inline-flex h-5 min-w-0 items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mr-auto"
           >
-            <span className="max-w-24 truncate font-mono text-[11px] leading-none text-foreground group-hover:underline">
-              {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
-            </span>
-            <ExternalLink
-              aria-hidden="true"
-              className="h-2.5 w-2.5 text-muted-foreground"
-            />
-            <span className="sr-only">{STATES[status].label}</span>
-          </a>
+            {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
+          </AgentMetadataLink>
           {(isError ||
             pr.ci?.availability !== "available" ||
             pr.ci.summary.total > 0) && (

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
-import { ExternalLink, Monitor } from "lucide-react";
-import { AgentLinkControls } from "./agent-link-controls";
+import { Monitor } from "lucide-react";
+import { AgentLinkControls, AgentMetadataLink } from "./agent-link-controls";
 import { api } from "@/lib/api";
 import { hiddenAgentPreviewsAtomFamily } from "@/lib/store";
 
@@ -31,24 +31,22 @@ export function AgentPreview({ agentId }: { agentId: string }) {
   }
   return (
     <div
-      className="flex h-4 min-w-0 items-center gap-3 text-[11px] leading-4"
+      className="flex h-7 min-w-0 items-center gap-3 text-[11px] leading-4"
       data-agent-control="true"
     >
       <Monitor
         aria-hidden="true"
         className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
       />
-      <a
+      <AgentMetadataLink
         href={preview.url}
         target="_blank"
         rel="noopener noreferrer"
         title={preview.url}
-        className="flex min-w-0 items-center gap-1 text-status-done hover:underline"
         onClick={(event) => event.stopPropagation()}
       >
-        <span className="truncate">{preview.title || "Preview"}</span>
-        <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
-      </a>
+        {preview.title || "Preview"}
+      </AgentMetadataLink>
       <div className="ml-auto">
         <AgentLinkControls
           url={preview.url}
