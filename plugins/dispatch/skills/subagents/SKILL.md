@@ -64,11 +64,11 @@ sidebar, and archiving it is yours to do. `child: false` launches an independent
 agent instead — same inherited directory, type, and access level, still yours to
 message and archive, but outside your lineage and owning a top-level card.
 
-Nesting stops at one level. If you were launched as a child yourself, you cannot
-launch children at all, personas included; `child: false` is the only launch
-available to you. Reach for it when the work you are handing off is substantial
-enough to deserve its own card, or when you need a reviewer and cannot launch
-one.
+Nesting stops at one level for ordinary/task agents: a child must use
+`child: false` to launch those as independent agents. Review personas and
+`launch_owner_reviews` are supported from children: they review the caller's
+checkout, appear beside the caller under its parent, and deliver findings and
+notifications to the caller. Root review launches still report to the root.
 
 ## Coordinating
 

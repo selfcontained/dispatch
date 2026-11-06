@@ -156,7 +156,7 @@ export function registerAgentLaunchTools(
             "Whether the new agent is your child (default true). A child appears as a sub agent row under your card. " +
               "Pass false to launch it as an independent top-level agent — it still inherits your working directory, " +
               "type, and access level, and you can still message and archive it, but it is not part of your lineage. " +
-              "If you were launched as a child agent yourself, child: false is the only launch you can make."
+              "For ordinary/task agents, a child caller must use child: false. Review personas and owner reviews use the caller checkout, appear beside the caller under its parent, and report to the caller."
           ),
       },
     },

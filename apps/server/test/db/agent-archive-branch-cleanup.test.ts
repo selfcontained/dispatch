@@ -120,6 +120,58 @@ async function archive(id: string): Promise<void> {
 }
 
 describe("archive branch cleanup", () => {
+  it("archives a child's reviewers before cleaning their shared checkout and spares independent launches", async () => {
+    const root = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+    const child = await manager.createAgent({
+      cwd: "/tmp",
+      parentAgentId: root.id,
+      useWorktree: true,
+    });
+    const reviewer = await manager.createAgent({
+      cwd: "/tmp",
+      parentAgentId: root.id,
+      launchedByAgentId: child.id,
+      role: "review",
+      useWorktree: false,
+    });
+    await pool.query("UPDATE agents SET cwd=$1, status='running' WHERE id=$2", [
+      child.worktreePath,
+      reviewer.id,
+    ]);
+    const independent = await manager.createAgent({
+      cwd: "/tmp",
+      launchedByAgentId: child.id,
+      useWorktree: false,
+    });
+    let reviewerDeletedAtCleanup = false;
+    cleanupGitWorktreeSpy.mockImplementationOnce(async () => {
+      reviewerDeletedAtCleanup = Boolean(
+        (
+          await pool.query("SELECT deleted_at FROM agents WHERE id=$1", [
+            reviewer.id,
+          ])
+        ).rows[0].deleted_at
+      );
+      return {
+        repoRoot: "/tmp/repo",
+        worktreePath: child.worktreePath!,
+        worktreeName: "test",
+        branchName: null,
+        baseBranch: "main",
+        updatedBaseBranch: false,
+        deletedBranch: false,
+      };
+    });
+    await archive(child.id);
+    expect(reviewerDeletedAtCleanup).toBe(true);
+    expect(
+      (
+        await pool.query("SELECT deleted_at FROM agents WHERE id=$1", [
+          independent.id,
+        ])
+      ).rows[0].deleted_at
+    ).toBeNull();
+  });
   it("preserves the user's branch when the worktree was started on it (createNewBranch=false)", async () => {
     const agent = await manager.createAgent({
       cwd: "/tmp",

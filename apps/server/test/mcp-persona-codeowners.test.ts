@@ -72,7 +72,7 @@ function setup(parentChanges: Record<string, unknown> = {}) {
     ...parentChanges,
   };
   const agentManager = {
-    getAgent: vi.fn(async () => parent),
+    getAgent: vi.fn(async (_id?: string) => parent),
     createAgent: vi.fn(async (input: { name: string }) => ({
       id: `agent-${input.name}`,
       name: input.name,
@@ -314,12 +314,47 @@ describe("ACP code owner launches", () => {
       },
     ]);
   });
-  it("rejects children before selecting owners", async () => {
-    const { handlers, agentManager } = setup({ parentAgentId: "launcher" });
+  it("launches child owner reviews in the caller checkout with flat lineage and caller delivery", async () => {
+    const { handlers, agentManager } = setup({
+      parentAgentId: "launcher",
+      worktreePath: "/child-checkout",
+      fullAccess: false,
+    });
+    const result = await handlers.launchOwnerReviews("parent", {
+      context: "Review child changes",
+      personas: ["owner-two"],
+    });
+    expect(loadCodeowners).toHaveBeenCalledWith("/child-checkout");
+    expect(loadPersonaBySlug).toHaveBeenCalledWith(
+      "/child-checkout",
+      "owner-two"
+    );
+    expect(result.launched).toHaveLength(1);
+    expect(agentManager.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: "/child-checkout",
+        parentAgentId: "launcher",
+        launchedByAgentId: "parent",
+        fullAccess: false,
+        initialPrompt: expect.stringContaining('to: "parent"'),
+      }),
+      { detachLaunch: true }
+    );
+  });
+  it("rejects a cross-project display parent before creating a reviewer", async () => {
+    const { handlers, agentManager, parent } = setup({
+      parentAgentId: "launcher",
+      projectId: "child-project",
+    });
+    agentManager.getAgent.mockImplementation(async (id?: string) =>
+      id === "launcher" ? { ...parent, projectId: "other-project" } : parent
+    );
     await expect(
-      handlers.launchOwnerReviews("parent", { context: "Review" })
-    ).rejects.toThrow("Child agents cannot launch owner reviews");
-    expect(loadCodeowners).not.toHaveBeenCalled();
+      handlers.launchPersonaAgent("parent", {
+        persona: "owner-one",
+        context: "Review",
+      })
+    ).rejects.toThrow("requester's project");
     expect(agentManager.createAgent).not.toHaveBeenCalled();
   });
   it("propagates git failures instead of treating them as empty changes", async () => {

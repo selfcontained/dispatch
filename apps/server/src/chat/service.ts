@@ -64,7 +64,7 @@ import {
   resolveFilesDir,
   storedFileNamePattern,
 } from "../shared/files.js";
-import { agentTree, parentAgentId, rootAgentId } from "../agents/tree.js";
+import { agentTree, requestOwnerAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
   describeReview,
@@ -2838,15 +2838,13 @@ export class StreamService {
       }
     }
     let toAgentId = input.to ?? null;
-    if (
-      (kind === "question" || kind === "form") &&
-      streamId !== agentId &&
-      (toAgentId === null ||
-        toAgentId === streamId ||
-        toAgentId === (await parentAgentId(this.deps.pool, agentId)))
-    ) {
-      toAgentId ??= streamId;
-      data = { ...(data as object), parentHandled: true };
+    if ((kind === "question" || kind === "form") && streamId !== agentId) {
+      const ownerId =
+        (await requestOwnerAgentId(this.deps.pool, agentId)) ?? streamId;
+      if (toAgentId === null || toAgentId === ownerId) {
+        toAgentId ??= ownerId;
+        data = { ...(data as object), parentHandled: true };
+      }
     }
     const parentRequest =
       (kind === "question" || kind === "form") &&

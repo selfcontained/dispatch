@@ -47,10 +47,9 @@ export type ArchiveDeps = {
 const CASCADED_CHILD_CLEANUP: WorktreeCleanupMode = "force";
 
 /**
- * Every true child of this agent. `parent_agent_id` only — never
- * `launched_by_agent_id`, which is also set for `child: false` launches that
- * asked to be independent. An agent already `archiving` belongs to its own
- * archive, which is cascading to that subtree itself.
+ * True children and review agents requested by this agent go with it.
+ * Other `launched_by_agent_id` agents remain independent (`child: false`).
+ * An agent already `archiving` belongs to its own archive, which cascades itself.
  */
 async function getChildAgentIds(
   pool: Pool,
@@ -59,7 +58,7 @@ async function getChildAgentIds(
   const result = await pool.query<{ id: string }>(
     `SELECT id
      FROM agents
-     WHERE parent_agent_id = $1
+     WHERE (parent_agent_id = $1 OR (role = 'review' AND launched_by_agent_id = $1))
        AND deleted_at IS NULL
        AND status != 'archiving'`,
     [parentAgentId]
@@ -124,6 +123,7 @@ async function cleanupAgentWorktree(
          AND id <> $1
          AND (worktree_path = $2
               OR workspace_path = ANY($4::text[])
+              OR (role = 'review' AND cwd = ANY($4::text[]))
               OR ($3::text IS NOT NULL AND worktree_branch = $3))
        LIMIT 1`,
       [id, worktreePath, agent.worktreeBranch, worktreeSpellings]
@@ -294,32 +294,8 @@ export async function executeArchive(
       if (updated) callbacks.onPhaseChange(updated);
     };
 
-    // Phase: worktree-check
-    await publishPhase("worktree-check");
-
-    await cleanupAgentWorktree(
-      pool,
-      logger,
-      agent,
-      cleanupWorktree,
-      durations,
-      () => publishPhase("worktree-cleanup")
-    );
-
-    // Phase: finalizing
-    await publishPhase("finalizing");
-
-    const tDb = Date.now();
-
-    await pool.query(
-      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1",
-      [id]
-    );
-    durations.db = Date.now() - tDb;
-    diffStatsRefresher?.clear(id);
-
-    // Already deleted: the outer catch would report an error and never publish
-    // the deletion.
+    // Stop dependents before removing this checkout. Reviewers can share it
+    // through cwd while their display parent is elsewhere.
     const tCascade = Date.now();
     const cascadedIds: string[] = [];
     try {
@@ -343,6 +319,30 @@ export async function executeArchive(
         "Failed to look up child agents during cascade; children may be orphaned"
       );
     }
+
+    // Phase: worktree-check
+    await publishPhase("worktree-check");
+
+    await cleanupAgentWorktree(
+      pool,
+      logger,
+      agent,
+      cleanupWorktree,
+      durations,
+      () => publishPhase("worktree-cleanup")
+    );
+
+    // Phase: finalizing
+    await publishPhase("finalizing");
+
+    const tDb = Date.now();
+
+    await pool.query(
+      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1",
+      [id]
+    );
+    durations.db = Date.now() - tDb;
+    diffStatsRefresher?.clear(id);
 
     durations.total = Date.now() - deleteStart;
     const parts = Object.entries(durations)
@@ -425,29 +425,8 @@ export async function deleteAgentDirect(
     durations.stop = Date.now() - t;
   }
 
-  const tDb = Date.now();
-
-  // Keeping it would leave a worktree no agent record can reach.
-  await cleanupAgentWorktree(
-    pool,
-    logger,
-    agent,
-    CASCADED_CHILD_CLEANUP,
-    durations
-  );
-
-  await pool.query(
-    `UPDATE agents
-     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW()
-     WHERE id = $1`,
-    [id]
-  );
-  durations.db = Date.now() - tDb;
-  diffStatsRefresher?.clear(id);
-
-  // This row is soft-deleted above, so the query cannot return an ancestor and
-  // a corrupted parent link cannot loop. Nothing below may throw: the id has to
-  // reach the caller or the UI keeps rendering a deleted agent.
+  // The archive claim excludes this row from dependent lookup, preventing
+  // cycles. Stop dependents before cleaning up their shared checkout.
   const deletedIds = [id];
   try {
     const childIds = await getChildAgentIds(pool, id);
@@ -473,6 +452,26 @@ export async function deleteAgentDirect(
     .map(([k, v]) => `${k}=${v}ms`)
     .join(", ");
   logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
+
+  const tDb = Date.now();
+
+  // Keeping it would leave a worktree no agent record can reach.
+  await cleanupAgentWorktree(
+    pool,
+    logger,
+    agent,
+    CASCADED_CHILD_CLEANUP,
+    durations
+  );
+
+  await pool.query(
+    `UPDATE agents
+     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW()
+     WHERE id = $1`,
+    [id]
+  );
+  durations.db = Date.now() - tDb;
+  diffStatsRefresher?.clear(id);
 
   return deletedIds;
 }
