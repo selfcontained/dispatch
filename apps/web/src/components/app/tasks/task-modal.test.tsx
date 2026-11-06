@@ -58,7 +58,9 @@ vi.mock("@/hooks/use-tasks", () => ({
 }));
 // The panel is the drawer's own; here only what the modal hands it matters.
 vi.mock("./task-drawer", () => ({
-  TASK_DRAWER_CLASS: "task-drawer-surface",
+  TaskDrawerShell: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   TaskDetailPanel: ({
     id,
     close,
@@ -151,9 +153,6 @@ it("opens the agent's task over the stream and closes back to it", () => {
   expect(screen.getByRole("dialog").textContent).toContain("tsk_1");
   // The stream stays mounted under the modal: its scroll is untouched.
   expect(screen.getByTestId("stream")).toBe(stream);
-  expect(
-    screen.getByRole("link", { name: /Open in Tasks/ }).getAttribute("href")
-  ).toBe("/tasks?task=tsk_1&project=p1");
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(where()).toBe("/agents/a1?project=p1");
@@ -179,12 +178,6 @@ it("opens from a deep link and closes in place", () => {
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-it("links through to the task on the Tasks surface", () => {
-  renderStream("/agents/a1?task=tsk_1");
-  fireEvent.click(screen.getByRole("link", { name: /Open in Tasks/ }));
-  expect(where()).toBe("/tasks?task=tsk_1&project=p1");
-});
-
 it("keeps a way out when the task fails to load", () => {
   failing.task = new Error("Task not found");
   renderStream("/agents/a1?task=tsk_gone");
@@ -201,9 +194,6 @@ it("shows the board's failure instead of loading forever, and closes", () => {
   renderStream("/agents/a1?task=tsk_1");
   expect(screen.getByRole("alert").textContent).toContain("Board unavailable");
   expect(screen.queryByText("Loading task…")).toBeNull();
-  expect(
-    screen.getByRole("link", { name: /Open in Tasks/ }).getAttribute("href")
-  ).toBe("/tasks?task=tsk_1&project=p1");
   fireEvent.click(screen.getAllByRole("button", { name: "Close task" })[0]);
   expect(where()).toBe("/agents/a1");
 });

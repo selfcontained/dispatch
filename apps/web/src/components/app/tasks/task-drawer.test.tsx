@@ -517,3 +517,28 @@ it("discards deletion confirmation on selection change and never closes the repl
     vi.unstubAllGlobals();
   }
 });
+
+it("keeps the shared sliding frame mounted across task open and close", async () => {
+  const { TaskDrawerShell } = await import("./task-drawer");
+  const view = render(
+    <TaskDrawerShell open={false} isMobile={false} close={() => {}}>
+      <span>Task content</span>
+    </TaskDrawerShell>
+  );
+  const frame = screen.getByTestId("task-drawer-wrapper");
+  const closedTransform = frame.style.transform;
+  view.rerender(
+    <TaskDrawerShell open isMobile={false} close={() => {}}>
+      <span>Task content</span>
+    </TaskDrawerShell>
+  );
+  expect(screen.getByTestId("task-drawer-wrapper")).toBe(frame);
+  expect(frame.style.transform).not.toBe(closedTransform);
+  view.rerender(
+    <TaskDrawerShell open={false} isMobile={false} close={() => {}}>
+      <span>Task content</span>
+    </TaskDrawerShell>
+  );
+  expect(screen.getByTestId("task-drawer-wrapper")).toBe(frame);
+  expect(frame.style.transform).toBe(closedTransform);
+});

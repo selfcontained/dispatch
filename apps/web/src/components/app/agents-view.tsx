@@ -530,12 +530,7 @@ export function AgentsView({
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden text-foreground">
-      <div
-        className={cn(
-          "relative flex h-full min-h-0 min-w-0 overflow-hidden py-2",
-          taskPaneOpen && "md:pr-[min(600px,50%)]"
-        )}
-      >
+      <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
         <NavigationSidebar
           isMobile={isMobile}
           leftOpen={leftOpen}

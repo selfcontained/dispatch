@@ -447,9 +447,10 @@ function TasksContent({ projectId }: { projectId: string }) {
           </div>
         )}
       </div>
-      {params.get("task") && board && (
+      {board && (
         <TaskDrawer
-          id={params.get("task")!}
+          id={params.get("task") ?? ""}
+          open={Boolean(params.get("task"))}
           projectId={projectId}
           columns={columns}
           boardTasks={board.tasks}
