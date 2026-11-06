@@ -159,8 +159,18 @@ export function checkDuration(
     check.completedAt ??
     (check.status === "IN_PROGRESS" ? checkedAt : undefined);
   if (!end) return null;
-  const elapsed = Date.parse(end) - Date.parse(check.startedAt);
-  if (!Number.isFinite(elapsed) || elapsed < 0) return null;
+  const observed = Date.parse(checkedAt);
+  const started = Date.parse(check.startedAt);
+  const finished = Date.parse(end);
+  const elapsed = finished - started;
+  if (
+    !Number.isFinite(observed) ||
+    !Number.isFinite(elapsed) ||
+    elapsed < 0 ||
+    started > observed ||
+    finished > observed
+  )
+    return null;
   const seconds = Math.floor(elapsed / 1000);
   if (seconds >= 3600)
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;

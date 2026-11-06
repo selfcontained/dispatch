@@ -220,3 +220,28 @@ it("uses completed runtime or elapsed time at observation, without inventing dur
     )
   ).toBeNull();
 });
+
+it.each([
+  ["2026-11-06T00:00:00Z", "2026-11-06T00:02:00Z", "2026-11-06T00:01:00Z"],
+  ["2026-11-06T00:02:00Z", undefined, "2026-11-06T00:01:00Z"],
+  ["bad", "2026-11-06T00:01:00Z", "2026-11-06T00:02:00Z"],
+  ["2026-11-06T00:00:00Z", "bad", "2026-11-06T00:02:00Z"],
+  ["2026-11-06T00:00:00Z", "2026-11-06T00:01:00Z", "bad"],
+])(
+  "hides invalid or future check timing",
+  (startedAt, completedAt, observed) => {
+    expect(
+      checkDuration(
+        {
+          name: "Build",
+          status: "IN_PROGRESS",
+          conclusion: null,
+          detailsUrl: null,
+          startedAt,
+          completedAt,
+        },
+        observed!
+      )
+    ).toBeNull();
+  }
+);
