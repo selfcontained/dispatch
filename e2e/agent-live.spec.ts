@@ -100,7 +100,7 @@ test.describe("Live agent", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("a reply in a thread opens a turn drawn in that thread, not the main column", async ({
+  test("thread input opens home work with a retained source discussion link", async ({
     page,
     request,
   }, testInfo) => {
@@ -130,7 +130,11 @@ test.describe("Live agent", () => {
       return ((await res.json()) as { block: { id: string } }).block.id;
     };
     const rootId = await post({ text: "root post" });
-    await post({ text: "in the thread", replyTo: rootId, delivery: "queue" });
+    const replyId = await post({
+      text: "in the thread",
+      replyTo: rootId,
+      delivery: "queue",
+    });
 
     await page.goto(`/agents/${agent.id}?thread=${rootId}`, {
       waitUntil: "domcontentloaded",
@@ -138,26 +142,32 @@ test.describe("Live agent", () => {
     const threadPage = page.locator(
       '[data-testid="drawer-page"][data-top="true"]'
     );
-    const threadTurn = threadPage.getByTestId("chat-thread-turn");
-    await expect(threadTurn).toHaveCount(1, { timeout: TURN_TIMEOUT });
-    await expect(threadTurn.getByTestId("harness-result")).toContainText(
-      "You said:",
+    const mainTurns = page.getByTestId("chat-pane").getByTestId("chat-turn");
+    await expect(mainTurns).toHaveCount(2, { timeout: TURN_TIMEOUT });
+    await expect(mainTurns.last().getByTestId("harness-result")).toContainText(
+      "in the thread",
       { timeout: TURN_TIMEOUT }
     );
-    await expect(threadTurn.getByTestId("harness-result")).toContainText(
-      "in the thread"
+    await expect(mainTurns.first().getByTestId("harness-result")).toContainText(
+      "root post"
     );
-    await testInfo.attach("thread reply", {
+    await expect(threadPage.getByTestId("chat-thread-turn")).toHaveCount(0);
+    const sourceLink = page
+      .getByTestId("chat-pane")
+      .getByTestId("turn-source-discussion");
+    await expect(sourceLink).toHaveAttribute(
+      "href",
+      new RegExp(`thread=${rootId}.*block=${replyId}`)
+    );
+    // Output ownership survives reload while source input stays at its original anchor.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(mainTurns).toHaveCount(2);
+    await expect(threadPage.getByTestId("chat-thread-turn")).toHaveCount(0);
+    await expect(threadPage).toContainText("in the thread");
+    await testInfo.attach("home output with source thread", {
       body: await page.screenshot(),
       contentType: "image/png",
     });
-    // The main column keeps only the turn the root post opened.
-    const mainTurns = page.getByTestId("chat-pane").getByTestId("chat-turn");
-    await expect(mainTurns).toHaveCount(1);
-    await expect(mainTurns.first().getByTestId("harness-result")).toContainText(
-      "root post",
-      { timeout: TURN_TIMEOUT }
-    );
   });
 
   test("create, chat, cancel a turn, stop, start and archive", async ({
