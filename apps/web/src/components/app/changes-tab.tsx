@@ -559,7 +559,11 @@ export const ChangesTab = memo(function ChangesTab({
         />
         <DiffPane
           key={agentId}
+          isMobile={isMobile}
           agentId={agentId}
+          workspace={
+            agent?.workspacePath ?? agent?.worktreePath ?? agent?.cwd ?? null
+          }
           files={files}
           collapsedFiles={collapsedFiles}
           onToggleCollapse={toggleCollapseFile}

@@ -1,3 +1,4 @@
+import { OpenFullFileButton } from "./open-full-file-button";
 import {
   memo,
   useCallback,
@@ -43,6 +44,8 @@ function statusIcon(file: DiffFile): JSX.Element {
 }
 
 type DiffPaneProps = DiffReviewAnnotationProps & {
+  isMobile?: boolean;
+  workspace?: string | null;
   agentId: string | null;
   files: DiffFile[];
   collapsedFiles: Set<string>;
@@ -60,6 +63,8 @@ type DiffPaneProps = DiffReviewAnnotationProps & {
 };
 
 export function DiffPane({
+  workspace,
+  isMobile,
   agentId,
   files,
   collapsedFiles,
@@ -130,6 +135,8 @@ export function DiffPane({
         <FileDiffSection
           key={file.path}
           agentId={agentId}
+          workspace={workspace}
+          isMobile={isMobile}
           file={file}
           collapsed={collapsedFiles.has(file.path)}
           onToggleCollapse={onToggleCollapse}
@@ -158,6 +165,8 @@ export function DiffPane({
 }
 
 type FileDiffSectionProps = DiffReviewAnnotationProps & {
+  isMobile?: boolean;
+  workspace?: string | null;
   agentId: string | null;
   file: DiffFile;
   collapsed: boolean;
@@ -177,6 +186,8 @@ type FileDiffSectionProps = DiffReviewAnnotationProps & {
 const contentHeights = new WeakMap<DiffFile, Map<string, number>>();
 
 const FileDiffSection = memo(function FileDiffSection({
+  workspace,
+  isMobile,
   agentId,
   file,
   collapsed,
@@ -272,35 +283,45 @@ const FileDiffSection = memo(function FileDiffSection({
       data-testid={`changes-file-section:${file.path}`}
       className="rounded-md border border-border/50"
     >
-      <button
-        type="button"
-        className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-background/95 backdrop-blur-sm px-3 py-2 text-left text-xs hover:bg-muted/60"
-        onClick={() => onToggleCollapse(file.path)}
-      >
-        {collapsed ? (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        )}
-        {statusIcon(file)}
-        <span className="min-w-0 flex-1 truncate font-mono text-xs">
-          {file.oldPath ? (
-            <>
-              <span className="text-muted-foreground">{file.oldPath}</span>
-              <span className="text-muted-foreground"> → </span>
-            </>
-          ) : null}
-          {file.path}
-        </span>
-        <span className="ml-auto shrink-0 font-mono text-[10px]">
-          {file.added > 0 ? (
-            <span className="text-status-working">+{file.added}</span>
-          ) : null}
-          {file.deleted > 0 ? (
-            <span className="ml-1 text-status-blocked">−{file.deleted}</span>
-          ) : null}
-        </span>
-      </button>
+      <div className="sticky top-0 z-10 flex items-center rounded-t-md border-b border-border/50 bg-background/95 pr-1 backdrop-blur-sm">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60"
+          onClick={() => onToggleCollapse(file.path)}
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          {statusIcon(file)}
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">
+            {file.oldPath ? (
+              <>
+                <span className="text-muted-foreground">{file.oldPath}</span>
+                <span className="text-muted-foreground"> → </span>
+              </>
+            ) : null}
+            {file.path}
+          </span>
+          <span className="ml-auto shrink-0 font-mono text-[10px]">
+            {file.added > 0 ? (
+              <span className="text-status-working">+{file.added}</span>
+            ) : null}
+            {file.deleted > 0 ? (
+              <span className="ml-1 text-status-blocked">−{file.deleted}</span>
+            ) : null}
+          </span>
+        </button>
+        <OpenFullFileButton
+          key={`${agentId}:${workspace}`}
+          isMobile={isMobile}
+          agentId={agentId}
+          workspace={workspace ?? null}
+          path={file.path}
+          deleted={file.status === "deleted"}
+        />
+      </div>
       <DiffEditorStateContext.Provider value={editorBuffers.current}>
         {!collapsed &&
           (nearViewport ? (
