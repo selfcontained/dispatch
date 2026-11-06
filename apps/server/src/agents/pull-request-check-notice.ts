@@ -15,7 +15,7 @@ const outcome = (c: Check) =>
         ].includes(c.conclusion ?? "")
       ? "failed"
       : undefined;
-const key = (c: Check) => JSON.stringify([c.name, c.detailsUrl]);
+const key = (c: Check) => c.identity ?? JSON.stringify([c.name, c.detailsUrl]);
 const clean = (s: string, length = 180) =>
   s.replace(/[\r\n\u0000-\u001f]/g, " ").slice(0, length);
 

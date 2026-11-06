@@ -68,3 +68,35 @@ describe("check observations", () => {
     expect(text.match(/^- /gm)).toHaveLength(8);
   });
 });
+
+it("preserves provider/workflow identities with colliding names and missing or shared URLs", () => {
+  for (const detailsUrl of [null, "https://example.com/build"]) {
+    const ci = mapPullRequestChecks(
+      "head",
+      ["FAILURE", "SUCCESS"].map((conclusion, i) => ({
+        __typename: "CheckRun",
+        name: "test",
+        status: "COMPLETED",
+        conclusion,
+        detailsUrl,
+        checkSuite: {
+          app: { slug: "provider-" + i },
+          workflowRun: { workflow: { id: "workflow-" + i } },
+        },
+      }))
+    );
+    const a = { ...pr([]), ci };
+    const b = { ...a, ci: { ...ci, checks: [...ci.checks].reverse() } };
+    expect(ci.checks).toHaveLength(2);
+    expect(checkChanges(a, a)).toEqual([]);
+    expect(checkChanges(a, b)).toEqual([]);
+    const changed = {
+      ...b,
+      ci: {
+        ...b.ci,
+        checks: b.ci.checks.map((c) => ({ ...c, conclusion: "SUCCESS" })),
+      },
+    };
+    expect(checkChanges(a, changed)).toHaveLength(1);
+  }
+});
