@@ -1976,6 +1976,9 @@ describe("GET agent chat-location", () => {
       author: agentAuthor(child),
       text: "Old work",
     });
+    await ctx.pool.query("UPDATE agents SET deleted_at = now() WHERE id=$1", [
+      child,
+    ]);
     const response = await authedInject(
       "GET",
       `/api/v1/agents/${child}/chat-location?blockId=${legacy.id}`

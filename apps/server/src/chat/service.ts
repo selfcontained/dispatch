@@ -2198,9 +2198,10 @@ export class StreamService {
   private async readableMessage(
     agentId: string,
     id: string,
-    allowShownContent = false
+    allowShownContent = false,
+    allowArchivedReader = false
   ): Promise<Block> {
-    await this.requireAgent(agentId);
+    if (!allowArchivedReader) await this.requireAgent(agentId);
     const block = await this.store.getById(id);
     if (!block) throw new StreamNotFoundError("Message not found.");
     const host = await this.threadHostFor(block);
@@ -2502,9 +2503,13 @@ export class StreamService {
 
   /** Resolve existing history without creating a launch card or waking an agent. */
   async chatLocation(agentId: string, blockId?: string) {
-    await this.requireAgent(agentId);
+    const exists = await this.deps.pool.query(
+      "SELECT 1 FROM agents WHERE id = $1",
+      [agentId]
+    );
+    if (!exists.rows.length) throw new StreamNotFoundError("Agent not found.");
     const block = blockId
-      ? await this.readableMessage(agentId, blockId, true)
+      ? await this.readableMessage(agentId, blockId, true, true)
       : await this.store.findLaunchBlock(agentId);
     return block
       ? {
