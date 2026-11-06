@@ -163,7 +163,7 @@ export function TaskLabelPicker({
           variant="ghost"
           disabled={disabled}
           aria-label="Edit labels"
-          className="h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 text-xs font-normal text-muted-foreground"
+          className="h-auto min-h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 py-1 text-xs font-normal text-muted-foreground"
         >
           {value.length ? (
             <span className="flex min-w-0 items-center gap-2 overflow-hidden">
