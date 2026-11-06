@@ -3709,3 +3709,52 @@ it("MCP agents read, replace, remove and clear task labels, with inclusive label
   expect((await service.requireTask(foreign.id)).labels).toEqual([bug]);
   expect(launches).toEqual([]);
 });
+
+it("limits new label names while retaining legacy project definitions", async () => {
+  const boundary = { name: "1234567890123456", color: "gray" };
+  const task = await service.createTask(
+    { projectId, title: "Boundary", labels: [boundary] },
+    USER
+  );
+  const long = { name: "Test resource safeguards", color: "gray" };
+  await expect(
+    service.createTask({ projectId, title: "Too long", labels: [long] }, USER)
+  ).rejects.toThrow("16 characters");
+  await expect(
+    service.updateTask(task.id, { labels: [long] }, USER)
+  ).rejects.toThrow("16 characters");
+  await pool.query(
+    "INSERT INTO task_labels(id,project_id,name,color) VALUES($1,$2,$3,$4)",
+    ["legacy_label", projectId, long.name, long.color]
+  );
+  expect(
+    (await service.updateTask(task.id, { labels: [long] }, USER)).labels
+  ).toEqual([long]);
+  await service.setLabelHidden(projectId, long.name, true);
+  expect(
+    (await service.updateTask(task.id, { labels: [] }, USER)).labels
+  ).toEqual([]);
+  await service.setLabelHidden(projectId, long.name, false);
+  expect(
+    (
+      await service.createTask(
+        { projectId, title: "Legacy reuse", labels: [long] },
+        USER
+      )
+    ).labels
+  ).toEqual([long]);
+});
+
+it("enforces the label limit through MCP create and update", async () => {
+  await insertAgent("agt_label_limit");
+  const call = tools("agt_label_limit", projectId);
+  const labels = [{ name: "12345678901234567", color: "gray" }];
+  expect(
+    (await call("task_create", { title: "Too long", labels })).isError
+  ).toBe(true);
+  const task = await service.createTask({ projectId, title: "Existing" }, USER);
+  expect((await call("task_update", { id: task.id, labels })).isError).toBe(
+    true
+  );
+  expect((await service.requireTask(task.id)).labels).toEqual([]);
+});

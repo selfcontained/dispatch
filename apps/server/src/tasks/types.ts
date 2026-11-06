@@ -150,7 +150,7 @@ export type TaskBoard = {
 };
 
 export type CreateTaskInput = {
-  /** Replace labels; omit to preserve. Names: 1–40 characters; at most 20. */
+  /** Replace labels; omit to preserve. New names: 1–16 characters (existing names preserved); at most 20. */
   labels?: TaskLabel[];
   launchTemplateId?: string | null;
   projectId: string;
@@ -163,7 +163,7 @@ export type CreateTaskInput = {
 };
 
 export type UpdateTaskInput = {
-  /** Replace labels; omit to preserve. Names: 1–40 characters; at most 20. */
+  /** Replace labels; omit to preserve. New names: 1–16 characters (existing names preserved); at most 20. */
   labels?: TaskLabel[];
   launchTemplateId?: string | null;
   /** Relative insertion anchor; null appends. Takes precedence over position. */

@@ -111,3 +111,29 @@ it("restores and adds a hidden search result without contradictory empty-state t
   fireEvent.click(screen.getByRole("button", { name: "Back to label picker" }));
   expect(screen.queryByRole("status")).toBeNull();
 });
+
+it("shows feedback and blocks creation until an overlong name is shortened", () => {
+  const onChange = vi.fn();
+  render(
+    <TaskLabelPicker projectId="project" value={[]} onChange={onChange} />
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit labels" }));
+  fireEvent.change(screen.getByLabelText("Label name"), {
+    target: { value: "Test resource safeguards" },
+  });
+  expect(screen.getByRole("alert").textContent).toContain("16 characters");
+  expect(
+    screen
+      .getByRole("button", { name: "Create “Test resource safeguards”" })
+      .hasAttribute("disabled")
+  ).toBe(true);
+  fireEvent.change(screen.getByLabelText("Label name"), {
+    target: { value: "1234567890123456" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Create “1234567890123456”" })
+  );
+  expect(onChange).toHaveBeenCalledWith([
+    expect.objectContaining({ name: "1234567890123456" }),
+  ]);
+});
