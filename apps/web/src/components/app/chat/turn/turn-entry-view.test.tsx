@@ -96,6 +96,23 @@ function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
 }
 
 describe("TurnEntryView", () => {
+  it("links home output back to its stored source discussion", () => {
+    renderTurn(
+      turn({
+        sourceConversation: {
+          streamId: "agt_parent",
+          threadId: "source-thread",
+          blockId: "source-message",
+        },
+      })
+    );
+    expect(
+      screen.getByTestId("turn-source-discussion").getAttribute("href")
+    ).toBe(
+      "/agents/agt_parent?thread=source-thread&block=source-message&returnAgent=agt_1"
+    );
+  });
+
   it("renders the answer as the agent's own post, with the step list under it", () => {
     renderTurn(turn());
     // One post: the agent's. The prompt is the user's block, a row of its

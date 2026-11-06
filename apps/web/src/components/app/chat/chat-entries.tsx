@@ -1,3 +1,4 @@
+import { ConversationLocationLink } from "./conversation-location-link";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { SharedMessageEntry } from "./shared-message-entry";
@@ -1817,17 +1818,20 @@ export const BlockView = memo(function BlockView({
   // it takes the full header once the reply's first words arrive.
   if (block.turn && !inThread && isPendingTurn(block, block.turn, folded)) {
     return (
-      <PendingTurnLine
-        block={block}
-        turn={block.turn}
-        name={author.name}
-        identity={
-          author.agentId ? (
-            <AgentSessionLink agentId={author.agentId} name={author.name} />
-          ) : undefined
-        }
-        avatar={<Avatar author={author} size="sm" />}
-      />
+      <>
+        <ConversationLocationLink turn={block.turn} homeId={block.streamId} />
+        <PendingTurnLine
+          block={block}
+          turn={block.turn}
+          name={author.name}
+          identity={
+            author.agentId ? (
+              <AgentSessionLink agentId={author.agentId} name={author.name} />
+            ) : undefined
+          }
+          avatar={<Avatar author={author} size="sm" />}
+        />
+      </>
     );
   }
 
@@ -1889,6 +1893,9 @@ export const BlockView = memo(function BlockView({
           }
           multiple={block.data.responseTo.length > 1}
         />
+      ) : null}
+      {block.turn ? (
+        <ConversationLocationLink turn={block.turn} homeId={block.streamId} />
       ) : null}
       {failureNotice}
       <InputSurface block={block}>

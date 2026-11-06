@@ -1,7 +1,4 @@
-import { Link } from "react-router-dom";
-import { useStreamFeed } from "@/hooks/use-stream";
-import { useRootAgentId } from "@/hooks/use-agent-tree";
-import { agentRoute } from "@/lib/agent-routes";
+import { AgentChatNavigation } from "./agent-chat-navigation";
 import { useProjects } from "@/hooks/use-projects";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
@@ -184,9 +181,10 @@ export function AgentPane({
           </div>
         </div>
       ) : null}
-      {agent?.parentAgentId ? (
-        <LegacyHistory agentId={agent.id} parentId={agent.parentAgentId} />
-      ) : null}
+      <AgentChatNavigation
+        agentId={agentId}
+        parentId={agent?.parentAgentId ?? null}
+      />
       <div className="relative min-h-0 min-w-0 max-w-full flex-1 overflow-hidden">
         {/*
          * Keyed per agent: the pane's dismissed question, send error and
@@ -214,39 +212,6 @@ export function AgentPane({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// Read legacy history in its actual container; never mark that feed read here.
-function LegacyHistory({
-  agentId,
-  parentId,
-}: {
-  agentId: string;
-  parentId: string;
-}) {
-  const lineageRoot = useRootAgentId(parentId);
-  const parentFeed = useStreamFeed(parentId);
-  const legacyFeed = useStreamFeed(
-    lineageRoot !== parentId ? lineageRoot : null
-  );
-  const launch = [...parentFeed.entries, ...legacyFeed.entries].find(
-    (entry) =>
-      entry.block.kind === "launch" && entry.block.toAgentId === agentId
-  )?.block;
-  return (
-    <div className="flex gap-3 border-b px-3 py-1 text-xs text-muted-foreground">
-      <Link to={agentRoute(parentId)}>Parent home</Link>
-      <Link
-        to={
-          launch
-            ? `${agentRoute(launch.streamId)}?thread=${launch.id}`
-            : agentRoute(lineageRoot ?? parentId)
-        }
-      >
-        Earlier launch history
-      </Link>
     </div>
   );
 }

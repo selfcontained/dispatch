@@ -1,3 +1,4 @@
+import { ConversationReturnLink } from "./chat/conversation-location-link";
 import { useMemo, useState } from "react";
 import { MotionConfig } from "framer-motion";
 import { ArrowLeft, X } from "lucide-react";
@@ -240,6 +241,7 @@ export function ThreadDrawer({
           <X className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
+      <ConversationReturnLink inDrawer />
       <MotionConfig reducedMotion="user">
         <DrawerStack pages={pages} />
       </MotionConfig>
