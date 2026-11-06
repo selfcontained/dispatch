@@ -9174,6 +9174,16 @@ describe("agent-owned homes", () => {
     expect(result.author).toEqual({ kind: "agent", agentId: B });
     const synthesis = await svc.post(A, { text: "Integrating result" });
     expect(synthesis.streamId).toBe(A);
+    const deliberate = await svc.post(B, {
+      agentHome: A,
+      text: "Explicit parent contribution",
+    });
+    expect(deliberate).toMatchObject({
+      streamId: A,
+      author: { kind: "agent", agentId: B },
+      toAgentId: null,
+    });
+    expect(injected.map((i) => i.agentId)).toEqual([B, A]);
     expect(await svc.streamOf(B)).toBe(B);
   });
 
