@@ -1,8 +1,8 @@
 import { useId, useRef, useState } from "react";
+import { AgentLinkControls, AgentMetadataLink } from "./agent-link-controls";
 import { previewPullRequests } from "./agent-pull-requests.preview";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
-  X,
   ExternalLink,
   Clock,
   CircleCheck,
@@ -271,7 +271,7 @@ export function AgentPullRequests({
       </div>
     ) : null;
   return (
-    <div data-testid={`agent-pr-row-${agentId}`} className="space-y-1">
+    <div data-testid={`agent-pr-row-${agentId}`} className="contents">
       {hasDismissError && (
         <p role="alert" className="text-xs text-destructive">
           Could not dismiss PR. Please try again.
@@ -349,44 +349,25 @@ export function PullRequestRow({
           />
         </Button>
         <div className="flex min-w-0 items-center gap-2">
-          <a
+          <AgentMetadataLink
             data-agent-control="true"
             href={pr.url}
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Pull request ${ref.number}: ${STATES[status].label} — ${pr.title}`}
             title={`${ref.repo} ${ref.number} · ${STATES[status].label}`}
-            className="group inline-flex h-5 shrink-0 items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mr-auto"
           >
-            <span className="max-w-16 truncate font-mono text-[11px] leading-none text-foreground group-hover:underline">
-              {ref.number}
-            </span>
-            <ExternalLink
-              aria-hidden="true"
-              className="h-2.5 w-2.5 text-muted-foreground"
-            />
+            {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
             <span className="sr-only">{STATES[status].label}</span>
-          </a>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            data-agent-control="true"
-            aria-label={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
-            title={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDismiss();
-            }}
-          >
-            <X aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
+          </AgentMetadataLink>
           {(isError ||
             pr.ci?.availability !== "available" ||
             pr.ci.summary.total > 0) && (
             <Button
               variant="ghost"
               size="icon-sm"
-              className="ml-auto"
+              className="shrink-0"
               data-agent-control="true"
               aria-label={`Check details for pull request ${ref.number}`}
               aria-haspopup="dialog"
@@ -401,6 +382,13 @@ export function PullRequestRow({
               <CompactChecks ci={isError ? undefined : pr.ci} />
             </Button>
           )}
+          <AgentLinkControls
+            url={pr.url}
+            copyLabel={`Copy pull request ${ref.number} URL`}
+            copiedLabel={`Copied pull request ${ref.number} URL`}
+            dismissLabel={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
+            onDismiss={onDismiss}
+          />
         </div>
       </div>
       <PopoverContent
