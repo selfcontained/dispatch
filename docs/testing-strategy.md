@@ -127,3 +127,5 @@ not fix retained allocations, cap native memory or total RSS, coordinate separat
 worktrees/CI jobs, or guarantee cleanup after cancellation. Worker heap failure
 must remain a failing run. Host admission and lifecycle cleanup need separate
 ownership-aware follow-up; do not use broad process kills or a host-wide test lock.
+
+Temporary owned CI validation probe. This draft PR will be closed without merging.
