@@ -48,7 +48,7 @@ it("looks up the immutable launch independent of parent feed pagination", async 
     name: "Earlier launch history",
   });
   expect(link.getAttribute("href")).toBe(
-    "/activity/history/archived-parent?thread=launch"
+    "/activity/history/archived-parent?thread=launch&returnAgent=child"
   );
   expect(api).toHaveBeenCalledWith("/api/v1/agents/child/chat-location");
 });
@@ -61,7 +61,7 @@ it("repairs a legacy child URL into its archived actual container and preserves 
   mount("/agents/child?thread=launch&finding=finding&block=message");
   await waitFor(() =>
     expect(screen.getByTestId("location").textContent).toBe(
-      "/activity/history/archived-parent?thread=launch&finding=finding&block=message"
+      "/activity/history/archived-parent?thread=launch&finding=finding&block=message&returnAgent=child"
     )
   );
   expect(api).toHaveBeenCalledWith(
@@ -77,7 +77,7 @@ it("opens a legacy block-only URL in its stored discussion", async () => {
   mount("/agents/child?block=message");
   await waitFor(() =>
     expect(screen.getByTestId("location").textContent).toBe(
-      "/agents/parent?block=message&thread=launch"
+      "/agents/parent?block=message&returnAgent=child&thread=launch"
     )
   );
 });

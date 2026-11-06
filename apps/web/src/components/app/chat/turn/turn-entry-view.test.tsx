@@ -79,6 +79,16 @@ function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
   // `useIconColor`, which is a React Query read, so the provider is not
   // optional here.
   const client = new QueryClient();
+  const sourceId = entry.block.turn?.sourceConversation?.streamId;
+  if (sourceId)
+    client.setQueryData(["agent-identity", sourceId], {
+      id: sourceId,
+      name: "Source agent",
+      type: "codex",
+      archived: false,
+      parentAgentId: null,
+    });
+
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>

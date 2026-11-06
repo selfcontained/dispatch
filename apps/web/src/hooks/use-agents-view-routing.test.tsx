@@ -66,7 +66,7 @@ afterEach(() => {
 
 describe("useAgentsViewRouting", () => {
   describe("invalid-agent redirect", () => {
-    it("waits for agents to load, then replaces an unknown agent with /agents", () => {
+    it("preserves a missing live agent as an inert history route", () => {
       const { pathname, rerender, goBack } = renderRouting("/agents/agt_gone", {
         routeAgentId: "agt_gone",
         agentsLoaded: false,
@@ -80,10 +80,10 @@ describe("useAgentsViewRouting", () => {
         agentsLoaded: true,
         validatedSelectedAgentId: null,
       });
-      expect(pathname()).toBe("/agents");
+      expect(pathname()).toBe("/activity/history/agt_gone");
 
       // In the app routeAgentId comes from useParams, so it clears once the
-      // redirect lands on /agents. Mirror that before probing history:
+      // redirect lands in history. Mirror that before probing history:
       // replace: true keeps the history at a single entry, so going back
       // (twice, in case the effect re-fired) must not resurrect the dead
       // agent URL.
@@ -94,7 +94,22 @@ describe("useAgentsViewRouting", () => {
       });
       goBack();
       goBack();
-      expect(pathname()).toBe("/agents");
+      expect(pathname()).toBe("/activity/history/agt_gone");
+    });
+
+    it("preserves archived conversation anchors when leaving the live directory", () => {
+      const { pathname, search } = renderRouting(
+        "/agents/old?thread=discussion&finding=finding&block=reply&returnAgent=worker",
+        {
+          routeAgentId: "old",
+          agentsLoaded: true,
+          validatedSelectedAgentId: null,
+        }
+      );
+      expect(pathname()).toBe("/activity/history/old");
+      expect(search()).toBe(
+        "?thread=discussion&finding=finding&block=reply&returnAgent=worker"
+      );
     });
 
     it("leaves a validated agent alone", () => {

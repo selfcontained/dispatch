@@ -10,6 +10,7 @@ import { useChatLocation } from "@/hooks/use-chat-location";
 import { agentHistoryRoute, agentRoute } from "@/lib/agent-routes";
 import {
   ConversationReturnLink,
+  RETURN_AGENT_PARAM,
   conversationLocation,
 } from "./chat/conversation-location-link";
 
@@ -41,12 +42,21 @@ function LegacyHistory({
 }) {
   const { data: launch } = useChatLocation(agentId);
   const owner = useAgentRecord(launch?.streamId ?? null);
+  const parent = useAgentRecord(parentId);
   return (
     <div className="flex gap-3 border-b px-3 py-1 text-xs text-muted-foreground">
-      <Link to={agentRoute(parentId)}>Parent home</Link>
-      {launch ? (
+      {parent ? (
         <Link
-          to={`${owner?.archived ? agentHistoryRoute(launch.streamId) : agentRoute(launch.streamId)}?thread=${launch.blockId}`}
+          to={
+            parent.archived ? agentHistoryRoute(parentId) : agentRoute(parentId)
+          }
+        >
+          Parent home
+        </Link>
+      ) : null}
+      {launch && owner ? (
+        <Link
+          to={`${owner?.archived ? agentHistoryRoute(launch.streamId) : agentRoute(launch.streamId)}?thread=${launch.blockId}&${RETURN_AGENT_PARAM}=${encodeURIComponent(agentId)}`}
         >
           Earlier launch history
         </Link>
@@ -72,6 +82,8 @@ function LegacyLocationRedirect({ agentId }: { agentId: string | null }) {
   useEffect(() => {
     if (!target || target.streamId === agentId || !ownerLoaded) return;
     const next = new URLSearchParams(location.search);
+    if (agentId && !next.has(RETURN_AGENT_PARAM))
+      next.set(RETURN_AGENT_PARAM, agentId);
     if (!next.has("thread") && target.threadId)
       next.set("thread", target.threadId);
     const pathname = conversationLocation(target, archived).pathname;

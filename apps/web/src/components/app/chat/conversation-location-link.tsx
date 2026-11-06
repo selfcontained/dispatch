@@ -41,7 +41,11 @@ export function ConversationLocationLink({
   const record = useAgentRecord(
     source && !source.streamId.startsWith("tsk_") ? source.streamId : null
   );
-  if (!source || (source.streamId === homeId && source.threadId === null))
+  if (
+    !source ||
+    (!source.streamId.startsWith("tsk_") && !record) ||
+    (source.streamId === homeId && source.threadId === null)
+  )
     return null;
   return (
     <Link

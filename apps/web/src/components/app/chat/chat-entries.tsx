@@ -140,6 +140,8 @@ export function peerDirectory(
  * what changes rarely.
  */
 export type FeedContext = {
+  /** Archived readers expose content and navigation without write controls. */
+  readOnly?: boolean;
   agentId: string;
   /** The stream the feed reads: the root of the agent's lineage. */
   rootId?: string | null;
@@ -1078,7 +1080,9 @@ function BlockBody({
           block={block}
           answering={answering}
           answersDisabled={
-            !recovery && (answersDisabled || block.data.parentHandled === true)
+            ctx.readOnly ||
+            (!recovery &&
+              (answersDisabled || block.data.parentHandled === true))
           }
           canceling={ctx.settingBlockStateId === block.id}
           onAnswer={(option, attachments) =>
@@ -1670,7 +1674,8 @@ export const BlockView = memo(function BlockView({
             retrying={ctx.retrying?.has(block.inputReply.id)}
             onRetryDelivery={ctx.onRetryDelivery}
           />
-          {block.inputReply.delivered === null &&
+          {!ctx.readOnly &&
+          block.inputReply.delivered === null &&
           block.inputReply.delivery?.some(
             (entry) => entry.state === "held" || entry.state === "pending"
           ) ? (
@@ -1777,7 +1782,7 @@ export const BlockView = memo(function BlockView({
               onRetryDelivery={ctx.onRetryDelivery}
             />
           </div>
-          {queued ? (
+          {queued && !ctx.readOnly ? (
             <QueuedMessageActions
               agentId={block.streamId}
               messageId={block.id}
@@ -1908,7 +1913,8 @@ export const BlockView = memo(function BlockView({
             ctx={ctx}
             folded={folded}
           />
-        ) : block.author.kind === "agent" &&
+        ) : !ctx.readOnly &&
+          block.author.kind === "agent" &&
           typeof (block.data as { scheduledMessageId?: unknown } | null)
             ?.scheduledMessageId === "string" ? (
           <ScheduledMessageEntry
