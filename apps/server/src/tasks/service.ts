@@ -238,13 +238,13 @@ export function buildTaskBriefing(input: {
     task.body.trim() || "(no description)",
     "",
     `Columns: ${columnsLine(columns, column.key)}`,
-    `Move it with task_update({ id, column: "<key>" }) as the work changes state; moving into a column with a trigger launches that agent. Add PR links with task_update({ id, links: [...] }). Posts from the task's conversation reach you as DISPATCH POSTs naming the task; answer in place, or with post({ replyTo }) on one of its ids. Post progress there with task_comment.`,
+    `Move it with task_update({ id, column: "<key>" }) as the work changes state; moving into a column with a trigger launches that agent. Add PR links with task_update({ id, links: [...] }). Posts from the task's conversation reach you as DISPATCH POSTs naming the task; ordinary replies stay in your own channel. Explicitly answer with post({ replyTo }) on one of its ids, or post({ taskId, text }) for a task update. task_comment remains available.`,
   ].join("\n");
 }
 
 /** The block that tells an agent it has the task, posted in the task's stream. */
 export function assignmentText(task: Pick<Task, "id" | "title">): string {
-  return `You're assigned to task ${task.id} — ${task.title}. This stream is the task's conversation; reply here.`;
+  return `You're assigned to task ${task.id} — ${task.title}. Ordinary replies stay in your own channel; use post with taskId or replyTo to report in task chat.`;
 }
 
 function sameLink(a: TaskLink, b: TaskLink): boolean {

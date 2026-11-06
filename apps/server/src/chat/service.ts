@@ -132,6 +132,8 @@ export type BlockAttachmentInput =
 export type PostInput = {
   /** Explicit recipient; omitted posts are for people unless replyTo infers a recipient. */
   to?: string | null;
+  /** Explicit task destination; never changes subsequent turn routing. */
+  taskId?: string;
   kind?: BlockKind;
   text?: string;
   replyTo?: string | null;
@@ -2805,6 +2807,13 @@ export class StreamService {
     opts: { root?: string },
     admit: (streamId: string) => Promise<void>
   ): Promise<Block> {
+    if (input.taskId !== undefined) {
+      if (opts.root || input.replyTo || input.placement !== undefined)
+        throw new StreamValidationError(
+          "taskId cannot combine with replyTo or placement."
+        );
+      opts = { root: input.taskId };
+    }
     const author: BlockAuthor = { kind: "agent", agentId };
     const agent = await this.requireAgent(agentId);
     let streamId = opts.root ?? (await this.streamOf(agentId));
@@ -3667,7 +3676,8 @@ export class StreamService {
         : null;
     const after =
       previous?.author.kind === "agent" &&
-      previous.author.agentId === input.agentId
+      previous.author.agentId === input.agentId &&
+      !(await this.taskRoot(previous.streamId))
         ? previous
         : null;
     const streamId = after
@@ -3725,7 +3735,7 @@ export class StreamService {
     return block.id;
   }
 
-  /** An addressed prompt answers in its originating conversation. */
+  /** Addressed task prompts answer at home; agent-channel discussions retain their place. */
   private async promptStreamOf(
     agentId: string,
     prompt: PromptSource
@@ -3745,7 +3755,7 @@ export class StreamService {
           addressedTo(block).includes(agentId)
       )
     ) {
-      return first.streamId;
+      return (await this.taskRoot(first.streamId)) ? ownStream : first.streamId;
     }
     return ownStream;
   }
@@ -3955,11 +3965,19 @@ export class StreamService {
     agentId: string,
     source: PromptSource
   ): Promise<PromptSource> {
-    if (source.conversation) return source;
+    if (
+      source.conversation &&
+      !(await this.taskRoot(source.conversation.streamId))
+    )
+      return source;
     const streamId = await this.promptStreamOf(agentId, source);
+    const answerHost =
+      source.source === "chat" && source.answerIn
+        ? await this.store.getById(source.answerIn)
+        : null;
     const place =
       source.source === "chat"
-        ? source.answerIn
+        ? source.answerIn && answerHost?.streamId === streamId
           ? { threadId: source.answerIn }
           : await this.turnPlaceFor(source.chatMessageId, streamId)
         : null;
@@ -4080,7 +4098,7 @@ export class StreamService {
         // A review, or a word under one of its findings, is what the agent
         // on the other side is waiting for: it reaches a busy agent now.
         ...(block.kind === "review" || finding ? { awaited: true } : {}),
-        ...(from.kind === "user" && !structuredAnswer
+        ...(from.kind === "user" && !structuredAnswer && !task
           ? {
               conversation: {
                 streamId: block.streamId,

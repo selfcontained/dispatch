@@ -197,6 +197,22 @@ describe("registerStreamTools", () => {
     });
   });
 
+  it("forwards an explicit task destination without changing delivery", async () => {
+    await tool("post").handler({
+      taskId: "tsk_example",
+      text: "Checks passed",
+      to: OTHER,
+    });
+    expect(post).toHaveBeenCalledWith(
+      AGENT_ID,
+      expect.objectContaining({
+        taskId: "tsk_example",
+        text: "Checks passed",
+        to: OTHER,
+      })
+    );
+  });
+
   it("describes post as the one verb: to, kinds, replyTo and notify", () => {
     const description = tool("post").config.description;
     expect(description).toContain("`to: <agentId>`");
@@ -212,6 +228,7 @@ describe("registerStreamTools", () => {
     expect(Object.keys(shape("post"))).toEqual([
       "to",
       "text",
+      "taskId",
       "replyTo",
       "placement",
       "question",
