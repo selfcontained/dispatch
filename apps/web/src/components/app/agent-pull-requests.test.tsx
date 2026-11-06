@@ -8,7 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AgentPullRequests } from "./agent-pull-requests";
+import { AgentPullRequests, PullRequestRow } from "./agent-pull-requests";
 import { api } from "@/lib/api";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 afterEach(cleanup);
@@ -91,3 +91,44 @@ it("retains an earlier request's failure when a later dismissal succeeds", async
     screen.queryByRole("button", { name: "Dismiss a/b #2 from sidebar" })
   ).toBeNull();
 });
+
+it.each([
+  [1, 1, 1, "text-status-blocked", "circle-x"],
+  [1, 0, 1, "text-status-waiting", "clock"],
+  [1, 0, 0, "text-status-working", "circle-check"],
+])(
+  "shows one priority icon for passed=%s failed=%s pending=%s",
+  (passed, failed, pending, color, icon) => {
+    render(
+      <PullRequestRow
+        isError={false}
+        onDismiss={() => {}}
+        pr={{
+          url: "https://github.com/a/b/pull/1",
+          title: "Change",
+          status: "Draft",
+          ci: {
+            checkedAt: "2026-11-06T00:00:00Z",
+            headSha: "abc",
+            availability: "available",
+            summary: {
+              status: failed ? "failing" : pending ? "pending" : "passing",
+              total: Number(passed) + Number(failed) + Number(pending),
+              passed: Number(passed),
+              failed: Number(failed),
+              pending: Number(pending),
+              skipped: 0,
+            },
+            checks: [],
+          },
+        }}
+      />
+    );
+    const image = screen.getByRole("img");
+    expect(image.className).toContain(color);
+    expect(
+      image.querySelector("svg")?.classList.contains(`lucide-${icon}`)
+    ).toBe(true);
+    expect(image.querySelectorAll("[stroke-dasharray]").length).toBe(0);
+  }
+);

@@ -1,29 +1,45 @@
+import type { AgentPullRequest } from "@dispatch/shared";
 import { PullRequestRow } from "./agent-pull-requests";
 import { previewPullRequests } from "./agent-pull-requests.preview";
 
-const variants = [
-  {
-    id: "original",
-    title: "A · Original",
-    description: "Thin segmented ring and original X.",
+const passing = previewPullRequests[0];
+const failing = previewPullRequests[1];
+const waiting: AgentPullRequest = {
+  ...failing,
+  ci: failing.ci && {
+    ...failing.ci,
+    summary: {
+      ...failing.ci.summary,
+      status: "pending",
+      failed: 0,
+      total: failing.ci.summary.total - failing.ci.summary.failed,
+    },
+    checks: failing.ci.checks.filter((check) => check.conclusion !== "FAILURE"),
   },
+};
+const scenarios = [
+  { title: "Failed + pending → red X", pr: failing },
+  { title: "Passed + pending → yellow clock", pr: waiting },
+  { title: "All passed → green check", pr: passing },
   {
-    id: "ring",
-    title: "B · Thicker ring",
-    description: "Thicker segmented ring; original X size and weight.",
+    title: "No checks → blank",
+    pr: {
+      ...passing,
+      ci: passing.ci && {
+        ...passing.ci,
+        summary: {
+          status: "none" as const,
+          total: 0,
+          passed: 0,
+          failed: 0,
+          pending: 0,
+          skipped: 0,
+        },
+        checks: [],
+      },
+    },
   },
-  {
-    id: "both",
-    title: "C · Thicker ring + heavier X",
-    description:
-      "Thicker segmented ring; nearly original-size X with heavier strokes.",
-  },
-  {
-    id: "solid",
-    title: "D · Solid failure ring + heavier X",
-    description:
-      "Solid red failure ring; nearly original-size X with heavier strokes.",
-  },
+  { title: "Unavailable → question mark", pr: { ...passing, ci: undefined } },
 ];
 
 /** Design Lab fixtures rendered by the production row, including its popover. */
@@ -31,35 +47,20 @@ export function PullRequestChecksComparison() {
   return (
     <section className="mx-auto max-w-4xl space-y-6">
       <header>
-        <h1 className="text-xl font-semibold">PR check icon comparison</h1>
+        <h1 className="text-xl font-semibold">PR checks · single status</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Real sidebar components at their actual size, using the same sample
-          checks in every option. Compare the failed PR1381 row. Click any
-          status icon to open its real checks popover. Passing and pending icons
-          remain unchanged.
+          Real sidebar components at their actual size, using sample checks.
+          Failure takes priority, then pending, then passing. Each icon shows
+          one status. Click an icon to see individual checks in the popover.
         </p>
       </header>
       <div className="grid gap-6 md:grid-cols-2">
-        {variants.map((variant) => (
-          <article
-            key={variant.id}
-            className="rounded-lg border border-border p-4"
-          >
-            <h2 className="text-sm font-semibold">{variant.title}</h2>
-            <p className="mt-1 min-h-10 text-xs text-muted-foreground">
-              {variant.description}
-            </p>
+        {scenarios.map(({ title, pr }) => (
+          <article key={title} className="rounded-lg border border-border p-4">
+            <h2 className="text-sm font-semibold">{title}</h2>
             <div className="mt-4 w-full max-w-72 rounded-lg border border-border bg-sidebar p-3">
               <p className="mb-3 text-xs font-medium">theme polish</p>
-              {previewPullRequests.slice(0, 3).map((pr) => (
-                <PullRequestRow
-                  key={pr.url}
-                  pr={pr}
-                  failureStyle={variant.id}
-                  isError={false}
-                  onDismiss={() => {}}
-                />
-              ))}
+              <PullRequestRow pr={pr} isError={false} onDismiss={() => {}} />
             </div>
           </article>
         ))}

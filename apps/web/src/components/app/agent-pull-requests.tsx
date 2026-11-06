@@ -150,152 +150,35 @@ function checkResult(check: CiSnapshot["checks"][number]) {
   };
 }
 
-function CompactChecks({
-  ci,
-  failureStyle,
-}: {
-  ci?: CiSnapshot;
-  failureStyle?: string;
-}) {
+function CompactChecks({ ci }: { ci?: CiSnapshot }) {
   const state = ciPresentation(ci);
-  const variant =
-    failureStyle ??
-    (import.meta.env.DEV
-      ? new URLSearchParams(window.location.search).get("failure-style")
-      : null);
-  const solidFailure = !variant || variant === "solid";
-  const ringWidth =
-    variant === "original" ? 1.5 : variant === "solid" || !variant ? 2.5 : 3;
-  const xWidth = variant === "original" || variant === "ring" ? 1.5 : 2.5;
-  const xMin = variant === "original" || variant === "ring" ? 8 : 8.5;
-  if (!ci || ci.availability === "unavailable" || ci.summary.total === 0) {
-    const Icon = state.icon;
-    return (
-      <span
-        role="img"
-        aria-label={state.label}
-        title={state.label}
-        className="shrink-0 text-muted-foreground"
-      >
-        <Icon className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-  if (ci.summary.pending === ci.summary.total) {
-    return (
-      <span
-        role="img"
-        aria-label={`Checks: ${ci.summary.pending} pending`}
-        title={`${ci.summary.pending} checks pending`}
-        className="inline-flex h-3.5 w-3.5 items-center justify-center text-status-waiting"
-      >
-        <Clock aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
-      </span>
-    );
-  }
-  const groups = [
-    {
-      label: "passed",
-      count: ci.summary.passed,
-      icon: CircleCheck,
-      color: "text-status-working",
-    },
-    {
-      label: "failed",
-      count: ci.summary.failed,
-      icon: CircleX,
-      color: "text-status-blocked",
-    },
-    {
-      label: "pending",
-      count: ci.summary.pending,
-      icon: Clock3,
-      color: "text-status-waiting",
-    },
-    {
-      label: "skipped",
-      count: ci.summary.skipped,
-      icon: Minus,
-      color: "text-muted-foreground/30",
-    },
-  ].filter((group) => group.count > 0);
-  const label = groups
-    .map((group) => `${group.count} ${group.label}`)
-    .join(", ");
-  let offset = 0;
+  const Icon =
+    ci?.availability === "available" && !ci.summary.failed && ci.summary.pending
+      ? Clock
+      : state.icon;
+  const label =
+    ci?.availability === "available" && ci.summary.total
+      ? [
+          [ci.summary.passed, "passed"],
+          [ci.summary.failed, "failed"],
+          [ci.summary.pending, "pending"],
+          [ci.summary.skipped, "skipped"],
+        ]
+          .filter(([count]) => Number(count) > 0)
+          .map(([count, name]) => `${count} ${name}`)
+          .join(", ")
+      : state.label;
   return (
     <span
       role="img"
-      aria-label={`Checks: ${label}`}
-      title={`${ci.summary.total} checks: ${label}`}
-      className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+      aria-label={ci?.summary.total ? `Checks: ${label}` : label}
+      title={label}
+      className={cn(
+        "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
+        state.color
+      )}
     >
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="block h-3.5 w-3.5">
-        <circle
-          cx="12"
-          cy="12"
-          r="9.25"
-          fill="currentColor"
-          fillOpacity={0.1}
-          className={state.color}
-        />
-        {ci.summary.failed > 0 && solidFailure && (
-          <circle
-            cx="12"
-            cy="12"
-            r="10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={ringWidth}
-            className="text-status-blocked"
-          />
-        )}
-        {(!ci.summary.failed || !solidFailure) &&
-          groups.map(({ label, count, color }) => {
-            const share = (count / ci.summary.total) * 100;
-            const start = offset;
-            offset += share;
-            return (
-              <circle
-                key={label}
-                cx="12"
-                cy="12"
-                r="10"
-                transform="rotate(-90 12 12)"
-                pathLength="100"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={ci.summary.failed ? ringWidth : 1.5}
-                strokeDasharray={`${Math.max(0, share - (groups.length > 1 ? 2 : 0))} 100`}
-                strokeDashoffset={-start}
-                className={color}
-              />
-            );
-          })}
-        <g
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={ci.summary.failed ? xWidth : 1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={state.color}
-        >
-          {ci.summary.failed ? (
-            <path
-              d={`M${xMin} ${xMin} L${24 - xMin} ${24 - xMin} M${24 - xMin} ${xMin} L${xMin} ${24 - xMin}`}
-            />
-          ) : ci.summary.pending ? (
-            <>
-              <circle cx="12" cy="12" r="4.25" />
-              <path d="M12 9.5 V12 L14 13.25" />
-            </>
-          ) : ci.summary.passed ? (
-            <path d="M7.5 12 L10.5 15 L16.5 9" />
-          ) : (
-            <path d="M8 12 H16" />
-          )}
-        </g>
-      </svg>
+      <Icon aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
     </span>
   );
 }
@@ -383,12 +266,10 @@ export function AgentPullRequests({
 
 export function PullRequestRow({
   onDismiss,
-  failureStyle,
   pr,
   isError,
 }: {
   onDismiss: () => void;
-  failureStyle?: string;
   pr: PresentedPullRequest;
   agentName?: string;
   isError: boolean;
@@ -471,26 +352,27 @@ export function PullRequestRow({
           >
             <X aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="ml-auto"
-            data-agent-control="true"
-            aria-label={`Check details for pull request ${ref.number}`}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            aria-controls={open ? contentId : undefined}
-            onPointerDownCapture={() => {
-              openOnPointerDown.current = open;
-            }}
-            onClick={toggleDetails}
-            data-pr-details-trigger={contentId}
-          >
-            <CompactChecks
-              ci={isError ? undefined : pr.ci}
-              failureStyle={failureStyle}
-            />
-          </Button>
+          {(isError ||
+            pr.ci?.availability !== "available" ||
+            pr.ci.summary.total > 0) && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="ml-auto"
+              data-agent-control="true"
+              aria-label={`Check details for pull request ${ref.number}`}
+              aria-haspopup="dialog"
+              aria-expanded={open}
+              aria-controls={open ? contentId : undefined}
+              onPointerDownCapture={() => {
+                openOnPointerDown.current = open;
+              }}
+              onClick={toggleDetails}
+              data-pr-details-trigger={contentId}
+            >
+              <CompactChecks ci={isError ? undefined : pr.ci} />
+            </Button>
+          )}
         </div>
       </div>
       <PopoverContent

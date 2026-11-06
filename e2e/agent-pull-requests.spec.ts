@@ -391,11 +391,19 @@ test("CI preview separates PR state from check results and opens individual chec
     rows.getByRole("img", { name: "Checks: 1 passed, 1 failed, 1 pending" })
   ).toBeVisible();
   await expect(
-    rows.getByRole("img", { name: "No checks", exact: true })
-  ).toBeVisible();
+    rows.getByRole("button", {
+      name: "Check details for pull request #43",
+      exact: true,
+    })
+  ).toHaveCount(0);
   await expect(
     rows.getByRole("img", { name: "Checks unavailable", exact: true })
   ).toBeVisible();
+  await rows
+    .getByRole("button", { name: "Details for pull request #43: Draft" })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText("No checks");
+  await page.keyboard.press("Escape");
   await rows
     .getByRole("button", { name: "Details for pull request #42: Open" })
     .click();
