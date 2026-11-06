@@ -3,6 +3,7 @@ import { AgentLinkControls, AgentMetadataLink } from "./agent-link-controls";
 import { previewPullRequests } from "./agent-pull-requests.preview";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
+  RefreshCw,
   ExternalLink,
   Clock,
   CircleCheck,
@@ -280,9 +281,10 @@ export function AgentPullRequests({
       {prs
         .filter((pr) => !hidden.includes(`${agentId}:${pr.url}`))
         .map((pr) => (
-          <PullRequestRow
+          <RefreshablePullRequestRow
             key={pr.url}
             pr={pr}
+            agentId={agentId}
             onDismiss={() => dismiss.mutate(pr.url)}
             agentName={agentName}
             isError={isError}
@@ -294,10 +296,12 @@ export function AgentPullRequests({
 
 export function PullRequestRow({
   onDismiss,
+  refresh,
   pr,
   isError,
 }: {
   onDismiss: () => void;
+  refresh?: ReturnType<typeof usePullRequestRefresh>;
   pr: PresentedPullRequest;
   agentName?: string;
   isError: boolean;
@@ -509,25 +513,103 @@ export function PullRequestRow({
                 })}
             </ul>
           )}
-          {pr.ci && (
-            <div className="flex justify-between gap-3 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-              <span title={pr.ci.checkedAt}>
-                Checked{" "}
-                {new Date(pr.ci.checkedAt).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-              <span>
-                Commit{" "}
-                <span className="font-mono">
-                  {pr.ci.headSha.slice(0, 7) || "Unknown"}
+          {refresh?.isPending && (
+            <p
+              role="status"
+              className="px-3 pb-2 text-[11px] text-muted-foreground"
+            >
+              Refreshing checks…
+            </p>
+          )}
+          {refresh?.isError && (
+            <p
+              role="alert"
+              className="px-3 pb-3 break-words text-[11px] leading-relaxed text-destructive"
+            >
+              {refresh.error instanceof Error
+                ? refresh.error.message
+                : "Could not refresh. Please try again."}
+            </p>
+          )}
+          {(pr.ci || refresh) && (
+            <div className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                <span title={pr.ci?.checkedAt}>
+                  Last checked{" "}
+                  {pr.ci
+                    ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "Never"}
                 </span>
-              </span>
+                {refresh && <RefreshPullRequest refresh={refresh} />}
+                <span className="ml-auto">
+                  Commit{" "}
+                  <span className="font-mono">
+                    {pr.ci?.headSha.slice(0, 7) || "Unknown"}
+                  </span>
+                </span>
+              </div>
             </div>
           )}
         </>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function RefreshablePullRequestRow({
+  agentId,
+  ...props
+}: Omit<React.ComponentProps<typeof PullRequestRow>, "refresh"> & {
+  agentId: string;
+}) {
+  const refresh = usePullRequestRefresh(agentId, props.pr.url);
+  return <PullRequestRow {...props} refresh={refresh} />;
+}
+
+function usePullRequestRefresh(agentId: string, url: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api(`/api/v1/agents/${agentId}/pull-requests/refresh`, {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
+    onSuccess: async () => {
+      // Read the current server snapshot rather than installing a response that
+      // could race dismissal or a newer SSE observation.
+      await client.invalidateQueries({
+        queryKey: ["agent-pull-requests", agentId],
+      });
+    },
+  });
+}
+
+function RefreshPullRequest({
+  refresh,
+}: {
+  refresh: ReturnType<typeof usePullRequestRefresh>;
+}) {
+  return (
+    <div>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Refresh pull request checks"
+        title="Refresh pull request checks"
+        disabled={refresh.isPending}
+        aria-busy={refresh.isPending}
+        onClick={() => {
+          if (!refresh.isPending) refresh.mutate();
+        }}
+      >
+        <RefreshCw
+          aria-hidden="true"
+          className={cn("h-3 w-3", refresh.isPending && "animate-spin")}
+        />
+      </Button>
+    </div>
   );
 }

@@ -300,3 +300,46 @@ it("retains valid check-run timing but never invents commit-status runtime", () 
   expect(ci.checks[1].startedAt).toBeUndefined();
   expect(ci.checks[1].completedAt).toBeUndefined();
 });
+
+it("refresh route requires an agent and delegates only the requested URL", async () => {
+  const app = Fastify();
+  const refreshOne = vi.fn().mockResolvedValue([]);
+  await registerAgentPullRequestRoutes(app, {
+    agentManager: {
+      getAgent: vi.fn(async (id) => (id === "a" ? { id } : null)),
+    },
+    pullRequests: { refreshOne },
+  } as unknown as AgentRouteDeps);
+  const url = "https://github.com/a/b/pull/1";
+  expect(
+    (
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/missing/pull-requests/refresh",
+        payload: { url },
+      })
+    ).statusCode
+  ).toBe(404);
+  expect(refreshOne).not.toHaveBeenCalled();
+  expect(
+    (
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/a/pull-requests/refresh",
+        payload: { url },
+      })
+    ).statusCode
+  ).toBe(200);
+  expect(refreshOne).toHaveBeenCalledWith("a", url);
+  refreshOne.mockRejectedValue(new Error("PR no longer tracked"));
+  expect(
+    (
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/a/pull-requests/refresh",
+        payload: { url },
+      })
+    ).statusCode
+  ).toBe(409);
+  await app.close();
+});
