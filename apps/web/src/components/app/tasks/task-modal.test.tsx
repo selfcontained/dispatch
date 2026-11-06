@@ -47,6 +47,7 @@ vi.mock("@/hooks/use-tasks", () => ({
 }));
 // The panel is the drawer's own; here only what the modal hands it matters.
 vi.mock("./task-drawer", () => ({
+  TASK_DRAWER_CLASS: "task-drawer-surface",
   TaskDetailPanel: ({
     id,
     close,
@@ -226,9 +227,12 @@ it.each(["block=b1", "thread=t1", "block=b1&thread=t1"])(
     const underlying = `/agents/a1?project=p1&${target}`;
     renderStream(underlying);
     fireEvent.click(screen.getByRole("button", { name: /^Task:/ }));
-    expect(where()).toBe(`${underlying}&task=tsk_1&pane=conversation`);
+    const active = target.includes("thread=")
+      ? "/agents/a1?project=p1"
+      : underlying;
+    expect(where()).toBe(`${active}&task=tsk_1&pane=conversation`);
     fireEvent.click(screen.getByRole("button", { name: "Next task" }));
-    expect(where()).toBe(`${underlying}&task=tsk_2&pane=details`);
+    expect(where()).toBe(`${active}&task=tsk_2&pane=details`);
     fireEvent.click(screen.getByRole("button", { name: "Close task" }));
     expect(where()).toBe(underlying);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));

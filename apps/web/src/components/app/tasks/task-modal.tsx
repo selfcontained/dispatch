@@ -1,3 +1,4 @@
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useMemo, useRef } from "react";
 import {
   Link,
@@ -9,14 +10,8 @@ import { ArrowLeft, ArrowUpRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTaskBoard, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { TaskDetailPanel } from "./task-drawer";
-import { TASK_DIALOG_MOBILE_SHEET } from "./task-create-dialog";
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { TASK_DRAWER_CLASS, TaskDetailPanel } from "./task-drawer";
 import {
   TASK_MODAL_STATE,
   TASK_PANE_PARAM,
@@ -84,13 +79,15 @@ export function TaskModal({
   return (
     <>
       <Dialog
+        modal={false}
         open={Boolean(id)}
         onOpenChange={(open) => {
           if (!open) setTask(null);
         }}
       >
-        <DialogContent
+        <DialogPrimitive.Content
           ref={contentRef}
+          onInteractOutside={(event) => event.preventDefault()}
           data-testid="task-modal"
           onOpenAutoFocus={() => {
             openerRef.current =
@@ -112,11 +109,11 @@ export function TaskModal({
             )
               event.preventDefault();
           }}
-          className={`h-[min(860px,calc(100dvh-4rem))] max-h-none gap-0 bg-background p-0 md:w-[min(720px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET}`}
+          className={`${TASK_DRAWER_CLASS} md:w-[min(600px,50%)] overflow-hidden outline-none`}
         >
           <DialogTitle className="sr-only">{task?.title ?? "Task"}</DialogTitle>
           <DialogDescription className="sr-only">
-            The task, over the stream you were reading.
+            The task, beside the stream you were reading.
           </DialogDescription>
           {id && projectId && board ? (
             <TaskDetailPanel
@@ -184,7 +181,7 @@ export function TaskModal({
               )}
             </>
           )}
-        </DialogContent>
+        </DialogPrimitive.Content>
       </Dialog>
       {dialog}
     </>

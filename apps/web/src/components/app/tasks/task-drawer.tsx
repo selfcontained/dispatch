@@ -93,13 +93,16 @@ export type TaskDetailProps = {
   isMobile: boolean;
 };
 
+export const TASK_DRAWER_CLASS =
+  "fixed inset-0 z-40 flex h-dvh flex-col md:h-auto bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(600px,100%)] md:border-l md:border-border md:shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.6)]";
+
 /** The Tasks surface's side drawer over the board. */
 export function TaskDrawer(props: TaskDetailProps) {
   return (
     <aside
       data-testid="task-drawer"
       aria-label="Task"
-      className="fixed inset-0 z-40 flex h-dvh flex-col md:h-auto bg-background md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(600px,100%)] md:border-l md:border-border md:shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.6)]"
+      className={TASK_DRAWER_CLASS}
     >
       <TaskDetailPanel {...props} />
     </aside>
