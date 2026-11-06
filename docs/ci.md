@@ -1,8 +1,9 @@
 # Pull request CI
 
-`.github/workflows/ci.yml` runs one job, `ci`, on every pull request to `main`
-(and `acp-runtime`). The `checks pass` ruleset on the default branch requires
-that one status check, so `ci` is the only merge signal.
+`.github/workflows/ci.yml` emits `ci` for code/base events and the lightweight
+`CI routing` job for title/body-only edits on pull requests to `main` (and
+`acp-runtime`). The default-branch ruleset requires both exact checks `ci` and
+`PR metadata` from GitHub Actions; together they gate merging.
 
 ## Local checks versus PR CI
 
@@ -39,7 +40,7 @@ same check the full suite starts with). It skips Postgres, Playwright, type
 checks, lint, builds, unit and e2e tests, PostgreSQL 14 tests, and the Bun
 binary build and smoke test. A `full` run is unchanged. Steps run unless the
 scope is exactly `docs`, so a missing classification falls back to the full
-suite. The classifier's own tests run on every pull request.
+suite. The classifier's own tests run on every code-validation run.
 
 To add a path to the allowlist, check that nothing builds, tests, packages,
 loads at runtime or publishes it, then add it to `isDocsPath` and its test.
