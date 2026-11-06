@@ -92,6 +92,30 @@ function launchFor(agentId: string, cwd: string): RuntimeLaunch {
   };
 }
 
+async function expectEcho(
+  runtime: AgentRuntime,
+  seen: Seen[],
+  agentId: string,
+  text: string
+) {
+  const start = seen.length;
+  const turn = runtime.prompt(agentId, text);
+  await turn.accepted;
+  await turn.settled;
+  await until(() =>
+    seen
+      .slice(start)
+      .some(
+        ({ agentId: id, event }) =>
+          id === agentId &&
+          event.type === "update" &&
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text" &&
+          event.update.content.text.includes(text)
+      )
+  );
+}
+
 const until = async (check: () => boolean, ms = 10_000) => {
   const deadline = Date.now() + ms;
   while (!check()) {
@@ -150,7 +174,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         ["-e", "setInterval(() => {}, 1000)"],
         { stdio: "ignore" }
       );
-      const { runtime } = runtimeWith(stateRoot, () => 0);
+      const { runtime, seen } = runtimeWith(stateRoot, () => 0);
       const launch = launchFor(id, cwd);
       launch.bins.adapter = { bin: wrapper };
       const alive = (pid: number) => {
@@ -172,8 +196,12 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       });
       try {
         await runtime.launch(launchFor(secondId, cwd));
-        await runtime.prompt(secondId, "normal completion before cleanup")
-          .settled;
+        await expectEcho(
+          runtime,
+          seen,
+          secondId,
+          "normal completion before cleanup"
+        );
         await runtime.launch(launch);
         const { child: pid, adapter } = JSON.parse(
           readFileSync(pidFile, "utf8")
@@ -184,10 +212,12 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         await until(() => !alive(pid));
         expect(alive(control.pid!)).toBe(true);
         expect(await runtime.isAlive(secondId)).toBe(true);
-        await runtime.prompt(
+        await expectEcho(
+          runtime,
+          seen,
           secondId,
           "normal completion after other session cleanup"
-        ).settled;
+        );
         expect(readFileSync(path.join(cwd, "user-notes.txt"), "utf8")).toBe(
           "preserve user work\n"
         );
@@ -212,7 +242,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
   );
 
   it("reports unavailable enumeration without claiming another session", async () => {
-    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
     const target = "agt_scan";
     const peer = "agt_peer";
     const originalPath = process.env.PATH;
@@ -233,12 +263,12 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       }
       expect(await runtime.isAlive(target)).toBe(false);
       expect(await runtime.isAlive(peer)).toBe(true);
-      const turn = runtime.prompt(
+      await expectEcho(
+        runtime,
+        seen,
         peer,
         "still usable after enumeration failure"
       );
-      await turn.accepted;
-      await turn.settled;
       expect(
         execFileSync("git", ["status", "--porcelain"], {
           cwd,
