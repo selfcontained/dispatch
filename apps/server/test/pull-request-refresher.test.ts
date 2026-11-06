@@ -44,6 +44,7 @@ function fixture(count = 1) {
     read,
     publish,
     notify,
+    notifyChecks: notify,
     listAgentIds,
     warn: vi.fn(),
   });
@@ -525,3 +526,54 @@ it.each(["Open", "Draft"] as const)(
     await f.service.stop();
   }
 );
+
+it("silently baselines checks, coalesces for every owner, preserves baseline across unavailable reads, and honors dismissal", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  f.rows.push({ ...f.rows[0], author_agent_id: "b" });
+  const { mapPullRequestChecks } =
+    await import("../src/agents/pull-request-reader.js");
+  let result = "";
+  let unavailable = false;
+  f.read.mockImplementation(async (url, title) => ({
+    url,
+    title,
+    status: "Open",
+    ci: mapPullRequestChecks(
+      "head",
+      unavailable
+        ? undefined
+        : [
+            {
+              __typename: "CheckRun",
+              name: "tests",
+              status: result ? "COMPLETED" : "IN_PROGRESS",
+              conclusion: result,
+            },
+          ]
+    ),
+  }));
+  await f.service.refresh();
+  expect(f.notify).not.toHaveBeenCalled();
+  const poll = async () => {
+    vi.setSystemTime(Date.now() + 301000);
+    await f.service.refresh();
+  };
+  result = "SUCCESS";
+  await poll();
+  expect(f.notify.mock.calls.map((c) => c[0])).toEqual(["a", "b"]);
+  await poll();
+  unavailable = true;
+  await poll();
+  unavailable = false;
+  await poll();
+  expect(f.notify).toHaveBeenCalledTimes(2);
+  await f.service.dismiss("a", f.rows[0].attachments[0].url);
+  result = "";
+  await poll();
+  result = "FAILURE";
+  await poll();
+  expect(f.notify).toHaveBeenCalledTimes(3);
+  expect(f.notify.mock.calls[2][0]).toBe("b");
+  await f.service.stop();
+});

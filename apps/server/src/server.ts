@@ -214,6 +214,9 @@ const pullRequests = new PullRequestRefresher({
   notify: async (id, previous, current, commit) => {
     await streamService.pullRequestTransition(id, previous, current, commit);
   },
+  notifyChecks: async (id, previous, current, commit) => {
+    await streamService.pullRequestChecksChanged(id, previous, current, commit);
+  },
   warn: (error) => app.log.warn({ err: error }, "PR status refresh failed"),
 });
 const diffStatsRefresher = new DiffStatsRefresher({
