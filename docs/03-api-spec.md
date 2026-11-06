@@ -653,7 +653,9 @@ Agent-scoped and job-scoped MCP both load repo tools from `.dispatch/tools.json`
 
 Every agent, including children, owns a home stream. New ordinary output always
 opens at its own home root. Input discussion, task, request and finding anchors
-remain source context; they never make ordinary prose sticky. Legacy already-open
+remain source context; they never make ordinary prose sticky. Source conversation
+identity, including task sources, is retained unchanged for runtime batching and
+steering; it does not select output storage. Legacy already-open
 output retains its stored location until settlement; historical URLs stay valid.
 
 MCP `post` default and `placement: "current" | "home" | "root"` all select the
@@ -661,7 +663,8 @@ sender's own home root. `agentHome: <agentId>` explicitly selects an authorized
 agent home, independently of `to` (recipient/delivery only). Parent-to-child
 coordination selects child home and addresses child; child-to-parent coordination
 normally stays at child home and addresses parent. Deliberate parent-home posts
-remain subject to lineage authorization. No destination grants read access.
+are limited to self, direct parent, or direct child destinations. No destination
+grants read access.
 
 `replyTo` selects an original authorized discussion anchor; `taskId` selects task
 chat with existing task access checks. `agentHome` conflicts with replyTo, taskId

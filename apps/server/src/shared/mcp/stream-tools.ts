@@ -379,7 +379,7 @@ export function registerStreamTools(
             .min(1)
             .optional()
             .describe(
-              "Explicit authorized agent home destination, independent of to. Cannot combine with replyTo, taskId, placement, question, form, or review."
+              "Explicit agent home destination: self, direct parent, or direct child only, independent of to. Cannot combine with replyTo, taskId, placement, question, form, or review."
             ),
           text: textSchema.optional(),
           taskId: z
