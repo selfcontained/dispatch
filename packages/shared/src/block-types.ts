@@ -240,6 +240,8 @@ export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
 export type BlockTextData = BlockRecipientData & {
+  /** Server-observed lifecycle change; excluded from explicit PR discovery. */
+  pullRequestTransition?: { previous: string; current: string };
   /** Server-authored scheduler provenance; ordinary post/update cannot set it. */
   scheduledMessageId?: string;
   scheduledMessage?: import("./scheduled-messages.js").ScheduledMessagePresentation;

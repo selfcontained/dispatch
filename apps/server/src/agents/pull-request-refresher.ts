@@ -11,6 +11,11 @@ type Options = {
   listAgentIds: () => Promise<string[]>;
   publish: PublishUiEvent;
   read?: (url: string, title: string) => Promise<AgentPullRequest>;
+  notify?: (
+    agentId: string,
+    previous: AgentPullRequest,
+    current: AgentPullRequest
+  ) => Promise<void>;
   warn: (error: unknown) => void;
 };
 
@@ -21,6 +26,7 @@ export class PullRequestRefresher {
     string,
     {
       value: AgentPullRequest;
+      lifecycle?: AgentPullRequest;
       due: number;
       failures: number;
       checkedAt: number;
@@ -51,6 +57,7 @@ export class PullRequestRefresher {
   }
   /** Explicit PR posts and edits to previously tracked posts reconcile inventory. */
   observeBlock(block: Block) {
+    if (block.kind === "text" && block.data?.pullRequestTransition) return;
     let changed = false;
     const visit = (current: Block) => {
       const refs = current.attachments.filter((a) => a.type === "pr");
@@ -132,6 +139,7 @@ export class PullRequestRefresher {
     }>(
       `SELECT id, author_agent_id, attachments FROM blocks
        WHERE author_agent_id = ANY($1::text[]) AND attachments @> '[{"type":"pr"}]'::jsonb
+       AND NOT (COALESCE(data, '{}'::jsonb) ? 'pullRequestTransition')
        ORDER BY created_at DESC, id DESC`,
       [ids]
     );
@@ -182,6 +190,13 @@ export class PullRequestRefresher {
         if (!ids.includes(id)) this.snapshots.delete(id);
       }
     };
+    const existingOwners = new Map(
+      [...this.snapshots].map(([id, prs]) => [
+        id,
+        new Set(prs.map((pr) => pr.url)),
+      ])
+    );
+    const notices: Array<() => Promise<void>> = [];
     publishSnapshots();
     this.pendingUrls = new Set(
       [...links.keys()].filter((url) => !this.urls.has(url))
@@ -217,8 +232,30 @@ export class PullRequestRefresher {
               : value.status === "Closed"
                 ? 6 * 60 * 60_000
                 : 5 * 60_000;
+          const lifecycle = ["Draft", "Open", "Closed", "Merged"].includes(
+            value.status
+          )
+            ? value
+            : previous?.lifecycle;
+          if (
+            lifecycle === value &&
+            previous?.lifecycle &&
+            previous.lifecycle.status !== value.status
+          ) {
+            for (const [id, urls] of agents) {
+              if (
+                urls.has(url) &&
+                existingOwners.get(id)?.has(url) &&
+                this.options.notify
+              ) {
+                const before = previous.lifecycle;
+                notices.push(() => this.options.notify!(id, before, value));
+              }
+            }
+          }
           this.urls.set(url, {
             value,
+            lifecycle,
             failures,
             checkedAt: Date.now(),
             due: Date.now() + delay,
@@ -231,5 +268,14 @@ export class PullRequestRefresher {
     for (const url of this.urls.keys())
       if (!links.has(url)) this.urls.delete(url);
     publishSnapshots();
+    await Promise.all(
+      notices.map(async (notify) => {
+        try {
+          await notify();
+        } catch (error) {
+          this.options.warn(error);
+        }
+      })
+    );
   }
 }

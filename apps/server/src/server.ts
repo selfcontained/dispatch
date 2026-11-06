@@ -211,6 +211,9 @@ const pullRequests = new PullRequestRefresher({
   listAgentIds: async () =>
     (await agentManager.listAgents()).map((agent) => agent.id),
   publish: (event) => uiEventBroker.publish(event),
+  notify: async (id, previous, current) => {
+    await streamService.pullRequestTransition(id, previous, current);
+  },
   warn: (error) => app.log.warn({ err: error }, "PR status refresh failed"),
 });
 const diffStatsRefresher = new DiffStatsRefresher({

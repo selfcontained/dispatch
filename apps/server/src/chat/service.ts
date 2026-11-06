@@ -2676,6 +2676,56 @@ export class StreamService {
     await this.publishEntry(block.streamId, blockId);
   }
 
+  /** Persist a system observation in the owner's home, without creating PR inventory. */
+  async pullRequestTransition(
+    agentId: string,
+    previous: import("@dispatch/shared").AgentPullRequest,
+    current: import("@dispatch/shared").AgentPullRequest
+  ): Promise<Block> {
+    return this.withWrite(await this.streamOf(agentId), async () => {
+      await this.requireAgent(agentId);
+      const streamId = await this.streamOf(agentId);
+      const home = await this.homeOf(agentId);
+      // Runtime access throws for stopped/archived owners. The observation
+      // must still be durable; checking access must never start a session.
+      let live = false;
+      try {
+        live = await this.canDeliver(agentId, true);
+      } catch (error) {
+        this.log.warn(
+          { err: error, agentId },
+          "PR notice retained without runtime delivery"
+        );
+      }
+      const block = await this.store.insert({
+        streamId,
+        author: { kind: "agent", agentId },
+        toAgentId: agentId,
+        kind: "text",
+        threadId: home?.threadId ?? null,
+        replyTo: home?.replyTo ?? null,
+        text: `Dispatch system: tracked PR status changed ${previous.status} → ${current.status}. ${current.title}: ${current.url}`,
+        data: {
+          pullRequestTransition: {
+            previous: previous.status,
+            current: current.status,
+          },
+        },
+        state: null,
+        attachments: [{ type: "pr", url: current.url, title: current.title }],
+        delivered: live ? null : false,
+      });
+      await this.publishEntry(streamId, block.id);
+      if (live)
+        await this.deliverBlock(block, {
+          kind: "agent",
+          agentId,
+          name: "Dispatch system",
+        });
+      return block;
+    });
+  }
+
   /** Durable scheduled-message notice; never sends an agent-to-agent prompt. */
   async scheduledNotice(
     agentId: string,
@@ -3064,6 +3114,17 @@ export class StreamService {
     ) {
       throw new StreamValidationError(
         "A scheduled-message record is written by Dispatch."
+      );
+    }
+    if (
+      block.kind === "text" &&
+      block.data?.pullRequestTransition &&
+      (input.text !== undefined ||
+        input.data !== undefined ||
+        input.attachments !== undefined)
+    ) {
+      throw new StreamValidationError(
+        "A PR observation record is written by Dispatch."
       );
     }
     if (!own) {
