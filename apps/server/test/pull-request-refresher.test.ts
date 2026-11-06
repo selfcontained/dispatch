@@ -11,7 +11,18 @@ function fixture(count = 1) {
       { type: "pr", url: `https://github.com/a/b/pull/${i}`, title: `PR ${i}` },
     ],
   }));
-  const query = vi.fn().mockResolvedValue({ rows });
+  const tombstones: { agent_id: string; url: string }[] = [];
+  const query = vi
+    .fn()
+    .mockImplementation(async (sql: string, params: string[]) => {
+      if (sql.includes("INSERT INTO agent_pr_dismissals")) {
+        tombstones.push({ agent_id: params[0], url: params[1] });
+        return { rows: [] };
+      }
+      return {
+        rows: sql.includes("FROM agent_pr_dismissals") ? tombstones : rows,
+      };
+    });
   const read = vi.fn(
     async (url: string, title: string): Promise<AgentPullRequest> => ({
       url,
@@ -34,6 +45,60 @@ function fixture(count = 1) {
 }
 afterEach(() => vi.useRealTimers());
 describe("server PR orchestration", () => {
+  it("persists canonical agent-scoped dismissal through rediscovery and a reconstructed refresher", async () => {
+    const f = fixture();
+    f.rows.push({ ...f.rows[0], author_agent_id: "b" });
+    await f.service.refresh();
+    await f.service.dismiss("a", "https://github.com/A/B/pull/000#discussion");
+    f.rows.push({ ...f.rows[0], id: "reposted" });
+    await f.service.refresh();
+    expect(f.service.get("a")).toEqual([]);
+    expect(f.service.get("b")).toHaveLength(1);
+    await f.service.stop();
+    const restarted = new PullRequestRefresher({
+      pool: { query: f.query } as unknown as Pool,
+      listAgentIds: f.listAgentIds,
+      read: f.read,
+      publish: f.publish,
+      warn: vi.fn(),
+    });
+    await restarted.refresh();
+    expect(restarted.get("a")).toEqual([]);
+    expect(restarted.get("b")).toHaveLength(1);
+    await restarted.stop();
+  });
+  it("does not resurrect an association when an in-flight read finishes", async () => {
+    const f = fixture();
+    let finish!: (value: AgentPullRequest) => void;
+    f.read.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const flight = f.service.refresh();
+    await vi.waitFor(() => expect(f.read).toHaveBeenCalled());
+    await f.service.dismiss("a", "https://github.com/a/b/pull/0");
+    finish({
+      url: "https://github.com/a/b/pull/0",
+      title: "PR",
+      status: "Merged",
+    });
+    await flight;
+    expect(f.service.get("a")).toEqual([]);
+    expect(f.notify).not.toHaveBeenCalled();
+    await f.service.stop();
+  });
+  it("leaves association visible on a failed durable write", async () => {
+    const f = fixture();
+    await f.service.refresh();
+    f.query.mockRejectedValueOnce(new Error("offline"));
+    await expect(
+      f.service.dismiss("a", "https://github.com/a/b/pull/0")
+    ).rejects.toThrow("offline");
+    expect(f.service.get("a")).toHaveLength(1);
+    await f.service.stop();
+  });
   it("announces observed transitions once to each existing owner, retaining baseline through errors", async () => {
     vi.useFakeTimers();
     const f = fixture();
@@ -217,7 +282,7 @@ describe("server PR orchestration", () => {
     f.service.start();
     await vi.advanceTimersByTimeAsync(201);
     await vi.advanceTimersByTimeAsync(4 * 60_000);
-    expect(f.query).toHaveBeenCalledTimes(1);
+    expect(f.query).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(61_000);
     expect(f.read).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(3 * 60_000);
@@ -233,7 +298,7 @@ describe("server PR orchestration", () => {
       parked.service.start();
       await vi.advanceTimersByTimeAsync(201);
       await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
-      expect(parked.query).toHaveBeenCalledTimes(1);
+      expect(parked.query).toHaveBeenCalledTimes(2);
       await parked.service.stop();
     }
   });
@@ -265,7 +330,7 @@ describe("server PR orchestration", () => {
     } as unknown as Block;
     f.service.observeBlock(block);
     await vi.advanceTimersByTimeAsync(201);
-    expect(f.query).toHaveBeenCalledTimes(1);
+    expect(f.query).toHaveBeenCalledTimes(2);
     f.rows[0].attachments.push({
       type: "pr",
       url: "https://github.com/a/b/pull/99",
@@ -284,9 +349,9 @@ describe("server PR orchestration", () => {
     await vi.advanceTimersByTimeAsync(201);
     f.query.mockRejectedValue(new Error("database unavailable"));
     await vi.advanceTimersByTimeAsync(6 * 60_000);
-    expect(f.query).toHaveBeenCalledTimes(2);
+    expect(f.query).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(10 * 60_000);
-    expect(f.query).toHaveBeenCalledTimes(2);
+    expect(f.query).toHaveBeenCalledTimes(3);
     await f.service.stop();
   });
 });

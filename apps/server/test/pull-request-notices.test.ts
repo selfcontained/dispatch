@@ -99,6 +99,38 @@ describe("PR observation delivery", () => {
     await service.update("child", explicit.id, { attachments: [] });
     await refresher.refresh();
     expect(refresher.get("child")).toEqual([]);
+    // Durable dismissals leave authored blocks and generated provenance intact.
+    await service.update("child", explicit.id, {
+      attachments: block.attachments,
+    });
+    await service.post("parent", {
+      text: "Shared PR",
+      attachments: block.attachments,
+    });
+    await refresher.dismiss(
+      "child",
+      "https://github.com/A/B/pull/001#discussion"
+    );
+    await service.post("child", {
+      text: "Reposted PR",
+      attachments: block.attachments,
+    });
+    const restarted = new PullRequestRefresher({
+      pool,
+      listAgentIds: async () => ["child", "parent"],
+      publish: () => {},
+      warn: () => {},
+      read: async () => current,
+    });
+    await restarted.refresh();
+    expect(restarted.get("child")).toEqual([]);
+    expect(restarted.get("parent")).toHaveLength(1);
+    expect((await service.store.getById(explicit.id))?.attachments).toEqual(
+      block.attachments
+    );
+    expect((await service.store.getById(block.id))?.data).toEqual(block.data);
+    await restarted.stop();
+    await refresher.stop();
     const stopped = await service.pullRequestTransition(
       "stopped",
       previous,

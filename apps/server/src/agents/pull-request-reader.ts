@@ -9,7 +9,7 @@ export function githubPullRequestUrl(value: string): string | null {
     );
     if (url.protocol !== "https:" || url.hostname !== "github.com" || !match)
       return null;
-    return `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}`;
+    return `https://github.com/${match[1].toLowerCase()}/${match[2].toLowerCase()}/pull/${BigInt(match[3]).toString()}`;
   } catch {
     return null;
   }
