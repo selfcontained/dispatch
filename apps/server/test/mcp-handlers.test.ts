@@ -1206,6 +1206,124 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("uses the template's runtime, model, effort, folder, persona, and access instead of the launcher's", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        type: "claude",
+        cwd: "/parent",
+        fullAccess: true,
+      });
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          agentType: "codex",
+          model: "gpt-6-astra",
+          effort: "high",
+          directory: "/template",
+          persona: "builder",
+          fullAccess: false,
+        })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "codex",
+          model: "gpt-6-astra",
+          effort: "high",
+          cwd: "/template",
+          persona: "builder",
+          fullAccess: false,
+        })
+      );
+    });
+
+    it("lets explicit settings override template settings", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        type: "claude",
+        cwd: "/parent",
+        fullAccess: true,
+      });
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          agentType: "codex",
+          model: "gpt-6-astra",
+          effort: "high",
+          directory: "/template",
+          fullAccess: false,
+        })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+        type: "claude",
+        model: "sonnet",
+        effort: "low",
+        cwd: "/override",
+        fullAccess: true,
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "claude",
+          model: "sonnet",
+          effort: "low",
+          cwd: "/override",
+          fullAccess: true,
+        })
+      );
+    });
+
+    it.each([{ type: "claude" }, { model: null }])(
+      "uses the CLI model when explicitly reset or the template runtime changes: %j",
+      async (overrides) => {
+        deps.templateService.getTemplate.mockResolvedValue(
+          templateRecord({ agentType: "codex", model: "gpt-6-astra" })
+        );
+        await handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "work",
+          templateId: "tmpl_123",
+          ...overrides,
+        });
+        expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({ model: undefined })
+        );
+      }
+    );
+
+    it("does not grant template permissions unavailable to the parent", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ fullAccess: true })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ fullAccess: false })
+      );
+    });
+
+    it("protects a project template's folder like a UI launch", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ projectId: "project", directory: "/project" })
+      );
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "work",
+          templateId: "tmpl_123",
+          cwd: "/elsewhere",
+        })
+      ).rejects.toThrow("Project template directory cannot be overridden");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
     it("passes templateId through", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({ id: "tmpl_123" })
