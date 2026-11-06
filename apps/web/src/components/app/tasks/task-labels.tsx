@@ -1,3 +1,4 @@
+import { TASK_LABEL_NAME_MAX_LENGTH } from "@dispatch/shared";
 import { Command as CommandPrimitive } from "cmdk";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
@@ -141,6 +142,7 @@ export function TaskLabelPicker({
     !!name.trim() &&
     !hiddenMatch &&
     !options.some((l) => l.name.toLowerCase() === name.trim().toLowerCase());
+  const tooLong = name.trim().length > TASK_LABEL_NAME_MAX_LENGTH;
   const invalid = [...name].some(
     (c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127
   );
@@ -161,7 +163,7 @@ export function TaskLabelPicker({
           variant="ghost"
           disabled={disabled}
           aria-label="Edit labels"
-          className="h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 text-xs font-normal text-muted-foreground"
+          className="h-auto min-h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 py-1 text-xs font-normal text-muted-foreground"
         >
           {value.length ? (
             <span className="flex min-w-0 items-center gap-2 overflow-hidden">
@@ -265,7 +267,8 @@ export function TaskLabelPicker({
                   <Input
                     aria-label="Label name"
                     placeholder="Find or create a label…"
-                    maxLength={40}
+                    aria-invalid={canCreate && tooLong}
+                    aria-describedby="task-label-length"
                     className="h-8 min-w-0 text-xs"
                   />
                 </CommandPrimitive.Input>
@@ -334,6 +337,17 @@ export function TaskLabelPicker({
               )}
             </Command>
             {canCreate && (
+              <p
+                id="task-label-length"
+                role={tooLong ? "alert" : undefined}
+                className="px-3 text-xs text-muted-foreground"
+              >
+                {tooLong
+                  ? `Use ${TASK_LABEL_NAME_MAX_LENGTH} characters or fewer`
+                  : `${name.trim().length}/${TASK_LABEL_NAME_MAX_LENGTH} characters`}
+              </p>
+            )}
+            {canCreate && (
               <div className="shrink-0 px-2 pb-2 pt-1">
                 <ColorPicker
                   value={color}
@@ -349,6 +363,7 @@ export function TaskLabelPicker({
                     disabled ||
                     visibility.isPending ||
                     invalid ||
+                    tooLong ||
                     !isHexColor(color) ||
                     value.length >= 20
                   }

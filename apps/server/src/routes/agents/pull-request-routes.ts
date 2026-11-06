@@ -5,6 +5,27 @@ export async function registerAgentPullRequestRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ) {
+  // Explicit authored previews only; never infer a preview from a generic URL.
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/agents/:id/preview",
+    async (request, reply) => {
+      if (!(await deps.agentManager.getAgent(request.params.id)))
+        return reply.code(404).send({ error: "Agent not found." });
+      const { rows } = await deps.pool.query<{
+        attachments: import("@dispatch/shared").Block["attachments"];
+      }>(
+        `SELECT attachments FROM blocks
+         WHERE author_agent_id = $1 AND attachments @> '[{"type":"preview"}]'::jsonb
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+        [request.params.id]
+      );
+      const preview = rows[0]?.attachments
+        .slice()
+        .reverse()
+        .find((attachment) => attachment.type === "preview");
+      return { preview: preview ?? null };
+    }
+  );
   app.get<{ Params: { id: string } }>(
     "/api/v1/agents/:id/pull-requests",
     async (request, reply) => {

@@ -1,3 +1,4 @@
+import { AgentPreview } from "./agent-preview";
 import React from "react";
 import { AssignedTaskRow } from "./assigned-task-row";
 import { AgentPullRequests } from "./agent-pull-requests";
@@ -198,6 +199,7 @@ export function AgentCardDetails({
       ) : null}
       <AssignedTaskRow agentId={agent.id} />
       <AgentPullRequests agentId={agent.id} agentName={agent.name} />
+      <AgentPreview agentId={agent.id} />
 
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">

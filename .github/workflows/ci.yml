@@ -75,6 +75,9 @@ jobs:
       - name: Test change classifier
         run: node --test scripts/ci-change-scope.test.mjs
 
+      - name: Test owned command cleanup
+        run: node --test scripts/run-owned.test.mjs
+
       - uses: pnpm/action-setup@v6
         with:
           version: 9.15.9
@@ -133,7 +136,7 @@ jobs:
 
       - name: CI checks
         if: steps.scope.outputs.scope != 'docs'
-        run: pnpm run ci
+        run: node scripts/run-owned.mjs pnpm run ci
         env:
           E2E_SKIP_WEB_BUILD: "1"
           DISPATCH_TEST_POSTGRES_CONTAINER: ${{ steps.postgres.outputs.container }}
@@ -141,7 +144,7 @@ jobs:
 
       - name: Build Bun binaries
         if: steps.scope.outputs.scope != 'docs'
-        run: pnpm run build:bun
+        run: node scripts/run-owned.mjs pnpm run build:bun
 
       - name: Smoke test compiled binary for host platform
         if: steps.scope.outputs.scope != 'docs'

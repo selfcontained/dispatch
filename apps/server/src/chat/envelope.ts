@@ -201,8 +201,9 @@ export function buildPostEnvelope(input: {
   // A person's post: the agent's own answer lands where the post was, in
   // the thread when it came from one, so plain text is the whole reply.
   // Another agent's post: only post reaches it, in its thread when it has one.
-  const routing =
-    input.from.kind === "user"
+  const routing = input.task
+    ? `Ordinary replies stay in your own channel. To answer in this task chat, explicitly use post({ replyTo: "${input.blockId}", text: "<answer>" }) or post({ taskId: "${input.task.id}", text: "<update>" }). This places only that post; subsequent ordinary replies stay in your channel. Use to to address another agent.`
+    : input.from.kind === "user"
       ? `Your reply appears ${input.threadId ? "in this thread" : input.task ? "in the task's conversation" : "in the stream"} as you write it. Use post for a question with options, a file, a link, or to reach another agent${replyArgs ? ` (with ${replyArgs} to keep it in this thread)` : ""}.${input.threadId ? "" : ` For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${input.blockId}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`}`
       : `From another agent. Reply with post (to: "${input.from.agentId}"${replyArgs ? `, ${replyArgs}` : ""}) only if a reply is needed; routine updates need no acknowledgement.`;
   return [

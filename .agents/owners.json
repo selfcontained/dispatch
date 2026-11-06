@@ -22,6 +22,7 @@
     {
       "paths": [
         "apps/server/src/agents/**",
+        "apps/server/src/shared/process/**",
         "apps/server/src/server/agent-*.ts",
         "apps/server/src/shared/git/**",
         "apps/server/src/agents/acp/**",
@@ -274,6 +275,7 @@
         "scripts/fixtures/sparkle*",
         "scripts/write-bun-checksums.mjs",
         "scripts/smoke-bun-binary.mjs",
+        "scripts/run-owned*.mjs",
         ".github/workflows/ci.yml",
         ".github/workflows/pr-metadata.yml",
         "scripts/ci-event-policy.test.mjs"
