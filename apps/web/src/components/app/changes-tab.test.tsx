@@ -736,13 +736,13 @@ describe("ChangesTab", () => {
     });
     await waitForFile("src/app.ts");
 
-    fireEvent.click(screen.getByRole("button", { name: /src\/app\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^src\/app\.ts/ }));
     expect(screen.queryByTestId("diff-view:src/app.ts")).toBeNull();
     expect(store.get(diffViewStateAtomFamily(AGENT_ID)).collapsedFiles).toEqual(
       ["src/app.ts"]
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /src\/app\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^src\/app\.ts/ }));
     expect(screen.getByTestId("diff-view:src/app.ts")).toBeTruthy();
     expect(store.get(diffViewStateAtomFamily(AGENT_ID)).collapsedFiles).toEqual(
       []
