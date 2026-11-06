@@ -105,3 +105,25 @@ The previous eight-case dev test file cost 129.874s in Linux CI. An investigativ
 local run excluding that file passed 4,208 tests in 35.36s; the pure unit subset
 passed 237 tests in 0.259s. These local times are not CI savings estimates. The
 replacement and final CI timings are recorded in the PR validation report.
+
+## Frontend Vitest resource containment
+
+Frontend Vitest defaults to one isolated fork at a time with a 768 MiB V8
+old-space limit per fork. The limit is passed through Vitest's fork `execArgv`,
+so it does not cap TypeScript checks, builds, or other workspace commands.
+A global 768 MiB `NODE_OPTIONS` cap caused the web type check to abort during
+investigation and must not be substituted for this setting.
+
+The initial measured selection covers task drawer, chat feed, formatting,
+persisted state, and stream hooks. All selected files passed at both 512 and
+768 MiB with one worker; the 157-test mixed batch peaked at about 636 MiB total
+sampled process-tree RSS. The 768 MiB choice provides headroom for that selection;
+it is not a measured full-suite requirement. Full regression compatibility
+remains a current-head CI gate. One worker can increase full-suite elapsed time;
+no unrestricted parallel comparison was run during the memory incident.
+
+This reduces the default 13-worker multiplier on the investigation host. It does
+not fix retained allocations, cap native memory or total RSS, coordinate separate
+worktrees/CI jobs, or guarantee cleanup after cancellation. Worker heap failure
+must remain a failing run. Host admission and lifecycle cleanup need separate
+ownership-aware follow-up; do not use broad process kills or a host-wide test lock.

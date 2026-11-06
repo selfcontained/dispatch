@@ -13,6 +13,18 @@ export default defineConfig({
     },
   },
   test: {
+    // Local worktrees and self-hosted CI share a machine. Bound each run's
+    // worker multiplier and each fork's V8 old-space without capping tsc/build.
+    // This is not a native-memory or host-wide RSS limit.
+    pool: "forks",
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+    poolOptions: {
+      forks: {
+        execArgv: ["--max-old-space-size=768"],
+      },
+    },
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     coverage: {
       provider: "v8",
