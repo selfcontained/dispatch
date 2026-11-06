@@ -50,6 +50,13 @@ export function ChangeWorkspaceButton({
             item.id === result.agent.id ? result.agent : item
           ) ?? [result.agent]
       );
+      for (const key of [
+        "agent-diff-content",
+        "agent-diff-file",
+        "agent-diff",
+      ]) {
+        void queryClient.invalidateQueries({ queryKey: [key, agent.id] });
+      }
       setOpen(false);
     },
   });
@@ -59,7 +66,7 @@ export function ChangeWorkspaceButton({
       setOpen(false);
       return;
     }
-    setPath(agent.workspacePath ?? agent.cwd);
+    setPath(agent.workspacePath ?? agent.worktreePath ?? agent.cwd);
     setBaseBranch(
       (agent.workspacePath ? agent.workspaceBaseBranch : agent.baseBranch) ?? ""
     );
