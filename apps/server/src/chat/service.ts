@@ -2864,9 +2864,9 @@ export class StreamService {
     }
     let toAgentId = input.to ?? null;
     if ((kind === "question" || kind === "form") && streamId !== agentId) {
-      const ownerId =
-        (await requestOwnerAgentId(this.deps.pool, agentId)) ?? streamId;
-      if (toAgentId === null || toAgentId === ownerId) {
+      // Request ownership follows lineage, never an explicit task destination.
+      const ownerId = await requestOwnerAgentId(this.deps.pool, agentId);
+      if (ownerId && (toAgentId === null || toAgentId === ownerId)) {
         toAgentId ??= ownerId;
         data = { ...(data as object), parentHandled: true };
       }

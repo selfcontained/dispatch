@@ -398,6 +398,52 @@ describe("task stream root", () => {
     expect((await tasks.getTaskDetail(task.id)).assignedAgentId).toBe(HELPER);
   });
 
+  it.each(["question", "form"] as const)(
+    "posts user-directed task %s and preserves child ownership",
+    async (kind) => {
+      const task = await newTask();
+      const structured =
+        kind === "question"
+          ? { question: { options: [{ label: "Proceed" }] } }
+          : {
+              form: {
+                fields: [{ id: "name", label: "Name", type: "text" as const }],
+              },
+            };
+      const ask = await streams.post(ASSIGNEE, {
+        taskId: task.id,
+        text: "Choose",
+        ...structured,
+      });
+      expect(ask).toMatchObject({ streamId: task.id, kind, toAgentId: null });
+      expect(ask.data).not.toHaveProperty("parentHandled");
+      if (kind === "question") {
+        await streams.answerQuestion(task.id, ask.id, { value: "Proceed" });
+      } else {
+        await streams.submitForm(task.id, ask.id, { values: { name: "Ada" } });
+      }
+      await settle();
+      expect(prompts.map((p) => p.agentId)).toEqual([ASSIGNEE]);
+      expect(prompts[0]!.text).toContain(
+        "Ordinary replies stay in your own channel"
+      );
+      await pool.query(`UPDATE agents SET parent_agent_id = $1 WHERE id = $2`, [
+        ASSIGNEE,
+        HELPER,
+      ]);
+      const childAsk = await streams.post(HELPER, {
+        taskId: task.id,
+        text: "Parent decision",
+        ...structured,
+      });
+      expect(childAsk).toMatchObject({
+        streamId: task.id,
+        toAgentId: ASSIGNEE,
+        data: { parentHandled: true },
+      });
+    }
+  );
+
   it("keeps addressed task prompts at home while explicit posts stay in task chat", async () => {
     const task = await newTask();
     const res = await postBlock(task.id, { text: "Any progress?" });
