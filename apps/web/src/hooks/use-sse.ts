@@ -418,6 +418,7 @@ export function useSSE(authState: AuthState): void {
           // open Chat tab keeps missing whatever landed while the stream was
           // down. Prefix match: one key per agent.
           void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
+          void queryClient.invalidateQueries({ queryKey: ["agent-preview"] });
           // The sidebar's running-step labels missed the same steps.
           refreshTurnLabels(queryClient);
           void queryClient.invalidateQueries({
@@ -533,6 +534,7 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "stream.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["agent-preview"] });
           invalidateStreamFeed(queryClient, payload.agentId);
           void queryClient.invalidateQueries({
             queryKey: [...STREAM_QUERY_PREFIX, payload.agentId, "thread"],

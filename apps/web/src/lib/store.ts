@@ -679,3 +679,11 @@ export const chatScrollPositionAtomFamily = atomFamily((agentId: string) =>
     { validate: isChatScrollPosition }
   )
 );
+
+/** Sidebar-only dismissals; a newly shared URL remains visible. */
+export const hiddenAgentPreviewsAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<string[]>(
+    `dispatch:hidden-agent-previews:${agentId}`,
+    []
+  )
+);
