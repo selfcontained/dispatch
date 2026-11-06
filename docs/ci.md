@@ -86,3 +86,19 @@ Docs-only runs hold a runner for about a minute instead of about nine (macOS)
 or thirteen (Linux). Cancelling superseded runs frees the runner as soon as a
 pull request moves on. Both reduce the queue that causes the long waits; neither
 changes what a code change runs.
+
+## Metadata transition (seeding stage only)
+
+`pr-metadata.yml` emits the exact `PR metadata` check on opened, synchronize,
+reopened and edited PR events, independently of code CI. It uses hosted Ubuntu
+and runs only the session-link shell guard, without checkout or dependencies.
+This stage deliberately retains the existing required `ci` hygiene gate and
+edited-event behavior. It does not yet reduce expensive restarts.
+
+The inspected default-branch ruleset requires `ci` from GitHub Actions
+(integration 15368). Requiring the additional metadata check needs separate user
+authorization; this code does not change protection. Until that transition is
+verified, removing edited-event CI would weaken enforcement. The intended
+cutover must retain validation for base retargets and never emit skipped or
+successful `ci` checks for title/body-only events. Moving hygiene out of code CI
+at cutover allows corrected metadata to recover without repeating code checks.

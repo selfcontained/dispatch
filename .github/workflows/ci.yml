@@ -109,6 +109,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Test CI event policy
+        run: node --test scripts/ci-event-policy.test.mjs
+
       # This guard runs for every PR, including the docs fast path. It reads
       # ownership definitions from the PR head, not the merge checkout.
       - name: Require explicit PR owner coverage

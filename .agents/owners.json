@@ -276,7 +276,9 @@
         "scripts/write-bun-checksums.mjs",
         "scripts/smoke-bun-binary.mjs",
         "scripts/run-owned*.mjs",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        ".github/workflows/pr-metadata.yml",
+        "scripts/ci-event-policy.test.mjs"
       ],
       "personas": ["release-update-owner"]
     },

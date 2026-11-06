@@ -1,0 +1,30 @@
+name: PR metadata
+
+on:
+  pull_request:
+    branches: [main, acp-runtime]
+    types: [opened, synchronize, reopened, edited]
+
+# Independent lifecycle: metadata updates never cancel code validation here.
+concurrency:
+  group: pr-metadata-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  metadata:
+    name: PR metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: No Claude Code session links in the PR title or description
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          lines=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" \
+            | grep -in 'claude\.ai/code/session' | cut -d: -f1 | tr '\n' ' ') || true
+          if [ -n "$lines" ]; then
+            echo "::error::Remove the Claude Code session link from the PR title/description (line 1 is the title, line 2 onward is the description). Offending lines: $lines"
+            exit 1
+          fi
