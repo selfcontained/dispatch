@@ -151,6 +151,23 @@ describe("resolveWorkspace", () => {
     ).resolves.toEqual({ path: otherRepo, baseBranch: "release" });
   });
 
+  it("retains an explicit comparison base at the launch worktree", async () => {
+    const agent = { ...launchedAgent(), baseBranch: "agent/wt" };
+    const resolved = await resolveWorkspace(agent, {
+      path: launchWorktree,
+      baseBranch: "main",
+    });
+    expect(resolved).toEqual({ path: launchWorktree, baseBranch: "main" });
+    expect(
+      agentDiffTarget({
+        ...agent,
+        workspacePath: resolved.path,
+        workspaceBaseBranch: resolved.baseBranch,
+      })
+    ).toEqual({ path: launchWorktree, baseRef: "main" });
+    expect(agent.baseBranch).toBe("agent/wt");
+  });
+
   it("clears the override when pointed back at the launch worktree", async () => {
     await expect(
       resolveWorkspace(launchedAgent(), { path: launchWorktree })

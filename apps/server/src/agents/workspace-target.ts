@@ -70,7 +70,7 @@ export function agentDiffTarget(
  * Validate a requested workspace and settle what gets stored: the checkout
  * root it sits in (or the directory itself outside git) and the branch its
  * diff runs against. Resolves to nulls when the request is empty or lands
- * back on the agent's own worktree/cwd, which clears the override.
+ * back on the agent's own worktree/cwd without an explicit comparison base.
  */
 export async function resolveWorkspace(
   agent: WorkspaceTargetAgent,
@@ -109,7 +109,11 @@ export async function resolveWorkspace(
 
   const home = agent.worktreePath ?? agent.cwd;
   const homeDir = home ? await realpathOrSelf(home) : null;
-  if (workspace === homeDir) return { path: null, baseBranch: null };
+  // An explicit diff base is a workspace override even at the launch path.
+  // Never rewrite baseBranch: it also records how the session was launched.
+  if (workspace === homeDir && !requestedBase) {
+    return { path: null, baseBranch: null };
+  }
   if (!git) return { path: workspace, baseBranch: null };
 
   if (requestedBase) return { path: workspace, baseBranch: requestedBase };

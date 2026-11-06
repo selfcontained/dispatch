@@ -213,6 +213,38 @@ describe("setWorkspace", () => {
     });
   });
 
+  it.each(["stopped", "running"])(
+    "persists a base-only update for a %s session",
+    async (status) => {
+      await insertWorktreeAgent("agt_base", launchWorktree, "agt/launch");
+      await pool.query(
+        "UPDATE agents SET base_branch = 'agt/launch', status = $1 WHERE id = 'agt_base'",
+        [status]
+      );
+      await manager.setWorkspace("agt_base", {
+        path: launchWorktree,
+        baseBranch: "main",
+      });
+      expect(await manager.getAgent("agt_base")).toMatchObject({
+        cwd: launchWorktree,
+        worktreePath: launchWorktree,
+        worktreeBranch: "agt/launch",
+        baseBranch: "agt/launch",
+        workspacePath: launchWorktree,
+        workspaceBaseBranch: "main",
+      });
+      await expect(
+        manager.setWorkspace("agt_base", {
+          path: launchWorktree,
+          baseBranch: "--all",
+        })
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect((await manager.getAgent("agt_base"))?.workspaceBaseBranch).toBe(
+        "main"
+      );
+    }
+  );
+
   it("rejects a path that does not exist without touching the row", async () => {
     await insertWorktreeAgent("agt_a", launchWorktree, "agt/launch");
     await expect(
