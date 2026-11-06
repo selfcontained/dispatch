@@ -282,7 +282,10 @@ const FileDiffSection = memo(function FileDiffSection({
       data-testid={`changes-file-section:${file.path}`}
       className="rounded-md border border-border/50"
     >
-      <div className="sticky top-0 z-10 flex items-center rounded-t-md border-b border-border/50 bg-background/95 pr-1 backdrop-blur-sm">
+      <div
+        style={{ containerType: "inline-size" }}
+        className="sticky top-0 z-10 flex items-center rounded-t-md border-b border-border/50 bg-background/95 pr-1 backdrop-blur-sm"
+      >
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60"

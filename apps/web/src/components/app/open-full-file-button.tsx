@@ -82,7 +82,9 @@ export function OpenFullFileButton({
       }}
     >
       <ExternalLink className="h-3.5 w-3.5" />
-      <span className="hidden sm:inline">View file</span>
+      <span className="hidden [@container(min-width:360px)]:inline">
+        View file
+      </span>
     </Button>
   );
 }
