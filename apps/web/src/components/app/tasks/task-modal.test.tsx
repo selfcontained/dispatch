@@ -9,10 +9,16 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { AssignedTaskChip } from "@/components/app/agent-pane";
+import { AssignedTaskRow } from "@/components/app/assigned-task-row";
 import { TaskModal } from "./task-modal";
 
-const task = { id: "tsk_1", projectId: "p1", title: "Build the board" };
+const task = {
+  id: "tsk_1",
+  projectId: "p1",
+  title: "Build the board",
+  columnId: "c1",
+  assignedAgentId: "a2",
+};
 const failing = vi.hoisted(() => ({
   task: null as Error | null,
   board: null as Error | null,
@@ -28,7 +34,11 @@ vi.mock("@/hooks/use-tasks", () => ({
   useTaskBoard: (projectId: string | null) => ({
     data:
       projectId && !failing.board
-        ? { projectId, columns: [], tasks: [{ ...task, position: 0 }] }
+        ? {
+            projectId,
+            columns: [{ id: "c1", name: "Building" }],
+            tasks: [{ ...task, position: 0 }],
+          }
         : undefined,
     error: projectId ? failing.board : null,
     refetch: failing.refetch,
@@ -106,7 +116,7 @@ const renderStream = (entry: string) =>
           element={
             <>
               <div data-testid="stream">stream</div>
-              <AssignedTaskChip agentId="a1" />
+              <AssignedTaskRow agentId="a2" />
               <TaskModal agents={[]} isMobile={false} />
               <Where />
             </>
@@ -122,7 +132,7 @@ it("opens the agent's task over the stream and closes back to it", () => {
   renderStream("/agents/a1?project=p1");
   const stream = screen.getByTestId("stream");
   fireEvent.click(
-    screen.getByRole("button", { name: "Task: Build the board" })
+    screen.getByRole("button", { name: "Task: Build the board, Building" })
   );
   expect(where()).toBe("/agents/a1?project=p1&task=tsk_1&pane=conversation");
   expect(screen.getByRole("dialog").textContent).toContain("tsk_1");

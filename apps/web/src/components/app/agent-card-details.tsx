@@ -1,4 +1,5 @@
 import React from "react";
+import { AssignedTaskRow } from "./assigned-task-row";
 import { AgentPullRequests } from "./agent-pull-requests";
 import {
   Check,
@@ -195,6 +196,7 @@ export function AgentCardDetails({
           ) : null}
         </div>
       ) : null}
+      <AssignedTaskRow agentId={agent.id} />
       <AgentPullRequests agentId={agent.id} agentName={agent.name} />
 
       <div className="flex items-center justify-between gap-2 pt-1">
