@@ -39,6 +39,8 @@ export function createPullRequestReader(run: CommandRunner = runCommand) {
           [
             "api",
             "graphql",
+            "--hostname",
+            "github.com",
             "-f",
             `query=${CHECKS_QUERY}`,
             "-f",

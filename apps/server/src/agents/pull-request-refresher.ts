@@ -273,9 +273,8 @@ export class PullRequestRefresher {
           const previous = this.urls.get(url);
           // A transport failure must not discard a previously observed lifecycle,
           // nor keep displaying old-head checks as current.
-          const unavailable =
-            value.status === "Unavailable" ||
-            value.ci?.availability === "unavailable";
+          // CI-only errors must not delay healthy lifecycle reads/notices.
+          const unavailable = value.status === "Unavailable";
           if (value.status === "Unavailable" && previous?.lifecycle) {
             value = {
               ...previous.lifecycle,

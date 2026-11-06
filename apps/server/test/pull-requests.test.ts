@@ -270,5 +270,8 @@ it.each(["head-race", "truncated", "empty"])(
     expect(result.ci?.checks).toEqual([]);
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0][1]).toContain("graphql");
+    expect(run.mock.calls[0][1]).toEqual(
+      expect.arrayContaining(["--hostname", "github.com"])
+    );
   }
 );

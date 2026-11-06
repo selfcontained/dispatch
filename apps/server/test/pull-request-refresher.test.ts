@@ -475,3 +475,53 @@ it("publishes same-head CI transitions and new heads without lifecycle notices",
   expect(f.notify).not.toHaveBeenCalled();
   await f.service.stop();
 });
+
+it.each(["Open", "Draft"] as const)(
+  "keeps %s lifecycle polling timely when CI stays unavailable",
+  async (status) => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const ci: NonNullable<AgentPullRequest["ci"]> = {
+      checkedAt: new Date().toISOString(),
+      headSha: "abc",
+      availability: "unavailable",
+      summary: {
+        status: "none",
+        total: 0,
+        passed: 0,
+        failed: 0,
+        pending: 0,
+        skipped: 0,
+      },
+      checks: [],
+    };
+    f.read.mockImplementation(async (url, title) => ({
+      url,
+      title,
+      status,
+      ci,
+    }));
+    await f.service.refresh();
+    for (let interval = 0; interval < 4; interval++) {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await f.service.refresh();
+      expect(f.read).toHaveBeenCalledTimes(interval + 2);
+    }
+    expect(f.notify).not.toHaveBeenCalled();
+    f.read.mockImplementation(async (url, title) => ({
+      url,
+      title,
+      status: "Merged",
+      ci,
+    }));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await f.service.refresh();
+    expect(f.service.get("a")[0].status).toBe("Merged");
+    expect(f.notify).toHaveBeenCalledTimes(1);
+    const calls = f.read.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    await f.service.refresh();
+    expect(f.read).toHaveBeenCalledTimes(calls);
+    await f.service.stop();
+  }
+);
