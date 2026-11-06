@@ -109,3 +109,28 @@ test("workflow keeps all relevant PR events", () => {
     "edited",
   ]);
 });
+
+test("correcting failed initial hygiene requires reopening for code validation", () => {
+  const failed = spawnSync("bash", ["-c", job.steps[0].run], {
+    env: {
+      ...process.env,
+      PR_TITLE: "PR",
+      PR_BODY: "https://claude.ai/code/session/private-id",
+    },
+    encoding: "utf8",
+  });
+  assert.equal(failed.status, 1);
+  assert.match(failed.stdout, /close and reopen the PR/);
+  const corrected = event("edited", { body: { from: "old link" } });
+  assert.equal(evaluate(job.name, corrected), "PR metadata");
+  assert.equal(
+    evaluate(job.steps.find((step) => step.name === "CI checks").if, corrected),
+    false
+  );
+  const reopened = event("reopened");
+  assert.equal(evaluate(job.name, reopened), "ci");
+  assert.equal(
+    evaluate(job.steps.find((step) => step.name === "CI checks").if, reopened),
+    true
+  );
+});

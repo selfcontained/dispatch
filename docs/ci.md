@@ -66,6 +66,13 @@ The metadata check reports hygiene failures separately. With the existing
 block merging; acceptance must inspect that result. Changing branch rules is
 outside this workflow change.
 
+If the initial required `ci` fails the session-link check, removing the link
+runs only `PR metadata` and leaves that `ci` failure in place. After correcting
+the title/body, close and reopen the PR to trigger fresh required code validation.
+This also applies when a queued code run contains the old metadata snapshot.
+Re-running that old run uses its original event payload, so use the reopen path
+instead. No empty commit is needed.
+
 ## Why other suites are not split
 
 Web-only or server-only selection is not safe today: `apps/web/src` imports

@@ -36,7 +36,7 @@ jobs:
           lines=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" \
             | grep -in 'claude\.ai/code/session' | cut -d: -f1 | tr '\n' ' ') || true
           if [ -n "$lines" ]; then
-            echo "::error::Remove the Claude Code session link from the PR title/description (line 1 is the title, line 2 onward is the description). Offending lines: $lines"
+            echo "::error::Remove the Claude Code session link from the PR title/description (line 1 is the title, line 2 onward is the description). Offending lines: $lines. If the required ci check failed, close and reopen the PR after removing the link to run code validation; a title/body edit alone runs only PR metadata."
             exit 1
           fi
 
