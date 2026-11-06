@@ -97,6 +97,14 @@ export const previewPullRequests: PresentedPullRequest[] = examples.map(
           status: group.conclusion ? "COMPLETED" : "IN_PROGRESS",
           conclusion: group.conclusion,
           detailsUrl: null,
+          startedAt:
+            group.conclusion === "SKIPPED"
+              ? undefined
+              : new Date(Date.now() - (100 + n * 23) * 1000).toISOString(),
+          completedAt:
+            group.conclusion && group.conclusion !== "SKIPPED"
+              ? new Date(Date.now() - 10_000).toISOString()
+              : undefined,
         }))
       ),
     },

@@ -23,7 +23,31 @@ test("sidebar shows multiple PRs and opens their status list without selecting t
           {
             url: "https://github.com/example/project/pull/42",
             title: "First change",
-            status: "Open",
+            status: "Draft",
+            ci: {
+              checkedAt: "2026-11-06T02:00:00Z",
+              headSha: "abcdef123456",
+              availability: "available",
+              summary: {
+                status: "failing",
+                total: 1,
+                passed: 0,
+                failed: 1,
+                pending: 0,
+                skipped: 0,
+              },
+              checks: [
+                {
+                  startedAt: "2026-11-06T01:58:37Z",
+                  completedAt: "2026-11-06T02:00:00Z",
+                  name: "Build",
+                  status: "COMPLETED",
+                  conclusion: "FAILURE",
+                  detailsUrl:
+                    "https://github.com/example/project/actions/runs/1",
+                },
+              ],
+            },
           },
           {
             url: "https://github.com/example/project/pull/43",
@@ -50,11 +74,25 @@ test("sidebar shows multiple PRs and opens their status list without selecting t
   await page
     .getByTestId(`agent-card-${agent.id}`)
     .getByRole("button", {
-      name: "Details for pull request #42: Open",
+      name: "Details for pull request #42: Draft",
     })
     .click();
   await expect(
     page.getByRole("heading", { name: "Pull request #42", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Checks", exact: true })
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Build" })).toHaveAttribute(
+    "href",
+    "https://github.com/example/project/actions/runs/1"
+  );
+  await expect(
+    page.getByRole("dialog").getByRole("img", { name: "Failed", exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("abcdef1", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByText("1m 23s", { exact: true })
   ).toBeVisible();
   await expect(
     page.getByRole("dialog").getByRole("link", { name: "Open on GitHub" })
@@ -68,7 +106,7 @@ test("sidebar shows multiple PRs and opens their status list without selecting t
     page.getByRole("heading", { name: "Pull request #42", exact: true })
   ).toBeHidden();
   const trigger = page.getByRole("button", {
-    name: "Details for pull request #42: Open",
+    name: "Details for pull request #42: Draft",
     exact: true,
   });
   await expect(trigger).toBeFocused();
@@ -360,11 +398,19 @@ test("CI preview separates PR state from check results and opens individual chec
     rows.getByRole("img", { name: "Checks: 1 passed, 1 failed, 1 pending" })
   ).toBeVisible();
   await expect(
-    rows.getByRole("img", { name: "No checks", exact: true })
-  ).toBeVisible();
+    rows.getByRole("button", {
+      name: "Check details for pull request #43",
+      exact: true,
+    })
+  ).toHaveCount(0);
   await expect(
     rows.getByRole("img", { name: "Checks unavailable", exact: true })
   ).toBeVisible();
+  await rows
+    .getByRole("button", { name: "Details for pull request #43: Draft" })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText("No checks");
+  await page.keyboard.press("Escape");
   await rows
     .getByRole("button", { name: "Details for pull request #42: Open" })
     .click();
@@ -375,7 +421,9 @@ test("CI preview separates PR state from check results and opens individual chec
     "href",
     "https://github.com/example/project/actions/runs/1"
   );
-  await expect(dialog).toContainText("Failed");
+  await expect(
+    dialog.getByRole("img", { name: "Failed", exact: true })
+  ).toBeVisible();
   await expect(dialog).toContainText("abcdef0");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

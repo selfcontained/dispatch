@@ -89,27 +89,8 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
-/** Presentation contract for the CI design preview; collection is not wired yet. */
-type CiSnapshot = {
-  checkedAt: string;
-  headSha: string;
-  availability: "available" | "unavailable";
-  summary: {
-    status: "passing" | "failing" | "pending" | "none";
-    total: number;
-    passed: number;
-    failed: number;
-    pending: number;
-    skipped: number;
-  };
-  checks: {
-    name: string;
-    status: string;
-    conclusion: string | null;
-    detailsUrl: string | null;
-  }[];
-};
-export type PresentedPullRequest = AgentPullRequest & { ci?: CiSnapshot };
+type CiSnapshot = NonNullable<AgentPullRequest["ci"]>;
+export type PresentedPullRequest = AgentPullRequest;
 
 function ciPresentation(ci: CiSnapshot | undefined) {
   if (!ci || ci.availability === "unavailable")
@@ -169,122 +150,63 @@ function checkResult(check: CiSnapshot["checks"][number]) {
   };
 }
 
+export function checkDuration(
+  check: CiSnapshot["checks"][number],
+  checkedAt: string
+): string | null {
+  if (!check.startedAt) return null;
+  const end =
+    check.completedAt ??
+    (check.status === "IN_PROGRESS" ? checkedAt : undefined);
+  if (!end) return null;
+  const observed = Date.parse(checkedAt);
+  const started = Date.parse(check.startedAt);
+  const finished = Date.parse(end);
+  const elapsed = finished - started;
+  if (
+    !Number.isFinite(observed) ||
+    !Number.isFinite(elapsed) ||
+    elapsed < 0 ||
+    started > observed ||
+    finished > observed
+  )
+    return null;
+  const seconds = Math.floor(elapsed / 1000);
+  if (seconds >= 3600)
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
 function CompactChecks({ ci }: { ci?: CiSnapshot }) {
   const state = ciPresentation(ci);
-  if (!ci || ci.availability === "unavailable" || ci.summary.total === 0) {
-    const Icon = state.icon;
-    return (
-      <span
-        role="img"
-        aria-label={state.label}
-        title={state.label}
-        className="shrink-0 text-muted-foreground"
-      >
-        <Icon className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-  if (ci.summary.pending === ci.summary.total) {
-    return (
-      <span
-        role="img"
-        aria-label={`Checks: ${ci.summary.pending} pending`}
-        title={`${ci.summary.pending} checks pending`}
-        className="inline-flex h-3.5 w-3.5 items-center justify-center text-status-waiting"
-      >
-        <Clock aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
-      </span>
-    );
-  }
-  const groups = [
-    {
-      label: "passed",
-      count: ci.summary.passed,
-      icon: CircleCheck,
-      color: "text-status-working",
-    },
-    {
-      label: "failed",
-      count: ci.summary.failed,
-      icon: CircleX,
-      color: "text-status-blocked",
-    },
-    {
-      label: "pending",
-      count: ci.summary.pending,
-      icon: Clock3,
-      color: "text-status-waiting",
-    },
-    {
-      label: "skipped",
-      count: ci.summary.skipped,
-      icon: Minus,
-      color: "text-muted-foreground/30",
-    },
-  ].filter((group) => group.count > 0);
-  const label = groups
-    .map((group) => `${group.count} ${group.label}`)
-    .join(", ");
-  let offset = 0;
+  const Icon =
+    ci?.availability === "available" && !ci.summary.failed && ci.summary.pending
+      ? Clock
+      : state.icon;
+  const label =
+    ci?.availability === "available" && ci.summary.total
+      ? [
+          [ci.summary.passed, "passed"],
+          [ci.summary.failed, "failed"],
+          [ci.summary.pending, "pending"],
+          [ci.summary.skipped, "skipped"],
+        ]
+          .filter(([count]) => Number(count) > 0)
+          .map(([count, name]) => `${count} ${name}`)
+          .join(", ")
+      : state.label;
   return (
     <span
       role="img"
-      aria-label={`Checks: ${label}`}
-      title={`${ci.summary.total} checks: ${label}`}
-      className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+      aria-label={ci?.summary.total ? `Checks: ${label}` : label}
+      title={label}
+      className={cn(
+        "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
+        state.color
+      )}
     >
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="block h-3.5 w-3.5">
-        <circle
-          cx="12"
-          cy="12"
-          r="9.25"
-          fill="currentColor"
-          fillOpacity={0.1}
-          className={state.color}
-        />
-        {groups.map(({ label, count, color }) => {
-          const share = (count / ci.summary.total) * 100;
-          const start = offset;
-          offset += share;
-          return (
-            <circle
-              key={label}
-              cx="12"
-              cy="12"
-              r="10"
-              transform="rotate(-90 12 12)"
-              pathLength="100"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeDasharray={`${Math.max(0, share - (groups.length > 1 ? 2 : 0))} 100`}
-              strokeDashoffset={-start}
-              className={color}
-            />
-          );
-        })}
-        <g
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={state.color}
-        >
-          {ci.summary.failed ? (
-            <path d="M8 8 L16 16 M16 8 L8 16" />
-          ) : ci.summary.pending ? (
-            <>
-              <circle cx="12" cy="12" r="4.25" />
-              <path d="M12 9.5 V12 L14 13.25" />
-            </>
-          ) : ci.summary.passed ? (
-            <path d="M7.5 12 L10.5 15 L16.5 9" />
-          ) : (
-            <path d="M8 12 H16" />
-          )}
-        </g>
-      </svg>
+      <Icon aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
     </span>
   );
 }
@@ -370,7 +292,7 @@ export function AgentPullRequests({
   );
 }
 
-function PullRequestRow({
+export function PullRequestRow({
   onDismiss,
   pr,
   isError,
@@ -458,7 +380,9 @@ function PullRequestRow({
           >
             <X aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
-          {pr.ci && (
+          {(isError ||
+            pr.ci?.availability !== "available" ||
+            pr.ci.summary.total > 0) && (
             <Button
               variant="ghost"
               size="icon-sm"
@@ -525,62 +449,79 @@ function PullRequestRow({
             <ExternalLink aria-hidden="true" className="h-3 w-3" />
           </a>
         </div>
-        {pr.ci && (
-          <>
-            <div className="border-t border-border px-3 pt-3 pb-2">
-              <h4 className="text-xs font-semibold">Checks</h4>
-              {(pr.ci.availability !== "available" || !pr.ci.checks.length) && (
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  {ci.label}
-                </p>
-              )}
-            </div>
-            {pr.ci.availability === "available" && (
-              <ul className="max-h-64 overflow-y-auto px-3 pb-3">
-                {[...pr.ci.checks]
-                  .sort(
-                    (a, b) =>
-                      a.name.localeCompare(b.name) ||
-                      (a.detailsUrl ?? "").localeCompare(b.detailsUrl ?? "")
-                  )
-                  .map((check, index) => {
-                    const result = checkResult(check);
-                    const CheckIcon = result.icon;
-                    return (
-                      <li
-                        key={`${check.name}-${index}`}
-                        className="flex items-center gap-2 border-b border-border/40 py-2 text-[11px] last:border-0"
+        <>
+          <div className="border-t border-border px-3 pt-3 pb-2">
+            <h4 className="text-xs font-semibold">Checks</h4>
+            {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                {ci.label}
+              </p>
+            )}
+          </div>
+          {pr.ci?.availability === "available" && (
+            <ul className="max-h-64 overflow-y-auto px-3 pb-3">
+              {[...pr.ci.checks]
+                .sort(
+                  (a, b) =>
+                    a.name.localeCompare(b.name) ||
+                    (a.detailsUrl ?? "").localeCompare(b.detailsUrl ?? "")
+                )
+                .map((check, index) => {
+                  const result = checkResult(check);
+                  const CheckIcon = result.icon;
+                  const duration = checkDuration(check, pr.ci!.checkedAt);
+                  return (
+                    <li
+                      key={`${check.name}-${index}`}
+                      className="flex items-center gap-2 border-b border-border/40 py-2 text-[11px] last:border-0"
+                    >
+                      <span
+                        role="img"
+                        aria-label={result.label}
+                        title={result.label}
+                        className="shrink-0"
                       >
                         <CheckIcon
                           aria-hidden="true"
-                          className={cn("h-3.5 w-3.5 shrink-0", result.color)}
+                          className={cn("h-3.5 w-3.5", result.color)}
                         />
-                        {check.detailsUrl ? (
-                          <a
-                            href={check.detailsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex min-w-0 flex-1 items-center gap-1.5 hover:underline"
-                          >
-                            <span className="truncate">{check.name}</span>
-                            <ExternalLink
-                              aria-hidden="true"
-                              className="h-2.5 w-2.5 shrink-0 text-muted-foreground"
-                            />
-                          </a>
-                        ) : (
-                          <span className="min-w-0 flex-1 truncate">
-                            {check.name}
-                          </span>
-                        )}
-                        <span className={cn("shrink-0", result.color)}>
-                          {result.label}
+                      </span>
+                      {check.detailsUrl ? (
+                        <a
+                          href={check.detailsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex min-w-0 flex-1 items-center gap-1.5 hover:underline"
+                        >
+                          <span className="truncate">{check.name}</span>
+                          <ExternalLink
+                            aria-hidden="true"
+                            className="h-2.5 w-2.5 shrink-0 text-muted-foreground"
+                          />
+                        </a>
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate">
+                          {check.name}
                         </span>
-                      </li>
-                    );
-                  })}
-              </ul>
-            )}
+                      )}
+                      {duration && (
+                        <span
+                          className="shrink-0 tabular-nums text-muted-foreground"
+                          title={
+                            check.completedAt
+                              ? "Check duration"
+                              : `Elapsed at last refresh (${pr.ci!.checkedAt})`
+                          }
+                        >
+                          {duration}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
+          {pr.ci && (
             <div className="flex justify-between gap-3 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
               <span title={pr.ci.checkedAt}>
                 Checked{" "}
@@ -591,11 +532,13 @@ function PullRequestRow({
               </span>
               <span>
                 Commit{" "}
-                <span className="font-mono">{pr.ci.headSha.slice(0, 7)}</span>
+                <span className="font-mono">
+                  {pr.ci.headSha.slice(0, 7) || "Unknown"}
+                </span>
               </span>
             </div>
-          </>
-        )}
+          )}
+        </>
       </PopoverContent>
     </Popover>
   );

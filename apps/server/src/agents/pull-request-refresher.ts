@@ -271,15 +271,38 @@ export class PullRequestRefresher {
             value = { url, title, status: "Unavailable" };
           }
           const previous = this.urls.get(url);
-          const failures =
-            value.status === "Unavailable" ? (previous?.failures ?? 0) + 1 : 0;
-          const delay = failures
-            ? Math.min(4 * 60 * 60_000, 15 * 60_000 * 2 ** (failures - 1))
-            : value.status === "Merged"
+          // A transport failure must not discard a previously observed lifecycle,
+          // nor keep displaying old-head checks as current.
+          // CI-only errors must not delay healthy lifecycle reads/notices.
+          const unavailable = value.status === "Unavailable";
+          if (value.status === "Unavailable" && previous?.lifecycle) {
+            value = {
+              ...previous.lifecycle,
+              ci: {
+                checkedAt: new Date().toISOString(),
+                headSha: "",
+                availability: "unavailable",
+                summary: {
+                  status: "none",
+                  total: 0,
+                  passed: 0,
+                  failed: 0,
+                  pending: 0,
+                  skipped: 0,
+                },
+                checks: [],
+              },
+            };
+          }
+          const failures = unavailable ? (previous?.failures ?? 0) + 1 : 0;
+          const delay =
+            value.status === "Merged"
               ? Infinity
-              : value.status === "Closed"
-                ? 6 * 60 * 60_000
-                : 5 * 60_000;
+              : failures
+                ? Math.min(4 * 60 * 60_000, 15 * 60_000 * 2 ** (failures - 1))
+                : value.status === "Closed"
+                  ? 6 * 60 * 60_000
+                  : 5 * 60_000;
           const lifecycle = ["Draft", "Open", "Closed", "Merged"].includes(
             value.status
           )

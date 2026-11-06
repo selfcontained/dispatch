@@ -31,12 +31,41 @@ export function createPullRequestReader(run: CommandRunner = runCommand) {
       if (entry.expires <= Date.now()) cache.delete(key);
     const value = (async (): Promise<AgentPullRequest> => {
       try {
+        const [, owner, repo, , number] = new URL(canonical).pathname.split(
+          "/"
+        );
         const result = await run(
           "gh",
-          ["pr", "view", canonical, "--json", "title,state,isDraft"],
-          { timeoutMs: 10_000 }
+          [
+            "api",
+            "graphql",
+            "--hostname",
+            "github.com",
+            "-f",
+            `query=${CHECKS_QUERY}`,
+            "-f",
+            `owner=${owner}`,
+            "-f",
+            `repo=${repo}`,
+            "-F",
+            `number=${number}`,
+          ],
+          { timeoutMs: 10_000, allowedExitCodes: [0, 1] }
         );
-        const pr = JSON.parse(result.stdout);
+        const response = JSON.parse(result.stdout);
+        const pr = response.data?.repository?.pullRequest;
+        if (!pr) return fallback;
+        const commit = pr.commits?.nodes?.[0]?.commit;
+        const contexts = commit?.statusCheckRollup?.contexts;
+        // A null rollup means no checks; partial/error/truncated data is unavailable.
+        const rollup =
+          !response.errors?.length && commit?.oid === pr.headRefOid
+            ? commit.statusCheckRollup === null
+              ? []
+              : contexts && !contexts.pageInfo?.hasNextPage
+                ? contexts.nodes
+                : undefined
+            : undefined;
         const status =
           pr.state === "MERGED"
             ? "Merged"
@@ -51,6 +80,7 @@ export function createPullRequestReader(run: CommandRunner = runCommand) {
           url: canonical,
           title: typeof pr.title === "string" ? pr.title : title,
           status,
+          ci: mapPullRequestChecks(pr.headRefOid, rollup),
         };
       } catch {
         return fallback;
@@ -59,4 +89,106 @@ export function createPullRequestReader(run: CommandRunner = runCommand) {
     cache.set(canonical, { expires: Date.now() + 60_000, value });
     return value;
   };
+}
+
+const CHECKS_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      title state isDraft headRefOid
+      commits(last: 1) { nodes { commit { oid statusCheckRollup {
+        contexts(first: 100) { pageInfo { hasNextPage } nodes {
+          __typename
+          ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { app { slug } workflowRun { workflow { id } } } }
+          ... on StatusContext { context state targetUrl }
+        } }
+      } } } }
+    }
+  }
+}`;
+
+/** gh returns the current head rollup (CheckRun and StatusContext), not history. */
+export function mapPullRequestChecks(
+  head: unknown,
+  rollup: unknown
+): NonNullable<AgentPullRequest["ci"]> {
+  const ci: NonNullable<AgentPullRequest["ci"]> = {
+    checkedAt: new Date().toISOString(),
+    headSha: typeof head === "string" ? head : "",
+    availability: "unavailable",
+    summary: {
+      status: "none",
+      total: 0,
+      passed: 0,
+      failed: 0,
+      pending: 0,
+      skipped: 0,
+    },
+    checks: [],
+  };
+  if (!ci.headSha || !Array.isArray(rollup)) return ci;
+  const checks = new Map<string, (typeof ci.checks)[number]>();
+  const latest = new Map<string, number>();
+  for (const raw of rollup) {
+    if (!raw || typeof raw !== "object") return ci;
+    const context = raw.__typename === "StatusContext";
+    if (!context && raw.__typename !== "CheckRun") return ci;
+    const name = context ? raw.context : raw.name;
+    if (typeof name !== "string") return ci;
+    const status = context
+      ? raw.state === "PENDING" || raw.state === "EXPECTED"
+        ? "PENDING"
+        : "COMPLETED"
+      : raw.status;
+    const conclusion = context
+      ? status === "PENDING"
+        ? null
+        : raw.state === "ERROR"
+          ? "FAILURE"
+          : raw.state
+      : raw.conclusion || null;
+    const url = context ? raw.targetUrl : raw.detailsUrl;
+    // Reruns replace earlier attempts of a job from the same provider. In
+    // particular an earlier cancelled attempt must not fail a passing rerun.
+    const key = `${raw.__typename}:${raw.checkSuite?.app?.slug ?? ""}:${raw.checkSuite?.workflowRun?.workflow?.id ?? ""}:${name}`;
+    const attempt = typeof raw.databaseId === "number" ? raw.databaseId : 0;
+    if ((latest.get(key) ?? -1) > attempt) continue;
+    latest.set(key, attempt);
+    checks.set(key, {
+      name,
+      status,
+      conclusion,
+      detailsUrl:
+        typeof url === "string" && /^https?:\/\//.test(url) ? url : null,
+      startedAt:
+        !context &&
+        typeof raw.startedAt === "string" &&
+        Number.isFinite(Date.parse(raw.startedAt))
+          ? raw.startedAt
+          : undefined,
+      completedAt:
+        !context &&
+        typeof raw.completedAt === "string" &&
+        Number.isFinite(Date.parse(raw.completedAt))
+          ? raw.completedAt
+          : undefined,
+    });
+  }
+  ci.checks = [...checks.values()];
+  for (const check of ci.checks) {
+    ci.summary.total++;
+    if (!check.conclusion) ci.summary.pending++;
+    else if (check.conclusion === "SUCCESS") ci.summary.passed++;
+    else if (["SKIPPED", "NEUTRAL"].includes(check.conclusion))
+      ci.summary.skipped++;
+    else ci.summary.failed++;
+  }
+  ci.availability = "available";
+  ci.summary.status = ci.summary.failed
+    ? "failing"
+    : ci.summary.pending
+      ? "pending"
+      : ci.summary.total
+        ? "passing"
+        : "none";
+  return ci;
 }
