@@ -1,3 +1,7 @@
+import { Link } from "react-router-dom";
+import { useStreamFeed } from "@/hooks/use-stream";
+import { useRootAgentId } from "@/hooks/use-agent-tree";
+import { agentRoute } from "@/lib/agent-routes";
 import { useProjects } from "@/hooks/use-projects";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
@@ -19,22 +23,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
-export type ChatFiltersButtonProps = {
-  showChildAgents?: boolean;
-  onShowChildAgentsChange?: (show: boolean) => void;
-};
-
 /** The Chat options popover in the Agent pane header. */
-export function ChatFiltersButton({
-  showChildAgents = false,
-  onShowChildAgentsChange,
-}: ChatFiltersButtonProps): JSX.Element {
+export function ChatFiltersButton(): JSX.Element {
   const [showLastMessage, setShowLastMessage] = useAtom(
     chatShowLastMessageAtom
   );
-  const filtersLabel = showChildAgents
-    ? "Chat options"
-    : "Chat options, child agents hidden";
+  const filtersLabel = "Chat options";
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -46,15 +40,13 @@ export function ChatFiltersButton({
           title={filtersLabel}
           data-testid="chat-filters-trigger"
           className={cn(
-            "group h-7 w-7 shrink-0 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11",
-            !showChildAgents && "text-primary"
+            "group h-7 w-7 shrink-0 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11"
           )}
         >
           <span
             data-testid="chat-filters-surface"
             className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring",
-              !showChildAgents && "bg-primary/10"
+              "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring"
             )}
           >
             <Settings data-testid="chat-filters-icon" className="h-3.5 w-3.5" />
@@ -69,27 +61,6 @@ export function ChatFiltersButton({
         <div className="mb-2 text-xs font-semibold text-foreground">
           Chat options
         </div>
-        <label
-          htmlFor="show-child-agents"
-          className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
-        >
-          <span className="min-w-0">
-            <span className="block text-sm font-medium">
-              Show child messages
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              Include agent coordination. Launches and reviews stay visible when
-              off.
-            </span>
-          </span>
-          <Switch
-            id="show-child-agents"
-            data-testid="show-child-agents-switch"
-            checked={showChildAgents}
-            onCheckedChange={onShowChildAgentsChange}
-            aria-label="Show child messages"
-          />
-        </label>
         <label
           htmlFor="show-last-message"
           className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
@@ -121,8 +92,6 @@ export type AgentPaneProps = {
   agents?: Agent[];
   /** The pane is on screen (its tab is active, or it sits in a split). */
   active: boolean;
-  showChildAgents: boolean;
-  onShowChildAgentsChange: (show: boolean) => void;
   /**
    * Render the pane's own header row (agent name + filters). A split pane
    * has a header of its own and puts `ChatFiltersButton` there instead.
@@ -140,8 +109,6 @@ export function AgentPane({
   agent,
   agents,
   active,
-  showChildAgents,
-  onShowChildAgentsChange,
   header,
   openLightbox,
   onOpenPath,
@@ -208,21 +175,17 @@ export function AgentPane({
             </span>
           ) : null}
           <div className="flex shrink-0 items-center gap-1">
-            <PendingInputsButton
-              key={agentId}
-              agentId={agentId}
-              showChildAgents={showChildAgents}
-            />
+            <PendingInputsButton key={agentId} agentId={agentId} />
             <ScheduledMessagesButton
               key={`schedules-${agentId}`}
               agentId={agentId}
             />
-            <ChatFiltersButton
-              showChildAgents={showChildAgents}
-              onShowChildAgentsChange={onShowChildAgentsChange}
-            />
+            <ChatFiltersButton />
           </div>
         </div>
+      ) : null}
+      {agent?.parentAgentId ? (
+        <LegacyHistory agentId={agent.id} parentId={agent.parentAgentId} />
       ) : null}
       <div className="relative min-h-0 min-w-0 max-w-full flex-1 overflow-hidden">
         {/*
@@ -238,8 +201,6 @@ export function AgentPane({
             agent={agent}
             agents={agents}
             active={active}
-            showChildAgents={showChildAgents}
-            onShowChildAgentsChange={onShowChildAgentsChange}
             openLightbox={openLightbox}
             onOpenPath={onOpenPath}
             isMobile={isMobile}
@@ -253,6 +214,39 @@ export function AgentPane({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Read legacy history in its actual container; never mark that feed read here.
+function LegacyHistory({
+  agentId,
+  parentId,
+}: {
+  agentId: string;
+  parentId: string;
+}) {
+  const lineageRoot = useRootAgentId(parentId);
+  const parentFeed = useStreamFeed(parentId);
+  const legacyFeed = useStreamFeed(
+    lineageRoot !== parentId ? lineageRoot : null
+  );
+  const launch = [...parentFeed.entries, ...legacyFeed.entries].find(
+    (entry) =>
+      entry.block.kind === "launch" && entry.block.toAgentId === agentId
+  )?.block;
+  return (
+    <div className="flex gap-3 border-b px-3 py-1 text-xs text-muted-foreground">
+      <Link to={agentRoute(parentId)}>Parent home</Link>
+      <Link
+        to={
+          launch
+            ? `${agentRoute(launch.streamId)}?thread=${launch.id}`
+            : agentRoute(lineageRoot ?? parentId)
+        }
+      >
+        Earlier launch history
+      </Link>
     </div>
   );
 }

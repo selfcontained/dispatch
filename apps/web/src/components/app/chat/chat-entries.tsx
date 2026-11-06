@@ -1,3 +1,4 @@
+import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { SharedMessageEntry } from "./shared-message-entry";
 import { ScheduledMessageEntry } from "./scheduled-message-entry";
@@ -1465,6 +1466,7 @@ function LaunchCard({
       data-testid="chat-compact-launch"
       data-block-id={block.id}
     >
+      <LaunchHomeLink agentId={block.toAgentId!} name={name} />
       {!inThread && ctx.onOpenThread ? (
         <Button
           variant="ghost"
@@ -2021,5 +2023,16 @@ function SourceMessageLink({
       <MessagesSquare className="h-3 w-3" aria-hidden="true" />
       Open original message
     </Link>
+  );
+}
+
+function LaunchHomeLink({ agentId, name }: { agentId: string; name: string }) {
+  const { unread } = useAgentChatUnread(agentId);
+  return (
+    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+      <AgentSessionLink agentId={agentId} name={name}>
+        Open agent home{unread > 0 ? ` · ${unread} unread` : ""}
+      </AgentSessionLink>
+    </div>
   );
 }

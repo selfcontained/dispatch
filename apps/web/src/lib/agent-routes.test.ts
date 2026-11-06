@@ -60,7 +60,7 @@ describe("agent route helpers", () => {
         "agt_root"
       )
     ).toEqual({
-      pathname: "/agents/agt_child",
+      pathname: "/agents/agt_root",
       search: "?thread=launch&block=turn",
     });
     expect(

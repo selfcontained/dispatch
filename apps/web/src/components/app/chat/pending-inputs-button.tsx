@@ -1,7 +1,6 @@
 import { MessageCircleQuestion } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useRootAgentId, useDescendantAgentIds } from "@/hooks/use-agent-tree";
 import { useStreamFeedSelect } from "@/hooks/use-stream";
 import { isOpenInput } from "@/hooks/use-inbox";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
@@ -9,27 +8,17 @@ import { useJumpToTurn } from "@/hooks/use-block-jump";
 /** A navigation shortcut in the existing header, including asks outside the loaded page. */
 export function PendingInputsButton({
   agentId,
-  showChildAgents = true,
 }: {
   agentId: string | null;
-  showChildAgents?: boolean;
 }): JSX.Element | null {
-  const rootId = useRootAgentId(agentId);
-  const descendants = useDescendantAgentIds(agentId);
+  const rootId = agentId;
   const { data: inputs = [] } = useStreamFeedSelect(
     rootId,
     (_entries, across) =>
       across.openInputs
         .filter(isOpenInput)
-        .filter(
-          (block) =>
-            agentId === rootId ||
-            (block.author.kind === "agent" &&
-              (block.author.agentId === agentId ||
-                (showChildAgents && descendants.has(block.author.agentId))))
-        )
         .map((block) => ({ id: block.id, kind: block.kind })),
-    agentId !== rootId ? (agentId ?? false) : showChildAgents
+    false
   );
   const [lastId, setLastId] = useState<string | null>(null);
   const jump = useJumpToTurn();

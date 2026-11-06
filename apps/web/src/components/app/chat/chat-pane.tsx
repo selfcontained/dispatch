@@ -49,7 +49,6 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   useDescendantAgentIds,
-  useRootAgentId,
   useDeliveryAgents,
 } from "@/hooks/use-agent-tree";
 import { AgentMcpDialog, type McpInventoryControl } from "./agent-mcp-dialog";
@@ -93,8 +92,6 @@ export type ChatPaneProps = {
    */
   active: boolean;
   /** Show the turns and posts of the agents under this one (default on). */
-  showChildAgents: boolean;
-  onShowChildAgentsChange: (show: boolean) => void;
   openLightbox: (
     fileId: number,
     order?: number[],
@@ -105,16 +102,11 @@ export type ChatPaneProps = {
   isMobile: boolean;
 };
 
-/**
- * One agent's page onto its root's stream. The stream carries the turns
- * and posts of every agent in the root's tree; the page shows what is the
- * agent's own, folds what belongs to the agents under it, and drops the
- * rest (a sibling's work, on a child's page).
- */
+/** Agent identity is separate from the stored stream location. */
 export type StreamView = {
   /** The agent whose page this is. */
   agentId: string;
-  /** The root of its lineage, whose stream the feed is. */
+  /** The stream containing these rows (legacy containers may differ). */
   rootId: string;
   /** Every agent under `agentId`. */
   descendants: ReadonlySet<string>;
@@ -153,53 +145,13 @@ export function entryOwner(
   return isRoot ? "own" : "other";
 }
 
-/** The rows a page shows: its own, plus its descendants' when asked. */
+/** Stored rows are visible regardless of author or the retired preference. */
 export function filterStreamView(
   entries: readonly StreamEntry[],
-  view: StreamView,
-  showChildAgents: boolean
+  _view: StreamView,
+  _showChildAgents: boolean
 ): StreamEntry[] {
-  return entries.filter((entry) => {
-    if (!showChildAgents && view.agentId === view.rootId) {
-      const { block } = entry;
-      if (isFailedParentInput(block)) return true;
-      if (block.kind === "launch") return block.streamId === view.rootId;
-      if (block.kind === "review") return true;
-      // A child deliberately placing a post at the stream root addresses
-      // the person; its launch-thread detail still follows the toggle.
-      if (
-        block.threadId === null &&
-        block.toAgentId === null &&
-        block.origin !== "turn"
-      )
-        return true;
-      if (block.author.kind === "user")
-        return (
-          !block.toAgentId ||
-          block.toAgentId === view.agentId ||
-          !view.descendants.has(block.toAgentId)
-        );
-      if (
-        block.author.kind === "agent" &&
-        block.author.agentId === view.agentId &&
-        block.toAgentId &&
-        block.toAgentId !== view.agentId
-      )
-        return false;
-      if (
-        block.author.kind === "agent" &&
-        block.author.agentId !== view.agentId
-      )
-        return false;
-      if (block.toAgentId && block.toAgentId !== view.agentId) return false;
-      return true;
-    }
-    // Asking the user must remain visible even with child activity hidden.
-    if (isUserInputBlock(entry.block) && view.agentId === view.rootId)
-      return true;
-    const owner = entryOwner(entry, view);
-    return owner === "own" || (owner === "child" && showChildAgents);
-  });
+  return [...entries];
 }
 
 /**
@@ -519,16 +471,13 @@ export function ChatPane({
   agent,
   agents = [],
   active,
-  showChildAgents,
-  onShowChildAgentsChange,
   openLightbox,
   onOpenPath,
   isMobile,
 }: ChatPaneProps): JSX.Element {
-  // The stream is the root's: a child agent's page reads its root's feed
-  // and filters it down to the child (see `entryOwner`).
-  const rootId = useRootAgentId(agentId);
-  const quiet = !showChildAgents && agentId === rootId;
+  // Every selected agent owns a home stream, independent of lineage.
+  const rootId = agentId;
+  const quiet = false;
   const showLastMessage = useAtomValue(chatShowLastMessageAtom);
   const deliveryAgents = useDeliveryAgents();
   const agentCommands = useAgentCommands(agentId, active);
@@ -547,10 +496,7 @@ export function ChatPane({
     return true;
   }, []);
   const descendants = useDescendantAgentIds(agentId);
-  const feed = useStreamFeed(
-    rootId,
-    agentId !== rootId ? (agentId ?? false) : showChildAgents
-  );
+  const feed = useStreamFeed(rootId, false);
   const send = usePostBlock(rootId);
   const answer = useAnswerQuestion(rootId);
   const submitForm = useSubmitForm(rootId);
@@ -560,9 +506,7 @@ export function ChatPane({
   const resendAfterSignIn = useResendAfterSignIn(rootId);
   const reaction = useToggleReaction(rootId);
   const markRead = useMarkStreamRead(rootId, feed.unreadCount);
-  // A post from a child's page goes to the child; the root's page posts to
-  // the root, which is the stream's default recipient.
-  const postTo = agentId && rootId && agentId !== rootId ? agentId : undefined;
+  const postTo = undefined;
 
   // The open thread lives in the URL and shows in the right drawer; the
   // pane only needs to know one is open (the composer yields focus) and
@@ -575,8 +519,8 @@ export function ChatPane({
     [agentId, descendants, rootId]
   );
   const visibleEntries = useMemo(
-    () => visibleStreamEntries(entries, view, showChildAgents),
-    [entries, showChildAgents, view]
+    () => visibleStreamEntries(entries, view, true),
+    [entries, view]
   );
   // The page agent's own rows: what its composer answers, what its Stop
   // button stops, whose plan sits above the composer.
@@ -587,20 +531,6 @@ export function ChatPane({
         : entries,
     [entries, view]
   );
-  // A launch card with no briefing is a startup record, not a
-  // conversation: with child activity filtered out, a stream holding only
-  // that still says what the filter is hiding.
-  const hasConversation = visibleEntries.some(
-    (entry) => entry.block.kind !== "launch" || entry.block.text.trim() !== ""
-  );
-  const hasHiddenChildActivity = useMemo(
-    () =>
-      view !== null &&
-      !showChildAgents &&
-      entries.some((entry) => entryOwner(entry, view) === "child"),
-    [entries, showChildAgents, view]
-  );
-
   const composerConversation = rootId
     ? { streamId: rootId, threadId: null }
     : undefined;
@@ -635,7 +565,6 @@ export function ChatPane({
   /** The turn whose reply start the reader is held at, while anchored. */
   const anchorTurnRef = useRef<string | null>(null);
   const ANCHOR_HOLD_MS = 1200;
-  const lastShowChildAgentsRef = useRef(showChildAgents);
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
   const restoredRef = useRef(false);
   const rememberTimerRef = useRef<number | null>(null);
@@ -927,17 +856,6 @@ export function ChatPane({
     const arrived = arrivedEntryIds(seenEntryIdsRef.current, visibleEntries);
     const newTail = lastId !== null && !seenEntryIdsRef.current.has(lastId);
     seenEntryIdsRef.current = new Set(visibleEntries.map((e) => e.id));
-    const filterChanged = lastShowChildAgentsRef.current !== showChildAgents;
-    lastShowChildAgentsRef.current = showChildAgents;
-    // Changing the filter can expose an older tail or remove the current one.
-    // Adopt it before append detection so the filter itself does not
-    // manufacture a “New messages” prompt or move the scroll position.
-    if (filterChanged) {
-      lastEntryIdRef.current = lastId;
-      lastEntryKeyRef.current = lastKey;
-      setPendingBelow(false);
-      return;
-    }
     // Removing an empty settled tail exposes an existing row; it is not an arrival.
     const appended =
       (lastId !== lastEntryIdRef.current && newTail) || arrived.length > 0;
@@ -998,7 +916,6 @@ export function ChatPane({
     updateFollowing,
     scrollToBottom,
     seekSaved,
-    showChildAgents,
     entries,
     visibleEntries,
   ]);
@@ -1448,9 +1365,7 @@ export function ChatPane({
                 {/* An agent's stream needs no empty prompt: its launch card
                     arrives with it, and a prompt shown until then would
                     only flash. */}
-                {!feed.isLoading &&
-                !feed.error &&
-                (!agentId || (hasHiddenChildActivity && !hasConversation)) ? (
+                {!feed.isLoading && !feed.error && !agentId ? (
                   <div
                     className={cn(
                       "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
@@ -1459,24 +1374,7 @@ export function ChatPane({
                     data-testid="chat-empty"
                   >
                     <MessageSquare className="h-8 w-8" />
-                    {hasHiddenChildActivity ? (
-                      <>
-                        <div className="text-foreground">
-                          Child-agent activity is hidden.
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="default"
-                          className="h-7 text-xs"
-                          onClick={() => onShowChildAgentsChange(true)}
-                        >
-                          Show child agents
-                        </Button>
-                      </>
-                    ) : (
-                      <div>Select an agent to start chatting.</div>
-                    )}
+                    <div>Select an agent to start chatting.</div>
                   </div>
                 ) : null}
                 {visibleEntries.length > 0 ? (

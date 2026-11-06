@@ -206,8 +206,6 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
       agentId="agt_1"
       agent={agent}
       active={true}
-      showChildAgents={true}
-      onShowChildAgentsChange={vi.fn()}
       openLightbox={vi.fn()}
       isMobile={false}
       {...props}
@@ -354,7 +352,7 @@ describe("entryOwner / filterStreamView", () => {
       })
     ),
   ];
-  const ids = (list: StreamEntry[]) => list.map((entry) => entry.id);
+  const _ids = (list: StreamEntry[]) => list.map((entry) => entry.id);
 
   it("retains root and archived launches without live descendants", () => {
     const launches = ["agt_1", "archived-child"].map((toAgentId) =>
@@ -410,7 +408,7 @@ describe("entryOwner / filterStreamView", () => {
     );
     expect(visibleStreamEntries([failed], rootView, false)).toEqual([failed]);
     failed.block.delivered = true;
-    expect(visibleStreamEntries([failed], rootView, false)).toEqual([]);
+    expect(visibleStreamEntries([failed], rootView, false)).toEqual([failed]);
   });
 
   it.each(["question", "form"] as const)(
@@ -450,65 +448,18 @@ describe("entryOwner / filterStreamView", () => {
       );
       expect(visibleStreamEntries([ask], rootView, false)).toEqual([ask]);
       reply.delivered = true;
-      expect(visibleStreamEntries([ask], rootView, false)).toEqual([]);
+      expect(visibleStreamEntries([ask], rootView, false)).toEqual([ask]);
     }
   );
 
-  it("parent mode hides coordination and child attachments in both directions", () => {
-    const artifact = agentPost("report", "agt_child", "agt_1", "Report");
-    artifact.block.attachments = [
-      { type: "link", url: "https://example.com/report" },
-    ];
-    const review = blockEntry({
-      ...artifact.block,
-      id: "review",
-      kind: "review",
-      data: { summary: "Review" },
-      state: {},
-    });
-    const handoff = agentPost(
-      "handoff",
-      "agt_1",
-      "agt_child",
-      "Attached instructions"
+  it("never suppresses stored posts by parent, child or peer authors", () => {
+    const posts = ["agt_1", "agt_child", "agt_peer"].map((id) =>
+      agentPost(id, id, "agt_1", id)
     );
-    handoff.block.attachments = [{ type: "code", code: "build this" }];
-    expect(
-      ids(
-        filterStreamView(
-          [...entries, artifact, handoff, review],
-          rootView,
-          false
-        )
-      )
-    ).toEqual([
-      "root-turn",
-      "human-chat",
-      "root-reply",
-      "child-reply",
-      "child-launch",
-      "grandchild-launch",
-      "review",
-    ]);
-    expect(filterStreamView(entries, childView, true)).toEqual(
-      filterStreamView(entries, childView, true)
-    );
-  });
-
-  it("gives the root's page everything, with descendants' rows as child activity", () => {
-    expect(ids(filterStreamView(entries, rootView, true))).toEqual(
-      ids(entries)
-    );
-    // A descendant's launch card is the parent's record of starting it: it
-    // stays with child activity hidden.
-    expect(ids(filterStreamView(entries, rootView, false))).toEqual([
-      "root-turn",
-      "human-chat",
-      "root-reply",
-      "child-reply",
-      "child-launch",
-      "grandchild-launch",
-    ]);
+    for (const view of [rootView, childView]) {
+      expect(filterStreamView(posts, view, false)).toEqual(posts);
+      expect(filterStreamView(posts, view, true)).toEqual(posts);
+    }
   });
 
   it("keeps the user's explicit messages to another root visible", () => {
@@ -516,42 +467,6 @@ describe("entryOwner / filterStreamView", () => {
       block({ id: "external", authorKind: "user", toAgentId: "another-root" })
     );
     expect(filterStreamView([message], rootView, false)).toEqual([message]);
-  });
-
-  it("keeps a child response's source visible on its own page with child activity hidden", () => {
-    const source = blockEntry(
-      block({
-        id: "child-source",
-        authorKind: "user",
-        toAgentId: "agt_child",
-        threadId: null,
-      })
-    );
-    expect(filterStreamView([source], rootView, false)).toEqual([]);
-    expect(filterStreamView([source], childView, false)).toEqual([source]);
-  });
-
-  it("filters a child's page to its own turns and the posts by or to it", () => {
-    expect(ids(filterStreamView(entries, childView, false))).toEqual([
-      "child-turn",
-      "child-reply",
-      "from-child",
-      "to-child",
-      "to-grandchild",
-      "child-launch",
-      "grandchild-launch",
-    ]);
-    // Its own children fold in below it, as on the root's page.
-    expect(ids(filterStreamView(entries, childView, true))).toEqual([
-      "child-turn",
-      "grandchild-turn",
-      "child-reply",
-      "from-child",
-      "to-child",
-      "to-grandchild",
-      "child-launch",
-      "grandchild-launch",
-    ]);
   });
 
   it("keeps a launch card with the agent it launched or a parent of it", () => {
@@ -578,18 +493,17 @@ describe("entryOwner / filterStreamView", () => {
 });
 
 describe("ChatPane", () => {
-  it("reads the root's stream and posts to the page's agent", async () => {
+  it("reads and posts to the selected agent home", async () => {
     H.rootId = "agt_root";
     H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
     renderPane({ agentId: "agt_child", agent: { ...agent, id: "agt_child" } });
-    expect(H.streamIds).toContain("agt_root");
-    expect(H.streamIds).not.toContain("agt_child");
+    expect(H.streamIds).toContain("agt_child");
+    expect(H.streamIds).not.toContain("agt_root");
 
     typeAndSend("do this");
     await waitFor(() => expect(H.send).toHaveBeenCalled());
     expect(H.send.mock.calls[0]![0]).toMatchObject({
       text: "do this",
-      to: "agt_child",
     });
   });
 
@@ -644,7 +558,7 @@ describe("ChatPane", () => {
     expect(H.send.mock.calls[0]![0]).not.toHaveProperty("to");
   });
 
-  it("shows a child's page the root stream filtered to the child", () => {
+  it("shows every stored post in the selected child home", () => {
     H.rootId = "agt_1";
     H.entries = [
       turnEntry("root-turn", "agt_1", "2026-09-02T10:00:00.000Z"),
@@ -656,8 +570,8 @@ describe("ChatPane", () => {
       agentId: "agt_child",
       agent: { ...agent, id: "agt_child", name: "reviewer" },
     });
-    expect(screen.queryByText("answer root-turn")).toBeNull();
-    expect(screen.queryByText("for people")).toBeNull();
+    expect(screen.queryByText("answer root-turn")).toBeTruthy();
+    expect(screen.queryByText("for people")).toBeTruthy();
     expect(screen.getByText("answer child-turn")).toBeTruthy();
     expect(screen.getByText("please review")).toBeTruthy();
   });
@@ -691,79 +605,11 @@ describe("ChatPane", () => {
     expect(childPost.querySelector('[data-testid="chat-turn"]')).not.toBeNull();
   });
 
-  it("removes child activity from the rendered feed when filtered", () => {
-    H.descendants = new Set(["agt_child"]);
-    H.entries = [
-      agentPost("from-child", "agt_child", "agt_1", "child update"),
-      turnEntry("child-turn", "agt_child", "2026-09-02T10:00:30.000Z"),
-      blockEntry(block({ id: "human-chat", text: "visible reply" })),
-    ];
-
-    renderPane({ showChildAgents: false });
-
-    expect(screen.queryByText("child update")).toBeNull();
-    expect(screen.queryByText("answer child-turn")).toBeNull();
-    expect(screen.getByText("visible reply")).toBeTruthy();
-  });
-
-  it("does not treat filtering or hidden child activity as visible appends", () => {
-    H.descendants = new Set(["agt_child"]);
-    const childEntry = agentPost(
-      "from-child",
-      "agt_child",
-      "agt_1",
-      "child update",
-      "2026-09-02T10:01:00.000Z"
-    );
-    H.entries = [
-      blockEntry(block({ id: "human-chat", text: "visible reply" })),
-      childEntry,
-    ];
-    const baseProps = {
-      agentId: "agt_1",
-      agent,
-      active: true,
-      onShowChildAgentsChange: vi.fn(),
-      openLightbox: vi.fn(),
-      isMobile: false,
-    };
-    const { rerender } = render(
-      <ChatPane {...baseProps} showChildAgents={true} />,
-      { wrapper: Wrapper }
-    );
-    const scroll = screen.getByTestId("chat-scroll");
-    // The feed scrolls through repeated controls: no backdrop blur in here.
-    expect(scroll.classList.contains("stream-surfaces-flat")).toBe(true);
-    Object.defineProperties(scroll, {
-      scrollHeight: { configurable: true, value: 1_000 },
-      clientHeight: { configurable: true, value: 200 },
-      scrollTop: { configurable: true, value: 100, writable: true },
-    });
-
-    fireEvent.scroll(scroll);
-
-    rerender(<ChatPane {...baseProps} showChildAgents={false} />);
-    // Scrolled up, the way back is offered; nothing new is marked on it.
-    expect(
-      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
-    ).toBeFalsy();
-
-    H.entries = [
-      ...H.entries,
-      agentPost(
-        "new-hidden-child",
-        "agt_child",
-        "agt_1",
-        "still hidden",
-        "2026-09-02T10:02:00.000Z"
-      ),
-    ];
-    rerender(<ChatPane {...baseProps} showChildAgents={false} />);
-    // Scrolled up, the way back is offered; nothing new is marked on it.
-    expect(
-      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
-    ).toBeFalsy();
-    expect(screen.queryByText("still hidden")).toBeNull();
+  it("keeps intentional child posts visible with the old disabled preference", () => {
+    localStorage.setItem("dispatch:chatShowChildAgents", "false");
+    H.entries = [agentPost("from-child", "agt_child", "agt_1", "child update")];
+    renderPane();
+    expect(screen.getByText("child update")).toBeTruthy();
   });
 
   it("offers the jump-to-bottom button, marked, for a live row that lands mid-feed", () => {
@@ -808,8 +654,6 @@ describe("ChatPane", () => {
         agentId="agt_1"
         agent={agent}
         active={true}
-        showChildAgents={true}
-        onShowChildAgentsChange={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
       />
@@ -822,7 +666,6 @@ describe("ChatPane", () => {
   it("does not re-render memoised posts when the pane re-renders with equal data", async () => {
     H.entries = [blockEntry(block({ id: "a", text: "**bold** body" }))];
     const stable = {
-      onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
     };
     const { rerender } = renderPane(stable);
@@ -838,27 +681,11 @@ describe("ChatPane", () => {
         agentId="agt_1"
         agent={{ ...agent }}
         active={true}
-        showChildAgents={true}
         isMobile={false}
         {...stable}
       />
     );
     expect(markdownRenders.count).toBe(settled);
-  });
-
-  it("explains a filter-only empty feed and can show child activity again", () => {
-    const onShowChildAgentsChange = vi.fn();
-    H.descendants = new Set(["agt_child"]);
-    H.entries = [agentPost("from-child", "agt_child", "agt_1", "child update")];
-
-    renderPane({ showChildAgents: false, onShowChildAgentsChange });
-
-    const empty = screen.getByTestId("chat-empty");
-    expect(empty.classList.contains("h-full")).toBe(true);
-    expect(empty.textContent).toContain("Child-agent activity is hidden");
-    expect(empty.textContent).not.toContain("No messages yet");
-    fireEvent.click(screen.getByRole("button", { name: "Show child agents" }));
-    expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
   });
 
   it("shows no empty prompt while an agent's feed has no blocks", () => {
@@ -1089,8 +916,6 @@ describe("ChatPane", () => {
         agentId="agt_1"
         agent={agent}
         active={true}
-        showChildAgents={true}
-        onShowChildAgentsChange={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
       />
@@ -1265,8 +1090,6 @@ describe("ChatPane following", () => {
         agentId: "agt_1",
         agent,
         active: true,
-        showChildAgents: true,
-        onShowChildAgentsChange: vi.fn(),
         openLightbox: vi.fn(),
         isMobile: false,
       };
@@ -1390,8 +1213,6 @@ describe("ChatPane following", () => {
       agentId: "agt_1",
       agent,
       active: false,
-      showChildAgents: true,
-      onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
       isMobile: false,
     };
@@ -1424,8 +1245,6 @@ describe("ChatPane following", () => {
       agentId: "agt_1",
       agent,
       active: true,
-      showChildAgents: true,
-      onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
       isMobile: false,
     };
@@ -1727,7 +1546,7 @@ describe("launch-thread activity visibility", () => {
 });
 
 describe("isMainColumnEntry", () => {
-  it("keeps child asks out of the quiet view", () => {
+  it("keeps authorized child asks visible", () => {
     const ask = blockEntry(
       block({
         id: "ask",
@@ -1744,7 +1563,7 @@ describe("isMainColumnEntry", () => {
         { agentId: "root", rootId: "root", descendants: new Set(["child"]) },
         false
       )
-    ).toEqual([]);
+    ).toEqual([ask]);
     expect(
       isMainColumnEntry({
         ...ask,
@@ -1783,8 +1602,6 @@ describe("ChatPane threads", () => {
             agentId="agt_1"
             agent={agent}
             active={true}
-            showChildAgents={true}
-            onShowChildAgentsChange={vi.fn()}
             openLightbox={vi.fn()}
             isMobile={false}
           />
@@ -1895,8 +1712,6 @@ describe("ChatPane jump to a block", () => {
             agentId="agt_1"
             agent={agent}
             active={true}
-            showChildAgents={true}
-            onShowChildAgentsChange={vi.fn()}
             openLightbox={vi.fn()}
             isMobile={false}
           />
@@ -2082,8 +1897,6 @@ it("does not report a new message when an empty settled tail disappears", () => 
     agentId: "agt_1",
     agent,
     active: true,
-    showChildAgents: true,
-    onShowChildAgentsChange: vi.fn(),
     openLightbox: vi.fn(),
     isMobile: false,
   };
@@ -2176,8 +1989,6 @@ describe("settlement bookkeeping with hidden history", () => {
       agentId: "agt_1",
       agent,
       active: true,
-      showChildAgents: true,
-      onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
       isMobile: false,
     };

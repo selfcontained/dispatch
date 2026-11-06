@@ -163,7 +163,11 @@ describe("deriveInbox reviews", () => {
       CHILD,
       ROOT
     );
-    expect(childInbox.reviews.map((r) => r.id)).toEqual(["r-for-me", "r-mine"]);
+    expect(childInbox.reviews.map((r) => r.id)).toEqual([
+      "r-other",
+      "r-for-me",
+      "r-mine",
+    ]);
   });
 
   it("picks up a review a reviewer posted on its launch card", () => {
@@ -267,10 +271,11 @@ describe("deriveInbox", () => {
     expect(inbox.inputs.map((b) => b.id)).toEqual(["q1", "q2"]);
   });
 
-  it("lists only the child's own inputs and links on a child's page", () => {
+  it("lists every authorized input and resource in a child stream", () => {
     const inbox = deriveInbox(entries, CHILD, ROOT);
-    expect(inbox.inputs.map((b) => b.id)).toEqual(["q2"]);
+    expect(inbox.inputs.map((b) => b.id)).toEqual(["q1", "q2"]);
     expect(inbox.links.map((l) => l.url)).toEqual([
+      "https://github.com/o/r/pull/8",
       "https://github.com/o/r/pull/7",
     ]);
     expect(inbox.links[0]?.pr).toBe(true);
@@ -295,10 +300,10 @@ describe("deriveInbox", () => {
     // On the child's page, only its own asks.
     expect(
       deriveInbox(entries, CHILD, ROOT, openInputs).inputs.map((b) => b.id)
-    ).toEqual(["t1", "q2", "t2"]);
+    ).toEqual(["t1", "q1", "q2", "t2"]);
     // Another child's ask is not this child's.
     expect(deriveInbox(entries, "agt_other", ROOT, openInputs).inputs).toEqual(
-      []
+      inbox.inputs
     );
   });
 
@@ -326,6 +331,7 @@ describe("deriveInbox", () => {
     expect(
       deriveInbox(entries, CHILD, ROOT, [], threadLinks).links.map((l) => l.url)
     ).toEqual([
+      "https://github.com/o/r/pull/8",
       "https://github.com/o/r/pull/7",
       "https://github.com/o/r/pull/9",
     ]);
@@ -478,7 +484,7 @@ describe("checklist progress derivation", () => {
     ).toEqual([done]);
   });
 
-  it("respects root/child visibility and stream isolation without treating progress as an input", () => {
+  it("ignores the retired preference while preserving stream isolation", () => {
     const root = checklist("root");
     const home = checklist("child-home", CHILD, { threadId: "launch" });
     const surfaced = checklist("child-outcome", CHILD);
@@ -489,12 +495,12 @@ describe("checklist progress derivation", () => {
       deriveInbox([], ROOT, ROOT, [], [], all, false).checklists.map(
         (b) => b.id
       )
-    ).toEqual(["root", "child-outcome"]);
+    ).toEqual(["root", "child-outcome", "child-home"]);
     expect(
       deriveInbox([], CHILD, ROOT, [], [], all, false).checklists.map(
         (b) => b.id
       )
-    ).toEqual(["child-outcome", "child-home"]);
+    ).toEqual(["root", "child-outcome", "child-home"]);
     const inbox = deriveInbox([], ROOT, ROOT, [], [], all, true);
     expect(inbox.checklists).toHaveLength(3);
     expect(inbox.inputs).toEqual([]);
@@ -596,7 +602,7 @@ describe("typed inbox resources", () => {
     );
     expect(
       deriveInbox([], CHILD, ROOT, [], all).links.map((x) => x.blockId)
-    ).toEqual(["child"]);
+    ).toEqual(["directed"]);
     expect(deriveInbox([], ROOT, ROOT, [], all).links).toHaveLength(1); // exact URL dedup
   });
 

@@ -5,8 +5,6 @@
  * fills and every `stream.entry` keeps current.
  */
 import { useCallback } from "react";
-import { useAtomValue } from "jotai";
-import { chatShowChildAgentsAtom } from "@/lib/store";
 import type { Block, StreamEntry } from "@dispatch/shared";
 import {
   INBOX_CHECKLISTS_MAX,
@@ -19,7 +17,6 @@ import {
   reviewStatus,
 } from "@dispatch/shared";
 
-import { useRootAgentId } from "@/hooks/use-agent-tree";
 import { useStreamFeedSelect } from "@/hooks/use-stream";
 
 /** A question or form the user has not answered yet. */
@@ -69,11 +66,7 @@ export function isOpenInput(block: Block): block is InboxInput {
   return false;
 }
 
-/**
- * Derive the Inbox from feed entries (oldest first, as the feed lists them).
- * On the root's page the whole stream counts; on a child's page only the
- * child's own blocks do, since the stream is its parent's.
- */
+/** Derive every authorized input and resource in the selected stream. */
 export function deriveInbox(
   entries: readonly StreamEntry[],
   agentId: string | null,
@@ -81,12 +74,8 @@ export function deriveInbox(
   openInputs: readonly Block[] = [],
   threadLinks: readonly Block[] = [],
   acrossChecklists: readonly Block[] = [],
-  showChildAgents = true
+  _showChildAgents = true
 ): Pick<Inbox, "inputs" | "links" | "reviews" | "checklists"> {
-  const own = (block: Block) =>
-    agentId === null ||
-    agentId === rootId ||
-    (block.author.kind === "agent" && block.author.agentId === agentId);
   const inputs: InboxInput[] = [];
   const links: InboxLink[] = [];
   const reviews: InboxReview[] = [];
@@ -101,16 +90,12 @@ export function deriveInbox(
     // shows it, rather than a row of its own.
     for (const review of [block, ...(block.blocks ?? [])]) {
       if (review.kind !== "review") continue;
-      if (
-        !reviewIds.has(review.id) &&
-        (own(review) || review.toAgentId === agentId)
-      ) {
+      if (!reviewIds.has(review.id)) {
         reviewIds.add(review.id);
         reviews.unshift(review);
       }
     }
     if (block.kind === "review") continue;
-    if (!own(block)) continue;
     if (isOpenInput(block)) {
       inputs.push(block);
       asked.add(block.id);
@@ -119,7 +104,7 @@ export function deriveInbox(
   // Asks made in a thread (a child asks in its own) are not rows of the
   // feed; the first page lists every open one.
   for (const block of openInputs) {
-    if (asked.has(block.id) || !own(block) || !isOpenInput(block)) continue;
+    if (asked.has(block.id) || !isOpenInput(block)) continue;
     inputs.push(block);
     asked.add(block.id);
   }
@@ -145,7 +130,7 @@ export function deriveInbox(
   for (const entry of entries) collect(entry.block);
   for (const block of acrossChecklists) collect(block);
   for (const block of threadLinks) collect(block);
-  const scope = agentId && agentId !== rootId ? agentId : showChildAgents;
+  const scope = true;
   // Resolve latest copies before filtering, then bound resource posts. Generic
   // batches never consume the resource window; the server also reads direct
   // posts outside the paginated feed into threadLinks (legacy field name).
@@ -196,8 +181,7 @@ const EMPTY: Pick<
 
 /** The Inbox for one agent's page, live off the stream feed cache. */
 export function useInbox(agentId: string | null): Inbox {
-  const rootId = useRootAgentId(agentId);
-  const showChildAgents = useAtomValue(chatShowChildAgentsAtom);
+  const rootId = agentId;
   // Selected, not read whole: the page that holds the Inbox re-renders only
   // when the Inbox changes, not on every step of every turn in the stream.
   const select = useCallback(
@@ -216,18 +200,13 @@ export function useInbox(agentId: string | null): Inbox {
         rootId,
         across.openInputs,
         across.threadLinks,
-        across.checklists,
-        showChildAgents
+        across.checklists
       ),
       agentNames: across.agentNames,
     }),
-    [agentId, rootId, showChildAgents]
+    [agentId, rootId]
   );
-  const feed = useStreamFeedSelect(
-    rootId,
-    select,
-    agentId !== rootId ? (agentId ?? false) : showChildAgents
-  );
+  const feed = useStreamFeedSelect(rootId, select, false);
   const derived = rootId === null ? EMPTY : (feed.data ?? EMPTY);
   return {
     rootId,

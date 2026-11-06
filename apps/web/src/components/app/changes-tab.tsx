@@ -7,7 +7,6 @@ import { FileDiff, Loader2, MessageSquarePlus } from "lucide-react";
 import { parseDiff } from "react-diff-view";
 
 import { useAgentDiff } from "@/hooks/use-agent-diff";
-import { useRootAgentId } from "@/hooks/use-agent-tree";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useSetBlockState } from "@/hooks/use-stream";
 import { useInbox } from "@/hooks/use-inbox";
@@ -116,7 +115,7 @@ export const ChangesTab = memo(function ChangesTab({
 }: ChangesTabProps): JSX.Element {
   // A hand-written review is a block in the agent's stream: the root's.
   // Nothing is fetched while the tab is inactive.
-  const rootId = useRootAgentId(active ? agentId : null);
+  const rootId = active ? agentId : null;
 
   // The reviews of this agent's work, from the stream the Chat tab holds:
   // each finding with a path is placed in the diff at its line.

@@ -5,24 +5,29 @@ import { afterEach, expect, it, vi } from "vitest";
 import { block, questionBody } from "@/test-utils/blocks";
 import { PendingInputsButton } from "./pending-inputs-button";
 
-const { jump, inputs } = vi.hoisted(() => ({
+const { jump, inputs, scopes } = vi.hoisted(() => ({
   jump: vi.fn(),
+  scopes: [] as string[],
   inputs: [] as ReturnType<typeof block>[],
 }));
 vi.mock("@/hooks/use-block-jump", () => ({ useJumpToTurn: () => jump }));
 vi.mock("@/hooks/use-stream", () => ({
   useStreamFeedSelect: (
-    _id: string,
+    id: string,
     select: (entries: never[], across: { openInputs: typeof inputs }) => unknown
-  ) => ({ data: select([], { openInputs: inputs }) }),
+  ) => {
+    scopes.push(id);
+    return { data: select([], { openInputs: inputs }) };
+  },
 }));
 afterEach(() => {
   cleanup();
   inputs.length = 0;
+  scopes.length = 0;
   jump.mockClear();
 });
 
-it("includes visible grandchildren, cycles them, and keeps root inputs when children are hidden", () => {
+it("reads the selected home and cycles all its authorized pending inputs", () => {
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity } },
   });
@@ -59,13 +64,14 @@ it("includes visible grandchildren, cycles them, and keeps root inputs when chil
       },
     })
   );
-  const view = (id: string, children: boolean) => (
+  const view = (id: string) => (
     <QueryClientProvider client={client}>
-      <PendingInputsButton agentId={id} showChildAgents={children} />
+      <PendingInputsButton agentId={id} />
     </QueryClientProvider>
   );
-  const rendered = render(view("child", true));
-  expect(screen.getByTestId("chat-pending-inputs").textContent).toContain("2");
+  const rendered = render(view("child"));
+  expect(screen.getByTestId("chat-pending-inputs").textContent).toContain("3");
+  expect(scopes.at(-1)).toBe("child");
   fireEvent.click(screen.getByTestId("chat-pending-inputs"));
   fireEvent.click(screen.getByTestId("chat-pending-inputs"));
   expect(jump).toHaveBeenLastCalledWith(
@@ -73,8 +79,9 @@ it("includes visible grandchildren, cycles them, and keeps root inputs when chil
     { blockId: "grandchild-ask", threadId: null },
     "smooth"
   );
-  rendered.rerender(view("child", false));
-  expect(screen.getByTestId("chat-pending-inputs").textContent).toContain("1");
-  rendered.rerender(view("root", false));
+  rendered.rerender(view("child"));
+  expect(screen.getByTestId("chat-pending-inputs").textContent).toContain("3");
+  rendered.rerender(view("root"));
+  expect(scopes.at(-1)).toBe("root");
   expect(screen.getByTestId("chat-pending-inputs").textContent).toContain("3");
 });
