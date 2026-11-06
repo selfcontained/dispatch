@@ -1,6 +1,6 @@
 # Pull request CI
 
-`.github/workflows/ci.yml` runs one job, `ci`, on every pull request to `main`
+`.github/workflows/ci.yml` runs one job, named `ci` for code/base events, on every pull request to `main`
 (and `acp-runtime`). The `checks pass` ruleset on the default branch requires
 that one status check, so `ci` is the only merge signal.
 
@@ -51,10 +51,20 @@ check, which would let a misrouted run pass. Skipped _steps_ leave `ci` as the
 single result, which is green only when every step that applied passed and red
 or pending otherwise.
 
-Runs are grouped per pull request with `cancel-in-progress`, so a new push or
-description edit cancels the run it supersedes. The cancelled run's `ci` result
-belongs to the old head (or is replaced by the new run on the same head), so
-the current head always waits for its own run.
+Code validation runs are grouped per pull request with `cancel-in-progress`.
+Opening, reopening, pushing commits, and editing the target base validate the
+merge checkout through the existing docs/full classifier. Unknown edit payloads
+also validate. A title/body edit instead names the job `PR metadata`, uses a
+GitHub-hosted Ubuntu runner and a separate concurrency group, and runs only the
+session-link hygiene shell step. It does not check out code, install dependencies,
+start Postgres, build, or run suites. It cannot cancel a running `ci` or replace
+its result with a lightweight success. Review comments, approvals, labels and
+draft transitions are not subscribed events and do not launch CI.
+
+The metadata check reports hygiene failures separately. With the existing
+`ci`-only ruleset, a metadata failure after a green code run does not independently
+block merging; acceptance must inspect that result. Changing branch rules is
+outside this workflow change.
 
 ## Why other suites are not split
 
@@ -86,3 +96,11 @@ Docs-only runs hold a runner for about a minute instead of about nine (macOS)
 or thirteen (Linux). Cancelling superseded runs frees the runner as soon as a
 pull request moves on. Both reduce the queue that causes the long waits; neither
 changes what a code change runs.
+
+Metadata routing adds no test suites to code validation. Its event-policy test
+executes the workflow expressions against title/body edits, pushes, reopenings,
+base retargets and unknown edits, and checks that metadata cannot enter expensive
+steps or share code concurrency. These are local simulations; live Actions runs
+are required to verify scheduling and check-name behavior. Metadata costs one
+hosted job startup and a shell check instead of a replacement self-hosted suite;
+measure elapsed job time separately from queue time when comparing live runs.
