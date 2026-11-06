@@ -98,7 +98,7 @@ const CHECKS_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
       commits(last: 1) { nodes { commit { oid statusCheckRollup {
         contexts(first: 100) { pageInfo { hasNextPage } nodes {
           __typename
-          ... on CheckRun { databaseId name status conclusion detailsUrl checkSuite { app { slug } workflowRun { workflow { id } } } }
+          ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { app { slug } workflowRun { workflow { id } } } }
           ... on StatusContext { context state targetUrl }
         } }
       } } } }
@@ -159,6 +159,18 @@ export function mapPullRequestChecks(
       conclusion,
       detailsUrl:
         typeof url === "string" && /^https?:\/\//.test(url) ? url : null,
+      startedAt:
+        !context &&
+        typeof raw.startedAt === "string" &&
+        Number.isFinite(Date.parse(raw.startedAt))
+          ? raw.startedAt
+          : undefined,
+      completedAt:
+        !context &&
+        typeof raw.completedAt === "string" &&
+        Number.isFinite(Date.parse(raw.completedAt))
+          ? raw.completedAt
+          : undefined,
     });
   }
   ci.checks = [...checks.values()];

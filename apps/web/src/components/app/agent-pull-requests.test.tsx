@@ -8,10 +8,17 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AgentPullRequests, PullRequestRow } from "./agent-pull-requests";
+import {
+  AgentPullRequests,
+  PullRequestRow,
+  checkDuration,
+} from "./agent-pull-requests";
 import { api } from "@/lib/api";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 it("removes immediately, prevents row activation, and restores a failed dismissal for retry", async () => {
   const pr = {
     url: "https://github.com/a/b/pull/1",
@@ -132,3 +139,84 @@ it.each([
     expect(image.querySelectorAll("[stroke-dasharray]").length).toBe(0);
   }
 );
+
+it("labels each detailed check once through its status icon beside the name", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  render(
+    <PullRequestRow
+      isError={false}
+      onDismiss={() => {}}
+      pr={{
+        url: "https://github.com/a/b/pull/1",
+        title: "Change",
+        status: "Draft",
+        ci: {
+          checkedAt: "2026-11-06T00:00:00Z",
+          headSha: "abc",
+          availability: "available",
+          summary: {
+            status: "failing",
+            total: 1,
+            passed: 0,
+            failed: 1,
+            pending: 0,
+            skipped: 0,
+          },
+          checks: [
+            {
+              name: "Build",
+              status: "COMPLETED",
+              conclusion: "FAILURE",
+              detailsUrl: "https://github.com/a/b/actions/runs/1",
+            },
+          ],
+        },
+      }}
+    />
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Check details for pull request #1" })
+  );
+  const icon = await screen.findByRole("img", { name: "Failed" });
+  expect(icon.getAttribute("title")).toBe("Failed");
+  expect(icon.closest("li")?.textContent).toBe("Build");
+  expect(screen.getByRole("link", { name: "Build" }).getAttribute("href")).toBe(
+    "https://github.com/a/b/actions/runs/1"
+  );
+});
+
+it("uses completed runtime or elapsed time at observation, without inventing durations", () => {
+  const check = {
+    name: "Build",
+    status: "IN_PROGRESS",
+    conclusion: null,
+    detailsUrl: null,
+    startedAt: "2026-11-06T00:00:00Z",
+  };
+  expect(checkDuration(check, "2026-11-06T00:01:23Z")).toBe("1m 23s");
+  expect(
+    checkDuration(
+      { ...check, status: "COMPLETED", completedAt: "2026-11-06T01:02:03Z" },
+      "2026-11-06T02:00:00Z"
+    )
+  ).toBe("1h 2m");
+  expect(
+    checkDuration({ ...check, startedAt: undefined }, "2026-11-06T00:01:23Z")
+  ).toBeNull();
+  expect(
+    checkDuration({ ...check, status: "QUEUED" }, "2026-11-06T00:01:23Z")
+  ).toBeNull();
+  expect(
+    checkDuration(
+      { ...check, completedAt: "2026-11-05T23:59:59Z" },
+      "2026-11-06T00:01:23Z"
+    )
+  ).toBeNull();
+});

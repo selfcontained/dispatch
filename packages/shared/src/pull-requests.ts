@@ -22,5 +22,7 @@ export type CiSnapshot = {
     status: string;
     conclusion: string | null;
     detailsUrl: string | null;
+    startedAt?: string;
+    completedAt?: string;
   }[];
 };

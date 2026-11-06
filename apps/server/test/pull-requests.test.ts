@@ -275,3 +275,28 @@ it.each(["head-race", "truncated", "empty"])(
     );
   }
 );
+
+it("retains valid check-run timing but never invents commit-status runtime", () => {
+  const fields = {
+    startedAt: "2026-11-06T00:00:00Z",
+    completedAt: "2026-11-06T00:01:23Z",
+  };
+  const ci = mapPullRequestChecks("abc", [
+    {
+      __typename: "CheckRun",
+      name: "Build",
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      ...fields,
+    },
+    {
+      __typename: "StatusContext",
+      context: "deploy",
+      state: "SUCCESS",
+      ...fields,
+    },
+  ]);
+  expect(ci.checks[0]).toMatchObject(fields);
+  expect(ci.checks[1].startedAt).toBeUndefined();
+  expect(ci.checks[1].completedAt).toBeUndefined();
+});

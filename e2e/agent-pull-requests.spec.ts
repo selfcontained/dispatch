@@ -38,6 +38,8 @@ test("sidebar shows multiple PRs and opens their status list without selecting t
               },
               checks: [
                 {
+                  startedAt: "2026-11-06T01:58:37Z",
+                  completedAt: "2026-11-06T02:00:00Z",
                   name: "Build",
                   status: "COMPLETED",
                   conclusion: "FAILURE",
@@ -85,8 +87,13 @@ test("sidebar shows multiple PRs and opens their status list without selecting t
     "href",
     "https://github.com/example/project/actions/runs/1"
   );
-  await expect(page.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByRole("img", { name: "Failed", exact: true })
+  ).toBeVisible();
   await expect(page.getByText("abcdef1", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByText("1m 23s", { exact: true })
+  ).toBeVisible();
   await expect(
     page.getByRole("dialog").getByRole("link", { name: "Open on GitHub" })
   ).toHaveAttribute("href", "https://github.com/example/project/pull/42");
@@ -414,7 +421,9 @@ test("CI preview separates PR state from check results and opens individual chec
     "href",
     "https://github.com/example/project/actions/runs/1"
   );
-  await expect(dialog).toContainText("Failed");
+  await expect(
+    dialog.getByRole("img", { name: "Failed", exact: true })
+  ).toBeVisible();
   await expect(dialog).toContainText("abcdef0");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

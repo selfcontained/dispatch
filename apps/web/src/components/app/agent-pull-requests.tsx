@@ -150,6 +150,24 @@ function checkResult(check: CiSnapshot["checks"][number]) {
   };
 }
 
+export function checkDuration(
+  check: CiSnapshot["checks"][number],
+  checkedAt: string
+): string | null {
+  if (!check.startedAt) return null;
+  const end =
+    check.completedAt ??
+    (check.status === "IN_PROGRESS" ? checkedAt : undefined);
+  if (!end) return null;
+  const elapsed = Date.parse(end) - Date.parse(check.startedAt);
+  if (!Number.isFinite(elapsed) || elapsed < 0) return null;
+  const seconds = Math.floor(elapsed / 1000);
+  if (seconds >= 3600)
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
 function CompactChecks({ ci }: { ci?: CiSnapshot }) {
   const state = ciPresentation(ci);
   const Icon =
@@ -441,15 +459,23 @@ export function PullRequestRow({
                 .map((check, index) => {
                   const result = checkResult(check);
                   const CheckIcon = result.icon;
+                  const duration = checkDuration(check, pr.ci!.checkedAt);
                   return (
                     <li
                       key={`${check.name}-${index}`}
                       className="flex items-center gap-2 border-b border-border/40 py-2 text-[11px] last:border-0"
                     >
-                      <CheckIcon
-                        aria-hidden="true"
-                        className={cn("h-3.5 w-3.5 shrink-0", result.color)}
-                      />
+                      <span
+                        role="img"
+                        aria-label={result.label}
+                        title={result.label}
+                        className="shrink-0"
+                      >
+                        <CheckIcon
+                          aria-hidden="true"
+                          className={cn("h-3.5 w-3.5", result.color)}
+                        />
+                      </span>
                       {check.detailsUrl ? (
                         <a
                           href={check.detailsUrl}
@@ -468,9 +494,18 @@ export function PullRequestRow({
                           {check.name}
                         </span>
                       )}
-                      <span className={cn("shrink-0", result.color)}>
-                        {result.label}
-                      </span>
+                      {duration && (
+                        <span
+                          className="shrink-0 tabular-nums text-muted-foreground"
+                          title={
+                            check.completedAt
+                              ? "Check duration"
+                              : `Elapsed at last refresh (${pr.ci!.checkedAt})`
+                          }
+                        >
+                          {duration}
+                        </span>
+                      )}
                     </li>
                   );
                 })}
