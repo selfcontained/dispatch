@@ -1,3 +1,4 @@
+import { PullRequestChecksComparison } from "./pull-request-checks-comparison";
 import { useState, type ReactNode } from "react";
 import {
   Check,
@@ -1059,6 +1060,16 @@ export function DesignLab(): JSX.Element {
   const { theme, setTheme } = useTheme();
   const [scene, setScene] = useState<(typeof SCENES)[number]["id"]>("run");
   const Scene = SCENES.find((s) => s.id === scene)?.render ?? RunScene;
+  if (new URLSearchParams(window.location.search).get("pr-checks") === "1") {
+    return (
+      <div className="bg-background min-h-full p-6 md:p-8">
+        <div className="mb-6">
+          <ThemePicker theme={theme} setTheme={setTheme} />
+        </div>
+        <PullRequestChecksComparison />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-background p-6 md:p-8">

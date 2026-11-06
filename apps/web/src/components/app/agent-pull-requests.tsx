@@ -150,11 +150,19 @@ function checkResult(check: CiSnapshot["checks"][number]) {
   };
 }
 
-function CompactChecks({ ci }: { ci?: CiSnapshot }) {
+function CompactChecks({
+  ci,
+  failureStyle,
+}: {
+  ci?: CiSnapshot;
+  failureStyle?: string;
+}) {
   const state = ciPresentation(ci);
-  const variant = import.meta.env.DEV
-    ? new URLSearchParams(window.location.search).get("failure-style")
-    : null;
+  const variant =
+    failureStyle ??
+    (import.meta.env.DEV
+      ? new URLSearchParams(window.location.search).get("failure-style")
+      : null);
   const solidFailure = !variant || variant === "solid";
   const ringWidth =
     variant === "original" ? 1.5 : variant === "solid" || !variant ? 2.5 : 3;
@@ -373,12 +381,14 @@ export function AgentPullRequests({
   );
 }
 
-function PullRequestRow({
+export function PullRequestRow({
   onDismiss,
+  failureStyle,
   pr,
   isError,
 }: {
   onDismiss: () => void;
+  failureStyle?: string;
   pr: PresentedPullRequest;
   agentName?: string;
   isError: boolean;
@@ -476,7 +486,10 @@ function PullRequestRow({
             onClick={toggleDetails}
             data-pr-details-trigger={contentId}
           >
-            <CompactChecks ci={isError ? undefined : pr.ci} />
+            <CompactChecks
+              ci={isError ? undefined : pr.ci}
+              failureStyle={failureStyle}
+            />
           </Button>
         </div>
       </div>
