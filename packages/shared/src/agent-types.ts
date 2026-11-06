@@ -16,3 +16,6 @@ export type AgentType = (typeof AGENT_TYPES)[number];
 // so its importers keep their meaning.
 export const CLI_AGENT_TYPES = ["claude", "codex", "opencode"] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
+
+/** An engine-owned effort value, validated against its model capabilities. */
+export type Effort = string;

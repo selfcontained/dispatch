@@ -568,3 +568,70 @@ it("copies a job-backed template without reassigning or duplicating its job", as
   expect(visible).toHaveLength(1);
   expect(visible[0].id).toBe(result.json().id);
 });
+
+describe("template effort persistence", () => {
+  it("round-trips effort, preserves omitted updates, and clears to inherit", async () => {
+    const template = await createTemplate("effort-template", {
+      effort: "high",
+    });
+    expect(template.effort).toBe("high");
+    const url = `/api/v1/templates/${template.id}`;
+    expect((await authedInject("GET", url)).json().effort).toBe("high");
+    expect(
+      (await authedInject("PATCH", url, { name: "renamed-effort" })).json()
+        .effort
+    ).toBe("high");
+    expect(
+      (await authedInject("PATCH", url, { effort: "xhigh" })).json().effort
+    ).toBe("xhigh");
+    expect(
+      (await authedInject("PATCH", url, { effort: null })).json().effort
+    ).toBeNull();
+  });
+
+  it.each([{ effort: "" }, { effort: 123 }])(
+    "rejects malformed effort at save: %j",
+    async (overrides) => {
+      const response = await authedInject("POST", "/api/v1/templates", {
+        name: "invalid-effort",
+        directory: "/tmp",
+        ...overrides,
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error).toBeTruthy();
+    }
+  );
+
+  it("retains engine-owned values without imposing a static enum", async () => {
+    const template = await createTemplate("future-effort", {
+      effort: "ultra",
+      agentType: "codex",
+    });
+    expect(template.effort).toBe("ultra");
+    expect(
+      (
+        await authedInject("PATCH", `/api/v1/templates/${template.id}`, {
+          effort: "future-level",
+        })
+      ).json().effort
+    ).toBe("future-level");
+  });
+});
+
+it("clears saved effort when only a template's runtime is changed", async () => {
+  const created = await authedInject("POST", "/api/v1/templates", {
+    name: "runtime-effort",
+    directory: "/tmp",
+    agentType: "claude",
+    model: "opus",
+    effort: "max",
+  });
+  expect(created.statusCode).toBe(200);
+  const updated = await authedInject(
+    "PATCH",
+    `/api/v1/templates/${created.json().id}`,
+    { agentType: "codex" }
+  );
+  expect(updated.statusCode).toBe(200);
+  expect(updated.json()).toMatchObject({ model: null, effort: null });
+});

@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import { useAtom } from "jotai";
 import { useProjects } from "@/hooks/use-projects";
 import { createAgentLocationPrefAtom } from "@/lib/store";
@@ -88,6 +89,7 @@ export function useCreateAgentForm({
   };
   const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [createEffort, setCreateEffort] = useState<Effort | null>(null);
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<AgentType>(() => {
     const preferred = initialAgentType ?? readLastUsedAgentType();
@@ -287,6 +289,7 @@ export function useCreateAgentForm({
           model: modelOptions.some((option) => option.id === createModel)
             ? createModel
             : undefined,
+          effort: createEffort ?? undefined,
           fullAccess: createFullAccess,
           useWorktree: submitUseWorktree,
           createNewBranch: submitUseWorktree
@@ -352,6 +355,7 @@ export function useCreateAgentForm({
       createFullAccess,
       createName,
       createModel,
+      createEffort,
       createPersona,
       createNewBranch,
       createType,
@@ -379,7 +383,10 @@ export function useCreateAgentForm({
     createName,
     setCreateName,
     createType,
-    setCreateType,
+    setCreateType: (type: AgentType) => {
+      setCreateType(type);
+      setCreateEffort(null);
+    },
     createCwd,
     setCreateCwd,
     createUseWorktree,
@@ -401,7 +408,12 @@ export function useCreateAgentForm({
     createPersona,
     setCreatePersona,
     createModel,
-    setCreateModel,
+    createEffort,
+    setCreateEffort,
+    setCreateModel: (model: string | null) => {
+      setCreateModel(model);
+      setCreateEffort(null);
+    },
     modelOptions,
     modelCatalogLoading,
     createBaseBranch,

@@ -1,3 +1,4 @@
+import { type Effort } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
@@ -18,7 +19,8 @@ export type LaunchAgentInput = {
   name: string;
   prompt: string;
   type?: string;
-  model?: string;
+  model?: string | null;
+  effort?: Effort | null;
   useWorktree?: boolean;
   createNewBranch?: boolean;
   baseBranch?: string;
@@ -91,15 +93,25 @@ export function registerAgentLaunchTools(
           .enum(CLI_AGENT_TYPES)
           .optional()
           .describe(
-            "Agent type. Defaults to the same type as the launching agent — which may be the one running low. " +
+            "Agent type. Defaults to the template’s type when supplied, otherwise the launching agent’s type. " +
               "Pass the type get_usage suggests when it names one."
           ),
         model: z
           .string()
+          .nullable()
           .optional()
           .describe(
-            "Model id for the new agent, matching its type. Omit to let the CLI use its default. " +
+            "Model id for the new agent, matching its type. Omit to use the template model when the runtime matches, otherwise the CLI default. Null explicitly selects the CLI default. " +
               describeAgentModelCatalog()
+          ),
+        effort: z
+          .string()
+          .min(1)
+          .max(128)
+          .nullable()
+          .optional()
+          .describe(
+            "Reasoning effort: an engine-reported level. Explicit value overrides template, then CLI default; null selects the CLI default. Template effort is inherited only when type and model are unchanged. Never inherits parent effort."
           ),
         useWorktree: z
           .boolean()
@@ -129,13 +141,13 @@ export function registerAgentLaunchTools(
           .boolean()
           .optional()
           .describe(
-            "Run the agent with full tool access (no permission prompts). Defaults to the parent's setting."
+            "Run the agent with full tool access (no permission prompts). Defaults to the template’s setting when supplied, otherwise the parent’s setting. Cannot exceed the parent’s permissions."
           ),
         templateId: z
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; type, model, effort, fullAccess, and cwd use explicit parameters first, then template defaults. Effort never inherits from the launching agent. Cannot be combined with a review persona; launch that persona separately."
           ),
         templateArgs: z
           .record(z.string(), z.string())
@@ -147,14 +159,14 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Working directory for the new agent. Defaults to the parent's working directory."
+            "Working directory for the new agent. Defaults to the template’s directory when supplied, otherwise the parent’s working directory. Project template directories cannot be overridden."
           ),
         child: z
           .boolean()
           .optional()
           .describe(
             "Whether the new agent is your child (default true). A child appears as a sub agent row under your card. " +
-              "Pass false to launch it as an independent top-level agent — it still inherits your working directory, " +
+              "Pass false to launch it as an independent top-level agent — the same template/default rules apply to its working directory, " +
               "type, and access level, and you can still message and archive it, but it is not part of your lineage. " +
               "For ordinary/task agents, a child caller must use child: false. Review personas and owner reviews use the caller checkout, appear beside the caller under its parent, and report to the caller."
           ),
@@ -168,6 +180,7 @@ export function registerAgentLaunchTools(
         };
         if (args.type !== undefined) input.type = args.type;
         if (args.model !== undefined) input.model = args.model;
+        if (args.effort !== undefined) input.effort = args.effort;
         if (args.useWorktree !== undefined)
           input.useWorktree = args.useWorktree;
         if (args.createNewBranch !== undefined)

@@ -1,3 +1,4 @@
+import type { Effort } from "./agent-types.js";
 import type { AgentInputState } from "./conversation-delivery.js";
 /**
  * The agent row as it goes over the wire.
@@ -83,6 +84,8 @@ export type AgentRecord = {
   filesDir: string | null;
   agentArgs: string[];
   model: string | null;
+  /** Resolved launch effort; null leaves the engine settings in control. */
+  effort?: Effort | null;
   fullAccess: boolean;
   setupPhase: SetupPhase;
   archivePhase: ArchivePhase;

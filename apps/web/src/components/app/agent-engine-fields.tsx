@@ -1,3 +1,6 @@
+import { AgentConfigRow } from "./agent-config-row";
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { useMemo } from "react";
 
 import { AgentModelSelect } from "@/components/app/agent-model-select";
@@ -5,12 +8,14 @@ import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
 import { engineSummary, useEngines } from "@/hooks/use-engines";
 import { type AgentType } from "@/lib/agent-types";
-import { cn } from "@/lib/utils";
 
 type AgentEngineFieldsProps = {
   agentType: AgentType;
   onAgentTypeChange: (type: AgentType) => void;
   agentTypes: AgentType[];
+  effort?: Effort | null;
+  effortDefaultLabel?: string;
+  onEffortChange?: (effort: Effort | null) => void;
   model: string | null;
   onModelChange: (model: string | null) => void;
   modelOptions: readonly AgentModelOption[];
@@ -30,6 +35,9 @@ export function AgentEngineFields({
   onAgentTypeChange,
   agentTypes,
   model,
+  effort,
+  effortDefaultLabel,
+  onEffortChange,
   onModelChange,
   modelOptions,
   modelLoading,
@@ -56,11 +64,9 @@ export function AgentEngineFields({
 
   return (
     <div className="space-y-3">
-      <div
-        className={cn(
-          "grid gap-3",
-          showModelSelect && "min-[420px]:grid-cols-2"
-        )}
+      <AgentConfigRow
+        showModel={showModelSelect}
+        showEffort={Boolean(onEffortChange)}
       >
         <AgentTypeSelect
           id={idPrefix ? `${idPrefix}-type` : undefined}
@@ -81,7 +87,17 @@ export function AgentEngineFields({
             loading={modelLoading}
           />
         ) : null}
-      </div>
+        {onEffortChange ? (
+          <AgentEffortSelect
+            model={model}
+            inheritLabel={effortDefaultLabel}
+            value={effort ?? null}
+            onChange={onEffortChange}
+            agentType={agentType}
+            id={idPrefix ? `${idPrefix}-effort` : undefined}
+          />
+        ) : null}
+      </AgentConfigRow>
       {engineLine ? (
         <p
           className="-mt-1 truncate text-xs text-muted-foreground/70"

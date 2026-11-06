@@ -29,6 +29,8 @@ vi.mock("./use-create-agent-form", async () => {
         createType: createType.value,
         setCreateType: vi.fn(),
         createModel: null,
+        createEffort: null,
+        setCreateEffort: vi.fn(),
         setCreateModel: vi.fn(),
         modelOptions: models.options,
         modelCatalogLoading: models.loading,
@@ -181,7 +183,7 @@ const engineBlock = () => {
   const block = type.parentElement!.parentElement!.parentElement!;
   return block.outerHTML
     .replace(/task-trigger-type/g, "agent-type-select")
-    .replace(/task-trigger-(model|engine)/g, "create-agent-$1")
+    .replace(/task-trigger-(model|engine|effort)/g, "create-agent-$1")
     .replace(/radix-[^"]*/g, "radix")
     .replace(/<select aria-hidden="true".*?<\/select>/g, "")
     .replace(/:r[0-9a-z]+:/g, "id");
@@ -219,7 +221,7 @@ it("renders the installed engine's block the same in both hosts", async () => {
   expect(
     screen.getByRole("combobox", { name: "Type" }).parentElement!.parentElement!
       .className
-  ).toContain("min-[420px]:grid-cols-2");
+  ).toContain("grid-cols-[minmax(6rem,1fr)_minmax(0,1.4fr)_4.75rem]");
   cleanup();
 
   const create = await blockIn("create", true);
@@ -247,6 +249,6 @@ it("hides the model picker without a catalog in both hosts", async () => {
   const create = await blockIn("create", false);
   const trigger = await blockIn("trigger", false);
   expect(trigger).toBe(create);
-  expect(trigger).not.toContain("min-[420px]:grid-cols-2");
+  expect(trigger).toContain("grid-cols-[minmax(0,1fr)_4.75rem]");
   expect(trigger).toContain("OpenCode · /usr/local/bin/opencode");
 });

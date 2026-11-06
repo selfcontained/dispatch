@@ -83,13 +83,13 @@ export function AgentTypeSelect({
         {AGENT_TYPE_LABELS[value]}
         <ChevronDown
           className={cn(
-            "h-4 w-4 text-muted-foreground transition-transform",
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
             open && "rotate-180"
           )}
         />
       </button>
       {open ? (
-        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+        <div className="absolute left-0 z-[80] min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
           <Command
             shouldFilter={false}
             ref={(el) => {

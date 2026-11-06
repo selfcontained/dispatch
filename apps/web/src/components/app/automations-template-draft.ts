@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 
 import type { TemplateConfigFieldsProps } from "@/components/app/automations-form-fields";
@@ -13,6 +14,7 @@ export interface TemplateDraft {
   prompt: string;
   agentType: AgentType;
   model: string | null;
+  effort?: Effort | null;
   persona?: string | null;
   useWorktree: boolean;
   baseBranch: string;
@@ -31,6 +33,7 @@ export const EMPTY_TEMPLATE_DRAFT: TemplateDraft = {
   prompt: "",
   agentType: "claude",
   model: null,
+  effort: null,
   useWorktree: false,
   baseBranch: "main",
   branchName: "",
@@ -50,6 +53,7 @@ export function templateDraftFrom(template: Template): TemplateDraft {
     prompt: template.prompt ?? "",
     agentType: template.agentType,
     model: template.model,
+    effort: template.effort ?? null,
     persona: template.persona ?? null,
     useWorktree: template.useWorktree,
     baseBranch: template.baseBranch ?? "main",
@@ -73,6 +77,7 @@ export function templateConfigFromDraft(
 ): Required<
   Pick<
     AddTemplateConfig,
+    | "effort"
     | "projectId"
     | "persona"
     | "description"
@@ -89,6 +94,7 @@ export function templateConfigFromDraft(
 > {
   return {
     projectId: draft.projectId ?? null,
+    effort: draft.effort ?? null,
     persona: draft.persona ?? null,
     description: draft.description.trim() || null,
     prompt: draft.prompt || null,
@@ -139,11 +145,13 @@ export function useTemplateDraft(
       onPromptChange: (value: string) =>
         setDraft((prev) => ({ ...prev, prompt: value })),
       onAgentTypeChange: (value: AgentType) =>
-        setDraft((prev) => ({ ...prev, agentType: value })),
+        setDraft((prev) => ({ ...prev, agentType: value, effort: null })),
       onPersonaChange: (value: string | null) =>
         setDraft((prev) => ({ ...prev, persona: value })),
+      onEffortChange: (value: Effort | null) =>
+        setDraft((prev) => ({ ...prev, effort: value })),
       onModelChange: (value: string | null) =>
-        setDraft((prev) => ({ ...prev, model: value })),
+        setDraft((prev) => ({ ...prev, model: value, effort: null })),
       onUseWorktreeChange: (checked: boolean) =>
         setDraft((prev) => ({ ...prev, useWorktree: checked })),
       onBaseBranchChange: (value: string) =>

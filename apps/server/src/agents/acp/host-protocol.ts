@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentPermissionRequest } from "@dispatch/shared";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
@@ -25,6 +26,8 @@ export type HostLaunch = {
   bins: EngineBins;
   /** The model to select through the engine's model config option; null keeps its default. */
   model: string | null;
+  /** Resolved launch effort; null leaves the CLI settings in control. */
+  effort?: Effort | null;
   /** Delivered as `_meta.systemPrompt.append` for engines that take one. */
   systemPrompt: string | null;
   /** Persona task context delivered with the first ordinary prompt, including on resume. */

@@ -845,3 +845,33 @@ describe("automatic launch project membership", () => {
     }
   });
 });
+
+it("validates launch effort against the selected model instead of the learned default", async () => {
+  const { setLearnedAgentModels, forgetLearnedAgentModels } =
+    await import("../src/shared/agent-models.js");
+  setLearnedAgentModels(
+    "codex",
+    [
+      { id: "a", label: "A", effort: [{ value: "low", name: "Low" }] },
+      { id: "b", label: "B", effort: [{ value: "max", name: "Max" }] },
+    ],
+    "a"
+  );
+  try {
+    const agent = await createAgent({
+      type: "codex",
+      model: "b",
+      effort: "max",
+    });
+    expect(agent.effort).toBe("max");
+    const rejected = await authedInject("POST", "/api/v1/agents", {
+      cwd: "/tmp",
+      type: "codex",
+      model: "b",
+      effort: "low",
+    });
+    expect(rejected.statusCode).toBe(400);
+  } finally {
+    forgetLearnedAgentModels();
+  }
+});

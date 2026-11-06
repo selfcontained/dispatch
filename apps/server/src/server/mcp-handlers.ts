@@ -1,3 +1,4 @@
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import path from "node:path";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
@@ -349,13 +350,26 @@ async function handleLaunchAgent(
 ): Promise<LaunchAgentResult> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+  const template = input.templateId
+    ? await deps.templateService.getTemplate(input.templateId)
+    : null;
+  if (input.templateId && !template) {
+    throw new Error(`Template ${input.templateId} not found.`);
+  }
   const selectedPersona = input.persona
     ? await resolveLaunchPersona(
-        input.cwd ?? agentWorkspaceDir(parent) ?? parent.cwd,
+        input.cwd ??
+          template?.directory ??
+          agentWorkspaceDir(parent) ??
+          parent.cwd,
         input.persona
       )
     : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
+    if (template)
+      throw new Error(
+        "Review personas cannot be combined with templateId. Launch the template directly or launch the review persona without a template."
+      );
     if (input.cwd && input.cwd !== (agentWorkspaceDir(parent) ?? parent.cwd)) {
       throw new Error(
         "Review personas run in the parent workspace; omit cwd for a review launch."
@@ -378,6 +392,7 @@ async function handleLaunchAgent(
         ? { agentType: input.type as (typeof CLI_AGENT_TYPES)[number] }
         : {}),
       ...(input.model ? { model: input.model } : {}),
+      effort: input.effort,
     });
     return {
       personaType: "review",
@@ -410,7 +425,8 @@ async function handleLaunchAgent(
     );
   }
 
-  const agentType = input.type ?? parent.type ?? "claude";
+  const agentType =
+    input.type ?? template?.agentType ?? parent.type ?? "claude";
   if (
     !CLI_AGENT_TYPES.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
   ) {
@@ -430,13 +446,6 @@ async function handleLaunchAgent(
   // is rendered the same way the web UI's launch form renders it, and its
   // worktree config fills in whatever the caller left unset; anything passed
   // explicitly at the call site still wins.
-  const template = input.templateId
-    ? await deps.templateService.getTemplate(input.templateId)
-    : null;
-  if (input.templateId && !template) {
-    throw new Error(`Template ${input.templateId} not found.`);
-  }
-
   const fromTemplate = templateWorktreeConfig(template);
 
   const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
@@ -451,7 +460,8 @@ async function handleLaunchAgent(
   const createNewBranch = input.createNewBranch ?? worktreeFromTemplate;
   const baseBranch = input.baseBranch ?? fromTemplate.baseBranch;
   const worktreeBranch = input.worktreeBranch ?? fromTemplate.worktreeBranch;
-  const fullAccess = parent.fullAccess && input.fullAccess !== false;
+  const fullAccess =
+    parent.fullAccess && (input.fullAccess ?? template?.fullAccess ?? true);
 
   // Placement is an instance-wide setting the web UI already honours; without
   // this the MCP path silently forced "sibling".
@@ -459,7 +469,21 @@ async function handleLaunchAgent(
 
   const model = validateAgentModel(
     agentType as (typeof CLI_AGENT_TYPES)[number],
-    input.model
+    (input.model !== undefined
+      ? input.model
+      : template?.agentType === agentType
+        ? template.model
+        : undefined) ?? undefined
+  );
+  const effort = validateAgentEffort(
+    agentType as (typeof CLI_AGENT_TYPES)[number],
+    input.effort !== undefined
+      ? input.effort
+      : template?.agentType === agentType &&
+          (template.model ?? undefined) === model
+        ? template.effort
+        : null,
+    model
   );
 
   // Launching a template is a request for the template's own instructions —
@@ -479,12 +503,17 @@ async function handleLaunchAgent(
     unknownArgs = rendered.unknownArgs;
   }
 
+  if (template?.projectId && input.cwd && input.cwd !== template.directory) {
+    throw new Error("Project template directory cannot be overridden.");
+  }
+
   const agent = await deps.agentManager.createAgent({
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
-    cwd: input.cwd ?? parentCwd,
+    cwd: input.cwd ?? template?.directory ?? parentCwd,
     fullAccess,
     model,
+    effort,
     useWorktree,
     createNewBranch,
     baseBranch,

@@ -39,10 +39,26 @@ vi.mock("@/hooks/use-tasks", () => ({
 }));
 
 vi.mock("@/components/app/dashboard-context", () => ({
-  useDashboardContext: () => ({ enabledAgentTypes: ["claude", "codex"] }),
+  useDashboardContext: () => ({
+    enabledAgentTypes: ["claude", "codex", "opencode"],
+  }),
 }));
 
+const effortFixture = vi.hoisted(
+  () => (type: string) =>
+    (type === "opencode"
+      ? []
+      : type === "codex"
+        ? ["low", "medium", "high", "xhigh"]
+        : ["low", "medium", "high", "xhigh", "max"]
+    ).map((value) => ({
+      value,
+      name: value[0]!.toUpperCase() + value.slice(1),
+    }))
+);
 vi.mock("@/hooks/use-agent-model-catalog", () => ({
+  useAgentEffortChoices: effortFixture,
+  useAgentEffortCatalog: () => effortFixture,
   useAgentModelCatalog: () => ({
     options: [{ id: "m1", label: "Model One" }],
     loading: false,
@@ -89,6 +105,7 @@ const column = {
     templateId: "tpl_1",
     agentType: null,
     model: null,
+    effort: null,
     assign: false,
     fireOnCreate: false,
   },
@@ -209,7 +226,7 @@ it("keeps the template's engine until another is picked", async () => {
   // The app's enabled engines, not a fixed list.
   expect(
     screen.getAllByRole("option").map((option) => option.textContent)
-  ).toEqual(["Claude", "Codex"]);
+  ).toEqual(["Claude", "Codex", "OpenCode"]);
   fireEvent.click(screen.getByRole("option", { name: "Codex" }));
   expect(type.textContent).toBe("Codex");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -307,3 +324,159 @@ it.each(["add", "edit"] as const)(
     expect(updateColumn).not.toHaveBeenCalled();
   }
 );
+
+it("saves an effort override and can reset it to inheritance", async () => {
+  renderDialog();
+  fireEvent.click(screen.getByTestId("task-trigger-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "Medium" }));
+  fireEvent.click(screen.getByRole("button", { name: /save/i }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({ effort: "medium" }),
+      })
+    )
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Open trigger" }));
+  fireEvent.click(screen.getByTestId("task-trigger-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "Default" }));
+  fireEvent.click(screen.getByRole("button", { name: /save/i }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({ effort: null }),
+      })
+    )
+  );
+});
+
+it.each([
+  { agentType: "opencode", effort: "high" },
+  { agentType: "codex", effort: "max" },
+] as const)(
+  "clears incompatible $effort when a template changes inherited runtime to $agentType",
+  async ({ agentType, effort }) => {
+    templates.push({
+      ...template("tpl_other", "Other runtime"),
+      agentType,
+      effort: null,
+    });
+    renderDialog({ ...column, trigger: { ...column.trigger!, effort } });
+    fireEvent.keyDown(templatePicker(), { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Other runtime" }));
+    expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
+      "Default"
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
+      "disabled",
+      false
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(updateColumn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: expect.objectContaining({
+            templateId: "tpl_other",
+            effort: null,
+          }),
+        })
+      )
+    );
+  }
+);
+
+it("preserves compatible explicit effort across template runtime changes", async () => {
+  templates.push({
+    ...template("tpl_codex", "Codex builder"),
+    agentType: "codex",
+    effort: null,
+  });
+  renderDialog({ ...column, trigger: { ...column.trigger!, effort: "high" } });
+  fireEvent.keyDown(templatePicker(), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: "Codex builder" }));
+  expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
+    "High"
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({ effort: "high" }),
+      })
+    )
+  );
+});
+
+it("uses CLI effort when the trigger overrides the template runtime", async () => {
+  templates[0] = { ...templates[0]!, effort: "high" };
+  renderDialog();
+  fireEvent.click(screen.getByRole("combobox", { name: "Type" }));
+  fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({
+          agentType: "opencode",
+          effort: null,
+        }),
+      })
+    )
+  );
+});
+
+it("resolves inherited Codex max conflict with an explicit compatible override", async () => {
+  templates[0] = { ...templates[0]!, effort: "max" };
+  renderDialog({
+    ...column,
+    trigger: { ...column.trigger!, agentType: "codex" },
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByTestId("task-trigger-effort"));
+  fireEvent.click(screen.getByRole("radio", { name: "High" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({
+          agentType: "codex",
+          effort: "high",
+        }),
+      })
+    )
+  );
+});
+
+it("keeps max when an explicit Claude runtime overrides the newly selected Codex template", async () => {
+  templates.push({
+    ...template("tpl_codex", "Codex builder"),
+    agentType: "codex",
+    effort: null,
+  });
+  renderDialog({
+    ...column,
+    trigger: { ...column.trigger!, agentType: "claude", effort: "max" },
+  });
+  fireEvent.keyDown(templatePicker(), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: "Codex builder" }));
+  expect(screen.getByRole("combobox", { name: "Type" }).textContent).toBe(
+    "Claude"
+  );
+  expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
+    "Max"
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(updateColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({
+          agentType: "claude",
+          effort: "max",
+        }),
+      })
+    )
+  );
+});

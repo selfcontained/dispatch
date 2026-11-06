@@ -250,6 +250,15 @@ export function registerTaskTools(
                   "Model override; omitted or null inherits the template model. Validated for the effective runtime. " +
                     describeAgentModelCatalog(AGENT_TYPES)
                 ),
+              effort: z
+                .string()
+                .min(1)
+                .max(128)
+                .nullable()
+                .optional()
+                .describe(
+                  "Reasoning effort override: an engine-reported level. Omitted or null inherits the template effort; validated for the effective runtime."
+                ),
               assign: z
                 .boolean()
                 .optional()

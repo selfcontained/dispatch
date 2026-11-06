@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentInputState } from "@dispatch/shared";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
@@ -27,6 +28,8 @@ export type RuntimeLaunch = {
   bins: EngineBins;
   /** The model to select after the session opens; null keeps the engine's default. */
   model: string | null;
+  /** Resolved launch effort; null leaves the CLI settings in control. */
+  effort?: Effort | null;
   systemPrompt: string | null;
   /** Persona task context delivered with the first ordinary prompt, including on resume. */
   personaContext?: string | null;

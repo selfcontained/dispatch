@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 /**
  * Task wire types — what the API returns and the web client reads. Kept
  * dependency-free so `apps/web` can `import type` them directly, the way
@@ -19,6 +20,8 @@ export type TaskColumnTrigger = {
   agentType: TaskAgentType | null;
   /** Override the template's model; null keeps the template's. */
   model: string | null;
+  /** Override the template effort; omitted or null inherits it. */
+  effort?: Effort | null;
   /** Assign the launched agent to the task and show it on the card. */
   assign: boolean;
   /** Also fire when a task is created directly in this column. */
@@ -186,6 +189,7 @@ export type LaunchTaskAgentInput = {
   templateId: string;
   agentType?: TaskAgentType | null;
   model?: string | null;
+  effort?: Effort | null;
 };
 
 export type CreateTaskColumnInput = {

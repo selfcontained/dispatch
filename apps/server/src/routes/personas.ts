@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import { discoverPersonas } from "../personas/resolve.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -31,9 +33,11 @@ export function personaLaunchRequest(input: {
   codeowners?: boolean;
   agentType: string;
   model?: string;
+  effort?: Effort | null;
   note?: string;
 }): string {
   const modelArgs = input.model ? [`model: "${input.model}"`] : [];
+  if (input.effort) modelArgs.push(`effort: "${input.effort}"`);
   const lines = input.personas.map((persona) => {
     const args = [
       `persona: "${persona}"`,
@@ -140,6 +144,7 @@ export async function registerPersonaRoutes(
       codeowners?: unknown;
       agentType?: unknown;
       model?: unknown;
+      effort?: unknown;
       note?: unknown;
     } | null;
     const agentId = params.id ?? "";
@@ -221,10 +226,16 @@ export async function registerPersonaRoutes(
     }
     // Validate the model against this runtime's catalog before launching.
     let model: string | undefined;
+    let effort: Effort | null;
     try {
       model = validateAgentModel(
         body.agentType as (typeof CLI_AGENT_TYPES)[number],
         typeof body.model === "string" ? body.model : undefined
+      );
+      effort = validateAgentEffort(
+        body.agentType as (typeof CLI_AGENT_TYPES)[number],
+        body.effort,
+        model
       );
     } catch (error) {
       return reply.code(400).send({
@@ -240,6 +251,7 @@ export async function registerPersonaRoutes(
         codeowners,
         agentType: body.agentType as string,
         ...(model !== undefined ? { model } : {}),
+        effort,
         ...(typeof body.note === "string" ? { note: body.note } : {}),
       });
       // Start the agent's turn with its own review instructions. The stream

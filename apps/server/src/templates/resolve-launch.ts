@@ -1,3 +1,5 @@
+import type { Effort } from "@dispatch/shared";
+import { validateAgentEffort } from "../shared/agent-effort.js";
 import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import {
@@ -13,6 +15,7 @@ export function resolveTemplateLaunch(
   overrides: {
     agentType?: AgentType;
     model?: string | null;
+    effort?: Effort | null;
   } = {}
 ): TemplateRecord {
   const agentType = overrides.agentType ?? template.agentType;
@@ -37,6 +40,15 @@ export function resolveTemplateLaunch(
     ...template,
     agentType,
     model: validateAgentModel(agentType, model ?? undefined) ?? null,
+    effort: validateAgentEffort(
+      agentType,
+      overrides.effort !== undefined
+        ? overrides.effort
+        : agentType === template.agentType && model === template.model
+          ? template.effort
+          : null,
+      model
+    ),
     persona: template.persona ?? null,
     fullAccess: template.fullAccess ?? false,
     useWorktree: workspace.useWorktree,

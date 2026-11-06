@@ -1,5 +1,8 @@
+import { AgentConfigRow } from "./agent-config-row";
+import type { Effort } from "@dispatch/shared";
+import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { GitBranch, Paperclip } from "lucide-react";
 
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
@@ -102,6 +105,8 @@ export interface TemplateConfigFieldsProps {
   persona?: string | null;
   onPersonaChange: (value: string | null) => void;
   model: string | null;
+  effort?: Effort | null;
+  onEffortChange: (value: Effort | null) => void;
   onModelChange: (value: string | null) => void;
   enabledAgentTypes: AgentType[];
   name: string;
@@ -137,6 +142,8 @@ export function TemplateConfigFields({
   agentType,
   onAgentTypeChange,
   model,
+  effort,
+  onEffortChange,
   onModelChange,
   persona,
   onPersonaChange,
@@ -168,6 +175,7 @@ export function TemplateConfigFields({
   autoFocusName,
   lockedLocation,
 }: TemplateConfigFieldsProps): JSX.Element {
+  const effortId = useId();
   const { options: modelOptions, loading: modelCatalogLoading } =
     useAgentModelCatalog(agentType);
   const {
@@ -184,7 +192,9 @@ export function TemplateConfigFields({
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 min-[420px]:grid-cols-2">
+      <AgentConfigRow
+        showModel={modelOptions.length > 0 || modelCatalogLoading}
+      >
         <AgentTypeSelect
           label="Agent type"
           // The template detail page keeps this form mounted behind the launch
@@ -194,6 +204,7 @@ export function TemplateConfigFields({
           onChange={(nextAgentType) => {
             onAgentTypeChange(nextAgentType);
             onModelChange(null);
+            onEffortChange(null);
           }}
           agentTypes={enabledAgentTypes}
         />
@@ -205,7 +216,14 @@ export function TemplateConfigFields({
             loading={modelCatalogLoading}
           />
         ) : null}
-      </div>
+        <AgentEffortSelect
+          model={model}
+          value={effort ?? null}
+          onChange={onEffortChange}
+          agentType={agentType}
+          id={`template-config-effort-${effortId}`}
+        />
+      </AgentConfigRow>
 
       <div className="space-y-1">
         <label className="text-sm text-muted-foreground">Name</label>

@@ -1,3 +1,4 @@
+import type { Effort } from "@dispatch/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
@@ -95,6 +96,7 @@ export function useTemplateActions() {
       args,
       agentType,
       model,
+      effort,
       startupFiles,
       startupLinks,
     }: {
@@ -103,6 +105,7 @@ export function useTemplateActions() {
       agentType?: AgentType;
       /** Omit to keep the template's saved model; null forces the CLI default. */
       model?: string | null;
+      effort?: Effort | null;
       startupFiles?: File[];
       startupLinks?: string[];
     }) => {
@@ -116,6 +119,7 @@ export function useTemplateActions() {
         // Empty string is the wire form of "CLI default" for multipart; only
         // an absent field falls back to the template's saved model.
         if (model !== undefined) formData.append("model", model ?? "");
+        if (effort !== undefined) formData.append("effort", effort ?? "");
         if (startupLinks) {
           formData.append("startupLinks", JSON.stringify(startupLinks));
         }
@@ -129,7 +133,7 @@ export function useTemplateActions() {
       }
       return api<LaunchResult>(`/api/v1/templates/${id}/launch`, {
         method: "POST",
-        body: JSON.stringify({ args, agentType, model }),
+        body: JSON.stringify({ args, agentType, model, effort }),
       });
     },
     onSuccess: (result) => {

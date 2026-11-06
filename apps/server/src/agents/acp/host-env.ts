@@ -8,11 +8,15 @@ import type { HostLaunch } from "./host-protocol.js";
 /** Called in the host, after the login shell and ~/.dispatch/env are loaded. */
 export function buildHostEnv(
   launch: Pick<HostLaunch, "env" | "engine" | "pathPrefix"> &
-    Partial<Pick<HostLaunch, "bins">>,
+    Partial<Pick<HostLaunch, "bins" | "effort">>,
   stateDir: string,
   shellEnv: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const env = { ...shellEnv, ...launch.env };
+  if (launch.effort != null) {
+    delete env.CLAUDE_EFFORT;
+    delete env.CLAUDE_CODE_EFFORT_LEVEL;
+  }
   const ca = launch.env.DISPATCH_LOCAL_CA_CERTIFICATE;
   delete env.DISPATCH_LOCAL_CA_CERTIFICATE;
   if (ca) {

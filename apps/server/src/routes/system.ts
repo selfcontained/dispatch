@@ -24,7 +24,10 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
-import { agentModelCatalog } from "../shared/agent-models.js";
+import {
+  agentModelCatalog,
+  agentModelDefaults,
+} from "../shared/agent-models.js";
 import {
   engineStatuses,
   withEngineVersions,
@@ -175,7 +178,7 @@ export async function registerSystemRoutes(
   });
 
   app.get("/api/v1/agent-models", async () => {
-    return { models: agentModelCatalog() };
+    return { models: agentModelCatalog(), defaults: agentModelDefaults() };
   });
 
   app.get("/api/v1/system/path-info", async (request, reply) => {

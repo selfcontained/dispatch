@@ -1,3 +1,5 @@
+import { validateAgentEffort } from "../../shared/agent-effort.js";
+import type { Effort } from "@dispatch/shared";
 import { createReadStream } from "node:fs";
 import { access, constants, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -348,11 +350,13 @@ export async function registerAgentCrudRoutes(
     }
 
     let model: string | undefined;
+    let effort: Effort | null;
     try {
       model = validateAgentModel(
         agentType,
         typeof body.model === "string" ? body.model : undefined
       );
+      effort = validateAgentEffort(agentType, body.effort, model);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -399,6 +403,7 @@ export async function registerAgentCrudRoutes(
             typeof body.projectId === "string" ? body.projectId : undefined,
           agentArgs: resolvedAgentArgs,
           model,
+          effort,
           fullAccess: fullAccess === true,
           useWorktree,
           createNewBranch,

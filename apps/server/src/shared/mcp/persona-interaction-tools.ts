@@ -262,6 +262,15 @@ export function registerPersonaInteractionTools(
               "Change briefing: what changed, decisions, concerns, and what is out of scope."
             ),
           agentType: z.enum(LAUNCH_PERSONA_AGENT_TYPES).optional(),
+          effort: z
+            .string()
+            .min(1)
+            .max(128)
+            .nullable()
+            .optional()
+            .describe(
+              "Launch reasoning effort: an engine-reported level; null inherits the CLI default."
+            ),
           model: z
             .string()
             .optional()

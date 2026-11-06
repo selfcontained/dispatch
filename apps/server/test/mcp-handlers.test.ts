@@ -457,6 +457,45 @@ describe("createMcpHandlers", () => {
   });
 
   describe("launchPersonaAgent", () => {
+    it("validates reviewer effort against the requested model rather than the default", async () => {
+      const { setLearnedAgentModels, forgetLearnedAgentModels } =
+        await import("../src/shared/agent-models.js");
+      setLearnedAgentModels(
+        "codex",
+        [
+          { id: "a", label: "A", effort: [{ value: "low", name: "Low" }] },
+          { id: "b", label: "B", effort: [{ value: "max", name: "Max" }] },
+        ],
+        "a"
+      );
+      try {
+        await handlers.launchPersonaAgent("agt_test1", {
+          persona: "security",
+          context: "review",
+          agentType: "codex",
+          model: "b",
+          effort: "max",
+        });
+        expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({ model: "b", effort: "max" }),
+          expect.objectContaining({ detachLaunch: true })
+        );
+        deps.agentManager.createAgent.mockClear();
+        await expect(
+          handlers.launchPersonaAgent("agt_test1", {
+            persona: "security",
+            context: "review",
+            agentType: "codex",
+            model: "b",
+            effort: "low",
+          })
+        ).rejects.toThrow(/not supported/);
+        expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+      } finally {
+        forgetLearnedAgentModels();
+      }
+    });
+
     it("launches a persona child in the parent's worktree and stream, detached", async () => {
       const result = await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
@@ -844,6 +883,36 @@ describe("createMcpHandlers", () => {
       ).toMatchObject({ role: "review", persona: "security" });
     });
 
+    it("resolves a template task persona from the workspace where the helper will run", async () => {
+      const { resolveWorktreeRoot } =
+        await import("../src/shared/git/git-context.js");
+      vi.mocked(resolveWorktreeRoot).mockResolvedValueOnce("/template-repo");
+      vi.mocked(loadPersonaBySlug).mockResolvedValueOnce({
+        slug: "builder",
+        name: "Builder",
+        description: "Build",
+        type: "task",
+        body: "Template repo instructions",
+      });
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ directory: "/template-repo" })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "builder",
+        prompt: "Implement feature",
+        templateId: "tmpl_123",
+        persona: "builder",
+      });
+      expect(resolveWorktreeRoot).toHaveBeenLastCalledWith("/template-repo");
+      expect(loadPersonaBySlug).toHaveBeenLastCalledWith(
+        "/template-repo",
+        "builder"
+      );
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/template-repo", persona: "builder" })
+      );
+    });
+
     it("uses normal launch options for a task persona", async () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValueOnce({
         slug: "builder",
@@ -1206,6 +1275,142 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("uses the template's runtime, model, effort, folder, persona, and access instead of the launcher's", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        type: "claude",
+        cwd: "/parent",
+        fullAccess: true,
+      });
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          agentType: "codex",
+          model: "gpt-6-astra",
+          effort: "high",
+          directory: "/template",
+          persona: "builder",
+          fullAccess: false,
+        })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "codex",
+          model: "gpt-6-astra",
+          effort: "high",
+          cwd: "/template",
+          persona: "builder",
+          fullAccess: false,
+        })
+      );
+    });
+
+    it("lets explicit settings override template settings", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        type: "claude",
+        cwd: "/parent",
+        fullAccess: true,
+      });
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          agentType: "codex",
+          model: "gpt-6-astra",
+          effort: "high",
+          directory: "/template",
+          fullAccess: false,
+        })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+        type: "claude",
+        model: "sonnet",
+        effort: "low",
+        cwd: "/override",
+        fullAccess: true,
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "claude",
+          model: "sonnet",
+          effort: "low",
+          cwd: "/override",
+          fullAccess: true,
+        })
+      );
+    });
+
+    it.each([{ type: "claude" }, { model: null }])(
+      "uses the CLI model when explicitly reset or the template runtime changes: %j",
+      async (overrides) => {
+        deps.templateService.getTemplate.mockResolvedValue(
+          templateRecord({ agentType: "codex", model: "gpt-6-astra" })
+        );
+        await handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "work",
+          templateId: "tmpl_123",
+          ...overrides,
+        });
+        expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({ model: undefined })
+        );
+      }
+    );
+
+    it("does not grant template permissions unavailable to the parent", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ fullAccess: true })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ fullAccess: false })
+      );
+    });
+
+    it("protects a project template's folder like a UI launch", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ projectId: "project", directory: "/project" })
+      );
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "work",
+          templateId: "tmpl_123",
+          cwd: "/elsewhere",
+        })
+      ).rejects.toThrow("Project template directory cannot be overridden");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
+    it("rejects mixing a review persona with a template from another workspace", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          directory: "/other",
+          agentType: "codex",
+          effort: "max",
+        })
+      );
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "review",
+          prompt: "review",
+          templateId: "tmpl_123",
+          persona: "security",
+        })
+      ).rejects.toThrow("Review personas cannot be combined with templateId");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
     it("passes templateId through", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({ id: "tmpl_123" })

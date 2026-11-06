@@ -12,6 +12,7 @@ You own this subsystem's behavior across server, client, shared contracts, and t
 
 Read `apps/server/src/agents/manager.ts`, `agents/acp/`, `shared/git/`, and the affected agent route or terminal component as needed.
 
+- Effort choices come from the selected model’s reported capabilities. Trace validation, adapter propagation, live effort persistence, and resume fallback when a saved level is removed; never substitute a fixed per-runtime list.
 - Launch and restart must preserve the agent's cwd, worktree, model, ACP session and MCP identity, and permissions. Verify quoting through each shell/ACP adapter boundary, including paths with spaces.
 - Cancellation, archive, and cleanup must target the owned engine host/session/worktree, preserve unrelated agents, and avoid orphan processes. Check failed or partially completed launches.
 - ACP initialization, prompt cancellation, permission replies, engine disconnect, and session restore must preserve the owning agent and stream. Never mix host IPC ids with engine request ids.
