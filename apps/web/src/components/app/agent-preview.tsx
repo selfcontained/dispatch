@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
-import { ExternalLink, Monitor, X } from "lucide-react";
-import { CopyButton } from "@/components/ui/copy-button";
+import { Check, Copy, ExternalLink, Monitor, X } from "lucide-react";
+import { useCopyText } from "@/hooks/use-copy";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { hiddenAgentPreviewsAtomFamily } from "@/lib/store";
 
 export function AgentPreview({ agentId }: { agentId: string }) {
+  const [copied, copyText] = useCopyText();
   const [hidden, setHidden] = useAtom(hiddenAgentPreviewsAtomFamily(agentId));
   const { data } = useQuery({
     queryKey: ["agent-preview", agentId],
@@ -18,16 +19,21 @@ export function AgentPreview({ agentId }: { agentId: string }) {
   });
   const preview = data?.preview;
   if (!preview || hidden.includes(preview.url)) return null;
-  // Attachments are external destinations, never executable schemes.
+  // Match the attachment contract: safe app paths or absolute web URLs.
+  const appPath =
+    /^\/(?![/\\])/.test(preview.url) && !/[\t\r\n]/.test(preview.url);
   try {
-    if (!["http:", "https:"].includes(new URL(preview.url).protocol))
+    if (
+      !appPath &&
+      !["http:", "https:"].includes(new URL(preview.url).protocol)
+    )
       return null;
   } catch {
     return null;
   }
   return (
     <div
-      className="flex min-w-0 items-center gap-2 text-[11px]"
+      className="flex h-4 min-w-0 items-center gap-3 text-[11px] leading-4"
       data-agent-control="true"
     >
       <Monitor
@@ -49,7 +55,20 @@ export function AgentPreview({ agentId }: { agentId: string }) {
         className="ml-auto flex shrink-0 items-center"
         onClick={(event) => event.stopPropagation()}
       >
-        <CopyButton text={preview.url} label="Copy preview URL" />
+        <Button
+          className="text-muted-foreground/60 hover:text-foreground"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={copied ? "Copied preview URL" : "Copy preview URL"}
+          title={copied ? "Copied preview URL" : "Copy preview URL"}
+          onClick={() => copyText(preview.url)}
+        >
+          {copied ? (
+            <Check aria-hidden="true" className="h-3.5 w-3.5" />
+          ) : (
+            <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+        </Button>
         <Button
           className="text-muted-foreground/60 hover:text-foreground"
           variant="ghost"

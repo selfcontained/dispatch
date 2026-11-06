@@ -797,6 +797,7 @@ describe("useSSE message handling", () => {
       ["agent-turn-label"],
       ["scheduled-messages-upcoming"],
       ["agent-pull-requests"],
+      ["agent-preview"],
       ["jobs"],
       ["templates"],
       ["projects"],
@@ -1082,7 +1083,10 @@ describe("useSSE message handling", () => {
     expect(cache?.pages[0]?.entries).toEqual([older, post]);
     expect(cache?.pages[0]?.unreadCount).toBe(1);
     // An agent's post moves the sidebar badge; the feed itself is not refetched.
-    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
+    expectInvalidatedSet(invalidateQueries, [
+      ["agent-preview", "agt_1"],
+      ["chat-unread"],
+    ]);
 
     // A status row: no badge to move, still no refetch.
     invalidateQueries.mockClear();
@@ -1117,7 +1121,11 @@ describe("useSSE message handling", () => {
       agentId: "agt_1",
       entry: blockEntry(question),
     });
-    expectInvalidatedSet(invalidateQueries, [["agents"], ["chat-unread"]]);
+    expectInvalidatedSet(invalidateQueries, [
+      ["agent-preview", "agt_1"],
+      ["agents"],
+      ["chat-unread"],
+    ]);
 
     invalidateQueries.mockClear();
     const form = block({
@@ -1129,7 +1137,11 @@ describe("useSSE message handling", () => {
       },
     });
     emit({ type: "stream.entry", agentId: "agt_1", entry: blockEntry(form) });
-    expectInvalidatedSet(invalidateQueries, [["agents"], ["chat-unread"]]);
+    expectInvalidatedSet(invalidateQueries, [
+      ["agent-preview", "agt_1"],
+      ["agents"],
+      ["chat-unread"],
+    ]);
   });
 
   it("moves the unread badges once per turn, not on every step it republishes", () => {
@@ -1155,7 +1167,10 @@ describe("useSSE message handling", () => {
       });
 
     emit({ type: "stream.entry", agentId: "agt_1", entry: running(0) });
-    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
+    expectInvalidatedSet(invalidateQueries, [
+      ["agent-preview", "agt_1"],
+      ["chat-unread"],
+    ]);
 
     invalidateQueries.mockClear();
     emit({ type: "stream.entry", agentId: "agt_1", entry: running(1) });
@@ -1170,7 +1185,12 @@ describe("useSSE message handling", () => {
       agentId: "agt_1",
       entry: turnEntry({ id: "turn_2", streamId: "agt_1" }),
     });
-    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
+    expectInvalidatedSet(invalidateQueries, [
+      ["agent-preview", "agt_1"],
+      ["agent-preview", "agt_1"],
+      ["agent-preview", "agt_1"],
+      ["chat-unread"],
+    ]);
   });
 
   it("rebases the feed once live rows outgrow the newest page", () => {
@@ -1314,10 +1334,30 @@ describe("useSSE message handling", () => {
 
     emit({ type: "stream.changed", agentId: "agt_1" });
     expectInvalidatedSet(invalidateQueries, [
+      ["agent-preview"],
       ["stream", "agt_1"],
       ["stream", "agt_1", "thread"],
       ["chat-unread"],
     ]);
+  });
+
+  it("refreshes authored previews on live posts, replacements and removals in a parent stream", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    const entry = personRow("preview-post", "2026-09-02T10:00:00.000Z");
+    entry.block.author = { kind: "agent", agentId: "child" };
+    for (const attachments of [
+      [{ type: "preview" as const, url: "https://first.test", title: "First" }],
+      [{ type: "preview" as const, url: "https://next.test", title: "Next" }],
+      [],
+    ]) {
+      invalidateQueries.mockClear();
+      entry.block.attachments = attachments;
+      emit({ type: "stream.entry", agentId: "parent", entry });
+      expect(invalidatedKeys(invalidateQueries)).toContainEqual([
+        "agent-preview",
+        "child",
+      ]);
+    }
   });
 
   it("invalidates the collection each bare change event names", () => {

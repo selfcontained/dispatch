@@ -451,6 +451,13 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "stream.entry") {
+          // Updates may remove the last preview, and children may post in a
+          // parent stream: refresh by author even when no preview remains.
+          if (payload.entry.block.author.kind === "agent") {
+            void queryClient.invalidateQueries({
+              queryKey: ["agent-preview", payload.entry.block.author.agentId],
+            });
+          }
           applyStreamEntry(queryClient, payload.agentId, payload.entry);
           recordTurnLabel(queryClient, payload.entry);
           if (
