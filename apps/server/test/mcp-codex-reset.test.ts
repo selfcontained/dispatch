@@ -31,12 +31,80 @@ const report = {
       plan: "Plus",
       observedAt: null,
       windows: [],
-      limitResets: { available: 0, applicable: 0 },
+      limitResets: {
+        available: 3,
+        applicable: 0,
+        oldestExpiresAt: "2026-11-07T12:00:00Z",
+        items: [
+          {
+            id: "oldest",
+            title: "Reset",
+            grantedAt: null,
+            expiresAt: "2026-11-07T12:00:00Z",
+          },
+        ],
+      },
     },
   ],
 };
 
+const { applicable: _rawCount, ...agentResets } =
+  report.providers[0]!.limitResets;
+const agentReport = {
+  ...report,
+  providers: [{ ...report.providers[0]!, limitResets: agentResets }],
+};
+
 describe("authenticated Codex reset MCP HTTP transport (mock provider only)", () => {
+  it.each(["ok", "nothing_to_reset", "no_credit"])(
+    "omits undocumented applicability while preserving %s and reset inventory",
+    async (code) => {
+      const server = new McpServer({ name: "test", version: "1" });
+      const consume = vi.fn(async () => ({ ...outcome, code }));
+      const providerPlans = Object.assign(
+        vi.fn(async () => report),
+        { invalidate: vi.fn() }
+      );
+      registerUsageTools(server, new Set(["get_usage", "redeem_codex_reset"]), {
+        providerPlans,
+        redeemCodexReset: createCodexResetCoordinator({
+          consume,
+          providerPlans,
+        }),
+      });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test", version: "1" });
+      await server.connect(b);
+      await client.connect(a);
+      try {
+        const usage = await client.callTool({
+          name: "get_usage",
+          arguments: { type: "codex" },
+        });
+        expect(usage.structuredContent).toMatchObject({
+          providers: [{ limitResets: agentResets, windows: [] }],
+        });
+        expect(JSON.stringify(usage)).not.toContain('"applicable"');
+        const result = await client.callTool({
+          name: "redeem_codex_reset",
+          arguments: { idempotencyKey: key },
+        });
+        expect(result.structuredContent).toEqual({
+          outcome: { ...outcome, code },
+          error: null,
+          usage: agentReport,
+          refreshError: null,
+        });
+        expect(JSON.stringify(result)).not.toContain('"applicable"');
+        expect(consume).toHaveBeenCalledExactlyOnceWith(key);
+        expect(report.providers[0]!.limitResets.applicable).toBe(0);
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    }
+  );
+
   it("honors tool allowlists", async () => {
     const server = new McpServer({ name: "test", version: "1" });
     const redeem = vi.fn();
@@ -156,7 +224,7 @@ describe("authenticated Codex reset MCP HTTP transport (mock provider only)", ()
           expect(result.structuredContent).toEqual({
             outcome,
             error: null,
-            usage: report,
+            usage: agentReport,
             refreshError: null,
           });
           transcript.push({

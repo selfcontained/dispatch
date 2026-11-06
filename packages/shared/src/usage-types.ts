@@ -70,10 +70,11 @@ export type PlanSpend = {
   disabledReason?: string;
 };
 
-/** Credits that reset a reached rate limit early (Codex); no expiry is reported. */
+/** Credits for resetting usage limits early (Codex). */
 export type PlanLimitResets = {
   available: number;
-  /** How many of them apply to the limit state right now. */
+  /** Raw provider applicable_available_count; semantics are undocumented.
+   * Do not use as a redemption eligibility gate or expose in agent usage. */
   applicable: number;
   /** When the first of them lapses; absent when the provider gave no detail. */
   oldestExpiresAt?: string | null;
