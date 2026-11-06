@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
 import type { Effort } from "@dispatch/shared";
 import type { AgentType } from "@/lib/agent-types";
 import {
@@ -14,9 +15,17 @@ import { cn } from "@/lib/utils";
 const LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 function EffortMeter({ value }: { value: Effort | null }): JSX.Element {
-  const filled = value ? LEVELS.indexOf(value) + 1 : 0;
+  if (value === null) {
+    return (
+      <SlidersHorizontal
+        aria-hidden="true"
+        className="h-3 w-3 text-muted-foreground"
+      />
+    );
+  }
+  const filled = LEVELS.indexOf(value) + 1;
   return (
-    <span aria-hidden="true" className="flex h-2 items-end gap-0.5">
+    <span aria-hidden="true" className="flex h-3 items-end gap-0.5">
       {LEVELS.map((level, index) => (
         <span
           key={level}
