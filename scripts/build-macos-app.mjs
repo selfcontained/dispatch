@@ -18,6 +18,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { runStapler } from "./macos-stapler.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 function run(command, args, options = {}) {
@@ -302,8 +303,8 @@ try {
         : []),
       "--wait",
     ]);
-    run("xcrun", ["stapler", "staple", app]);
-    run("xcrun", ["stapler", "validate", app]);
+    await runStapler("staple", app);
+    await runStapler("validate", app);
     run("codesign", ["--verify", "--deep", "--strict", app]);
     run("spctl", ["--assess", "--type", "execute", "--verbose", app]);
     rmSync(zip);
