@@ -51,6 +51,7 @@ type AssembledQuestion = {
 export type AssembledTurn = {
   id: string;
   prompt: ChatTurnPrompt;
+  sourceConversation?: ChatTurnEntry["sourceConversation"];
   trace: {
     startedAt: string;
     lastProgressAt?: string;
@@ -124,6 +125,34 @@ function promptFor(
     };
   }
   return { source: "system", text: source.text, attachments: [] };
+}
+
+/** Preserve input provenance independently of the turn's output container. */
+function sourceConversationFor(
+  source: PromptSource,
+  chat: Map<string, PromptBlock>
+): ChatTurnEntry["sourceConversation"] {
+  const block =
+    source.source === "chat" ? chat.get(source.chatMessageId) : undefined;
+  const conversation =
+    source.conversation ??
+    (block
+      ? {
+          streamId: block.streamId,
+          threadId:
+            source.source === "chat"
+              ? (source.answerIn ?? block.threadId)
+              : block.threadId,
+        }
+      : undefined);
+  if (!conversation) return undefined;
+  return {
+    streamId: conversation.streamId,
+    threadId: conversation.threadId,
+    ...(source.source === "chat"
+      ? { blockId: source.answerIn ?? source.chatMessageId }
+      : {}),
+  };
 }
 
 /** The engine's read tool wraps its result as <path>…</path><type>…</type><content>…. */
@@ -509,6 +538,12 @@ export function assembleTurns(
               : null,
         }
       : undefined;
+    const sourceConversation = turnPayload
+      ? sourceConversationFor(
+          turnPayload.responsePrompt ?? turnPayload.prompt,
+          chat
+        )
+      : undefined;
     return {
       // A pre-turn group is named by its first row, not by its position, so
       // a feed cursor over it compares against a real row id.
@@ -516,6 +551,7 @@ export function assembleTurns(
       prompt: turnPayload
         ? promptFor(turnPayload.responsePrompt ?? turnPayload.prompt, chat)
         : { source: "system", text: "Earlier activity", attachments: [] },
+      ...(sourceConversation ? { sourceConversation } : {}),
       trace,
       result,
       ...(turnQuestions ? { questions: turnQuestions } : {}),
@@ -571,6 +607,9 @@ export function toTurnEntry(
     at: anchor.createdAt.toISOString(),
     updatedAt: updatedAt.toISOString(),
     prompt: turn.prompt,
+    ...(turn.sourceConversation
+      ? { sourceConversation: turn.sourceConversation }
+      : {}),
     trace,
     result: turn.result,
     settled,

@@ -48,6 +48,83 @@ const chatMsg = (id: string, text: string, kind?: "launch"): Block =>
   }) as Block;
 
 describe("assembleTurns", () => {
+  it("projects source discussion separately from the output agent", () => {
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "started",
+          prompt: {
+            source: "chat",
+            chatMessageId: "source-message",
+            conversation: { streamId: "parent", threadId: "discussion" },
+          },
+        },
+        0
+      ),
+    ];
+    const assembled = assembleTurns(rows, new Map());
+    const entry = toTurnEntry(assembled[0], groupTurnRows(rows)[0], "child");
+    expect(entry.agentId).toBe("child");
+    expect(entry.sourceConversation).toEqual({
+      streamId: "parent",
+      threadId: "discussion",
+      blockId: "source-message",
+    });
+  });
+
+  it("preserves finding anchors and legacy chat source containers", () => {
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "started",
+          prompt: { source: "chat", chatMessageId: "m", answerIn: "finding" },
+        },
+        0
+      ),
+    ];
+    const [turn] = assembleTurns(rows, new Map([["m", chatMsg("m", "reply")]]));
+    expect(turn.sourceConversation).toEqual({
+      streamId: "a",
+      threadId: "finding",
+      blockId: "finding",
+    });
+  });
+
+  it("retains task and engine source identity without inventing a message anchor", () => {
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "started",
+          prompt: {
+            source: "engine",
+            text: "continued",
+            conversation: { streamId: "task:x", threadId: null },
+          },
+        },
+        0
+      ),
+    ];
+    expect(assembleTurns(rows, new Map())[0].sourceConversation).toEqual({
+      streamId: "task:x",
+      threadId: null,
+    });
+    expect(
+      assembleTurns(
+        [
+          row(
+            "turn",
+            { state: "started", prompt: { source: "system", text: "go" } },
+            1
+          ),
+        ],
+        new Map()
+      )[0]
+    ).not.toHaveProperty("sourceConversation");
+  });
+
   it("cuts the stream into turns with prompt, steps, and result", () => {
     seq = 0;
     const rows = [
