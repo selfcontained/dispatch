@@ -83,7 +83,12 @@ suite; a new edit alone does not guarantee recovery. Never rerun code CI merely
 to repair metadata. A changed head/target or API error fails closed; use checks
 for the current head/target rather than manufacturing success on a stale run.
 Metadata corrections therefore have a disclosed manual recovery step when a
-historical failed suite remains required.
+historical failed suite remains required. This applies only to runs created with
+the current-reader workflow on the same head and target. Older snapshot-only
+workflow runs cannot gain this reader through a retry: coordinate current-head
+code validation separately for those legacy failures, and do not repeatedly
+rerun them. Changed-head/target failures likewise require checks appropriate to
+the current head/target; the manual retry is not a repair for stale identity.
 The existing `ci` requirement, source restrictions and other ruleset settings
 remain in force. An old hygiene-failed code run still requires genuine code
 validation (for example an owner-authorized reopen); metadata never manufactures

@@ -19,8 +19,8 @@ jobs:
     permissions:
       pull-requests: read
     steps:
-      # Read current metadata so a manual retry clears this exact failed suite
-      # after correction. Reruns otherwise retain the original event snapshot.
+      # Re-evaluate current metadata in the same failed run on a manual retry.
+      # Reruns otherwise retain the original event snapshot.
       # No checkout, PR code execution, custom check writes, or metadata logging.
       - name: No Claude Code session links in the PR title or description
         uses: actions/github-script@v8
