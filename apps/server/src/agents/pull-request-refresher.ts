@@ -167,7 +167,29 @@ export class PullRequestRefresher {
       });
     return this.flight;
   }
-  private async reconcile() {
+  async refreshOne(agentId: string, rawUrl: string) {
+    const url = githubPullRequestUrl(rawUrl);
+    if (
+      !url ||
+      !this.get(agentId).some((pr) => pr.url === url) ||
+      this.isDismissed(agentId, url)
+    )
+      throw new Error("PR is no longer tracked by this agent.");
+    // Serialize with the shared queue so old observations cannot overwrite new ones.
+    if (this.flight) await this.flight;
+    if (this.flight) throw new Error("PR refresh is busy. Please try again.");
+    const flight = this.reconcile({ agentId, url });
+    this.flight = flight;
+    try {
+      await flight;
+      return this.get(agentId);
+    } finally {
+      this.flight = undefined;
+      if (this.dirty) this.signal();
+      else this.scheduleNext();
+    }
+  }
+  private async reconcile(target?: { agentId: string; url: string }) {
     const ids = await this.options.listAgentIds();
     const tombstones = await this.options.pool.query<{
       agent_id: string;
@@ -254,8 +276,19 @@ export class PullRequestRefresher {
     );
     const now = Date.now();
     this.attempts = this.attempts.filter((at) => at > now - 60_000);
+    if (target) {
+      if (
+        !agents.get(target.agentId)?.has(target.url) ||
+        this.isDismissed(target.agentId, target.url)
+      )
+        throw new Error("PR is no longer tracked by this agent.");
+      if (this.attempts.length >= 12)
+        throw new Error("PR refresh budget reached. Please retry in a minute.");
+    }
     const queue = [...links]
-      .filter(([url]) => (this.urls.get(url)?.due ?? 0) <= now)
+      .filter(([url]) =>
+        target ? url === target.url : (this.urls.get(url)?.due ?? 0) <= now
+      )
       .sort(
         ([a], [b]) =>
           (this.urls.get(a)?.due ?? 0) - (this.urls.get(b)?.due ?? 0)
@@ -273,6 +306,14 @@ export class PullRequestRefresher {
           } catch {
             value = { url, title, status: "Unavailable" };
           }
+          if (
+            target &&
+            (value.status === "Unavailable" ||
+              value.ci?.availability === "unavailable")
+          )
+            throw new Error(
+              "Could not refresh PR. Check GitHub authentication and try again."
+            );
           const previous = this.urls.get(url);
           // A transport failure must not discard a previously observed lifecycle,
           // nor keep displaying old-head checks as current.

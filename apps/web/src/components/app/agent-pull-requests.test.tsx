@@ -245,3 +245,67 @@ it.each([
     ).toBeNull();
   }
 );
+
+it("targets a single PR, disables refresh while pending and retains checks on failure", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  const pr = {
+    url: "https://github.com/a/b/pull/1",
+    title: "Change",
+    status: "Open",
+    ci: {
+      checkedAt: "2026-11-06T10:00:00Z",
+      headSha: "abc1234",
+      availability: "available",
+      summary: {
+        status: "passed",
+        total: 1,
+        passed: 1,
+        failed: 0,
+        pending: 0,
+        skipped: 0,
+      },
+      checks: [{ name: "Build", status: "COMPLETED", conclusion: "SUCCESS" }],
+    },
+  };
+  let reject!: (error: Error) => void;
+  vi.mocked(api).mockImplementation((_url, options) =>
+    options?.method === "POST"
+      ? new Promise((_resolve, fail) => {
+          reject = fail;
+        })
+      : (Promise.resolve({ pullRequests: [pr] }) as never)
+  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <AgentPullRequests agentId="a" />
+    </QueryClientProvider>
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Check details for pull request #1",
+    })
+  );
+  const button = await screen.findByRole("button", {
+    name: "Refresh pull request checks",
+  });
+  fireEvent.click(button);
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+  expect(api).toHaveBeenCalledWith(
+    "/api/v1/agents/a/pull-requests/refresh",
+    expect.objectContaining({ body: JSON.stringify({ url: pr.url }) })
+  );
+  reject(new Error("offline"));
+  await screen.findByRole("alert");
+  expect(screen.getByText("Build")).toBeTruthy();
+  expect(button.hasAttribute("disabled")).toBe(false);
+});

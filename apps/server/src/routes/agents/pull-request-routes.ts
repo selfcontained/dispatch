@@ -35,6 +35,42 @@ export async function registerAgentPullRequestRoutes(
     }
   );
   app.post<{ Params: { id: string }; Body: { url: string } }>(
+    "/api/v1/agents/:id/pull-requests/refresh",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["url"],
+          properties: {
+            url: { type: "string", format: "uri", maxLength: 4096 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await deps.agentManager.getAgent(request.params.id)))
+        return reply.code(404).send({ error: "Agent not found." });
+      if (!deps.pullRequests)
+        return reply.code(503).send({ error: "PR tracking unavailable." });
+      try {
+        return {
+          pullRequests: await deps.pullRequests.refreshOne(
+            request.params.id,
+            request.body.url
+          ),
+        };
+      } catch (error) {
+        return reply.code(409).send({
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not refresh PR. Please try again.",
+        });
+      }
+    }
+  );
+  app.post<{ Params: { id: string }; Body: { url: string } }>(
     "/api/v1/agents/:id/pull-requests/dismiss",
     {
       schema: {

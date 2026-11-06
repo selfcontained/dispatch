@@ -3,6 +3,7 @@ import { AgentLinkControls, AgentMetadataLink } from "./agent-link-controls";
 import { previewPullRequests } from "./agent-pull-requests.preview";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
+  RefreshCw,
   ExternalLink,
   Clock,
   CircleCheck,
@@ -283,6 +284,7 @@ export function AgentPullRequests({
           <PullRequestRow
             key={pr.url}
             pr={pr}
+            agentId={agentId}
             onDismiss={() => dismiss.mutate(pr.url)}
             agentName={agentName}
             isError={isError}
@@ -294,10 +296,12 @@ export function AgentPullRequests({
 
 export function PullRequestRow({
   onDismiss,
+  agentId,
   pr,
   isError,
 }: {
   onDismiss: () => void;
+  agentId?: string;
   pr: PresentedPullRequest;
   agentName?: string;
   isError: boolean;
@@ -512,13 +516,14 @@ export function PullRequestRow({
           {pr.ci && (
             <div className="flex justify-between gap-3 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
               <span title={pr.ci.checkedAt}>
-                Checked{" "}
+                Last checked{" "}
                 {new Date(pr.ci.checkedAt).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
               </span>
-              <span>
+              {agentId && <RefreshPullRequest agentId={agentId} url={pr.url} />}
+              <span className="ml-auto">
                 Commit{" "}
                 <span className="font-mono">
                   {pr.ci.headSha.slice(0, 7) || "Unknown"}
@@ -529,5 +534,61 @@ export function PullRequestRow({
         </>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function RefreshPullRequest({
+  agentId,
+  url,
+}: {
+  agentId: string;
+  url: string;
+}) {
+  const client = useQueryClient();
+  const refresh = useMutation({
+    mutationFn: () =>
+      api(`/api/v1/agents/${agentId}/pull-requests/refresh`, {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
+    onSuccess: async () => {
+      // Read the current server snapshot rather than installing a response that
+      // could race dismissal or a newer SSE observation.
+      await client.invalidateQueries({
+        queryKey: ["agent-pull-requests", agentId],
+      });
+    },
+  });
+  return (
+    <div>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Refresh pull request checks"
+        title="Refresh pull request checks"
+        disabled={refresh.isPending}
+        aria-busy={refresh.isPending}
+        onClick={() => {
+          if (!refresh.isPending) refresh.mutate();
+        }}
+      >
+        <RefreshCw
+          aria-hidden="true"
+          className={cn("h-3 w-3", refresh.isPending && "animate-spin")}
+        />
+      </Button>
+      {refresh.isPending && (
+        <span role="status" className="sr-only">
+          Refreshing checks
+        </span>
+      )}
+      {refresh.isError && (
+        <p role="alert" className="text-destructive">
+          {refresh.error instanceof Error
+            ? refresh.error.message
+            : "Could not refresh. Please try again."}
+        </p>
+      )}
+    </div>
   );
 }
