@@ -299,17 +299,26 @@ export function AgentPullRequests({
 }) {
   const client = useQueryClient();
   const [hidden, setHidden] = useState<string[]>([]);
+  const [failed, setFailed] = useState<string[]>([]);
+  const hasDismissError = failed.some((key) => key.startsWith(`${agentId}:`));
   const dismiss = useMutation({
     mutationFn: (url: string) =>
       api(`/api/v1/agents/${agentId}/pull-requests/dismiss`, {
         method: "POST",
         body: JSON.stringify({ url }),
       }),
-    onMutate: (url) => setHidden((values) => [...values, `${agentId}:${url}`]),
-    onError: (_error, url) =>
+    onMutate: (url) => {
+      setHidden((values) => [...values, `${agentId}:${url}`]);
+      setFailed((values) =>
+        values.filter((value) => value !== `${agentId}:${url}`)
+      );
+    },
+    onError: (_error, url) => {
+      setFailed((values) => [...values, `${agentId}:${url}`]);
       setHidden((values) =>
         values.filter((value) => value !== `${agentId}:${url}`)
-      ),
+      );
+    },
     onSuccess: () => {
       void client.invalidateQueries({
         queryKey: ["agent-pull-requests", agentId],
@@ -332,7 +341,7 @@ export function AgentPullRequests({
     refetchOnWindowFocus: false,
   });
   const prs = preview ? previewPullRequests : (data?.pullRequests ?? []);
-  if (!prs.length && !dismiss.isError)
+  if (!prs.length && !hasDismissError)
     return isError ? (
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
         <CircleHelp className="h-3.5 w-3.5 shrink-0" />
@@ -341,7 +350,7 @@ export function AgentPullRequests({
     ) : null;
   return (
     <div data-testid={`agent-pr-row-${agentId}`} className="space-y-1">
-      {dismiss.isError && (
+      {hasDismissError && (
         <p role="alert" className="text-xs text-destructive">
           Could not dismiss PR. Please try again.
         </p>

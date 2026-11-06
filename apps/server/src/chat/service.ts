@@ -2677,11 +2677,25 @@ export class StreamService {
   }
 
   /** Persist a system observation in the owner's home, without creating PR inventory. */
-  async pullRequestTransition(
+  pullRequestTransition(
     agentId: string,
     previous: import("@dispatch/shared").AgentPullRequest,
     current: import("@dispatch/shared").AgentPullRequest
-  ): Promise<Block> {
+  ): Promise<Block>;
+  pullRequestTransition(
+    agentId: string,
+    previous: import("@dispatch/shared").AgentPullRequest,
+    current: import("@dispatch/shared").AgentPullRequest,
+    commit: import("../agents/pull-request-refresher.js").CommitPullRequestNotice
+  ): Promise<Block | undefined>;
+  async pullRequestTransition(
+    agentId: string,
+    previous: import("@dispatch/shared").AgentPullRequest,
+    current: import("@dispatch/shared").AgentPullRequest,
+    commit: import("../agents/pull-request-refresher.js").CommitPullRequestNotice = (
+      write
+    ) => write()
+  ): Promise<Block | undefined> {
     return this.withWrite(await this.streamOf(agentId), async () => {
       await this.requireAgent(agentId);
       const streamId = await this.streamOf(agentId);
@@ -2697,32 +2711,34 @@ export class StreamService {
           "PR notice retained without runtime delivery"
         );
       }
-      const block = await this.store.insert({
-        streamId,
-        author: { kind: "agent", agentId },
-        toAgentId: agentId,
-        kind: "text",
-        threadId: home?.threadId ?? null,
-        replyTo: home?.replyTo ?? null,
-        text: `Dispatch system: tracked PR status changed ${previous.status} → ${current.status}. ${current.title}: ${current.url}`,
-        data: {
-          pullRequestTransition: {
-            previous: previous.status,
-            current: current.status,
+      return commit(async () => {
+        const block = await this.store.insert({
+          streamId,
+          author: { kind: "agent", agentId },
+          toAgentId: agentId,
+          kind: "text",
+          threadId: home?.threadId ?? null,
+          replyTo: home?.replyTo ?? null,
+          text: `Dispatch system: tracked PR status changed ${previous.status} → ${current.status}. ${current.title}: ${current.url}`,
+          data: {
+            pullRequestTransition: {
+              previous: previous.status,
+              current: current.status,
+            },
           },
-        },
-        state: null,
-        attachments: [{ type: "pr", url: current.url, title: current.title }],
-        delivered: live ? null : false,
-      });
-      await this.publishEntry(streamId, block.id);
-      if (live)
-        await this.deliverBlock(block, {
-          kind: "agent",
-          agentId,
-          name: "Dispatch system",
+          state: null,
+          attachments: [{ type: "pr", url: current.url, title: current.title }],
+          delivered: live ? null : false,
         });
-      return block;
+        await this.publishEntry(streamId, block.id);
+        if (live)
+          await this.deliverBlock(block, {
+            kind: "agent",
+            agentId,
+            name: "Dispatch system",
+          });
+        return block;
+      });
     });
   }
 

@@ -31,7 +31,13 @@ function fixture(count = 1) {
     })
   );
   const publish = vi.fn();
-  const notify = vi.fn().mockResolvedValue(undefined);
+  const notify = vi
+    .fn<
+      NonNullable<
+        ConstructorParameters<typeof PullRequestRefresher>[0]["notify"]
+      >
+    >()
+    .mockResolvedValue(undefined);
   const listAgentIds = vi.fn().mockResolvedValue(["a", "b"]);
   const service = new PullRequestRefresher({
     pool: { query } as unknown as Pool,
@@ -89,6 +95,68 @@ describe("server PR orchestration", () => {
     expect(f.notify).not.toHaveBeenCalled();
     await f.service.stop();
   });
+  it("cancels a notice still preparing after dismissal completes", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    await f.service.refresh();
+    let resume!: () => void;
+    const preparing = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const write = vi.fn();
+    f.notify.mockImplementation(async (_id, _previous, _current, commit) => {
+      await preparing;
+      await commit(write);
+    });
+    f.read.mockImplementation(async (url, title) => ({
+      url,
+      title,
+      status: "Closed",
+    }));
+    vi.setSystemTime(Date.now() + 6 * 60 * 60_000);
+    const refresh = f.service.refresh();
+    await vi.waitFor(() => expect(f.notify).toHaveBeenCalled());
+    await f.service.dismiss("a", "https://github.com/a/b/pull/0");
+    resume();
+    await refresh;
+    expect(write).not.toHaveBeenCalled();
+    await f.service.stop();
+  });
+  it("waits for a notice already writing before acknowledging dismissal", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    await f.service.refresh();
+    let finish!: () => void;
+    const writing = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const write = vi.fn(() => writing);
+    f.notify.mockImplementation(async (_id, _previous, _current, commit) => {
+      await commit(write);
+    });
+    f.read.mockImplementation(async (url, title) => ({
+      url,
+      title,
+      status: "Closed",
+    }));
+    vi.setSystemTime(Date.now() + 6 * 60 * 60_000);
+    const refresh = f.service.refresh();
+    await vi.waitFor(() => expect(write).toHaveBeenCalled());
+    let acknowledged = false;
+    const dismissal = f.service
+      .dismiss("a", "https://github.com/a/b/pull/0")
+      .then(() => {
+        acknowledged = true;
+      });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(acknowledged).toBe(false);
+    finish();
+    await Promise.all([refresh, dismissal]);
+    expect(acknowledged).toBe(true);
+    expect(f.service.get("a")).toEqual([]);
+    await f.service.stop();
+  });
   it("leaves association visible on a failed durable write", async () => {
     const f = fixture();
     await f.service.refresh();
@@ -128,7 +196,8 @@ describe("server PR orchestration", () => {
     expect(f.notify).toHaveBeenCalledWith(
       "a",
       expect.objectContaining({ status: "Open" }),
-      expect.objectContaining({ status: "Closed" })
+      expect.objectContaining({ status: "Closed" }),
+      expect.any(Function)
     );
     vi.setSystemTime(Date.now() + 24 * 60 * 60_000);
     await f.service.refresh();
@@ -175,7 +244,8 @@ describe("server PR orchestration", () => {
     expect(f.notify).toHaveBeenCalledWith(
       "b",
       expect.anything(),
-      expect.objectContaining({ status: "Closed" })
+      expect.objectContaining({ status: "Closed" }),
+      expect.any(Function)
     );
   });
   it("deduplicates across agents and ignores ordinary links with PR-looking URLs", async () => {

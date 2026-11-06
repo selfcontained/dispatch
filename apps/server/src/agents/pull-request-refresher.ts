@@ -6,6 +6,10 @@ import {
   githubPullRequestUrl,
 } from "./pull-request-reader.js";
 
+export type CommitPullRequestNotice = <T>(
+  write: () => Promise<T>
+) => Promise<T | undefined>;
+
 type Options = {
   pool: Pool;
   listAgentIds: () => Promise<string[]>;
@@ -14,13 +18,15 @@ type Options = {
   notify?: (
     agentId: string,
     previous: AgentPullRequest,
-    current: AgentPullRequest
+    current: AgentPullRequest,
+    commit: CommitPullRequestNotice
   ) => Promise<void>;
   warn: (error: unknown) => void;
 };
 
 /** One server-owned queue, independent of browser count and mounted rows. */
 export class PullRequestRefresher {
+  private noticeWrites = new Map<string, Set<Promise<unknown>>>();
   private dismissed = new Map<string, Set<string>>();
   private isDismissed(agentId: string, url: string) {
     return this.dismissed.get(agentId)?.has(url) ?? false;
@@ -35,6 +41,11 @@ export class PullRequestRefresher {
     const own = this.dismissed.get(agentId) ?? new Set<string>();
     own.add(key);
     this.dismissed.set(agentId, own);
+    // A notice that already crossed the write boundary must finish before
+    // dismissal succeeds. Earlier async preparation will fail its guard.
+    await Promise.allSettled([
+      ...(this.noticeWrites.get(`${agentId}:${key}`) ?? []),
+    ]);
     const next = this.get(agentId).filter((pr) => pr.url !== key);
     this.snapshots.set(agentId, next);
     this.options.publish({
@@ -288,7 +299,27 @@ export class PullRequestRefresher {
                 const before = previous.lifecycle;
                 notices.push(async () => {
                   if (!this.isDismissed(id, url))
-                    await this.options.notify!(id, before, value);
+                    await this.options.notify!(
+                      id,
+                      before,
+                      value,
+                      async (write) => {
+                        if (this.isDismissed(id, url)) return undefined;
+                        const key = `${id}:${url}`;
+                        const writes =
+                          this.noticeWrites.get(key) ??
+                          new Set<Promise<unknown>>();
+                        const flight = Promise.resolve().then(write);
+                        writes.add(flight);
+                        this.noticeWrites.set(key, writes);
+                        try {
+                          return await flight;
+                        } finally {
+                          writes.delete(flight);
+                          if (!writes.size) this.noticeWrites.delete(key);
+                        }
+                      }
+                    );
                 });
               }
             }
