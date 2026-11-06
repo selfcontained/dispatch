@@ -18,6 +18,18 @@ describe("launch guidance", () => {
     expect(guidance).toContain("link (documents and generic URLs)");
   });
 
+  it("separates output home, source anchors and recipient delivery", () => {
+    const guidance = buildLaunchGuidance("agt_child", {});
+    expect(guidance).toContain(
+      "Every agent, including a child, owns a home stream"
+    );
+    expect(guidance).toContain("Incoming source discussions never move output");
+    expect(guidance).toContain("agentHome child plus to child");
+    expect(guidance).toContain("to (delivery only)");
+    expect(guidance).not.toContain("launch-card thread");
+    expect(guidance).not.toContain("stay in the current conversation");
+  });
+
   it("keeps unattended jobs on their dedicated lifecycle", () => {
     const guidance = buildLaunchGuidance("agt_job", { jobRunId: "run-123" });
     expect(guidance).toContain("run-123");

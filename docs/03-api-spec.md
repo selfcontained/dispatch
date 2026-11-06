@@ -651,16 +651,27 @@ Agent-scoped and job-scoped MCP both load repo tools from `.dispatch/tools.json`
 
 ### Explicit agent post placement
 
-MCP `post` accepts `placement: "current" | "home" | "root"` for text (including
-attachments), links, and tasks. Omission/current keeps the active turn's location,
-falling back to home. Home is the agent's own root stream or a child's launch
-thread. Root is the top level of that same shared stream, including for children.
-Incoming cross-stream messages do not redefine home/root. Placement affects only
-the new block, not the active turn or subsequent prose. It does not infer delivery
-recipients; `to` remains explicit. `replyTo` selects a specific discussion instead
-and cannot combine with placement. Questions, forms, and reviews reject explicit
-placement to preserve their existing workflow routing. The receipt includes
-`streamId`, `threadId`, and `replyTo` alongside the block ID, kind, and timestamp.
+Every agent, including children, owns a home stream. New ordinary output always
+opens at its own home root. Input discussion, task, request and finding anchors
+remain source context; they never make ordinary prose sticky. Legacy already-open
+output retains its stored location until settlement; historical URLs stay valid.
+
+MCP `post` default and `placement: "current" | "home" | "root"` all select the
+sender's own home root. `agentHome: <agentId>` explicitly selects an authorized
+agent home, independently of `to` (recipient/delivery only). Parent-to-child
+coordination selects child home and addresses child; child-to-parent coordination
+normally stays at child home and addresses parent. Deliberate parent-home posts
+remain subject to lineage authorization. No destination grants read access.
+
+`replyTo` selects an original authorized discussion anchor; `taskId` selects task
+chat with existing task access checks. `agentHome` conflicts with replyTo, taskId
+and placement. Questions, forms and reviews preserve dedicated routing and reject
+agentHome/placement overrides. Answers and finding replies retain original IDs
+and ownership. Placement conflicts with replyTo/taskId. Explicit posts never move
+subsequent ordinary output. Receipts report actual `streamId`, `threadId` and
+`replyTo` with block ID, kind and timestamp; they do not prove delivery pickup.
+Context tools distinguish source discussion from output home. Authorship,
+immutable share provenance, private thread and task permissions remain unchanged.
 
 ### Scoped verifiable message sharing
 
