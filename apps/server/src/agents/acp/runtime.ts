@@ -1,3 +1,7 @@
+import {
+  ownedEnvironment,
+  killOwnedProcesses,
+} from "../../shared/process/owned-processes.js";
 import { preparePersonaContext } from "./persona-context.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import { spawn } from "node:child_process";
@@ -145,7 +149,9 @@ export function hostProcessEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     if (value === undefined) continue;
     if (
       ENV_DENY_EXACT.has(key) ||
-      (key.startsWith("DISPATCH_") && !ENV_ALLOW_DISPATCH.has(key))
+      (key.startsWith("DISPATCH_") &&
+        !ENV_ALLOW_DISPATCH.has(key) &&
+        !/^DISPATCH_OWNED_[a-f0-9]{32}$/.test(key))
     )
       continue;
     env[key] = value;
@@ -844,9 +850,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         "--state",
         dir,
       ]);
+      const owned = ownedEnvironment(hostProcessEnv(process.env));
+      await writeFile(path.join(dir, "ownership"), owned.marker, {
+        mode: 0o600,
+      });
       const child = spawn(bin, args, {
         cwd: input.cwd,
-        env: hostProcessEnv(process.env),
+        env: owned.env,
         detached: true,
         stdio: ["ignore", logFd, logFd],
       });
@@ -856,6 +866,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       let exited = false;
       child.on("exit", () => {
         exited = true;
+        try {
+          killOwnedProcesses(owned.marker);
+        } catch (err) {
+          logger.warn(
+            { err, agentId: input.agentId },
+            "host descendant cleanup failed"
+          );
+        }
       });
       child.on("error", (err) => {
         exited = true;
@@ -1186,6 +1204,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           }
           if (pidAlive(pid)) signalGroup(pid, "SIGKILL");
         }
+      }
+      const marker = await readFile(path.join(dir, "ownership"), "utf8").catch(
+        () => null
+      );
+      if (marker) {
+        killOwnedProcesses(marker);
+        await unlink(path.join(dir, "ownership")).catch(() => {});
       }
       entry?.client.close();
       await unlink(hostFile(dir, "socket")).catch(() => {});

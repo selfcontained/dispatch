@@ -1,3 +1,7 @@
+import {
+  ownedEnvironment,
+  killOwnedProcesses,
+} from "../../shared/process/owned-processes.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseMcpInventory } from "./mcp-inventory.js";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
@@ -396,12 +400,18 @@ function defaultSpawn(
   // its own, and a signal to the adapter alone leaves that CLI running with
   // full-access permissions and a live MCP token. signalChild targets the
   // group.
-  return nodeSpawn(bin, args, {
+  const owned = ownedEnvironment(opts.env);
+  const child = nodeSpawn(bin, args, {
     ...opts,
+    env: owned.env,
     stdio: ["pipe", "pipe", "pipe"],
     detached: process.platform !== "win32",
   });
+  ownedChildren.set(child, owned.marker);
+  return child;
 }
+
+const ownedChildren = new WeakMap<object, string>();
 
 /**
  * Signal the child and everything it spawned. The group is addressed by
@@ -409,9 +419,19 @@ function defaultSpawn(
  * without a pid, or one whose group is already gone, gets the plain kill.
  */
 function signalChild(child: ChildProcessLike, signal: NodeJS.Signals): void {
+  const marker = ownedChildren.get(child);
+  let cleanupError: unknown;
+  if (marker && signal === "SIGKILL") {
+    try {
+      killOwnedProcesses(marker);
+    } catch (err) {
+      cleanupError = err;
+    }
+  }
   if (child.pid && process.platform !== "win32") {
     try {
       process.kill(-child.pid, signal);
+      if (cleanupError) throw cleanupError;
       return;
     } catch {
       // ESRCH: the group is gone already. Anything else: fall back to the
@@ -419,6 +439,7 @@ function signalChild(child: ChildProcessLike, signal: NodeJS.Signals): void {
     }
   }
   child.kill(signal);
+  if (cleanupError) throw cleanupError;
 }
 
 function describeExit(exit: ExitInfo): string {
@@ -565,6 +586,17 @@ export class AcpDriver {
     });
     void exited.then((exit) => {
       settledExit = exit;
+      const marker = ownedChildren.get(child);
+      if (marker) {
+        try {
+          killOwnedProcesses(marker);
+        } catch (err) {
+          this.opts.logger.warn(
+            { err, agentId: launch.agentId },
+            "adapter descendant cleanup failed"
+          );
+        }
+      }
       this.permissions.cancel(launch.agentId);
     });
     // Bounded by lines and by bytes: the tail lands in a status row the feed
@@ -1433,6 +1465,8 @@ export class AcpDriver {
     if (!(await exitedWithin(TEARDOWN_STEP_MS)))
       signalChild(entry.child, "SIGKILL");
     await entry.exited;
+    const marker = ownedChildren.get(entry.child);
+    if (marker) killOwnedProcesses(marker);
     this.live.delete(agentId);
   }
 
