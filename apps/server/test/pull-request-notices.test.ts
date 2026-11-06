@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentError } from "../src/agents/errors.js";
 import { PullRequestRefresher } from "../src/agents/pull-request-refresher.js";
 import type { Pool } from "pg";
@@ -99,6 +99,78 @@ describe("PR observation delivery", () => {
     await service.update("child", explicit.id, { attachments: [] });
     await refresher.refresh();
     expect(refresher.get("child")).toEqual([]);
+    // Durable dismissals leave authored blocks and generated provenance intact.
+    await service.update("child", explicit.id, {
+      attachments: block.attachments,
+    });
+    await service.post("parent", {
+      text: "Shared PR",
+      attachments: block.attachments,
+    });
+    await refresher.dismiss(
+      "child",
+      "https://github.com/A/B/pull/001#discussion"
+    );
+    await service.post("child", {
+      text: "Reposted PR",
+      attachments: block.attachments,
+    });
+    const restarted = new PullRequestRefresher({
+      pool,
+      listAgentIds: async () => ["child", "parent"],
+      publish: () => {},
+      warn: () => {},
+      read: async () => current,
+    });
+    await restarted.refresh();
+    expect(restarted.get("child")).toEqual([]);
+    expect(restarted.get("parent")).toHaveLength(1);
+    expect((await service.store.getById(explicit.id))?.attachments).toEqual(
+      block.attachments
+    );
+    expect((await service.store.getById(block.id))?.data).toEqual(block.data);
+    await restarted.stop();
+    await refresher.stop();
+    // Pause actual StreamService preparation; cancellation is rechecked after
+    // access resolves and before any persisted observation or runtime delivery.
+    let resumeAccess!: () => void;
+    let enteredAccess!: () => void;
+    const accessEntered = new Promise<void>((resolve) => {
+      enteredAccess = resolve;
+    });
+    const accessPaused = new Promise<void>((resolve) => {
+      resumeAccess = resolve;
+    });
+    const accessSpy = vi
+      .spyOn(service as any, "canDeliver")
+      .mockImplementation(async () => {
+        enteredAccess();
+        await accessPaused;
+        return true;
+      });
+    const beforeNotices = await pool.query(
+      "SELECT id FROM blocks WHERE data ? 'pullRequestTransition'"
+    );
+    let active = true;
+    const pendingNotice = service.pullRequestTransition(
+      "child",
+      previous,
+      current,
+      async (write) => (active ? write() : undefined)
+    );
+    await accessEntered;
+    active = false;
+    resumeAccess();
+    expect(await pendingNotice).toBeUndefined();
+    accessSpy.mockRestore();
+    expect(
+      (
+        await pool.query(
+          "SELECT id FROM blocks WHERE data ? 'pullRequestTransition'"
+        )
+      ).rows
+    ).toEqual(beforeNotices.rows);
+    expect(injected).toHaveLength(1);
     const stopped = await service.pullRequestTransition(
       "stopped",
       previous,

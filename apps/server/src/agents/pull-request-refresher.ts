@@ -6,6 +6,10 @@ import {
   githubPullRequestUrl,
 } from "./pull-request-reader.js";
 
+export type CommitPullRequestNotice = <T>(
+  write: () => Promise<T>
+) => Promise<T | undefined>;
+
 type Options = {
   pool: Pool;
   listAgentIds: () => Promise<string[]>;
@@ -14,13 +18,43 @@ type Options = {
   notify?: (
     agentId: string,
     previous: AgentPullRequest,
-    current: AgentPullRequest
+    current: AgentPullRequest,
+    commit: CommitPullRequestNotice
   ) => Promise<void>;
   warn: (error: unknown) => void;
 };
 
 /** One server-owned queue, independent of browser count and mounted rows. */
 export class PullRequestRefresher {
+  private noticeWrites = new Map<string, Set<Promise<unknown>>>();
+  private dismissed = new Map<string, Set<string>>();
+  private isDismissed(agentId: string, url: string) {
+    return this.dismissed.get(agentId)?.has(url) ?? false;
+  }
+  async dismiss(agentId: string, url: string) {
+    const key = githubPullRequestUrl(url) ?? url;
+    await this.options.pool.query(
+      `INSERT INTO agent_pr_dismissals (agent_id, url) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [agentId, key]
+    );
+    const own = this.dismissed.get(agentId) ?? new Set<string>();
+    own.add(key);
+    this.dismissed.set(agentId, own);
+    // A notice that already crossed the write boundary must finish before
+    // dismissal succeeds. Earlier async preparation will fail its guard.
+    await Promise.allSettled([
+      ...(this.noticeWrites.get(`${agentId}:${key}`) ?? []),
+    ]);
+    const next = this.get(agentId).filter((pr) => pr.url !== key);
+    this.snapshots.set(agentId, next);
+    this.options.publish({
+      type: "agent.pull_requests_changed",
+      agentId,
+      pullRequests: next,
+    });
+    this.signal();
+  }
   private snapshots = new Map<string, AgentPullRequest[]>();
   private urls = new Map<
     string,
@@ -132,6 +166,18 @@ export class PullRequestRefresher {
   }
   private async reconcile() {
     const ids = await this.options.listAgentIds();
+    const tombstones = await this.options.pool.query<{
+      agent_id: string;
+      url: string;
+    }>(
+      "SELECT agent_id, url FROM agent_pr_dismissals WHERE agent_id = ANY($1::text[])",
+      [ids]
+    );
+    for (const row of tombstones.rows) {
+      const own = this.dismissed.get(row.agent_id) ?? new Set<string>();
+      own.add(row.url);
+      this.dismissed.set(row.agent_id, own);
+    }
     const { rows } = await this.options.pool.query<{
       id: string;
       author_agent_id: string;
@@ -163,6 +209,7 @@ export class PullRequestRefresher {
         }
         if (url.protocol !== "https:" && url.protocol !== "http:") continue;
         const key = githubPullRequestUrl(attachment.url) ?? attachment.url;
+        if (this.isDismissed(row.author_agent_id, key)) continue;
         if (!links.has(key)) links.set(key, attachment.title ?? key);
         const own = agents.get(row.author_agent_id) ?? new Set<string>();
         own.add(key);
@@ -171,13 +218,14 @@ export class PullRequestRefresher {
     const publishSnapshots = () => {
       if (this.stopped) return;
       for (const id of new Set([...ids, ...this.snapshots.keys()])) {
-        const next = [...(agents.get(id) ?? [])].flatMap(
-          (url) =>
-            this.urls.get(url)?.value ?? {
-              url,
-              title: links.get(url) ?? url,
-              status: "Pending" as const,
-            }
+        const next = [...(agents.get(id) ?? [])].flatMap((url) =>
+          this.isDismissed(id, url)
+            ? []
+            : (this.urls.get(url)?.value ?? {
+                url,
+                title: links.get(url) ?? url,
+                status: "Pending" as const,
+              })
         );
         if (JSON.stringify(this.get(id)) !== JSON.stringify(next)) {
           this.snapshots.set(id, next);
@@ -249,7 +297,30 @@ export class PullRequestRefresher {
                 this.options.notify
               ) {
                 const before = previous.lifecycle;
-                notices.push(() => this.options.notify!(id, before, value));
+                notices.push(async () => {
+                  if (!this.isDismissed(id, url))
+                    await this.options.notify!(
+                      id,
+                      before,
+                      value,
+                      async (write) => {
+                        if (this.isDismissed(id, url)) return undefined;
+                        const key = `${id}:${url}`;
+                        const writes =
+                          this.noticeWrites.get(key) ??
+                          new Set<Promise<unknown>>();
+                        const flight = Promise.resolve().then(write);
+                        writes.add(flight);
+                        this.noticeWrites.set(key, writes);
+                        try {
+                          return await flight;
+                        } finally {
+                          writes.delete(flight);
+                          if (!writes.size) this.noticeWrites.delete(key);
+                        }
+                      }
+                    );
+                });
               }
             }
           }

@@ -1,7 +1,8 @@
 import { useId, useRef, useState } from "react";
 import { previewPullRequests } from "./agent-pull-requests.preview";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
+  X,
   ExternalLink,
   Clock,
   CircleCheck,
@@ -296,6 +297,34 @@ export function AgentPullRequests({
   agentId: string;
   agentName?: string;
 }) {
+  const client = useQueryClient();
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [failed, setFailed] = useState<string[]>([]);
+  const hasDismissError = failed.some((key) => key.startsWith(`${agentId}:`));
+  const dismiss = useMutation({
+    mutationFn: (url: string) =>
+      api(`/api/v1/agents/${agentId}/pull-requests/dismiss`, {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
+    onMutate: (url) => {
+      setHidden((values) => [...values, `${agentId}:${url}`]);
+      setFailed((values) =>
+        values.filter((value) => value !== `${agentId}:${url}`)
+      );
+    },
+    onError: (_error, url) => {
+      setFailed((values) => [...values, `${agentId}:${url}`]);
+      setHidden((values) =>
+        values.filter((value) => value !== `${agentId}:${url}`)
+      );
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({
+        queryKey: ["agent-pull-requests", agentId],
+      });
+    },
+  });
   const preview =
     import.meta.env.DEV &&
     agentId === "seed-agent-running-main" &&
@@ -312,7 +341,7 @@ export function AgentPullRequests({
     refetchOnWindowFocus: false,
   });
   const prs = preview ? previewPullRequests : (data?.pullRequests ?? []);
-  if (!prs.length)
+  if (!prs.length && !hasDismissError)
     return isError ? (
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
         <CircleHelp className="h-3.5 w-3.5 shrink-0" />
@@ -321,22 +350,32 @@ export function AgentPullRequests({
     ) : null;
   return (
     <div data-testid={`agent-pr-row-${agentId}`} className="space-y-1">
-      {prs.map((pr) => (
-        <PullRequestRow
-          key={pr.url}
-          pr={pr}
-          agentName={agentName}
-          isError={isError}
-        />
-      ))}
+      {hasDismissError && (
+        <p role="alert" className="text-xs text-destructive">
+          Could not dismiss PR. Please try again.
+        </p>
+      )}
+      {prs
+        .filter((pr) => !hidden.includes(`${agentId}:${pr.url}`))
+        .map((pr) => (
+          <PullRequestRow
+            key={pr.url}
+            pr={pr}
+            onDismiss={() => dismiss.mutate(pr.url)}
+            agentName={agentName}
+            isError={isError}
+          />
+        ))}
     </div>
   );
 }
 
 function PullRequestRow({
+  onDismiss,
   pr,
   isError,
 }: {
+  onDismiss: () => void;
   pr: PresentedPullRequest;
   agentName?: string;
   isError: boolean;
@@ -406,6 +445,19 @@ function PullRequestRow({
             />
             <span className="sr-only">{STATES[status].label}</span>
           </a>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-agent-control="true"
+            aria-label={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
+            title={`Dismiss ${ref.repo} ${ref.number} from sidebar`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDismiss();
+            }}
+          >
+            <X aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
           {pr.ci && (
             <Button
               variant="ghost"
