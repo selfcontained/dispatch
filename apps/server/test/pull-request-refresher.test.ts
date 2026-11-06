@@ -69,6 +69,23 @@ describe("server PR orchestration", () => {
     await f.service.refresh();
     expect(f.notify).toHaveBeenCalledTimes(12);
   });
+  it("does not announce discovery, failed first lookup, or reconstructed restart baselines", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.read.mockRejectedValueOnce(new Error("API unavailable"));
+    await f.service.refresh();
+    vi.setSystemTime(Date.now() + 15 * 60_000);
+    await f.service.refresh();
+    expect(f.notify).not.toHaveBeenCalled();
+    const restarted = fixture();
+    restarted.read.mockImplementation(async (url, title) => ({
+      url,
+      title,
+      status: "Closed",
+    }));
+    await restarted.service.refresh();
+    expect(restarted.notify).not.toHaveBeenCalled();
+  });
   it("publishes cache updates despite recipient failures and ignores unchanged polls", async () => {
     vi.useFakeTimers();
     const f = fixture();
@@ -76,7 +93,11 @@ describe("server PR orchestration", () => {
     vi.setSystemTime(Date.now() + 5 * 60_000);
     await f.service.refresh();
     expect(f.notify).not.toHaveBeenCalled();
-    f.notify.mockRejectedValue(new Error("recipient unavailable"));
+    f.rows.push({ ...f.rows[0], author_agent_id: "b" });
+    await f.service.refresh();
+    f.notify.mockImplementation(async (id) => {
+      if (id === "a") throw new Error("recipient unavailable");
+    });
     f.read.mockImplementation(async (url, title) => ({
       url,
       title,
@@ -85,7 +106,12 @@ describe("server PR orchestration", () => {
     vi.setSystemTime(Date.now() + 5 * 60_000);
     await f.service.refresh();
     expect(f.service.get("a")[0].status).toBe("Closed");
-    expect(f.notify).toHaveBeenCalledTimes(1);
+    expect(f.notify).toHaveBeenCalledTimes(2);
+    expect(f.notify).toHaveBeenCalledWith(
+      "b",
+      expect.anything(),
+      expect.objectContaining({ status: "Closed" })
+    );
   });
   it("deduplicates across agents and ignores ordinary links with PR-looking URLs", async () => {
     const f = fixture();

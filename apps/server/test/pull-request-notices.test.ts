@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { AgentError } from "../src/agents/errors.js";
+import { PullRequestRefresher } from "../src/agents/pull-request-refresher.js";
 import type { Pool } from "pg";
 import { StreamService, type StreamAgent } from "../src/chat/service.js";
 import { setupTestDb, runTestMigrations, teardownTestDb } from "./db/setup.js";
@@ -10,7 +12,8 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO agents (id, name, cwd, status, parent_agent_id) VALUES
     ('parent', 'Parent', '/tmp', 'running', NULL),
     ('child', 'Child', '/tmp', 'running', 'parent'),
-    ('archived', 'Archived', '/tmp', 'archived', NULL)`);
+    ('archived', 'Archived', '/tmp', 'archived', NULL),
+    ('stopped', 'Stopped', '/tmp', 'stopped', NULL)`);
 });
 afterAll(() => teardownTestDb());
 describe("PR observation delivery", () => {
@@ -25,13 +28,19 @@ describe("PR observation delivery", () => {
           id,
           name: id,
           filesDir: null,
-          status: id === "archived" ? "archived" : "running",
+          status:
+            id === "archived"
+              ? "archived"
+              : id === "stopped"
+                ? "stopped"
+                : "running",
         }) as StreamAgent,
       delivery: {
-        access: async (id) =>
-          id === "archived"
-            ? { mode: "inert", message: "Archived" }
-            : { mode: "live" },
+        access: async (id) => {
+          if (id === "archived" || id === "stopped")
+            throw new AgentError("Agent is not running.", 409);
+          return { mode: "live" };
+        },
         inject: async (id, text) => {
           injected.push({ id, text });
         },
@@ -63,6 +72,39 @@ describe("PR observation delivery", () => {
     expect(injected).toHaveLength(1);
     expect(injected[0].id).toBe("child");
     expect(injected[0].text).toContain("Open → Merged");
+    for (const input of [
+      { data: {} },
+      { text: "rewritten" },
+      { attachments: [] },
+    ]) {
+      await expect(service.update("child", block.id, input)).rejects.toThrow(
+        "written by Dispatch"
+      );
+    }
+    expect((await service.store.getById(block.id))?.data).toEqual(block.data);
+    expect((await service.store.getById(block.id))?.text).toEqual(block.text);
+    const explicit = await service.post("child", {
+      text: "My PR",
+      attachments: block.attachments,
+    });
+    const refresher = new PullRequestRefresher({
+      pool,
+      listAgentIds: async () => ["child"],
+      publish: () => {},
+      warn: () => {},
+      read: async () => current,
+    });
+    await refresher.refresh();
+    expect(refresher.get("child")).toHaveLength(1);
+    await service.update("child", explicit.id, { attachments: [] });
+    await refresher.refresh();
+    expect(refresher.get("child")).toEqual([]);
+    const stopped = await service.pullRequestTransition(
+      "stopped",
+      previous,
+      current
+    );
+    expect(stopped.delivered).toBe(false);
     const archived = await service.pullRequestTransition(
       "archived",
       previous,
