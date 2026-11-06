@@ -40,8 +40,8 @@ export async function readArchivedAgentRetentionDays(
  * Hard-delete agents archived longer ago than the retention window: the
  * row (stream events, token usage and file rows cascade from it), the
  * status history and browser feedback that name it, the stream it rooted,
- * and its files directory. A child's posts live in its root's stream and
- * go when the root does. Returns the ids removed.
+ * and its files directory. Delete only each expired agent's own stream; legacy
+ * child posts in a surviving parent's stream remain there. Returns the ids removed.
  */
 export async function purgeExpiredArchivedAgents(
   deps: RetentionDeps

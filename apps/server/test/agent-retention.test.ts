@@ -124,6 +124,20 @@ describe("purgeExpiredArchivedAgents", () => {
     expect(await count("blocks", "stream_id", "live")).toBe(1);
   });
 
+  it("purges a child home while retaining its parent's conversation and legacy child history", async () => {
+    await seedAgent("parent");
+    await seedAgent("expired-child", { archivedDaysAgo: 40, parent: "parent" });
+    await seedBlock("parent", "parent");
+    await seedBlock("parent", "expired-child");
+    await seedBlock("expired-child", "expired-child");
+    expect(
+      await purgeExpiredArchivedAgents({ pool, logger, filesRoot })
+    ).toEqual(["expired-child"]);
+    expect(await count("agents", "id", "parent")).toBe(1);
+    expect(await count("blocks", "stream_id", "parent")).toBe(2);
+    expect(await count("blocks", "stream_id", "expired-child")).toBe(0);
+  });
+
   it("honours the setting, and 0 keeps everything", async () => {
     await seedAgent("week", { archivedDaysAgo: 8 });
     await setSetting(pool, ARCHIVED_AGENT_RETENTION_SETTING, "0");

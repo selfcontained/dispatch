@@ -826,7 +826,7 @@ describe("browser extension scoped API", () => {
         payload,
       });
       const receipt = response.json();
-      expect(receipt.streamId).toBe("agt_parent");
+      expect(receipt.streamId).toBe("agt_running");
       expect(receipt.threadId).toBeNull();
       const block = (
         await ctx.pool.query("SELECT id, thread_id FROM blocks WHERE id = $1", [
@@ -842,7 +842,7 @@ describe("browser extension scoped API", () => {
       expect(status.json()).toMatchObject({
         blockId: block.id,
         threadId: block.thread_id,
-        streamId: "agt_parent",
+        streamId: "agt_running",
       });
     } finally {
       await app.close();

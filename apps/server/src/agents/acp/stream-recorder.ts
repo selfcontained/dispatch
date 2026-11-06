@@ -396,7 +396,8 @@ export class StreamRecorder {
    * The open turn is in-memory state, and this process may not be the one
    * that opened it: after a server restart the host replays into a fresh
    * recorder. Read the newest turn row once per agent so a settle event
-   * lands on the turn it belongs to.
+   * lands on the turn it belongs to. Its stored block pointer is authoritative:
+   * reconnect must not re-home a legacy turn or response while it is open.
    */
   private async ensureLoaded(agentId: string): Promise<void> {
     if (this.loaded.has(agentId)) return;
@@ -503,8 +504,8 @@ export class StreamRecorder {
           // it, record an internal turn without interpreting its prompt text.
           let prompt = event.source ?? systemPromptSource(event.text);
           if (prompt.source === "engine" && !prompt.after) {
-            // A turn the engine started itself answers next to the answer
-            // before it.
+            // Preserve the preceding block as source context. The service
+            // gives every newly opened turn its own home-root destination.
             const previous = await this.store.lastTurn(event.agentId);
             const after = previous?.payload.blockId;
             if (typeof after === "string") prompt = { ...prompt, after };

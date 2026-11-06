@@ -26,6 +26,7 @@ import {
   type BlockRow,
   type BlockStore,
   OPEN_INPUT_SQL,
+  isBlockId,
   type Queryable,
   shownIdsOf,
   toBlock,
@@ -367,7 +368,7 @@ export async function attachShown(
         : block.kind === "form"
           ? block.state?.submission?.blockId
           : undefined;
-    return id ? [{ block, id }] : [];
+    return id && isBlockId(id) ? [{ block, id }] : [];
   });
   if (answered.length) {
     const replies = await listBlockEntries(
