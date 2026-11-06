@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { TAB_DRAG_MIME } from "@/components/app/center-pane-tab-bar";
@@ -22,8 +23,36 @@ export function useCenterPaneLayout({
 }: UseCenterPaneLayoutArgs) {
   const [isDraggingTab, setIsDraggingTab] = useState(false);
 
-  const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
-    useSplitPane(focusedAgentId, isMobile);
+  const {
+    splitState: savedSplitState,
+    isSplit,
+    exitSplit,
+    updateSizes,
+    handleTabDrop,
+  } = useSplitPane(focusedAgentId, isMobile);
+
+  const [params] = useSearchParams();
+  // A full-file deep link temporarily shows Files in the Changes slot. Keep
+  // the saved layout intact so Back/Forward restores the matching route pane.
+  const revealFile =
+    activeTab === "files" &&
+    params.has("files.path") &&
+    isSplit &&
+    savedSplitState.left !== "files" &&
+    savedSplitState.right !== "files";
+  const splitState = revealFile
+    ? {
+        ...savedSplitState,
+        left:
+          savedSplitState.left === "changes"
+            ? ("files" as const)
+            : savedSplitState.left,
+        right:
+          savedSplitState.right === "changes"
+            ? ("files" as const)
+            : savedSplitState.right,
+      }
+    : savedSplitState;
 
   const splitLeftRef = useRef<HTMLDivElement>(null);
   const splitButtonRef = useRef<HTMLButtonElement>(null);

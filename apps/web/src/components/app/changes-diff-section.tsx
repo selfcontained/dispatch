@@ -44,7 +44,6 @@ function statusIcon(file: DiffFile): JSX.Element {
 }
 
 type DiffPaneProps = DiffReviewAnnotationProps & {
-  isMobile?: boolean;
   workspace?: string | null;
   agentId: string | null;
   files: DiffFile[];
@@ -64,7 +63,6 @@ type DiffPaneProps = DiffReviewAnnotationProps & {
 
 export function DiffPane({
   workspace,
-  isMobile,
   agentId,
   files,
   collapsedFiles,
@@ -87,6 +85,7 @@ export function DiffPane({
   onStartReview,
   findings,
 }: DiffPaneProps): JSX.Element {
+  const requestVersion = useRef(0);
   const [paneWidth, setPaneWidth] = useState<number | null>(null);
   useLayoutEffect(() => {
     const pane = scrollRef.current;
@@ -136,7 +135,7 @@ export function DiffPane({
           key={file.path}
           agentId={agentId}
           workspace={workspace}
-          isMobile={isMobile}
+          requestVersion={requestVersion}
           file={file}
           collapsed={collapsedFiles.has(file.path)}
           onToggleCollapse={onToggleCollapse}
@@ -165,7 +164,7 @@ export function DiffPane({
 }
 
 type FileDiffSectionProps = DiffReviewAnnotationProps & {
-  isMobile?: boolean;
+  requestVersion: React.MutableRefObject<number>;
   workspace?: string | null;
   agentId: string | null;
   file: DiffFile;
@@ -186,8 +185,8 @@ type FileDiffSectionProps = DiffReviewAnnotationProps & {
 const contentHeights = new WeakMap<DiffFile, Map<string, number>>();
 
 const FileDiffSection = memo(function FileDiffSection({
+  requestVersion,
   workspace,
-  isMobile,
   agentId,
   file,
   collapsed,
@@ -315,7 +314,7 @@ const FileDiffSection = memo(function FileDiffSection({
         </button>
         <OpenFullFileButton
           key={`${agentId}:${workspace}`}
-          isMobile={isMobile}
+          requestVersion={requestVersion}
           agentId={agentId}
           workspace={workspace ?? null}
           path={file.path}

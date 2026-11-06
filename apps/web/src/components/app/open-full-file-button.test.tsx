@@ -1,5 +1,7 @@
+import { MemoryRouter, useNavigate } from "react-router-dom";
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -29,17 +31,20 @@ function mount(deleted = false) {
     value: () => ({ matches: false }),
   });
   return render(
-    <Provider>
-      <OpenFullFileButton
-        agentId="same-agent"
-        workspace="/effective workspace"
-        path="nested/new name.ts"
-        deleted={deleted}
-      />
-    </Provider>
+    <MemoryRouter>
+      <Provider>
+        <OpenFullFileButton
+          agentId="same-agent"
+          workspace="/effective workspace"
+          path="nested/new name.ts"
+          deleted={deleted}
+          requestVersion={{ current: 0 }}
+        />
+      </Provider>
+    </MemoryRouter>
   );
 }
-describe("Open full file", () => {
+describe("View file", () => {
   it("checks the exact current path in the effective workspace and pushes Files while preserving drawer pages", async () => {
     window.history.replaceState(
       null,
@@ -49,7 +54,7 @@ describe("Open full file", () => {
     api.mockResolvedValue({ kind: "text", text: "full content" });
     mount();
     fireEvent.click(
-      screen.getByRole("button", { name: "Open full file: nested/new name.ts" })
+      screen.getByRole("button", { name: "View file: nested/new name.ts" })
     );
     await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
     const request = new URL(api.mock.calls[0][0], "http://localhost");
@@ -62,6 +67,88 @@ describe("Open full file", () => {
     expect(target.searchParams.get("task")).toBe("task-id");
     for (const key of ["file", "path", "line", "finding"])
       expect(target.searchParams.has(key)).toBe(false);
+  });
+  it("ignores an older sibling check after a newer file wins", async () => {
+    let finishFirst!: (value: unknown) => void;
+    api.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishFirst = resolve;
+        })
+    );
+    api.mockResolvedValueOnce({ kind: "text", text: "newer" });
+    const requestVersion = { current: 0 };
+    render(
+      <MemoryRouter>
+        <Provider>
+          {["first.txt", "newer.txt"].map((path) => (
+            <OpenFullFileButton
+              key={path}
+              agentId="same-agent"
+              workspace="/effective workspace"
+              path={path}
+              deleted={false}
+              requestVersion={requestVersion}
+            />
+          ))}
+        </Provider>
+      </MemoryRouter>
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "View file: first.txt" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "View file: newer.txt" })
+    );
+    await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+    await act(async () => {
+      finishFirst({ kind: "text", text: "older" });
+    });
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(navigate.mock.calls[0][0]).toContain("files.path=newer.txt");
+  });
+  it("ignores a pending check after an intervening route selection", async () => {
+    let finish!: (value: unknown) => void;
+    api.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    function RouteSelection() {
+      const select = useNavigate();
+      return (
+        <button
+          onClick={() =>
+            select("/agents/same-agent/files?files.path=chosen.txt")
+          }
+        >
+          Choose another file
+        </button>
+      );
+    }
+    render(
+      <MemoryRouter>
+        <Provider>
+          <OpenFullFileButton
+            agentId="same-agent"
+            workspace="/effective workspace"
+            path="slow.txt"
+            deleted={false}
+            requestVersion={{ current: 0 }}
+          />
+          <RouteSelection />
+        </Provider>
+      </MemoryRouter>
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "View file: slow.txt" })
+    );
+    fireEvent.click(screen.getByText("Choose another file"));
+    await act(async () => {
+      finish({ kind: "text", text: "late" });
+    });
+    expect(navigate).not.toHaveBeenCalled();
   });
   it("keeps the diff visible and explains an absent working-tree file", async () => {
     api.mockRejectedValue(new Error("not found"));
