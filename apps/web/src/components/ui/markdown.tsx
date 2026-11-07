@@ -93,7 +93,7 @@ type MarkdownProps = {
   /** Keep unfinished Mermaid fences as source while the reply is arriving. */
   streaming?: boolean;
   className?: string;
-  variant?: "default" | "pin" | "caption" | "inline";
+  variant?: "default" | "pin" | "caption" | "inline" | "snapshot";
   /** Decorate prose text without altering Markdown syntax or code. */
   renderText?: (text: string) => ReactNode;
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
@@ -112,6 +112,36 @@ export const Markdown = memo(function Markdown({
   headingAccents = false,
   streaming = false,
 }: MarkdownProps): JSX.Element {
+  if (variant === "snapshot") {
+    return (
+      <div
+        className={cn(
+          "prose prose-sm min-w-0 max-w-full text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-a:text-primary prose-a:underline prose-code:text-foreground prose-pre:bg-muted prose-pre:text-foreground prose-li:text-foreground prose-li:marker:text-muted-foreground prose-blockquote:text-muted-foreground prose-blockquote:border-border prose-th:text-foreground prose-thead:border-border prose-tr:border-border [overflow-wrap:anywhere] [&_p]:my-1 [&_pre]:whitespace-pre-wrap",
+          className
+        )}
+      >
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          skipHtml
+          components={{
+            img: ({ alt }) => <span>{alt || "Image"} (metadata only)</span>,
+            input: ({ checked }) => <span>{checked ? "☑" : "☐"}</span>,
+            a: ({ href, children }) =>
+              href && /^https?:\/\//i.test(href) ? (
+                <a href={href} target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              ) : (
+                <span>{children}</span>
+              ),
+          }}
+        >
+          {children}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
   if (variant === "pin") {
     return <MarkdownPin className={className}>{children}</MarkdownPin>;
   }
