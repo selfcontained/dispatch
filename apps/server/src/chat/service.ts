@@ -2336,7 +2336,8 @@ export class StreamService {
         ? `${sourceTask.title} · task conversation${source.threadId ? " · thread" : ""}`
         : `${sourceOwner?.name || "Original agent"}’s stream${source.threadId ? " · thread" : " · main conversation"}`,
     };
-    const streamId = await this.streamOf(to);
+    // Location belongs to the sharer; recipient selection only controls delivery.
+    const streamId = await this.streamOf(agentId);
     return this.withWrite(streamId, async () => {
       const client = await this.deps.pool.connect();
       let share: MessageShare;
@@ -2415,7 +2416,8 @@ export class StreamService {
       }
       if (send) {
         try {
-          await this.publishEntry(streamId, notification.id);
+          // Old receipts retain their original container, including on retry.
+          await this.publishEntry(notification.streamId, notification.id);
           await this.deliverBlock(notification, {
             kind: "agent",
             agentId,
@@ -2430,6 +2432,8 @@ export class StreamService {
         id: share.id,
         sourceId: share.source_id,
         notificationId: notification.id,
+        streamId: notification.streamId,
+        threadId: notification.threadId,
         sharer: share.sharer_id,
         recipient: share.recipient_id,
         sharedAt: share.created_at.toISOString(),

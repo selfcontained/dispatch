@@ -391,6 +391,7 @@ export type SharedMessagePresentation = {
   id: string;
   sourceId: string;
   sharedAt: string;
+  originalAt?: string;
   sharer: string;
   originalAuthor: string;
   source: string;

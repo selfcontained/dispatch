@@ -111,6 +111,7 @@ export async function attachMessageShares(db: Queryable, blocks: Block[]) {
         ? { sourceLocation: share.snapshot.sourceLocation }
         : {}),
       sharedAt: share.created_at.toISOString(),
+      originalAt: message.createdAt,
       sharer: labels?.sharer ?? "Sharing agent",
       originalAuthor:
         labels?.originalAuthor ??

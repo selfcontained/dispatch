@@ -8718,6 +8718,72 @@ describe("scoped verifiable message sharing", () => {
       },
     });
   }
+  it("keeps child-to-parent shares at child home and delivers independently", async () => {
+    await pool.query("UPDATE agents SET parent_agent_id = $1 WHERE id = $2", [
+      A,
+      B,
+    ]);
+    try {
+      const { svc, injected } = sharing();
+      const original = await svc.post(B, { text: "Child-owned evidence" });
+      const receipt = await svc.shareMessage(B, original.id, A);
+      await svc.waitForInFlightDeliveries(1000);
+      expect(receipt).toMatchObject({
+        streamId: B,
+        threadId: null,
+        recipient: A,
+      });
+      expect(await svc.store.getById(receipt.notificationId)).toMatchObject({
+        streamId: B,
+        toAgentId: A,
+      });
+      expect(
+        injected.filter((entry) => entry.agentId === A).at(-1)?.text
+      ).toContain(receipt.id);
+      expect(
+        (await svc.feed(A)).entries.map((entry) => entry.id)
+      ).not.toContain(receipt.notificationId);
+      expect((await svc.getMessage(A, receipt.id)).content).toContain(
+        "Child-owned evidence"
+      );
+    } finally {
+      await pool.query(
+        "UPDATE agents SET parent_agent_id = NULL WHERE id = $1",
+        [B]
+      );
+    }
+  });
+
+  it("reuses a legacy recipient-home receipt without moving or duplicating it on retry", async () => {
+    const { svc } = sharing({ failFor: [B] });
+    const original = await svc.post(A, { text: "Legacy source" });
+    const receipt = await svc.shareMessage(A, original.id, B);
+    await svc.waitForInFlightDeliveries(1000);
+    // Model a pre-change stored notification. The receipt's notification identity is stable.
+    await pool.query("UPDATE blocks SET stream_id = $1 WHERE id = $2", [
+      B,
+      receipt.notificationId,
+    ]);
+    const recovered = sharing();
+    const retried = await recovered.svc.shareMessage(A, original.id, B, true);
+    await recovered.svc.waitForInFlightDeliveries(1000);
+    expect(retried).toMatchObject({
+      id: receipt.id,
+      notificationId: receipt.notificationId,
+      streamId: B,
+    });
+    expect(
+      await recovered.svc.store.getById(receipt.notificationId)
+    ).toMatchObject({ streamId: B, delivered: true });
+    expect(
+      (
+        await pool.query("SELECT id FROM message_shares WHERE source_id = $1", [
+          original.id,
+        ])
+      ).rowCount
+    ).toBe(1);
+  });
+
   async function snapshot(svc: StreamService, agent: string, id: string) {
     let content = "";
     let offset = 0;
@@ -8754,7 +8820,7 @@ describe("scoped verifiable message sharing", () => {
       userMessage: false,
     });
     expect(await svc.store.getById(receipt.notificationId)).toMatchObject({
-      streamId: B,
+      streamId: A,
       threadId: null,
       replyTo: null,
       author: { kind: "agent", agentId: A },
@@ -8822,7 +8888,7 @@ describe("scoped verifiable message sharing", () => {
     });
     const answer = await svc.answerQuestion(A, question.id, { value: "Yes" });
     const receipt = await svc.shareMessage(A, answer.reply.id, B);
-    const card = (await svc.feed(B)).entries.find(
+    const card = (await svc.feed(A)).entries.find(
       (entry) => entry.id === receipt.notificationId
     )!.block.sharedMessage!;
     expect(card).toMatchObject({
@@ -8842,7 +8908,7 @@ describe("scoped verifiable message sharing", () => {
       },
     }).svc;
     expect(
-      (await renamed.feed(B)).entries.find(
+      (await renamed.feed(A)).entries.find(
         (entry) => entry.id === receipt.notificationId
       )!.block.sharedMessage
     ).toEqual(card);
@@ -8858,7 +8924,7 @@ describe("scoped verifiable message sharing", () => {
       [receipt.id]
     );
     expect(
-      (await svc.feed(B)).entries.find(
+      (await svc.feed(A)).entries.find(
         (entry) => entry.id === receipt.notificationId
       )!.block.sharedMessage
     ).toMatchObject({
