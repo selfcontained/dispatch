@@ -32,7 +32,10 @@ import {
   latestAgentBlockId,
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
-import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
+import {
+  composerDisabledReason,
+  composerWaitReason,
+} from "@/components/app/chat/composer-disabled";
 import { turnAnswerText } from "@/components/app/chat/turn/answer-text";
 import { visibleFeedEntries } from "@/components/app/chat/turn/visible-feed";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
@@ -1464,6 +1467,7 @@ export function ChatPane({
               onSend={onSend}
               uploadFile={uploadFile}
               disabledReason={disabledReason}
+              waitReason={composerWaitReason(agent)}
               sending={send.isPending}
               autoFocus={active && !isMobile && !openThreadId}
               mentionables={mentionables}

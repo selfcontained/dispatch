@@ -151,6 +151,8 @@ export type ThreadPanelProps = {
   ctx: FeedContext;
   /** Why nothing can be posted right now, or null. */
   disabledReason: string | null;
+  /** Why a reply can be drafted but not yet sent, or null. */
+  waitReason?: string | null;
   isMobile: boolean;
   onClose: () => void;
   onAnswer: (
@@ -197,6 +199,7 @@ export function ThreadPanel({
   findingId = null,
   ctx: feedCtx,
   disabledReason,
+  waitReason = null,
   isMobile,
   onClose,
   onAnswer,
@@ -598,6 +601,7 @@ export function ThreadPanel({
           conversation={{ streamId: rootId, threadId: threadBlockId }}
           uploadFile={uploadFile}
           disabledReason={disabledReason}
+          waitReason={waitReason}
           sending={post.isPending}
           placeholder={
             finding ? "Comment on this finding…" : "Reply in thread…"
