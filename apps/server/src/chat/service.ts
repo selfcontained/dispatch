@@ -1,4 +1,7 @@
-import { formatCheckNotice } from "../agents/pull-request-check-notice.js";
+import {
+  formatCheckNotice,
+  formatStatusNotice,
+} from "../agents/pull-request-check-notice.js";
 import * as z from "zod/v4";
 import {
   loadMessageShare,
@@ -2776,9 +2779,7 @@ export class StreamService {
           kind: "text",
           threadId: home?.threadId ?? null,
           replyTo: home?.replyTo ?? null,
-          text:
-            checksText ??
-            `Dispatch system: tracked PR status changed ${previous.status} → ${current.status}. ${current.title}: ${current.url}`,
+          text: checksText ?? formatStatusNotice(previous, current),
           data: {
             pullRequestTransition: {
               previous: previous.status,
