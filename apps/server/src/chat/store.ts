@@ -69,13 +69,13 @@ export function authorOf(
 ): BlockAuthor {
   return kind === "agent"
     ? { kind: "agent", agentId: agentId ?? "" }
-    : { kind: "user" };
+    : { kind };
 }
 
 /** True when two authors are the same party. */
 export function sameAuthor(a: BlockAuthor, b: BlockAuthor): boolean {
   if (a.kind !== b.kind) return false;
-  return a.kind === "user" || a.agentId === (b as { agentId: string }).agentId;
+  return a.kind !== "agent" || a.agentId === (b as { agentId: string }).agentId;
 }
 
 /**

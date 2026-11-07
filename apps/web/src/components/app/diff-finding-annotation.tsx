@@ -68,7 +68,7 @@ export function InlineFindingAnnotation({
             : outcome === "fixed"
               ? "Fixed"
               : "Dismissed"
-        } by ${record.by.kind === "user" ? "you" : nameOf(record.by.agentId)}${
+        } by ${record.by.kind === "system" ? "Dispatch system" : record.by.kind === "user" ? "you" : nameOf(record.by.agentId)}${
           record.at ? ` · ${formatRelativeTime(record.at)}` : ""
         }`
       : null;

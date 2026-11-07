@@ -26,6 +26,7 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Rocket,
+  Settings2,
 } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
@@ -205,7 +206,7 @@ export type PostAuthor = {
   /** Consecutive posts with the same key can collapse under one header. */
   key: string;
   name: string;
-  kind: "user" | "agent" | "peer";
+  kind: "user" | "agent" | "peer" | "system";
   agentType?: string | null;
   /** The engine's model, when the agent list knows it. */
   model?: string | null;
@@ -282,6 +283,8 @@ export function peerAuthor(
  * this stream.
  */
 export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
+  if (block.author.kind === "system")
+    return { key: "system", name: "Dispatch system", kind: "system" };
   // A launch card stands for the agent it launched: its header is that
   // agent's, whoever wrote the briefing.
   if (block.kind === "launch" && block.toAgentId) {
@@ -515,6 +518,15 @@ function AvatarFace({
       </span>
     );
   }
+  if (author.kind === "system")
+    return (
+      <span
+        className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground"
+        aria-label="Dispatch system"
+      >
+        <Settings2 className="h-4 w-4" aria-hidden="true" />
+      </span>
+    );
   if (author.kind === "user") return <UserAvatar />;
   // Tree numbers describe this session only; external agents share the bot
   // badge and root accent without borrowing a number from another tree.
@@ -588,6 +600,7 @@ export function agentTypeLabel(type: string | null | undefined): string | null {
 export const POST_TINT: Record<PostAuthor["kind"], string> = {
   // A neutral wash separates the user without borrowing the theme's accent hue.
   user: "chat-user-wash",
+  system: "hover:bg-muted/30",
   // Agent-to-agent traffic is a side conversation the user is overhearing, so
   // it recedes — indent and muted body carry it, with no fill of its own.
   peer: "hover:bg-muted/30",
@@ -985,6 +998,15 @@ function ReplierFace({
       />
     );
   }
+  if (who.kind === "system")
+    return (
+      <span
+        aria-label="Dispatch system"
+        className={cn("h-5 w-5 text-muted-foreground", ring)}
+      >
+        <Settings2 className="h-4 w-4" aria-hidden="true" />
+      </span>
+    );
   const own = who.agentId === ctx.agentId;
   const peer = own ? undefined : ctx.peers?.[who.agentId];
   const seat = own ? ctx.agentSeat : peer?.seat;
@@ -1137,7 +1159,11 @@ function BlockBody({
             }
             onOpenPath={onOpenPath}
             authorName={(by) =>
-              by.kind === "user" ? "you" : agentDisplayName(by.agentId, ctx)
+              by.kind === "system"
+                ? "Dispatch system"
+                : by.kind === "user"
+                  ? "you"
+                  : agentDisplayName(by.agentId, ctx)
             }
           />
         </div>
@@ -1869,7 +1895,7 @@ export const BlockView = memo(function BlockView({
       rule={rule}
       side={side}
       data-testid="chat-message"
-      data-author={author.kind === "peer" ? "peer" : "agent"}
+      data-author={author.kind}
       data-kind={block.kind}
       data-origin={block.origin}
       data-to-agent={block.toAgentId ?? undefined}
@@ -1914,11 +1940,15 @@ export const BlockView = memo(function BlockView({
             folded={folded}
           />
         ) : !ctx.readOnly &&
-          block.author.kind === "agent" &&
+          (block.author.kind === "agent" || block.author.kind === "system") &&
           typeof (block.data as { scheduledMessageId?: unknown } | null)
             ?.scheduledMessageId === "string" ? (
           <ScheduledMessageEntry
-            agentId={block.author.agentId}
+            agentId={
+              block.author.kind === "agent"
+                ? block.author.agentId
+                : block.streamId
+            }
             scheduleId={
               (block.data as { scheduledMessageId: string }).scheduledMessageId
             }

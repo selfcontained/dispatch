@@ -2320,10 +2320,12 @@ export class StreamService {
     const sourceOwner = await this.deps.getAgent(source.streamId);
     const sourceTask = await this.taskRoot(source.streamId);
     const originalAuthor =
-      source.author.kind === "user"
-        ? "User"
-        : (await this.deps.getAgent(source.author.agentId))?.name ||
-          "Original agent";
+      source.author.kind === "system"
+        ? "Dispatch system"
+        : source.author.kind === "user"
+          ? "User"
+          : (await this.deps.getAgent(source.author.agentId))?.name ||
+            "Original agent";
     const labels = {
       sharer: sharer.name || "Sharing agent",
       originalAuthor,
@@ -2686,8 +2688,9 @@ export class StreamService {
     const block = await this.store.getById(blockId);
     if (
       !block ||
-      block.author.kind !== "agent" ||
-      block.author.agentId !== agentId ||
+      (block.author.kind === "system"
+        ? block.streamId !== agentId
+        : block.author.kind !== "agent" || block.author.agentId !== agentId) ||
       (block.data as { scheduledMessageId?: unknown } | null)
         ?.scheduledMessageId !== scheduleId
     )
@@ -2768,7 +2771,7 @@ export class StreamService {
       return commit(async () => {
         const block = await this.store.insert({
           streamId,
-          author: { kind: "agent", agentId },
+          author: { kind: "system" },
           toAgentId: agentId,
           kind: "text",
           threadId: home?.threadId ?? null,
@@ -2796,9 +2799,7 @@ export class StreamService {
         await this.publishEntry(streamId, block.id);
         if (live)
           await this.deliverBlock(block, {
-            kind: "agent",
-            agentId,
-            name: "Dispatch system",
+            kind: "system",
           });
         return block;
       });
@@ -2816,7 +2817,7 @@ export class StreamService {
     const streamId = await this.streamOf(agentId);
     const block = await this.store.insert({
       streamId,
-      author: { kind: "agent", agentId },
+      author: { kind: "system" },
       toAgentId: delivery ? agentId : null,
       kind: "text",
       threadId: null,
@@ -4025,7 +4026,7 @@ export class StreamService {
   }
 
   private async senderOf(author: BlockAuthor): Promise<EnvelopeSender> {
-    if (author.kind === "user") return { kind: "user" };
+    if (author.kind !== "agent") return { kind: author.kind };
     const agent = await this.deps.getAgent(author.agentId);
     return {
       kind: "agent",

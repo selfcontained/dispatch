@@ -114,7 +114,12 @@ export function threadTitle(
   nameOf: (agentId: string) => string
 ): { title: string; subtitle: string } {
   if (!root) return { title: finding ? "Finding" : "Thread", subtitle: "" };
-  const by = root.author.kind === "agent" ? nameOf(root.author.agentId) : "you";
+  const by =
+    root.author.kind === "system"
+      ? "Dispatch system"
+      : root.author.kind === "agent"
+        ? nameOf(root.author.agentId)
+        : "you";
   if (root.kind === "finding") {
     return { title: "Finding", subtitle: `in the review by ${by}` };
   }
@@ -235,7 +240,11 @@ export function ThreadPanel({
     <FindingChangeEntry
       record={change.record}
       authorName={(by) =>
-        by.kind === "user" ? "you" : agentDisplayName(by.agentId, ctx)
+        by.kind === "system"
+          ? "Dispatch system"
+          : by.kind === "user"
+            ? "you"
+            : agentDisplayName(by.agentId, ctx)
       }
     />
   ) : null;

@@ -13,9 +13,12 @@ import type {
   ChatUserAttachmentInput,
 } from "./chat-types.js";
 
-export type BlockAuthorKind = "agent" | "user";
+export type BlockAuthorKind = "agent" | "user" | "system";
 
-export type BlockAuthor = { kind: "user" } | { kind: "agent"; agentId: string };
+export type BlockAuthor =
+  | { kind: "system" }
+  | { kind: "user" }
+  | { kind: "agent"; agentId: string };
 
 export const BLOCK_KINDS = [
   "text",
