@@ -72,14 +72,24 @@ describe("AcpDriver", () => {
         fake.wireUpdate(started.sessionId, notification);
         fake.wireUpdate(started.sessionId, { ...notification, name: 7 });
         await vi.waitFor(() =>
-          expect(
-            events.filter((e) => e.type === "background" && e.kind === "update")
-          ).toHaveLength(1)
+          expect(driver.getBackgroundWork("agt_1").items).toHaveLength(1)
         );
+        expect(driver.getBackgroundWork("agt_1")).toMatchObject({
+          status: "supported",
+          items: [{ id: "task-1", name: "watch", state: "running" }],
+        });
         expect(events.some((e) => e.type === "turn")).toBe(false);
         expect(
-          events.find((e) => e.type === "background" && e.kind === "capability")
-        ).toMatchObject({ supported: true });
+          events.some((e) => (e as { type: string }).type === "background")
+        ).toBe(false);
+        fake.wireUpdate(started.sessionId, {
+          sessionUpdate: "async_task_state_update",
+          asyncTaskId: "task-1",
+          state: "completed",
+        });
+        await vi.waitFor(() =>
+          expect(driver.getBackgroundWork("agt_1").items).toHaveLength(0)
+        );
         expect(
           fake.seen.initialize[0]?.clientCapabilities?._meta
         ).toMatchObject({
@@ -783,13 +793,12 @@ describe("AcpDriver", () => {
     await driver.prompt("agt_1", "hello");
     expect(fake.seen.prompts).toEqual(["hello"]);
     expect(events.map((e) => e.type)).toEqual([
-      "background",
       "config",
       "turn",
       "update",
       "turn",
     ]);
-    expect(events[4]).toMatchObject({
+    expect(events[3]).toMatchObject({
       type: "turn",
       state: "settled",
       stopReason: "end_turn",

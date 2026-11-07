@@ -1,32 +1,11 @@
 export type BackgroundItem = {
   id: string;
-  generation: string;
-  sessionId: string;
-  provider: "claude" | "codex";
-  source?: "acp-asyncTasks";
-  canStop?: boolean;
-  showInTranscript?: boolean;
-  name?: string;
-  taskType?: string;
-  description?: string;
-  summary?: string;
-  toolCallId?: string;
-  state?: "running" | "paused" | "completed" | "failed" | "stopped";
-  lastObservation: string;
-  sequence: number;
-  stale: boolean;
-  originBlockId?: string;
-  originStreamId?: string;
-  originThreadId?: string | null;
-  terminalOutput?: string;
+  name: string;
+  kind: "shell" | "monitor";
+  state: "running" | "paused";
 };
+/** A live host-memory snapshot. Never persisted or reconstructed from history. */
 export type BackgroundSnapshot = {
-  generation?: string;
-  generationStartedAt?: string;
-  lastSequence?: number;
-  capability: "unsupported" | "supported" | "unknown";
-  stale: boolean;
+  status: "supported" | "unsupported" | "offline" | "unavailable";
   items: BackgroundItem[];
-  truncated?: boolean;
-  identityOverflow?: boolean;
 };

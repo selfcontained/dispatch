@@ -1,11 +1,11 @@
-import { randomUUID } from "node:crypto";
 import {
   backgroundIngress,
   backgroundCapability,
   supportsBackground,
   type BackgroundNotification,
 } from "./background-ingress.js";
-import type { BackgroundEvent } from "./background-projection.js";
+import { BackgroundWorkRegistry } from "./background-work.js";
+import type { BackgroundSnapshot } from "@dispatch/shared";
 import {
   ownedEnvironment,
   killOwnedProcesses,
@@ -64,7 +64,6 @@ export type DriverLaunch = {
 };
 
 export type DriverEvent =
-  | BackgroundEvent
   /** Input accepted into the existing turn, journaled before its settlement. */
   | {
       type: "steered";
@@ -163,6 +162,7 @@ type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 type Live = {
   supportsImages: boolean;
   mcpInventorySupported: boolean;
+  backgroundWork: BackgroundWorkRegistry;
   /** Retained past an HTTP timeout so retries never accumulate native RPCs. */
   inventoryRead?: Promise<unknown>;
   steeringSupported: boolean;
@@ -719,8 +719,7 @@ export class AcpDriver {
       Writable.toWeb(child.stdin),
       Readable.toWeb(child.stdout)
     );
-    const backgroundGeneration = randomUUID();
-    let backgroundSequence = 0;
+    const backgroundWork = new BackgroundWorkRegistry();
     let backgroundSupported = false;
     let backgroundReady = false;
     const pendingBackground: BackgroundNotification[] = [];
@@ -728,6 +727,7 @@ export class AcpDriver {
       if (!backgroundReady) {
         if (pendingBackground.length < 200)
           pendingBackground.push(notification);
+        else backgroundWork.invalidate();
         return;
       }
       const entry = this.live.get(launch.agentId);
@@ -739,17 +739,7 @@ export class AcpDriver {
         (engine.id !== "claude" && engine.id !== "codex")
       )
         return;
-      this.emit({
-        type: "background",
-        kind: "update",
-        agentId: launch.agentId,
-        generation: backgroundGeneration,
-        sessionId: entry.sessionId,
-        provider: engine.id,
-        at: new Date().toISOString(),
-        sequence: ++backgroundSequence,
-        update: notification.update,
-      });
+      backgroundWork.apply(notification.update);
     };
     const conn = new acp.ClientSideConnection(
       () => client,
@@ -820,7 +810,10 @@ export class AcpDriver {
       initializing = false;
       supportsImages =
         initialized.agentCapabilities?.promptCapabilities?.image === true;
-      backgroundSupported = supportsBackground(initialized._meta);
+      backgroundSupported =
+        (engine.id === "claude" || engine.id === "codex") &&
+        supportsBackground(initialized._meta);
+      backgroundWork.setSupported(backgroundSupported);
       const inventory = initialized._meta?.["dispatch/mcpInventory"];
       mcpInventorySupported =
         !!inventory &&
@@ -970,6 +963,7 @@ export class AcpDriver {
     const entry: Live = {
       supportsImages,
       mcpInventorySupported,
+      backgroundWork,
       steeringSupported,
       pickupReceiptsSupported,
       promptReceiptsSupported,
@@ -993,19 +987,6 @@ export class AcpDriver {
       promptTurns: new Map(),
     };
     this.live.set(launch.agentId, entry);
-    if (engine.id === "claude" || engine.id === "codex") {
-      this.emit({
-        type: "background",
-        kind: "capability",
-        agentId: launch.agentId,
-        generation: backgroundGeneration,
-        sessionId: entry.sessionId,
-        provider: engine.id,
-        at: new Date().toISOString(),
-        sequence: ++backgroundSequence,
-        supported: backgroundSupported,
-      });
-    }
     backgroundReady = true;
     for (const notification of pendingBackground.splice(0))
       receiveBackground(notification);
@@ -1061,6 +1042,15 @@ export class AcpDriver {
 
   supportsMcpInventory(agentId: string): boolean {
     return this.live.get(agentId)?.mcpInventorySupported ?? false;
+  }
+
+  getBackgroundWork(agentId: string): BackgroundSnapshot {
+    return (
+      this.live.get(agentId)?.backgroundWork.snapshot() ?? {
+        status: "offline",
+        items: [],
+      }
+    );
   }
 
   async getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse> {

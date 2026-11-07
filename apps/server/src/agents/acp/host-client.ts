@@ -1,3 +1,4 @@
+import type { BackgroundSnapshot } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type {
   AgentPermissionRequest,
@@ -45,6 +46,13 @@ export type HostClientDeps = {
  * makes the reconnect idempotent. `close()` stops reconnecting.
  */
 export class HostClient {
+  private readonly pendingBackground = new Map<
+    string,
+    {
+      resolve: (value: BackgroundSnapshot) => void;
+      reject: (error: Error) => void;
+    }
+  >();
   private readonly pendingInventory = new Map<
     string,
     {
@@ -251,6 +259,12 @@ export class HostClient {
           event: message.event,
         });
         return;
+      case "background_work_result": {
+        const pending = this.pendingBackground.get(message.id);
+        this.pendingBackground.delete(message.id);
+        pending?.resolve(message.result);
+        return;
+      }
       case "mcp_inventory_result": {
         const pending = this.pendingInventory.get(message.id);
         this.pendingInventory.delete(message.id);
@@ -301,6 +315,7 @@ export class HostClient {
       case "error": {
         if (message.id) {
           const pending =
+            this.pendingBackground.get(message.id) ??
             this.pendingInventory.get(message.id) ??
             this.pendingInterrupts.get(message.id) ??
             this.pendingSteers.get(message.id) ??
@@ -308,6 +323,7 @@ export class HostClient {
             this.pendingConfig.get(message.id) ??
             this.pendingPermissions.get(message.id);
           if (pending) {
+            this.pendingBackground.delete(message.id);
             this.pendingInventory.delete(message.id);
             this.pendingInterrupts.delete(message.id);
             this.pendingSteers.delete(message.id);
@@ -353,6 +369,8 @@ export class HostClient {
   }
 
   private failPending(err: Error): void {
+    for (const pending of this.pendingBackground.values()) pending.reject(err);
+    this.pendingBackground.clear();
     for (const pending of this.pendingInventory.values()) pending.reject(err);
     this.pendingInventory.clear();
     for (const pending of this.pendingInterrupts.values()) pending.reject(err);
@@ -372,6 +390,42 @@ export class HostClient {
       throw new Error("the agent host is not connected");
     }
     this.socket.write(encodeMessage(message));
+  }
+
+  async getBackgroundWork(): Promise<BackgroundSnapshot> {
+    const welcome = this.lastWelcome;
+    const empty = (
+      status: BackgroundSnapshot["status"]
+    ): BackgroundSnapshot => ({ status, items: [] });
+    if (!this.isConnected() || !welcome?.running) return empty("offline");
+    if (!welcome.backgroundWorkSupported) return empty("unsupported");
+    const id = crypto.randomUUID();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingBackground.delete(id);
+        resolve(empty("unavailable"));
+      }, 2000);
+      this.pendingBackground.set(id, {
+        resolve: (result) => {
+          clearTimeout(timer);
+          resolve(this.lastWelcome === welcome ? result : empty("unavailable"));
+        },
+        reject: () => {
+          clearTimeout(timer);
+          resolve(empty("offline"));
+        },
+      });
+      try {
+        this.send({
+          type: "background_work",
+          id,
+          sessionId: welcome.sessionId,
+        });
+      } catch {
+        this.pendingBackground.get(id)?.reject(new Error("Disconnected"));
+        this.pendingBackground.delete(id);
+      }
+    });
   }
 
   async getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse> {

@@ -204,6 +204,54 @@ const agent = {
       const text = params.prompt
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");
+      if (text.includes("background-preview-fixture")) {
+        for (const update of [
+          {
+            sessionUpdate: "async_task_spawned",
+            asyncTaskId: "watch",
+            name: "Watch deployment",
+            taskType: ENGINE === "claude" ? "monitor" : "shell",
+            showInTranscript: false,
+            canStop: ENGINE !== "claude",
+          },
+          {
+            sessionUpdate: "async_task_spawned",
+            asyncTaskId: "logs",
+            name: "Sync preview logs",
+            taskType: "shell",
+            showInTranscript: false,
+            canStop: true,
+          },
+          {
+            sessionUpdate: "async_task_state_update",
+            asyncTaskId: "logs",
+            state: "paused",
+          },
+        ])
+          process.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              method: "session/update",
+              params: { sessionId: params.sessionId, update },
+            }) + "\n"
+          );
+      }
+      if (text.includes("background-finish-fixture")) {
+        process.stdout.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: params.sessionId,
+              update: {
+                sessionUpdate: "async_task_state_update",
+                asyncTaskId: "watch",
+                state: "completed",
+              },
+            },
+          }) + "\n"
+        );
+      }
       if (text.includes("background-fixture")) {
         // Raw extension wire: SDK 1.8 cannot send these through its typed union.
         // Matches the pinned providers, without launching any command or model.

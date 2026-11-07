@@ -25,7 +25,7 @@ Trace the affected producer, stored message, route, and browser consumer in `age
 
 - Portfolio exports require matching explicit project membership for both outcome author and stream (agent or task), including child threads and archived sources. Bounded snapshots must replay stable pages and label missing/purged evidence rather than imply complete history.
 
-- Background lifecycle projections are bounded and independent of transcript turns. Terminal identity must survive display-row pruning and newly arriving late spawn/progress, with a bounded overflow policy that cannot infer running for forgotten identities. Journal replay and new generations must not revive terminal or historical work. Retain stale last observations on disconnect; expose only bounded existing tool output and resolve origin links from stored stream/thread provenance.
+- Background work is a bounded live host-memory snapshot, separate from transcript and host journal events. Terminal reports remove current rows; a transient ID-only guard prevents late metadata from recreating finished work. No database projection/history/output retention should be added. Disconnection must return unavailable/offline rather than claim prior rows remain current.
 
 ## Findings
 

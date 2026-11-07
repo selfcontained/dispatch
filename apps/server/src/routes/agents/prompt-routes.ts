@@ -1,4 +1,3 @@
-import { readBackground } from "../../agents/acp/background-store.js";
 import type { FastifyInstance } from "fastify";
 
 import { StreamServiceError } from "../../chat/service.js";
@@ -24,13 +23,7 @@ export async function registerAgentPromptRoutes(
     if (!(await deps.agentManager.getAgent(id)))
       return reply.code(404).send({ error: "Agent not found." });
     reply.header("Cache-Control", "no-store");
-    const detail = (request.query as { detail?: string }).detail;
-    if (
-      detail !== undefined &&
-      (typeof detail !== "string" || detail.length > 1100)
-    )
-      return reply.code(400).send({ error: "Invalid detail key." });
-    return readBackground(deps.pool, id, detail);
+    return deps.agentManager.getBackgroundWork(id);
   });
 
   app.get("/api/v1/agents/:id/mcp-inventory", async (request, reply) => {

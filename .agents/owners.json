@@ -41,7 +41,6 @@
         "apps/server/test/workspace-target.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "apps/server/test/*acp*",
-        "apps/server/test/helpers/background-fixture.ts",
         "e2e/worktree.spec.ts",
         "e2e/*agent-live*",
         "e2e/*agent*",

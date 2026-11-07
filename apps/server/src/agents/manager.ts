@@ -1,4 +1,3 @@
-import { writeBackground } from "./acp/background-store.js";
 import { matchingProjects } from "../projects/matching.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
@@ -473,9 +472,7 @@ export class AgentManager {
       if (agent) this.eventBus.publish(agent);
       return;
     }
-    if (event.type === "background" || event.type === "exit")
-      await writeBackground(this.pool, agentId, event);
-    if (event.type !== "background") await this.streamRecorder.handle(event);
+    await this.streamRecorder.handle(event);
     if (event.type === "turn" && event.state === "settled" && event.usage) {
       await this.recordUsage(agentId);
     }
@@ -661,6 +658,13 @@ export class AgentManager {
   /** Read structured inventory from the existing agent session. */
   getMcpInventory(id: string) {
     return this.runtime.getMcpInventory(id);
+  }
+
+  getBackgroundWork(id: string) {
+    return (
+      this.runtime.getBackgroundWork?.(id) ??
+      Promise.resolve({ status: "unsupported" as const, items: [] })
+    );
   }
 
   /** The live session's ACP slash commands, including advertised skills. */
