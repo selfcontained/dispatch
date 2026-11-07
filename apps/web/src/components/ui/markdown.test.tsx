@@ -2,6 +2,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { formatCheckNotice } from "../../../../server/src/agents/pull-request-check-notice";
+
 import { Markdown } from "./markdown";
 
 vi.mock("@/components/ui/markdown-mermaid", () => ({
@@ -152,4 +154,44 @@ describe("Markdown prose decoration", () => {
     expect(container.querySelector("code mark")).toBeNull();
     expect(container.querySelector("pre")?.textContent).toBe("@Agent");
   });
+});
+
+it("preserves entity-shaped query parameters in generated PR check links", () => {
+  const url = "https://ci.example/jobs?job=1&copy;=2&signature=a&amp;b";
+  const previous = {
+    url: "https://github.com/a/b/pull/42",
+    title: "PR",
+    status: "Open" as const,
+  };
+  const text = formatCheckNotice(previous, {
+    ...previous,
+    ci: {
+      availability: "available",
+      headSha: "abcdef123456",
+      checkedAt: "2026-11-07T19:07:00Z",
+      summary: {
+        status: "passing",
+        total: 1,
+        passed: 1,
+        failed: 0,
+        pending: 0,
+        skipped: 0,
+      },
+      checks: [
+        {
+          name: "[check](https://evil.test)",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          detailsUrl: url,
+        },
+      ],
+    },
+  });
+  render(<Markdown>{text!}</Markdown>);
+  expect(
+    screen
+      .getByRole("link", { name: "[check](https://evil.test)" })
+      .getAttribute("href")
+  ).toBe(url);
+  expect(screen.getAllByRole("link")).toHaveLength(2);
 });

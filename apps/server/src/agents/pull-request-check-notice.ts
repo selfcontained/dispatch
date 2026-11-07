@@ -27,7 +27,7 @@ const link = (name: string, url: string | null | undefined, limit = 350) => {
   try {
     const parsed = new URL(url);
     if (!["https:", "http:"].includes(parsed.protocol)) return name;
-    return `[${name}](<${url.replace(/[<>\\]/g, (c) => encodeURIComponent(c))}>)`;
+    return `[${name}](<${url.replace(/[<>\\]/g, (c) => encodeURIComponent(c)).replaceAll("&", "&amp;")}>)`;
   } catch {
     return name;
   }
