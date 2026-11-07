@@ -578,10 +578,6 @@ export function ThreadPanel({
             {error ?? stopError}
           </div>
         ) : null}
-        <div className="px-3 py-1 text-xs text-muted-foreground">
-          Messages stay in this discussion; ordinary agent work appears in its
-          home.
-        </div>
         <PermissionRequests agentId={agentId} active />
         <ChatComposer
           // No persisted draft: a thread's half-typed reply is not worth
