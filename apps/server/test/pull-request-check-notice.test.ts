@@ -64,8 +64,8 @@ describe("check observations", () => {
     b.ci.checks.push(b.ci.checks[0]);
     expect(checkChanges(a, b)).toHaveLength(20);
     const text = formatCheckNotice(a, b)!;
-    expect(text).toContain("12 more");
-    expect(text.match(/^- /gm)).toHaveLength(8);
+    expect(text).toContain("+17 more");
+    expect(text.match(/^- /gm)).toHaveLength(4);
   });
 });
 
@@ -107,11 +107,12 @@ it("escapes untrusted Markdown and rejects invalid or oversized destinations", (
   current.ci.checks[0].name = "[job](https://evil.test)";
   current.ci.checks[0].detailsUrl = "javascript:alert(1)";
   const text = formatCheckNotice(pr([""]), current)!;
-  expect(text).toContain("\\[spoof\\]\\(");
+  expect(text).not.toContain("spoof");
+  expect(text).toContain("\\[job\\]\\(");
   expect(text).not.toContain("javascript:");
   expect(text).not.toContain("Dispatch system");
   expect(text).not.toContain("SUCCESS");
-  expect(text).toContain("Observation only; no action authorized.");
+  expect(text).toContain("Info only; no action authorized.");
   current.ci.checks[0].detailsUrl = "https://example.com/" + "x".repeat(400);
   expect(formatCheckNotice(pr([""]), current)).not.toContain("example.com");
 });
@@ -123,3 +124,17 @@ it.each(["SKIPPED", "CANCELLED", "NEUTRAL"])(
     expect(text).toContain(`1 ${result.toLowerCase()}`);
   }
 );
+
+it("keeps long notices compact without repeating the PR title", () => {
+  const current = pr(Array(16).fill("SUCCESS"));
+  current.title = "Long title ".repeat(30);
+  current.ci.checks.forEach((c) => {
+    c.name = "Long check ".repeat(30);
+  });
+  const text = formatCheckNotice(pr(Array(16).fill("")), current)!;
+  expect(text).not.toContain("Long title");
+  expect(text).toContain("+13 more");
+  expect(text.match(/ — passed/g)).toHaveLength(3);
+  expect(text).toContain("…](<https://github.com");
+  expect(text.length).toBeLessThan(800);
+});

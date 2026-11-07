@@ -33,15 +33,12 @@ const link = (name: string, url: string | null | undefined, limit = 350) => {
   }
 };
 export const formatPullRequestLink = (pr: AgentPullRequest) =>
-  link(
-    `#${label(pr.url.split("/").at(-1) ?? "PR", 20)} · ${label(pr.title)}`,
-    pr.url
-  );
+  link(`#${label(pr.url.split("/").at(-1) ?? "PR", 20)}`, pr.url);
 export const formatStatusNotice = (
   previous: AgentPullRequest,
   current: AgentPullRequest
 ) =>
-  `${formatPullRequestLink(current)} — ${label(previous.status)} → ${label(current.status)}\nObservation only; no action authorized.`;
+  `${formatPullRequestLink(current)} — ${label(previous.status)} → ${label(current.status)}\nInfo only; no action authorized.`;
 
 /**
  * Initial inventory is a silent baseline. One poll coalesces all newly observed
@@ -109,14 +106,14 @@ export function formatCheckNotice(
       : ci.checks.every((c) => outcome(c) === "passed")
         ? "passing"
         : "mixed";
-  const lines = changed.slice(0, 8).map((c) => {
+  const lines = changed.slice(0, 3).map((c) => {
     const ms = Date.parse(c.completedAt ?? "") - Date.parse(c.startedAt ?? "");
     const seconds = Math.round(ms / 1000);
     const duration =
       Number.isFinite(ms) && ms >= 0
         ? ` · ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`}`
         : "";
-    return `- ${link(label(c.name), c.detailsUrl)} — ${outcome(c)}${duration}`;
+    return `- ${link(label(c.name, 48) + (c.name.length > 48 ? "…" : ""), c.detailsUrl)} — ${outcome(c)}${duration}`;
   });
   return [
     `${formatPullRequestLink(current)} — ${summary[0].toUpperCase()}${summary.slice(1)} · ${[
@@ -127,12 +124,9 @@ export function formatCheckNotice(
     ]
       .filter(Boolean)
       .join(", ")}`,
-    `Head ${label(ci.headSha, 12)} · ${Number.isFinite(Date.parse(ci.checkedAt)) ? new Date(ci.checkedAt).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "time unknown"}`,
     ...lines,
-    ...(changed.length > 8
-      ? ["", `… ${changed.length - 8} more changed results; see PR.`]
-      : []),
+    ...(changed.length > 3 ? [`- +${changed.length - 3} more`] : []),
     "",
-    "Observation only; no action authorized.",
+    `${label(ci.headSha, 12)} · ${Number.isFinite(Date.parse(ci.checkedAt)) ? new Date(ci.checkedAt).toISOString().replace("T", " ").slice(0, 16) + "Z" : "time unknown"} · Info only; no action authorized.`,
   ].join("\n");
 }

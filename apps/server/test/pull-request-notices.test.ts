@@ -72,7 +72,7 @@ describe("PR observation delivery", () => {
       { type: "pr", url: current.url, title: current.title },
     ]);
     expect((await service.store.getById(block.id))?.text).toContain(
-      "[#1 · PR 1](<https://github.com/a/b/pull/1>)"
+      "[#1](<https://github.com/a/b/pull/1>)"
     );
     expect(injected).toHaveLength(1);
     expect(injected[0].id).toBe("child");
