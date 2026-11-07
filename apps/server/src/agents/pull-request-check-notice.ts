@@ -19,6 +19,30 @@ const key = (c: Check) => c.identity ?? JSON.stringify([c.name, c.detailsUrl]);
 const clean = (s: string, length = 180) =>
   s.replace(/[\r\n\u0000-\u001f]/g, " ").slice(0, length);
 
+// Escape labels as literal Markdown, including HTML/autolink delimiters.
+const label = (s: string, length = 180) =>
+  clean(s, length).replace(/[\\`*_[\]{}()<>!#|~&]/g, "\\$&");
+const link = (name: string, url: string | null | undefined, limit = 350) => {
+  if (!url || url.length > limit || /[\s\u0000-\u001f]/.test(url)) return name;
+  try {
+    const parsed = new URL(url);
+    if (!["https:", "http:"].includes(parsed.protocol)) return name;
+    return `[${name}](<${url.replace(/[<>\\]/g, (c) => encodeURIComponent(c))}>)`;
+  } catch {
+    return name;
+  }
+};
+export const formatPullRequestLink = (pr: AgentPullRequest) =>
+  link(
+    `#${label(pr.url.split("/").at(-1) ?? "PR", 20)} · ${label(pr.title)}`,
+    pr.url
+  );
+export const formatStatusNotice = (
+  previous: AgentPullRequest,
+  current: AgentPullRequest
+) =>
+  `${formatPullRequestLink(current)} — ${label(previous.status)} → ${label(current.status)}\nObservation only; no action authorized.`;
+
 /**
  * Initial inventory is a silent baseline. One poll coalesces all newly observed
  * pass/fail results into one bounded notice per owner. Pending/neutral/skipped/
@@ -71,7 +95,10 @@ export function formatCheckNotice(
   }
   const remaining = [...other]
     .slice(0, 10)
-    .map(([result, count]) => `${count} ${clean(result, 40)}`)
+    .map(
+      ([result, count]) =>
+        `${count} ${label(result.toLowerCase().replaceAll("_", " "), 40)}`
+    )
     .join(", ");
   // Never label a partial/pending rollup as terminal pass, even if an upstream
   // summary is inconsistent. Cancelled and other conclusions remain explicit.
@@ -81,24 +108,31 @@ export function formatCheckNotice(
       ? "pending"
       : ci.checks.every((c) => outcome(c) === "passed")
         ? "passing"
-        : "mixed (includes neutral/skipped/cancelled or other results)";
+        : "mixed";
   const lines = changed.slice(0, 8).map((c) => {
     const ms = Date.parse(c.completedAt ?? "") - Date.parse(c.startedAt ?? "");
+    const seconds = Math.round(ms / 1000);
     const duration =
-      Number.isFinite(ms) && ms >= 0 ? `; ${Math.round(ms / 1000)}s` : "";
-    const link =
-      c.detailsUrl && /^https?:\/\//.test(c.detailsUrl)
-        ? `; ${clean(c.detailsUrl, 350)}`
+      Number.isFinite(ms) && ms >= 0
+        ? ` · ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`}`
         : "";
-    return `- ${clean(c.name)}: ${outcome(c)} (${clean(c.conclusion ?? "")})${duration}${link}`;
+    return `- ${link(label(c.name), c.detailsUrl)} — ${outcome(c)}${duration}`;
   });
   return [
-    `Dispatch system: tracked PR checks changed. #${current.url.split("/").at(-1)} ${clean(current.title)}: ${current.url}`,
-    `Observed head ${clean(ci.headSha, 12)} at ${clean(ci.checkedAt)}. Outcome: ${summary}; ${passed} passed, ${failed} failed, ${pending} pending${remaining ? `, ${remaining}` : ""}.`,
+    `${formatPullRequestLink(current)} — ${summary[0].toUpperCase()}${summary.slice(1)} · ${[
+      passed && `${passed} passed`,
+      failed && `${failed} failed`,
+      pending && `${pending} pending`,
+      remaining,
+    ]
+      .filter(Boolean)
+      .join(", ")}`,
+    `Head ${label(ci.headSha, 12)} · ${Number.isFinite(Date.parse(ci.checkedAt)) ? new Date(ci.checkedAt).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "time unknown"}`,
     ...lines,
     ...(changed.length > 8
-      ? [`… ${changed.length - 8} more changed results; see PR.`]
+      ? ["", `… ${changed.length - 8} more changed results; see PR.`]
       : []),
-    "Observation only; no action is authorized by this notice.",
+    "",
+    "Observation only; no action authorized.",
   ].join("\n");
 }

@@ -72,7 +72,7 @@ describe("PR observation delivery", () => {
       { type: "pr", url: current.url, title: current.title },
     ]);
     expect((await service.store.getById(block.id))?.text).toContain(
-      "Dispatch system:"
+      "[#1 · PR 1](<https://github.com/a/b/pull/1>)"
     );
     expect(injected).toHaveLength(1);
     expect(injected[0].id).toBe("child");
@@ -196,7 +196,7 @@ describe("PR observation delivery", () => {
         checksCurrent,
         async (write) => write()
       );
-      expect(notice?.text).toContain("tracked PR checks changed");
+      expect(notice?.text).toContain("— Failing");
       expect(notice?.toAgentId).toBe(id);
       expect(notice?.author).toEqual({ kind: "system" });
       if (id === "child") {
