@@ -176,7 +176,7 @@ test("detail failure uses newer list state and offers retry", async ({
   const dialog = page.getByRole("dialog", { name: "Background work" });
   await expect(dialog).toContainText("completed");
   await expect(dialog.getByRole("alert")).toContainText(
-    "Details could not be refreshed",
+    "Details unavailable.",
     { timeout: 15000 }
   );
   await expect(
