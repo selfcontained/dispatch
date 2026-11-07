@@ -247,7 +247,7 @@ export function registerStreamTools(
       "share_message",
       {
         description:
-          "Forward an exact readable message to another active agent in the same non-null project. Creates a server-verified immutable snapshot (with only its direct parent question), never impersonates its original author. Returns a share id for get_message; no thread/history/file-library grants or resharing rights. Repeated calls reuse the snapshot and notification. Set retry: true to resend a failed notification; pending/accepted deliveries are not duplicated.",
+          "Forward an exact readable message to another active agent in the same non-null project. Stores the coordination notice at the sharer’s home and delivers independently to the recipient. Returns the actual notification location; historical shares keep their original containers. Creates a server-verified immutable snapshot (with only its direct parent question), never impersonates its original author. Returns a share id for get_message; no thread/history/file-library grants or resharing rights. Repeated calls reuse the snapshot and notification. Set retry: true to resend a failed notification; pending/accepted deliveries are not duplicated.",
         inputSchema: strictObject({
           id: z.uuid(),
           to: z.string().min(1),
