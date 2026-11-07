@@ -425,7 +425,7 @@ describe("task stream root", () => {
       await settle();
       expect(prompts.map((p) => p.agentId)).toEqual([ASSIGNEE]);
       expect(prompts[0]!.text).toContain(
-        "Ordinary replies stay in your own channel"
+        "Ordinary replies stay at your own home root"
       );
       await pool.query(`UPDATE agents SET parent_agent_id = $1 WHERE id = $2`, [
         ASSIGNEE,
@@ -454,7 +454,10 @@ describe("task stream root", () => {
       userMessage: true,
     };
     const home = await streams.resolvePromptSource(ASSIGNEE, source);
-    expect(home.conversation).toEqual({ streamId: ASSIGNEE, threadId: null });
+    expect(home.conversation).toEqual({
+      streamId: task.id,
+      threadId: null,
+    });
     // Older queued sources may still carry their task location.
     expect(
       (
@@ -580,7 +583,7 @@ describe("task stream root", () => {
             chatMessageId: opener.id,
           })
         ).conversation
-      ).toEqual({ streamId: HELPER, threadId: null });
+      ).toEqual({ streamId: task.id, threadId: opener.threadId });
     }
   });
 
@@ -851,10 +854,16 @@ describe("task stream root", () => {
         .mockResolvedValue({ payload: { blockId: rows[0]!.id } });
       try {
         const mine = await streams.post(ASSIGNEE, { text: "Still mine" });
-        expect(mine.streamId).toBe(task.id);
+        expect(mine.streamId).toBe(ASSIGNEE);
         await tasks.removeAgent(task.id, ASSIGNEE, USER);
+        expect(
+          await streams.post(ASSIGNEE, { text: "Own work" })
+        ).toMatchObject({ streamId: ASSIGNEE });
         await expect(
-          streams.post(ASSIGNEE, { text: "Still here" })
+          streams.post(ASSIGNEE, { text: "Still here", taskId: task.id })
+        ).rejects.toThrow(/removed from task/);
+        await expect(
+          streams.post(ASSIGNEE, { text: "Reply", replyTo: rows[0]!.id })
         ).rejects.toThrow(/removed from task/);
       } finally {
         openTurn.mockRestore();

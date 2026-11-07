@@ -26,6 +26,8 @@ import {
   type BlockRow,
   type BlockStore,
   OPEN_INPUT_SQL,
+  FAILED_PARENT_INPUT_SQL,
+  isBlockId,
   type Queryable,
   shownIdsOf,
   toBlock,
@@ -87,21 +89,7 @@ const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
  * re-aggregated — one function scan and a hash join for the planner to price
  * instead of a per-row lookup it would estimate at a hundred index scans.
  */
-const ANSWER_BLOCK_ID_SQL = `COALESCE(b.state->'answer'->>'blockId', b.state->'submission'->>'blockId')`;
-// Compare as uuid so the lookup uses blocks_pkey; casting `answer.id::text`
-// instead scans every block once per outer row. Only canonical lowercase ids
-// are cast — the ones a text comparison could match — so a malformed value
-// matches nothing rather than failing the query.
-export const FAILED_PARENT_INPUT_SQL = `(b.to_agent_id IS NOT NULL
-  AND b.data->>'parentHandled' = 'true'
-  AND ((b.delivered = false AND ${OPEN_INPUT_SQL}) OR EXISTS (
-    SELECT 1 FROM blocks answer
-    WHERE answer.id = CASE
-        WHEN ${ANSWER_BLOCK_ID_SQL} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-        THEN (${ANSWER_BLOCK_ID_SQL})::uuid
-      END
-      AND answer.delivered = false
-  )))`;
+export { FAILED_PARENT_INPUT_SQL } from "./store.js";
 
 async function listBlockEntries(
   db: Queryable,
@@ -367,7 +355,7 @@ export async function attachShown(
         : block.kind === "form"
           ? block.state?.submission?.blockId
           : undefined;
-    return id ? [{ block, id }] : [];
+    return id && isBlockId(id) ? [{ block, id }] : [];
   });
   if (answered.length) {
     const replies = await listBlockEntries(

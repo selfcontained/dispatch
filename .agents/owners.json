@@ -139,6 +139,7 @@
         "packages/shared/src/chat-types.ts",
         "packages/shared/src/ui-event-types.ts",
         "apps/server/test/*stream*",
+        "apps/server/test/post-envelope.test.ts",
         "apps/server/test/task-watch-unsubscribe.test.ts",
         "apps/server/test/*message*",
         "apps/server/test/*chat*",

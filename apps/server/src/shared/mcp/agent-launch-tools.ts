@@ -62,7 +62,7 @@ export function registerAgentLaunchTools(
       description:
         "Launch a new agent to work on a task. Call get_usage first and launch on the type it suggests: " +
         "quotas are per provider login, so a type near its limit stalls every agent on it. The new agent runs independently " +
-        "— it shares your stream: post with to set to its id to coordinate, and list_agents to check status. " +
+        "— it owns a home stream: coordinate with post using agentHome and to set to its id, and list_agents to check status. " +
         "By default the new agent is your child and appears under your card in the sidebar; " +
         "pass child: false to launch it as its own top-level agent instead. " +
         "A child's files are readable here via ownerAgentId on list_files, " +

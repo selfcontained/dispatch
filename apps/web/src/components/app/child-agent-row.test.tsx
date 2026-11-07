@@ -707,7 +707,7 @@ describe("ChildAgentRow running-turn link", () => {
     const { openAgent, closeAgent } = renderLinkRow(working);
     fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
     expect(screen.getByTestId("location").textContent).toBe(
-      "/agents/agt_child?block=blk_turn"
+      "/agents/agt_parent?block=blk_turn"
     );
     expect(openAgent).not.toHaveBeenCalled();
     expect(closeAgent).not.toHaveBeenCalled();
@@ -725,7 +725,7 @@ describe("ChildAgentRow running-turn link", () => {
     });
     fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
     expect(screen.getByTestId("location").textContent).toBe(
-      "/agents/agt_child?thread=blk_launch&block=blk_turn"
+      "/agents/agt_parent?thread=blk_launch&block=blk_turn"
     );
   });
 

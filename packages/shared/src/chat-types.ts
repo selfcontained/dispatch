@@ -345,6 +345,12 @@ export type ChatTurnEntry = {
   at: string;
   updatedAt: string;
   prompt: ChatTurnPrompt;
+  /** Original input discussion for navigation only; never selects output storage. */
+  sourceConversation?: {
+    streamId: string;
+    threadId: string | null;
+    blockId?: string;
+  };
   trace: {
     startedAt: string;
     /** Last assistant/thought/tool update; excludes usage and turn metadata. */

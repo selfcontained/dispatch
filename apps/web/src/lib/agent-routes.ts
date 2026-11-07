@@ -25,23 +25,17 @@ export const FINDING_PARAM = "finding";
  */
 export const BLOCK_PARAM = "block";
 
-/**
- * A turn in the agent's own lineage opens on its page (including a child's
- * filtered view). A turn in another lineage opens on its owning stream.
- * Older snapshots without a stream id stay on the working agent's page.
- */
+/** History always opens the actual stored container, including legacy turns. */
 export function agentTurnLocation(
   agentId: string,
   turn: { blockId: string; threadId: string | null; streamId?: string },
-  ownStreamId: string = agentId
+  _ownStreamId: string = agentId
 ): { pathname: string; search: string } {
   const params = new URLSearchParams();
   if (turn.threadId) params.set(THREAD_PARAM, turn.threadId);
   params.set(BLOCK_PARAM, turn.blockId);
   return {
-    pathname: agentRoute(
-      turn.streamId && turn.streamId !== ownStreamId ? turn.streamId : agentId
-    ),
+    pathname: agentRoute(turn.streamId ?? agentId),
     search: `?${params.toString()}`,
   };
 }

@@ -1,10 +1,4 @@
-/**
- * An agent's place in its lineage, read off the agents list the app already
- * holds. A stream belongs to the root of a lineage (docs/design/blocks.md,
- * step 2): a child agent has no stream of its own, so its page shows its
- * root's stream filtered to the child, and every stream hook takes the
- * root's id.
- */
+/** Lineage grouping and legacy storage lookup; current homes use agent IDs. */
 import { useCallback } from "react";
 import type { AgentIdentityRecord } from "@dispatch/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -21,7 +15,7 @@ const MAX_DEPTH = 32;
  * The root of an agent's lineage: itself when it has no parent, otherwise
  * the top of its `parentAgentId` chain. An agent the list does not know
  * (archived, or from another repository) is its own root, so the result is
- * always usable as a stream id.
+ * usable for legacy history lookup.
  */
 export function rootAgentIdOf(
   agentId: string,
@@ -72,7 +66,7 @@ export async function fetchAgents(): Promise<Agent[]> {
 
 /**
  * The root of `agentId`'s lineage, or null until the agents list has loaded
- * (a child's page must not fetch its own, empty stream in the meantime).
+ * (used for lineage grouping and legacy history only).
  */
 export function useRootAgentId(agentId: string | null): string | null {
   const select = useCallback(

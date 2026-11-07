@@ -58,7 +58,7 @@ describe("buildPostEnvelope", () => {
         `--- DISPATCH POST (id: ${ID}, from: user) ---`,
         "hello",
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${ID}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
+        `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${ID}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`,
       ].join("\n")
     );
   });
@@ -73,7 +73,7 @@ describe("buildPostEnvelope", () => {
       `--- DISPATCH POST (id: ${ID}, from: Reviewer (agt_reviewer)) ---`,
       "Two findings.",
       "--- END DISPATCH POST ---",
-      'From another agent. Reply with post (to: "agt_reviewer") only if a reply is needed; routine updates need no acknowledgement.',
+      `From another agent. Ordinary replies stay at your own home root. Reply with post({ to: "agt_reviewer", replyTo: "${ID}", text: "<answer>" }) only if needed; routine updates need no acknowledgement. This preserves the source discussion anchor without moving future output.`,
     ]);
   });
 
@@ -135,8 +135,7 @@ describe("buildPostEnvelope", () => {
       "Yes",
       `This answers your question ${QUESTION}. In the thread under ${THREAD}.`,
       "--- END DISPATCH POST ---",
-      `Your reply appears in this thread as you write it. Use post for a question with options, a file, a link, or to reach another agent (with replyTo: "${THREAD}" to keep it in this thread).`,
-      expect.stringContaining('placement: "home"'),
+      `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${ID}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`,
     ]);
     const form = buildPostEnvelope({
       blockId: ID,
@@ -153,7 +152,7 @@ describe("buildPostEnvelope", () => {
     }).split("\n");
     expect(agent[2]).toBe(`In the thread under ${THREAD}.`);
     expect(agent[4]).toBe(
-      `From another agent. Reply with post (to: "agt_b", replyTo: "${THREAD}") only if a reply is needed; routine updates need no acknowledgement.`
+      `From another agent. Ordinary replies stay at your own home root. Reply with post({ to: "agt_b", replyTo: "${THREAD}", text: "<answer>" }) only if needed; routine updates need no acknowledgement. This preserves the source discussion anchor without moving future output.`
     );
   });
 

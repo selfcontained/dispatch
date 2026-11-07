@@ -2,7 +2,7 @@ import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useEffect } from "react";
 import { useLocation, useMatch } from "react-router-dom";
 
-import { agentRoute } from "@/lib/agent-routes";
+import { agentHistoryRoute, agentRoute } from "@/lib/agent-routes";
 import { type CenterTab, centerTabRoute } from "@/lib/center-tabs";
 
 type UseAgentsViewRoutingOptions = {
@@ -28,8 +28,18 @@ export function useAgentsViewRouting({
     if (!routeAgentId) return;
     if (!agentsLoaded) return;
     if (validatedSelectedAgentId) return;
-    navigate("/agents", { replace: true });
-  }, [agentsLoaded, navigate, routeAgentId, validatedSelectedAgentId]);
+    // A missing live seat may be archived; preserve its conversation anchor.
+    navigate(
+      { pathname: agentHistoryRoute(routeAgentId), search: location.search },
+      { replace: true }
+    );
+  }, [
+    agentsLoaded,
+    location.search,
+    navigate,
+    routeAgentId,
+    validatedSelectedAgentId,
+  ]);
 
   useEffect(() => {
     if (!routeAgentId) return;

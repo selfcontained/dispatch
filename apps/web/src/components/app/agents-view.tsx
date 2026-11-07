@@ -16,9 +16,8 @@ const FilesPane = lazy(() =>
   import("./files-pane").then((module) => ({ default: module.FilesPane }))
 );
 import { Routes, Route, useParams, useSearchParams } from "react-router-dom";
-import { useAtom } from "jotai";
 
-import { chatShowChildAgentsAtom, type CenterTab } from "@/lib/store";
+import { type CenterTab } from "@/lib/store";
 
 import { AgentPane, ChatFiltersButton } from "@/components/app/agent-pane";
 import { ChangesTab } from "@/components/app/changes-tab";
@@ -99,10 +98,6 @@ export function AgentsView({
   const { projectId, selectionProjectId } = useProjectScope();
   const { agentId: routeAgentId } = useParams();
   const navTo = useProjectNavigate();
-
-  const [showChildAgents, setShowChildAgents] = useAtom(
-    chatShowChildAgentsAtom
-  );
 
   const {
     agents,
@@ -496,8 +491,6 @@ export function AgentsView({
     agentId: focusedAgentId,
     agent: focusedAgent,
     agents,
-    showChildAgents,
-    onShowChildAgentsChange: setShowChildAgents,
     openLightbox,
     onOpenPath: handleOpenPath,
     isMobile,
@@ -512,19 +505,12 @@ export function AgentsView({
   const splitAgentHeaderAccessory =
     isSplit && agentPaneVisible ? (
       <div className="flex items-center gap-1">
-        <PendingInputsButton
-          key={focusedAgentId}
-          agentId={focusedAgentId}
-          showChildAgents={showChildAgents}
-        />
+        <PendingInputsButton key={focusedAgentId} agentId={focusedAgentId} />
         <ScheduledMessagesButton
           key={`schedules-${focusedAgentId}`}
           agentId={focusedAgentId}
         />
-        <ChatFiltersButton
-          showChildAgents={showChildAgents}
-          onShowChildAgentsChange={setShowChildAgents}
-        />
+        <ChatFiltersButton />
       </div>
     ) : null;
 

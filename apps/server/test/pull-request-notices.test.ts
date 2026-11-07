@@ -61,8 +61,8 @@ describe("PR observation delivery", () => {
       current
     );
     await service.waitForInFlightDeliveries(1000);
-    expect(block.streamId).toBe("parent");
-    expect(block.threadId).toBeTruthy();
+    expect(block.streamId).toBe("child");
+    expect(block.threadId).toBeNull();
     expect(block.toAgentId).toBe("child");
     expect(block.attachments).toEqual([
       { type: "pr", url: current.url, title: current.title },
@@ -193,8 +193,8 @@ describe("PR observation delivery", () => {
       expect(notice?.text).toContain("tracked PR checks changed");
       expect(notice?.toAgentId).toBe(id);
       if (id === "child") {
-        expect(notice?.streamId).toBe("parent");
-        expect(notice?.threadId).toBeTruthy();
+        expect(notice?.streamId).toBe("child");
+        expect(notice?.threadId).toBeNull();
       } else expect(notice?.delivered).toBe(false);
     }
     await service.waitForInFlightDeliveries(1000);

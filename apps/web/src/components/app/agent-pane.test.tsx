@@ -131,8 +131,6 @@ function paneProps(overrides: Partial<PaneProps> = {}): PaneProps {
     agentId: "agt_a",
     agent: agentNamed("agt_a"),
     active: true,
-    showChildAgents: true,
-    onShowChildAgentsChange: vi.fn(),
     header: true,
     openLightbox: vi.fn(),
     isMobile: false,
@@ -171,31 +169,19 @@ afterEach(() => {
 });
 
 describe("ChatFiltersButton", () => {
-  it("opens chat filters and reports child-agent visibility changes", () => {
-    const onShowChildAgentsChange = vi.fn();
-    const view = render(
-      <ChatFiltersButton
-        showChildAgents={true}
-        onShowChildAgentsChange={onShowChildAgentsChange}
-      />
-    );
-
+  it("ignores the retired child preference and offers only current chat options", () => {
+    localStorage.setItem("dispatch:chatShowChildAgents", "false");
+    render(<ChatFiltersButton />);
     fireEvent.click(screen.getByTestId("chat-filters-trigger"));
-    expect(screen.getByTestId("chat-filters-popover")).toBeTruthy();
-    const toggle = screen.getByRole("switch", { name: "Show child messages" });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(toggle);
-    expect(onShowChildAgentsChange).toHaveBeenCalledWith(false);
-
-    view.rerender(
-      <ChatFiltersButton
-        showChildAgents={false}
-        onShowChildAgentsChange={onShowChildAgentsChange}
-      />
-    );
+    expect(
+      screen.queryByRole("switch", { name: "Show child messages" })
+    ).toBeNull();
+    expect(
+      screen.getByRole("switch", { name: "Your last message" })
+    ).toBeTruthy();
     expect(
       screen.getByTestId("chat-filters-trigger").getAttribute("aria-label")
-    ).toBe("Chat options, child agents hidden");
+    ).toBe("Chat options");
   });
 
   it("keeps the filter icon unchanged inside a compact visible surface", () => {

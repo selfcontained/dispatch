@@ -12,8 +12,8 @@ const MAX_DEPTH = 32;
 
 /**
  * The root of an agent's lineage: itself when it has no parent, otherwise
- * the top of its `parent_agent_id` chain. The root's id is the stream every
- * agent in the tree posts into. An unknown agent is its own root, so a
+ * the top of its `parent_agent_id` chain. Lineage groups agents and preserves
+ * legacy access; each agent owns its new chat stream. An unknown agent is its own root, so a
  * caller can use the result as a stream id without a second lookup.
  */
 export async function rootAgentId(

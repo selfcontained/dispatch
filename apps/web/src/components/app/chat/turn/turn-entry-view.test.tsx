@@ -79,6 +79,16 @@ function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
   // `useIconColor`, which is a React Query read, so the provider is not
   // optional here.
   const client = new QueryClient();
+  const sourceId = entry.block.turn?.sourceConversation?.streamId;
+  if (sourceId)
+    client.setQueryData(["agent-identity", sourceId], {
+      id: sourceId,
+      name: "Source agent",
+      type: "codex",
+      archived: false,
+      parentAgentId: null,
+    });
+
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
@@ -96,6 +106,23 @@ function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
 }
 
 describe("TurnEntryView", () => {
+  it("links home output back to its stored source discussion", () => {
+    renderTurn(
+      turn({
+        sourceConversation: {
+          streamId: "agt_parent",
+          threadId: "source-thread",
+          blockId: "source-message",
+        },
+      })
+    );
+    expect(
+      screen.getByTestId("turn-source-discussion").getAttribute("href")
+    ).toBe(
+      "/agents/agt_parent?thread=source-thread&block=source-message&returnAgent=agt_1"
+    );
+  });
+
   it("renders the answer as the agent's own post, with the step list under it", () => {
     renderTurn(turn());
     // One post: the agent's. The prompt is the user's block, a row of its

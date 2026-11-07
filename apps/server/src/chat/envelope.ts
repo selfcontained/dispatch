@@ -197,15 +197,12 @@ export function buildPostEnvelope(input: {
         : "Its reviewer resolves it; reply here with what you changed or why you disagree. Once it is settled, no reply is needed."
     );
   }
-  const replyArgs = input.threadId ? `replyTo: "${input.threadId}"` : "";
-  // A person's post: the agent's own answer lands where the post was, in
-  // the thread when it came from one, so plain text is the whole reply.
-  // Another agent's post: only post reaches it, in its thread when it has one.
+  // Source anchors supply context and explicit reply targets, never output routing.
   const routing = input.task
-    ? `Ordinary replies stay in your own channel. To answer in this task chat, explicitly use post({ replyTo: "${input.blockId}", text: "<answer>" }) or post({ taskId: "${input.task.id}", text: "<update>" }). This places only that post; subsequent ordinary replies stay in your channel. Use to to address another agent.`
+    ? `Ordinary replies stay at your own home root. To answer in this task chat, explicitly use post({ replyTo: "${input.blockId}", text: "<answer>" }) or post({ taskId: "${input.task.id}", text: "<update>" }). Use to to address another agent; storage and delivery are independent.`
     : input.from.kind === "user"
-      ? `Your reply appears ${input.threadId ? "in this thread" : input.task ? "in the task's conversation" : "in the stream"} as you write it. Use post for a question with options, a file, a link, or to reach another agent${replyArgs ? ` (with ${replyArgs} to keep it in this thread)` : ""}.${input.threadId ? "" : ` For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${input.blockId}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`}`
-      : `From another agent. Reply with post (to: "${input.from.agentId}"${replyArgs ? `, ${replyArgs}` : ""}) only if a reply is needed; routine updates need no acknowledgement.`;
+      ? `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${input.blockId}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`
+      : `From another agent. Ordinary replies stay at your own home root. Reply with post({ to: "${input.from.agentId}", replyTo: "${input.threadId ?? input.blockId}", text: "<answer>" }) only if needed; routine updates need no acknowledgement. This preserves the source discussion anchor without moving future output.`;
   return [
     `--- DISPATCH POST (id: ${input.blockId}, from: ${senderLabel(input.from)}) ---`,
     ...(body.length > 0 ? [safeBody] : []),
@@ -223,11 +220,6 @@ export function buildPostEnvelope(input: {
       : []),
     "--- END DISPATCH POST ---",
     routing,
-    ...(input.threadId
-      ? [
-          'For a broader primary-task update from a side thread, use post with placement: "home" (your launch thread if you are a child), or deliberately "root" for the top of your own shared stream. This places only the post; ordinary replies stay in the current conversation. Use to if another agent must receive it. Keep the local discussion here; a task contained entirely here may finish here.',
-        ]
-      : []),
   ].join("\n");
 }
 

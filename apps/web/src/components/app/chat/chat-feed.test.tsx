@@ -1641,6 +1641,33 @@ describe("ChatFeed", () => {
     expect(second!.textContent).toContain("Still going");
   });
 
+  it("keeps archived recovery asks disabled", () => {
+    const { onAnswer } = renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "archived-ask",
+            author: { kind: "agent", agentId: "child" },
+            toAgentId: AGENT_ID,
+            delivered: false,
+            text: "Failed parent ask",
+            body: {
+              kind: "question",
+              data: { options: [{ label: "Yes" }], parentHandled: true },
+              state: {},
+            },
+          })
+        ),
+      ],
+      { answersDisabled: true },
+      { readOnly: true }
+    );
+    const option = screen.getByRole("button", { name: "Yes" });
+    expect(option.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(option);
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
   it("renders an unanswered question with clickable options", () => {
     const { onAnswer } = renderFeed([
       blockEntry(

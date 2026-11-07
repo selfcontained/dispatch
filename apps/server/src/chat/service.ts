@@ -65,7 +65,12 @@ import {
   resolveFilesDir,
   storedFileNamePattern,
 } from "../shared/files.js";
-import { agentTree, requestOwnerAgentId, rootAgentId } from "../agents/tree.js";
+import {
+  agentTree,
+  parentAgentId,
+  requestOwnerAgentId,
+  rootAgentId,
+} from "../agents/tree.js";
 import {
   buildPostEnvelope,
   describeReview,
@@ -135,6 +140,8 @@ export type PostInput = {
   to?: string | null;
   /** Explicit task destination; never changes subsequent turn routing. */
   taskId?: string;
+  /** Explicit lineage-scoped agent-home destination, independent of recipient. */
+  agentHome?: string;
   kind?: BlockKind;
   text?: string;
   replyTo?: string | null;
@@ -808,12 +815,9 @@ export class StreamService {
     this.log = deps.log ?? NO_OP_LOG;
   }
 
-  /**
-   * The stream an agent's blocks live in: its root's. A child posts into
-   * its parent's stream; an agent with no parent has its own.
-   */
-  streamOf(agentId: string): Promise<string> {
-    return rootAgentId(this.deps.pool, agentId);
+  /** Every agent owns its new chat storage, independently of sidebar lineage. */
+  async streamOf(agentId: string): Promise<string> {
+    return agentId;
   }
 
   /** The task whose conversation `streamId` is, or null for an agent's stream. */
@@ -1079,7 +1083,7 @@ export class StreamService {
   async ensureLaunchBlock(agentId: string): Promise<Block> {
     const existing = await this.store.findLaunchBlock(agentId);
     if (existing) return existing;
-    const streamId = await this.streamOf(agentId);
+    const streamId = (await parentAgentId(this.deps.pool, agentId)) ?? agentId;
     const id = launchBlockId(agentId);
     const written = await this.store.insertIfAbsent({
       id,
@@ -1101,19 +1105,11 @@ export class StreamService {
     return raced;
   }
 
-  /**
-   * Where an agent's own posts and turns go when nothing points them
-   * elsewhere. A child's is its launch card's thread: the one entry for it
-   * in its parent's stream holds its work, and the stream stays about the
-   * parent's. An agent with a stream of its own posts in the stream.
-   */
+  /** Ordinary work and default explicit posts always use the agent's root. */
   private async homeOf(
-    agentId: string
+    _agentId: string
   ): Promise<{ threadId: string; replyTo: string } | null> {
-    const streamId = await this.streamOf(agentId);
-    if (streamId === agentId) return null;
-    const card = await this.ensureLaunchBlock(agentId);
-    return { threadId: card.id, replyTo: card.id };
+    return null;
   }
 
   /**
@@ -2202,9 +2198,10 @@ export class StreamService {
   private async readableMessage(
     agentId: string,
     id: string,
-    allowShownContent = false
+    allowShownContent = false,
+    allowArchivedReader = false
   ): Promise<Block> {
-    await this.requireAgent(agentId);
+    if (!allowArchivedReader) await this.requireAgent(agentId);
     const block = await this.store.getById(id);
     if (!block) throw new StreamNotFoundError("Message not found.");
     const host = await this.threadHostFor(block);
@@ -2212,6 +2209,11 @@ export class StreamService {
     const task = await this.taskRoot(block.streamId);
     if (
       block.streamId !== (await this.streamOf(agentId)) &&
+      !(
+        !task &&
+        (await rootAgentId(this.deps.pool, block.streamId)) ===
+          (await rootAgentId(this.deps.pool, agentId))
+      ) &&
       !(task && (await this.inTaskConversation(task, agentId))) &&
       !(await this.store.hasContextAddress(host, agentId))
     ) {
@@ -2499,12 +2501,31 @@ export class StreamService {
     };
   }
 
+  /** Resolve existing history without creating a launch card or waking an agent. */
+  async chatLocation(agentId: string, blockId?: string) {
+    const exists = await this.deps.pool.query(
+      "SELECT 1 FROM agents WHERE id = $1",
+      [agentId]
+    );
+    if (!exists.rows.length) throw new StreamNotFoundError("Agent not found.");
+    const block = blockId
+      ? await this.readableMessage(agentId, blockId, true, true)
+      : await this.store.findLaunchBlock(agentId);
+    return block
+      ? {
+          streamId: block.streamId,
+          threadId: block.threadId,
+          blockId: block.id,
+        }
+      : null;
+  }
+
   async getConversationContext(agentId: string) {
     await this.requireAgent(agentId);
     const streamId = await this.streamOf(agentId);
     const home = {
       streamId,
-      threadId: streamId === agentId ? null : launchBlockId(agentId),
+      threadId: null,
     };
     const active = await this.turns.openTurn(agentId);
     const id = active?.payload.blockId;
@@ -2514,8 +2535,11 @@ export class StreamService {
       current: turn
         ? { streamId: turn.streamId, threadId: turn.threadId }
         : null,
+      source:
+        (active?.payload.prompt as PromptSource | undefined)?.conversation ??
+        null,
       activeTurnId: turn?.id ?? null,
-      note: "current is null when no recorded output turn is open; post defaults to home outside a turn.",
+      note: "Ordinary output and default posts belong at home. source is delivery context only; current may be a legacy block pinned until settlement.",
     };
   }
 
@@ -2844,6 +2868,16 @@ export class StreamService {
     opts: { root?: string },
     admit: (streamId: string) => Promise<void>
   ): Promise<Block> {
+    if (
+      input.agentHome !== undefined &&
+      (opts.root ||
+        input.taskId !== undefined ||
+        input.replyTo != null ||
+        input.placement !== undefined)
+    )
+      throw new StreamValidationError(
+        "agentHome cannot combine with taskId, replyTo or placement."
+      );
     if (input.taskId !== undefined) {
       if (opts.root || input.replyTo || input.placement !== undefined)
         throw new StreamValidationError(
@@ -2863,6 +2897,24 @@ export class StreamService {
     }
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
+    if (input.agentHome !== undefined) {
+      if (["question", "form", "review"].includes(kind))
+        throw new StreamValidationError(
+          "Questions, forms, and reviews use their dedicated routing."
+        );
+      const target = await this.requireAgent(input.agentHome);
+      const parent = await parentAgentId(this.deps.pool, agentId);
+      const targetParent = await parentAgentId(this.deps.pool, target.id);
+      if (
+        target.id !== agentId &&
+        target.id !== parent &&
+        targetParent !== agentId
+      )
+        throw new StreamForbiddenError(
+          "agentHome must name yourself, your parent, or your direct child."
+        );
+      streamId = target.id;
+    }
     if (kind === "task")
       await this.requireTaskReference(
         (resolved.data as { taskId: string }).taskId,
@@ -2900,7 +2952,7 @@ export class StreamService {
       }
     }
     let toAgentId = input.to ?? null;
-    if ((kind === "question" || kind === "form") && streamId !== agentId) {
+    if (kind === "question" || kind === "form") {
       // Request ownership follows lineage, never an explicit task destination.
       const ownerId = await requestOwnerAgentId(this.deps.pool, agentId);
       if (ownerId && (toAgentId === null || toAgentId === ownerId)) {
@@ -2911,39 +2963,31 @@ export class StreamService {
     const parentRequest =
       (kind === "question" || kind === "form") &&
       (data as { parentHandled?: boolean }).parentHandled === true;
+    if (parentRequest) {
+      const active = await this.turns.openTurn(agentId);
+      const source = (active?.payload.prompt as PromptSource | undefined)
+        ?.conversation;
+      const pointer = active?.payload.blockId;
+      const legacy =
+        !source && typeof pointer === "string"
+          ? await this.store.getById(pointer)
+          : null;
+      const conversation =
+        source ??
+        (legacy
+          ? { streamId: legacy.streamId, threadId: legacy.threadId }
+          : null);
+      if (conversation)
+        data = { ...(data as object), parentRequestConversation: conversation };
+    }
     if (toAgentId === agentId) {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    let home =
+    const home =
       input.placement === "root" || opts.root
         ? null
         : await this.homeOf(agentId);
-    const active = opts.root ? null : await this.turns.openTurn(agentId);
-    const turnId = active?.payload.blockId;
-    const turn =
-      typeof turnId === "string" ? await this.store.getById(turnId) : null;
-    if (
-      (input.placement === undefined || input.placement === "current") &&
-      turn?.author.kind === "agent" &&
-      turn.author.agentId === agentId &&
-      (kind !== "review" || turn.streamId !== streamId)
-    ) {
-      if (parentRequest && turn.streamId !== streamId) {
-        data = {
-          ...(data as object),
-          parentRequestConversation: {
-            streamId: turn.streamId,
-            threadId: turn.threadId,
-          },
-        };
-      } else {
-        streamId = turn.streamId;
-        home = turn.threadId
-          ? { threadId: turn.threadId, replyTo: turn.replyTo ?? turn.threadId }
-          : null;
-      }
-    }
     const attachments = await this.resolveAgentAttachments(
       agent,
       attachmentInputs
@@ -2951,8 +2995,8 @@ export class StreamService {
     const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
     const attachmentLines = await this.describeAttachments(agent, attachments);
     if (kind === "review") {
-      // A review is its own record, not a reply: a child's goes on its
-      // launch card, which shows it; anyone else's goes in the stream.
+      // Reviews are independent records at the reviewer's home; their findings
+      // retain dedicated anchors and explicit recipient ownership.
       await admit(streamId);
       const review = await this.createReview({
         streamId,
@@ -2973,31 +3017,25 @@ export class StreamService {
       return review;
     }
     // Named with replyTo, the post goes in that thread; otherwise in the
-    // active turn's location, falling back to the agent's own place. Only
+    // agent's own home root. Only
     // an explicit reply routes to the thread's other side; otherwise the
     // post is delivered only to whoever it names.
     if (replyTo) {
-      const target = await this.store.getById(replyTo);
-      const task = target ? await this.taskRoot(target.streamId) : null;
-      if (task) this.requireNotRemoved(task, agentId);
-      if (target && task && !addressedTo(target).includes(agentId)) {
-        // A task's conversation is open to every agent in its project.
+      if (!isBlockId(replyTo))
+        throw new StreamValidationError(
+          "replyTo must be a block id from a DISPATCH POST envelope or a post result."
+        );
+      const candidate = await this.store.getById(replyTo);
+      const task = candidate ? await this.taskRoot(candidate.streamId) : null;
+      if (task) {
+        this.requireNotRemoved(task, agentId);
         await this.requireTaskWriter(task, agentId);
-        streamId = target.streamId;
-      } else if (target && addressedTo(target).includes(agentId)) {
-        if (parentRequest && target.streamId !== streamId) {
-          data = {
-            ...(data as object),
-            parentRequestConversation: {
-              streamId: target.streamId,
-              threadId: target.threadId,
-            },
-          };
-          replyTo = null;
-        } else {
-          streamId = target.streamId;
-        }
       }
+      const target =
+        task && candidate
+          ? candidate
+          : await this.readableMessage(agentId, replyTo, true);
+      streamId = target.streamId;
     }
     const thread = replyTo ? await this.resolveThread(streamId, replyTo) : home;
     const sides =
@@ -3384,8 +3422,11 @@ export class StreamService {
       text,
       attachments.length - stored.length
     );
-    const streamId = await this.streamOf(input.agentId);
     const existing = await this.store.findLaunchBlock(input.agentId);
+    const streamId =
+      existing?.streamId ??
+      (await parentAgentId(this.deps.pool, input.agentId)) ??
+      input.agentId;
     const id = existing?.id ?? launchBlockId(input.agentId);
     return {
       id,
@@ -3695,70 +3736,16 @@ export class StreamService {
 
   /**
    * A turn opened: its block, by the agent, empty until the turn settles.
-   * A turn that a reply in a thread opened answers in that thread; any
-   * main-stream user post answers in the stream. Background work answers
-   * in the agent's own place (a child's launch thread). The block's id goes
-   * back onto the turn row so later events find it.
+   * All new ordinary output belongs at the executing agent's home root.
+   * Source discussion and legacy engine.after metadata stay context only.
+   * The recorder retains this block pointer through reconnect and settlement.
    */
   async recordTurnStarted(input: {
     agentId: string;
     turnRow: StreamEventRow;
     prompt: PromptSource;
   }): Promise<string | null> {
-    // A turn the engine started itself is a second answer beside the one
-    // before it: same place, replying to what that one replied to.
-    const previous =
-      input.prompt.source === "engine" && input.prompt.after
-        ? await this.store.getById(input.prompt.after)
-        : null;
-    const after =
-      previous?.author.kind === "agent" &&
-      previous.author.agentId === input.agentId &&
-      !(await this.taskRoot(previous.streamId))
-        ? previous
-        : null;
-    const streamId = after
-      ? after.streamId
-      : await this.promptStreamOf(input.agentId, input.prompt);
-    let thread: { threadId: string | null; replyTo: string | null } | null =
-      null;
-    if (after) {
-      thread = { threadId: after.threadId, replyTo: after.replyTo };
-    } else if (input.prompt.conversation?.streamId === streamId) {
-      const threadId = input.prompt.conversation.threadId;
-      thread = {
-        threadId,
-        replyTo:
-          threadId && input.prompt.source === "chat"
-            ? input.prompt.chatMessageId
-            : threadId,
-      };
-    } else if (input.prompt.source === "chat" && input.prompt.answerIn) {
-      // The prompt said where its answer goes.
-      const host = await this.store.getById(input.prompt.answerIn);
-      if (host && host.streamId === streamId) {
-        thread = { threadId: host.id, replyTo: host.id };
-      }
-    } else if (input.prompt.source === "chat") {
-      // Posts delivered together each say where their answer belongs. The
-      // turn answers in a thread only when every post points there.
-      // Any main-stream user post keeps the combined answer in the stream;
-      // other disagreements fall back to the agent's background work.
-      const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
-      const places = await Promise.all(
-        ids.map((id) => this.turnPlaceFor(id, streamId))
-      );
-      const [first] = places;
-      if (places.some((place) => place?.threadId === null)) {
-        // A batched main-stream message must not have its answer buried.
-        thread = { threadId: null, replyTo: null };
-      } else if (first && places.every((p) => p?.threadId === first.threadId)) {
-        thread = places[places.length - 1]!;
-      }
-    }
-    if (!thread && streamId === (await this.streamOf(input.agentId))) {
-      thread = await this.homeOf(input.agentId);
-    }
+    const streamId = await this.streamOf(input.agentId);
     const block = await this.store.insert({
       streamId,
       author: { kind: "agent", agentId: input.agentId },
@@ -3766,13 +3753,13 @@ export class StreamService {
       origin: "turn",
       data: { turnEventId: input.turnRow.id },
       text: "",
-      threadId: thread?.threadId ?? null,
-      replyTo: thread?.replyTo ?? null,
+      threadId: null,
+      replyTo: null,
     });
     return block.id;
   }
 
-  /** Addressed task prompts answer at home; agent-channel discussions retain their place. */
+  /** Resolve source identity for delivery isolation, independently of output ownership. */
   private async promptStreamOf(
     agentId: string,
     prompt: PromptSource
@@ -3792,7 +3779,7 @@ export class StreamService {
           addressedTo(block).includes(agentId)
       )
     ) {
-      return (await this.taskRoot(first.streamId)) ? ownStream : first.streamId;
+      return first.streamId;
     }
     return ownStream;
   }
@@ -3868,14 +3855,19 @@ export class StreamService {
     // Cross-conversation input must wait for a separate execution turn. This
     // guard also protects older hosts and delayed pickup receipts.
     const conversation = input.prompt.conversation;
-    const samePlace = conversation
-      ? conversation.streamId === previous.streamId &&
-        conversation.threadId === previous.threadId
-      : messages.every(
-          (b) =>
-            b?.streamId === previous.streamId &&
-            b.threadId === previous.threadId
-        );
+    const original = (input.turnRow.payload.prompt as PromptSource | undefined)
+      ?.conversation;
+    const samePlace = original
+      ? conversation?.streamId === original.streamId &&
+        conversation?.threadId === original.threadId
+      : conversation
+        ? conversation.streamId === previous.streamId &&
+          conversation.threadId === previous.threadId
+        : messages.every(
+            (b) =>
+              b?.streamId === previous.streamId &&
+              b.threadId === previous.threadId
+          );
     if (!samePlace) return null;
     const id = derivedBlockId(
       `response:${input.agentId}:${input.turnRow.id}:${input.receiptId}`
@@ -3896,7 +3888,7 @@ export class StreamService {
       },
       text: "",
       threadId: previous.threadId,
-      replyTo: previous.threadId ? ids[ids.length - 1]! : null,
+      replyTo: previous.threadId ? previous.replyTo : null,
     });
     return id;
   }
@@ -4002,11 +3994,7 @@ export class StreamService {
     agentId: string,
     source: PromptSource
   ): Promise<PromptSource> {
-    if (
-      source.conversation &&
-      !(await this.taskRoot(source.conversation.streamId))
-    )
-      return source;
+    if (source.conversation) return source;
     const streamId = await this.promptStreamOf(agentId, source);
     const answerHost =
       source.source === "chat" && source.answerIn
@@ -4135,7 +4123,7 @@ export class StreamService {
         // A review, or a word under one of its findings, is what the agent
         // on the other side is waiting for: it reaches a busy agent now.
         ...(block.kind === "review" || finding ? { awaited: true } : {}),
-        ...(from.kind === "user" && !structuredAnswer && !task
+        ...(from.kind === "user" && !structuredAnswer
           ? {
               conversation: {
                 streamId: block.streamId,

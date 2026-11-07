@@ -1,3 +1,4 @@
+import { ArchivedConversation } from "./archived-conversation";
 import { AgentSessionLink } from "./agent-session-link";
 import { ArrowLeft, Search } from "lucide-react";
 
@@ -140,6 +141,12 @@ export function AgentHistoryDetail({
           )}
         </div>
       </div>
+
+      <ArchivedConversation
+        agentId={agentId}
+        name={agent.name}
+        type={agent.type}
+      />
 
       {/* Stats */}
       <div className="flex flex-wrap gap-2 sm:gap-3">

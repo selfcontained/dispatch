@@ -186,6 +186,18 @@ export async function registerStreamRoutes(
     } satisfies AgentTurnResponse;
   });
 
+  app.get("/api/v1/agents/:id/chat-location", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { blockId } = request.query as { blockId?: string };
+    if (blockId !== undefined && !isBlockId(blockId))
+      return reply.code(400).send({ error: "blockId must be a block id." });
+    try {
+      return await streams.chatLocation(id, blockId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.get("/api/v1/streams/:rootId/blocks", async (request, reply) => {
     const rootId = (request.params as { rootId?: string }).rootId ?? "";
     const query = request.query as {

@@ -6,7 +6,8 @@ import type { PromptConversation } from "@dispatch/shared";
  * human-facing source behind it, not the envelope.
  */
 export type PromptSource = {
-  /** Server-resolved answer location, retained through the host journal. */
+  /** Source discussion for batching and steering, retained through the host journal.
+   * This never selects the location of ordinary output. */
   conversation?: PromptConversation;
   /**
    * A person's post. With a conversation, a prompt steers only that
@@ -46,7 +47,7 @@ export type PromptSource = {
   /**
    * A turn the engine started on its own between prompts (a background
    * task finished, a goal continued). `after` is the block that answered
-   * the turn before it: this one answers next to it.
+   * the turn before it: this is source context; new ordinary work uses the agent home.
    */
   | { source: "engine"; text: string; after?: string }
 );

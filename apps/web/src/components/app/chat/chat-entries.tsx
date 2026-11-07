@@ -1,3 +1,5 @@
+import { ConversationLocationLink } from "./conversation-location-link";
+import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { SharedMessageEntry } from "./shared-message-entry";
 import { ScheduledMessageEntry } from "./scheduled-message-entry";
@@ -138,6 +140,8 @@ export function peerDirectory(
  * what changes rarely.
  */
 export type FeedContext = {
+  /** Archived readers expose content and navigation without write controls. */
+  readOnly?: boolean;
   agentId: string;
   /** The stream the feed reads: the root of the agent's lineage. */
   rootId?: string | null;
@@ -1076,7 +1080,9 @@ function BlockBody({
           block={block}
           answering={answering}
           answersDisabled={
-            !recovery && (answersDisabled || block.data.parentHandled === true)
+            ctx.readOnly ||
+            (!recovery &&
+              (answersDisabled || block.data.parentHandled === true))
           }
           canceling={ctx.settingBlockStateId === block.id}
           onAnswer={(option, attachments) =>
@@ -1465,6 +1471,7 @@ function LaunchCard({
       data-testid="chat-compact-launch"
       data-block-id={block.id}
     >
+      <LaunchHomeLink agentId={block.toAgentId!} name={name} />
       {!inThread && ctx.onOpenThread ? (
         <Button
           variant="ghost"
@@ -1667,7 +1674,8 @@ export const BlockView = memo(function BlockView({
             retrying={ctx.retrying?.has(block.inputReply.id)}
             onRetryDelivery={ctx.onRetryDelivery}
           />
-          {block.inputReply.delivered === null &&
+          {!ctx.readOnly &&
+          block.inputReply.delivered === null &&
           block.inputReply.delivery?.some(
             (entry) => entry.state === "held" || entry.state === "pending"
           ) ? (
@@ -1774,7 +1782,7 @@ export const BlockView = memo(function BlockView({
               onRetryDelivery={ctx.onRetryDelivery}
             />
           </div>
-          {queued ? (
+          {queued && !ctx.readOnly ? (
             <QueuedMessageActions
               agentId={block.streamId}
               messageId={block.id}
@@ -1815,17 +1823,20 @@ export const BlockView = memo(function BlockView({
   // it takes the full header once the reply's first words arrive.
   if (block.turn && !inThread && isPendingTurn(block, block.turn, folded)) {
     return (
-      <PendingTurnLine
-        block={block}
-        turn={block.turn}
-        name={author.name}
-        identity={
-          author.agentId ? (
-            <AgentSessionLink agentId={author.agentId} name={author.name} />
-          ) : undefined
-        }
-        avatar={<Avatar author={author} size="sm" />}
-      />
+      <>
+        <ConversationLocationLink turn={block.turn} homeId={block.streamId} />
+        <PendingTurnLine
+          block={block}
+          turn={block.turn}
+          name={author.name}
+          identity={
+            author.agentId ? (
+              <AgentSessionLink agentId={author.agentId} name={author.name} />
+            ) : undefined
+          }
+          avatar={<Avatar author={author} size="sm" />}
+        />
+      </>
     );
   }
 
@@ -1888,6 +1899,9 @@ export const BlockView = memo(function BlockView({
           multiple={block.data.responseTo.length > 1}
         />
       ) : null}
+      {block.turn ? (
+        <ConversationLocationLink turn={block.turn} homeId={block.streamId} />
+      ) : null}
       {failureNotice}
       <InputSurface block={block}>
         {block.sharedMessage ? (
@@ -1899,7 +1913,8 @@ export const BlockView = memo(function BlockView({
             ctx={ctx}
             folded={folded}
           />
-        ) : block.author.kind === "agent" &&
+        ) : !ctx.readOnly &&
+          block.author.kind === "agent" &&
           typeof (block.data as { scheduledMessageId?: unknown } | null)
             ?.scheduledMessageId === "string" ? (
           <ScheduledMessageEntry
@@ -2021,5 +2036,16 @@ function SourceMessageLink({
       <MessagesSquare className="h-3 w-3" aria-hidden="true" />
       Open original message
     </Link>
+  );
+}
+
+function LaunchHomeLink({ agentId, name }: { agentId: string; name: string }) {
+  const { unread } = useAgentChatUnread(agentId);
+  return (
+    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+      <AgentSessionLink agentId={agentId} name={name}>
+        Open agent home{unread > 0 ? ` · ${unread} unread` : ""}
+      </AgentSessionLink>
+    </div>
   );
 }

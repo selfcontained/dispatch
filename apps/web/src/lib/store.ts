@@ -508,22 +508,6 @@ export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
-// ---------------------------------------------------------------------------
-// Chat child-agent filter — whether Chat shows the messages exchanged with an
-// agent's children. One global preference: wanting child chatter out of the
-// way is a standing taste, and scoping it per agent would leave every new
-// session starting noisy again.
-// ---------------------------------------------------------------------------
-
-export const CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY =
-  "dispatch:chatShowChildAgents";
-
-export const chatShowChildAgentsAtom = atomWithLocalStorage<boolean>(
-  CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
-  false,
-  { validate: (value): value is boolean => typeof value === "boolean" }
-);
-
 // A standing chat display preference, shared by normal and split-pane headers.
 export const chatShowLastMessageAtom = atomWithLocalStorage<boolean>(
   "dispatch:chatShowLastMessage",

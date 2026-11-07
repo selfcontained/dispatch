@@ -19,7 +19,6 @@ import {
 import { type ReactNode, useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { createStore, Provider } from "jotai";
-import { chatShowChildAgentsAtom } from "@/lib/store";
 import { PendingInputsButton } from "@/components/app/chat/pending-inputs-button";
 import { useInbox } from "@/hooks/use-inbox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1183,7 +1182,6 @@ describe("shareFeedByEntryId", () => {
       ];
       client.setQueryData(["agents"], agents);
       const store = createStore();
-      store.set(chatShowChildAgentsAtom, true);
       apiMock.mockImplementation(async (url) =>
         url === "/api/v1/agents"
           ? { agents }
@@ -1191,14 +1189,14 @@ describe("shareFeedByEntryId", () => {
       );
       const agentId = view === "child" ? "child" : "agt_1";
       function View() {
-        const feed = useStreamFeed("agt_1", view === "child" ? "child" : true);
+        const feed = useStreamFeed(agentId);
         const inbox = useInbox(agentId);
         return (
           <>
             <span>
               {feed.isLoading || inbox.isLoading ? "loading" : "ready"}
             </span>
-            <PendingInputsButton agentId={agentId} showChildAgents />
+            <PendingInputsButton agentId={agentId} />
           </>
         );
       }
@@ -1216,7 +1214,7 @@ describe("shareFeedByEntryId", () => {
         apiMock.mock.calls.filter(([url]) => String(url).includes("/blocks?"))
       ).toHaveLength(1);
       expect(
-        client.getQueryCache().findAll({ queryKey: ["stream", "agt_1"] })
+        client.getQueryCache().findAll({ queryKey: ["stream", agentId] })
       ).toHaveLength(1);
     }
   );

@@ -227,6 +227,7 @@ describe("registerStreamTools", () => {
     expect(description).not.toMatch(/chat_post|share_file|chat_update/);
     expect(Object.keys(shape("post"))).toEqual([
       "to",
+      "agentHome",
       "text",
       "taskId",
       "replyTo",
@@ -282,6 +283,26 @@ describe("registerStreamTools", () => {
       attachments: [],
       notify: undefined,
     });
+  });
+
+  it("keeps agent-home destination independent of delivery recipient", async () => {
+    expect(shape("post").agentHome.parse("agt_child")).toBe("agt_child");
+    expect(() => shape("post").agentHome.parse("")).toThrow();
+    await tool("post").handler({
+      agentHome: "agt_child",
+      to: "agt_parent",
+      text: "result",
+    });
+    expect(post).toHaveBeenCalledWith(
+      AGENT_ID,
+      expect.objectContaining({ agentHome: "agt_child", to: "agt_parent" })
+    );
+    expect(tool("post").config.description).toContain(
+      "source messages never move it"
+    );
+    expect(tool("post").config.description).toContain(
+      "Questions, forms, and reviews preserve dedicated routing"
+    );
   });
 
   it("accepts and forwards explicit placement and returns the actual location", async () => {

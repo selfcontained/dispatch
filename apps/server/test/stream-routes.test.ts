@@ -1491,7 +1491,7 @@ describe("stream routes with a deliverable engine", () => {
         `--- DISPATCH POST (id: ${body.block.id}, from: user) ---`,
         "please do X",
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post for a question with options, a file, a link, or to reach another agent. For a self-contained side question or follow-up, you may instead answer with post({ replyTo: "${body.block.id}", text: "<answer>" }); do not repeat that answer in the main stream. Keep main-task progress, broader decisions, and final results in ordinary replies; do not thread every answer.`,
+        `Your reply appears at your own home root as you write it. This source discussion is context only. To answer here, explicitly use post({ replyTo: "${body.block.id}", text: "<answer>" }). Keep ordinary progress and final results at home; do not duplicate the full answer.`,
       ].join("\n")
     );
     // Pending first, then the same row once delivery settled it.
@@ -1956,5 +1956,51 @@ describe("stream routes with a deliverable engine", () => {
       expect.objectContaining({ delivered: true }),
     ]);
     await app.close();
+  });
+});
+
+describe("GET agent chat-location", () => {
+  it("resolves legacy child links without creating a launch or starting an agent", async () => {
+    const child = "agt_history_child";
+    await ctx.pool.query(
+      "INSERT INTO agents(id,name,cwd,status,parent_agent_id) VALUES($1,'History child','/tmp','stopped',$2)",
+      [child, agentId]
+    );
+    expect(
+      (
+        await authedInject("GET", `/api/v1/agents/${child}/chat-location`)
+      ).json()
+    ).toBeNull();
+    const legacy = await store.insert({
+      streamId: agentId,
+      author: agentAuthor(child),
+      text: "Old work",
+    });
+    await ctx.pool.query("UPDATE agents SET deleted_at = now() WHERE id=$1", [
+      child,
+    ]);
+    const response = await authedInject(
+      "GET",
+      `/api/v1/agents/${child}/chat-location?blockId=${legacy.id}`
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      streamId: agentId,
+      threadId: null,
+      blockId: legacy.id,
+    });
+    expect(
+      (
+        await authedInject(
+          "GET",
+          `/api/v1/agents/${child}/chat-location?blockId=invalid`
+        )
+      ).statusCode
+    ).toBe(400);
+    expect(
+      (await ctx.pool.query("SELECT status FROM agents WHERE id=$1", [child]))
+        .rows[0].status
+    ).toBe("stopped");
+    expect(await store.findLaunchBlock(child)).toBeNull();
   });
 });
