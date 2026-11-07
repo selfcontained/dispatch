@@ -1,3 +1,4 @@
+import { BackgroundWorkButton } from "./background-work-button";
 import { ArchivedConversation } from "./archived-conversation";
 import { AgentSessionLink } from "./agent-session-link";
 import { ArrowLeft, Search } from "lucide-react";
@@ -91,6 +92,7 @@ export function AgentHistoryDetail({
             <AgentSessionLink agentId={agent.id} name={agent.name} />
           </h2>
         </div>
+        <BackgroundWorkButton agentId={agent.id} />
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
             {new Date(agent.createdAt).toLocaleDateString(undefined, {

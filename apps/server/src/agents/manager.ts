@@ -1,3 +1,4 @@
+import { writeBackground } from "./acp/background-store.js";
 import { matchingProjects } from "../projects/matching.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
@@ -472,7 +473,9 @@ export class AgentManager {
       if (agent) this.eventBus.publish(agent);
       return;
     }
-    await this.streamRecorder.handle(event);
+    if (event.type === "background" || event.type === "exit")
+      await writeBackground(this.pool, agentId, event);
+    if (event.type !== "background") await this.streamRecorder.handle(event);
     if (event.type === "turn" && event.state === "settled" && event.usage) {
       await this.recordUsage(agentId);
     }

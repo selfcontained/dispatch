@@ -104,6 +104,9 @@ const agent = {
       },
       authMethods: [],
       _meta: {
+        ...(ENGINE === "claude" || ENGINE === "codex"
+          ? { jetbrains: { air: { version: 1, capabilities: ["asyncTasks"] } } }
+          : {}),
         "dispatch/mcpInventory": { version: 1 },
         steering: { supported: true },
         "dispatch/steering": { pickupReceipts: true, promptReceipts: true },
@@ -201,6 +204,32 @@ const agent = {
       const text = params.prompt
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");
+      if (text.includes("background-fixture")) {
+        // Raw extension wire: SDK 1.8 cannot send these through its typed union.
+        // Matches the pinned providers, without launching any command or model.
+        const report = (update) =>
+          process.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              method: "session/update",
+              params: { sessionId: params.sessionId, update },
+            }) + "\n"
+          );
+        report({
+          sessionUpdate: "async_task_spawned",
+          asyncTaskId: "watch",
+          name: "Watch build",
+          taskType: ENGINE === "claude" ? "monitor" : "shell",
+          canStop: ENGINE !== "claude",
+          showInTranscript: false,
+          toolCallId: "c1",
+        });
+        report({
+          sessionUpdate: "async_task_state_update",
+          asyncTaskId: "watch",
+          state: "paused",
+        });
+      }
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });

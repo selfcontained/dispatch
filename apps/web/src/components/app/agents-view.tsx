@@ -1,3 +1,4 @@
+import { BackgroundWorkButton } from "./background-work-button";
 import { TaskModal } from "./tasks/task-modal";
 import { useProjectNavigate, useProjectScope } from "@/hooks/use-projects";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
@@ -506,6 +507,10 @@ export function AgentsView({
     isSplit && agentPaneVisible ? (
       <div className="flex items-center gap-1">
         <PendingInputsButton key={focusedAgentId} agentId={focusedAgentId} />
+        <BackgroundWorkButton
+          key={`background-${focusedAgentId}`}
+          agentId={focusedAgentId}
+        />
         <ScheduledMessagesButton
           key={`schedules-${focusedAgentId}`}
           agentId={focusedAgentId}
