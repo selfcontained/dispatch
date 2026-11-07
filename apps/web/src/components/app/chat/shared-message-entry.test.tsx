@@ -96,6 +96,7 @@ it("bounds unknown-kind content and never exposes arbitrary JSON or mutating con
     />
   );
   expect(container.textContent!.length).toBeLessThan(14000);
+  expect(screen.getByText(/Snapshot display truncated/)).toBeTruthy();
   expect(container.textContent).not.toContain("PRIVATE");
   expect(container.querySelectorAll("button")).toHaveLength(1);
 });
@@ -147,3 +148,21 @@ it.each(["text", "system", "turn-result", "question"])(
     expect(container.querySelector("input, textarea, iframe")).toBeNull();
   }
 );
+
+it("marks omissions when individually bounded review fields exceed the combined display cap", () => {
+  render(
+    <SharedMessageEntry
+      share={{
+        ...share,
+        question: null,
+        message: {
+          text: "a".repeat(7000),
+          kind: "review",
+          data: { summary: "b".repeat(7000) },
+          attachments: [],
+        },
+      }}
+    />
+  );
+  expect(screen.getByText(/Snapshot display truncated/)).toBeTruthy();
+});

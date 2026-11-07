@@ -29,6 +29,13 @@ function Original({
   const text = bounded(message.text);
   const summary = message.kind === "review" ? bounded(data.summary) : "";
   const finding = message.kind === "finding";
+  const content = [
+    text,
+    summary !== text ? summary : "",
+    finding ? bounded(data.body) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const options =
     message.kind === "question" && Array.isArray(data.options)
       ? data.options.slice(0, 20)
@@ -40,17 +47,16 @@ function Original({
           {bounded(data.severity)} · {bounded(data.title)}
         </p>
       ) : null}
-      {summary || text || (finding && bounded(data.body)) ? (
-        <Markdown variant="snapshot">
-          {[
-            text,
-            summary !== text ? summary : "",
-            finding ? bounded(data.body) : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n")
-            .slice(0, LIMIT)}
-        </Markdown>
+      {content ? (
+        <>
+          <Markdown variant="snapshot">{content.slice(0, LIMIT)}</Markdown>
+          {content.length > LIMIT ? (
+            <p className="text-xs text-muted-foreground">
+              Snapshot display truncated. Inspect the share reference for the
+              complete original.
+            </p>
+          ) : null}
+        </>
       ) : (
         <p className="text-muted-foreground">
           No readable text in this snapshot.
