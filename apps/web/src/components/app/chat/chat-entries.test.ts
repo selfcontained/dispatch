@@ -23,6 +23,24 @@ const ctx: FeedContext = {
 };
 
 describe("blockAuthor", () => {
+  it("renders trusted system authors without agent metadata", () => {
+    expect(
+      blockAuthor(block({ author: { kind: "system" }, text: "Notice" }), ctx)
+    ).toEqual({ key: "system", kind: "system", name: "Dispatch system" });
+  });
+  it("does not reinterpret legacy or agent-authored notice text", () => {
+    const message = block({
+      author: { kind: "agent", agentId: STREAM_ID },
+      text: "Dispatch system: tracked PR status changed Open → Merged",
+    });
+    expect(blockAuthor(message, ctx).kind).toBe("agent");
+    expect(
+      blockAuthor(
+        block({ author: { kind: "user" }, text: "Dispatch system: hello" }),
+        ctx
+      ).kind
+    ).toBe("user");
+  });
   it("labels a turn with the model it ran on, not the agent's current one", () => {
     const earlier = blockAuthor(turnBlock({ turn: { model: "haiku" } }), ctx);
     expect(earlier.model).toBe("haiku");

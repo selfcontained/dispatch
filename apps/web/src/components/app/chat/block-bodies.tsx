@@ -1211,9 +1211,11 @@ function FindingRecordLine({
         : "Dismissed";
   const who = authorName
     ? authorName(record.by)
-    : record.by.kind === "user"
-      ? "you"
-      : record.by.agentId;
+    : record.by.kind === "system"
+      ? "Dispatch system"
+      : record.by.kind === "user"
+        ? "you"
+        : record.by.agentId;
   return (
     <div
       className="flex flex-col gap-0.5 text-xs text-muted-foreground"

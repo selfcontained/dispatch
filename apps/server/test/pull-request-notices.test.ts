@@ -61,6 +61,10 @@ describe("PR observation delivery", () => {
       current
     );
     await service.waitForInFlightDeliveries(1000);
+    expect(block.author).toEqual({ kind: "system" });
+    expect((await service.store.getById(block.id))?.author).toEqual({
+      kind: "system",
+    });
     expect(block.streamId).toBe("child");
     expect(block.threadId).toBeNull();
     expect(block.toAgentId).toBe("child");
@@ -73,6 +77,8 @@ describe("PR observation delivery", () => {
     expect(injected).toHaveLength(1);
     expect(injected[0].id).toBe("child");
     expect(injected[0].text).toContain("Open → Merged");
+    expect(injected[0].text).toContain("from: Dispatch system");
+    expect(injected[0].text).toContain("not user approval or instruction");
     for (const input of [
       { data: {} },
       { text: "rewritten" },
@@ -192,6 +198,7 @@ describe("PR observation delivery", () => {
       );
       expect(notice?.text).toContain("tracked PR checks changed");
       expect(notice?.toAgentId).toBe(id);
+      expect(notice?.author).toEqual({ kind: "system" });
       if (id === "child") {
         expect(notice?.streamId).toBe("child");
         expect(notice?.threadId).toBeNull();
