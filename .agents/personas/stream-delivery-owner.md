@@ -25,6 +25,8 @@ Trace the affected producer, stored message, route, and browser consumer in `age
 
 - Portfolio exports require matching explicit project membership for both outcome author and stream (agent or task), including child threads and archived sources. Bounded snapshots must replay stable pages and label missing/purged evidence rather than imply complete history.
 
+- Background lifecycle projections are bounded and independent of transcript turns. Terminal identity must survive display-row pruning and newly arriving late spawn/progress, with a bounded overflow policy that cannot infer running for forgotten identities. Journal replay and new generations must not revive terminal or historical work. Retain stale last observations on disconnect; expose only bounded existing tool output and resolve origin links from stored stream/thread provenance.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

@@ -22,6 +22,8 @@ Read `apps/server/src/agents/manager.ts`, `agents/acp/`, `shared/git/`, and the 
 
 - Trace launch configuration from form through route to engine: model, access ceiling, workspace, and worktree-local overrides must agree. Personality settings must propagate to the intended prompt/session without changing unrelated agents.
 
+- Background-work visibility negotiates only the pinned asyncTasks extension. Validate its bounded wire payloads separately while retaining ordinary ACP SDK validation. Accept the pinned providers' task types, preserve owning session/generation and tool IDs, and keep provider-native subagents separate. Reports may arrive during foreground idle or session startup; neither idle nor absent output proves termination. Never read provider outputFilePath metadata or add process controls as a visibility fallback.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

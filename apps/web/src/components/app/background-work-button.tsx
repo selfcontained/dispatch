@@ -1,3 +1,4 @@
+import { conversationLocation } from "./chat/conversation-location-link";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, ArrowLeft, X } from "lucide-react";
@@ -22,7 +23,13 @@ const stateLabel = (item: BackgroundItem) =>
     ? `Last reported ${item.state ?? "unknown"} · stale`
     : (item.state ?? "Unknown");
 
-export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
+export function BackgroundWorkButton({
+  agentId,
+  archived = false,
+}: {
+  agentId: string | null;
+  archived?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const query = useQuery({
@@ -54,9 +61,27 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
   ).length;
   const stale =
     query.isError || snapshot?.stale || active.some((item) => item.stale);
-  const current = (detailQuery.data?.items ?? items).find(
+  const listed = items.find(
     (item) => `${item.generation}:${item.id}` === selected
   );
+  const detailed = detailQuery.data?.items.find(
+    (item) => `${item.generation}:${item.id}` === selected
+  );
+  const latest =
+    detailed && (!listed || detailed.sequence > listed.sequence)
+      ? detailed
+      : listed;
+  const current = latest
+    ? {
+        ...latest,
+        stale: latest.stale || query.isError,
+        terminalOutput: detailQuery.isError
+          ? undefined
+          : detailed?.terminalOutput,
+      }
+    : detailed
+      ? { ...detailed, stale: true, terminalOutput: undefined }
+      : undefined;
   const renderRow = (item: BackgroundItem) => (
     <button
       key={`${item.generation}:${item.id}`}
@@ -137,6 +162,12 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
               is unknown.
             </p>
           )}
+          {snapshot?.identityOverflow && (
+            <p role="alert">
+              Identity retention capacity reached. Additional work cannot be
+              safely identified for this connection.
+            </p>
+          )}
           {snapshot?.truncated && (
             <p className="text-sm text-muted-foreground">
               Showing up to 200 retained reports. Older observations were
@@ -186,8 +217,18 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
               {current.originBlockId ? (
                 <Link
                   className="text-sm underline"
-                  to={`/agents/${encodeURIComponent(agentId)}?block=${encodeURIComponent(current.originBlockId)}`}
-                  onClick={() => setOpen(false)}
+                  to={conversationLocation(
+                    {
+                      streamId: current.originStreamId ?? agentId,
+                      blockId: current.originBlockId,
+                      threadId: current.originThreadId ?? null,
+                    },
+                    archived
+                  )}
+                  onClick={() => {
+                    setOpen(false);
+                    setSelected(null);
+                  }}
                 >
                   View originating turn and tool
                 </Link>
@@ -196,7 +237,22 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
                   Origin unavailable
                 </p>
               )}
-              {current.terminalOutput ? (
+              {detailQuery.isError && (
+                <p role="alert" className="text-sm">
+                  Details could not be refreshed. State uses the latest
+                  available report; output is unavailable.{" "}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void detailQuery.refetch()}
+                  >
+                    Retry details
+                  </Button>
+                </p>
+              )}
+              {detailQuery.isPending ? (
+                <p>Loading details…</p>
+              ) : detailQuery.isError ? null : current.terminalOutput ? (
                 <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs">
                   {current.terminalOutput}
                 </pre>

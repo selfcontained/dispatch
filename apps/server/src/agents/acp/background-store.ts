@@ -4,6 +4,7 @@ import {
   projectBackground,
   type BackgroundEvent,
   type BackgroundSnapshot,
+  type BackgroundProjection,
 } from "./background-projection.js";
 
 export async function readBackground(
@@ -11,21 +12,24 @@ export async function readBackground(
   agentId: string,
   detail?: string
 ): Promise<BackgroundSnapshot> {
-  const result = await pool.query<{ snapshot: BackgroundSnapshot }>(
+  const result = await pool.query<{ snapshot: BackgroundProjection }>(
     "SELECT snapshot FROM agent_background_work WHERE agent_id = $1",
     [agentId]
   );
-  const snapshot = result.rows[0]?.snapshot ?? emptyBackground();
+  const { terminalIdentities: _terminalIdentities, ...snapshot } =
+    result.rows[0]?.snapshot ?? emptyBackground();
   // Resolve origin IDs in one bounded query. Only the selected detail returns
   // existing bounded transcript output; the regularly polled list carries none.
   const origins = await pool.query<{
     generation: string;
     id: string;
     block_id: string | null;
+    stream_id: string | null;
+    thread_id: string | null;
     output: string | null;
   }>(
     `
-    SELECT wanted.generation, wanted.id, turn.payload->>'blockId' AS block_id,
+    SELECT wanted.generation, wanted.id, origin.id::text AS block_id, origin.stream_id, origin.thread_id::text AS thread_id,
       CASE WHEN wanted.generation || ':' || wanted.id = $3
         THEN left(tool.payload->>'terminalOutput', 16000) ELSE NULL END AS output
     FROM jsonb_to_recordset($2::jsonb) AS wanted(id text, generation text, "toolCallId" text, "sessionId" text)
@@ -33,6 +37,7 @@ export async function readBackground(
     JOIN LATERAL (SELECT payload FROM agent_stream_events
       WHERE agent_id = tool.agent_id AND kind = 'turn' AND seq <= tool.seq
       ORDER BY seq DESC LIMIT 1) turn ON turn.payload->>'sessionId' = wanted."sessionId"
+    LEFT JOIN blocks origin ON origin.id::text = turn.payload->>'blockId' AND origin.author_agent_id = $1
     LIMIT 200`,
     [agentId, JSON.stringify(snapshot.items), detail ?? null]
   );
@@ -42,7 +47,13 @@ export async function readBackground(
     );
     return {
       ...item,
-      ...(origin?.block_id ? { originBlockId: origin.block_id } : {}),
+      ...(origin?.block_id && origin.stream_id
+        ? {
+            originBlockId: origin.block_id,
+            originStreamId: origin.stream_id,
+            originThreadId: origin.thread_id,
+          }
+        : {}),
       ...(origin?.output ? { terminalOutput: origin.output } : {}),
     };
   });
@@ -61,7 +72,7 @@ export async function writeBackground(
     await client.query("SELECT id FROM agents WHERE id = $1 FOR UPDATE", [
       agentId,
     ]);
-    const result = await client.query<{ snapshot: BackgroundSnapshot }>(
+    const result = await client.query<{ snapshot: BackgroundProjection }>(
       "SELECT snapshot FROM agent_background_work WHERE agent_id = $1",
       [agentId]
     );

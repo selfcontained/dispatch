@@ -17,7 +17,7 @@ const updateSchema = z.discriminatedUnion("sessionUpdate", [
     ...common,
     sessionUpdate: z.literal("async_task_spawned"),
     name: text,
-    taskType: z.enum(["shell", "monitor"]),
+    taskType: z.string().min(1).max(128),
     description: text.optional(),
     showInTranscript: z.boolean(),
     canStop: z.boolean(),

@@ -14,7 +14,13 @@ export type BackgroundEvent = {
 );
 import type { BackgroundItem, BackgroundSnapshot } from "@dispatch/shared";
 export type { BackgroundItem, BackgroundSnapshot } from "@dispatch/shared";
-export const emptyBackground = (): BackgroundSnapshot => ({
+export type BackgroundProjection = BackgroundSnapshot & {
+  terminalIdentities?: Array<{
+    id: string;
+    state: "completed" | "failed" | "stopped";
+  }>;
+};
+export const emptyBackground = (): BackgroundProjection => ({
   capability: "unknown",
   stale: false,
   items: [],
@@ -24,9 +30,9 @@ const terminal = (state: BackgroundItem["state"]) =>
 
 /** Bounded materialized view; source journal remains the replay authority. */
 export function projectBackground(
-  previous: BackgroundSnapshot,
+  previous: BackgroundProjection,
   event: BackgroundEvent
-): BackgroundSnapshot {
+): BackgroundProjection {
   if (event.kind === "capability") {
     if (
       previous.generation === event.generation ||
@@ -55,6 +61,30 @@ export function projectBackground(
       item.generation === event.generation && item.id === update.asyncTaskId
   );
   const old = previous.items[index];
+  const terminalIdentities = (previous.terminalIdentities ?? []).map(
+    (identity) => ({ ...identity })
+  );
+  let identityOverflow = previous.identityOverflow ?? false;
+  const knownTerminal = terminalIdentities.find(
+    (identity) => identity.id === update.asyncTaskId
+  );
+  // Terminal suppression outlives the 200 display rows. Once its independent
+  // bound is exhausted, reject new identities for this generation rather than
+  // infer running from a spawn whose terminal identity may have been omitted.
+  if (previous.identityOverflow && !old && !knownTerminal)
+    return { ...previous, lastSequence: event.sequence };
+  if (
+    update.sessionUpdate === "async_task_state_update" &&
+    (update.state === "completed" ||
+      update.state === "failed" ||
+      update.state === "stopped")
+  ) {
+    if (knownTerminal) knownTerminal.state = update.state;
+    else if (terminalIdentities.length < 1000)
+      terminalIdentities.push({ id: update.asyncTaskId, state: update.state });
+    else identityOverflow = true;
+  }
+
   if (old && old.sequence >= event.sequence) return previous;
   const item: BackgroundItem = {
     ...(old ?? {
@@ -63,6 +93,7 @@ export function projectBackground(
       sessionId: event.sessionId,
       provider: event.provider,
     }),
+    ...(knownTerminal ? { state: knownTerminal.state } : {}),
     source: "acp-asyncTasks",
     lastObservation: event.at,
     sequence: event.sequence,
@@ -98,6 +129,8 @@ export function projectBackground(
   return {
     ...previous,
     lastSequence: event.sequence,
+    terminalIdentities,
+    ...(identityOverflow ? { identityOverflow: true } : {}),
     items: items.slice(0, 200),
     ...(items.length > 200 || previous.truncated ? { truncated: true } : {}),
   };

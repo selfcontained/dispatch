@@ -7,7 +7,7 @@ export type BackgroundItem = {
   canStop?: boolean;
   showInTranscript?: boolean;
   name?: string;
-  taskType?: "shell" | "monitor";
+  taskType?: string;
   description?: string;
   summary?: string;
   toolCallId?: string;
@@ -16,6 +16,8 @@ export type BackgroundItem = {
   sequence: number;
   stale: boolean;
   originBlockId?: string;
+  originStreamId?: string;
+  originThreadId?: string | null;
   terminalOutput?: string;
 };
 export type BackgroundSnapshot = {
@@ -26,4 +28,5 @@ export type BackgroundSnapshot = {
   stale: boolean;
   items: BackgroundItem[];
   truncated?: boolean;
+  identityOverflow?: boolean;
 };

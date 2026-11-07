@@ -118,3 +118,73 @@ describe("bounded background lifecycle projection", () => {
     expect(projectBackground(state, event(2, spawn))).toEqual(state);
   });
 });
+
+describe("terminal identity retention under pressure", () => {
+  it("suppresses newly arriving late spawn and progress after display pruning", () => {
+    let state = projectBackground(emptyBackground(), capability);
+    state = projectBackground(
+      state,
+      event(2, {
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "finished",
+        state: "completed",
+      })
+    );
+    for (let i = 0; i < 200; i++)
+      state = projectBackground(
+        state,
+        event(i + 3, { ...spawn, asyncTaskId: `other-${i}` })
+      );
+    expect(state.items.find((item) => item.id === "finished")).toBeUndefined();
+    state = projectBackground(
+      state,
+      event(204, { ...spawn, asyncTaskId: "finished" })
+    );
+    expect(
+      state.items.find(
+        (item) => item.id === "finished" && item.state === "running"
+      )
+    ).toBeUndefined();
+    state = projectBackground(
+      state,
+      event(205, {
+        sessionUpdate: "async_task_progress",
+        asyncTaskId: "finished",
+        toolCallId: "late-tool",
+      })
+    );
+    expect(
+      state.items.find(
+        (item) => item.id === "finished" && item.state === "running"
+      )
+    ).toBeUndefined();
+    expect(state.terminalIdentities).toContainEqual({
+      id: "finished",
+      state: "completed",
+    });
+  });
+  it("fails closed for new identities after the independent identity bound", () => {
+    let state = projectBackground(emptyBackground(), capability);
+    for (let i = 0; i < 1001; i++)
+      state = projectBackground(
+        state,
+        event(i + 2, {
+          sessionUpdate: "async_task_state_update",
+          asyncTaskId: `terminal-${i}`,
+          state: "completed",
+        })
+      );
+    expect(state.terminalIdentities).toHaveLength(1000);
+    expect(state.identityOverflow).toBe(true);
+    state = projectBackground(
+      state,
+      event(1004, { ...spawn, asyncTaskId: "terminal-1000" })
+    );
+    expect(state.items.some((item) => item.id === "terminal-1000")).toBe(false);
+    state = projectBackground(
+      state,
+      event(1005, { ...spawn, asyncTaskId: "unknown-new" })
+    );
+    expect(state.items.some((item) => item.id === "unknown-new")).toBe(false);
+  });
+});
