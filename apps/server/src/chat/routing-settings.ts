@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { routingShadowConfig, type ShadowConfig } from "./routing-shadow.js";
-export type RoutingMode = "off" | "shadow" | "active";
+export type RoutingMode = "off" | "active";
 export class RoutingSettings {
   private cached?: ShadowConfig;
   constructor(
@@ -8,46 +8,51 @@ export class RoutingSettings {
     private readonly env: NodeJS.ProcessEnv = process.env
   ) {}
   private async stored() {
-    const rows = await this.pool.query<{ key: string; value: string }>(
-      "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key')"
-    );
-    return Object.fromEntries(rows.rows.map((r) => [r.key, r.value]));
+    const read = async () => {
+      const rows = await this.pool.query<{ key: string; value: string }>(
+        "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key')"
+      );
+      return Object.fromEntries(rows.rows.map((r) => [r.key, r.value]));
+    };
+    const saved = await read();
+    // The dev environment is a one-time seed, never a runtime override.
+    // An empty stored value records an explicit removal and prevents reseeding.
+    if (this.env.DISPATCH_DEV_STACK === "1" && !("routing_api_key" in saved)) {
+      const seed = routingShadowConfig(this.env).apiKey;
+      if (seed) {
+        await this.pool.query(
+          "INSERT INTO settings(key,value,updated_at) VALUES('routing_api_key',$1,now()) ON CONFLICT(key) DO NOTHING",
+          [seed]
+        );
+        return read();
+      }
+    }
+    return saved;
   }
   async configuration(): Promise<ShadowConfig> {
     if (this.cached) return this.cached;
     const saved = await this.stored();
     const config = routingShadowConfig(this.env);
-    const mode =
-      this.env.DISPATCH_ROUTING_MODE !== undefined ||
-      this.env.DISPATCH_ROUTING_SHADOW_ENABLED !== undefined
-        ? config.mode!
-        : ((saved.routing_mode ?? "off") as RoutingMode);
+    const mode = saved.routing_mode === "active" ? "active" : "off";
     return (this.cached = {
       ...config,
       mode,
-      enabled: mode !== "off",
-      apiKey: config.apiKey || saved.routing_api_key || "",
+      enabled: mode === "active",
+      apiKey: saved.routing_api_key || "",
     });
   }
   async status() {
     const saved = await this.stored();
-    const config = routingShadowConfig(this.env);
-    const modeOverride =
-      this.env.DISPATCH_ROUTING_MODE !== undefined ||
-      this.env.DISPATCH_ROUTING_SHADOW_ENABLED !== undefined;
     return {
-      mode: modeOverride
-        ? config.mode!
-        : ((saved.routing_mode ?? "off") as RoutingMode),
-      modeSource: modeOverride ? "environment" : "settings",
-      configured: !!(config.apiKey || saved.routing_api_key),
-      keySource: config.apiKey
-        ? "environment"
-        : saved.routing_api_key
-          ? "settings"
-          : "none",
+      mode:
+        saved.routing_mode === "active"
+          ? ("active" as const)
+          : ("off" as const),
+      modeSource: "settings",
+      configured: !!saved.routing_api_key,
+      keySource: saved.routing_api_key ? "settings" : "none",
       storedKey: !!saved.routing_api_key,
-      dailyCap: config.dailyCap,
+      dailyCap: routingShadowConfig(this.env).dailyCap,
     };
   }
   async save(input: {
@@ -59,7 +64,7 @@ export class RoutingSettings {
     try {
       await client.query("BEGIN");
       for (const [key, value] of [
-        ["routing_mode", input.mode],
+        ["routing_mode", input.removeKey ? "off" : input.mode],
         ["routing_api_key", input.apiKey],
       ] as const) {
         if (value !== undefined)
@@ -70,7 +75,7 @@ export class RoutingSettings {
       }
       if (input.removeKey)
         await client.query(
-          "DELETE FROM settings WHERE key = 'routing_api_key'"
+          "INSERT INTO settings(key,value,updated_at) VALUES('routing_api_key','',now()) ON CONFLICT(key) DO UPDATE SET value='',updated_at=now()"
         );
       await client.query("COMMIT");
     } catch (error) {

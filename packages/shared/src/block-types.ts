@@ -383,7 +383,11 @@ export type BlockDelivery = {
   agentId: string;
   state: BlockDeliveryState;
   /** Runtime-confirmed receipt for a normal prompt or active-turn steering. */
-  receipt?: { pickedUpAt: string | null; deliveredAt?: string };
+  receipt?: {
+    pickedUpAt: string | null;
+    deliveredAt?: string;
+    mode?: "steering" | "prompt";
+  };
 };
 
 /** Receipt-backed display only. Never accepted from post/update data. */

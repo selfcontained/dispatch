@@ -1,4 +1,3 @@
-import { attachRoutingDiagnostics } from "./routing-diagnostics.js";
 import type {
   Block,
   BlockOption,
@@ -729,7 +728,6 @@ export async function attachTurns<T extends Block>(
   db: Queryable,
   blocks: T[]
 ): Promise<T[]> {
-  await attachRoutingDiagnostics(db, blocks);
   const byAgent = new Map<string, number[]>();
   for (const block of blocks) {
     const anchor = turnAnchorOf(block);

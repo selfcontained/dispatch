@@ -50,7 +50,7 @@ export async function registerRoutingShadowRoutes(
       privateRoute,
       async (_request, reply) => {
         reply.header("Cache-Control", "no-store");
-        return { ...(await settings.status()), metrics: await store.summary() };
+        return settings.status();
       }
     );
     app.put(
@@ -59,7 +59,7 @@ export async function registerRoutingShadowRoutes(
       async (request, reply) => {
         const parsed = z
           .object({
-            mode: z.enum(["off", "shadow", "active"]).optional(),
+            mode: z.enum(["off", "active"]).optional(),
             apiKey: z
               .string()
               .trim()

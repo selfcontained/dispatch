@@ -70,7 +70,10 @@ for (const mobile of [false, true]) {
     });
     await page
       .locator(`[data-chat-entry-id="${root.id}"]`)
-      .getByRole("button", { name: "Reply in thread" })
+      .getByRole("button", { name: "Message actions", exact: true })
+      .click();
+    await page
+      .getByRole("menuitem", { name: "Reply in thread", exact: true })
       .click();
     const editor = page.locator(
       '[data-placeholder="Reply in thread…"]:visible'

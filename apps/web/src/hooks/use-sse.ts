@@ -1,4 +1,3 @@
-import { routingPendingKey } from "./use-routing-pending";
 import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import { useEffect } from "react";
 import type {
@@ -58,6 +57,9 @@ import {
   type ReleaseInfoSnapshot,
 } from "@/hooks/use-cached-release-info";
 import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
+
+const routingPendingKey = (streamId: string) =>
+  ["routing-pending", streamId] as const;
 
 /** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
@@ -414,7 +416,7 @@ export function useSSE(authState: AuthState): void {
         }
         if (payload.type === "routing.metadata_changed") {
           for (const query of queryClient.getQueryCache().findAll({
-            queryKey: [...STREAM_QUERY_PREFIX, payload.streamId],
+            queryKey: ["message-metadata", payload.streamId],
           })) {
             if (
               query.state.fetchStatus === "fetching" &&
@@ -422,9 +424,8 @@ export function useSSE(authState: AuthState): void {
             )
               invalidateOnceFirstFetchSettles(queryClient, query.queryKey);
           }
-          invalidateStreamFeed(queryClient, payload.streamId);
           void queryClient.invalidateQueries({
-            queryKey: [...STREAM_QUERY_PREFIX, payload.streamId, "thread"],
+            queryKey: ["message-metadata", payload.streamId],
           });
           void queryClient.invalidateQueries({
             queryKey: ["routing-experiment-settings"],
@@ -443,6 +444,18 @@ export function useSSE(authState: AuthState): void {
           return;
         }
         if (payload.type === "snapshot") {
+          for (const query of queryClient.getQueryCache().findAll({
+            queryKey: ["message-metadata"],
+          })) {
+            if (
+              query.state.fetchStatus === "fetching" &&
+              query.state.data === undefined
+            )
+              invalidateOnceFirstFetchSettles(queryClient, query.queryKey);
+          }
+          void queryClient.invalidateQueries({
+            queryKey: ["message-metadata"],
+          });
           void queryClient.invalidateQueries({ queryKey: ["routing-pending"] });
           void queryClient.invalidateQueries({
             queryKey: ["routing-experiment-settings"],

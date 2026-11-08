@@ -25,6 +25,7 @@ import {
 } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
 import { attachTurns } from "../chat/turns.js";
+import { attachRoutingDiagnostics } from "../chat/routing-diagnostics.js";
 import { attachmentCaptionSchema, chatUrlSchema } from "../chat/validation.js";
 
 type StreamRouteDeps = {
@@ -278,6 +279,24 @@ export async function registerStreamRoutes(
         agentNames,
         recipients: await streams.userThreadRecipients(rootId, blockId),
       } satisfies StreamThreadResponse;
+    }
+  );
+
+  app.get(
+    "/api/v1/streams/:rootId/blocks/:blockId/metadata",
+    async (request, reply) => {
+      const { rootId = "", blockId = "" } = request.params as {
+        rootId?: string;
+        blockId?: string;
+      };
+      if (!isBlockId(blockId))
+        return reply.code(400).send({ error: "blockId must be a UUID." });
+      if (!(await requireRoot(reply, rootId))) return reply;
+      const block = await store.getById(blockId);
+      if (!block || block.streamId !== rootId)
+        return reply.code(404).send({ error: "Block not found." });
+      await attachRoutingDiagnostics(store.db, [block]);
+      return { routing: block.routing ?? [] };
     }
   );
 

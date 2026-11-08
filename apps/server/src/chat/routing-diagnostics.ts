@@ -133,7 +133,8 @@ export function routingDiagnostic(row: {
 /** One bounded lookup for the visible page, including openers whose answer lives in a thread. */
 export async function attachRoutingDiagnostics(db: Queryable, blocks: Block[]) {
   for (const b of blocks) delete b.routing;
-  if (!blocks.length) return;
+  const openers = blocks.filter((b) => b.author.kind === "user");
+  if (!openers.length) return;
   const rows = await db.query<{
     block_id: string;
     turn_id: number;
@@ -145,13 +146,11 @@ export async function attachRoutingDiagnostics(db: Queryable, blocks: Block[]) {
   }>(
     `SELECT b.id AS block_id, r.turn_id, r.agent_id, r.status, r.explicit_thread, r.placement, r.result
      FROM blocks b JOIN routing_shadow_records r ON
-       ((b.author_kind = 'user' AND r.message_ids ? b.id::text
+       (b.author_kind = 'user' AND r.message_ids ? b.id::text
          AND (b.to_agent_id = r.agent_id OR b.data->'mentions' ? r.agent_id OR b.data->'recipients' ? r.agent_id))
-        OR (b.author_kind = 'agent' AND b.author_agent_id = r.agent_id AND b.origin = 'turn'
-            AND b.data->>'turnEventId' = r.turn_id::text))
      WHERE b.id = ANY($1::uuid[]) AND r.created_at >= now() - interval '14 days'
      ORDER BY r.turn_id LIMIT 2000`,
-    [blocks.map((b) => b.id)]
+    [openers.map((b) => b.id)]
   );
   const byId = new Map(blocks.map((b) => [b.id, b]));
   for (const row of rows.rows) {

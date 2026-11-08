@@ -1,6 +1,72 @@
-import { useEffect, useRef, useState } from "react";
-import type { Block, BlockDeliveryState } from "@dispatch/shared";
-import { AlertTriangle, Check, CheckCheck, Hourglass, Zap } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type {
+  Block,
+  BlockDeliveryState,
+  RoutingPending,
+} from "@dispatch/shared";
+import {
+  AlertTriangle,
+  Check,
+  CheckCheck,
+  Hourglass,
+  Route,
+  Zap,
+} from "lucide-react";
+
+/** Observe only this message's SSE state; no fetches, polling, or history timers. */
+function useRoutingReceipt(block: Block): boolean {
+  const client = useQueryClient();
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      if (block.author.kind !== "user") return () => {};
+      return client.getQueryCache().subscribe((event) => {
+        if (
+          event.query.queryKey[0] === "routing-pending" &&
+          event.query.queryKey[1] === block.streamId
+        )
+          notify();
+      });
+    },
+    [client, block.author.kind, block.streamId]
+  );
+  // A stable per-message snapshot avoids rerendering other visible messages.
+  // Old queued messages can begin routing too; their creation date is irrelevant.
+  const snapshot = useCallback(
+    () =>
+      client
+        .getQueryData<{
+          pending: RoutingPending[];
+        }>(["routing-pending", block.streamId])
+        ?.pending.find(
+          (p) => p.messageIds.includes(block.id) && p.deadlineAt > Date.now()
+        ),
+    [client, block.streamId, block.id]
+  );
+  const pending = useSyncExternalStore(subscribe, snapshot, () => undefined);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    setVisible(false);
+    if (!pending) return;
+    const deadline = Math.min(pending.deadlineAt, pending.startedAt + 3000);
+    const showAfter = Math.max(0, pending.startedAt + 500 - Date.now());
+    const remaining = deadline - Date.now();
+    if (remaining <= showAfter) return;
+    const show = setTimeout(() => setVisible(true), showAfter);
+    const expire = setTimeout(() => setVisible(false), remaining);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(expire);
+    };
+  }, [pending]);
+  return visible && !!pending;
+}
 
 /** The recipients of a post in one of the states worth reporting. */
 function inState(block: Block, state: BlockDeliveryState): readonly string[] {
@@ -184,6 +250,7 @@ export function DeliveryIndicator({
   block,
 }: Pick<DeliveryMetaProps, "block">): JSX.Element {
   const freshReceipt = useReceiptFlash(block);
+  const routing = useRoutingReceipt(block);
   const pendingKey = inState(block, "pending").join(",");
   const [showSending, setShowSending] = useState(false);
   const scheduled =
@@ -206,8 +273,9 @@ export function DeliveryIndicator({
   const needsAction = deliveries.some(
     (entry) => entry.state === "held" || entry.state === "failed"
   );
-  const status =
-    needsAction || block.toAgentId === null
+  const status = routing
+    ? "Choosing reply location"
+    : needsAction || block.toAgentId === null
       ? undefined
       : pendingKey
         ? showSending
@@ -221,12 +289,18 @@ export function DeliveryIndicator({
   // Keep the success color after the flash expires so the double check
   // fades out in green instead of changing back to gray during its exit.
   const confirmed =
+    !routing &&
     !needsAction &&
     !pendingKey &&
     received > 0 &&
     received === deliveries.length;
-  const Icon =
-    status === "Sending…" ? Hourglass : status === "Sent" ? Check : CheckCheck;
+  const Icon = routing
+    ? Route
+    : status === "Sending…"
+      ? Hourglass
+      : status === "Sent"
+        ? Check
+        : CheckCheck;
   const label =
     status === "Sent" && deliveries.length > 1
       ? `Sent · ${received} of ${deliveries.length} agents received it`

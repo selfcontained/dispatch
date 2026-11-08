@@ -1,78 +1,51 @@
-# Optional AI thread routing
+# Optional AI reply routing
 
-The experiment has three modes: **Off** (default, no automatic requests), **Shadow** (asynchronous suggestions without changing output), and **Active** (a bounded decision before the first output block). Steering never moves existing output. No production configuration is changed by implementation or validation.
+AI routing is **Off** by default. When enabled it chooses the reply location before the first output block. Steering never moves existing output. The policy keeps primary work in the main conversation and uses threads for contained side questions. Explicit placement wins.
 
-## Product Settings and credentials
+## Settings and credentials
 
-Open **Settings → Agents → AI thread routing**. Save, replace, or remove a dedicated OpenAI project key; select Off, Shadow, or Active. A key alone does not enable routing. No credential is returned to the browser after saving. The password field clears on success. The compact panel keeps mode, key, test, and metrics controls visible; storage and data-sharing details live in its info popover. Configured status indicates whether the effective credential comes from Settings or the environment.
+Open **Settings → Agents → AI routing**. The checkbox enables routing. The access-token field shows a fixed mask when configured; it never reads the credential back. Edit replaces the mask with an empty password input and Save/Cancel actions. Test sends one synthetic request using the saved token; its result appears temporarily beside the field heading. Removing the token turns routing off and disables the checkbox until another token is saved.
 
-Following existing integration-settings conventions, the saved credential is a server-side Postgres `settings` value, **without application-level encryption**. Protect DB access, disks, and backups. It is not placed in browser storage, conversation prompts, diagnostic exports, or logs. Settings, pending-state inspection, and connection checks require a password-backed authenticated session or the server bearer token, including during first-run mode. Anonymous first-run requests cannot save/replace credentials or trigger paid checks. Existing API origin/portfolio boundaries also apply. Set a password and use HTTPS on shared networks. Removing a saved key leaves any environment credential in effect.
+The token is stored in the server's Postgres `settings` table without application-level encryption. Protect database access, disks, and backups. It is not put in browser storage, conversation prompts, diagnostic exports, or logs.
 
-Server environment alternatives:
+Production uses the database token and checkbox state. Environment tokens and mode flags do not override product Settings. For isolated development stacks (`DISPATCH_DEV_STACK=1`), `DISPATCH_DECISIONS_API_KEY` can seed the database token once when no token setting exists. A saved replacement wins. Removal writes an empty setting so a restart cannot silently restore the env token. Seeding a token does not enable routing.
 
-```sh
-DISPATCH_ROUTING_MODE=off # off | shadow | active
-DISPATCH_DECISIONS_API_KEY=<dedicated project key>
-DISPATCH_ROUTING_SHADOW_DAILY_CAP=25
-```
+Settings and connection checks require an authenticated session or the server bearer token in production, including first-run mode. A password-free isolated dev stack permits its normal browser Settings flow without an extra login. An existing dev password remains authoritative. Global browser-origin and portfolio boundaries still apply. Diagnostic export always requires the server bearer token.
 
-Explicit environment mode overrides the product selector; the UI displays the override and disables that selector. A nonempty environment key overrides the saved key. Without environment overrides, persisted Settings apply immediately to new turns and survive restarts. The normal single-API-server deployment owns the in-memory settings cache. If intentionally running multiple API processes against one DB, restart the other processes after changes; shared call reservations still enforce the fleet cap. The legacy `DISPATCH_ROUTING_SHADOW_ENABLED=1` flag remains a shadow-mode alias only when `DISPATCH_ROUTING_MODE` is absent. Invalid modes fail closed to Off. The earlier experimental credential name is not used.
+The normal single-API-server deployment owns the in-memory settings cache. If multiple API processes intentionally share one DB, restart the other processes after a settings change. Shared reservations still enforce the fleet request cap.
 
-The daily cap defaults to 25; integer values 0–100 are allowed. Invalid caps fail closed at zero. UTC daily reservations persist in Postgres across restarts and include failures/timeouts. No retry or redirect occurs. A request cap is **not a guaranteed dollar cap**; use a dedicated OpenAI project and appropriate provider budgets.
-
-Disable with Off in Settings, or `DISPATCH_ROUTING_MODE=off` and restart when using an environment override. To stop all configured requests, also remove saved and environment credentials. Already running requests finish or time out; steering/output never moves.
+`DISPATCH_ROUTING_SHADOW_DAILY_CAP` defaults to 25; integer values 0–100 are allowed and invalid caps fail closed at zero. UTC reservations persist across restarts and include failures/timeouts. Requests are not retried or redirected. A request cap is not a guaranteed dollar cap; provider project budgets remain separate.
 
 ## Decisions and evidence
 
-The fixed endpoint is `https://api.openai.com/v1/decisions`, model `gpt-6-luna`, prompt version `thread-routing-v2`. One choice question returns `initiating_discussion`, `home_root`, or `keep_existing_default`. Instructions are separate from untrusted JSON evidence. No IDs or arbitrary model-generated destinations are accepted from the provider.
+The fixed endpoint is `https://api.openai.com/v1/decisions`, model `gpt-6-luna`, prompt version `root-first-side-threads-v3`. One choice question returns `initiating_discussion`, `home_root`, or `keep_existing_default`. Instructions are separate from untrusted JSON evidence. No arbitrary model-generated destinations are accepted.
 
-Evidence contains up to four incoming user messages (1,000 UTF-16 units each), an available authorized plain-text anchor (500 units), and up to three nearby authorized user/assistant messages from that same stream/discussion (500 characters each). Assistant evidence is only this target agent's plain user-facing turn text, labeled by role. Structured question/form answers, tool output, unrelated streams, attachments, files, repository contents, and session purpose are excluded. Attachment-bearing incoming messages become a fixed placeholder. Serialized evidence is shortened to at most 8 KiB UTF-8 including escaping; the complete HTTP request stays below 20 KiB. Response parsing is capped at 16 KiB and only whitelisted values are retained.
+Evidence contains up to four incoming user messages (1,000 UTF-16 units each), an authorized plain-text anchor (500 units), and up to three nearby authorized user/assistant messages from the same stream/discussion (500 units each). Assistant evidence is only this target agent's plain user-facing turn text. Structured answers, tool output, unrelated streams, attachments, files, repository contents, and session purpose are excluded. Attachment-bearing messages become a fixed placeholder. Serialized evidence is bounded at 8 KiB UTF-8, the HTTP request below 20 KiB, and response parsing at 16 KiB. Only allowlisted results are retained.
 
-Only persisted ordinary user text addressed to this agent qualifies. Internal/agent messages, awaited deliveries, invalid/mixed batches, question/form answers, and steering do not classify. A root user's own post supplies the initiating-discussion candidate. Existing explicit threads, source answer targets, and clear explicit home-root requests retain existing placement. Active mode requires both selected-choice probability and confidence at least 0.8. Missing/uncertain values, keep-default, cap/concurrency rejection, timeout, or errors fall back to existing behavior.
+Only persisted ordinary user text addressed to the target agent qualifies. Internal/agent messages, awaited deliveries, invalid or mixed batches, structured answers, and steering do not classify. Explicit threads, source answer targets, and explicit root requests preserve placement. Overriding the default requires both the selected destination's probability and the API confidence score to reach 0.8. The three destination probabilities compare options; confidence is a separate decision score. Missing or uncertain values, keep-default, cap/concurrency rejection, timeout, or errors preserve the existing default.
 
-Active mode has a three-second total deadline around configuration lookup, authorized evidence, DB reservation, provider response, and diagnostic persistence. The chosen validated destination is copied into the output block before first output. Late responses cannot mutate it. Settings are primed at startup and refreshed on save so shadow observation does not wait on a Settings DB query at turn start. User envelopes defer to the server-frozen active location (`get_conversation_context`) rather than asserting a conflicting home/thread destination.
+A three-second total deadline covers configuration, evidence, reservation, provider response, and persistence. The validated destination is copied into the output block before first output. Late responses cannot mutate it. Cancellation and timeout diagnostics retain measured delay and frozen placement even when provider cleanup or reservation finishes late. Shadow-only internals remain available to the offline harness and historical diagnostics; Shadow is not a product Settings mode.
 
-There are at most two pending provider reservations across server instances, with no waiting provider queue. Skipped reservations are recorded. A durable marker on the original turn prevents duplicate calls even after diagnostics expire. Reservations remain spent on crashes; stale pending records become interrupted after ten seconds. Storage failures fail closed without logging evidence or credentials.
+## Message metadata and realtime state
 
-## Connection check, pending indicator, and synthetic evaluation
+Routing details live on the initiating user message under **Message actions → Message metadata**. Delivery receipts and reply placement are separate sections; optional decision details show destination probabilities, confidence, and override thresholds. Routing API usage shows token/cache counts, latency, and estimated cost. Agent response blocks do not repeat routing diagnostics.
 
-**Check connection** explicitly sends one fixed synthetic conversation, including while Off. It never sends production messages, changes mode, or enables automatic routing. It shares the persistent daily budget and concurrency cap and returns only sanitized status, choice, timing, and numeric usage. Synthetic diagnostic IDs are negative; real turn IDs are positive.
+Diagnostics are fetched only when the metadata view opens, through a stream/block-scoped endpoint. Normal feed/thread reads do not query retained routing records. Metadata completion refreshes its own cache, not the feed/thread. Existing SSE handles lifecycle changes and reconnect invalidation; there is no feature polling. An initial metadata request spanning reconnect receives a follow-up refresh so an older response cannot hide a completed result.
 
-During an actual eligible Active decision, the affected conversation polls narrowly scoped pending state. A small accessible sparkle appears after approximately 300 ms of server pending time (subject to polling discovery latency), without visible text or layout shift; fast calls remain invisible. Reduced motion uses a static icon. Completion, fallback, error, timeout, cancellation, unmount, or reconnect clears/reconciles the state. Shadow mode never displays it. No artificial minimum delay is added.
+Pending routing appears only after 500 ms in the same fixed-size receipt slot as steering/delivery checkmarks. It fades out on completion, cancellation, disconnect, or the bounded deadline. Routing takes priority while both states overlap; checkmarks then replace it in the same slot. Receipt rendering reads SSE cache state without HTTP requests or history timers. Delivery metadata retains available sent/pickup timestamps and distinguishes steering from a new prompt for newly recorded receipts.
 
-A standalone harness uses eight fixed synthetic conversations with expected labels, measures accuracy/latency/usage/failures, and makes no request without both the credential and explicit `--live`:
+## Diagnostic export and retention
 
-```sh
-bun scripts/evaluate-routing.ts --live --limit 8
-```
+`GET /api/v1/experiments/routing-shadow` requires the server bearer token. Agent-scoped MCP credentials and session-only access are insufficient. Global origin/portfolio boundaries still apply. Responses use `Cache-Control: no-store`.
 
-`--limit` must be 1–8. Calls are sequential and never retried; output contains no secret/raw provider bodies. This harness is independent of the app DB/request counter, so its caller must honor the separately authorized evaluation budget. Parent owns live execution. The initial authorization covers at most twelve total requests; the parent consumed all twelve in the smoke, eight fixtures, and three integrated live-agent decisions. No further paid run is authorized by that initial budget. Do not run the same paid batch in both worktrees. Synthetic accuracy is a fixture result, not an estimate of production routing quality.
+JSON returns `records` and `nextBefore`; `format=jsonl` returns JSONL. At most 200 rows are ordered by decreasing signed turn ID; pass the last ID as `before` for the next page. Records retain IDs, frozen placement, explicit-routing label, model/prompt version, status, proposal, probabilities/confidence, timing, usage, and sanitized HTTP status. No copied conversation excerpts, credentials, or raw provider/error bodies are persisted.
 
-## Inspect diagnostics
+Retention is fourteen days and approximately 2,000 newest records, with transient excess until cleanup. Cleanup runs hourly and before observation/export. Daily counters retain the current and two preceding days. Dedupe markers last as long as their turns. Conversation messages are not deleted by diagnostic retention.
 
-`GET /api/v1/experiments/routing-shadow` requires the existing **server bearer token**, including passwordless first-run mode. Agent-scoped MCP credentials and session-only access are insufficient for export. Global origin/portfolio boundaries still apply.
+## Estimated cost and validation
 
-```sh
-curl -H "Authorization: Bearer $DISPATCH_SERVER_TOKEN" \
-  "$ISOLATED_API_URL/api/v1/experiments/routing-shadow"
-curl -H "Authorization: Bearer $DISPATCH_SERVER_TOKEN" \
-  "$ISOLATED_API_URL/api/v1/experiments/routing-shadow?format=jsonl" > /tmp/routing-results.jsonl
-```
+Standard nonregional Decisions rates verified 2026-11-08: uncached input USD0.10 per million, cached reads USD0.01 per million, default 30-minute cache writes USD0.125 per million; output is uncharged. Cached read/write counts are included in total input and subtracted before applying uncached rates. Valid historical usage without a cache breakdown uses an explicitly marked uncached-rate estimate. Malformed or missing token usage remains unpriced. Aggregates distinguish known subtotal and unpriced calls; empty spend is zero. Estimates are not billing.
 
-JSON has `records` and `nextBefore`. At most 200 rows are ordered by decreasing signed turn ID; pass the last ID as `before` for the next page. JSONL accepts the same cursor. Responses use `Cache-Control: no-store`.
+Backend tests mock provider transport and use isolated Postgres. UI validation uses the served isolated preview; connection responses and pending SSE frames can be intercepted without paid calls. Full E2E runs in PR CI. The standalone `bun scripts/evaluate-routing.ts --live --limit 8` harness requires an explicit live flag and dedicated key, accepts a limit of 1–8, and never retries. Live execution needs its own authorized budget. Fixture accuracy is not an estimate of production routing quality.
 
-Records include turn/agent/message IDs, original frozen default placement, explicit-routing label, timestamp, mode, model/prompt version, status, proposal, available probabilities/confidence, latency, usage when reported, and sanitized HTTP status. No copied conversation excerpts, credentials, or raw provider/error bodies are persisted. Use IDs with existing authorized message inspection and label examples externally.
-
-Retention is fourteen days and approximately 2,000 newest records, with transient excess until concurrent/later cleanup. Cleanup runs hourly and before observation/export. Rows can physically remain until cleanup after a stopped server restarts. Old daily counters retain only the current and two preceding days. Dedupe markers last as long as their original turns. Original conversation messages are never deleted by experiment retention; exported files are the operator's responsibility.
-
-## Verification
-
-Backend tests mock provider transport and use isolated Postgres, including active/root placement, unchanged explicit discussions, uncertainty/deadline/late responses, shadow behavior, secret masking/persistence/precedence, caps/dedupe/retention, and synthetic checks. UI validation uses served desktop/mobile Settings with synthetic intercepted check/pending responses; no paid calls are needed for that validation. Live results are reported separately by the parent.
-
-Official schema verified 2026-11-07: [Decisions guide](https://developers.openai.com/api/docs/guides/decisions). The request has `model`, `input`, and `questions`; a choice answer returns `choice`, a `probabilities` array of `{value, probability}`, and confidence. The parent separately reported a successful schema smoke, eight of eight expected synthetic labels, and real-agent placement checks (root continuation to discussion, unrelated new work at home, explicit thread preserved). Parent owns those evidence artifacts; local builder UI checks use mocked responses.
-
-## Timing and estimated cost
-
-Settings summarizes retained reservations and today’s UTC cap usage, provider median/p95/max with sample size, total active delay median with its separate sample size, failures/timeouts, and estimated USD cost. The harness includes per-call usage/latency/cost and the same duration summary. Provider latency is HTTP/body/parse time; total active delay additionally includes local evidence, reservation, and diagnostic work before freezing. Samples are descriptive, not benchmarks.
-
-Standard nonregional Decisions rates verified 2026-11-08: uncached input USD0.10 per million, cached reads USD0.01 per million, default 30-minute cache writes USD0.125 per million, output uncharged. See the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions) and [standard pricing](https://developers.openai.com/api/docs/pricing). This integration does not request a 12-hour cache policy. Cached/read and write tokens are included in input tokens: the estimate subtracts them before applying uncached rates, avoiding double count. The whitelist retains only numeric `input_tokens_details.cached_tokens` and `cache_write_tokens`. Missing usage/cache breakdown is **unknown**, never zero; aggregate cost is unknown if any retained attempt lacks a complete estimate, while the info popover separately shows a known subtotal and coverage. Estimates are not bills and exclude regional/long-context premiums, taxes, and negotiated pricing.
+References: [Decisions guide](https://developers.openai.com/api/docs/guides/decisions), [standard pricing](https://developers.openai.com/api/docs/pricing).

@@ -8,66 +8,53 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { RoutingSettings } from "./routing-settings";
 import { api } from "@/lib/api";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 const apiMock = vi.mocked(api);
-type Status = {
+let client: QueryClient;
+let saved: {
   mode: string;
   modeSource: string;
   configured: boolean;
   keySource: string;
   storedKey: boolean;
-  dailyCap: number;
 };
-let client: QueryClient;
-let saved: Status;
-let requests: {
-  body: { mode?: string; apiKey?: string };
-  complete: () => void;
-}[];
-const input = () => screen.getByLabelText("API key") as HTMLInputElement;
 beforeEach(() => {
   client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    defaultOptions: {
+      queries: { retry: false, gcTime: Infinity },
+      mutations: { retry: false },
+    },
   });
   saved = {
-    mode: "off",
+    mode: "active",
     modeSource: "settings",
-    configured: false,
-    keySource: "none",
-    storedKey: false,
-    dailyCap: 25,
+    configured: true,
+    keySource: "settings",
+    storedKey: true,
   };
-  requests = [];
   apiMock.mockReset().mockImplementation(async (_path, init) => {
-    if (init?.method !== "PUT") return saved;
-    const body = JSON.parse(init.body as string) as {
-      mode?: string;
-      apiKey?: string;
-    };
-    return new Promise((resolve) => {
-      requests.push({
-        body,
-        complete: () => {
-          saved = {
-            ...saved,
-            ...(body.mode ? { mode: body.mode } : {}),
-            ...(body.apiKey
-              ? { configured: true, keySource: "settings", storedKey: true }
-              : {}),
-          };
-          resolve(saved);
-        },
-      });
-    });
+    if (init?.method === "POST") return { status: "ok" };
+    if (init?.method === "PUT") {
+      const body = JSON.parse(init.body as string);
+      saved = {
+        ...saved,
+        ...(body.mode ? { mode: body.mode } : {}),
+        ...(body.apiKey ? { configured: true, storedKey: true } : {}),
+        ...(body.removeKey
+          ? { configured: false, storedKey: false, keySource: "none" }
+          : {}),
+      };
+    }
+    return saved;
   });
-  HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 afterEach(() => {
   cleanup();
   client.clear();
+  vi.useRealTimers();
 });
 async function show() {
   render(
@@ -75,76 +62,177 @@ async function show() {
       <RoutingSettings />
     </QueryClientProvider>
   );
-  await screen.findByLabelText("API key");
+  await screen.findByRole("checkbox", { name: "Route replies automatically" });
 }
-async function finish() {
-  await act(async () => {
-    requests[0]!.complete();
-  });
-  await screen.findByText("Saved", { exact: true });
-}
-describe("RoutingSettings in-flight drafts", () => {
-  it("preserves a key typed while a mode-only mutation is pending", async () => {
-    await show();
-    fireEvent.keyDown(screen.getByRole("combobox", { name: "Mode" }), {
-      key: "ArrowDown",
-    });
-    fireEvent.click(await screen.findByRole("option", { name: "Shadow" }));
-    await waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0]!.body).toEqual({ mode: "shadow" });
-    fireEvent.change(input(), {
-      target: { value: "new-draft-during-mode-save" },
-    });
-    await finish();
-    expect(input().value).toBe("new-draft-during-mode-save");
-  });
-  it("preserves a newer draft when an older key-save request completes", async () => {
-    await show();
-    fireEvent.change(input(), { target: { value: "original-submitted-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0]!.body).toEqual({ apiKey: "original-submitted-key" });
-    fireEvent.change(input(), { target: { value: "newer-unsaved-key" } });
-    await finish();
-    expect(input().value).toBe("newer-unsaved-key");
-  });
-  it("clears a saved key when the current draft still matches that submission", async () => {
-    await show();
-    fireEvent.change(input(), { target: { value: "same-submitted-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(requests).toHaveLength(1));
-    await finish();
-    expect(input().value).toBe("");
-    expect(screen.getByText("Configured", { exact: true })).toBeTruthy();
-  });
-});
-it("shows a priced subtotal plus unpriced calls and marks legacy uncached estimates", async () => {
-  apiMock.mockResolvedValue({
-    ...saved,
-    metrics: {
-      todayReservations: 3,
-      retainedReservations: 3,
-      failures: 1,
-      timeouts: 1,
-      provider: { n: 2, medianMs: 462, p95Ms: 500, maxMs: 500 },
-      activeRouting: { n: 1, medianMs: 462 },
-      estimatedUsd: null,
-      knownEstimatedUsd: 0.00007,
-      pricedCalls: 1,
-      unknownCostCalls: 2,
-      uncachedEstimateCalls: 1,
-      rates: {
-        date: "2026-11-08",
-        source: "https://developers.openai.com/api/docs/guides/decisions",
-      },
-    },
-  });
+const writes = () =>
+  apiMock.mock.calls
+    .filter(([, init]) => init?.method === "PUT")
+    .map(([, init]) => JSON.parse(init!.body as string));
+it("uses a checkbox and a masked DB token with inline edit and cancel", async () => {
   await show();
+  expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
+    "true"
+  );
+  const masked = screen.getByLabelText(
+    "Access token is set"
+  ) as HTMLInputElement;
+  expect(masked.readOnly).toBe(true);
+  expect(masked.value).toMatch(/^•+$/);
+  expect(screen.queryByRole("combobox")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  const input = screen.getByLabelText("Access token") as HTMLInputElement;
+  expect(input.type).toBe("password");
+  expect(input.value).toBe("");
   expect(
-    screen.getByText("USD 0.00007000 + 2 unpriced · uncached estimate")
-  ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "About AI routing" }));
+    (
+      screen.getByRole("button", {
+        name: "Test connection",
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true);
+  fireEvent.change(input, { target: { value: "discarded-test-token" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel token edit" }));
+  expect(screen.getByLabelText("Access token is set")).toBeTruthy();
+  expect(writes()).toEqual([]);
+});
+it("toggles active/off without changing the token", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("checkbox"));
+  await waitFor(() =>
+    expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
+      "false"
+    )
+  );
+  expect(writes()).toEqual([{ mode: "off" }]);
+  fireEvent.click(screen.getByRole("checkbox"));
+  await waitFor(() =>
+    expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
+      "true"
+    )
+  );
+  expect(writes()).toEqual([{ mode: "off" }, { mode: "active" }]);
+});
+it("saves the edited token and returns to masking without exposing saved token data", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  fireEvent.change(screen.getByLabelText("Access token"), {
+    target: { value: "new-test-token-value" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByLabelText("Access token is set");
+  expect(writes()).toEqual([{ apiKey: "new-test-token-value" }]);
   expect(
-    screen.getByText(/Missing cache breakdown uses an uncached-rate estimate/)
-  ).toBeTruthy();
+    JSON.stringify(client.getQueryData(["routing-experiment-settings"]))
+  ).not.toContain("new-test-token-value");
+});
+it("removes the token and turns routing off in the same request", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Remove access token" }));
+  await screen.findByLabelText("Access token");
+  expect(writes()).toEqual([{ removeKey: true, mode: "off" }]);
+  expect((screen.getByRole("checkbox") as HTMLButtonElement).disabled).toBe(
+    true
+  );
+  expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
+    "false"
+  );
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Test connection",
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true);
+});
+it("keeps enablement disabled until an unconfigured token is saved", async () => {
+  saved = { ...saved, mode: "off", configured: false, storedKey: false };
+  await show();
+  expect((screen.getByRole("checkbox") as HTMLButtonElement).disabled).toBe(
+    true
+  );
+  expect(
+    (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled
+  ).toBe(true);
+  expect((screen.getByLabelText("Access token") as HTMLInputElement).type).toBe(
+    "password"
+  );
+});
+it.each([
+  { status: "ok", label: "Connection successful" },
+  { status: "provider_error", label: "Connection failed — test again" },
+])(
+  "shows $label temporarily in the token heading without replacing the Test button",
+  async ({ status, label }) => {
+    await show();
+    vi.useFakeTimers();
+    let resolve!: (value: unknown) => void;
+    apiMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        })
+    );
+    const test = screen.getByRole("button", { name: "Test connection" });
+    fireEvent.click(test);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByLabelText("Testing connection")).toBeTruthy();
+    expect(test.textContent).toBe("Test");
+    expect((test as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      resolve({ status });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByLabelText(label)).toBeTruthy();
+    expect(test.textContent).toBe("Test");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2499);
+    });
+    expect(screen.getByLabelText(label)).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2);
+    });
+    expect(screen.getByLabelText("Token set")).toBeTruthy();
+    expect(
+      apiMock.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(1);
+  }
+);
+it("keeps a failed token edit visible for correction", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  fireEvent.change(screen.getByLabelText("Access token"), {
+    target: { value: "unsaved-test-token" },
+  });
+  apiMock.mockRejectedValueOnce(new Error("write failed"));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByRole("alert");
+  expect(
+    (screen.getByLabelText("Access token") as HTMLInputElement).value
+  ).toBe("unsaved-test-token");
+});
+
+it("supports Escape to discard and Enter to save a token edit", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  fireEvent.change(screen.getByLabelText("Access token"), {
+    target: { value: "discard-test-token" },
+  });
+  fireEvent.keyDown(screen.getByLabelText("Access token"), { key: "Escape" });
+  expect(screen.getByLabelText("Access token is set")).toBeTruthy();
+  expect(writes()).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  expect(
+    (screen.getByLabelText("Access token") as HTMLInputElement).value
+  ).toBe("");
+  fireEvent.change(screen.getByLabelText("Access token"), {
+    target: { value: "keyboard-test-token" },
+  });
+  fireEvent.keyDown(screen.getByLabelText("Access token"), { key: "Enter" });
+  await screen.findByLabelText("Access token is set");
+  expect(writes()).toEqual([{ apiKey: "keyboard-test-token" }]);
 });

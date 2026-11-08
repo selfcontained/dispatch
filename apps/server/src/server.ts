@@ -937,6 +937,11 @@ async function registerRoutes() {
     routingSettings,
     routingShadow,
     async (request) => {
+      if (
+        process.env.DISPATCH_DEV_STACK === "1" &&
+        !(await authRuntime.isPasswordSetCached())
+      )
+        return true;
       const header = request.headers.authorization;
       if (
         header?.startsWith("Bearer ") &&

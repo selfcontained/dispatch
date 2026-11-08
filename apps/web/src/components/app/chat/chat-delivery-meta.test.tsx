@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Profiler, type ReactNode } from "react";
 import {
   cleanup,
   act,
-  render,
+  render as testingRender,
   screen,
   fireEvent,
 } from "@testing-library/react";
@@ -11,6 +13,18 @@ import type { BlockDelivery } from "@dispatch/shared";
 import { block } from "@/test-utils/blocks";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 
+const clients: QueryClient[] = [];
+function render(ui: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  clients.push(client);
+  return testingRender(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+}
 const waiting: BlockDelivery = {
   agentId: "agt_1",
   state: "delivered",
@@ -34,6 +48,7 @@ function ui(delivery: BlockDelivery[]) {
 }
 afterEach(() => {
   cleanup();
+  for (const client of clients.splice(0)) client.clear();
   vi.useRealTimers();
 });
 describe("quiet delivery status", () => {
@@ -132,4 +147,194 @@ describe("quiet delivery status", () => {
     expect(screen.getByTestId("chat-delivery-indicator")).toBe(indicator);
     expect(indicator.className).toContain("opacity-0");
   });
+});
+
+describe("routing in the existing SSE-only receipt slot", () => {
+  it("waits500ms, reuses the receipt mark and clears on completion without fetching", async () => {
+    vi.useFakeTimers();
+    const post = block({
+      id: "routing-user",
+      streamId: "stream",
+      author: { kind: "user" },
+      toAgentId: "agt_1",
+      createdAt: new Date().toISOString(),
+      delivery: [waiting],
+    });
+    render(<DeliveryIndicator block={post} />);
+    const client = clients[clients.length - 1];
+    const mark = screen.getByTestId("chat-delivery-indicator");
+    expect(mark.getAttribute("data-status")).toBe("Sent");
+    const beforeQueries = client.getQueryCache().getAll().length;
+    act(() =>
+      client.setQueryData(["routing-pending", "stream"], {
+        pending: [
+          {
+            turnId: 1,
+            agentId: "agt_1",
+            streamId: "stream",
+            threadId: null,
+            messageIds: [post.id],
+            startedAt: Date.now(),
+            deadlineAt: Date.now() + 3000,
+          },
+        ],
+      })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(499);
+    });
+    expect(mark.getAttribute("data-status")).toBe("Sent");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mark.getAttribute("data-status")).toBe("Choosing reply location");
+    expect(mark.className).toContain("h-4 w-4");
+    expect(mark.className).toContain("motion-reduce:transition-none");
+    act(() =>
+      client.setQueryData(["routing-pending", "stream"], { pending: [] })
+    );
+    expect(screen.getByTestId("chat-delivery-indicator")).toBe(mark);
+    expect(mark.getAttribute("data-status")).toBe("Sent");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(client.getQueryCache().getAll()).toHaveLength(beforeQueries + 1);
+    expect(
+      client
+        .getQueryCache()
+        .getAll()
+        .every((q) => q.getObserversCount() === 0)
+    ).toBe(true);
+  });
+  it("suppresses fast routing and expires missing completion without a row or HTTP query", async () => {
+    vi.useFakeTimers();
+    const post = block({
+      id: "fast",
+      streamId: "stream",
+      author: { kind: "user" },
+      createdAt: new Date().toISOString(),
+    });
+    render(<DeliveryIndicator block={post} />);
+    const client = clients[clients.length - 1];
+    const pending = {
+      turnId: 1,
+      agentId: "agt_1",
+      streamId: "stream",
+      threadId: null,
+      messageIds: [post.id],
+      startedAt: Date.now(),
+      deadlineAt: Date.now() + 3000,
+    };
+    act(() =>
+      client.setQueryData(["routing-pending", "stream"], {
+        pending: [pending],
+      })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    act(() =>
+      client.setQueryData(["routing-pending", "stream"], { pending: [] })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(screen.queryByLabelText("Choosing reply location")).toBeNull();
+    act(() =>
+      client.setQueryData(["routing-pending", "stream"], {
+        pending: [
+          {
+            ...pending,
+            turnId: 2,
+            startedAt: Date.now(),
+            deadlineAt: Date.now() + 3000,
+          },
+        ],
+      })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(screen.queryByLabelText("Choosing reply location")).not.toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(screen.queryByLabelText("Choosing reply location")).toBeNull();
+  });
+  it("shows routing for an old queued message when its actual routing begins later", async () => {
+    vi.useFakeTimers();
+    const post = block({
+      id: "old-queued",
+      streamId: "stream",
+      author: { kind: "user" },
+      createdAt: new Date(Date.now() - 60000).toISOString(),
+      delivery: [{ agentId: "agt_1", state: "held" }],
+    });
+    render(<DeliveryIndicator block={post} />);
+    const client = clients[clients.length - 1];
+    act(() =>
+      client.setQueryData(["routing-pending", "stream"], {
+        pending: [
+          {
+            turnId: 3,
+            agentId: "agt_1",
+            streamId: "stream",
+            threadId: null,
+            messageIds: [post.id],
+            startedAt: Date.now(),
+            deadlineAt: Date.now() + 3000,
+          },
+        ],
+      })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(screen.queryByLabelText("Choosing reply location")).not.toBeNull();
+  });
+});
+
+it("old history receipts have no timers and ignore other messages' pending cache updates", async () => {
+  vi.useFakeTimers();
+  const post = block({
+    id: "old-history",
+    streamId: "stream",
+    author: { kind: "user" },
+    createdAt: new Date(Date.now() - 60000).toISOString(),
+    delivered: true,
+    delivery: [],
+  });
+  const commits = vi.fn();
+  render(
+    <Profiler id="receipt" onRender={commits}>
+      <DeliveryIndicator block={post} />
+    </Profiler>
+  );
+  const client = clients[clients.length - 1];
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(vi.getTimerCount()).toBe(0);
+  commits.mockClear();
+  act(() =>
+    client.setQueryData(["routing-pending", "stream"], {
+      pending: [
+        {
+          turnId: 4,
+          agentId: "agt_1",
+          streamId: "stream",
+          threadId: null,
+          messageIds: ["somebody-else"],
+          startedAt: Date.now(),
+          deadlineAt: Date.now() + 3000,
+        },
+      ],
+    })
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(commits).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(screen.queryByLabelText("Choosing reply location")).toBeNull();
 });

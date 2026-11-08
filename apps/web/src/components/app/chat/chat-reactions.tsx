@@ -94,11 +94,6 @@ export function ReactionPickerButton({
       </span>
     );
   }
-  const reacted = new Set(
-    reactions
-      .filter((reaction) => reaction.author.kind === "user")
-      .map((reaction) => reaction.emoji)
-  );
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -129,50 +124,76 @@ export function ReactionPickerButton({
         )}
         data-testid="chat-reaction-picker"
       >
-        <div
-          className="grid grid-cols-6 gap-0.5"
-          role="group"
-          aria-label="Reactions"
-        >
-          {REACTION_EMOJI.map((emoji, index) => {
-            const selected = reacted.has(emoji);
-            return (
-              <button
-                key={emoji}
-                type="button"
-                className={cn(
-                  "flex h-8 w-8 animate-reaction-emoji-in items-center justify-center rounded-md text-lg leading-none transition-[background-color,transform] hover:scale-110 hover:bg-muted motion-reduce:animate-none motion-reduce:hover:scale-100",
-                  "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
-                  selected && "bg-primary/15 hover:bg-primary/25"
-                )}
-                aria-label={
-                  selected ? `Remove ${emoji} reaction` : `React with ${emoji}`
-                }
-                aria-pressed={selected}
-                data-testid="chat-reaction-option"
-                data-emoji={emoji}
-                style={{ animationDelay: `${40 + index * 14}ms` }}
-                onClick={() => {
-                  setOpen(false);
-                  onToggle(emoji, selected);
-                }}
-              >
-                {emoji}
-              </button>
-            );
-          })}
-        </div>
+        <ReactionPickerOptions
+          reactions={reactions}
+          onToggle={onToggle}
+          onPicked={() => setOpen(false)}
+        />
       </PopoverContent>
     </Popover>
   );
 }
 
+/** Shared picker contents for the message overflow React action. */
+export function ReactionPickerOptions({
+  reactions,
+  onToggle,
+  onPicked,
+}: {
+  reactions: readonly BlockReaction[];
+  onToggle: (emoji: string, remove: boolean) => void;
+  onPicked?: () => void;
+}) {
+  const reacted = new Set(
+    reactions
+      .filter((reaction) => reaction.author.kind === "user")
+      .map((reaction) => reaction.emoji)
+  );
+  return (
+    <div
+      className="grid grid-cols-6 gap-0.5"
+      role="group"
+      aria-label="Reactions"
+    >
+      {REACTION_EMOJI.map((emoji, index) => {
+        const selected = reacted.has(emoji);
+        return (
+          <button
+            key={emoji}
+            type="button"
+            className={cn(
+              "flex h-8 w-8 animate-reaction-emoji-in items-center justify-center rounded-md text-lg leading-none transition-[background-color,transform] hover:scale-110 hover:bg-muted motion-reduce:animate-none motion-reduce:hover:scale-100",
+              "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+              selected && "bg-primary/15 hover:bg-primary/25"
+            )}
+            aria-label={
+              selected ? `Remove ${emoji} reaction` : `React with ${emoji}`
+            }
+            aria-pressed={selected}
+            data-testid="chat-reaction-option"
+            data-emoji={emoji}
+            style={{ animationDelay: `${40 + index * 14}ms` }}
+            onClick={() => {
+              onPicked?.();
+              onToggle(emoji, selected);
+            }}
+          >
+            {emoji}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function userReactionTitle(
   reaction: BlockReaction,
-  removable: boolean
+  removable: boolean,
+  local: boolean
 ): string {
-  const state =
-    reaction.delivered === null
+  const state = local
+    ? "Your reaction."
+    : reaction.delivered === null
       ? "Sending your reaction to the agent…"
       : reaction.delivered
         ? "Sent to the agent."
@@ -215,10 +236,13 @@ export function ReactionBar({
   reactions,
   agentName,
   onToggle,
+  local = false,
 }: {
   reactions: readonly BlockReaction[];
   agentName: string;
   onToggle?: (emoji: string, remove: boolean) => void;
+  /** No agent recipient, so persisted reactions have no delivery lifecycle. */
+  local?: boolean;
 }): JSX.Element {
   // False only for this post's first paint; a bar that appears later (the
   // first reaction arriving) animates its first chip in too.
@@ -291,18 +315,21 @@ export function ReactionBar({
                     // Motion owns the chip's opacity, so a pending chip's dim
                     // is animated here rather than set with a class.
                     animate={{
-                      opacity: reaction.delivered === null ? 0.6 : 1,
+                      opacity:
+                        inFlight || (!local && reaction.delivered === null)
+                          ? 0.6
+                          : 1,
                       scale: 1,
                     }}
                     type="button"
                     className={cn(
                       REACTION_CHIP,
-                      reaction.delivered === false
+                      !local && reaction.delivered === false
                         ? "border-destructive/50 bg-destructive/10 hover:bg-destructive/15"
                         : "border-primary/40 bg-primary/10 hover:bg-primary/20",
                       !removable && "cursor-default"
                     )}
-                    title={userReactionTitle(reaction, removable)}
+                    title={userReactionTitle(reaction, removable, local)}
                     aria-label={
                       removable
                         ? `Remove your ${reaction.emoji} reaction`
@@ -316,7 +343,7 @@ export function ReactionBar({
                     onClick={() => onToggle?.(reaction.emoji, true)}
                   >
                     <span aria-hidden="true">{reaction.emoji}</span>
-                    {reaction.delivered === false ? (
+                    {!local && reaction.delivered === false ? (
                       <AlertTriangle
                         className="ml-1 h-3 w-3 text-destructive"
                         aria-hidden="true"

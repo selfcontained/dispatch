@@ -890,6 +890,7 @@ describe("useSSE message handling", () => {
     emit({ type: "snapshot", agents: [] });
 
     expectInvalidatedSet(invalidateQueries, [
+      ["message-metadata"],
       ["routing-pending"],
       ["routing-experiment-settings"],
       ["agent-turn-label"],
@@ -1427,7 +1428,7 @@ describe("useSSE message handling", () => {
     expect(invalidateQueries).not.toHaveBeenCalled();
   });
 
-  it("refetches routing completion after delayed first feed and thread snapshots settle", async () => {
+  it("refetches routing completion after the delayed first metadata request settles", async () => {
     const { emit, queryClient } = renderMessages();
     const resolvers: ((value: { completed: boolean }) => void)[] = [];
     const fetches = [
@@ -1445,8 +1446,8 @@ describe("useSSE message handling", () => {
       ),
     ];
     const keys = [
-      streamFeedQueryKey("agt_1"),
-      threadQueryKey("agt_1", "opener"),
+      ["message-metadata", "agt_1", "opener"],
+      ["message-metadata", "agt_1", "other"],
     ];
     const observers = keys.map(
       (queryKey, i) =>
@@ -1477,6 +1478,40 @@ describe("useSSE message handling", () => {
     }
   });
 
+  it("refreshes a metadata GET that began before the reconnect snapshot", async () => {
+    const { emit, queryClient } = renderMessages();
+    let resolveFirst!: (value: { routing: string[] }) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<{ routing: string[] }>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
+    const key = ["message-metadata", "agt_1", "opener"];
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn: fetch,
+      retry: false,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      emit({ type: "snapshot", agents: [] });
+      fetch.mockResolvedValue({ routing: ["completed"] });
+      await act(async () => {
+        resolveFirst({ routing: [] });
+      });
+      await waitFor(() =>
+        expect(queryClient.getQueryData(key)).toEqual({
+          routing: ["completed"],
+        })
+      );
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("routes pending and settled evidence through SSE without broad stream invalidations, and refreshes on reconnect", () => {
     const { emit, queryClient, invalidateQueries } = renderMessages();
     const pending = [
@@ -1497,8 +1532,7 @@ describe("useSSE message handling", () => {
     expect(invalidateQueries).not.toHaveBeenCalled();
     emit({ type: "routing.metadata_changed", streamId: "agt_1" });
     expectInvalidatedSet(invalidateQueries, [
-      ["stream", "agt_1"],
-      ["stream", "agt_1", "thread"],
+      ["message-metadata", "agt_1"],
       ["routing-experiment-settings"],
     ]);
     emit({ type: "routing.pending", streamId: "agt_1", pending: [] });

@@ -32,6 +32,7 @@ import {
   parseShadowResponse,
   type ShadowInput,
 } from "../src/chat/routing-shadow.js";
+import { registerStreamRoutes } from "../src/routes/streams.js";
 import { registerRoutingShadowRoutes } from "../src/routes/routing-shadow.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 let pool: Pool;
@@ -605,57 +606,78 @@ describe("optional routing shadow", () => {
     expect((await store.summary()).activeRouting.n).toBe(1);
     expect(transport).not.toHaveBeenCalled();
   });
-  it("persists masked product settings and gives environment overrides precedence", async () => {
-    const settings = new RoutingSettings(pool, {});
+  it("uses only saved tokens and keeps secrets out of status", async () => {
+    const settings = new RoutingSettings(pool, {
+      DISPATCH_DECISIONS_API_KEY: "ignored-production-secret",
+      DISPATCH_ROUTING_MODE: "active",
+    });
     expect(await settings.status()).toMatchObject({
       mode: "off",
       configured: false,
+      keySource: "none",
     });
-    await settings.save({ mode: "active", apiKey: "test-first-secret" });
-    expect(await new RoutingSettings(pool, {}).configuration()).toMatchObject({
-      mode: "active",
-      apiKey: "test-first-secret",
-      enabled: true,
-    });
-    await settings.save({ apiKey: "test-replacement-secret" });
-    expect(JSON.stringify(await settings.status())).not.toContain("secret");
-    const override = new RoutingSettings(pool, {
-      DISPATCH_DECISIONS_API_KEY: "environment-secret",
+    expect((await settings.configuration()).apiKey).toBe("");
+    await settings.save({ mode: "active", apiKey: "test-saved-secret" });
+    const fresh = new RoutingSettings(pool, {
+      DISPATCH_DECISIONS_API_KEY: "ignored-secret",
       DISPATCH_ROUTING_MODE: "off",
     });
-    expect(await override.configuration()).toMatchObject({
-      enabled: false,
-      mode: "off",
-      apiKey: "environment-secret",
-    });
-    await settings.save({ removeKey: true, mode: "shadow" });
-    expect(await new RoutingSettings(pool, {}).configuration()).toMatchObject({
-      apiKey: "",
+    expect(await fresh.configuration()).toMatchObject({
+      mode: "active",
       enabled: true,
+      apiKey: "test-saved-secret",
+    });
+    expect(await fresh.status()).toMatchObject({
+      modeSource: "settings",
+      keySource: "settings",
+      storedKey: true,
+    });
+    expect(JSON.stringify(await fresh.status())).not.toContain("secret");
+  });
+  it("seeds a dev token once, lets a saved replacement win, and remembers removal across restarts", async () => {
+    const env = {
+      DISPATCH_DEV_STACK: "1",
+      DISPATCH_DECISIONS_API_KEY: "test-dev-seed",
+    };
+    const settings = new RoutingSettings(pool, env);
+    expect(await settings.status()).toMatchObject({
+      configured: true,
+      mode: "off",
+      keySource: "settings",
+    });
+    await settings.save({ mode: "active", apiKey: "test-saved-replacement" });
+    expect((await new RoutingSettings(pool, env).configuration()).apiKey).toBe(
+      "test-saved-replacement"
+    );
+    await settings.save({ removeKey: true });
+    const restarted = new RoutingSettings(pool, env);
+    expect(await restarted.configuration()).toMatchObject({
+      apiKey: "",
+      mode: "off",
+      enabled: false,
+    });
+    expect(await restarted.status()).toMatchObject({
+      configured: false,
+      storedKey: false,
+    });
+    await restarted.save({ apiKey: "test-readded-token" });
+    expect(await restarted.status()).toMatchObject({
+      mode: "off",
+      configured: true,
     });
   });
-  it.each(["invalid", ""])(
-    "keeps an explicit invalid mode %j off despite legacy opt-in",
+  it.each(["shadow", "invalid", ""])(
+    "keeps unsupported stored mode %j off",
     async (mode) => {
-      const settings = new RoutingSettings(pool, {
-        DISPATCH_ROUTING_MODE: mode,
-        DISPATCH_ROUTING_SHADOW_ENABLED: "1",
-        DISPATCH_DECISIONS_API_KEY: "test-configured-secret",
-      });
-      expect(await settings.configuration()).toMatchObject({
-        mode: "off",
-        enabled: false,
-      });
-      expect(await settings.status()).toMatchObject({
-        mode: "off",
-        modeSource: "environment",
-      });
+      await pool.query(
+        "INSERT INTO settings(key,value) VALUES('routing_mode',$1)",
+        [mode]
+      );
       expect(
         await new RoutingSettings(pool, {
           DISPATCH_ROUTING_SHADOW_ENABLED: "1",
-          DISPATCH_DECISIONS_API_KEY: "test-configured-secret",
         }).configuration()
-      ).toMatchObject({ mode: "shadow", enabled: true });
+      ).toMatchObject({ mode: "off", enabled: false });
     }
   );
   it("checks a synthetic connection while off using the shared persistent request cap", async () => {
@@ -698,7 +720,7 @@ describe("optional routing shadow", () => {
     const saved = await app.inject({
       method: "PUT",
       url: "/api/v1/experiments/routing/settings",
-      payload: { mode: "shadow", apiKey: "secret-product-key" },
+      payload: { mode: "active", apiKey: "secret-product-key" },
     });
     expect(saved.statusCode).toBe(200);
     expect(saved.body).not.toContain("secret-product-key");
@@ -706,7 +728,7 @@ describe("optional routing shadow", () => {
       url: "/api/v1/experiments/routing/settings",
     });
     expect(read.json()).toMatchObject({
-      mode: "shadow",
+      mode: "active",
       configured: true,
       storedKey: true,
     });
@@ -935,7 +957,7 @@ describe("routing feed diagnostics", () => {
     await attachRoutingDiagnostics(pool, blocks);
     expect(blocks[0].routing?.[0].status).toBe("pending");
     expect(blocks[1].routing).toBeUndefined();
-    expect(blocks[2].routing?.[0].turnId).toBe(source.turnRow.id);
+    expect(blocks[2].routing).toBeUndefined();
     await notifying.finish(source.turnRow.id, "ok", {
       ...parseShadowResponse(answer),
       private: "secret",
@@ -964,6 +986,63 @@ describe("routing feed diagnostics", () => {
     );
     await attachRoutingDiagnostics(pool, blocks);
     expect(blocks[0].routing).toBeUndefined();
+  });
+  it("loads sanitized routing metadata only on demand and rejects a different stream", async () => {
+    const source = await input("continue", false);
+    const openerId =
+      source.prompt.source === "chat" ? source.prompt.chatMessageId : "";
+    await store.reserve(
+      source,
+      { messageIds: [openerId], explicitThread: false },
+      25,
+      "active"
+    );
+    await store.finish(source.turnRow.id, "ok", {
+      ...parseShadowResponse(answer),
+      mode: "active",
+      applied: true,
+      actualPlacement: source.placement,
+      private: "secret",
+    });
+    const querySpy = vi.spyOn(pool, "query");
+    const feed = await svc.feed(A);
+    expect(feed.entries.every((e) => !e.block.routing?.length)).toBe(true);
+    expect(
+      querySpy.mock.calls.filter(
+        ([q]) => typeof q === "string" && q.includes("routing_shadow_records")
+      )
+    ).toHaveLength(0);
+    querySpy.mockRestore();
+    const app = Fastify();
+    await registerStreamRoutes(app, {
+      pool,
+      streams: svc,
+      handleAgentError: (reply) =>
+        reply.code(500).send({ error: "Unexpected" }),
+    });
+    try {
+      const result = await app.inject({
+        method: "GET",
+        url: `/api/v1/streams/${A}/blocks/${openerId}/metadata`,
+      });
+      expect(result.statusCode).toBe(200);
+      expect(result.json().routing[0]).toMatchObject({
+        agentId: A,
+        actual: "Root",
+        choice: "home_root",
+      });
+      expect(result.body).not.toContain("secret");
+      expect(
+        (
+          await app.inject({
+            method: "GET",
+            url: `/api/v1/streams/not-this-stream/blocks/${openerId}/metadata`,
+          })
+        ).statusCode
+      ).toBe(404);
+    } finally {
+      await app.close();
+    }
   });
   it("keeps actual route, model probabilities and confidence distinct with truthful policy reasons", () => {
     const base = {

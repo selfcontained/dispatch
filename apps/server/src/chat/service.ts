@@ -2160,7 +2160,7 @@ export class StreamService {
     if (
       !block ||
       (block.streamId !== streamId && !onTask) ||
-      sameAuthor(block.author, author)
+      (author.kind === "agent" && sameAuthor(block.author, author))
     ) {
       throw new StreamNotFoundError(
         author.kind === "agent"
@@ -3627,7 +3627,12 @@ export class StreamService {
         event.agentId,
         event.receiptId,
         event.type === "steering_picked_up" ? event.at : undefined,
-        event.type !== "steering_picked_up" ? event.at : undefined
+        event.type !== "steering_picked_up" ? event.at : undefined,
+        event.type === "steered"
+          ? "steering"
+          : event.type === "prompt_delivered"
+            ? "prompt"
+            : undefined
       );
       await this.publishEntry(block.streamId, id);
     }

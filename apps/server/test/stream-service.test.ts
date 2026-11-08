@@ -4393,14 +4393,17 @@ describe("StreamService reactions", () => {
     expect(events).toEqual([]);
   });
 
-  it("only takes reactions on other people's blocks on this stream, with a real emoji", async () => {
+  it("allows user reactions on their own messages while enforcing stream and emoji boundaries", async () => {
     const { svc, injected } = build();
     const userPost = await svc.sendUserPost(A, { text: "hi" });
     const block = await agentPost();
     const elsewhere = await service.post(B, { text: "x" });
-    await expect(
-      svc.addReaction(A, userPost.block.id, "👍")
-    ).rejects.toBeInstanceOf(StreamNotFoundError);
+    expect(
+      (await svc.addReaction(A, userPost.block.id, "👍")).reactions
+    ).toEqual([
+      expect.objectContaining({ author: { kind: "user" }, emoji: "👍" }),
+    ]);
+    await svc.removeReaction(A, userPost.block.id, "👍");
     await expect(svc.addReaction(A, elsewhere.id, "👍")).rejects.toBeInstanceOf(
       StreamNotFoundError
     );
@@ -4502,16 +4505,14 @@ describe("StreamService reactions", () => {
     expect(removed.reactions).toEqual([]);
   });
 
-  it("keeps each side to the other's blocks, and each author's reactions its own", async () => {
+  it("keeps agent self-reaction restrictions and isolates each author's reactions", async () => {
     const { svc } = build({ access: inert });
     const agentBlock = await agentPost();
     const userPost = await svc.sendUserPost(A, { text: "hi" });
     await expect(
       svc.addReaction(A, agentBlock.id, "👍", { kind: "agent", agentId: A })
     ).rejects.toThrow(/DISPATCH POST envelope/);
-    await expect(
-      svc.addReaction(A, userPost.block.id, "👍", { kind: "user" })
-    ).rejects.toBeInstanceOf(StreamNotFoundError);
+    await svc.addReaction(A, userPost.block.id, "👍", { kind: "user" });
     await expect(
       svc.addReaction(A, "nope", "👍", { kind: "agent", agentId: A })
     ).rejects.toThrow(/id must be the block id from a DISPATCH POST envelope/);
@@ -7129,12 +7130,20 @@ describe("steering pickup receipts", () => {
         {
           agentId: A,
           state: "delivered",
-          receipt: { pickedUpAt: at, deliveredAt },
+          receipt: {
+            pickedUpAt: at,
+            deliveredAt,
+            mode: type === "steered" ? "steering" : "prompt",
+          },
         },
         {
           agentId: B,
           state: "delivered",
-          receipt: { pickedUpAt: null, deliveredAt },
+          receipt: {
+            pickedUpAt: null,
+            deliveredAt,
+            mode: type === "steered" ? "steering" : "prompt",
+          },
         },
       ]);
       expect(published).toContainEqual(entryEvent(post));
@@ -7150,7 +7159,11 @@ describe("steering pickup receipts", () => {
         {
           agentId: A,
           state: "delivered",
-          receipt: { pickedUpAt: at, deliveredAt },
+          receipt: {
+            pickedUpAt: at,
+            deliveredAt,
+            mode: type === "steered" ? "steering" : "prompt",
+          },
         },
         { agentId: B, state: "pending" },
       ]);
