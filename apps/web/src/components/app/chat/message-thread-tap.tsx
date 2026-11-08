@@ -34,12 +34,15 @@ export function MessageThreadTap({
     const pointer = (event: PointerEvent) => {
       if (!event.isPrimary) cancel();
     };
+    const selected = () => {
+      if (window.getSelection()?.toString()) cancel();
+    };
     document.addEventListener("pointerdown", pointer, true);
     document.addEventListener("scroll", cancel, true);
-    document.addEventListener("selectionchange", cancel);
+    document.addEventListener("selectionchange", selected);
     return () => {
       clearTimer();
-      document.removeEventListener("selectionchange", cancel);
+      document.removeEventListener("selectionchange", selected);
       document.removeEventListener("pointerdown", pointer, true);
       document.removeEventListener("scroll", cancel, true);
     };

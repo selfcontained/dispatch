@@ -123,3 +123,28 @@ it.each(["hold", "move", "cancel", "scroll", "multi", "drag", "release"])(
     }
   }
 );
+
+it("preserves taps across collapsed caret selection changes", () => {
+  const { open, target } = setup();
+  down(target);
+  fireEvent(document, new Event("selectionchange"));
+  release(target);
+  expect(open).toHaveBeenCalledTimes(1);
+});
+it("cancels touch holds when text becomes selected", () => {
+  vi.useFakeTimers();
+  const long = vi.fn();
+  render(
+    <MessageThreadTap onLongPress={long}>
+      <p>Select here</p>
+    </MessageThreadTap>
+  );
+  const target = screen.getByText("Select here");
+  fireEvent.pointerDown(target, { pointerType: "touch" });
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  window.getSelection()?.addRange(range);
+  fireEvent(document, new Event("selectionchange"));
+  vi.advanceTimersByTime(600);
+  expect(long).not.toHaveBeenCalled();
+});
