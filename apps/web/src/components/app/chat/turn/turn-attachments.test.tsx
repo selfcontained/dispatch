@@ -11,6 +11,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -255,12 +256,14 @@ describe("TurnAttachments", () => {
 
   it("renders each folded item in order with its own block", () => {
     render(
-      <MemoryRouter>
-        <TurnAttachments
-          items={[sharedFile("md1", at("10:01")), sent("am1", at("10:03"))]}
-          ctx={ctx}
-        />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TurnAttachments
+            items={[sharedFile("md1", at("10:01")), sent("am1", at("10:03"))]}
+            ctx={ctx}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
     const block = screen.getByTestId("chat-turn-attachments");
     expect(block.textContent).toContain("Login page");
@@ -280,9 +283,11 @@ describe("TurnAttachments", () => {
     entry.block.text =
       "## Results\n\n**Ready** with [details](https://example.com).\n\n- first\n- second\n\n```ts\nconst ready = true;\n```";
     render(
-      <MemoryRouter>
-        <TurnAttachments items={[entry]} ctx={ctx} />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TurnAttachments items={[entry]} ctx={ctx} />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
     expect(screen.getByRole("heading", { name: "Results" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "details" })).toBeTruthy();
@@ -307,9 +312,11 @@ describe("TurnAttachments", () => {
       })
     );
     render(
-      <MemoryRouter>
-        <TurnAttachments items={[held]} ctx={ctx} />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TurnAttachments items={[held]} ctx={ctx} />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
     const row = screen.getByTestId("chat-turn-sent-to");
     expect(row.textContent).toContain("Queued until the turn ends");
@@ -328,9 +335,11 @@ describe("TurnAttachments", () => {
       })
     );
     render(
-      <MemoryRouter>
-        <TurnAttachments items={[post]} ctx={ctx} />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TurnAttachments items={[post]} ctx={ctx} />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
     const row = screen.getByTestId("chat-turn-sent-to");
     const toggle = screen.getByTestId("chat-turn-sent-to-toggle");
@@ -362,9 +371,11 @@ describe("TurnAttachments", () => {
       })
     );
     render(
-      <MemoryRouter>
-        <TurnAttachments items={[failed]} ctx={{ ...ctx, onRetryDelivery }} />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TurnAttachments items={[failed]} ctx={{ ...ctx, onRetryDelivery }} />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
     const row = screen.getByTestId("chat-turn-sent-to");
     expect(row.textContent).toContain("Not delivered");
