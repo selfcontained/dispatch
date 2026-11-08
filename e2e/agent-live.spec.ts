@@ -100,7 +100,7 @@ test.describe("Live agent", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("thread input opens home work with a retained source discussion link", async ({
+  test("thread input opens a reply in its discussion while root work stays home", async ({
     page,
     request,
   }, testInfo) => {
@@ -139,33 +139,31 @@ test.describe("Live agent", () => {
     await page.goto(`/agents/${agent.id}?thread=${rootId}`, {
       waitUntil: "domcontentloaded",
     });
-    const threadPage = page.locator(
-      '[data-testid="drawer-page"][data-top="true"]'
-    );
+    const threadPage = page
+      .getByTestId("chat-thread-panel")
+      .filter({ visible: true });
     const mainTurns = page.getByTestId("chat-pane").getByTestId("chat-turn");
-    await expect(mainTurns).toHaveCount(2, { timeout: TURN_TIMEOUT });
-    await expect(mainTurns.last().getByTestId("harness-result")).toContainText(
-      "in the thread",
-      { timeout: TURN_TIMEOUT }
-    );
+    await expect(mainTurns).toHaveCount(1, { timeout: TURN_TIMEOUT });
     await expect(mainTurns.first().getByTestId("harness-result")).toContainText(
       "root post"
     );
-    await expect(threadPage.getByTestId("chat-thread-turn")).toHaveCount(0);
-    const sourceLink = page
-      .getByTestId("chat-pane")
-      .getByTestId("turn-source-discussion");
-    await expect(sourceLink).toHaveAttribute(
-      "href",
-      new RegExp(`thread=${rootId}.*block=${replyId}`)
-    );
+    const threadTurns = threadPage.getByTestId("chat-thread-turn");
+    await expect(threadTurns).toHaveCount(1, { timeout: TURN_TIMEOUT });
+    await expect(
+      threadTurns.first().getByTestId("harness-result")
+    ).toContainText("in the thread", { timeout: TURN_TIMEOUT });
+    await expect(
+      threadTurns.getByTestId("turn-source-discussion")
+    ).toHaveAttribute("href", new RegExp(`thread=${rootId}.*block=${replyId}`));
     // Output ownership survives reload while source input stays at its original anchor.
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(mainTurns).toHaveCount(2);
-    await expect(threadPage.getByTestId("chat-thread-turn")).toHaveCount(0);
+    await expect(mainTurns).toHaveCount(1);
+    await expect(threadPage.getByTestId("chat-thread-turn")).toHaveCount(1);
     await expect(threadPage).toContainText("in the thread");
-    await testInfo.attach("home output with source thread", {
-      body: await page.screenshot(),
+    const screenshotPath = "/tmp/thread-live-regression.png";
+    await page.screenshot({ path: screenshotPath });
+    await testInfo.attach("thread output with independent root work", {
+      path: screenshotPath,
       contentType: "image/png",
     });
   });

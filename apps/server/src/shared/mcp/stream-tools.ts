@@ -215,7 +215,7 @@ const textSchema = z
   .describe(`Markdown body, up to ${BLOCK_TEXT_MAX_CHARS} characters.`);
 
 const POST_DESCRIPTION =
-  "Post a block into a stream. Default/current/home/root all select your own home root, including children. Ordinary output always belongs at your own home root; source messages never move it. " +
+  "Post a block into a stream. Default/current/home/root all select your own home root, including children. Ordinary output stays at the location frozen when its turn starts: a user-thread origin uses that discussion, other work uses home. Steering never moves it. " +
   "Use `agentHome: <agentId>` to explicitly select an authorized agent home independently of `to: <agentId>` (recipient/delivery only). Parent-to-child coordination uses agentHome child plus to child; child-to-parent coordination normally stays at child home with to parent. A deliberate parent-home post is allowed when authorized. " +
   "Use post for structured content: `question`, `form`, `link`, `review`, `tasks`, live task cards (`task`), attachments, a scoped answer, or a message to another agent. " +
   "`replyTo` selects the original authorized discussion anchor (use the id from a DISPATCH POST envelope or post result). Use taskId for explicit task chat; task_comment remains available. Neither changes subsequent ordinary output. " +
@@ -316,7 +316,7 @@ export function registerStreamTools(
       "get_conversation_context",
       {
         description:
-          "Inspect home (ordinary output root), current (recorded output, possibly legacy), source (input discussion), and activeTurnId. Source reply anchors are for explicit posts, never a destination for ordinary prose. Read-only; legacy open output may retain its stored location until settlement.",
+          "Inspect home (explicit default-post destination), current (the active turn’s frozen output location), source (input discussion), and activeTurnId. User-thread starts stream ordinary output in that discussion; other work starts at home. Source alone never reroutes an ongoing turn. Read-only.",
         inputSchema: {},
       },
       async () => {
@@ -393,7 +393,7 @@ export function registerStreamTools(
             .uuid()
             .optional()
             .describe(
-              "Exact block id from a DISPATCH POST envelope or post result. Use with text for a scoped side answer; ordinary replies always appear at your own home root."
+              "Exact block id from a DISPATCH POST envelope or post result. Use with text for a scoped side answer; ordinary replies use the active turn’s frozen location."
             ),
           placement: z
             .enum(["current", "home", "root"])

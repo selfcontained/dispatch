@@ -120,7 +120,9 @@ function DeliveryStatus({
               : "Stop requested"
             : several
               ? `Queued for ${nameList(held, recipientName)}, until the turn ends`
-              : "Queued until the turn ends"}
+              : block.threadId
+                ? "Queued for a reply here"
+                : "Queued until the turn ends"}
         </span>
       </div>
     );

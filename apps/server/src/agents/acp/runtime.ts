@@ -192,6 +192,8 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 
 /** A prompt waiting for the turn ahead of it to settle. */
 type Waiting = {
+  /** Explicit Send now choice, scoped to the turn current when selected. */
+  steerTurnSeq?: number;
   text: string;
   beforeSubmit?: () => Promise<boolean>;
   onDeferred?: () => Promise<void>;
@@ -278,7 +280,12 @@ function takeBatch(waiting: Waiting[]): Waiting[] {
  * arrives after the turn that needed it. An agent's answer to a question
  * resumes the asking conversation, so it keeps the conversation rule.
  */
-function steers(w: Waiting, entry: Pick<Live, "conversation">): boolean {
+function steers(
+  w: Waiting,
+  entry: Pick<Live, "conversation" | "turnSeq">
+): boolean {
+  if (w.steerTurnSeq !== undefined && w.steerTurnSeq === entry.turnSeq)
+    return true;
   if (w.source?.scheduleId || w.source?.awaited === true) return true;
   if (w.source?.source !== "chat") return false;
   if (w.source.userMessage !== true && !w.source.conversation) return true;
@@ -1050,7 +1057,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           const { entry, prompt } = target!;
           return (
             entry.turnOpen &&
-            (prompt.delivery === "interrupt" || !steers(prompt, entry))
+            (prompt.delivery === "interrupt" ||
+              !!prompt.images?.length ||
+              (!steers(prompt, entry) &&
+                !entry.client.welcome?.steeringSupported))
           );
         })
       )
@@ -1102,6 +1112,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               entry.interruptedTurnSeq === entry.turnSeq);
         } else {
           prompt.delivery = "auto";
+          prompt.steerTurnSeq = entry.turnOpen ? entry.turnSeq : undefined;
         }
       }
       for (let i = 0; i < targets.length; i++)
