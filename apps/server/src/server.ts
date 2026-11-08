@@ -926,7 +926,19 @@ async function registerRoutes() {
     routingShadowStore,
     config.authToken,
     routingSettings,
-    routingShadow
+    routingShadow,
+    async (request) => {
+      const header = request.headers.authorization;
+      if (
+        header?.startsWith("Bearer ") &&
+        shouldAcceptApiBearerToken(header.slice(7), config.authToken)
+      )
+        return true;
+      return (
+        (await authRuntime.isPasswordSetCached()) &&
+        (await canManageEngineUpdates(request))
+      );
+    }
   );
   const shadowRetention = setInterval(
     () => {

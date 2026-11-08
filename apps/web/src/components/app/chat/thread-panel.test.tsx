@@ -1,3 +1,4 @@
+vi.mock("./routing-indicator", () => ({ RoutingIndicator: () => null }));
 // @vitest-environment jsdom
 vi.mock(
   "@/components/app/chat/composer-input",

@@ -1,3 +1,4 @@
+import { summarizeRouting } from "./routing-metrics.js";
 import type { Pool } from "pg";
 import type { Block } from "@dispatch/shared";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
@@ -91,7 +92,7 @@ export function parseShadowResponse(raw: unknown) {
       probabilities.push({ value: p.value, probability: p.probability });
     }
   }
-  const usage: Record<string, number> = {};
+  const usage: Record<string, number | Record<string, number>> = {};
   for (const [key, value] of Object.entries(object(response.usage) ?? {})) {
     if (
       ["input_tokens", "output_tokens", "total_tokens"].includes(key) &&
@@ -100,6 +101,20 @@ export function parseShadowResponse(raw: unknown) {
       value >= 0
     )
       usage[key] = value;
+  }
+  const details = object(object(response.usage)?.input_tokens_details);
+  if (details) {
+    const safe: Record<string, number> = {};
+    for (const key of ["cached_tokens", "cache_write_tokens"]) {
+      const value = details[key];
+      if (
+        typeof value === "number" &&
+        Number.isSafeInteger(value) &&
+        value >= 0
+      )
+        safe[key] = value;
+    }
+    usage.input_tokens_details = safe;
   }
   return {
     choice: answer.choice,
@@ -300,9 +315,21 @@ export class RoutingShadowStore {
   }
   async finish(turnId: number, status: string, result: unknown) {
     await this.pool.query(
-      `UPDATE routing_shadow_records SET status = $2, result = $3 WHERE turn_id = $1`,
+      `UPDATE routing_shadow_records SET status = $2, result = result || $3::jsonb WHERE turn_id = $1`,
       [turnId, status, JSON.stringify(result)]
     );
+  }
+  async summary() {
+    const records = await this.pool.query<{ status: string; result: unknown }>(
+      "SELECT status,result FROM routing_shadow_records WHERE created_at >= now() - interval '14 days' ORDER BY created_at DESC LIMIT 2000"
+    );
+    const calls = await this.pool.query<{ calls: number }>(
+      "SELECT calls FROM routing_shadow_daily WHERE day = (now() AT TIME ZONE 'UTC')::date"
+    );
+    return {
+      ...summarizeRouting(records.rows),
+      todayReservations: calls.rows[0]?.calls ?? 0,
+    };
   }
   async read(before?: number) {
     await this.prune();
@@ -419,7 +446,12 @@ export class RoutingShadow {
   }
   private readonly pendingTurns = new Map<
     number,
-    { turnId: number; streamId: string; threadId: string | null }
+    {
+      turnId: number;
+      streamId: string;
+      threadId: string | null;
+      startedAt: number;
+    }
   >();
   pending(streamId: string) {
     return [...this.pendingTurns.values()].filter(
@@ -442,6 +474,7 @@ export class RoutingShadow {
   async route(
     input: ShadowInput
   ): Promise<ShadowInput["placement"] | undefined> {
+    const routeStarted = Date.now();
     const controller = new AbortController();
     this.controllers.set(input.turnRow.id, {
       agentId: input.agentId,
@@ -473,6 +506,15 @@ export class RoutingShadow {
       clearTimeout(timer);
       this.pendingTurns.delete(input.turnRow.id);
       this.controllers.delete(input.turnRow.id);
+      void this.store.pool
+        .query(
+          "UPDATE routing_shadow_records SET result = result || $2::jsonb WHERE turn_id = $1 AND result->>'mode' = 'active'",
+          [
+            input.turnRow.id,
+            JSON.stringify({ totalRoutingDelayMs: Date.now() - routeStarted }),
+          ]
+        )
+        .catch(() => {});
     }
   }
   private async run(
@@ -486,6 +528,7 @@ export class RoutingShadow {
       const conversation = input.prompt.conversation ?? input.placement;
       this.pendingTurns.set(input.turnRow.id, {
         turnId: input.turnRow.id,
+        startedAt: Date.now(),
         streamId: conversation.streamId,
         threadId: conversation.threadId,
       });
@@ -539,10 +582,19 @@ export class RoutingShadow {
       {
         ...result,
         mode: config.mode ?? "shadow",
-        applied: !!selected && !signal?.aborted,
+        candidate: !!selected && !signal?.aborted,
+        applied: false,
       }
     );
     return signal?.aborted ? undefined : selected;
+  }
+  frozen(turnId: number, placement: ShadowInput["placement"]) {
+    void this.store.pool
+      .query(
+        "UPDATE routing_shadow_records SET result = result || jsonb_build_object('actualPlacement', $2::jsonb, 'applied', placement <> $2::jsonb) WHERE turn_id = $1 AND result->>'mode' = 'active'",
+        [turnId, JSON.stringify(placement)]
+      )
+      .catch(() => {});
   }
   /** Explicit Settings button; synthetic data only, including when mode is off. */
   async checkConnection() {

@@ -1,4 +1,8 @@
 import {
+  estimateRoutingUsd,
+  summarizeRouting,
+} from "../src/chat/routing-metrics.js";
+import {
   afterAll,
   beforeAll,
   beforeEach,
@@ -450,6 +454,7 @@ describe("optional routing shadow", () => {
       threadId: messageId,
       replyTo: messageId,
     });
+    await idle(async () => (await records())[0]?.result.applied === true);
     expect((await finished())[0].result).toMatchObject({
       mode: "active",
       applied: true,
@@ -575,7 +580,8 @@ describe("optional routing shadow", () => {
       store,
       "secret",
       settings,
-      experiment
+      experiment,
+      async () => true
     );
     const saved = await app.inject({
       method: "PUT",
@@ -603,6 +609,94 @@ describe("optional routing shadow", () => {
       ).statusCode
     ).toBe(400);
     await app.close();
+  });
+  it("estimates cost without double-counting cache tokens and leaves missing usage unknown", () => {
+    const usage = {
+      input_tokens: 1000,
+      input_tokens_details: { cached_tokens: 200, cache_write_tokens: 100 },
+    };
+    expect(estimateRoutingUsd(usage)).toBeCloseTo(0.0000845, 10);
+    expect(estimateRoutingUsd({ input_tokens: 1000 })).toBeNull();
+    const parsed = parseShadowResponse({
+      ...answer,
+      usage: {
+        ...usage,
+        input_tokens_details: {
+          ...usage.input_tokens_details,
+          private: "drop",
+        },
+      },
+    });
+    expect(parsed.usage.input_tokens_details).toEqual(
+      usage.input_tokens_details
+    );
+    const summary = summarizeRouting([
+      { status: "ok", result: { latencyMs: 100, usage } },
+      { status: "timeout", result: { latencyMs: 3000 } },
+    ]);
+    expect(summary.provider).toEqual({
+      n: 2,
+      medianMs: 1550,
+      p95Ms: 3000,
+      maxMs: 3000,
+    });
+    expect(summary.estimatedUsd).toBeNull();
+    expect(summary.unknownCostCalls).toBe(1);
+    expect(summary.knownEstimatedUsd).toBeCloseTo(0.0000845, 10);
+  });
+  it("rejects anonymous settings and paid checks even in first-run mode", async () => {
+    const app = Fastify();
+    const settings = new RoutingSettings(pool, {});
+    await registerRoutingShadowRoutes(
+      app,
+      store,
+      "secret",
+      settings,
+      new RoutingShadow(enabled, store, transport)
+    );
+    for (const [method, url, payload] of [
+      ["GET", "/api/v1/experiments/routing/settings", undefined],
+      [
+        "PUT",
+        "/api/v1/experiments/routing/settings",
+        { apiKey: "never-saved-key" },
+      ],
+      ["POST", "/api/v1/experiments/routing/check", undefined],
+    ] as const) {
+      expect((await app.inject({ method, url, payload })).statusCode).toBe(403);
+    }
+    expect(transport).not.toHaveBeenCalled();
+    expect((await settings.status()).configured).toBe(false);
+    await app.close();
+  });
+  it("exposes scoped active pending state and clears it on cancellation", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    transport.mockImplementation(async () => {
+      await gate;
+      return ok();
+    });
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport
+    );
+    const task = experiment.route(await input("follow up", false));
+    await idle(async () => transport.mock.calls.length > 0);
+    expect(experiment.pending(A)[0]).toMatchObject({
+      streamId: A,
+      threadId: null,
+      startedAt: expect.any(Number),
+    });
+    expect(experiment.pending("other-stream")).toEqual([]);
+    experiment.cancel(A);
+    expect(await task).toBeUndefined();
+    expect(experiment.pending(A)).toEqual([]);
+    release();
+    await finished();
+    expect((await records())[0].result.applied).toBe(false);
   });
   it("rejects invalid probabilities and discards unknown provider fields", () => {
     expect(() =>

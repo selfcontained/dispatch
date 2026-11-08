@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -12,6 +19,24 @@ import {
 import { api } from "@/lib/api";
 
 type Mode = "off" | "shadow" | "active";
+type Metrics = {
+  todayReservations: number;
+  retainedReservations: number;
+  failures: number;
+  timeouts: number;
+  provider: {
+    n: number;
+    medianMs: number | null;
+    p95Ms: number | null;
+    maxMs: number | null;
+  };
+  activeRouting: { n: number; medianMs: number | null };
+  estimatedUsd: number | null;
+  knownEstimatedUsd: number | null;
+  pricedCalls: number;
+  unknownCostCalls: number;
+  rates: { date: string; source: string };
+};
 type Status = {
   mode: Mode;
   modeSource: string;
@@ -19,15 +44,28 @@ type Status = {
   keySource: string;
   storedKey: boolean;
   dailyCap: number;
+  metrics?: Metrics;
 };
 const endpoint = "/api/v1/experiments/routing";
 const queryKey = ["routing-experiment-settings"];
+const ms = (value: number | null) =>
+  value === null ? "Unknown" : `${Math.round(value)} ms`;
 export function RoutingSettings(): JSX.Element {
   const [key, setKey] = useState("");
   const client = useQueryClient();
   const settings = useQuery({
     queryKey,
     queryFn: () => api<Status>(`${endpoint}/settings`),
+  });
+  const check = useMutation({
+    mutationFn: () =>
+      api<{ status: string; result?: { latencyMs?: number } }>(
+        `${endpoint}/check`,
+        { method: "POST" }
+      ),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey });
+    },
   });
   const save = useMutation({
     mutationFn: (body: { mode?: Mode; apiKey?: string; removeKey?: boolean }) =>
@@ -39,63 +77,125 @@ export function RoutingSettings(): JSX.Element {
       client.setQueryData(queryKey, data);
       setKey("");
       check.reset();
+      void client.invalidateQueries({ queryKey });
     },
   });
-  const check = useMutation({
-    mutationFn: () =>
-      api<{ status: string; result?: { latencyMs?: number } }>(
-        `${endpoint}/check`,
-        { method: "POST" }
-      ),
-  });
   const data = settings.data;
+  const metrics = data?.metrics;
   return (
     <section
-      className="max-w-2xl space-y-5 p-4 md:p-6"
+      className="max-w-xl space-y-4 p-4 md:p-6"
       aria-labelledby="routing-settings-heading"
     >
-      <div>
-        <h2 id="routing-settings-heading" className="text-lg font-semibold">
-          AI thread routing
+      <div className="flex items-center gap-2">
+        <h2 id="routing-settings-heading" className="text-sm font-semibold">
+          AI routing
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Optional OpenAI Decisions experiment. Off sends nothing. Shadow
-          records suggestions. Active can place a new turn under its initiating
-          user post before output starts. Existing discussions and explicit
-          routing stay authoritative.
-        </p>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        When enabled, bounded excerpts of incoming user text, its discussion
-        anchor, and nearby user and assistant replies are sent to OpenAI.
-        Attachments, files, and tool output are excluded. Diagnostics retain
-        identifiers and suggestions, without copied conversation text.
-      </p>
-      {settings.isPending && <p role="status">Loading routing settings…</p>}
-      {settings.error && (
-        <p role="alert">
-          Unable to load routing settings.{" "}
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => void settings.refetch()}
+        {data?.configured && (
+          <Badge title={`Key: ${data.keySource}`}>Configured</Badge>
+        )}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="About AI routing"
+              className="h-7 w-7"
+            >
+              <Info className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="max-w-[calc(100vw-2rem)] space-y-2 text-xs"
+            align="start"
           >
-            Try again
-          </Button>
+            <p>
+              Off sends nothing. Shadow records suggestions. Active chooses the
+              reply location before first output; explicit routing stays
+              authoritative.
+            </p>
+            <p>
+              Bounded user and assistant excerpts go to OpenAI. No files,
+              attachments, or tool output. Diagnostics contain no copied
+              conversation text.
+            </p>
+            <p>
+              Saved keys remain in server Postgres, without application-level
+              encryption. Protect DB access and backups. Environment keys and
+              mode override Settings. Removing a saved key leaves an environment
+              key in effect.
+            </p>
+            <p>
+              Test connection sends one synthetic request, even while Off; it
+              never enables routing. Daily request caps are not dollar limits.
+            </p>
+            <p>
+              Timing samples cover retained records (up to 14 days). Provider
+              timing excludes local work; total active delay includes it. Cost
+              is a standard nonregional estimate, not billing. Missing
+              token/cache data is unknown.{" "}
+              {metrics && (
+                <>
+                  Known subtotal:{" "}
+                  {metrics.knownEstimatedUsd === null
+                    ? "Unknown"
+                    : `USD ${metrics.knownEstimatedUsd.toFixed(8)}`}{" "}
+                  across {metrics.pricedCalls} priced calls;{" "}
+                  {metrics.unknownCostCalls} unknown.{" "}
+                  <a
+                    className="underline"
+                    href={metrics.rates.source}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Rates: {metrics.rates.date}
+                  </a>
+                  .
+                </>
+              )}
+            </p>
+          </PopoverContent>
+        </Popover>
+      </div>
+      {settings.isPending && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Loading…
         </p>
+      )}
+      {settings.error && (
+        <div role="alert" className="text-xs">
+          Sign in to configure.{" "}
+          <a className="underline" href="/settings/security">
+            Security
+          </a>{" "}
+          <Button size="sm" onClick={() => void settings.refetch()}>
+            Retry
+          </Button>
+        </div>
       )}
       {data && (
         <>
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="routing-mode">
-              Routing mode
+          <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-3">
+            <label
+              htmlFor="routing-mode"
+              className="text-xs text-muted-foreground"
+            >
+              Mode
             </label>
             <Select
               value={data.mode}
               disabled={save.isPending || data.modeSource === "environment"}
               onValueChange={(mode) => save.mutate({ mode: mode as Mode })}
             >
-              <SelectTrigger id="routing-mode" className="w-full sm:w-56">
+              <SelectTrigger
+                id="routing-mode"
+                className="w-full sm:w-44"
+                title={
+                  data.modeSource === "environment"
+                    ? "Set by server environment"
+                    : "Applies to new turns"
+                }
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -104,21 +204,14 @@ export function RoutingSettings(): JSX.Element {
                 <SelectItem value="active">Active</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              {data.modeSource === "environment"
-                ? "Mode is overridden by the server environment."
-                : "Changes apply to new turns. Existing output stays in its frozen location."}
-            </p>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="routing-api-key">
-              Dedicated OpenAI API key
+          <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-3">
+            <label
+              htmlFor="routing-api-key"
+              className="text-xs text-muted-foreground"
+            >
+              API key
             </label>
-            <p role="status" className="text-sm">
-              {data.configured
-                ? `Configured via ${data.keySource === "environment" ? "server environment" : "Settings"}.`
-                : "No API key configured. No requests will be sent."}
-            </p>
             <Input
               id="routing-api-key"
               type="password"
@@ -127,67 +220,92 @@ export function RoutingSettings(): JSX.Element {
               value={key}
               maxLength={2048}
               onChange={(event) => setKey(event.target.value)}
-              placeholder="Enter a dedicated API key"
+              placeholder={data.configured ? "Replace key" : "Enter key"}
             />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="primary"
-                disabled={save.isPending || key.trim().length < 10}
-                onClick={() => save.mutate({ apiKey: key.trim() })}
-              >
-                {data.storedKey ? "Replace saved key" : "Save key"}
-              </Button>
-              <Button
-                variant="default"
-                disabled={save.isPending || !data.storedKey}
-                onClick={() => save.mutate({ removeKey: true })}
-              >
-                Remove saved key
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Saved only in this server’s local Postgres settings, without
-              application-level encryption. Protect database access and backups.
-              The secret is never returned here. A server environment key takes
-              precedence; removing a saved key does not remove that override.
-            </p>
           </div>
-          <div className="space-y-2 border-t border-border pt-4">
+          <div className="flex flex-wrap gap-2">
             <Button
-              variant="default"
+              size="sm"
+              variant="primary"
+              disabled={save.isPending || key.trim().length < 10}
+              onClick={() => save.mutate({ apiKey: key.trim() })}
+            >
+              Save
+            </Button>
+            <Button
+              size="sm"
+              disabled={save.isPending || !data.storedKey}
+              onClick={() => save.mutate({ removeKey: true })}
+            >
+              Remove
+            </Button>
+            <Button
+              size="sm"
               disabled={!data.configured || check.isPending || save.isPending}
               onClick={() => check.mutate()}
             >
-              {check.isPending ? "Checking connection…" : "Check connection"}
+              {check.isPending ? "Testing…" : "Test connection"}
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Sends one fixed synthetic conversation, including while Off. Never
-              sends your messages or enables routing. Counts toward the shared
-              daily request cap of {data.dailyCap}; this cap is not a guaranteed
-              dollar limit.
-            </p>
-            {check.data && (
-              <p role="status" className="text-sm">
-                {check.data.status === "ok"
-                  ? `Connection succeeded${check.data.result?.latencyMs !== undefined ? ` (${check.data.result.latencyMs} ms)` : ""}.`
-                  : `Connection check: ${check.data.status.replaceAll("_", " ")}.`}
-              </p>
-            )}
-            {check.error && (
-              <p role="alert" className="text-sm">
-                Connection check unavailable. Try again explicitly when ready.
-              </p>
-            )}
           </div>
-          {save.isSuccess && (
-            <p role="status" className="text-sm">
-              Routing settings saved.
+          {check.data && (
+            <p role="status" className="text-xs">
+              {check.data.status === "ok"
+                ? `Connected${check.data.result?.latencyMs !== undefined ? ` · ${check.data.result.latencyMs} ms` : ""}`
+                : `Test: ${check.data.status.replaceAll("_", " ")}`}
             </p>
           )}
-          {save.error && (
-            <p role="alert" className="text-sm">
-              Unable to save routing settings. Please try again.
+          {(check.error || save.error) && (
+            <p role="alert" className="text-xs text-destructive">
+              {save.error ? "Save failed" : "Test unavailable"}
             </p>
+          )}
+          {save.isSuccess && (
+            <p role="status" className="text-xs text-muted-foreground">
+              Saved
+            </p>
+          )}
+          {metrics && (
+            <dl
+              className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border pt-3 text-xs"
+              aria-label="Routing usage summary"
+            >
+              <dt className="text-muted-foreground">Daily calls</dt>
+              <dd>
+                {metrics.todayReservations} / {data.dailyCap}
+              </dd>
+              <dt className="text-muted-foreground">
+                Provider median / p95 / max
+              </dt>
+              <dd>
+                {[
+                  metrics.provider.medianMs,
+                  metrics.provider.p95Ms,
+                  metrics.provider.maxMs,
+                ]
+                  .map(ms)
+                  .join(" / ")}{" "}
+                · n={metrics.provider.n}
+              </dd>
+              <dt className="text-muted-foreground">Active delay · median</dt>
+              <dd>
+                {ms(metrics.activeRouting.medianMs)} · n=
+                {metrics.activeRouting.n}
+              </dd>
+              <dt className="text-muted-foreground">Est. cost</dt>
+              <dd>
+                {metrics.estimatedUsd === null
+                  ? "Unknown"
+                  : `USD ${metrics.estimatedUsd.toFixed(8)}`}
+              </dd>
+              {metrics.failures > 0 && (
+                <>
+                  <dt className="text-muted-foreground">Failures / timeouts</dt>
+                  <dd>
+                    {metrics.failures} / {metrics.timeouts}
+                  </dd>
+                </>
+              )}
+            </dl>
           )}
         </>
       )}

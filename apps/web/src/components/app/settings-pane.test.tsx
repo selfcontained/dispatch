@@ -270,7 +270,12 @@ describe("SettingsContent", () => {
     ],
     [
       "agents",
-      ["AgentTypeSettings", "EngineSignInSettings", "PersonalitySettings"],
+      [
+        "AgentTypeSettings",
+        "EngineSignInSettings",
+        "RoutingSettings",
+        "PersonalitySettings",
+      ],
     ],
     ["workspace", ["IdeSettings", "WorktreeLocationSettings"]],
     ["security", ["SecuritySettings"]],

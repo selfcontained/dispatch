@@ -3,7 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 
-type Pending = { turnId: number; streamId: string; threadId: string | null };
+type Pending = {
+  turnId: number;
+  streamId: string;
+  threadId: string | null;
+  startedAt: number;
+};
 /** Server lifecycle state, scoped to this conversation; no optimistic or shadow spinner. */
 export function RoutingIndicator({
   streamId,
@@ -21,7 +26,9 @@ export function RoutingIndicator({
         "/api/v1/experiments/routing/settings"
       ),
     staleTime: 5000,
-    refetchInterval: active ? 5000 : false,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.error ? false : active ? 5000 : false,
   });
   const pending = useQuery({
     queryKey: ["routing-pending", streamId],
@@ -38,19 +45,24 @@ export function RoutingIndicator({
       query.state.data?.pending?.length ? 150 : 1000,
     staleTime: 0,
   });
-  const turn =
+  const item =
     active && settings.data?.mode === "active"
       ? pending.data?.pending?.find(
           (p) => p.streamId === streamId && p.threadId === threadId
-        )?.turnId
+        )
       : undefined;
+  const turn = item?.turnId;
+  const startedAt = item?.startedAt;
   const [visible, setVisible] = useState<number>();
   useEffect(() => {
     setVisible(undefined);
     if (turn === undefined) return;
-    const timer = setTimeout(() => setVisible(turn), 300);
+    const timer = setTimeout(
+      () => setVisible(turn),
+      Math.max(0, 300 - (Date.now() - (startedAt ?? Date.now())))
+    );
     return () => clearTimeout(timer);
-  }, [turn]);
+  }, [turn, startedAt]);
   return (
     <div
       className="pointer-events-none absolute bottom-2 left-5 z-10 h-5 w-5"

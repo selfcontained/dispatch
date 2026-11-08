@@ -1,3 +1,7 @@
+import {
+  estimateRoutingUsd,
+  summarizeRouting,
+} from "../apps/server/src/chat/routing-metrics.js";
 /** Opt-in synthetic Decisions evaluation. No database, production messages, retries, or secret output. */
 import "dotenv/config";
 import {
@@ -122,6 +126,7 @@ if (
       correct: response.status === "ok" && result.choice === fixture.expected,
       latencyMs: result.latencyMs,
       usage: result.usage,
+      estimatedUsd: estimateRoutingUsd(result.usage),
     });
   }
   process.stdout.write(
@@ -132,6 +137,9 @@ if (
         requests: results.length,
         accuracy: results.filter((r) => r.correct).length / results.length,
         failures: results.filter((r) => r.status !== "ok").length,
+        metrics: summarizeRouting(
+          results.map((r) => ({ status: r.status, result: r }))
+        ),
         results,
       },
       null,

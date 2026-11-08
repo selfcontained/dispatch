@@ -1,7 +1,7 @@
 import { RoutingSettings } from "../chat/routing-settings.js";
 import type { RoutingShadow } from "../chat/routing-shadow.js";
 import * as z from "zod/v4";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { timingSafeEqual } from "node:crypto";
 import type { RoutingShadowStore } from "../chat/routing-shadow.js";
 
@@ -11,23 +11,44 @@ export async function registerRoutingShadowRoutes(
   store: RoutingShadowStore,
   authToken: string,
   settings?: RoutingSettings,
-  experiment?: RoutingShadow
+  experiment?: RoutingShadow,
+  authorize?: (request: FastifyRequest) => Promise<boolean>
 ) {
   if (settings && experiment) {
-    app.get("/api/v1/experiments/routing/pending", async (request, reply) => {
-      const { streamId } = request.query as { streamId?: string };
-      reply.header("Cache-Control", "no-store");
-      if (typeof streamId !== "string" || streamId.length > 200)
-        return reply.code(400).send({ error: "streamId is required." });
-      return { pending: experiment.pending(streamId) };
-    });
-    app.get("/api/v1/experiments/routing/settings", async (_request, reply) => {
-      reply.header("Cache-Control", "no-store");
-      return settings.status();
-    });
+    const privateRoute = {
+      preHandler: async (
+        request: FastifyRequest,
+        reply: import("fastify").FastifyReply
+      ) => {
+        if (!authorize || !(await authorize(request)))
+          return reply.code(403).send({
+            error:
+              "Set a password and sign in, or use the server bearer token, to manage AI routing.",
+          });
+      },
+    };
+    app.get(
+      "/api/v1/experiments/routing/pending",
+      privateRoute,
+      async (request, reply) => {
+        const { streamId } = request.query as { streamId?: string };
+        reply.header("Cache-Control", "no-store");
+        if (typeof streamId !== "string" || streamId.length > 200)
+          return reply.code(400).send({ error: "streamId is required." });
+        return { pending: experiment.pending(streamId) };
+      }
+    );
+    app.get(
+      "/api/v1/experiments/routing/settings",
+      privateRoute,
+      async (_request, reply) => {
+        reply.header("Cache-Control", "no-store");
+        return { ...(await settings.status()), metrics: await store.summary() };
+      }
+    );
     app.put(
       "/api/v1/experiments/routing/settings",
-      { bodyLimit: 8192 },
+      { ...privateRoute, bodyLimit: 8192 },
       async (request, reply) => {
         const parsed = z
           .object({
@@ -51,14 +72,18 @@ export async function registerRoutingShadowRoutes(
         return settings.save(parsed.data);
       }
     );
-    app.post("/api/v1/experiments/routing/check", async (_request, reply) => {
-      reply.header("Cache-Control", "no-store");
-      try {
-        return await experiment.checkConnection();
-      } catch {
-        return { status: "error" };
+    app.post(
+      "/api/v1/experiments/routing/check",
+      privateRoute,
+      async (_request, reply) => {
+        reply.header("Cache-Control", "no-store");
+        try {
+          return await experiment.checkConnection();
+        } catch {
+          return { status: "error" };
+        }
       }
-    });
+    );
   }
   app.get("/api/v1/experiments/routing-shadow", async (request, reply) => {
     const header = request.headers.authorization;
@@ -82,8 +107,7 @@ export async function registerRoutingShadowRoutes(
       (format !== undefined && format !== "jsonl")
     )
       return reply.code(400).send({
-        error:
-          "Use a positive integer before cursor and optional format=jsonl.",
+        error: "Use a nonzero integer before cursor and optional format=jsonl.",
       });
     const records = await store.read(before ? Number(before) : undefined);
     reply.header("Cache-Control", "no-store");

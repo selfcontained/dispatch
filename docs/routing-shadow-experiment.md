@@ -4,9 +4,9 @@ The experiment has three modes: **Off** (default, no automatic requests), **Shad
 
 ## Product Settings and credentials
 
-Open **Settings → Agents → AI thread routing**. Save, replace, or remove a dedicated OpenAI project key; select Off, Shadow, or Active. A key alone does not enable routing. No credential is returned to the browser after saving. The password field clears on success. Configured status indicates whether the effective credential comes from Settings or the environment.
+Open **Settings → Agents → AI thread routing**. Save, replace, or remove a dedicated OpenAI project key; select Off, Shadow, or Active. A key alone does not enable routing. No credential is returned to the browser after saving. The password field clears on success. The compact panel keeps mode, key, test, and metrics controls visible; storage and data-sharing details live in its info popover. Configured status indicates whether the effective credential comes from Settings or the environment.
 
-Following existing integration-settings conventions, the saved credential is a server-side Postgres `settings` value, **without application-level encryption**. Protect DB access, disks, and backups. It is not placed in browser storage, conversation prompts, diagnostic exports, or logs. Requests use the existing API authentication and origin/portfolio boundaries (including the app's existing passwordless first-run behavior). Set a password and use HTTPS on shared networks. Removing a saved key leaves any environment credential in effect.
+Following existing integration-settings conventions, the saved credential is a server-side Postgres `settings` value, **without application-level encryption**. Protect DB access, disks, and backups. It is not placed in browser storage, conversation prompts, diagnostic exports, or logs. Settings, pending-state inspection, and connection checks require a password-backed authenticated session or the server bearer token, including during first-run mode. Anonymous first-run requests cannot save/replace credentials or trigger paid checks. Existing API origin/portfolio boundaries also apply. Set a password and use HTTPS on shared networks. Removing a saved key leaves any environment credential in effect.
 
 Server environment alternatives:
 
@@ -16,7 +16,7 @@ DISPATCH_DECISIONS_API_KEY=<dedicated project key>
 DISPATCH_ROUTING_SHADOW_DAILY_CAP=25
 ```
 
-Explicit environment mode overrides the product selector; the UI displays the override and disables that selector. A nonempty environment key overrides the saved key. Without environment overrides, persisted Settings apply immediately to new turns and survive restarts. The legacy `DISPATCH_ROUTING_SHADOW_ENABLED=1` flag remains a shadow-mode alias only when `DISPATCH_ROUTING_MODE` is absent. Invalid modes fail closed to Off. The earlier experimental credential name is not used.
+Explicit environment mode overrides the product selector; the UI displays the override and disables that selector. A nonempty environment key overrides the saved key. Without environment overrides, persisted Settings apply immediately to new turns and survive restarts. The normal single-API-server deployment owns the in-memory settings cache. If intentionally running multiple API processes against one DB, restart the other processes after changes; shared call reservations still enforce the fleet cap. The legacy `DISPATCH_ROUTING_SHADOW_ENABLED=1` flag remains a shadow-mode alias only when `DISPATCH_ROUTING_MODE` is absent. Invalid modes fail closed to Off. The earlier experimental credential name is not used.
 
 The daily cap defaults to 25; integer values 0–100 are allowed. Invalid caps fail closed at zero. UTC daily reservations persist in Postgres across restarts and include failures/timeouts. No retry or redirect occurs. A request cap is **not a guaranteed dollar cap**; use a dedicated OpenAI project and appropriate provider budgets.
 
@@ -38,7 +38,7 @@ There are at most two pending provider reservations across server instances, wit
 
 **Check connection** explicitly sends one fixed synthetic conversation, including while Off. It never sends production messages, changes mode, or enables automatic routing. It shares the persistent daily budget and concurrency cap and returns only sanitized status, choice, timing, and numeric usage. Synthetic diagnostic IDs are negative; real turn IDs are positive.
 
-During an actual eligible Active decision, the affected conversation polls narrowly scoped pending state. A small accessible sparkle appears after about 300 ms of observed pending state, without visible text or layout shift; fast calls remain invisible. Reduced motion uses a static icon. Completion, fallback, error, timeout, cancellation, unmount, or reconnect clears/reconciles the state. Shadow mode never displays it. No artificial minimum delay is added.
+During an actual eligible Active decision, the affected conversation polls narrowly scoped pending state. A small accessible sparkle appears after approximately 300 ms of server pending time (subject to polling discovery latency), without visible text or layout shift; fast calls remain invisible. Reduced motion uses a static icon. Completion, fallback, error, timeout, cancellation, unmount, or reconnect clears/reconciles the state. Shadow mode never displays it. No artificial minimum delay is added.
 
 A standalone harness uses eight fixed synthetic conversations with expected labels, measures accuracy/latency/usage/failures, and makes no request without both the credential and explicit `--live`:
 
@@ -46,7 +46,7 @@ A standalone harness uses eight fixed synthetic conversations with expected labe
 bun scripts/evaluate-routing.ts --live --limit 8
 ```
 
-`--limit` must be 1–8. Calls are sequential and never retried; output contains no secret/raw provider bodies. This harness is independent of the app DB/request counter, so its caller must honor the separately authorized evaluation budget. Parent owns live execution. The initial authorization covers at most twelve total requests; the parent's connectivity smoke consumed one, leaving eleven before final evaluation. Do not run the same paid batch in both worktrees. Synthetic accuracy is a fixture result, not an estimate of production routing quality.
+`--limit` must be 1–8. Calls are sequential and never retried; output contains no secret/raw provider bodies. This harness is independent of the app DB/request counter, so its caller must honor the separately authorized evaluation budget. Parent owns live execution. The initial authorization covers at most twelve total requests; the parent consumed all twelve in the smoke, eight fixtures, and three integrated live-agent decisions. No further paid run is authorized by that initial budget. Do not run the same paid batch in both worktrees. Synthetic accuracy is a fixture result, not an estimate of production routing quality.
 
 ## Inspect diagnostics
 
@@ -69,4 +69,10 @@ Retention is fourteen days and approximately 2,000 newest records, with transien
 
 Backend tests mock provider transport and use isolated Postgres, including active/root placement, unchanged explicit discussions, uncertainty/deadline/late responses, shadow behavior, secret masking/persistence/precedence, caps/dedupe/retention, and synthetic checks. UI validation uses served desktop/mobile Settings with synthetic intercepted check/pending responses; no paid calls are needed for that validation. Live results are reported separately by the parent.
 
-Official schema verified 2026-11-07: [Decisions guide](https://developers.openai.com/api/docs/guides/decisions). The request has `model`, `input`, and `questions`; a choice answer returns `choice`, a `probabilities` array of `{value, probability}`, and confidence. Parent's separately authorized one-request smoke confirmed HTTP 200 and schema compatibility; that is connectivity evidence, not integrated app validation.
+Official schema verified 2026-11-07: [Decisions guide](https://developers.openai.com/api/docs/guides/decisions). The request has `model`, `input`, and `questions`; a choice answer returns `choice`, a `probabilities` array of `{value, probability}`, and confidence. The parent separately reported a successful schema smoke, eight of eight expected synthetic labels, and real-agent placement checks (root continuation to discussion, unrelated new work at home, explicit thread preserved). Parent owns those evidence artifacts; local builder UI checks use mocked responses.
+
+## Timing and estimated cost
+
+Settings summarizes retained reservations and today’s UTC cap usage, provider median/p95/max with sample size, total active delay median with its separate sample size, failures/timeouts, and estimated USD cost. The harness includes per-call usage/latency/cost and the same duration summary. Provider latency is HTTP/body/parse time; total active delay additionally includes local evidence, reservation, and diagnostic work before freezing. Samples are descriptive, not benchmarks.
+
+Standard nonregional Decisions rates verified 2026-11-08: uncached input USD0.10 per million, cached reads USD0.01 per million, default 30-minute cache writes USD0.125 per million, output uncharged. See the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions) and [standard pricing](https://developers.openai.com/api/docs/pricing). This integration does not request a 12-hour cache policy. Cached/read and write tokens are included in input tokens: the estimate subtracts them before applying uncached rates, avoiding double count. The whitelist retains only numeric `input_tokens_details.cached_tokens` and `cache_write_tokens`. Missing usage/cache breakdown is **unknown**, never zero; aggregate cost is unknown if any retained attempt lacks a complete estimate, while the info popover separately shows a known subtotal and coverage. Estimates are not bills and exclude regional/long-context premiums, taxes, and negotiated pricing.

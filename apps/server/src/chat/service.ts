@@ -226,6 +226,10 @@ export type StreamAgent = Pick<
 export type StreamServiceDeps = {
   routingShadow?: {
     cancel?(agentId: string): void;
+    frozen?(
+      turnId: number,
+      placement: import("./routing-shadow.js").ShadowInput["placement"]
+    ): void;
     observe(input: import("./routing-shadow.js").ShadowInput): void;
     route?(
       input: import("./routing-shadow.js").ShadowInput
@@ -3838,6 +3842,15 @@ export class StreamService {
       threadId,
       replyTo,
     });
+    try {
+      this.deps.routingShadow?.frozen?.(input.turnRow.id, {
+        streamId,
+        threadId,
+        replyTo,
+      });
+    } catch {
+      /* Optional diagnostic write cannot prevent output. */
+    }
     // Observation receives frozen placement and cannot affect this return value.
     try {
       if (!this.deps.routingShadow?.route)
