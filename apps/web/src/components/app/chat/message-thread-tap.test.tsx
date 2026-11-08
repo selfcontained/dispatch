@@ -6,8 +6,10 @@ beforeAll(() => {
   class Pointer extends MouseEvent {
     pointerId: number;
     isPrimary: boolean;
+    pointerType: string;
     constructor(type: string, init: PointerEventInit = {}) {
       super(type, init);
+      this.pointerType = init.pointerType ?? "mouse";
       this.pointerId = init.pointerId ?? 1;
       this.isPrimary = init.isPrimary ?? true;
     }
@@ -16,6 +18,7 @@ beforeAll(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   window.getSelection()?.removeAllRanges();
 });
@@ -86,3 +89,37 @@ it("accepts touch pointer-leave after release", () => {
   fireEvent.click(target);
   expect(open).toHaveBeenCalledTimes(1);
 });
+
+it.each(["hold", "move", "cancel", "scroll", "multi", "drag", "release"])(
+  "touch long press: %s",
+  (kind) => {
+    vi.useFakeTimers();
+    const long = vi.fn();
+    const open = vi.fn();
+    render(
+      <MessageThreadTap onOpen={open} onLongPress={long}>
+        <p>Hold here</p>
+      </MessageThreadTap>
+    );
+    const target = screen.getByText("Hold here");
+    fireEvent.pointerDown(target, {
+      pointerType: "touch",
+      clientX: 20,
+      clientY: 20,
+    });
+    if (kind === "move")
+      fireEvent.pointerMove(target, { clientX: 40, clientY: 20 });
+    if (kind === "cancel") fireEvent.pointerCancel(target);
+    if (kind === "scroll") fireEvent.scroll(document);
+    if (kind === "multi") fireEvent.touchStart(target, { touches: [{}, {}] });
+    if (kind === "drag") fireEvent.dragStart(target);
+    if (kind === "release") release(target);
+    vi.advanceTimersByTime(500);
+    expect(long).toHaveBeenCalledTimes(kind === "hold" ? 1 : 0);
+    if (kind === "hold") {
+      release(target);
+      expect(open).not.toHaveBeenCalled();
+      expect(long).toHaveBeenCalledWith({ x: 20, y: 20 });
+    }
+  }
+);

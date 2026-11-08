@@ -13,6 +13,7 @@ import { AlertTriangle, SmilePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -58,6 +59,8 @@ export function ReactionPickerButton({
   reactions,
   onToggle,
   disabled = false,
+  touchPoint,
+  onTouchClose,
 }: {
   reactions: readonly BlockReaction[];
   onToggle: (emoji: string, remove: boolean) => void;
@@ -67,8 +70,12 @@ export function ReactionPickerButton({
    * the history at once — the same way question options disable.
    */
   disabled?: boolean;
+  touchPoint?: { x: number; y: number } | null;
+  onTouchClose?: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const touchOpened = useRef(false);
+  if (touchPoint) touchOpened.current = true;
   if (disabled) {
     // A disabled button takes no pointer events, so the tooltip hangs on a
     // wrapper.
@@ -100,7 +107,24 @@ export function ReactionPickerButton({
       .map((reaction) => reaction.emoji)
   );
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open || !!touchPoint}
+      onOpenChange={(next) => {
+        if (next && !touchPoint) touchOpened.current = false;
+        setOpen(next);
+        if (!next) onTouchClose?.();
+      }}
+    >
+      {touchPoint ? (
+        <PopoverAnchor
+          virtualRef={{
+            current: {
+              getBoundingClientRect: () =>
+                new DOMRect(touchPoint.x, touchPoint.y, 0, 0),
+            },
+          }}
+        />
+      ) : null}
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -118,7 +142,14 @@ export function ReactionPickerButton({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align="end"
+        align={touchPoint ? "center" : "end"}
+        collisionPadding={8}
+        onOpenAutoFocus={(event) => {
+          if (touchOpened.current) event.preventDefault();
+        }}
+        onCloseAutoFocus={(event) => {
+          if (touchOpened.current) event.preventDefault();
+        }}
         // The shared popover's enter/exit classes need a plugin this app does
         // not load, so the picker brings its own; Radix waits for the exit
         // animation before it unmounts.
@@ -154,6 +185,7 @@ export function ReactionPickerButton({
                 style={{ animationDelay: `${40 + index * 14}ms` }}
                 onClick={() => {
                   setOpen(false);
+                  onTouchClose?.();
                   onToggle(emoji, selected);
                 }}
               >

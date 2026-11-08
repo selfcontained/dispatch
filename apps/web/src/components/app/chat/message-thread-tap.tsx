@@ -9,9 +9,11 @@ const HOLD_MS = 500;
 export function MessageThreadTap({
   onOpen,
   children,
+  onLongPress,
 }: {
   onOpen?: () => void;
   children: ReactNode;
+  onLongPress?: (point: { x: number; y: number }) => void;
 }) {
   const gesture = useRef<{
     id: number;
@@ -21,8 +23,12 @@ export function MessageThreadTap({
     valid: boolean;
     released: boolean;
   } | null>(null);
+  const handled = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const clearTimer = () => clearTimeout(timer.current);
   useEffect(() => {
     const cancel = () => {
+      clearTimer();
       if (gesture.current) gesture.current.valid = false;
     };
     const pointer = (event: PointerEvent) => {
@@ -30,7 +36,10 @@ export function MessageThreadTap({
     };
     document.addEventListener("pointerdown", pointer, true);
     document.addEventListener("scroll", cancel, true);
+    document.addEventListener("selectionchange", cancel);
     return () => {
+      clearTimer();
+      document.removeEventListener("selectionchange", cancel);
       document.removeEventListener("pointerdown", pointer, true);
       document.removeEventListener("scroll", cancel, true);
     };
@@ -43,7 +52,9 @@ export function MessageThreadTap({
       className={onOpen ? "-mx-2 min-h-11 px-2 py-2" : undefined}
       data-message-thread-tap={onOpen ? "true" : undefined}
       onPointerDown={(event) => {
-        if (!onOpen) return;
+        handled.current = false;
+        clearTimer();
+        if (!onOpen && !onLongPress) return;
         if (!event.isPrimary || event.button !== 0) {
           if (gesture.current) gesture.current.valid = false;
           return;
@@ -56,6 +67,16 @@ export function MessageThreadTap({
           valid: !interactive(event.target) && !selection(),
           released: false,
         };
+        const tap = gesture.current;
+        if (tap.valid && event.pointerType === "touch" && onLongPress) {
+          timer.current = setTimeout(() => {
+            if (tap.valid && !tap.released && !selection()) {
+              tap.valid = false;
+              handled.current = true;
+              onLongPress({ x: tap.x, y: tap.y });
+            }
+          }, HOLD_MS);
+        }
       }}
       onTouchStart={(event) => {
         if (event.touches.length > 1 && gesture.current)
@@ -71,6 +92,7 @@ export function MessageThreadTap({
           tap.valid = false;
       }}
       onPointerUp={(event) => {
+        clearTimer();
         const tap = gesture.current;
         if (!tap || tap.id !== event.pointerId) return;
         tap.released = true;
@@ -79,6 +101,7 @@ export function MessageThreadTap({
           Math.hypot(event.clientX - tap.x, event.clientY - tap.y) <= TAP_SLOP;
       }}
       onPointerCancel={() => {
+        clearTimer();
         gesture.current = null;
       }}
       onPointerLeave={() => {
@@ -86,13 +109,23 @@ export function MessageThreadTap({
           gesture.current.valid = false;
       }}
       onDragStart={() => {
+        clearTimer();
         gesture.current = null;
       }}
-      onContextMenu={() => {
-        gesture.current = null;
+      onContextMenu={(event) => {
+        if (handled.current) event.preventDefault();
+        else {
+          clearTimer();
+          gesture.current = null;
+        }
       }}
       onClick={(event) => {
         const tap = gesture.current;
+        clearTimer();
+        if (handled.current) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
         gesture.current = null;
         if (
           tap?.valid &&

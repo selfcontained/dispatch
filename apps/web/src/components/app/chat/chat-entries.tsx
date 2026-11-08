@@ -14,7 +14,7 @@ import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import {
   type Block,
   type BlockAuthor,
@@ -1621,6 +1621,10 @@ export const BlockView = memo(function BlockView({
   highlightFindingId = null,
   folded,
 }: BlockViewProps): JSX.Element {
+  const [reactionPoint, setReactionPoint] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const author = blockAuthor(block, ctx);
   // Inside the panel the thread itself says who is talking to whom; the
   // side indent would only push the replies off the left edge.
@@ -1889,6 +1893,8 @@ export const BlockView = memo(function BlockView({
       {toggleReaction ? (
         <ReactionPickerButton
           reactions={reactions}
+          touchPoint={reactionPoint}
+          onTouchClose={() => setReactionPoint(null)}
           onToggle={toggleReaction}
           disabled={answersDisabled}
         />
@@ -1943,7 +1949,12 @@ export const BlockView = memo(function BlockView({
         {block.sharedMessage ? (
           <SharedMessageEntry share={block.sharedMessage} />
         ) : block.turn ? (
-          <MessageThreadTap onOpen={openTextThread}>
+          <MessageThreadTap
+            onOpen={openTextThread}
+            onLongPress={
+              toggleReaction && !answersDisabled ? setReactionPoint : undefined
+            }
+          >
             <TurnAnswer
               block={block}
               turn={block.turn}
@@ -1981,7 +1992,12 @@ export const BlockView = memo(function BlockView({
             }
           />
         ) : block.text ? (
-          <MessageThreadTap onOpen={openTextThread}>
+          <MessageThreadTap
+            onOpen={openTextThread}
+            onLongPress={
+              toggleReaction && !answersDisabled ? setReactionPoint : undefined
+            }
+          >
             <Markdown
               renderText={(text) => (
                 <MentionText
