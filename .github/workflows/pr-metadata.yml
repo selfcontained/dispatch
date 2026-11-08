@@ -41,7 +41,39 @@ jobs:
               }
               return { title: pr.title ?? '', body: pr.body ?? '' };
             };
+            // History survives title edits, pushes, reopenings and manual retries.
+            // Filter server-side, but follow cursors rather than assuming one page.
+            const requireOriginalTarget = async () => {
+              let cursor = null;
+              const seen = new Set();
+              while (true) {
+                const data = await github.graphql(`query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {
+                  repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
+                    timelineItems(first:100,after:$cursor,itemTypes:[BASE_REF_CHANGED_EVENT,AUTOMATIC_BASE_CHANGE_SUCCEEDED_EVENT]) {
+                      nodes { __typename }
+                      pageInfo { hasNextPage endCursor }
+                    }
+                  } }
+                }`, { ...context.repo, number, cursor });
+                const page = data.repository.pullRequest.timelineItems;
+                if (!Array.isArray(page.nodes) || !page.pageInfo ||
+                    typeof page.pageInfo.hasNextPage !== 'boolean') {
+                  throw new Error('PR retarget history unavailable; retry metadata validation');
+                }
+                if (page.nodes.length) {
+                  throw new Error('This PR has changed its base branch. Open a replacement PR against the desired base so fresh code CI validates that target. Reopening, pushing or editing this PR cannot clear its retarget history.');
+                }
+                if (!page.pageInfo.hasNextPage) return;
+                const next = page.pageInfo.endCursor;
+                if (typeof next !== 'string' || !next || seen.has(next) || seen.size >= 100) {
+                  throw new Error('Invalid or incomplete PR retarget history; retry metadata validation');
+                }
+                seen.add(next);
+                cursor = next;
+              }
+            };
             const current = await read();
+            await requireOriginalTarget();
             const verified = await read();
             if (current.title !== verified.title || current.body !== verified.body) {
               throw new Error('PR metadata changed during validation; retry the latest metadata run');

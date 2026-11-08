@@ -25,9 +25,13 @@ test("every subscribed code workflow run retains the actual required ci job", ()
     "opened",
     "synchronize",
     "reopened",
-    "edited",
   ]);
-  assert.deepEqual(metadata.on.pull_request, code.on.pull_request);
+  assert.deepEqual(code.on.pull_request.branches, ["main", "acp-runtime"]);
+  assert.deepEqual(metadata.on.pull_request, {
+    branches: ["main", "acp-runtime"],
+    types: ["opened", "synchronize", "reopened", "edited"],
+  });
+  assert.deepEqual(Object.keys(code.on), ["pull_request"]);
   assert.notEqual(code.concurrency.group, metadata.concurrency.group);
   assert.equal(
     job.steps.find((step) => step.name === "Require explicit PR owner coverage")
@@ -59,6 +63,8 @@ async function checkCurrentMetadata({
   state = "open",
   race = false,
   apiFailure = false,
+  historyPages = [],
+  historyFailure = false,
 } = {}) {
   const failures = [];
   const logs = [];
@@ -68,7 +74,24 @@ async function checkCurrentMetadata({
     base: { ref: "main", repo: { full_name: "owner/repo" } },
     body: "claude.ai/code/session/stale-event",
   };
+  let historyReads = 0;
   const github = {
+    graphql: async (_query, variables) => {
+      if (historyFailure) throw new Error("History API unavailable");
+      const page = historyPages[historyReads++];
+      if (page?.expectedCursor !== undefined)
+        assert.equal(variables.cursor, page.expectedCursor);
+      return {
+        repository: {
+          pullRequest: {
+            timelineItems: page?.data ?? {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      };
+    },
     rest: {
       pulls: {
         get: async () => {
@@ -104,7 +127,7 @@ async function checkCurrentMetadata({
       info: (message) => logs.push(message),
     }
   );
-  return { failures, logs, reads };
+  return { failures, logs, reads, historyReads };
 }
 test("metadata uses only PR read permission and never publishes custom checks", () => {
   assert.deepEqual(metadata.jobs.metadata.permissions, {
@@ -145,3 +168,101 @@ for (const options of [
     await assert.rejects(checkCurrentMetadata(options));
   });
 }
+
+for (const event of [
+  "BaseRefChangedEvent",
+  "AutomaticBaseChangeSucceededEvent",
+]) {
+  test(`persistent ${event} rejects edits, pushes, reopenings and retries`, async () => {
+    await assert.rejects(
+      checkCurrentMetadata({
+        historyPages: [
+          {
+            data: {
+              nodes: [{ __typename: event }],
+              pageInfo: { hasNextPage: false },
+            },
+          },
+        ],
+      }),
+      /Open a replacement PR/
+    );
+  });
+}
+test("retarget history follows pagination and cannot hide a later retarget", async () => {
+  await assert.rejects(
+    checkCurrentMetadata({
+      historyPages: [
+        {
+          expectedCursor: null,
+          data: {
+            nodes: [],
+            pageInfo: { hasNextPage: true, endCursor: "next" },
+          },
+        },
+        {
+          expectedCursor: "next",
+          data: {
+            nodes: [{ __typename: "BaseRefChangedEvent" }],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      ],
+    }),
+    /Open a replacement PR/
+  );
+});
+test("empty paginated history permits original-target PR", async () => {
+  const result = await checkCurrentMetadata({
+    historyPages: [
+      {
+        expectedCursor: null,
+        data: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "next" } },
+      },
+      {
+        expectedCursor: "next",
+        data: { nodes: [], pageInfo: { hasNextPage: false } },
+      },
+    ],
+  });
+  assert.equal(result.historyReads, 2);
+  assert.equal(result.failures.length, 0);
+});
+for (const options of [
+  { historyFailure: true },
+  {
+    historyPages: [{ data: { nodes: null, pageInfo: { hasNextPage: false } } }],
+  },
+  {
+    historyPages: [
+      { data: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } } },
+    ],
+  },
+  {
+    historyPages: [1, 2].map(() => ({
+      data: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "repeat" } },
+    })),
+  },
+]) {
+  test(`retarget history fails closed: ${JSON.stringify(options)}`, async () => {
+    await assert.rejects(checkCurrentMetadata(options));
+  });
+}
+test("metadata remains lightweight without CI evidence or polling", () => {
+  assert.equal(metadata.jobs.metadata.steps.length, 1);
+  assert.deepEqual(metadata.jobs.metadata.permissions, {
+    "pull-requests": "read",
+  });
+  assert.ok(
+    !job.steps.some((step) => /integration context/.test(step.name ?? ""))
+  );
+  const script = metadata.jobs.metadata.steps[0].with.script;
+  assert.doesNotMatch(
+    script,
+    /rest\.actions|setTimeout|execFile|downloadArtifact/
+  );
+  assert.match(
+    script,
+    /BASE_REF_CHANGED_EVENT,AUTOMATIC_BASE_CHANGE_SUCCEEDED_EVENT/
+  );
+});

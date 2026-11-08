@@ -127,3 +127,26 @@ not fix retained allocations, cap native memory or total RSS, coordinate separat
 worktrees/CI jobs, or guarantee cleanup after cancellation. Worker heap failure
 must remain a failing run. Host admission and lifecycle cleanup need separate
 ownership-aware follow-up; do not use broad process kills or a host-wide test lock.
+
+## PR metadata and code CI
+
+Code CI runs on opened, synchronize, and reopened PR events for `main` and
+`acp-runtime`. Title/body edits only rerun the independently required lightweight
+`PR metadata` check; they cannot start or cancel code CI. The unconditional
+required `ci` job and owner coverage remain unchanged.
+
+PR metadata uses PR read permission to validate current title/body and inspect
+explicit and automatic base-change history. Any base-retarget history permanently
+blocks that PR: open a replacement PR against the desired base to obtain fresh
+code validation. This intentionally restricts in-place retargeting. Reopening,
+pushing, editing, or rerunning the old PR cannot clear its history. API errors or
+incomplete pagination fail closed. There are no artifacts, CI polling, or Actions
+permissions in metadata validation. Existing never-retargeted PRs remain valid.
+
+PR descriptions describe final implementation and review context. Edit them when
+scope or review facts change, not merely to record pending/passed CI. CI progress
+belongs in checks, comments, and task handoffs.
+
+GitHub's [PR timeline schema](https://docs.github.com/en/graphql/reference/pulls)
+provides explicit and automatic base-change events. Policy fixtures cover both,
+pagination/errors, current metadata privacy, and static required check identities.

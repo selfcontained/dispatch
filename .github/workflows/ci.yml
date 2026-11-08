@@ -3,16 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [main, acp-runtime]
-    # Naming `types` replaces the default set, so the first three are the
-    # defaults restored. `edited` is the addition: it re-runs when a title or
-    # description changes, so a session link pasted in after a green run can't
-    # sit behind a stale check. PR descriptions here are rarely edited, so the
-    # extra full runs are cheap.
-    types: [opened, synchronize, reopened, edited]
+    # Metadata edits have their own required validation and never restart CI.
+    # Retargeted PRs must be replaced; metadata enforces that policy.
+    types: [opened, synchronize, reopened]
 
-# One run per PR: a push or description edit cancels the run it supersedes,
-# so stale heads stop holding one of the two self-hosted runners. The newest
-# run still reports `ci` for the current head.
+# Only code-validation events supersede code runs.
 concurrency:
   group: ci-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
