@@ -17,9 +17,9 @@ export default defineConfig({
     // worker multiplier and each fork's V8 old-space without capping tsc/build.
     // This is not a native-memory or host-wide RSS limit.
     pool: "forks",
-    maxWorkers: 1,
+    maxWorkers: 2,
     minWorkers: 1,
-    fileParallelism: false,
+    fileParallelism: true,
     poolOptions: {
       forks: {
         execArgv: ["--max-old-space-size=768"],
