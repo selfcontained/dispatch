@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
+import { turnEntry } from "@/test-utils/blocks";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   conversationLocation,
+  ConversationLocationLink,
   ConversationReturnLink,
 } from "./conversation-location-link";
 vi.mock("@/hooks/use-agent-tree", () => ({
-  useAgentRecord: (id: string) => ({ id, name: id, archived: false }),
+  useAgentRecord: (id: string) =>
+    id === "missing"
+      ? undefined
+      : { id, name: id, archived: id === "archived" },
   useProjectScope: () => ({ projectId: null }),
 }));
 vi.mock("@/hooks/use-projects", () => ({
@@ -56,4 +61,96 @@ it("returns from the source discussion to the working agent home", () => {
   );
   fireEvent.click(screen.getByRole("link", { name: "Open child session" }));
   expect(screen.getByText("/agents/child")).toBeTruthy();
+});
+
+const source = { streamId: "home", threadId: "discussion", blockId: "message" };
+it.each([
+  ["home", null, null, false],
+  ["home", "discussion", "discussion", false],
+  ["home", "discussion", null, true],
+  ["other", null, null, true],
+  ["tsk_one", null, null, true],
+] as const)(
+  "compares source %s/%s with visible thread %s",
+  (streamId, sourceThread, visibleThread, visible) => {
+    const turn = turnEntry({
+      turn: {
+        sourceConversation: { ...source, streamId, threadId: sourceThread },
+      },
+    }).block.turn!;
+    render(
+      <MemoryRouter>
+        <ConversationLocationLink
+          turn={turn}
+          homeId="home"
+          threadId={visibleThread}
+        />
+      </MemoryRouter>
+    );
+    expect(
+      screen.queryByRole("link", { name: "View original message" }) !== null
+    ).toBe(visible);
+  }
+);
+it.each([
+  [{ ...source }, "View original message"],
+  [{ streamId: "home", threadId: "discussion" }, "View original discussion"],
+  [{ streamId: "other", threadId: null }, "View original conversation"],
+] as const)("labels the actual destination %#", (sourceConversation, label) => {
+  const turn = turnEntry({ turn: { sourceConversation } }).block.turn!;
+  render(
+    <MemoryRouter>
+      <ConversationLocationLink turn={turn} homeId="home" />
+    </MemoryRouter>
+  );
+  expect(
+    screen.getByRole("link", { name: label }).getAttribute("href")
+  ).toContain(sourceConversation.streamId);
+});
+it("omits navigation without source metadata", () => {
+  render(
+    <MemoryRouter>
+      <ConversationLocationLink turn={turnEntry().block.turn!} homeId="home" />
+    </MemoryRouter>
+  );
+  expect(screen.queryByRole("link")).toBeNull();
+});
+
+it("omits unavailable agents and links archived agents to history", () => {
+  const { rerender } = render(
+    <MemoryRouter>
+      <ConversationLocationLink
+        turn={
+          turnEntry({
+            turn: {
+              sourceConversation: { streamId: "missing", threadId: null },
+            },
+          }).block.turn!
+        }
+        homeId="home"
+      />
+    </MemoryRouter>
+  );
+  expect(screen.queryByRole("link")).toBeNull();
+  rerender(
+    <MemoryRouter>
+      <ConversationLocationLink
+        turn={
+          turnEntry({
+            turn: {
+              sourceConversation: {
+                streamId: "archived",
+                threadId: null,
+                blockId: "message",
+              },
+            },
+          }).block.turn!
+        }
+        homeId="home"
+      />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole("link").getAttribute("href")).toBe(
+    "/activity/history/archived?block=message&returnAgent=home"
+  );
 });

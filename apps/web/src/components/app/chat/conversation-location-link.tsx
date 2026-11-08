@@ -1,4 +1,5 @@
 import type { ChatTurnEntry } from "@dispatch/shared";
+import { ArrowUpRight } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { agentHistoryRoute, agentRoute } from "@/lib/agent-routes";
@@ -33,9 +34,11 @@ export function conversationLocation(
 export function ConversationLocationLink({
   turn,
   homeId,
+  threadId = null,
 }: {
   turn: ChatTurnEntry;
   homeId: string;
+  threadId?: string | null;
 }) {
   const source = turn.sourceConversation;
   const record = useAgentRecord(
@@ -44,16 +47,21 @@ export function ConversationLocationLink({
   if (
     !source ||
     (!source.streamId.startsWith("tsk_") && !record) ||
-    (source.streamId === homeId && source.threadId === null)
+    (source.streamId === homeId && source.threadId === threadId)
   )
     return null;
   return (
     <Link
       data-testid="turn-source-discussion"
-      className="mb-1 inline-flex min-h-8 items-center text-xs text-muted-foreground hover:underline"
+      className="mb-1 inline-flex min-h-9 items-center gap-1 rounded-sm text-xs text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       to={conversationLocation(source, record?.archived === true, homeId)}
     >
-      Open source discussion
+      <ArrowUpRight aria-hidden="true" className="size-3.5" />
+      {source.blockId
+        ? "View original message"
+        : source.threadId
+          ? "View original discussion"
+          : "View original conversation"}
     </Link>
   );
 }

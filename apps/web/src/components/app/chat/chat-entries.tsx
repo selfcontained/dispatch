@@ -1860,7 +1860,11 @@ export const BlockView = memo(function BlockView({
   if (block.turn && !inThread && isPendingTurn(block, block.turn, folded)) {
     return (
       <>
-        <ConversationLocationLink turn={block.turn} homeId={block.streamId} />
+        <ConversationLocationLink
+          turn={block.turn}
+          homeId={block.streamId}
+          threadId={inThread ? block.threadId : null}
+        />
         <PendingTurnLine
           block={block}
           turn={block.turn}
@@ -1936,7 +1940,11 @@ export const BlockView = memo(function BlockView({
         />
       ) : null}
       {block.turn ? (
-        <ConversationLocationLink turn={block.turn} homeId={block.streamId} />
+        <ConversationLocationLink
+          turn={block.turn}
+          homeId={block.streamId}
+          threadId={inThread ? block.threadId : null}
+        />
       ) : null}
       {failureNotice}
       <InputSurface block={block}>
