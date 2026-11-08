@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
 import type { AgentReviewSummary, StreamFeedResponse } from "@dispatch/shared";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -125,6 +129,98 @@ describe("applyDiffStateChanged", () => {
 });
 
 describe("applyStreamEntry", () => {
+  it.each(["cold", "cached"] as const)(
+    "reconciles queued replies and root patches during a %s thread fetch",
+    async (mode) => {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const root = block({ id: "root" });
+      const reply = block({
+        id: "reply",
+        threadId: root.id,
+        authorKind: "user",
+        delivered: false,
+      });
+      const fresh = {
+        root: { ...root, text: "updated root" },
+        replies: [reply],
+      };
+      const stale = { root, replies: [] };
+      const key = threadQueryKey("agt_1", root.id);
+      const unrelated = threadQueryKey("agt_1", "other");
+      const otherStream = threadQueryKey("other-stream", root.id);
+      client.setQueryData(unrelated, stale);
+      client.setQueryData(otherStream, stale);
+      if (mode === "cached") client.setQueryData(key, stale);
+      let resolve!: (value: StreamThreadResponse) => void;
+      const fetch = vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise<StreamThreadResponse>((done) => {
+              resolve = done;
+            })
+        )
+        .mockResolvedValue(fresh);
+      const observer = new QueryObserver(client, {
+        queryKey: key,
+        queryFn: fetch,
+      });
+      const unsubscribe = observer.subscribe(() => {});
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+      applyStreamEntry(client, "agt_1", blockEntry(reply));
+      applyStreamEntry(client, "agt_1", blockEntry(fresh.root));
+      applyStreamEntry(client, "agt_1", blockEntry(reply));
+      resolve(stale);
+      await waitFor(() =>
+        expect(observer.getCurrentResult().data).toEqual(fresh)
+      );
+      expect(fetch).toHaveBeenCalledTimes(mode === "cold" ? 2 : 4);
+      expect(client.getQueryState(unrelated)?.isInvalidated).toBe(false);
+      expect(client.getQueryState(otherStream)?.isInvalidated).toBe(false);
+      expect(
+        invalidate.mock.calls.every(
+          ([filters]) =>
+            filters?.exact === true &&
+            JSON.stringify(filters.queryKey) === JSON.stringify(key)
+        )
+      ).toBe(true);
+      unsubscribe();
+      client.clear();
+    }
+  );
+
+  it("does not refetch an unobserved cold thread after its pending fetch settles", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const root = block({ id: "root" });
+    const key = threadQueryKey("agt_1", root.id);
+    let resolve!: (value: StreamThreadResponse) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<StreamThreadResponse>((done) => {
+          resolve = done;
+        })
+    );
+    const observer = new QueryObserver(client, {
+      queryKey: key,
+      queryFn: fetch,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    applyStreamEntry(client, "agt_1", blockEntry({ ...root, text: "new" }));
+    unsubscribe();
+    resolve({ root, replies: [] });
+    await waitFor(() =>
+      expect(client.getQueryState(key)?.fetchStatus).toBe("idle")
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    client.clear();
+  });
+
   const page = (
     entries: StreamFeedResponse["entries"],
     extra: Partial<StreamFeedResponse> = {}

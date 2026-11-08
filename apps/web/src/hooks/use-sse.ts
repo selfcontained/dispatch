@@ -195,6 +195,26 @@ function invalidateOnceFirstFetchSettles(
   promise.then(onSettled, onSettled);
 }
 
+/** Protect a thread patch from an older in-flight server snapshot. */
+function reconcileThreadEntry(
+  queryClient: QueryClient,
+  key: readonly unknown[],
+  update: (
+    old: StreamThreadResponse | undefined
+  ) => StreamThreadResponse | undefined
+): void {
+  const state = queryClient.getQueryState<StreamThreadResponse>(key);
+  if (state?.fetchStatus === "fetching") {
+    if (state.data === undefined) {
+      invalidateOnceFirstFetchSettles(queryClient, key);
+    } else {
+      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+    }
+    return;
+  }
+  queryClient.setQueryData<StreamThreadResponse>(key, update);
+}
+
 function invalidateReviewSummary(queryClient: QueryClient): void {
   const state = queryClient.getQueryState(AGENT_REVIEWS_QUERY_KEY);
   if (state?.fetchStatus === "fetching" && state.data === undefined) {
@@ -225,13 +245,15 @@ export function applyStreamEntry(
   const feeds = queryClient.getQueryCache().findAll(streamFeedFilters(agentId));
   if (entry.type === "block" && entry.block.threadId !== null) {
     const reply = entry.block;
-    queryClient.setQueryData<StreamThreadResponse>(
+    reconcileThreadEntry(
+      queryClient,
       threadQueryKey(agentId, reply.threadId),
       (old) => upsertThreadReply(old, reply)
     );
     // A block that opens a thread of its own (a finding, a review on a
     // card) is also that thread's root.
-    queryClient.setQueryData<StreamThreadResponse>(
+    reconcileThreadEntry(
+      queryClient,
       threadQueryKey(agentId, reply.id),
       (old) => replaceThreadRoot(old, reply)
     );
@@ -282,7 +304,8 @@ export function applyStreamEntry(
   }
   if (entry.type === "block") {
     // The panel shows a thread's root too; keep it in step with the feed.
-    queryClient.setQueryData<StreamThreadResponse>(
+    reconcileThreadEntry(
+      queryClient,
       threadQueryKey(agentId, entry.block.id),
       (old) => replaceThreadRoot(old, entry.block)
     );

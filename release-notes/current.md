@@ -1,8 +1,11 @@
 ## What's Changed
-* Open changed files in the Files tab by @selfcontained in https://github.com/selfcontained/dispatch/pull/1395
-* Remove undocumented reset applicability from agent usage by @selfcontained in https://github.com/selfcontained/dispatch/pull/1396
-* Give agents independent home streams and child-local coordination by @selfcontained in https://github.com/selfcontained/dispatch/pull/1397
-* Give automated notices a Dispatch system identity by @selfcontained in https://github.com/selfcontained/dispatch/pull/1398
+* Condense PR update notices and use Markdown links by @selfcontained in https://github.com/selfcontained/dispatch/pull/1399
+* Condense shared originals and separate share delivery from location by @selfcontained in https://github.com/selfcontained/dispatch/pull/1401
+* Remove thread composer routing hint by @selfcontained in https://github.com/selfcontained/dispatch/pull/1402
+* Open reply threads with short taps on chat text by @selfcontained in https://github.com/selfcontained/dispatch/pull/1404
+* Route thread-started turns and reuse queued delivery by @selfcontained in https://github.com/selfcontained/dispatch/pull/1403
+* Show current background work for Codex and Claude by @selfcontained in https://github.com/selfcontained/dispatch/pull/1400
+* fix(web): reconcile thread SSE events during in-flight fetches by @selfcontained in https://github.com/selfcontained/dispatch/pull/1407
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.6.2...v1.7.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.0...v1.7.1
