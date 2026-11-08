@@ -40,14 +40,14 @@ export function QueuedMessageActions({
   const recipients = (recipientIds ?? []).map((id) => ({ id, name: id }));
   const conversation = { streamId: agentId, threadId: threadId ?? null };
   const safeNow =
-    !recipientIds ||
-    recipientTimings(
-      recipients,
-      agents,
-      conversation,
-      "auto",
-      requiresNextTurn
-    ).every((item) => item.timing === "Now");
+    !requiresNextTurn &&
+    recipients.every(({ id }) => {
+      const agent = agents.find((item) => item.id === id);
+      const busy =
+        agent?.inputState?.active ??
+        (!!agent?.currentTurn || agent?.activity === "working");
+      return !busy || agent?.inputState?.steeringSupported === true;
+    });
   const canInterrupt =
     !!recipientIds &&
     recipientTimings(recipients, agents, conversation, "interrupt").every(
@@ -114,7 +114,7 @@ export function QueuedMessageActions({
                 ? "Interrupt current work without resending this message"
                 : sendNow === "interrupt"
                   ? "Stop the current turn and deliver this message as a new turn"
-                  : "Deliver during the current turn when supported"
+                  : "Join ongoing work; replies stay in its current conversation"
             }
             data-send-now={sendNow}
             onClick={() => action.mutate(sendNow)}
@@ -124,7 +124,9 @@ export function QueuedMessageActions({
             ) : null}
             {pendingDelivery && action.isSuccess
               ? "Interrupt requested"
-              : "Send now"}
+              : sendNow === "interrupt" && !pendingDelivery && threadId
+                ? "Interrupt and reply"
+                : "Send now"}
           </Button>
         ) : null}
         {!pendingDelivery ? (

@@ -255,7 +255,7 @@ export async function registerStreamRoutes(
       if (!isBlockId(blockId)) {
         return reply.code(400).send({ error: "blockId must be a UUID." });
       }
-      const thread = await store.listThread(blockId);
+      const thread = await streams.threadForUi(blockId);
       if (!thread || thread.root.streamId !== rootId) {
         return reply.code(404).send({ error: "Block not found." });
       }

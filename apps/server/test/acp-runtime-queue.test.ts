@@ -1298,10 +1298,11 @@ describe("conversation-authoritative delivery", () => {
           (post(1) as { chatMessageId: string }).chatMessageId,
           "send-now"
         )
-      ).toBe(false);
-      host.settle();
-      await withinSeconds(other.accepted, "other conversation");
-      expect(host.prompts.map((item) => item.text)).toEqual(["work", "other"]);
+      ).toBe(true);
+      await withinSeconds(other.accepted, "explicit steering");
+      expect(host.steers).toEqual(["same", "other"]);
+      expect(host.prompts.map((item) => item.text)).toEqual(["work"]);
+      expect(runtime.inputState(agentId).conversation?.threadId).toBe(threadId);
       host.settle();
       await Promise.all([work.settled, same.settled, other.settled]);
     }
@@ -1585,13 +1586,6 @@ describe("conversation-authoritative delivery", () => {
     );
     expect(host.steers).toEqual([]);
     expect(host.prompts[1]!.source?.conversation?.threadId).toBe("b");
-    expect(
-      runtime.controlQueuedPrompt(
-        [agentId],
-        (post(3) as { chatMessageId: string }).chatMessageId,
-        "send-now"
-      )
-    ).toBe(false);
     host.settle();
     await withinSeconds(
       old.accepted,

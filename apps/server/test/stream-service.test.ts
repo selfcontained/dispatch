@@ -2072,11 +2072,9 @@ describe("StreamService.sendUserPost", () => {
     ).toBe(1);
     await settled(svc, res.block.id);
     expect(injected[0]?.text).toContain(`In the thread under ${root.id}.`);
+    expect(injected[0]?.text).toContain("When this message starts a turn");
     expect(injected[0]?.text).toContain(
-      `Your reply appears at your own home root as you write it.`
-    );
-    expect(injected[0]?.text).toContain(
-      `post({ replyTo: "${res.block.id}", text: "<answer>" })`
+      "Do not duplicate ordinary answers with post"
     );
     // A reply to the reply keeps the root.
     const nested = await svc.sendUserPost(A, {
@@ -4638,6 +4636,45 @@ describe("StreamService turn blocks", () => {
     updatedAt: new Date(),
   });
 
+  it("freezes a validated user-thread origin while internal turns stay home", async () => {
+    const { svc } = build({ withDelivery: true });
+    const root = await svc.sendUserPost(A, { text: "discussion" });
+    const reply = await svc.sendUserPost(A, {
+      text: "reply here",
+      replyTo: root.block.id,
+    });
+    const prompt: PromptSource = {
+      source: "chat",
+      userMessage: true,
+      chatMessageId: reply.block.id,
+    };
+    const id = await svc.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(900100, prompt),
+      prompt,
+    });
+    expect(await svc.store.getById(id!)).toMatchObject({
+      streamId: A,
+      threadId: root.block.id,
+      replyTo: reply.block.id,
+    });
+    const internal: PromptSource = {
+      source: "engine",
+      text: "continued",
+      after: id!,
+    };
+    const home = await svc.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(900101, internal),
+      prompt: internal,
+    });
+    expect(await svc.store.getById(home!)).toMatchObject({
+      streamId: A,
+      threadId: null,
+    });
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
   it("opens an empty block by the agent when a turn starts, and fills it with the answer on settle", async () => {
     const row = await pool.query<{ id: string }>(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
@@ -4932,7 +4969,7 @@ describe("StreamService turn blocks", () => {
   it.each(["question", "form"] as const)(
     "routes a structured %s answer back to root work through delivery and turn creation",
     async (kind) => {
-      const { svc, injectedOpts } = build();
+      const { svc, injectedOpts, injected } = build();
       const ask = await svc.post(
         A,
         kind === "question"
@@ -4974,6 +5011,16 @@ describe("StreamService turn blocks", () => {
       await svc.waitForInFlightDeliveries(1_000);
       expect(injectedOpts[1]!.source).toMatchObject({
         conversation: { streamId: A, threadId: ask.id },
+      });
+      expect(injected[1]!.text).toContain("When this message starts a turn");
+      const commentTurn = await svc.recordTurnStarted({
+        agentId: A,
+        turnRow: turnRow(702, injectedOpts[1]!.source!),
+        prompt: injectedOpts[1]!.source!,
+      });
+      expect(await svc.store.getById(commentTurn!)).toMatchObject({
+        streamId: A,
+        threadId: ask.id,
       });
     }
   );
@@ -7421,7 +7468,7 @@ describe("steering response boundaries", () => {
     await pickup(rec, second.id, "receipt-b");
     await say(rec, "Answer to both.");
     expect((await service.turnEntry(A))?.block).toMatchObject({
-      threadId: null,
+      threadId: root.id,
       data: { responseTo: [first.id, second.id] },
       turn: { result: { text: "Answer to both." } },
     });
@@ -9309,9 +9356,9 @@ describe("agent-owned homes", () => {
         prompt,
       });
       expect(await svc.store.getById(id!)).toMatchObject({
-        streamId: B,
-        threadId: null,
-        replyTo: null,
+        streamId: prompt.source === "chat" ? A : B,
+        threadId: prompt.source === "chat" ? old.id : null,
+        replyTo: prompt.source === "chat" ? reply.block.id : null,
       });
     }
     const explicit = await svc.post(B, {

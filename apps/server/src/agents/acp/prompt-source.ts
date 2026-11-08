@@ -7,7 +7,7 @@ import type { PromptConversation } from "@dispatch/shared";
  */
 export type PromptSource = {
   /** Source discussion for batching and steering, retained through the host journal.
-   * This never selects the location of ordinary output. */
+   * User-thread turns use their validated source discussion for output at turn start. */
   conversation?: PromptConversation;
   /**
    * A person's post. With a conversation, a prompt steers only that
