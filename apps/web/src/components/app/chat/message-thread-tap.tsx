@@ -75,8 +75,8 @@ export function MessageThreadTap({
     target instanceof Element && !!target.closest(INTERACTIVE);
   return (
     <div
-      className={onOpen ? "-mx-2 min-h-11 px-2 py-2" : undefined}
-      data-message-thread-tap={onOpen ? "true" : undefined}
+      className={onOpen || onLongPress ? "-mx-2 min-h-11 px-2 py-2" : undefined}
+      data-message-thread-tap={onOpen || onLongPress ? "true" : undefined}
       onPointerDown={(event) => {
         handled.current = false;
         clearTimer();
