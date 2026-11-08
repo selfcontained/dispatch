@@ -7276,6 +7276,92 @@ describe("turn startup racing lifecycle settlement", () => {
       expect((await rows.lastTurn(A))?.payload).toEqual(turn!.payload);
     }
   );
+
+  it("late settlement cancels only the old turn while explicit stop cancels newer routing", async () => {
+    const gates = [0, 1].map(() => {
+      let release!: () => void;
+      let entered!: () => void;
+      return {
+        gate: new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+        routing: new Promise<void>((resolve) => {
+          entered = resolve;
+        }),
+        release: () => release(),
+        entered: () => entered(),
+      };
+    });
+    const controllers = new Map<number, AbortController>();
+    let routes = 0;
+    const cancel = vi.fn((agentId: string, turnId?: number) => {
+      expect(agentId).toBe(A);
+      // Model the turn-scoped routing adapter contract. Its real controller
+      // filtering is covered by RoutingShadow's own tests.
+      for (const [id, controller] of controllers) {
+        if (turnId === undefined || id === turnId) controller.abort();
+      }
+    });
+    const { svc } = build({
+      deps: {
+        routingShadow: {
+          observe: () => undefined,
+          cancel,
+          route: async (input) => {
+            const gate = gates[routes++]!;
+            controllers.set(input.turnRow.id, new AbortController());
+            gate.entered();
+            await gate.gate;
+            controllers.delete(input.turnRow.id);
+            return undefined;
+          },
+        },
+      },
+    });
+    const rows = new StreamStore(pool);
+    const rec = new StreamRecorder(rows);
+    rec.setTurnBlocks({
+      started: (input) => svc.recordTurnStarted(input),
+      settled: (input) => svc.recordTurnSettled(input),
+    });
+    const oldStartup = rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "old work",
+    });
+    await gates[0]!.routing;
+    let newStartup: Promise<void> | undefined;
+    try {
+      const oldTurn = (await rows.lastTurn(A))!;
+      expect(await rec.reconcile(A)).toBe(1);
+      expect(controllers.get(oldTurn.id)?.signal.aborted).toBe(true);
+      newStartup = rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "started",
+        text: "new work",
+      });
+      await gates[1]!.routing;
+      const newTurn = (await rows.lastTurn(A))!;
+      const newController = controllers.get(newTurn.id)!;
+      cancel.mockClear();
+      gates[0]!.release();
+      await oldStartup;
+      expect(cancel).toHaveBeenCalledExactlyOnceWith(A, oldTurn.id);
+      expect(newController.signal.aborted).toBe(false);
+      expect((await rows.lastTurn(A))?.payload.state).toBe("started");
+      // The manager's explicit stop still aborts every pending route.
+      svc.cancelRouting(A);
+      expect(cancel).toHaveBeenLastCalledWith(A);
+      expect(newController.signal.aborted).toBe(true);
+    } finally {
+      for (const gate of gates) gate.release();
+      await oldStartup;
+      await newStartup;
+      await rec.settleStopped(A);
+    }
+  });
 });
 
 describe("steering response boundaries", () => {

@@ -4012,16 +4012,18 @@ export class StreamService {
     await this.publishEntry(streamId, input.previousBlockId);
   }
 
-  /** A turn settled or was cut: its current response takes its own text. */
-  cancelRouting(agentId: string, turnId?: number): void {
-    this.deps.routingShadow?.cancel?.(agentId, turnId);
+  /** Explicit lifecycle actions cancel every pending route for the agent. */
+  cancelRouting(agentId: string): void {
+    this.deps.routingShadow?.cancel?.(agentId);
   }
 
+  /** A turn settled or was cut: its current response takes its own text. */
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
   }): Promise<void> {
-    this.cancelRouting(input.agentId, input.turnRow.id);
+    // A late startup can settle after the next turn has begun routing.
+    this.deps.routingShadow?.cancel?.(input.agentId, input.turnRow.id);
     const blockId = input.turnRow.payload.blockId;
     if (typeof blockId !== "string") return;
     const streamId = await this.turnStreamOf(input.agentId, blockId);
