@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 
 const require = createRequire(
   new URL("../apps/server/package.json", import.meta.url)
@@ -32,7 +28,7 @@ test("every subscribed code workflow run retains the actual required ci job", ()
   ]);
   assert.deepEqual(code.on.pull_request.branches, ["main", "acp-runtime"]);
   assert.deepEqual(metadata.on.pull_request, {
-    branches: code.on.pull_request.branches,
+    branches: ["main", "acp-runtime"],
     types: ["opened", "synchronize", "reopened", "edited"],
   });
   assert.deepEqual(Object.keys(code.on), ["pull_request"]);
@@ -62,111 +58,41 @@ test("metadata remains independently required with no PR code execution", () => 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 async function checkCurrentMetadata({
   body = "corrected $(untrusted)",
-  head = "a".repeat(40),
+  head = "head",
   target = "main",
   state = "open",
   race = false,
   apiFailure = false,
-  cutoff = null,
-  proofChanges = {},
-  runChanges = {},
-  artifactChanges = {},
-  jobChanges = {},
-  rawArchive,
-  completeAfterWait = false,
-  expireWait = false,
+  historyPages = [],
+  historyFailure = false,
 } = {}) {
-  let waits = 0;
-  let clock = 0;
   const failures = [];
   const logs = [];
   let reads = 0;
   const expected = {
-    head: { sha: "a".repeat(40), repo: { full_name: "owner/repo" } },
+    head: { sha: "head", repo: { full_name: "owner/repo" } },
     base: { ref: "main", repo: { full_name: "owner/repo" } },
     body: "claude.ai/code/session/stale-event",
   };
-  const proof = {
-    version: 1,
-    number: 123,
-    head: expected.head.sha,
-    base: "b".repeat(40),
-    merge: "c".repeat(40),
-    target: "main",
-    repository: "owner/repo",
-    headRepository: "owner/repo",
-    run: "42",
-    attempt: "1",
-    eventUpdatedAt: "2026-11-07T00:02:00Z",
-    ...proofChanges,
-  };
-  const archive =
-    rawArchive ??
-    execFileSync(
-      "python3",
-      [
-        "-c",
-        "import io,sys,zipfile; b=io.BytesIO(); z=zipfile.ZipFile(b,'w'); z.writestr('ci-context.json',sys.stdin.read()); z.close(); sys.stdout.buffer.write(b.getvalue())",
-      ],
-      { input: JSON.stringify(proof) }
-    );
-  const run = {
-    id: 42,
-    run_attempt: 1,
-    path: ".github/workflows/ci.yml",
-    event: "pull_request",
-    head_sha: expected.head.sha,
-    status: "completed",
-    conclusion: "success",
-    pull_requests: [{ number: 123 }],
-    ...runChanges,
-  };
-  const artifact = {
-    id: 99,
-    name: "ci-context-1",
-    expired: false,
-    size_in_bytes: archive.length,
-    workflow_run: { id: 42, head_sha: expected.head.sha },
-    digest: `sha256:${createHash("sha256").update(archive).digest("hex")}`,
-    created_at: "2026-11-07T00:03:00Z",
-    ...artifactChanges,
-  };
+  let historyReads = 0;
   const github = {
-    graphql: async () => ({
-      repository: {
-        pullRequest: {
-          timelineItems: { nodes: cutoff ? [{ createdAt: cutoff }] : [] },
+    graphql: async (_query, variables) => {
+      if (historyFailure) throw new Error("History API unavailable");
+      const page = historyPages[historyReads++];
+      if (page?.expectedCursor !== undefined)
+        assert.equal(variables.cursor, page.expectedCursor);
+      return {
+        repository: {
+          pullRequest: {
+            timelineItems: page?.data ?? {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
         },
-      },
-    }),
+      };
+    },
     rest: {
-      actions: {
-        listWorkflowRuns: async () => ({
-          data: {
-            workflow_runs:
-              completeAfterWait && !waits
-                ? [{ ...run, status: "in_progress", conclusion: null }]
-                : [run],
-          },
-        }),
-        listWorkflowRunArtifacts: async () => ({
-          data: { artifacts: [artifact] },
-        }),
-        downloadArtifact: async () => ({ data: archive }),
-        listJobsForWorkflowRun: async () => ({
-          data: {
-            jobs: [
-              {
-                name: "ci",
-                head_sha: expected.head.sha,
-                status: "completed",
-                conclusion: "success",
-                ...jobChanges,
-              },
-            ],
-          },
-        }),
-      },
       pulls: {
         get: async () => {
           if (apiFailure) throw new Error("API unavailable");
@@ -189,9 +115,6 @@ async function checkCurrentMetadata({
     "github",
     "context",
     "core",
-    "require",
-    "setTimeout",
-    "Date",
     metadata.jobs.metadata.steps[0].with.script
   )(
     github,
@@ -202,25 +125,13 @@ async function checkCurrentMetadata({
     {
       setFailed: (message) => failures.push(message),
       info: (message) => logs.push(message),
-    },
-    require,
-    (resolve) => {
-      waits++;
-      if (completeAfterWait) return resolve();
-      if (expireWait) {
-        clock += 46 * 60 * 1000;
-        return resolve();
-      }
-      throw new Error("WAITING_FOR_EVIDENCE");
-    },
-    { parse: Date.parse, now: () => clock }
+    }
   );
-  return { failures, logs, reads, waits };
+  return { failures, logs, reads, historyReads };
 }
-test("metadata uses only PR and Actions read permissions and never publishes custom checks", () => {
+test("metadata uses only PR read permission and never publishes custom checks", () => {
   assert.deepEqual(metadata.jobs.metadata.permissions, {
     "pull-requests": "read",
-    actions: "read",
   });
   assert.equal(
     metadata.jobs.metadata.steps[0].uses,
@@ -230,7 +141,7 @@ test("metadata uses only PR and Actions read permissions and never publishes cus
 test("retry reads corrected current metadata despite the original bad event", async () => {
   const result = await checkCurrentMetadata();
   assert.equal(result.failures.length, 0);
-  assert.equal(result.reads, 4);
+  assert.equal(result.reads, 2);
   assert.ok(!result.logs.join("").includes("untrusted"));
 });
 test("current bad metadata fails without logging link contents", async () => {
@@ -258,187 +169,100 @@ for (const options of [
   });
 }
 
-// Invalid or unavailable evidence must reach the bounded wait, never success.
-for (const options of [
-  {
-    cutoff: "2026-11-07T00:01:00Z",
-    proofChanges: { eventUpdatedAt: "2026-11-07T00:00:00Z" },
-  },
-  { cutoff: "2026-11-07T00:02:00Z" },
-  { proofChanges: { target: "acp-runtime" } },
-  { proofChanges: { headRepository: "foreign/repo" } },
-  { proofChanges: { attempt: "0" } },
-  { proofChanges: { head: "d".repeat(40) } },
-  { proofChanges: { base: "invalid" } },
-  { artifactChanges: { expired: true } },
-  { artifactChanges: { size_in_bytes: 65537 } },
-  { artifactChanges: { workflow_run: { id: 41 } } },
-  { artifactChanges: { name: "other" } },
-  { runChanges: { conclusion: "failure" } },
-  { runChanges: { status: "in_progress", conclusion: null } },
-  { runChanges: { event: "workflow_dispatch" } },
-  { jobChanges: { conclusion: "skipped" } },
-  { jobChanges: { conclusion: "failure" } },
+for (const event of [
+  "BaseRefChangedEvent",
+  "AutomaticBaseChangeSucceededEvent",
 ]) {
-  test(`evidence cannot clear gate: ${JSON.stringify(options)}`, async () => {
-    await assert.rejects(checkCurrentMetadata(options), /WAITING_FOR_EVIDENCE/);
+  test(`persistent ${event} rejects edits, pushes, reopenings and retries`, async () => {
+    await assert.rejects(
+      checkCurrentMetadata({
+        historyPages: [
+          {
+            data: {
+              nodes: [{ __typename: event }],
+              pageInfo: { hasNextPage: false },
+            },
+          },
+        ],
+      }),
+      /Open a replacement PR/
+    );
   });
 }
-test("fresh event after latest retarget passes without comparing current base tip", async () => {
-  assert.equal(
-    (await checkCurrentMetadata({ cutoff: "2026-11-07T00:01:00Z" })).failures
-      .length,
-    0
-  );
-});
-test("artifact digest and archive parsing fail closed", async () => {
+test("retarget history follows pagination and cannot hide a later retarget", async () => {
   await assert.rejects(
     checkCurrentMetadata({
-      artifactChanges: { digest: `sha256:${"0".repeat(64)}` },
-    }),
-    /digest mismatch/
-  );
-  await assert.rejects(
-    checkCurrentMetadata({ rawArchive: Buffer.from("not zip") })
-  );
-});
-test("evidence is captured before testing using actual merge parents", () => {
-  const record = job.steps.findIndex(
-    (step) => step.name === "Record integration context"
-  );
-  const upload = job.steps.findIndex(
-    (step) => step.name === "Upload integration context before validation"
-  );
-  assert.ok(
-    record >= 0 &&
-      upload > record &&
-      upload < job.steps.findIndex((step) => step.name === "CI checks")
-  );
-  assert.match(job.steps[record].run, /rev-list.*--parents/);
-  assert.match(job.steps[record].run, /eventUpdatedAt: pr.updated_at/);
-  assert.equal(job.steps[upload].if, undefined);
-  assert.equal(metadata.jobs.metadata["timeout-minutes"], 50);
-  assert.match(metadata.jobs.metadata.steps[0].with.script, /45 \* 60 \* 1000/);
-});
-
-test("initial pending CI completes automatically without a metadata rerun", async () => {
-  const result = await checkCurrentMetadata({ completeAfterWait: true });
-  assert.equal(result.waits, 1);
-  assert.equal(result.failures.length, 0);
-});
-test("bounded pending CI ends in explicit failure", async () => {
-  await assert.rejects(
-    checkCurrentMetadata({
-      runChanges: { status: "queued", conclusion: null },
-      expireWait: true,
-    }),
-    /unavailable or pending after 45 minutes/
-  );
-});
-test("title edit reuses existing successful evidence immediately", async () => {
-  const result = await checkCurrentMetadata({ body: "Updated review context" });
-  assert.equal(result.waits, 0);
-});
-test("away and back retarget rejects delayed old event even with a newer upload", async () => {
-  await assert.rejects(
-    checkCurrentMetadata({ cutoff: "2026-11-07T00:02:30Z" }),
-    /WAITING_FOR_EVIDENCE/
-  );
-});
-test("rerunning old event with a new attempt cannot clear retarget", async () => {
-  await assert.rejects(
-    checkCurrentMetadata({
-      cutoff: "2026-11-07T00:02:30Z",
-      runChanges: { run_attempt: 2 },
-      artifactChanges: { name: "ci-context-2" },
-      proofChanges: { attempt: "2" },
-    }),
-    /WAITING_FOR_EVIDENCE/
-  );
-});
-
-test("CI evidence reads the event privately and never logs PR title/body", () => {
-  const record = job.steps.find(
-    (step) => step.name === "Record integration context"
-  );
-  assert.equal(record.env, undefined);
-  for (const workflow of [code, metadata]) {
-    const loggedInputs = JSON.stringify(workflow);
-    assert.doesNotMatch(
-      loggedInputs,
-      /toJSON\(github\.event(?:\.pull_request)?\)/
-    );
-    assert.doesNotMatch(
-      loggedInputs,
-      /\$\{\{[^}]*github\.event\.pull_request\.(?:title|body)/
-    );
-  }
-  const directory = mkdtempSync(join(tmpdir(), "dispatch-ci-context-"));
-  try {
-    const env = {
-      ...process.env,
-      GIT_AUTHOR_NAME: "Test",
-      GIT_AUTHOR_EMAIL: "test@example.com",
-      GIT_COMMITTER_NAME: "Test",
-      GIT_COMMITTER_EMAIL: "test@example.com",
-      RUNNER_TEMP: directory,
-      GITHUB_EVENT_PATH: join(directory, "event.json"),
-      GITHUB_RUN_ID: "42",
-      GITHUB_RUN_ATTEMPT: "1",
-    };
-    const git = (args) =>
-      execFileSync("git", args, {
-        cwd: directory,
-        env,
-        encoding: "utf8",
-      }).trim();
-    git(["init", "--quiet"]);
-    const tree = git(["mktree"]);
-    const base = git(["commit-tree", tree, "-m", "base"]);
-    const head = git(["commit-tree", tree, "-p", base, "-m", "head"]);
-    const merge = git([
-      "commit-tree",
-      tree,
-      "-p",
-      base,
-      "-p",
-      head,
-      "-m",
-      "merge",
-    ]);
-    git(["update-ref", "HEAD", merge]);
-    const secret = "claude.ai/code/session/private-regression-sentinel";
-    writeFileSync(
-      env.GITHUB_EVENT_PATH,
-      JSON.stringify({
-        pull_request: {
-          number: 123,
-          title: secret,
-          body: secret,
-          updated_at: "2026-11-07T00:02:00Z",
-          head: { sha: head, repo: { full_name: "owner/repo" } },
-          base: {
-            ref: "main",
-            sha: "stale-event-base",
-            repo: { full_name: "owner/repo" },
+      historyPages: [
+        {
+          expectedCursor: null,
+          data: {
+            nodes: [],
+            pageInfo: { hasNextPage: true, endCursor: "next" },
           },
         },
-      })
-    );
-    const script = record.run.split("<<'JS'\n")[1].replace(/\nJS\s*$/, "");
-    const output = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script],
-      { cwd: directory, env, encoding: "utf8" }
-    );
-    assert.equal(output, "");
-    const raw = readFileSync(join(directory, "ci-context.json"), "utf8");
-    assert.ok(!raw.includes(secret));
-    const proof = JSON.parse(raw);
-    assert.equal(proof.base, base);
-    assert.equal(proof.head, head);
-    assert.equal(proof.merge, merge);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
+        {
+          expectedCursor: "next",
+          data: {
+            nodes: [{ __typename: "BaseRefChangedEvent" }],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      ],
+    }),
+    /Open a replacement PR/
+  );
+});
+test("empty paginated history permits original-target PR", async () => {
+  const result = await checkCurrentMetadata({
+    historyPages: [
+      {
+        expectedCursor: null,
+        data: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "next" } },
+      },
+      {
+        expectedCursor: "next",
+        data: { nodes: [], pageInfo: { hasNextPage: false } },
+      },
+    ],
+  });
+  assert.equal(result.historyReads, 2);
+  assert.equal(result.failures.length, 0);
+});
+for (const options of [
+  { historyFailure: true },
+  {
+    historyPages: [{ data: { nodes: null, pageInfo: { hasNextPage: false } } }],
+  },
+  {
+    historyPages: [
+      { data: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } } },
+    ],
+  },
+  {
+    historyPages: [1, 2].map(() => ({
+      data: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "repeat" } },
+    })),
+  },
+]) {
+  test(`retarget history fails closed: ${JSON.stringify(options)}`, async () => {
+    await assert.rejects(checkCurrentMetadata(options));
+  });
+}
+test("metadata remains lightweight without CI evidence or polling", () => {
+  assert.equal(metadata.jobs.metadata.steps.length, 1);
+  assert.deepEqual(metadata.jobs.metadata.permissions, {
+    "pull-requests": "read",
+  });
+  assert.ok(
+    !job.steps.some((step) => /integration context/.test(step.name ?? ""))
+  );
+  const script = metadata.jobs.metadata.steps[0].with.script;
+  assert.doesNotMatch(
+    script,
+    /rest\.actions|setTimeout|execFile|downloadArtifact/
+  );
+  assert.match(
+    script,
+    /BASE_REF_CHANGED_EVENT,AUTOMATIC_BASE_CHANGE_SUCCEEDED_EVENT/
+  );
 });

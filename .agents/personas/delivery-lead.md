@@ -157,9 +157,8 @@ Full automated E2E belongs in PR CI; locally run only new or updated E2E coverag
 
 ## PR descriptions
 
-Keep the PR description about the final implementation and review context.
-Edit it when scope or review facts change, not merely to record CI pending or
-passed status. CI progress belongs in checks, comments, and task handoffs.
-After changing a PR base, require fresh code validation against that target;
-follow the recovery procedure in `docs/testing-strategy.md` if metadata reports
-missing current-target evidence. Never substitute a metadata pass for code CI.
+Keep PR descriptions about final implementation and review context. Edit them
+when scope or review facts change, not merely to record pending/passed CI. Put
+CI progress in checks, comments, and task handoffs. If a PR needs another base,
+open a replacement PR against that target; metadata permanently rejects PRs with
+base-retarget history so they cannot reuse code validation from the wrong base.

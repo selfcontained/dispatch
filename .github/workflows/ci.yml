@@ -3,11 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [main, acp-runtime]
-    # Metadata edits are validated independently, without restarting code CI.
-    # After retargeting, close/reopen or push a commit for fresh code evidence.
+    # Metadata edits have their own required validation and never restart CI.
+    # Retargeted PRs must be replaced; metadata enforces that policy.
     types: [opened, synchronize, reopened]
 
-# Only a new code-validation event supersedes an existing code run.
+# Only code-validation events supersede code runs.
 concurrency:
   group: ci-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -38,32 +38,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-
-      # Capture the actual integration tree before executing PR code. The
-      # event base SHA can lag the merge ref; its parents are authoritative.
-      - name: Record integration context
-        run: |
-          node --input-type=module <<'JS'
-          import { execFileSync } from 'node:child_process';
-          import { readFileSync, writeFileSync } from 'node:fs';
-          const pr = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request;
-          const [merge, base, head, ...extra] = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { encoding: 'utf8' }).trim().split(/\s+/);
-          if (extra.length || !base || head !== pr.head.sha) throw new Error('Expected the PR integration merge with the pinned head');
-          writeFileSync(`${process.env.RUNNER_TEMP}/ci-context.json`, JSON.stringify({
-            version: 1, number: pr.number, head, base, merge, eventUpdatedAt: pr.updated_at,
-            target: pr.base.ref, repository: pr.base.repo.full_name,
-            headRepository: pr.head.repo.full_name,
-            run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT
-          }));
-          JS
-
-      - name: Upload integration context before validation
-        uses: actions/upload-artifact@v7
-        with:
-          name: ci-context-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ci-context.json
-          if-no-files-found: error
-          retention-days: 30
 
       # `docs` only when every change is an edit or addition to allowlisted
       # prose (see scripts/ci-change-scope.mjs); anything else, including a

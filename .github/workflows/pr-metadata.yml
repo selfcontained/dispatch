@@ -16,10 +16,8 @@ jobs:
   metadata:
     name: PR metadata
     runs-on: ubuntu-latest
-    timeout-minutes: 50
     permissions:
       pull-requests: read
-      actions: read
     steps:
       # Re-evaluate current metadata in the same failed run on a manual retry.
       # Reruns otherwise retain the original event snapshot.
@@ -43,103 +41,45 @@ jobs:
               }
               return { title: pr.title ?? '', body: pr.body ?? '' };
             };
+            // History survives title edits, pushes, reopenings and manual retries.
+            // Filter server-side, but follow cursors rather than assuming one page.
+            const requireOriginalTarget = async () => {
+              let cursor = null;
+              const seen = new Set();
+              while (true) {
+                const data = await github.graphql(`query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {
+                  repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
+                    timelineItems(first:100,after:$cursor,itemTypes:[BASE_REF_CHANGED_EVENT,AUTOMATIC_BASE_CHANGE_SUCCEEDED_EVENT]) {
+                      nodes { __typename }
+                      pageInfo { hasNextPage endCursor }
+                    }
+                  } }
+                }`, { ...context.repo, number, cursor });
+                const page = data.repository.pullRequest.timelineItems;
+                if (!Array.isArray(page.nodes) || !page.pageInfo ||
+                    typeof page.pageInfo.hasNextPage !== 'boolean') {
+                  throw new Error('PR retarget history unavailable; retry metadata validation');
+                }
+                if (page.nodes.length) {
+                  throw new Error('This PR has changed its base branch. Open a replacement PR against the desired base so fresh code CI validates that target. Reopening, pushing or editing this PR cannot clear its retarget history.');
+                }
+                if (!page.pageInfo.hasNextPage) return;
+                const next = page.pageInfo.endCursor;
+                if (typeof next !== 'string' || !next || seen.has(next) || seen.size >= 100) {
+                  throw new Error('Invalid or incomplete PR retarget history; retry metadata validation');
+                }
+                seen.add(next);
+                cursor = next;
+              }
+            };
             const current = await read();
+            await requireOriginalTarget();
             const verified = await read();
             if (current.title !== verified.title || current.body !== verified.body) {
               throw new Error('PR metadata changed during validation; retry the latest metadata run');
             }
             if (/claude\.ai\/code\/session/i.test(`${current.title}\n${current.body}`)) {
               core.setFailed('Remove the Claude Code session link from the PR title/description, then rerun this specific failed PR metadata run. A new edit alone may leave this failed suite required.');
-              return;
+            } else {
+              core.info('Current PR metadata passes for the expected head and target.');
             }
-            const latestRetarget = async () => {
-              const data = await github.graphql(`query($owner:String!, $repo:String!, $number:Int!) {
-                repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
-                  timelineItems(last:1,itemTypes:[BASE_REF_CHANGED_EVENT,AUTOMATIC_BASE_CHANGE_SUCCEEDED_EVENT]) {
-                    nodes { __typename ... on BaseRefChangedEvent { createdAt } ... on AutomaticBaseChangeSucceededEvent { createdAt } }
-                  }
-                } }
-              }`, { ...context.repo, number });
-              const nodes = data.repository.pullRequest.timelineItems.nodes;
-              if (!Array.isArray(nodes) || nodes.length > 1) throw new Error('Unavailable retarget history');
-              if (!nodes.length) return 0;
-              const time = Date.parse(nodes[0].createdAt);
-              if (!Number.isFinite(time)) throw new Error('Invalid retarget history');
-              return time;
-            };
-            const stamp = value => {
-              const time = Date.parse(value);
-              return Number.isFinite(time) ? time : 0;
-            };
-            const evidenceMatches = (proof, run, artifact, cutoff) => {
-              const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
-              return proof.version === 1 && proof.number === number &&
-                proof.run === String(run.id) && proof.attempt === String(run.run_attempt) &&
-                proof.head === expected.head.sha && sha(proof.head) && sha(proof.base) && sha(proof.merge) &&
-                proof.target === expected.base.ref && proof.repository === expected.base.repo.full_name &&
-                proof.headRepository === expected.head.repo?.full_name &&
-                stamp(proof.eventUpdatedAt) > cutoff && stamp(artifact.created_at) > cutoff;
-            };
-            const decodeEvidence = bytes => {
-              // Inspect a single bounded member in memory; never extract or execute it.
-              if (bytes.byteLength > 65536) throw new Error('Oversized CI evidence archive');
-              const { execFileSync } = require('node:child_process');
-              return JSON.parse(execFileSync('python3', ['-c', `
-            import io,json,sys,zipfile
-            raw=sys.stdin.buffer.read(65537)
-            assert len(raw)<=65536
-            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                entries=archive.infolist()
-                assert len(entries)==1
-                entry=entries[0]
-                assert entry.filename=='ci-context.json' and entry.file_size<=4096
-                assert not entry.flag_bits & 1
-                data=archive.read(entry)
-                assert len(data)<=4096
-                value=json.loads(data)
-                assert isinstance(value,dict)
-                print(json.dumps(value))
-            `], { input: Buffer.from(bytes), timeout: 5000, maxBuffer: 8192, stdio: ['pipe', 'pipe', 'pipe'] }).toString());
-            };
-            const deadline = Date.now() + 45 * 60 * 1000;
-            while (true) {
-              const cutoff = await latestRetarget();
-              await read();
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                ...context.repo, workflow_id: 'ci.yml', event: 'pull_request',
-                head_sha: expected.head.sha, per_page: 100
-              });
-              let valid = false;
-              for (const run of data.workflow_runs) {
-                if (run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
-                    run.head_sha !== expected.head.sha || run.status !== 'completed' || run.conclusion !== 'success' ||
-                    !run.pull_requests?.some(pr => pr.number === number)) continue;
-                const { data: listed } = await github.rest.actions.listWorkflowRunArtifacts({ ...context.repo, run_id: run.id, per_page: 100 });
-                const artifacts = listed.artifacts.filter(item => item.name === `ci-context-${run.run_attempt}`);
-                if (artifacts.length !== 1) continue;
-                const artifact = artifacts[0];
-                if (artifact.expired || artifact.size_in_bytes > 65536 || artifact.size_in_bytes <= 0 ||
-                    artifact.workflow_run?.id !== run.id || artifact.workflow_run?.head_sha !== expected.head.sha ||
-                    !/^sha256:[a-f0-9]{64}$/.test(artifact.digest ?? '')) continue;
-                const { data: archive } = await github.rest.actions.downloadArtifact({ ...context.repo, artifact_id: artifact.id, archive_format: 'zip' });
-                const bytes = Buffer.from(archive);
-                const digest = require('node:crypto').createHash('sha256').update(bytes).digest('hex');
-                if (`sha256:${digest}` !== artifact.digest) throw new Error('CI evidence digest mismatch');
-                const proof = decodeEvidence(bytes);
-                if (!evidenceMatches(proof, run, artifact, cutoff)) continue;
-                const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({ ...context.repo, run_id: run.id, filter: 'latest', per_page: 100 });
-                const ci = jobs.jobs.filter(job => job.name === 'ci');
-                if (ci.length !== 1 || ci[0].head_sha !== expected.head.sha || ci[0].status !== 'completed' || ci[0].conclusion !== 'success') continue;
-                valid = true;
-                break;
-              }
-              const final = await read();
-              if (final.title !== current.title || final.body !== current.body || await latestRetarget() !== cutoff) {
-                throw new Error('PR metadata or target changed during validation; retry the latest metadata run');
-              }
-              if (valid) break;
-              if (Date.now() >= deadline) throw new Error('Current-target CI evidence unavailable or pending after 45 minutes. Close/reopen or push for fresh CI, then retry metadata after CI succeeds. Old-event reruns cannot repair a retarget.');
-              core.info('Waiting for genuine successful current-target code validation.');
-              await new Promise(resolve => setTimeout(resolve, 20000));
-            }
-            core.info('Current-target code validation evidence verified.');
