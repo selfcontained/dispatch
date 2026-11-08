@@ -434,7 +434,9 @@ const authRuntime = createAuthRuntime({
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
 const brainStore = new BrainStore(pool);
-const routingShadowStore = new RoutingShadowStore(pool);
+const routingShadowStore = new RoutingShadowStore(pool, (agentId) => {
+  uiEventBroker.publish({ type: "stream.changed", agentId });
+});
 const routingSettings = new RoutingSettings(pool);
 const routingShadow = new RoutingShadow(
   () => routingSettings.configuration(),

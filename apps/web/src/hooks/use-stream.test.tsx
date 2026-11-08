@@ -925,6 +925,40 @@ describe("shareFeedByEntryId", () => {
   }
   const share = shareFeedByEntryId;
 
+  it("refreshes and removes routing evidence even when block timestamps do not change", () => {
+    const original = block({ id: "opener" });
+    const previous: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([blockEntry(original)])],
+    };
+    const diagnostic = {
+      turnId: 12,
+      agentId: "agt_1",
+      mode: "shadow" as const,
+      status: "ok",
+      actual: "Root" as const,
+      reason: "Shadow only; default preserved",
+      choice: "home_root" as const,
+      probabilities: [{ value: "home_root", probability: 0.9 }],
+      confidence: 0.8,
+      costUsd: null,
+      costBasis: "unknown" as const,
+    };
+    const next: FeedCache = {
+      ...previous,
+      pages: [page([blockEntry({ ...original, routing: [diagnostic] })])],
+    };
+    const refreshed = share(previous, next);
+    expect(refreshed.pages[0].entries[0]).not.toBe(
+      previous.pages[0].entries[0]
+    );
+    expect(refreshed.pages[0].entries[0]).toMatchObject({
+      block: { routing: [diagnostic], updatedAt: original.updatedAt },
+    });
+    const expired = share(refreshed, previous);
+    expect(expired.pages[0].entries[0]).toEqual(previous.pages[0].entries[0]);
+  });
+
   it("keeps unchanged entries when a new entry shifts every page boundary", () => {
     const m = (i: number) =>
       blockEntry(

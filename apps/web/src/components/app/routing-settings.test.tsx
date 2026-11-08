@@ -118,3 +118,33 @@ describe("RoutingSettings in-flight drafts", () => {
     expect(screen.getByText("Configured", { exact: true })).toBeTruthy();
   });
 });
+it("shows a priced subtotal plus unpriced calls and marks legacy uncached estimates", async () => {
+  apiMock.mockResolvedValue({
+    ...saved,
+    metrics: {
+      todayReservations: 3,
+      retainedReservations: 3,
+      failures: 1,
+      timeouts: 1,
+      provider: { n: 2, medianMs: 462, p95Ms: 500, maxMs: 500 },
+      activeRouting: { n: 1, medianMs: 462 },
+      estimatedUsd: null,
+      knownEstimatedUsd: 0.00007,
+      pricedCalls: 1,
+      unknownCostCalls: 2,
+      uncachedEstimateCalls: 1,
+      rates: {
+        date: "2026-11-08",
+        source: "https://developers.openai.com/api/docs/guides/decisions",
+      },
+    },
+  });
+  await show();
+  expect(
+    screen.getByText("USD 0.00007000 + 2 unpriced · uncached estimate")
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "About AI routing" }));
+  expect(
+    screen.getByText(/Missing cache breakdown uses an uncached-rate estimate/)
+  ).toBeTruthy();
+});

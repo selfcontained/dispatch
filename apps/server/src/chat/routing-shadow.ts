@@ -245,7 +245,18 @@ export async function shadowEvidence(pool: Pool, input: ShadowInput) {
 
 /** Postgres lock serializes dedupe, fleet concurrency, and UTC daily reservations. */
 export class RoutingShadowStore {
-  constructor(readonly pool: Pool) {}
+  constructor(
+    readonly pool: Pool,
+    private readonly onChanged?: (streamId: string) => void
+  ) {}
+  async changed(turnId: number) {
+    if (!this.onChanged) return;
+    const streams = await this.pool.query<{ stream_id: string }>(
+      `SELECT DISTINCT b.stream_id FROM blocks b JOIN routing_shadow_records r ON r.message_ids ? b.id::text OR (b.author_agent_id = r.agent_id AND b.data->>'turnEventId' = r.turn_id::text) WHERE r.turn_id = $1`,
+      [turnId]
+    );
+    for (const row of streams.rows) this.onChanged(row.stream_id);
+  }
   async prune() {
     await this.pool.query(
       "UPDATE routing_shadow_records SET status = 'interrupted' WHERE status = 'pending' AND created_at < now() - interval '10 seconds'"
@@ -309,6 +320,7 @@ export class RoutingShadowStore {
           `UPDATE routing_shadow_daily SET calls = calls + 1 WHERE day = (now() AT TIME ZONE 'UTC')::date`
         );
       await client.query("COMMIT");
+      void this.changed(input.turnRow.id).catch(() => {});
       return status;
     } catch (error) {
       await client.query("ROLLBACK");
@@ -322,6 +334,7 @@ export class RoutingShadowStore {
       `UPDATE routing_shadow_records SET status = $2, result = $3::jsonb || result WHERE turn_id = $1`,
       [turnId, status, JSON.stringify(result)]
     );
+    void this.changed(turnId).catch(() => {});
   }
   async summary() {
     const records = await this.pool.query<{ status: string; result: unknown }>(
@@ -639,6 +652,7 @@ export class RoutingShadow {
         "UPDATE routing_shadow_records SET result = result || jsonb_build_object('actualPlacement', $2::jsonb, 'applied', placement <> $2::jsonb) WHERE turn_id = $1 AND result->>'mode' = 'active'",
         [turnId, JSON.stringify(placement)]
       )
+      .then(() => this.store.changed(turnId))
       .catch(() => {});
   }
   /** Explicit Settings button; synthetic data only, including when mode is off. */

@@ -1,4 +1,8 @@
 import {
+  attachRoutingDiagnostics,
+  routingDiagnostic,
+} from "../src/chat/routing-diagnostics.js";
+import {
   estimateRoutingUsd,
   summarizeRouting,
 } from "../src/chat/routing-metrics.js";
@@ -719,7 +723,31 @@ describe("optional routing shadow", () => {
       input_tokens_details: { cached_tokens: 200, cache_write_tokens: 100 },
     };
     expect(estimateRoutingUsd(usage)).toBeCloseTo(0.0000845, 10);
-    expect(estimateRoutingUsd({ input_tokens: 1000 })).toBeNull();
+    expect(estimateRoutingUsd({ input_tokens: 1000 })).toBe(0.0001);
+    expect(
+      estimateRoutingUsd({ input_tokens: 1000, input_tokens_details: {} })
+    ).toBeNull();
+    expect(estimateRoutingUsd({ input_tokens: -1 })).toBeNull();
+    expect(
+      estimateRoutingUsd({ input_tokens: 10, total_tokens: 5 })
+    ).toBeNull();
+    expect(
+      estimateRoutingUsd({
+        input_tokens: 10,
+        output_tokens: 1,
+        total_tokens: 10,
+      })
+    ).toBeNull();
+    expect(
+      estimateRoutingUsd({ input_tokens: 10, output_tokens: -1 })
+    ).toBeNull();
+    expect(
+      estimateRoutingUsd({
+        input_tokens: 1,
+        input_tokens_details: { cached_tokens: 2, cache_write_tokens: 0 },
+      })
+    ).toBeNull();
+    expect(summarizeRouting([]).estimatedUsd).toBe(0);
     const parsed = parseShadowResponse({
       ...answer,
       usage: {
@@ -854,5 +882,116 @@ describe("optional routing shadow", () => {
       })
     ).toThrow();
     expect(parseShadowResponse(answer).usage).not.toHaveProperty("secret");
+  });
+});
+
+describe("routing feed diagnostics", () => {
+  it("batches opener evidence, refreshes shadow completion, scopes agents and expires retained data", async () => {
+    const source = await input("continue", false);
+    const opener = await svc.store.getById(
+      source.prompt.source === "chat" ? source.prompt.chatMessageId : ""
+    );
+    const unrelated = await svc.store.insert({
+      streamId: A,
+      toAgentId: A,
+      author: { kind: "user" },
+      text: "unrelated",
+    });
+    const changed = vi.fn();
+    const notifying = new RoutingShadowStore(pool, changed);
+    await notifying.reserve(
+      source,
+      { messageIds: [opener!.id], explicitThread: false },
+      25
+    );
+    const response = await svc.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      origin: "turn",
+      text: "threaded response",
+      threadId: opener!.id,
+      replyTo: opener!.id,
+      data: { turnEventId: source.turnRow.id },
+    });
+    const blocks = [opener!, unrelated, response];
+    await attachRoutingDiagnostics(pool, blocks);
+    expect(blocks[0].routing?.[0].status).toBe("pending");
+    expect(blocks[1].routing).toBeUndefined();
+    expect(blocks[2].routing?.[0].turnId).toBe(source.turnRow.id);
+    await notifying.finish(source.turnRow.id, "ok", {
+      ...parseShadowResponse(answer),
+      private: "secret",
+    });
+    await idle(async () => changed.mock.calls.length >= 2);
+    expect(changed).toHaveBeenCalledWith(A);
+    await attachRoutingDiagnostics(pool, blocks);
+    expect(blocks[0].routing?.[0]).toMatchObject({
+      choice: "home_root",
+      confidence: 0.8,
+      mode: "shadow",
+      actual: "Root",
+      reason: "Shadow only; default preserved",
+      costBasis: "uncached-estimate",
+    });
+    expect(JSON.stringify(blocks[0].routing)).not.toContain("secret");
+    await pool.query(
+      "UPDATE routing_shadow_records SET agent_id = 'other' WHERE turn_id = $1",
+      [source.turnRow.id]
+    );
+    await attachRoutingDiagnostics(pool, blocks);
+    expect(blocks[0].routing).toBeUndefined();
+    await pool.query(
+      "UPDATE routing_shadow_records SET agent_id = $2, created_at = now() - interval '15 days' WHERE turn_id = $1",
+      [source.turnRow.id, A]
+    );
+    await attachRoutingDiagnostics(pool, blocks);
+    expect(blocks[0].routing).toBeUndefined();
+  });
+  it("keeps actual route, model probabilities and confidence distinct with truthful policy reasons", () => {
+    const base = {
+      turn_id: 1,
+      agent_id: A,
+      status: "ok",
+      explicit_thread: false,
+      placement: {},
+      result: {
+        mode: "active",
+        choice: "initiating_discussion",
+        probabilities: [{ value: "initiating_discussion", probability: 0.95 }],
+        confidence: 0.81,
+        candidate: true,
+        actualPlacement: { streamId: A, threadId: "thread" },
+      },
+    };
+    expect(routingDiagnostic(base)).toMatchObject({
+      actual: "Thread",
+      confidence: 0.81,
+      probabilities: [{ value: "initiating_discussion", probability: 0.95 }],
+      reason: "Recommendation applied",
+    });
+    expect(routingDiagnostic({ ...base, explicit_thread: true })?.reason).toBe(
+      "Explicit route preserved"
+    );
+    expect(
+      routingDiagnostic({
+        ...base,
+        result: { ...base.result, confidence: 0.2 },
+      })?.reason
+    ).toBe("Below threshold; default preserved");
+    expect(routingDiagnostic({ ...base, status: "timeout" })?.reason).toBe(
+      "Timeout fallback"
+    );
+    expect(routingDiagnostic({ ...base, result: { mode: "off" } })).toBeNull();
+    expect(
+      summarizeRouting([
+        { status: "ok", result: { usage: { input_tokens: 1000 } } },
+        { status: "timeout", result: {} },
+      ])
+    ).toMatchObject({
+      knownEstimatedUsd: 0.0001,
+      unknownCostCalls: 1,
+      uncachedEstimateCalls: 1,
+      estimatedUsd: null,
+    });
   });
 });

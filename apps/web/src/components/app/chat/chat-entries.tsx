@@ -1,3 +1,4 @@
+import { RoutingDecision } from "./routing-decision";
 import { MessageThreadTap } from "./message-thread-tap";
 import { ConversationLocationLink } from "./conversation-location-link";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
@@ -1801,6 +1802,17 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
         <AttachmentList block={block} ctx={ctx} />
+        {block.routing?.length ? (
+          <div className="mt-1 flex flex-wrap gap-x-3">
+            {block.routing.map((diagnostic) => (
+              <RoutingDecision
+                key={`${diagnostic.agentId}:${diagnostic.turnId}`}
+                diagnostic={diagnostic}
+                agentName={agentDisplayName(diagnostic.agentId, ctx)}
+              />
+            ))}
+          </div>
+        ) : null}
         {/* Queue/failure actions are persistent callouts. Transient receipt
             feedback stays after the timestamp. */}
         <div
@@ -1937,6 +1949,17 @@ export const BlockView = memo(function BlockView({
       ) : null}
       {block.turn ? (
         <ConversationLocationLink turn={block.turn} homeId={block.streamId} />
+      ) : null}
+      {block.routing?.length ? (
+        <div className="flex flex-wrap gap-x-3 px-4 pb-1 pl-[60px]">
+          {block.routing.map((diagnostic) => (
+            <RoutingDecision
+              key={`${diagnostic.agentId}:${diagnostic.turnId}`}
+              diagnostic={diagnostic}
+              agentName={agentDisplayName(diagnostic.agentId, ctx)}
+            />
+          ))}
+        </div>
       ) : null}
       {failureNotice}
       <InputSurface block={block}>

@@ -14,23 +14,45 @@ const obj = (value: unknown): Record<string, unknown> =>
     : {};
 const count = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-export function estimateRoutingUsd(usage: unknown): number | null {
+export function routingCost(usage: unknown): {
+  usd: number | null;
+  basis: "cache-aware" | "uncached-estimate" | "unknown";
+} {
   const u = obj(usage);
   const details = obj(u.input_tokens_details);
   if (
     !count(u.input_tokens) ||
+    (u.output_tokens !== undefined && !count(u.output_tokens)) ||
+    (u.total_tokens !== undefined &&
+      (!count(u.total_tokens) ||
+        u.total_tokens < u.input_tokens ||
+        (count(u.output_tokens) &&
+          u.total_tokens !== u.input_tokens + u.output_tokens)))
+  )
+    return { usd: null, basis: "unknown" };
+  if (u.input_tokens_details === undefined)
+    return {
+      usd: (u.input_tokens * ROUTING_RATES.uncachedInputPerMillion) / 1_000_000,
+      basis: "uncached-estimate",
+    };
+  if (
     !count(details.cached_tokens) ||
     !count(details.cache_write_tokens) ||
     details.cached_tokens + details.cache_write_tokens > u.input_tokens
   )
-    return null;
-  return (
-    ((u.input_tokens - details.cached_tokens - details.cache_write_tokens) *
-      ROUTING_RATES.uncachedInputPerMillion +
-      details.cached_tokens * ROUTING_RATES.cachedInputPerMillion +
-      details.cache_write_tokens * ROUTING_RATES.cacheWritePerMillion) /
-    1_000_000
-  );
+    return { usd: null, basis: "unknown" };
+  return {
+    usd:
+      ((u.input_tokens - details.cached_tokens - details.cache_write_tokens) *
+        ROUTING_RATES.uncachedInputPerMillion +
+        details.cached_tokens * ROUTING_RATES.cachedInputPerMillion +
+        details.cache_write_tokens * ROUTING_RATES.cacheWritePerMillion) /
+      1_000_000,
+    basis: "cache-aware",
+  };
+}
+export function estimateRoutingUsd(usage: unknown): number | null {
+  return routingCost(usage).usd;
 }
 export function durationSummary(values: number[]) {
   const sorted = values
@@ -71,11 +93,12 @@ export function summarizeRouting(
         .filter((v): v is number => typeof v === "number")
     ),
     estimatedUsd:
-      known.length && known.length === costs.length
-        ? known.reduce((a, b) => a + b, 0)
-        : null,
-    knownEstimatedUsd: known.length ? known.reduce((a, b) => a + b, 0) : null,
+      known.length === costs.length ? known.reduce((a, b) => a + b, 0) : null,
+    knownEstimatedUsd: known.reduce((a, b) => a + b, 0),
     pricedCalls: known.length,
+    uncachedEstimateCalls: results.filter(
+      (r) => routingCost(r.usage).basis === "uncached-estimate"
+    ).length,
     unknownCostCalls: costs.length - known.length,
     rates: ROUTING_RATES,
   };

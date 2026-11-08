@@ -35,6 +35,7 @@ type Metrics = {
   knownEstimatedUsd: number | null;
   pricedCalls: number;
   unknownCostCalls: number;
+  uncachedEstimateCalls: number;
   rates: { date: string; source: string };
 };
 type Status = {
@@ -136,8 +137,9 @@ export function RoutingSettings(): JSX.Element {
             <p>
               Timing samples cover retained records (up to 14 days). Provider
               timing excludes local work; total active delay includes it. Cost
-              is a standard nonregional estimate, not billing. Missing
-              token/cache data is unknown.{" "}
+              is a standard nonregional estimate, not billing. Missing cache
+              breakdown uses an uncached-rate estimate; invalid or missing token
+              usage is unpriced.{" "}
               {metrics && (
                 <>
                   Known subtotal:{" "}
@@ -145,7 +147,8 @@ export function RoutingSettings(): JSX.Element {
                     ? "Unknown"
                     : `USD ${metrics.knownEstimatedUsd.toFixed(8)}`}{" "}
                   across {metrics.pricedCalls} priced calls;{" "}
-                  {metrics.unknownCostCalls} unknown.{" "}
+                  {metrics.unknownCostCalls} unpriced;{" "}
+                  {metrics.uncachedEstimateCalls} uncached estimates.{" "}
                   <a
                     className="underline"
                     href={metrics.rates.source}
@@ -297,9 +300,10 @@ export function RoutingSettings(): JSX.Element {
               </dd>
               <dt className="text-muted-foreground">Est. cost</dt>
               <dd>
-                {metrics.estimatedUsd === null
-                  ? "Unknown"
-                  : `USD ${metrics.estimatedUsd.toFixed(8)}`}
+                {`USD ${(metrics.knownEstimatedUsd ?? 0).toFixed(8)}`}
+                {metrics.unknownCostCalls > 0 &&
+                  ` + ${metrics.unknownCostCalls} unpriced`}
+                {metrics.uncachedEstimateCalls > 0 && " · uncached estimate"}
               </dd>
               {metrics.failures > 0 && (
                 <>

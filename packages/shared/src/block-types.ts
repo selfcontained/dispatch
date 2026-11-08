@@ -8,6 +8,7 @@
  */
 
 import type {
+  RoutingDiagnostic,
   ChatAttachment,
   ChatTurnEntry,
   ChatUserAttachmentInput,
@@ -470,6 +471,7 @@ export type Block = {
    * `settled` says whether the text is final.
    */
   turn?: ChatTurnEntry;
+  routing?: RoutingDiagnostic[];
   createdAt: string;
   updatedAt: string;
 } & BlockBody;
