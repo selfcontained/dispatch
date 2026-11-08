@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeAll, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { MessageThreadTap } from "./message-thread-tap";
 beforeAll(() => {
   class Pointer extends MouseEvent {
@@ -15,6 +15,12 @@ beforeAll(() => {
     }
   }
   window.PointerEvent = Pointer as typeof PointerEvent;
+});
+beforeEach(() => {
+  Object.defineProperty(Range.prototype, "getClientRects", {
+    configurable: true,
+    value: vi.fn(() => []),
+  });
 });
 afterEach(() => {
   cleanup();
@@ -148,3 +154,33 @@ it("cancels touch holds when text becomes selected", () => {
   vi.advanceTimersByTime(600);
   expect(long).not.toHaveBeenCalled();
 });
+
+it.each([true, false])(
+  "text-hit %s preserves native context behavior",
+  (overText) => {
+    vi.useFakeTimers();
+    vi.spyOn(Range.prototype, "getClientRects").mockReturnValue([
+      { left: 10, right: 100, top: 10, bottom: 30 },
+    ] as unknown as DOMRectList);
+    const long = vi.fn();
+    render(
+      <MessageThreadTap onLongPress={long}>
+        <p>Selectable words</p>
+      </MessageThreadTap>
+    );
+    const target = screen.getByText("Selectable words");
+    fireEvent.pointerDown(target, {
+      pointerType: "touch",
+      clientX: overText ? 20 : 120,
+      clientY: 20,
+    });
+    vi.advanceTimersByTime(600);
+    const context = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
+    target.dispatchEvent(context);
+    expect(context.defaultPrevented).toBe(!overText);
+    expect(long).toHaveBeenCalledTimes(overText ? 0 : 1);
+  }
+);

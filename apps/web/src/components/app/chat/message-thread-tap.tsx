@@ -5,6 +5,29 @@ const INTERACTIVE =
 const TAP_SLOP = 8;
 const HOLD_MS = 500;
 
+/** Text holds belong to native selection; only empty message space reacts. */
+function hitsText(root: HTMLElement, x: number, y: number): boolean {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (!node.textContent?.trim()) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    // If geometry is unavailable, prefer preserving native text behavior.
+    if (!range.getClientRects) return true;
+    for (const rect of Array.from(range.getClientRects())) {
+      if (
+        x >= rect.left &&
+        x <= rect.right &&
+        y >= rect.top &&
+        y <= rect.bottom
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
 /** Passive gesture classification; the existing reply button owns keyboard access. */
 export function MessageThreadTap({
   onOpen,
@@ -71,7 +94,12 @@ export function MessageThreadTap({
           released: false,
         };
         const tap = gesture.current;
-        if (tap.valid && event.pointerType === "touch" && onLongPress) {
+        if (
+          tap.valid &&
+          event.pointerType === "touch" &&
+          onLongPress &&
+          !hitsText(event.currentTarget, tap.x, tap.y)
+        ) {
           timer.current = setTimeout(() => {
             if (tap.valid && !tap.released && !selection()) {
               tap.valid = false;
