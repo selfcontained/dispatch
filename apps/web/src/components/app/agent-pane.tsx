@@ -1,3 +1,4 @@
+import { BackgroundWorkButton } from "./background-work-button";
 import { AgentChatNavigation } from "./agent-chat-navigation";
 import { useProjects } from "@/hooks/use-projects";
 import { ProjectIcon } from "./project-location";
@@ -173,6 +174,10 @@ export function AgentPane({
           ) : null}
           <div className="flex shrink-0 items-center gap-1">
             <PendingInputsButton key={agentId} agentId={agentId} />
+            <BackgroundWorkButton
+              key={`background-${agentId}`}
+              agentId={agentId}
+            />
             <ScheduledMessagesButton
               key={`schedules-${agentId}`}
               agentId={agentId}

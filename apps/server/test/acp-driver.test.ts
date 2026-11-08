@@ -51,6 +51,56 @@ function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
 }
 
 describe("AcpDriver", () => {
+  it.each(["claude", "codex"] as const)(
+    "reports %s work while idle and rejects wrong-session wires",
+    async (provider) => {
+      const fake = createFakeAcpAgent({ backgroundTasks: true });
+      const { driver } = driverWith(fake);
+      const events: DriverEvent[] = [];
+      driver.onEvent((event) => events.push(event));
+      const started = await driver.start(launch({}, provider));
+      try {
+        const notification = {
+          sessionUpdate: "async_task_spawned",
+          asyncTaskId: "task-1",
+          name: "watch",
+          taskType: provider === "claude" ? "monitor" : "shell",
+          showInTranscript: false,
+          canStop: provider !== "claude",
+        };
+        fake.wireUpdate("wrong-session", notification);
+        fake.wireUpdate(started.sessionId, notification);
+        fake.wireUpdate(started.sessionId, { ...notification, name: 7 });
+        await vi.waitFor(() =>
+          expect(driver.getBackgroundWork("agt_1").items).toHaveLength(1)
+        );
+        expect(driver.getBackgroundWork("agt_1")).toMatchObject({
+          status: "supported",
+          items: [{ id: "task-1", name: "watch", state: "running" }],
+        });
+        expect(events.some((e) => e.type === "turn")).toBe(false);
+        expect(
+          events.some((e) => (e as { type: string }).type === "background")
+        ).toBe(false);
+        fake.wireUpdate(started.sessionId, {
+          sessionUpdate: "async_task_state_update",
+          asyncTaskId: "task-1",
+          state: "completed",
+        });
+        await vi.waitFor(() =>
+          expect(driver.getBackgroundWork("agt_1").items).toHaveLength(0)
+        );
+        expect(
+          fake.seen.initialize[0]?.clientCapabilities?._meta
+        ).toMatchObject({
+          jetbrains: { air: { version: 1, capabilities: ["asyncTasks"] } },
+        });
+      } finally {
+        await driver.stop("agt_1");
+      }
+    }
+  );
+
   it.each(["low", "medium", "high", "xhigh", "max"] as const)(
     "passes Claude %s effort to SDK options on new and resumed sessions",
     async (effort) => {
@@ -572,6 +622,7 @@ describe("AcpDriver", () => {
     );
     expect(fake.seen.initialize[0].clientCapabilities?._meta).toEqual({
       "subagent-transcript": true,
+      jetbrains: { air: { version: 1, capabilities: ["asyncTasks"] } },
     });
     const req = fake.seen.newSession[0];
     expect(req.cwd).toBe("/tmp/w");
@@ -641,7 +692,9 @@ describe("AcpDriver", () => {
         }),
       })
     );
-    expect(fake.seen.initialize[0].clientCapabilities?._meta).toBeUndefined();
+    expect(fake.seen.initialize[0].clientCapabilities?._meta).toEqual({
+      jetbrains: { air: { version: 1, capabilities: ["asyncTasks"] } },
+    });
     expect(fake.seen.newSession[0]._meta).toBeUndefined();
     await driver.stop("agt_1");
   });
