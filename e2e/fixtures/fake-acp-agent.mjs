@@ -236,48 +236,6 @@ const agent = {
             }) + "\n"
           );
       }
-      if (text.includes("background-finish-fixture")) {
-        process.stdout.write(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              sessionId: params.sessionId,
-              update: {
-                sessionUpdate: "async_task_state_update",
-                asyncTaskId: "watch",
-                state: "completed",
-              },
-            },
-          }) + "\n"
-        );
-      }
-      if (text.includes("background-fixture")) {
-        // Raw extension wire: SDK 1.8 cannot send these through its typed union.
-        // Matches the pinned providers, without launching any command or model.
-        const report = (update) =>
-          process.stdout.write(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              method: "session/update",
-              params: { sessionId: params.sessionId, update },
-            }) + "\n"
-          );
-        report({
-          sessionUpdate: "async_task_spawned",
-          asyncTaskId: "watch",
-          name: "Watch build",
-          taskType: ENGINE === "claude" ? "monitor" : "shell",
-          canStop: ENGINE !== "claude",
-          showInTranscript: false,
-          toolCallId: "c1",
-        });
-        report({
-          sessionUpdate: "async_task_state_update",
-          asyncTaskId: "watch",
-          state: "paused",
-        });
-      }
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });

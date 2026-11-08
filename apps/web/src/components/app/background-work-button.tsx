@@ -1,7 +1,7 @@
 import "./background-work.css";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Pause, Radio, Terminal, X } from "lucide-react";
+import { Pause, Radio, Terminal, X } from "lucide-react";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -30,25 +30,22 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
   if (!agentId) return null;
   const available = !query.isError && query.data?.status === "supported";
   const items = available ? query.data!.items : [];
+  if (!items.length && !open) return null;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5"
-          aria-label={`Background work${items.length ? ` ${items.length}` : ""}`}
-        >
-          <Activity className="size-3.5" />
-          <span className="hidden sm:inline">Background work</span>
-          <span className="sm:hidden">Work</span>
-          {items.length > 0 && (
-            <span className="rounded bg-muted px-1 text-[11px] tabular-nums">
-              {items.length}
-            </span>
-          )}
-        </Button>
-      </DialogTrigger>
+      {items.length > 0 && (
+        <DialogTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={`Background work ${items.length}`}
+            title={`Background work (${items.length})`}
+          >
+            <Terminal className="size-4" aria-hidden="true" />
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent
         overlayClassName="background-work-overlay"
         className="background-work-dialog w-[min(440px,calc(100vw-2rem))] gap-2 p-3 font-sans text-foreground"
