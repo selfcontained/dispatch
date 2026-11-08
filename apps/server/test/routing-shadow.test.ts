@@ -499,10 +499,19 @@ describe("optional routing shadow", () => {
     );
     const original = { ...event.placement };
     expect(await experiment.route(event)).toBeUndefined();
+    experiment.frozen(event.turnRow.id, original);
     release();
     await finished();
+    await idle(async () => !!(await records())[0].result.actualPlacement);
     expect(event.placement).toEqual(original);
     expect((await records())[0].status).toBe("timeout");
+    expect((await records())[0].result).toMatchObject({
+      mode: "active",
+      actualPlacement: original,
+      applied: false,
+      totalRoutingDelayMs: expect.any(Number),
+    });
+    expect((await store.summary()).activeRouting.n).toBe(1);
     transport.mockClear();
     const delayedSettings = new RoutingShadow(
       async () => {
@@ -515,6 +524,76 @@ describe("optional routing shadow", () => {
     );
     expect(await delayedSettings.route(await input())).toBeUndefined();
     await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(transport).not.toHaveBeenCalled();
+  });
+  it("keeps elapsed and frozen metadata when cancellation finishes before the provider", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    transport.mockImplementation(async () => {
+      await gate;
+      return ok();
+    });
+    const event = await input("explain", false);
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport
+    );
+    const routing = experiment.route(event);
+    await idle(async () => transport.mock.calls.length === 1);
+    experiment.cancel(event.agentId);
+    expect(await routing).toBeUndefined();
+    experiment.frozen(event.turnRow.id, event.placement);
+    release();
+    await finished();
+    await idle(async () => !!(await records())[0].result.actualPlacement);
+    expect((await records())[0]).toMatchObject({
+      status: "timeout",
+      result: {
+        mode: "active",
+        applied: false,
+        actualPlacement: event.placement,
+        totalRoutingDelayMs: expect.any(Number),
+      },
+    });
+    expect((await store.summary()).activeRouting.n).toBe(1);
+  });
+  it("retains fallback diagnostics when reservation completes after the deadline", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reserve = store.reserve.bind(store);
+    const waiting = vi
+      .spyOn(store, "reserve")
+      .mockImplementation(async (...args) => {
+        await gate;
+        return reserve(...args);
+      });
+    const event = await input("explain", false);
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport,
+      100
+    );
+    const routing = experiment.route(event);
+    await idle(async () => waiting.mock.calls.length === 1);
+    expect(await routing).toBeUndefined();
+    experiment.frozen(event.turnRow.id, event.placement);
+    release();
+    await finished();
+    expect((await records())[0]).toMatchObject({
+      status: "timeout",
+      result: {
+        mode: "active",
+        actualPlacement: event.placement,
+        totalRoutingDelayMs: expect.any(Number),
+      },
+    });
+    expect((await store.summary()).activeRouting.n).toBe(1);
     expect(transport).not.toHaveBeenCalled();
   });
   it("persists masked product settings and gives environment overrides precedence", async () => {
@@ -546,6 +625,30 @@ describe("optional routing shadow", () => {
       enabled: true,
     });
   });
+  it.each(["invalid", ""])(
+    "keeps an explicit invalid mode %j off despite legacy opt-in",
+    async (mode) => {
+      const settings = new RoutingSettings(pool, {
+        DISPATCH_ROUTING_MODE: mode,
+        DISPATCH_ROUTING_SHADOW_ENABLED: "1",
+        DISPATCH_DECISIONS_API_KEY: "test-configured-secret",
+      });
+      expect(await settings.configuration()).toMatchObject({
+        mode: "off",
+        enabled: false,
+      });
+      expect(await settings.status()).toMatchObject({
+        mode: "off",
+        modeSource: "environment",
+      });
+      expect(
+        await new RoutingSettings(pool, {
+          DISPATCH_ROUTING_SHADOW_ENABLED: "1",
+          DISPATCH_DECISIONS_API_KEY: "test-configured-secret",
+        }).configuration()
+      ).toMatchObject({ mode: "shadow", enabled: true });
+    }
+  );
   it("checks a synthetic connection while off using the shared persistent request cap", async () => {
     const settings = new RoutingSettings(pool, {});
     await settings.save({ mode: "off", apiKey: "synthetic-secret" });

@@ -23,16 +23,18 @@ export function routingShadowConfig(
   env: NodeJS.ProcessEnv = process.env
 ): ShadowConfig {
   const cap = Number(env.DISPATCH_ROUTING_SHADOW_DAILY_CAP ?? 25);
-  return {
-    enabled:
-      ["shadow", "active"].includes(env.DISPATCH_ROUTING_MODE ?? "") ||
-      (!env.DISPATCH_ROUTING_MODE &&
-        env.DISPATCH_ROUTING_SHADOW_ENABLED === "1"),
-    mode: ["off", "shadow", "active"].includes(env.DISPATCH_ROUTING_MODE ?? "")
-      ? (env.DISPATCH_ROUTING_MODE as "off" | "shadow" | "active")
+  const explicitMode = env.DISPATCH_ROUTING_MODE;
+  const mode =
+    explicitMode !== undefined
+      ? explicitMode === "shadow" || explicitMode === "active"
+        ? explicitMode
+        : "off"
       : env.DISPATCH_ROUTING_SHADOW_ENABLED === "1"
         ? "shadow"
-        : "off",
+        : "off";
+  return {
+    enabled: mode !== "off",
+    mode,
     apiKey: env.DISPATCH_DECISIONS_API_KEY?.trim() ?? "",
     dailyCap: Number.isInteger(cap) && cap >= 0 && cap <= 100 ? cap : 0,
   };
@@ -258,7 +260,8 @@ export class RoutingShadowStore {
   async reserve(
     input: ShadowInput,
     evidence: { messageIds: string[]; explicitThread: boolean },
-    cap: number
+    cap: number,
+    mode: string = "shadow"
   ) {
     const client = await this.pool.connect();
     try {
@@ -288,7 +291,7 @@ export class RoutingShadowStore {
             ? "skipped_concurrency"
             : "pending";
       await client.query(
-        `INSERT INTO routing_shadow_records(turn_id,agent_id,message_ids,placement,explicit_thread,status,model,prompt_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO routing_shadow_records(turn_id,agent_id,message_ids,placement,explicit_thread,status,model,prompt_version,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           input.turnRow.id,
           input.agentId,
@@ -298,6 +301,7 @@ export class RoutingShadowStore {
           status,
           SHADOW_MODEL,
           SHADOW_PROMPT_VERSION,
+          JSON.stringify({ mode }),
         ]
       );
       if (status === "pending")
@@ -315,7 +319,7 @@ export class RoutingShadowStore {
   }
   async finish(turnId: number, status: string, result: unknown) {
     await this.pool.query(
-      `UPDATE routing_shadow_records SET status = $2, result = result || $3::jsonb WHERE turn_id = $1`,
+      `UPDATE routing_shadow_records SET status = $2, result = $3::jsonb || result WHERE turn_id = $1`,
       [turnId, status, JSON.stringify(result)]
     );
   }
@@ -433,6 +437,14 @@ export async function requestRoutingDecision(
 }
 
 export class RoutingShadow {
+  // Retained only while startup work can still finish after its deadline.
+  private readonly activeDiagnostics = new Map<
+    number,
+    {
+      totalRoutingDelayMs?: number;
+      actualPlacement?: ShadowInput["placement"];
+    }
+  >();
   private readonly controllers = new Map<
     number,
     { agentId: string; controller: AbortController }
@@ -475,6 +487,11 @@ export class RoutingShadow {
     input: ShadowInput
   ): Promise<ShadowInput["placement"] | undefined> {
     const routeStarted = Date.now();
+    const diagnostics: {
+      totalRoutingDelayMs?: number;
+      actualPlacement?: ShadowInput["placement"];
+    } = {};
+    this.activeDiagnostics.set(input.turnRow.id, diagnostics);
     const controller = new AbortController();
     this.controllers.set(input.turnRow.id, {
       agentId: input.agentId,
@@ -498,20 +515,27 @@ export class RoutingShadow {
         void this.run(input, config).catch(() => {});
         return;
       }
-      return this.run(input, config, controller.signal);
-    })().catch(() => undefined);
+      return this.run(input, config, controller.signal, diagnostics);
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        this.activeDiagnostics.delete(input.turnRow.id);
+      });
     try {
       return await Promise.race([task, deadline]);
     } finally {
       clearTimeout(timer);
       this.pendingTurns.delete(input.turnRow.id);
       this.controllers.delete(input.turnRow.id);
+      diagnostics.totalRoutingDelayMs = Date.now() - routeStarted;
       void this.store.pool
         .query(
           "UPDATE routing_shadow_records SET result = result || $2::jsonb WHERE turn_id = $1 AND result->>'mode' = 'active'",
           [
             input.turnRow.id,
-            JSON.stringify({ totalRoutingDelayMs: Date.now() - routeStarted }),
+            JSON.stringify({
+              totalRoutingDelayMs: diagnostics.totalRoutingDelayMs,
+            }),
           ]
         )
         .catch(() => {});
@@ -520,7 +544,11 @@ export class RoutingShadow {
   private async run(
     input: ShadowInput,
     config: ShadowConfig,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    diagnostics: {
+      totalRoutingDelayMs?: number;
+      actualPlacement?: ShadowInput["placement"];
+    } = {}
   ): Promise<ShadowInput["placement"] | undefined> {
     const evidence = await shadowEvidence(this.store.pool, input);
     if (!evidence || signal?.aborted) return;
@@ -538,12 +566,14 @@ export class RoutingShadow {
     const reservation = await this.store.reserve(
       input,
       evidence,
-      config.dailyCap
+      config.dailyCap,
+      config.mode ?? "shadow"
     );
     if (reservation !== "pending") return;
     if (signal?.aborted) {
       await this.store.finish(input.turnRow.id, "timeout", {
         mode: config.mode ?? "shadow",
+        ...diagnostics,
       });
       return;
     }
@@ -584,11 +614,14 @@ export class RoutingShadow {
         mode: config.mode ?? "shadow",
         candidate: !!selected && !signal?.aborted,
         applied: false,
+        ...diagnostics,
       }
     );
     return signal?.aborted ? undefined : selected;
   }
   frozen(turnId: number, placement: ShadowInput["placement"]) {
+    const diagnostics = this.activeDiagnostics.get(turnId);
+    if (diagnostics) diagnostics.actualPlacement = placement;
     void this.store.pool
       .query(
         "UPDATE routing_shadow_records SET result = result || jsonb_build_object('actualPlacement', $2::jsonb, 'applied', placement <> $2::jsonb) WHERE turn_id = $1 AND result->>'mode' = 'active'",
@@ -616,7 +649,8 @@ export class RoutingShadow {
     const reservation = await this.store.reserve(
       input,
       { messageIds: [], explicitThread: false },
-      config.dailyCap
+      config.dailyCap,
+      "connection_check"
     );
     if (reservation !== "pending") return { status: reservation };
     const decision = await requestRoutingDecision(
