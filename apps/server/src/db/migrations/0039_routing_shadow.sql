@@ -17,3 +17,5 @@ CREATE TABLE routing_shadow_records (
   result jsonb NOT NULL DEFAULT '{}'
 );
 CREATE INDEX routing_shadow_records_created ON routing_shadow_records(created_at DESC, turn_id DESC);
+
+CREATE SEQUENCE routing_shadow_synthetic_ids;

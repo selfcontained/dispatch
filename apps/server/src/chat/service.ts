@@ -225,7 +225,14 @@ export type StreamAgent = Pick<
 
 export type StreamServiceDeps = {
   routingShadow?: {
+    cancel?(agentId: string): void;
     observe(input: import("./routing-shadow.js").ShadowInput): void;
+    route?(
+      input: import("./routing-shadow.js").ShadowInput
+    ): Promise<
+      | { streamId: string; threadId: string | null; replyTo: string | null }
+      | undefined
+    >;
   };
   pool: Pool;
   onTaskActivity?: (taskId: string) => void;
@@ -3807,6 +3814,20 @@ export class StreamService {
         }
       }
     }
+    const shadowInput = {
+      ...input,
+      placement: { streamId, threadId, replyTo },
+    };
+    try {
+      const selected = await this.deps.routingShadow?.route?.(shadowInput);
+      if (selected) {
+        streamId = selected.streamId;
+        threadId = selected.threadId;
+        replyTo = selected.replyTo;
+      }
+    } catch {
+      /* Fail closed to existing placement. */
+    }
     const block = await this.store.insert({
       streamId,
       author: { kind: "agent", agentId: input.agentId },
@@ -3819,10 +3840,11 @@ export class StreamService {
     });
     // Observation receives frozen placement and cannot affect this return value.
     try {
-      this.deps.routingShadow?.observe({
-        ...input,
-        placement: { streamId, threadId, replyTo },
-      });
+      if (!this.deps.routingShadow?.route)
+        this.deps.routingShadow?.observe({
+          ...input,
+          placement: { streamId, threadId, replyTo },
+        });
     } catch {
       /* Optional diagnostics must never interrupt turn startup. */
     }
@@ -3978,10 +4000,15 @@ export class StreamService {
   }
 
   /** A turn settled or was cut: its current response takes its own text. */
+  cancelRouting(agentId: string): void {
+    this.deps.routingShadow?.cancel?.(agentId);
+  }
+
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
   }): Promise<void> {
+    this.cancelRouting(input.agentId);
     const blockId = input.turnRow.payload.blockId;
     if (typeof blockId !== "string") return;
     const streamId = await this.turnStreamOf(input.agentId, blockId);
@@ -4239,6 +4266,10 @@ export class StreamService {
             block.kind === "task"
               ? await this.taskReferenceText(block, agentId)
               : envelopeText(block),
+          serverFrozenRouting:
+            !!this.deps.routingShadow?.route &&
+            from.kind === "user" &&
+            !structuredAnswer,
           userThreadTurn:
             from.kind === "user" &&
             !!block.threadId &&

@@ -1,3 +1,4 @@
+import { RoutingSettings } from "./routing-settings";
 import { lazy, Suspense } from "react";
 import { Database, Server, Settings } from "lucide-react";
 
@@ -205,6 +206,9 @@ export function SettingsContent({
               onChange={onEnabledAgentTypesChange}
             />
             <EngineSignInSettings />
+            <div className="border-t border-border">
+              <RoutingSettings />
+            </div>
             <div className="border-t border-border">
               <PersonalitySettings />
             </div>

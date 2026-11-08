@@ -1,3 +1,4 @@
+import { RoutingIndicator } from "./routing-indicator";
 import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import {
   useCallback,
@@ -1431,6 +1432,9 @@ export function ChatPane({
             </AnimatePresence>
           </div>
 
+          <div className="relative h-0">
+            <RoutingIndicator streamId={rootId} active={active} />
+          </div>
           <div
             className={cn(
               "relative min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-3 pt-2 md:px-4 md:pt-3",

@@ -1,8 +1,5 @@
-import {
-  RoutingShadow,
-  RoutingShadowStore,
-  routingShadowConfig,
-} from "./chat/routing-shadow.js";
+import { RoutingSettings } from "./chat/routing-settings.js";
+import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
 import { registerRoutingShadowRoutes } from "./routes/routing-shadow.js";
 import { PullRequestRefresher } from "./agents/pull-request-refresher.js";
 import {
@@ -438,8 +435,9 @@ const authRuntime = createAuthRuntime({
 });
 const brainStore = new BrainStore(pool);
 const routingShadowStore = new RoutingShadowStore(pool);
+const routingSettings = new RoutingSettings(pool);
 const routingShadow = new RoutingShadow(
-  routingShadowConfig(),
+  () => routingSettings.configuration(),
   routingShadowStore
 );
 const streamService = new StreamService({
@@ -482,7 +480,10 @@ const streamService = new StreamService({
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
     activeTurn: (agentId) => agentManager.hasOpenTurn(agentId),
-    cancel: (agentId) => agentManager.cancelTurn(agentId),
+    cancel: (agentId) => {
+      routingShadow.cancel(agentId);
+      return agentManager.cancelTurn(agentId);
+    },
     controlQueuedPrompt: (ids, blockId, action) =>
       agentManager.controlQueuedPrompt(ids, blockId, action),
     interruptDelivery: (ids, blockId) =>
@@ -653,6 +654,7 @@ const updateRecoveryRuntime = createUpdateRecoveryRuntime({
 const recoveryMaintenance = updateRecoveryRuntime.maintenance;
 
 async function registerRoutes() {
+  await routingSettings.configuration();
   const cookieSecret = await getOrCreateCookieSecret(pool);
   const SESSION_COOKIE = sessionCookieName(cookieSecret);
   await app.register(fastifyCookie, { secret: cookieSecret });
@@ -919,7 +921,13 @@ async function registerRoutes() {
   );
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
-  await registerRoutingShadowRoutes(app, routingShadowStore, config.authToken);
+  await registerRoutingShadowRoutes(
+    app,
+    routingShadowStore,
+    config.authToken,
+    routingSettings,
+    routingShadow
+  );
   const shadowRetention = setInterval(
     () => {
       void routingShadowStore.prune().catch(() => {});

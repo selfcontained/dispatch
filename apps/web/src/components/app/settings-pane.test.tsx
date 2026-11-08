@@ -58,6 +58,7 @@ vi.mock(
   stubModule("EngineSignInSettings")
 );
 vi.mock("@/components/app/ide-settings", stubModule("IdeSettings"));
+vi.mock("./routing-settings", stubModule("RoutingSettings"));
 vi.mock(
   "@/components/app/instance-name-settings",
   stubModule("InstanceNameSettings")

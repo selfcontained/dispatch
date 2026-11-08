@@ -1,3 +1,6 @@
+import { RoutingSettings } from "../chat/routing-settings.js";
+import type { RoutingShadow } from "../chat/routing-shadow.js";
+import * as z from "zod/v4";
 import type { FastifyInstance } from "fastify";
 import { timingSafeEqual } from "node:crypto";
 import type { RoutingShadowStore } from "../chat/routing-shadow.js";
@@ -6,8 +9,57 @@ import type { RoutingShadowStore } from "../chat/routing-shadow.js";
 export async function registerRoutingShadowRoutes(
   app: FastifyInstance,
   store: RoutingShadowStore,
-  authToken: string
+  authToken: string,
+  settings?: RoutingSettings,
+  experiment?: RoutingShadow
 ) {
+  if (settings && experiment) {
+    app.get("/api/v1/experiments/routing/pending", async (request, reply) => {
+      const { streamId } = request.query as { streamId?: string };
+      reply.header("Cache-Control", "no-store");
+      if (typeof streamId !== "string" || streamId.length > 200)
+        return reply.code(400).send({ error: "streamId is required." });
+      return { pending: experiment.pending(streamId) };
+    });
+    app.get("/api/v1/experiments/routing/settings", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return settings.status();
+    });
+    app.put(
+      "/api/v1/experiments/routing/settings",
+      { bodyLimit: 8192 },
+      async (request, reply) => {
+        const parsed = z
+          .object({
+            mode: z.enum(["off", "shadow", "active"]).optional(),
+            apiKey: z
+              .string()
+              .trim()
+              .min(10)
+              .max(2048)
+              .regex(/^[\x21-\x7e]+$/)
+              .optional(),
+            removeKey: z.boolean().optional(),
+          })
+          .strict()
+          .safeParse(request.body);
+        if (!parsed.success || (parsed.data.apiKey && parsed.data.removeKey))
+          return reply.code(400).send({
+            error: "Provide a valid mode, API key, or removeKey action.",
+          });
+        reply.header("Cache-Control", "no-store");
+        return settings.save(parsed.data);
+      }
+    );
+    app.post("/api/v1/experiments/routing/check", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      try {
+        return await experiment.checkConnection();
+      } catch {
+        return { status: "error" };
+      }
+    });
+  }
   app.get("/api/v1/experiments/routing-shadow", async (request, reply) => {
     const header = request.headers.authorization;
     const token = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
@@ -24,9 +76,9 @@ export async function registerRoutingShadowRoutes(
     };
     if (
       (before !== undefined &&
-        (!/^\d+$/.test(before) ||
+        (!/^-?\d+$/.test(before) ||
           !Number.isSafeInteger(Number(before)) ||
-          Number(before) <= 0)) ||
+          Number(before) === 0)) ||
       (format !== undefined && format !== "jsonl")
     )
       return reply.code(400).send({

@@ -9,6 +9,7 @@ import {
 } from "vitest";
 import type { Pool } from "pg";
 import Fastify from "fastify";
+import { RoutingSettings } from "../src/chat/routing-settings.js";
 import { StreamService } from "../src/chat/service.js";
 import {
   RoutingShadow,
@@ -119,6 +120,9 @@ afterAll(teardownTestDb);
 beforeEach(async () => {
   await pool.query("TRUNCATE routing_shadow_records, routing_shadow_daily");
   await pool.query("DELETE FROM blocks");
+  await pool.query(
+    "DELETE FROM settings WHERE key IN ('routing_mode', 'routing_api_key')"
+  );
   store = new RoutingShadowStore(pool);
   svc = new StreamService({
     pool,
@@ -147,6 +151,7 @@ describe("optional routing shadow", () => {
     expect(routingShadowConfig({ OPENAI_API_KEY: "ordinary-key" })).toEqual({
       enabled: false,
       apiKey: "",
+      mode: "off",
       dailyCap: 25,
     });
     expect(
@@ -264,9 +269,11 @@ describe("optional routing shadow", () => {
     }
     const bounded = JSON.parse((await shadowEvidence(pool, event))!.input);
     expect(bounded.nearby).toHaveLength(3);
-    expect(bounded.nearby.every((text: string) => text.length === 500)).toBe(
-      true
-    );
+    expect(
+      bounded.nearby.every(
+        (entry: { text: string }) => entry.text.length === 500
+      )
+    ).toBe(true);
     const id = event.prompt.source === "chat" ? event.prompt.chatMessageId : "";
     await pool.query(
       `UPDATE blocks SET attachments = '[{"type":"file","caption":"private attachment"}]' WHERE id = $1`,
@@ -402,6 +409,200 @@ describe("optional routing shadow", () => {
         )
       ).rows[0].routing_shadow_observed
     ).toBe(true);
+  });
+  it("applies a confident active decision to a validated root-post discussion before first output", async () => {
+    const event = await input("explain", false);
+    transport.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            answers: [
+              {
+                type: "choice",
+                name: "destination",
+                choice: "initiating_discussion",
+                probabilities: [
+                  { value: "initiating_discussion", probability: 0.95 },
+                ],
+                confidence: 0.95,
+              },
+            ],
+          })
+        )
+    );
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport
+    );
+    const service = new StreamService({
+      pool,
+      routingShadow: experiment,
+      getAgent: async () => null,
+      filesRoot: "/tmp",
+      publishUiEvent: () => {},
+    });
+    const id = await service.recordTurnStarted(event);
+    const messageId =
+      event.prompt.source === "chat" ? event.prompt.chatMessageId : "";
+    expect(await service.store.getById(id!)).toMatchObject({
+      streamId: A,
+      threadId: messageId,
+      replyTo: messageId,
+    });
+    expect((await finished())[0].result).toMatchObject({
+      mode: "active",
+      applied: true,
+    });
+  });
+  it("keeps explicit threads and uncertain active choices in their existing placement", async () => {
+    const event = await input();
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport
+    );
+    expect(await experiment.route(event)).toBeUndefined();
+    expect((await finished())[0].result.applied).toBe(false);
+    const root = await input("explain", false);
+    transport.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            answers: [{ ...answer.answers[0], confidence: 0.2 }],
+          })
+        )
+    );
+    expect(await experiment.route(root)).toBeUndefined();
+    expect((await finished(2))[1].result.applied).toBe(false);
+  });
+  it("bounds the whole active path and ignores a late provider response", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    transport.mockImplementation(async () => {
+      await gate;
+      return ok();
+    });
+    const event = await input("explain", false);
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport,
+      40
+    );
+    const original = { ...event.placement };
+    expect(await experiment.route(event)).toBeUndefined();
+    release();
+    await finished();
+    expect(event.placement).toEqual(original);
+    expect((await records())[0].status).toBe("timeout");
+    transport.mockClear();
+    const delayedSettings = new RoutingShadow(
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        return { ...enabled, mode: "active" };
+      },
+      store,
+      transport,
+      10
+    );
+    expect(await delayedSettings.route(await input())).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(transport).not.toHaveBeenCalled();
+  });
+  it("persists masked product settings and gives environment overrides precedence", async () => {
+    const settings = new RoutingSettings(pool, {});
+    expect(await settings.status()).toMatchObject({
+      mode: "off",
+      configured: false,
+    });
+    await settings.save({ mode: "active", apiKey: "test-first-secret" });
+    expect(await new RoutingSettings(pool, {}).configuration()).toMatchObject({
+      mode: "active",
+      apiKey: "test-first-secret",
+      enabled: true,
+    });
+    await settings.save({ apiKey: "test-replacement-secret" });
+    expect(JSON.stringify(await settings.status())).not.toContain("secret");
+    const override = new RoutingSettings(pool, {
+      DISPATCH_DECISIONS_API_KEY: "environment-secret",
+      DISPATCH_ROUTING_MODE: "off",
+    });
+    expect(await override.configuration()).toMatchObject({
+      enabled: false,
+      mode: "off",
+      apiKey: "environment-secret",
+    });
+    await settings.save({ removeKey: true, mode: "shadow" });
+    expect(await new RoutingSettings(pool, {}).configuration()).toMatchObject({
+      apiKey: "",
+      enabled: true,
+    });
+  });
+  it("checks a synthetic connection while off using the shared persistent request cap", async () => {
+    const settings = new RoutingSettings(pool, {});
+    await settings.save({ mode: "off", apiKey: "synthetic-secret" });
+    const experiment = new RoutingShadow(
+      () => settings.configuration(),
+      store,
+      transport
+    );
+    expect((await experiment.checkConnection()).status).toBe("ok");
+    expect((await settings.status()).mode).toBe("off");
+    expect((await records())[0].agent_id).toBe("synthetic_connection_check");
+    const request = JSON.parse(transport.mock.calls[0]![1]!.body as string);
+    expect(request.input).not.toContain("original discussion");
+    const capped = new RoutingShadow(
+      { ...enabled, dailyCap: 1 },
+      store,
+      transport
+    );
+    expect((await capped.checkConnection()).status).toBe("skipped_daily_cap");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+  it("serves settings without secret readback and rejects invalid secret payloads", async () => {
+    const app = Fastify();
+    const settings = new RoutingSettings(pool, {});
+    const experiment = new RoutingShadow(
+      () => settings.configuration(),
+      store,
+      transport
+    );
+    await registerRoutingShadowRoutes(
+      app,
+      store,
+      "secret",
+      settings,
+      experiment
+    );
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/api/v1/experiments/routing/settings",
+      payload: { mode: "shadow", apiKey: "secret-product-key" },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.body).not.toContain("secret-product-key");
+    const read = await app.inject({
+      url: "/api/v1/experiments/routing/settings",
+    });
+    expect(read.json()).toMatchObject({
+      mode: "shadow",
+      configured: true,
+      storedKey: true,
+    });
+    expect(read.body).not.toContain("secret-product-key");
+    expect(
+      (
+        await app.inject({
+          method: "PUT",
+          url: "/api/v1/experiments/routing/settings",
+          payload: { apiKey: "invalid\nsecret" },
+        })
+      ).statusCode
+    ).toBe(400);
+    await app.close();
   });
   it("rejects invalid probabilities and discards unknown provider fields", () => {
     expect(() =>

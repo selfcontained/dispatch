@@ -75,6 +75,7 @@ describe("block_reactions uniqueness migration", () => {
 
 /** Rewinds task migrations, which depend on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
+  await pool.query("DROP SEQUENCE IF EXISTS routing_shadow_synthetic_ids");
   await pool.query(
     "DROP TABLE IF EXISTS routing_shadow_records, routing_shadow_daily"
   );
