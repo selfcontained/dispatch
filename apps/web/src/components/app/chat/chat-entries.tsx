@@ -551,23 +551,25 @@ function AvatarFace({
  */
 export function AuthorMeta({
   author,
+  children,
 }: {
   author: PostAuthor;
+  children?: ReactNode;
 }): JSX.Element | null {
   if (author.kind === "user") return null;
   const engine = agentTypeLabel(author.agentType);
   const model = author.model ? (author.modelLabel ?? author.model) : null;
   const relation =
     author.relation && author.relation !== "agent" ? author.relation : null;
-  if (!engine && !model && !relation) return null;
+  if (!engine && !model && !relation && !children) return null;
   return (
     <span
-      className="flex basis-full flex-wrap items-center gap-1 leading-4"
+      className="flex min-w-0 basis-full flex-wrap items-center gap-1 leading-4 [&:has([data-testid=turn-source-discussion])]:flex-nowrap"
       data-testid="chat-author-meta"
     >
       {engine ? (
         <span
-          className="rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium text-muted-foreground"
+          className="shrink-0 rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium text-muted-foreground"
           data-testid="chat-author-engine"
         >
           {engine}
@@ -575,7 +577,7 @@ export function AuthorMeta({
       ) : null}
       {model ? (
         <span
-          className="max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 text-[10px] text-muted-foreground"
+          className="min-w-0 max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 text-[10px] text-muted-foreground"
           title={author.model ?? undefined}
           data-testid="chat-author-model"
         >
@@ -583,6 +585,7 @@ export function AuthorMeta({
         </span>
       ) : null}
       {relation ? <AgentRelationBadge relation={relation} /> : null}
+      {children}
     </span>
   );
 }
@@ -674,6 +677,7 @@ export function Post({
   side,
   action,
   deliveryIndicator,
+  contextLink,
   flush = false,
   children,
   ...rest
@@ -692,6 +696,8 @@ export function Post({
   action?: ReactNode;
   /** A receipt after the timestamp, with a fixed slot that preserves header layout. */
   deliveryIndicator?: ReactNode;
+  /** Compact navigation identifying the input that prompted this post. */
+  contextLink?: ReactNode;
   /**
    * No avatar gutter and a narrower inset: for a card that is the whole
    * subject of a narrow panel (a review in the drawer) and wants the width.
@@ -771,7 +777,7 @@ export function Post({
           </div>
         ) : null}
         {grouped ? (
-          deliveryIndicator ? (
+          deliveryIndicator || contextLink ? (
             <div
               className={cn(
                 "flex items-center leading-tight",
@@ -781,7 +787,8 @@ export function Post({
               )}
               data-testid="chat-grouped-receipt-header"
             >
-              {timestamp}
+              {deliveryIndicator ? timestamp : null}
+              {contextLink}
             </div>
           ) : null
         ) : (
@@ -848,7 +855,7 @@ export function Post({
                 {action}
               </div>
             ) : null}
-            <AuthorMeta author={author} />
+            <AuthorMeta author={author}>{contextLink}</AuthorMeta>
           </div>
         )}
         <div
@@ -1860,18 +1867,21 @@ export const BlockView = memo(function BlockView({
   if (block.turn && !inThread && isPendingTurn(block, block.turn, folded)) {
     return (
       <>
-        <ConversationLocationLink
-          turn={block.turn}
-          homeId={block.streamId}
-          threadId={inThread ? block.threadId : null}
-        />
         <PendingTurnLine
           block={block}
           turn={block.turn}
           name={author.name}
           identity={
             author.agentId ? (
-              <AgentSessionLink agentId={author.agentId} name={author.name} />
+              <>
+                <AgentSessionLink agentId={author.agentId} name={author.name} />
+                <span className="ml-2">
+                  <ConversationLocationLink
+                    turn={block.turn}
+                    homeId={block.streamId}
+                  />
+                </span>
+              </>
             ) : undefined
           }
           avatar={<Avatar author={author} size="sm" />}
@@ -1916,6 +1926,15 @@ export const BlockView = memo(function BlockView({
       data-block-id={block.id}
       action={agentAction}
       deliveryIndicator={deliveryIndicator}
+      contextLink={
+        block.turn ? (
+          <ConversationLocationLink
+            turn={block.turn}
+            homeId={block.streamId}
+            threadId={inThread ? block.threadId : null}
+          />
+        ) : undefined
+      }
     >
       {mirroredInput ? (
         <SourceMessageLink
@@ -1937,13 +1956,6 @@ export const BlockView = memo(function BlockView({
               : block.threadId
           }
           multiple={block.data.responseTo.length > 1}
-        />
-      ) : null}
-      {block.turn ? (
-        <ConversationLocationLink
-          turn={block.turn}
-          homeId={block.streamId}
-          threadId={inThread ? block.threadId : null}
         />
       ) : null}
       {failureNotice}

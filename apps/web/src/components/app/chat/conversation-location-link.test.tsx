@@ -88,14 +88,18 @@ it.each([
       </MemoryRouter>
     );
     expect(
-      screen.queryByRole("link", { name: "View original message" }) !== null
+      screen.queryByRole("link", { name: "Source: View original message" }) !==
+        null
     ).toBe(visible);
   }
 );
 it.each([
-  [{ ...source }, "View original message"],
-  [{ streamId: "home", threadId: "discussion" }, "View original discussion"],
-  [{ streamId: "other", threadId: null }, "View original conversation"],
+  [{ ...source }, "Source: View original message"],
+  [
+    { streamId: "home", threadId: "discussion" },
+    "Source: View original discussion",
+  ],
+  [{ streamId: "other", threadId: null }, "Source: View original conversation"],
 ] as const)("labels the actual destination %#", (sourceConversation, label) => {
   const turn = turnEntry({ turn: { sourceConversation } }).block.turn!;
   render(
