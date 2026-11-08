@@ -466,6 +466,7 @@ export class RoutingShadow {
       streamId: string;
       threadId: string | null;
       startedAt: number;
+      deadlineAt: number;
     }
   >();
   pending(streamId: string) {
@@ -518,7 +519,13 @@ export class RoutingShadow {
         void this.run(input, config).catch(() => {});
         return;
       }
-      return this.run(input, config, controller.signal, diagnostics);
+      return this.run(
+        input,
+        config,
+        controller.signal,
+        diagnostics,
+        routeStarted
+      );
     })()
       .catch(() => undefined)
       .finally(() => {
@@ -551,7 +558,8 @@ export class RoutingShadow {
     diagnostics: {
       totalRoutingDelayMs?: number;
       actualPlacement?: ShadowInput["placement"];
-    } = {}
+    } = {},
+    routeStarted = Date.now()
   ): Promise<ShadowInput["placement"] | undefined> {
     const evidence = await shadowEvidence(this.store.pool, input);
     if (!evidence || signal?.aborted) return;
@@ -559,7 +567,8 @@ export class RoutingShadow {
       const conversation = input.prompt.conversation ?? input.placement;
       this.pendingTurns.set(input.turnRow.id, {
         turnId: input.turnRow.id,
-        startedAt: Date.now(),
+        startedAt: routeStarted,
+        deadlineAt: routeStarted + this.timeoutMs,
         streamId: conversation.streamId,
         threadId: conversation.threadId,
       });

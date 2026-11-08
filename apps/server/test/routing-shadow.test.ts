@@ -792,7 +792,11 @@ describe("optional routing shadow", () => {
       streamId: A,
       threadId: null,
       startedAt: expect.any(Number),
+      deadlineAt: expect.any(Number),
     });
+    expect(
+      experiment.pending(A)[0]!.deadlineAt - experiment.pending(A)[0]!.startedAt
+    ).toBe(3000);
     expect(experiment.pending("other-stream")).toEqual([]);
     experiment.cancel(A);
     expect(await task).toBeUndefined();
