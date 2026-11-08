@@ -22,6 +22,8 @@ Read `apps/server/src/agents/manager.ts`, `agents/acp/`, `shared/git/`, and the 
 
 - Trace launch configuration from form through route to engine: model, access ceiling, workspace, and worktree-local overrides must agree. Personality settings must propagate to the intended prompt/session without changing unrelated agents.
 
+- Background visibility is a current-session host-memory snapshot, never a database or journal/history projection. Negotiate only the pinned asyncTasks extension and retain ordinary SDK validation. Gate reports and snapshot replies to the owning connection/session; old hosts without the snapshot RPC must remain unsupported. Show only reported commands/monitors, remove terminal work, and bound transient bookkeeping without inferring running for lost identities. Idle or absent output never proves termination. Never read outputFilePath metadata or add process controls as a fallback.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

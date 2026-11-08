@@ -284,6 +284,7 @@ async function main(): Promise<void> {
           resumed,
           running,
           mcpInventorySupported: driver.supportsMcpInventory(agentId),
+          backgroundWorkSupported: true,
           steeringSupported: driver.supportsSteering(agentId),
           interruptSupported: true,
           turn: openTurn,
@@ -303,6 +304,18 @@ async function main(): Promise<void> {
         }
         if (startupError)
           send(socket, { type: "error", message: startupError });
+        return;
+      }
+      case "background_work": {
+        const result =
+          running && message.sessionId === sessionId
+            ? driver.getBackgroundWork(agentId)
+            : { status: "offline" as const, items: [] };
+        send(socket, {
+          type: "background_work_result",
+          id: message.id,
+          result,
+        });
         return;
       }
       case "mcp_inventory": {
@@ -550,6 +563,7 @@ async function main(): Promise<void> {
       resumed,
       running,
       mcpInventorySupported: driver.supportsMcpInventory(agentId),
+      backgroundWorkSupported: true,
       steeringSupported: driver.supportsSteering(agentId),
       interruptSupported: true,
       turn: null,

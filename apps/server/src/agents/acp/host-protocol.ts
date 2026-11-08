@@ -1,3 +1,4 @@
+import type { BackgroundSnapshot } from "@dispatch/shared";
 import type { Effort } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentPermissionRequest } from "@dispatch/shared";
@@ -90,6 +91,7 @@ export type ClientMessage =
   | { type: "set_config"; id: string; configId: string; value: string }
   | { type: "shutdown"; force?: boolean }
   | { type: "mcp_inventory"; id: string; sessionId: string }
+  | { type: "background_work"; id: string; sessionId: string }
   | { type: "ping" };
 
 export type HostMessage =
@@ -104,6 +106,8 @@ export type HostMessage =
       running: boolean;
       /** Absent on older hosts: keep queuing when they cannot steer. */
       mcpInventorySupported?: boolean;
+      /** Host snapshot RPC, absent on older hosts. */
+      backgroundWorkSupported?: boolean;
       steeringSupported?: boolean;
       /** Targeted cancellation with an explicit completion response. */
       interruptSupported?: boolean;
@@ -135,6 +139,7 @@ export type HostMessage =
       id: string;
       result: AgentMcpInventoryResponse;
     }
+  | { type: "background_work_result"; id: string; result: BackgroundSnapshot }
   | { type: "pong" };
 
 /**

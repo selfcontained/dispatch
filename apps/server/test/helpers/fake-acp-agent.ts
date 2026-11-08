@@ -32,6 +32,7 @@ export function createFakeAcpAgent(
     ) => Promise<Record<string, unknown>>;
     initialize?: () => Promise<void>;
     supportsImages?: boolean;
+    backgroundTasks?: boolean;
     pickupReceipts?: boolean;
     promptReceipts?: boolean;
     steer?: (
@@ -125,6 +126,13 @@ export function createFakeAcpAgent(
         },
         authMethods: [],
         _meta: {
+          ...(opts.backgroundTasks
+            ? {
+                jetbrains: {
+                  air: { version: 1, capabilities: ["asyncTasks"] },
+                },
+              }
+            : {}),
           ...(opts.inventory
             ? { "dispatch/mcpInventory": { version: 1 } }
             : {}),
@@ -214,6 +222,14 @@ export function createFakeAcpAgent(
   connection = new acp.AgentSideConnection(() => agent, stream);
   return {
     child,
+    wireUpdate: (sessionId: string, update: unknown) =>
+      fromAgent.write(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId, update },
+        }) + "\n"
+      ),
     seen,
     signals,
     emit: (sessionId: string, update: acp.SessionUpdate) =>

@@ -25,6 +25,8 @@ Trace the affected producer, stored message, route, and browser consumer in `age
 
 - Portfolio exports require matching explicit project membership for both outcome author and stream (agent or task), including child threads and archived sources. Bounded snapshots must replay stable pages and label missing/purged evidence rather than imply complete history.
 
+- Background work is a bounded live host-memory snapshot, separate from transcript and host journal events. Terminal reports remove current rows; a transient ID-only guard prevents late metadata from recreating finished work. No database projection/history/output retention should be added. Disconnection must return unavailable/offline rather than claim prior rows remain current.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

@@ -104,6 +104,9 @@ const agent = {
       },
       authMethods: [],
       _meta: {
+        ...(ENGINE === "claude" || ENGINE === "codex"
+          ? { jetbrains: { air: { version: 1, capabilities: ["asyncTasks"] } } }
+          : {}),
         "dispatch/mcpInventory": { version: 1 },
         steering: { supported: true },
         "dispatch/steering": { pickupReceipts: true, promptReceipts: true },
@@ -201,6 +204,38 @@ const agent = {
       const text = params.prompt
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");
+      if (text.includes("background-preview-fixture")) {
+        for (const update of [
+          {
+            sessionUpdate: "async_task_spawned",
+            asyncTaskId: "watch",
+            name: "Watch deployment",
+            taskType: ENGINE === "claude" ? "monitor" : "shell",
+            showInTranscript: false,
+            canStop: ENGINE !== "claude",
+          },
+          {
+            sessionUpdate: "async_task_spawned",
+            asyncTaskId: "logs",
+            name: "Sync preview logs",
+            taskType: "shell",
+            showInTranscript: false,
+            canStop: true,
+          },
+          {
+            sessionUpdate: "async_task_state_update",
+            asyncTaskId: "logs",
+            state: "paused",
+          },
+        ])
+          process.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              method: "session/update",
+              params: { sessionId: params.sessionId, update },
+            }) + "\n"
+          );
+      }
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });
