@@ -1,3 +1,4 @@
+import { MessageActions } from "./message-actions";
 import { MessageThreadTap } from "./message-thread-tap";
 import { ConversationLocationLink } from "./conversation-location-link";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
@@ -70,7 +71,6 @@ import {
   POST_ACTION_BUTTON,
   POST_ACTION_FACE,
   ReactionBar,
-  ReactionPickerButton,
 } from "./chat-reactions";
 
 /** "10:04 AM" — the wall-clock time a channel shows next to a post. */
@@ -1640,22 +1640,26 @@ export const BlockView = memo(function BlockView({
     block.kind === "text" && !inThread && ctx.onOpenThread
       ? () => ctx.onOpenThread?.(mirroredInput ? block.threadId! : block.id)
       : undefined;
-  const replyAction =
-    !inThread && ctx.onOpenThread ? (
-      <ReplyInThreadButton
-        onClick={() =>
-          ctx.onOpenThread?.(mirroredInput ? block.threadId! : block.id)
-        }
-      />
-    ) : null;
   const copyText = block.turn ? turnAnswerText(block, block.turn) : block.text;
-  const copyAction =
-    copyText || replyAction ? (
-      <div className="flex items-center">
-        {replyAction}
-        {copyText ? <MessageCopyButton text={copyText} /> : null}
-      </div>
-    ) : undefined;
+  const postActions = (
+    <MessageActions
+      block={block}
+      copy={copyText ? <MessageCopyButton text={copyText} /> : undefined}
+      senderName={author.name}
+      agentName={(id) => agentDisplayName(id, ctx)}
+      onReply={
+        !inThread && ctx.onOpenThread
+          ? () => ctx.onOpenThread?.(mirroredInput ? block.threadId! : block.id)
+          : undefined
+      }
+      onReact={
+        ctx.onToggleReaction
+          ? (emoji, remove) => ctx.onToggleReaction?.(block.id, emoji, remove)
+          : undefined
+      }
+      reactionsDisabled={false}
+    />
+  );
   const settledParentRequest =
     (block.kind === "question" || block.kind === "form") &&
     block.data.parentHandled === true &&
@@ -1786,7 +1790,7 @@ export const BlockView = memo(function BlockView({
         data-origin={block.origin}
         data-launched-by={block.launchedByAgentId}
         data-block-id={block.id}
-        action={copyAction}
+        action={postActions}
         deliveryIndicator={deliveryIndicator}
       >
         {block.text ? (
@@ -1856,6 +1860,13 @@ export const BlockView = memo(function BlockView({
         <ReactionBar
           reactions={reactions}
           agentName={ctx.agentName || "Agent"}
+          local
+          onToggle={
+            ctx.onToggleReaction
+              ? (emoji, remove) =>
+                  ctx.onToggleReaction?.(block.id, emoji, remove)
+              : undefined
+          }
         />
         {threadLine}
       </Post>
@@ -1902,18 +1913,6 @@ export const BlockView = memo(function BlockView({
   // Adding a reaction is delivered like a message, so the picker is disabled
   // whenever a message could not be sent; taking one back off never needs
   // the agent.
-  const agentAction = (
-    <div className="flex items-center gap-0.5">
-      {toggleReaction ? (
-        <ReactionPickerButton
-          reactions={reactions}
-          onToggle={toggleReaction}
-          disabled={answersDisabled}
-        />
-      ) : null}
-      {copyAction}
-    </div>
-  );
 
   return (
     <Post
@@ -1928,7 +1927,7 @@ export const BlockView = memo(function BlockView({
       data-origin={block.origin}
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
-      action={agentAction}
+      action={postActions}
       deliveryIndicator={deliveryIndicator}
       contextLink={
         block.turn ? (
@@ -2034,6 +2033,7 @@ export const BlockView = memo(function BlockView({
       <ReactionBar
         reactions={reactions}
         agentName={author.name}
+        local={block.author.kind !== "agent"}
         onToggle={toggleReaction}
       />
       {threadLine}

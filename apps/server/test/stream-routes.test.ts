@@ -1084,7 +1084,7 @@ describe("stream reaction routes (inert runtime)", () => {
     expect(res.json()).toEqual({ blockId: block.id, reactions: [] });
   });
 
-  it("400s a bad emoji or block id and 404s a block that takes no reaction", async () => {
+  it("validates reactions and allows users to react to their own messages", async () => {
     const block = await agentPost();
     const userPost = await store.insert({
       streamId: agentId,
@@ -1101,7 +1101,7 @@ describe("stream reaction routes (inert runtime)", () => {
     expect((await post(block.id, { emoji: "nice" })).statusCode).toBe(400);
     expect((await post(block.id, {})).statusCode).toBe(400);
     expect((await post("nope", { emoji: "👍" })).statusCode).toBe(400);
-    expect((await post(userPost.id, { emoji: "👍" })).statusCode).toBe(404);
+    expect((await post(userPost.id, { emoji: "👍" })).statusCode).toBe(200);
     const other = await authedInject(
       "POST",
       `/api/v1/streams/agt_nope/blocks/${block.id}/reactions`,

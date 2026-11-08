@@ -1,3 +1,6 @@
+import { RoutingSettings } from "./chat/routing-settings.js";
+import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
+import { registerRoutingShadowRoutes } from "./routes/routing-shadow.js";
 import { PullRequestRefresher } from "./agents/pull-request-refresher.js";
 import {
   registerPortfolioBoundary,
@@ -431,7 +434,23 @@ const authRuntime = createAuthRuntime({
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
 const brainStore = new BrainStore(pool);
+const routingShadowStore = new RoutingShadowStore(pool, (agentId) => {
+  uiEventBroker.publish({
+    type: "routing.metadata_changed",
+    streamId: agentId,
+  });
+});
+const routingSettings = new RoutingSettings(pool);
+const routingShadow = new RoutingShadow(
+  () => routingSettings.configuration(),
+  routingShadowStore,
+  fetch,
+  3000,
+  (streamId, pending) =>
+    uiEventBroker.publish({ type: "routing.pending", streamId, pending })
+);
 const streamService = new StreamService({
+  routingShadow,
   onTaskActivity: (id) => taskWatches.schedule(id),
   pool,
   publishUiEvent: (event) => {
@@ -470,7 +489,10 @@ const streamService = new StreamService({
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
     activeTurn: (agentId) => agentManager.hasOpenTurn(agentId),
-    cancel: (agentId) => agentManager.cancelTurn(agentId),
+    cancel: (agentId) => {
+      routingShadow.cancel(agentId);
+      return agentManager.cancelTurn(agentId);
+    },
     controlQueuedPrompt: (ids, blockId, action) =>
       agentManager.controlQueuedPrompt(ids, blockId, action),
     interruptDelivery: (ids, blockId) =>
@@ -641,6 +663,7 @@ const updateRecoveryRuntime = createUpdateRecoveryRuntime({
 const recoveryMaintenance = updateRecoveryRuntime.maintenance;
 
 async function registerRoutes() {
+  await routingSettings.configuration();
   const cookieSecret = await getOrCreateCookieSecret(pool);
   const SESSION_COOKIE = sessionCookieName(cookieSecret);
   await app.register(fastifyCookie, { secret: cookieSecret });
@@ -907,6 +930,41 @@ async function registerRoutes() {
   );
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
+  await registerRoutingShadowRoutes(
+    app,
+    routingShadowStore,
+    config.authToken,
+    routingSettings,
+    routingShadow,
+    async (request) => {
+      if (
+        process.env.DISPATCH_DEV_STACK === "1" &&
+        !(await authRuntime.isPasswordSetCached())
+      )
+        return true;
+      const header = request.headers.authorization;
+      if (
+        header?.startsWith("Bearer ") &&
+        shouldAcceptApiBearerToken(header.slice(7), config.authToken)
+      )
+        return true;
+      return (
+        (await authRuntime.isPasswordSetCached()) &&
+        (await canManageEngineUpdates(request))
+      );
+    },
+    (event) => uiEventBroker.publish(event)
+  );
+  const shadowRetention = setInterval(
+    () => {
+      void routingShadowStore.prune().catch(() => {});
+    },
+    60 * 60 * 1000
+  );
+  shadowRetention.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(shadowRetention);
+  });
 
   await registerPluginRoutes(app, { pool, config, appLog: app.log });
 

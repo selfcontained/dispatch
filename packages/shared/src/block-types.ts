@@ -8,6 +8,7 @@
  */
 
 import type {
+  RoutingDiagnostic,
   ChatAttachment,
   ChatTurnEntry,
   ChatUserAttachmentInput,
@@ -382,7 +383,11 @@ export type BlockDelivery = {
   agentId: string;
   state: BlockDeliveryState;
   /** Runtime-confirmed receipt for a normal prompt or active-turn steering. */
-  receipt?: { pickedUpAt: string | null; deliveredAt?: string };
+  receipt?: {
+    pickedUpAt: string | null;
+    deliveredAt?: string;
+    mode?: "steering" | "prompt";
+  };
 };
 
 /** Receipt-backed display only. Never accepted from post/update data. */
@@ -470,6 +475,7 @@ export type Block = {
    * `settled` says whether the text is final.
    */
   turn?: ChatTurnEntry;
+  routing?: RoutingDiagnostic[];
   createdAt: string;
   updatedAt: string;
 } & BlockBody;

@@ -502,3 +502,33 @@ export const CHAT_ATTACHMENTS_MAX = 20;
 export const CHAT_QUESTION_OPTIONS_MAX = 10;
 /** Distinct emoji one message can carry. */
 export const CHAT_REACTIONS_MAX = 20;
+
+/** Sanitized retained routing evidence; no prompt text or provider errors. */
+export type RoutingDiagnostic = {
+  turnId: number;
+  agentId: string;
+  mode: "active" | "shadow";
+  status: string;
+  actual: "Thread" | "Root" | "Unknown";
+  reason: string;
+  choice?: "initiating_discussion" | "home_root" | "keep_existing_default";
+  probabilities: { value: string; probability: number }[];
+  confidence?: number;
+  latencyMs?: number;
+  inputTokens?: number;
+  cachedReadTokens?: number;
+  cacheWriteTokens?: number;
+  costUsd: number | null;
+  costBasis: "cache-aware" | "uncached-estimate" | "unknown";
+};
+
+/** Ephemeral active routing lifecycle, scoped to the initiating message(s). */
+export type RoutingPending = {
+  turnId: number;
+  agentId: string;
+  streamId: string;
+  threadId: string | null;
+  messageIds: string[];
+  startedAt: number;
+  deadlineAt: number;
+};

@@ -376,8 +376,13 @@ export class StreamRecorder {
       prompt,
     });
     if (!blockId) return;
-    row.payload = { ...row.payload, blockId };
-    await this.store.updatePayload(row.id, row.payload);
+    // Routing can finish after stop/archive/restart has already settled the
+    // durable turn. Attach only the pointer, preserving that settlement.
+    const updated = await this.store.patchTurnPayload(row.id, { blockId });
+    row.payload = updated.payload;
+    if (row.payload.state === "settled") {
+      await this.settleTurnBlock(agentId, updated);
+    }
   }
 
   private async settleTurnBlock(
@@ -526,13 +531,11 @@ export class StreamRecorder {
         const error = cut ? STOPPED_ON_REQUEST : event.error;
         const open = this.openTurn.get(event.agentId);
         if (open) {
-          const prev = open.payload as TurnPayload;
           const retryable =
             !cut &&
             !!event.error &&
             RETRYABLE_ERROR_KINDS.has(event.errorKind ?? "");
-          await this.store.updatePayload(open.id, {
-            ...prev,
+          const updated = await this.store.patchTurnPayload(open.id, {
             state: "settled",
             ...(event.stopReason ? { stopReason: event.stopReason } : {}),
             ...(error ? { error } : {}),
@@ -540,9 +543,10 @@ export class StreamRecorder {
             ...(retryable ? { retry: "open" as const } : {}),
             ...(event.usage ? { tokens: turnTokens(event.usage) } : {}),
             endedAt: new Date().toISOString(),
-          } satisfies TurnPayload);
+          } satisfies Partial<TurnPayload>);
           this.openTurn.delete(event.agentId);
-          await this.settleTurnBlock(event.agentId, open);
+          open.payload = updated.payload;
+          await this.settleTurnBlock(event.agentId, updated);
         }
         if (event.error && !cut) {
           await this.appendStatus(event.agentId, event.error);
@@ -557,9 +561,7 @@ export class StreamRecorder {
         const stopping = this.stopping.has(event.agentId);
         const open = this.openTurn.get(event.agentId);
         if (open) {
-          const prev = open.payload as TurnPayload;
-          await this.store.updatePayload(open.id, {
-            ...prev,
+          const updated = await this.store.patchTurnPayload(open.id, {
             state: "settled",
             ...(stopping
               ? { error: STOPPED_ON_REQUEST }
@@ -567,9 +569,10 @@ export class StreamRecorder {
                 ? { stopReason: "cancelled" }
                 : { error: "the agent exited before the turn settled" }),
             endedAt: new Date().toISOString(),
-          } satisfies TurnPayload);
+          } satisfies Partial<TurnPayload>);
           this.openTurn.delete(event.agentId);
-          await this.settleTurnBlock(event.agentId, open);
+          open.payload = updated.payload;
+          await this.settleTurnBlock(event.agentId, updated);
         }
         if (stopping || event.expected || event.code === 0) return;
         const how =

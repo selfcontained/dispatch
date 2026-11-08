@@ -138,6 +138,7 @@ export async function registerAgentLifecycleRoutes(
     const id = params.id ?? "";
     try {
       await deps.agentManager.getTerminalAccess(id);
+      deps.chat.cancelRouting?.(id);
       await deps.agentManager.cancelTurn(id);
       return { ok: true };
     } catch (error) {

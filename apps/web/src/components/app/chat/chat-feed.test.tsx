@@ -489,7 +489,12 @@ describe("ChatFeed", () => {
   it("offers Send again on a post the agent never took, and says so while it goes", () => {
     const onRetryDelivery = vi.fn();
     const failed = blockEntry(
-      block({ id: "u1", authorKind: "user", text: "Ship it", delivered: false })
+      block({
+        id: "u1",
+        authorKind: "user",
+        text: "Ship it",
+        delivered: false,
+      })
     );
     renderFeed([failed], {}, { onRetryDelivery });
     fireEvent.click(screen.getByTestId("chat-delivery-retry"));
@@ -901,10 +906,12 @@ describe("ChatFeed", () => {
     );
     const card = screen.getByTestId("chat-compact-launch");
     const reply = screen.getByTestId("chat-message");
-    expect(card!.querySelector('[data-testid="chat-add-reaction"]')).toBeNull();
     expect(
-      reply!.querySelector('[data-testid="chat-add-reaction"]')
-    ).not.toBeNull();
+      within(card).queryByRole("button", { name: "Message actions" })
+    ).toBeNull();
+    expect(
+      within(reply).getByRole("button", { name: "Message actions" })
+    ).toBeTruthy();
   });
 
   it("keeps attached review results visible without child chatter or attachments", () => {
@@ -2434,8 +2441,13 @@ describe("reactions", () => {
       {},
       { onToggleReaction }
     );
-    fireEvent.click(screen.getByTestId("chat-add-reaction"));
-    const picker = await screen.findByTestId("chat-reaction-picker");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message actions" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "React" }));
+    const picker = await screen.findByRole("dialog", {
+      name: "React to message",
+    });
     const thumbs = within(picker).getByRole("button", {
       name: "Remove 👍 reaction",
     });
@@ -2445,14 +2457,18 @@ describe("reactions", () => {
     );
     expect(onToggleReaction).toHaveBeenCalledWith("m1", "🎉", false);
     await waitFor(() =>
-      expect(screen.queryByTestId("chat-reaction-picker")).toBeNull()
+      expect(
+        screen.queryByRole("dialog", { name: "React to message" })
+      ).toBeNull()
     );
-    fireEvent.click(screen.getByTestId("chat-add-reaction"));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message actions" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "React" }));
     fireEvent.click(
-      within(await screen.findByTestId("chat-reaction-picker")).getByRole(
-        "button",
-        { name: "Remove 👍 reaction" }
-      )
+      within(
+        await screen.findByRole("dialog", { name: "React to message" })
+      ).getByRole("button", { name: "Remove 👍 reaction" })
     );
     expect(onToggleReaction).toHaveBeenLastCalledWith("m1", "👍", true);
   });
@@ -2482,45 +2498,88 @@ describe("reactions", () => {
     expect(onToggleReaction).not.toHaveBeenCalled();
   });
 
-  it("offers the picker only on agent messages, and only while messages can be sent", () => {
+  it("offers React in overflow on both authors and while the agent is stopped", async () => {
     const onToggleReaction = vi.fn();
     renderFeed(
       [
         blockEntry(block({ id: "u1", authorKind: "user", text: "mine" })),
+        blockEntry(block({ id: "a1", createdAt: "2026-09-02T10:10:00.000Z" })),
+      ],
+      { answersDisabled: true },
+      { onToggleReaction }
+    );
+    for (const id of ["u1", "a1"]) {
+      const post = document.querySelector(`[data-block-id="${id}"]`)!;
+      fireEvent.keyDown(
+        within(post as HTMLElement).getByRole("button", {
+          name: "Message actions",
+        }),
+        { key: "ArrowDown" }
+      );
+      const react = await screen.findByRole("menuitem", { name: "React" });
+      expect(react.getAttribute("aria-disabled")).not.toBe("true");
+      fireEvent.click(react);
+      const picker = await screen.findByRole("dialog", {
+        name: "React to message",
+      });
+      expect(picker.getAttribute("aria-modal")).not.toBe("true");
+      fireEvent.click(
+        within(picker).getByRole("button", { name: "React with 🎉" })
+      );
+      expect(onToggleReaction).toHaveBeenLastCalledWith(id, "🎉", false);
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "React to message" })
+        ).toBeNull()
+      );
+    }
+  });
+
+  it("settles a local self-message reaction without pretending to deliver it to an agent and allows removal", async () => {
+    const onToggleReaction = vi.fn();
+    renderFeed(
+      [
         blockEntry(
           block({
-            id: "a1",
-            createdAt: "2026-09-02T10:10:00.000Z",
+            id: "self",
+            authorKind: "user",
+            reactions: [reaction("👍", null)],
+          })
+        ),
+      ],
+      { answersDisabled: true },
+      { onToggleReaction }
+    );
+    const chip = screen.getByRole("button", {
+      name: "Remove your 👍 reaction",
+    });
+    expect((chip as HTMLButtonElement).disabled).toBe(false);
+    expect(chip.title).not.toMatch(
+      /Sending your reaction|Sent to the agent|Not delivered/
+    );
+    await waitFor(() => expect(chip.style.opacity).toBe("1"));
+    fireEvent.click(chip);
+    expect(onToggleReaction).toHaveBeenCalledWith("self", "👍", true);
+  });
+  it("still protects an optimistic local self-message reaction from removal", () => {
+    const onToggleReaction = vi.fn();
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "self",
+            authorKind: "user",
+            reactions: [{ ...reaction("🎉", null), id: "optimistic:🎉" }],
           })
         ),
       ],
       {},
       { onToggleReaction }
     );
-    const pickers = screen.getAllByTestId("chat-add-reaction");
-    expect(pickers).toHaveLength(1);
-    expect(
-      pickers[0]!.closest("[data-block-id]")?.getAttribute("data-block-id")
-    ).toBe("a1");
-    cleanup();
-
-    renderFeed(
-      [blockEntry(block({ id: "a1", reactions: [reaction("👍", true)] }))],
-      { answersDisabled: true },
-      { onToggleReaction }
-    );
-    // Greyed in place rather than removed, with the reason on hover.
-    const picker = screen.getByTestId("chat-add-reaction") as HTMLButtonElement;
-    expect(picker.disabled).toBe(true);
-    expect(
-      screen.getByTestId("chat-add-reaction-disabled").getAttribute("title")
-    ).toMatch(/can't receive them right now/);
-    fireEvent.click(picker);
-    expect(screen.queryByTestId("chat-reaction-picker")).toBeNull();
-    // A reaction can still be taken back while the agent is stopped.
-    expect(
-      (screen.getByTestId("chat-reaction") as HTMLButtonElement).disabled
-    ).toBe(false);
+    const chip = screen.getByRole("button", { name: "Your 🎉 reaction" });
+    expect((chip as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(chip);
+    expect(onToggleReaction).not.toHaveBeenCalled();
   });
 
   it("does not offer to remove a reaction whose add is still in flight", () => {
@@ -2594,7 +2653,7 @@ describe("turn entries", () => {
     })
   );
 
-  it("draws the prompt as the user's row and the answer as the agent's post with its step list", () => {
+  it("draws the prompt as the user's row and the answer as the agent's post with its step list", async () => {
     const onOpenThread = vi.fn();
     renderFeed(
       [prompt, turn()],
@@ -2619,9 +2678,17 @@ describe("turn entries", () => {
     ).not.toBeNull();
     // A post like any other of the agent's: a thread opens on it and a
     // reaction can land on it.
-    fireEvent.click(within(answer!).getByTestId("chat-reply-in-thread"));
+    fireEvent.keyDown(
+      within(answer!).getByRole("button", { name: "Message actions" }),
+      { key: "ArrowDown" }
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Reply in thread" })
+    );
     expect(onOpenThread).toHaveBeenCalledWith("turn:12");
-    expect(within(answer!).getByTestId("chat-add-reaction")).toBeTruthy();
+    expect(
+      within(answer!).getByRole("button", { name: "Message actions" })
+    ).toBeTruthy();
   });
 
   it("repaints the same row with the answer once the turn settles", () => {

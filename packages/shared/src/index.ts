@@ -51,6 +51,8 @@ export type {
   ChatMessageOrigin,
   ChatQuestion,
   ChatQuestionOption,
+  RoutingDiagnostic,
+  RoutingPending,
   ChatTurnEntry,
   ChatTurnPlanEntry,
   ChatTurnPrompt,

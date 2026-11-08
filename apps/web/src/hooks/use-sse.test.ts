@@ -890,6 +890,9 @@ describe("useSSE message handling", () => {
     emit({ type: "snapshot", agents: [] });
 
     expectInvalidatedSet(invalidateQueries, [
+      ["message-metadata"],
+      ["routing-pending"],
+      ["routing-experiment-settings"],
       ["agent-turn-label"],
       ["scheduled-messages-upcoming"],
       ["agent-pull-requests"],
@@ -1423,6 +1426,137 @@ describe("useSSE message handling", () => {
       agent: { ...before, name: "Renamed agent" },
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
+  it("refetches routing completion after the delayed first metadata request settles", async () => {
+    const { emit, queryClient } = renderMessages();
+    const resolvers: ((value: { completed: boolean }) => void)[] = [];
+    const fetches = [
+      vi.fn(
+        () =>
+          new Promise<{ completed: boolean }>((resolve) =>
+            resolvers.push(resolve)
+          )
+      ),
+      vi.fn(
+        () =>
+          new Promise<{ completed: boolean }>((resolve) =>
+            resolvers.push(resolve)
+          )
+      ),
+    ];
+    const keys = [
+      ["message-metadata", "agt_1", "opener"],
+      ["message-metadata", "agt_1", "other"],
+    ];
+    const observers = keys.map(
+      (queryKey, i) =>
+        new QueryObserver(queryClient, {
+          queryKey,
+          queryFn: fetches[i],
+          retry: false,
+        })
+    );
+    const subscriptions = observers.map((observer) =>
+      observer.subscribe(() => {})
+    );
+    try {
+      await waitFor(() => expect(resolvers).toHaveLength(2));
+      emit({ type: "routing.metadata_changed", streamId: "agt_1" });
+      emit({ type: "routing.metadata_changed", streamId: "agt_1" });
+      for (const fetch of fetches) fetch.mockResolvedValue({ completed: true });
+      await act(async () => {
+        for (const resolve of resolvers) resolve({ completed: false });
+      });
+      await waitFor(() => {
+        for (const key of keys)
+          expect(queryClient.getQueryData(key)).toEqual({ completed: true });
+      });
+      for (const fetch of fetches) expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      for (const unsubscribe of subscriptions) unsubscribe();
+    }
+  });
+
+  it("refreshes a metadata GET that began before the reconnect snapshot", async () => {
+    const { emit, queryClient } = renderMessages();
+    let resolveFirst!: (value: { routing: string[] }) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<{ routing: string[] }>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
+    const key = ["message-metadata", "agt_1", "opener"];
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn: fetch,
+      retry: false,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      emit({ type: "snapshot", agents: [] });
+      fetch.mockResolvedValue({ routing: ["completed"] });
+      await act(async () => {
+        resolveFirst({ routing: [] });
+      });
+      await waitFor(() =>
+        expect(queryClient.getQueryData(key)).toEqual({
+          routing: ["completed"],
+        })
+      );
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("routes pending and settled evidence through SSE without broad stream invalidations, and refreshes on reconnect", () => {
+    const { emit, queryClient, invalidateQueries } = renderMessages();
+    const pending = [
+      {
+        turnId: 1,
+        agentId: "agt_1",
+        streamId: "agt_1",
+        threadId: null,
+        messageIds: ["opener"],
+        startedAt: 100,
+        deadlineAt: 3100,
+      },
+    ];
+    emit({ type: "routing.pending", streamId: "agt_1", pending });
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending,
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    emit({ type: "routing.metadata_changed", streamId: "agt_1" });
+    expectInvalidatedSet(invalidateQueries, [
+      ["message-metadata", "agt_1"],
+      ["routing-experiment-settings"],
+    ]);
+    emit({ type: "routing.pending", streamId: "agt_1", pending: [] });
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending: [],
+    });
+    invalidateQueries.mockClear();
+    emit({ type: "snapshot", agents: [] });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["routing-pending"],
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["routing-experiment-settings"],
+    });
+    emit({ type: "routing.pending", streamId: "agt_1", pending });
+    emit({ type: "routing.config_changed", mode: "off", configured: false });
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending: [],
+    });
+    emit({ type: "routing.pending", streamId: "agt_1", pending });
+    act(() => FakeEventSource.instances[0]!.fail(false));
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending: [],
+    });
   });
 
   it("refetches an agent's chat feed and the sidebar unread summary on chat.changed", () => {

@@ -58,6 +58,9 @@ import {
 } from "@/hooks/use-cached-release-info";
 import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
 
+const routingPendingKey = (streamId: string) =>
+  ["routing-pending", streamId] as const;
+
 /** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -405,7 +408,58 @@ export function useSSE(authState: AuthState): void {
         recordSSEEvent();
         const payload = JSON.parse(event.data) as UiEvent;
 
+        if (payload.type === "routing.pending") {
+          const queryKey = routingPendingKey(payload.streamId);
+          void queryClient.cancelQueries({ queryKey });
+          queryClient.setQueryData(queryKey, { pending: payload.pending });
+          return;
+        }
+        if (payload.type === "routing.metadata_changed") {
+          for (const query of queryClient.getQueryCache().findAll({
+            queryKey: ["message-metadata", payload.streamId],
+          })) {
+            if (
+              query.state.fetchStatus === "fetching" &&
+              query.state.data === undefined
+            )
+              invalidateOnceFirstFetchSettles(queryClient, query.queryKey);
+          }
+          void queryClient.invalidateQueries({
+            queryKey: ["message-metadata", payload.streamId],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["routing-experiment-settings"],
+          });
+          return;
+        }
+        if (payload.type === "routing.config_changed") {
+          queryClient.setQueriesData(
+            { queryKey: ["routing-pending"] },
+            { pending: [] }
+          );
+          void queryClient.invalidateQueries({ queryKey: ["routing-pending"] });
+          void queryClient.invalidateQueries({
+            queryKey: ["routing-experiment-settings"],
+          });
+          return;
+        }
         if (payload.type === "snapshot") {
+          for (const query of queryClient.getQueryCache().findAll({
+            queryKey: ["message-metadata"],
+          })) {
+            if (
+              query.state.fetchStatus === "fetching" &&
+              query.state.data === undefined
+            )
+              invalidateOnceFirstFetchSettles(queryClient, query.queryKey);
+          }
+          void queryClient.invalidateQueries({
+            queryKey: ["message-metadata"],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["routing-pending"] });
+          void queryClient.invalidateQueries({
+            queryKey: ["routing-experiment-settings"],
+          });
           queryClient.setQueryData<Agent[]>(
             ["agents"],
             sortAgentsByCreatedAtDesc(payload.agents)
@@ -761,6 +815,10 @@ export function useSSE(authState: AuthState): void {
         handleSSEMessage(event);
       };
       opened.onerror = () => {
+        queryClient.setQueriesData(
+          { queryKey: ["routing-pending"] },
+          { pending: [] }
+        );
         recordSSEReconnect();
         // CONNECTING means the browser is retrying on its own — leave it be.
         // CLOSED means it has given up; the instance is dead, so drop it and

@@ -224,6 +224,20 @@ export type StreamAgent = Pick<
 >;
 
 export type StreamServiceDeps = {
+  routingShadow?: {
+    cancel?(agentId: string, turnId?: number): void;
+    frozen?(
+      turnId: number,
+      placement: import("./routing-shadow.js").ShadowInput["placement"]
+    ): void;
+    observe(input: import("./routing-shadow.js").ShadowInput): void;
+    route?(
+      input: import("./routing-shadow.js").ShadowInput
+    ): Promise<
+      | { streamId: string; threadId: string | null; replyTo: string | null }
+      | undefined
+    >;
+  };
   pool: Pool;
   onTaskActivity?: (taskId: string) => void;
   publishUiEvent: (
@@ -2146,7 +2160,7 @@ export class StreamService {
     if (
       !block ||
       (block.streamId !== streamId && !onTask) ||
-      sameAuthor(block.author, author)
+      (author.kind === "agent" && sameAuthor(block.author, author))
     ) {
       throw new StreamNotFoundError(
         author.kind === "agent"
@@ -3613,7 +3627,12 @@ export class StreamService {
         event.agentId,
         event.receiptId,
         event.type === "steering_picked_up" ? event.at : undefined,
-        event.type !== "steering_picked_up" ? event.at : undefined
+        event.type !== "steering_picked_up" ? event.at : undefined,
+        event.type === "steered"
+          ? "steering"
+          : event.type === "prompt_delivered"
+            ? "prompt"
+            : undefined
       );
       await this.publishEntry(block.streamId, id);
     }
@@ -3804,6 +3823,20 @@ export class StreamService {
         }
       }
     }
+    const shadowInput = {
+      ...input,
+      placement: { streamId, threadId, replyTo },
+    };
+    try {
+      const selected = await this.deps.routingShadow?.route?.(shadowInput);
+      if (selected) {
+        streamId = selected.streamId;
+        threadId = selected.threadId;
+        replyTo = selected.replyTo;
+      }
+    } catch {
+      /* Fail closed to existing placement. */
+    }
     const block = await this.store.insert({
       streamId,
       author: { kind: "agent", agentId: input.agentId },
@@ -3814,6 +3847,25 @@ export class StreamService {
       threadId,
       replyTo,
     });
+    try {
+      this.deps.routingShadow?.frozen?.(input.turnRow.id, {
+        streamId,
+        threadId,
+        replyTo,
+      });
+    } catch {
+      /* Optional diagnostic write cannot prevent output. */
+    }
+    // Observation receives frozen placement and cannot affect this return value.
+    try {
+      if (!this.deps.routingShadow?.route)
+        this.deps.routingShadow?.observe({
+          ...input,
+          placement: { streamId, threadId, replyTo },
+        });
+    } catch {
+      /* Optional diagnostics must never interrupt turn startup. */
+    }
     return block.id;
   }
 
@@ -3965,11 +4017,18 @@ export class StreamService {
     await this.publishEntry(streamId, input.previousBlockId);
   }
 
+  /** Explicit lifecycle actions cancel every pending route for the agent. */
+  cancelRouting(agentId: string): void {
+    this.deps.routingShadow?.cancel?.(agentId);
+  }
+
   /** A turn settled or was cut: its current response takes its own text. */
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
   }): Promise<void> {
+    // A late startup can settle after the next turn has begun routing.
+    this.deps.routingShadow?.cancel?.(input.agentId, input.turnRow.id);
     const blockId = input.turnRow.payload.blockId;
     if (typeof blockId !== "string") return;
     const streamId = await this.turnStreamOf(input.agentId, blockId);
@@ -4227,6 +4286,10 @@ export class StreamService {
             block.kind === "task"
               ? await this.taskReferenceText(block, agentId)
               : envelopeText(block),
+          serverFrozenRouting:
+            !!this.deps.routingShadow?.route &&
+            from.kind === "user" &&
+            !structuredAnswer,
           userThreadTurn:
             from.kind === "user" &&
             !!block.threadId &&

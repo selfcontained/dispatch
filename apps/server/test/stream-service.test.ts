@@ -4393,14 +4393,17 @@ describe("StreamService reactions", () => {
     expect(events).toEqual([]);
   });
 
-  it("only takes reactions on other people's blocks on this stream, with a real emoji", async () => {
+  it("allows user reactions on their own messages while enforcing stream and emoji boundaries", async () => {
     const { svc, injected } = build();
     const userPost = await svc.sendUserPost(A, { text: "hi" });
     const block = await agentPost();
     const elsewhere = await service.post(B, { text: "x" });
-    await expect(
-      svc.addReaction(A, userPost.block.id, "👍")
-    ).rejects.toBeInstanceOf(StreamNotFoundError);
+    expect(
+      (await svc.addReaction(A, userPost.block.id, "👍")).reactions
+    ).toEqual([
+      expect.objectContaining({ author: { kind: "user" }, emoji: "👍" }),
+    ]);
+    await svc.removeReaction(A, userPost.block.id, "👍");
     await expect(svc.addReaction(A, elsewhere.id, "👍")).rejects.toBeInstanceOf(
       StreamNotFoundError
     );
@@ -4502,16 +4505,14 @@ describe("StreamService reactions", () => {
     expect(removed.reactions).toEqual([]);
   });
 
-  it("keeps each side to the other's blocks, and each author's reactions its own", async () => {
+  it("keeps agent self-reaction restrictions and isolates each author's reactions", async () => {
     const { svc } = build({ access: inert });
     const agentBlock = await agentPost();
     const userPost = await svc.sendUserPost(A, { text: "hi" });
     await expect(
       svc.addReaction(A, agentBlock.id, "👍", { kind: "agent", agentId: A })
     ).rejects.toThrow(/DISPATCH POST envelope/);
-    await expect(
-      svc.addReaction(A, userPost.block.id, "👍", { kind: "user" })
-    ).rejects.toBeInstanceOf(StreamNotFoundError);
+    await svc.addReaction(A, userPost.block.id, "👍", { kind: "user" });
     await expect(
       svc.addReaction(A, "nope", "👍", { kind: "agent", agentId: A })
     ).rejects.toThrow(/id must be the block id from a DISPATCH POST envelope/);
@@ -7129,12 +7130,20 @@ describe("steering pickup receipts", () => {
         {
           agentId: A,
           state: "delivered",
-          receipt: { pickedUpAt: at, deliveredAt },
+          receipt: {
+            pickedUpAt: at,
+            deliveredAt,
+            mode: type === "steered" ? "steering" : "prompt",
+          },
         },
         {
           agentId: B,
           state: "delivered",
-          receipt: { pickedUpAt: null, deliveredAt },
+          receipt: {
+            pickedUpAt: null,
+            deliveredAt,
+            mode: type === "steered" ? "steering" : "prompt",
+          },
         },
       ]);
       expect(published).toContainEqual(entryEvent(post));
@@ -7150,12 +7159,222 @@ describe("steering pickup receipts", () => {
         {
           agentId: A,
           state: "delivered",
-          receipt: { pickedUpAt: at, deliveredAt },
+          receipt: {
+            pickedUpAt: at,
+            deliveredAt,
+            mode: type === "steered" ? "steering" : "prompt",
+          },
         },
         { agentId: B, state: "pending" },
       ]);
     }
   );
+});
+
+describe("turn startup racing lifecycle settlement", () => {
+  beforeEach(async () => {
+    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+      A,
+    ]);
+  });
+
+  it.each(["stop", "archive", "restart", "exit", "turn end"] as const)(
+    "%s during routing preserves settlement and settles the late response block",
+    async (lifecycle) => {
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const routing = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const cancel = vi.fn();
+      const { svc, events } = build({
+        deps: {
+          routingShadow: {
+            observe: () => undefined,
+            cancel,
+            route: async () => {
+              entered();
+              // Remain pending even after cancellation: block insertion can
+              // already be in flight when a lifecycle action cuts the turn.
+              await gate;
+              return undefined;
+            },
+          },
+        },
+      });
+      const rows = new StreamStore(pool);
+      const rec = new StreamRecorder(rows);
+      rec.setTurnBlocks({
+        started: (input) => svc.recordTurnStarted(input),
+        settled: (input) => svc.recordTurnSettled(input),
+      });
+      const starting = rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "started",
+        text: "work",
+      });
+      await routing;
+      try {
+        if (lifecycle === "restart") {
+          expect(await rec.reconcile(A)).toBe(1);
+        } else if (lifecycle === "exit") {
+          await rec.handle({
+            type: "exit",
+            agentId: A,
+            expected: true,
+            code: 0,
+            signal: null,
+            stderrTail: "",
+          });
+        } else if (lifecycle === "turn end") {
+          await rec.handle({
+            type: "turn",
+            agentId: A,
+            state: "settled",
+            stopReason: "end_turn",
+          });
+        } else {
+          // Stop and archive share beginStop/settleStopped in the manager.
+          rec.beginStop(A);
+          expect(await rec.settleStopped(A)).toBe(1);
+        }
+        const cut = await rows.lastTurn(A);
+        expect(cut?.payload.state).toBe("settled");
+        expect(cut?.payload.blockId).toBeUndefined();
+        expect(cancel).toHaveBeenCalledWith(A, cut!.id);
+      } finally {
+        release();
+        await starting;
+      }
+      const turn = await rows.lastTurn(A);
+      expect(turn?.payload).toMatchObject({
+        state: "settled",
+        blockId: expect.any(String),
+        endedAt: expect.any(String),
+        ...(lifecycle === "stop" || lifecycle === "archive"
+          ? { error: "stopped" }
+          : {}),
+        ...(lifecycle === "restart" ? { error: "interrupted by restart" } : {}),
+      });
+      const blockId = turn!.payload.blockId;
+      expect(await svc.turnEntry(A)).toMatchObject({
+        id: blockId,
+        block: { turn: { settled: true } },
+      });
+      // Settlement must be published after the pointer exists, so a client
+      // which observed the late insertion cannot retain a live empty response.
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "stream.entry",
+          entry: expect.objectContaining({
+            id: blockId,
+            block: expect.objectContaining({
+              turn: expect.objectContaining({ settled: true }),
+            }),
+          }),
+        })
+      );
+      await rec.handle({
+        type: "exit",
+        agentId: A,
+        expected: true,
+        code: 0,
+        signal: null,
+        stderrTail: "",
+      });
+      expect((await rows.lastTurn(A))?.payload).toEqual(turn!.payload);
+    }
+  );
+
+  it("late settlement cancels only the old turn while explicit stop cancels newer routing", async () => {
+    const gates = [0, 1].map(() => {
+      let release!: () => void;
+      let entered!: () => void;
+      return {
+        gate: new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+        routing: new Promise<void>((resolve) => {
+          entered = resolve;
+        }),
+        release: () => release(),
+        entered: () => entered(),
+      };
+    });
+    const controllers = new Map<number, AbortController>();
+    let routes = 0;
+    const cancel = vi.fn((agentId: string, turnId?: number) => {
+      expect(agentId).toBe(A);
+      // Model the turn-scoped routing adapter contract. Its real controller
+      // filtering is covered by RoutingShadow's own tests.
+      for (const [id, controller] of controllers) {
+        if (turnId === undefined || id === turnId) controller.abort();
+      }
+    });
+    const { svc } = build({
+      deps: {
+        routingShadow: {
+          observe: () => undefined,
+          cancel,
+          route: async (input) => {
+            const gate = gates[routes++]!;
+            controllers.set(input.turnRow.id, new AbortController());
+            gate.entered();
+            await gate.gate;
+            controllers.delete(input.turnRow.id);
+            return undefined;
+          },
+        },
+      },
+    });
+    const rows = new StreamStore(pool);
+    const rec = new StreamRecorder(rows);
+    rec.setTurnBlocks({
+      started: (input) => svc.recordTurnStarted(input),
+      settled: (input) => svc.recordTurnSettled(input),
+    });
+    const oldStartup = rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "old work",
+    });
+    await gates[0]!.routing;
+    let newStartup: Promise<void> | undefined;
+    try {
+      const oldTurn = (await rows.lastTurn(A))!;
+      expect(await rec.reconcile(A)).toBe(1);
+      expect(controllers.get(oldTurn.id)?.signal.aborted).toBe(true);
+      newStartup = rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "started",
+        text: "new work",
+      });
+      await gates[1]!.routing;
+      const newTurn = (await rows.lastTurn(A))!;
+      const newController = controllers.get(newTurn.id)!;
+      cancel.mockClear();
+      gates[0]!.release();
+      await oldStartup;
+      expect(cancel).toHaveBeenCalledExactlyOnceWith(A, oldTurn.id);
+      expect(newController.signal.aborted).toBe(false);
+      expect((await rows.lastTurn(A))?.payload.state).toBe("started");
+      // The manager's explicit stop still aborts every pending route.
+      svc.cancelRouting(A);
+      expect(cancel).toHaveBeenLastCalledWith(A);
+      expect(newController.signal.aborted).toBe(true);
+    } finally {
+      for (const gate of gates) gate.release();
+      await oldStartup;
+      await newStartup;
+      await rec.settleStopped(A);
+    }
+  });
 });
 
 describe("steering response boundaries", () => {

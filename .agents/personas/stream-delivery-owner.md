@@ -29,4 +29,8 @@ Trace the affected producer, stored message, route, and browser consumer in `age
 
 ## Findings
 
+Optional AI routing must default to Off, preserve explicit destinations and structured replies, and freeze a server-authorized destination before output starts. Invalid explicit modes must not fall through to legacy opt-in. Provider failures, cancellation, and the whole routing deadline preserve existing placement; late work must not reopen settled turns or cancel newer turns.
+
+Routing keys remain server-only; context, request budgets, and diagnostic retention stay bounded. Delay/frozen metadata must survive late reservation or provider completion. Cost summaries must account for cache tokens and label missing usage as unknown. Pending UI must clear on settlement, lost configuration, errors, offline state, and expiry; synthetic harnesses require explicit live opt-in and never use real conversation data.
+
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.
