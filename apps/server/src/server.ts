@@ -1,3 +1,9 @@
+import {
+  RoutingShadow,
+  RoutingShadowStore,
+  routingShadowConfig,
+} from "./chat/routing-shadow.js";
+import { registerRoutingShadowRoutes } from "./routes/routing-shadow.js";
 import { PullRequestRefresher } from "./agents/pull-request-refresher.js";
 import {
   registerPortfolioBoundary,
@@ -431,7 +437,13 @@ const authRuntime = createAuthRuntime({
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
 const brainStore = new BrainStore(pool);
+const routingShadowStore = new RoutingShadowStore(pool);
+const routingShadow = new RoutingShadow(
+  routingShadowConfig(),
+  routingShadowStore
+);
 const streamService = new StreamService({
+  routingShadow,
   onTaskActivity: (id) => taskWatches.schedule(id),
   pool,
   publishUiEvent: (event) => {
@@ -907,6 +919,17 @@ async function registerRoutes() {
   );
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
+  await registerRoutingShadowRoutes(app, routingShadowStore, config.authToken);
+  const shadowRetention = setInterval(
+    () => {
+      void routingShadowStore.prune().catch(() => {});
+    },
+    60 * 60 * 1000
+  );
+  shadowRetention.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(shadowRetention);
+  });
 
   await registerPluginRoutes(app, { pool, config, appLog: app.log });
 

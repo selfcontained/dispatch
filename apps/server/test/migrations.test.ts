@@ -75,6 +75,15 @@ describe("block_reactions uniqueness migration", () => {
 
 /** Rewinds task migrations, which depend on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
+  await pool.query(
+    "DROP TABLE IF EXISTS routing_shadow_records, routing_shadow_daily"
+  );
+  await pool.query(
+    "ALTER TABLE agent_stream_events DROP COLUMN IF EXISTS routing_shadow_observed"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name = '0039_routing_shadow'"
+  );
   await pool.query("ALTER TABLE agents DROP COLUMN IF EXISTS effort");
   await pool.query("ALTER TABLE templates DROP COLUMN IF EXISTS effort");
   await pool.query("ALTER TABLE jobs DROP COLUMN IF EXISTS effort");

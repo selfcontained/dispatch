@@ -224,6 +224,9 @@ export type StreamAgent = Pick<
 >;
 
 export type StreamServiceDeps = {
+  routingShadow?: {
+    observe(input: import("./routing-shadow.js").ShadowInput): void;
+  };
   pool: Pool;
   onTaskActivity?: (taskId: string) => void;
   publishUiEvent: (
@@ -3814,6 +3817,15 @@ export class StreamService {
       threadId,
       replyTo,
     });
+    // Observation receives frozen placement and cannot affect this return value.
+    try {
+      this.deps.routingShadow?.observe({
+        ...input,
+        placement: { streamId, threadId, replyTo },
+      });
+    } catch {
+      /* Optional diagnostics must never interrupt turn startup. */
+    }
     return block.id;
   }
 
