@@ -63,6 +63,12 @@ it("returns from the source discussion to the working agent home", () => {
   expect(screen.getByText("/agents/child")).toBeTruthy();
 });
 
+const agentPrompt = {
+  source: "agent" as const,
+  text: "Review this",
+  senderAgentId: "sender",
+  attachments: [],
+};
 const source = { streamId: "home", threadId: "discussion", blockId: "message" };
 it.each([
   ["home", null, null, false],
@@ -75,6 +81,7 @@ it.each([
   (streamId, sourceThread, visibleThread, visible) => {
     const turn = turnEntry({
       turn: {
+        prompt: agentPrompt,
         sourceConversation: { ...source, streamId, threadId: sourceThread },
       },
     }).block.turn!;
@@ -101,7 +108,8 @@ it.each([
   ],
   [{ streamId: "other", threadId: null }, "Source: View original conversation"],
 ] as const)("labels the actual destination %#", (sourceConversation, label) => {
-  const turn = turnEntry({ turn: { sourceConversation } }).block.turn!;
+  const turn = turnEntry({ turn: { prompt: agentPrompt, sourceConversation } })
+    .block.turn!;
   render(
     <MemoryRouter>
       <ConversationLocationLink turn={turn} homeId="home" />
@@ -127,6 +135,7 @@ it("omits unavailable agents and links archived agents to history", () => {
         turn={
           turnEntry({
             turn: {
+              prompt: agentPrompt,
               sourceConversation: { streamId: "missing", threadId: null },
             },
           }).block.turn!
@@ -142,6 +151,7 @@ it("omits unavailable agents and links archived agents to history", () => {
         turn={
           turnEntry({
             turn: {
+              prompt: agentPrompt,
               sourceConversation: {
                 streamId: "archived",
                 threadId: null,
@@ -158,3 +168,52 @@ it("omits unavailable agents and links archived agents to history", () => {
     "/activity/history/archived?block=message&returnAgent=home"
   );
 });
+
+it.each([
+  ["chat", undefined],
+  ["launch", "sender"],
+  ["system", "sender"],
+  ["agent", undefined],
+  ["agent", "agt_1"],
+] as const)(
+  "hides %s input from %s even across conversations",
+  (kind, senderAgentId) => {
+    const turn = turnEntry({
+      turn: {
+        prompt: { ...agentPrompt, source: kind, senderAgentId },
+        sourceConversation: {
+          streamId: "other",
+          threadId: "discussion",
+          blockId: "message",
+        },
+      },
+    }).block.turn!;
+    render(
+      <MemoryRouter>
+        <ConversationLocationLink turn={turn} homeId="home" />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+  }
+);
+it.each(["home", "other", "tsk_one"])(
+  "hides the user's input from %s",
+  (streamId) => {
+    const turn = turnEntry({
+      turn: {
+        prompt: { source: "chat", text: "My message", attachments: [] },
+        sourceConversation: {
+          streamId,
+          threadId: "discussion",
+          blockId: "message",
+        },
+      },
+    }).block.turn!;
+    render(
+      <MemoryRouter>
+        <ConversationLocationLink turn={turn} homeId="home" />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+  }
+);

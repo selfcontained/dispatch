@@ -46,6 +46,9 @@ export function ConversationLocationLink({
   );
   if (
     !source ||
+    turn.prompt.source !== "agent" ||
+    !turn.prompt.senderAgentId ||
+    turn.prompt.senderAgentId === turn.agentId ||
     (!source.streamId.startsWith("tsk_") && !record) ||
     (source.streamId === homeId && source.threadId === threadId)
   )

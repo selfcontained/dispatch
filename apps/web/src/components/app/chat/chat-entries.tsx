@@ -1873,15 +1873,19 @@ export const BlockView = memo(function BlockView({
           name={author.name}
           identity={
             author.agentId ? (
-              <>
-                <AgentSessionLink agentId={author.agentId} name={author.name} />
-                <span className="ml-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <AgentSessionLink
+                  className="min-w-0 truncate"
+                  agentId={author.agentId}
+                  name={author.name}
+                />
+                <span className="inline-flex shrink-0">
                   <ConversationLocationLink
                     turn={block.turn}
                     homeId={block.streamId}
                   />
                 </span>
-              </>
+              </span>
             ) : undefined
           }
           avatar={<Avatar author={author} size="sm" />}
