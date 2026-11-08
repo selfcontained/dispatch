@@ -31,6 +31,17 @@ import type { MacAppUpdateSnapshot } from "./mac-app-update-types.js";
  */
 export type SharedUiEvent =
   | {
+      type: "routing.pending";
+      streamId: string;
+      pending: import("./chat-types.js").RoutingPending[];
+    }
+  | { type: "routing.metadata_changed"; streamId: string }
+  | {
+      type: "routing.config_changed";
+      mode: "off" | "shadow" | "active";
+      configured: boolean;
+    }
+  | {
       type: "agent.pull_requests_changed";
       agentId: string;
       pullRequests: import("./pull-requests.js").AgentPullRequest[];

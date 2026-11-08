@@ -12,7 +12,8 @@ export async function registerRoutingShadowRoutes(
   authToken: string,
   settings?: RoutingSettings,
   experiment?: RoutingShadow,
-  authorize?: (request: FastifyRequest) => Promise<boolean>
+  authorize?: (request: FastifyRequest) => Promise<boolean>,
+  publish?: (event: import("@dispatch/shared").SharedUiEvent) => void
 ) {
   if (settings && experiment) {
     const privateRoute = {
@@ -35,7 +36,13 @@ export async function registerRoutingShadowRoutes(
         reply.header("Cache-Control", "no-store");
         if (typeof streamId !== "string" || streamId.length > 200)
           return reply.code(400).send({ error: "streamId is required." });
-        return { pending: experiment.pending(streamId) };
+        const config = await settings.configuration();
+        return {
+          pending:
+            config.mode === "active" && config.apiKey
+              ? experiment.pending(streamId)
+              : [],
+        };
       }
     );
     app.get(
@@ -69,7 +76,15 @@ export async function registerRoutingShadowRoutes(
             error: "Provide a valid mode, API key, or removeKey action.",
           });
         reply.header("Cache-Control", "no-store");
-        return settings.save(parsed.data);
+        const saved = await settings.save(parsed.data);
+        if (saved.mode !== "active" || !saved.configured)
+          experiment.cancelAll();
+        publish?.({
+          type: "routing.config_changed",
+          mode: saved.mode,
+          configured: saved.configured,
+        });
+        return saved;
       }
     );
     app.post(

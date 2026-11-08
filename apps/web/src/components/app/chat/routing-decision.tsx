@@ -72,21 +72,30 @@ export function RoutingDecision({
               ? "Unavailable"
               : `${Math.round(d.latencyMs)} ms`}
           </dd>
-          <dt>Est. cost</dt>
+          <dt>Input tokens</dt>
+          <dd>{d.inputTokens ?? "Unavailable"}</dd>
+          {d.cachedReadTokens !== undefined &&
+          d.cacheWriteTokens !== undefined ? (
+            <>
+              <dt>Cached read</dt>
+              <dd>{d.cachedReadTokens}</dd>
+              <dt>Cache write</dt>
+              <dd>{d.cacheWriteTokens}</dd>
+            </>
+          ) : (
+            <>
+              <dt>Cache</dt>
+              <dd>Unavailable</dd>
+            </>
+          )}
+          <dt>
+            Est. cost{d.costBasis === "uncached-estimate" ? " · uncached" : ""}
+          </dt>
           <dd>
             {d.costUsd === null ? "Unpriced" : `USD ${d.costUsd.toFixed(8)}`}
           </dd>
         </dl>
         <p>{d.reason}</p>
-        {d.costBasis === "uncached-estimate" && (
-          <p className="text-muted-foreground">
-            Cache breakdown unavailable; assumes all input at the uncached rate.
-          </p>
-        )}
-        <p className="text-muted-foreground">
-          Confidence is separate from choice probabilities. No written model
-          explanation is returned. Cost is an estimate, not billing.
-        </p>
       </PopoverContent>
     </Popover>
   );

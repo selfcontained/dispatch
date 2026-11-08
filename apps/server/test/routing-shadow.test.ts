@@ -1,4 +1,8 @@
 import {
+  ROUTING_INSTRUCTIONS,
+  ROUTING_EVAL_FIXTURES,
+} from "../src/chat/routing-policy.js";
+import {
   attachRoutingDiagnostics,
   routingDiagnostic,
 } from "../src/chat/routing-diagnostics.js";
@@ -809,12 +813,16 @@ describe("optional routing shadow", () => {
       await gate;
       return ok();
     });
+    const onPending = vi.fn();
     const experiment = new RoutingShadow(
       { ...enabled, mode: "active" },
       store,
-      transport
+      transport,
+      3000,
+      onPending
     );
-    const task = experiment.route(await input("follow up", false));
+    const source = await input("follow up", false);
+    const task = experiment.route(source);
     await idle(async () => transport.mock.calls.length > 0);
     expect(experiment.pending(A)[0]).toMatchObject({
       streamId: A,
@@ -826,7 +834,16 @@ describe("optional routing shadow", () => {
       experiment.pending(A)[0]!.deadlineAt - experiment.pending(A)[0]!.startedAt
     ).toBe(3000);
     expect(experiment.pending("other-stream")).toEqual([]);
+    expect(onPending).toHaveBeenCalledWith(A, [
+      expect.objectContaining({
+        agentId: A,
+        messageIds: [
+          source.prompt.source === "chat" ? source.prompt.chatMessageId : "",
+        ],
+      }),
+    ]);
     experiment.cancel(A);
+    expect(onPending).toHaveBeenLastCalledWith(A, []);
     expect(await task).toBeUndefined();
     expect(experiment.pending(A)).toEqual([]);
     release();
@@ -922,7 +939,7 @@ describe("routing feed diagnostics", () => {
       ...parseShadowResponse(answer),
       private: "secret",
     });
-    await idle(async () => changed.mock.calls.length >= 2);
+    await idle(async () => changed.mock.calls.length >= 1);
     expect(changed).toHaveBeenCalledWith(A);
     await attachRoutingDiagnostics(pool, blocks);
     expect(blocks[0].routing?.[0]).toMatchObject({
@@ -969,6 +986,27 @@ describe("routing feed diagnostics", () => {
       probabilities: [{ value: "initiating_discussion", probability: 0.95 }],
       reason: "Recommendation applied",
     });
+    expect(
+      routingDiagnostic({
+        ...base,
+        result: {
+          ...base.result,
+          usage: {
+            input_tokens: 1000,
+            input_tokens_details: {
+              cached_tokens: 200,
+              cache_write_tokens: 100,
+              private: "drop",
+            },
+          },
+        },
+      })
+    ).toMatchObject({
+      inputTokens: 1000,
+      cachedReadTokens: 200,
+      cacheWriteTokens: 100,
+      costBasis: "cache-aware",
+    });
     expect(routingDiagnostic({ ...base, explicit_thread: true })?.reason).toBe(
       "Explicit route preserved"
     );
@@ -994,4 +1032,67 @@ describe("routing feed diagnostics", () => {
       estimatedUsd: null,
     });
   });
+});
+
+it("keeps root-first semantics and contained side-question examples in the versioned policy", () => {
+  expect(ROUTING_INSTRUCTIONS).toContain("Same topic alone is insufficient");
+  expect(ROUTING_INSTRUCTIONS).toContain("implementation approvals");
+  expect(ROUTING_INSTRUCTIONS).toContain("explicit destination requests");
+  for (const name of [
+    "same-topic-approval",
+    "same-topic-design",
+    "same-topic-status",
+    "same-topic-steering",
+    "same-topic-final",
+    "same-topic-decision",
+  ])
+    expect(ROUTING_EVAL_FIXTURES.find((f) => f.name === name)?.expected).toBe(
+      "home_root"
+    );
+  expect(
+    ROUTING_EVAL_FIXTURES.find((f) => f.name === "narrow-example-clarification")
+      ?.expected
+  ).toBe("initiating_discussion");
+});
+
+it("serves lightweight pending snapshots and publishes sanitized configuration changes without metrics or paid calls", async () => {
+  const app = Fastify();
+  const settings = new RoutingSettings(pool, {});
+  const experiment = new RoutingShadow(enabled, store, transport);
+  const cancelAll = vi.spyOn(experiment, "cancelAll");
+  const summary = vi.spyOn(store, "summary");
+  const publish = vi.fn();
+  await registerRoutingShadowRoutes(
+    app,
+    store,
+    "secret",
+    settings,
+    experiment,
+    async () => true,
+    publish
+  );
+  expect(
+    (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/experiments/routing/pending?streamId=${A}`,
+      })
+    ).json()
+  ).toEqual({ pending: [] });
+  expect(summary).not.toHaveBeenCalled();
+  const saved = await app.inject({
+    method: "PUT",
+    url: "/api/v1/experiments/routing/settings",
+    payload: { mode: "off", apiKey: "test-private-routing-key" },
+  });
+  expect(saved.statusCode).toBe(200);
+  expect(cancelAll).toHaveBeenCalledOnce();
+  expect(publish).toHaveBeenCalledWith({
+    type: "routing.config_changed",
+    mode: "off",
+    configured: true,
+  });
+  expect(JSON.stringify(publish.mock.calls)).not.toContain("test-private");
+  expect(transport).not.toHaveBeenCalled();
+  await app.close();
 });

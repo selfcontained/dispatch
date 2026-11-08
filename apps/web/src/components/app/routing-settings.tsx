@@ -57,6 +57,9 @@ export function RoutingSettings(): JSX.Element {
   const settings = useQuery({
     queryKey,
     queryFn: () => api<Status>(`${endpoint}/settings`),
+    staleTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
   const check = useMutation({
     mutationFn: () =>

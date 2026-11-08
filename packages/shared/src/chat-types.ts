@@ -515,6 +515,20 @@ export type RoutingDiagnostic = {
   probabilities: { value: string; probability: number }[];
   confidence?: number;
   latencyMs?: number;
+  inputTokens?: number;
+  cachedReadTokens?: number;
+  cacheWriteTokens?: number;
   costUsd: number | null;
   costBasis: "cache-aware" | "uncached-estimate" | "unknown";
+};
+
+/** Ephemeral active routing lifecycle, scoped to the initiating message(s). */
+export type RoutingPending = {
+  turnId: number;
+  agentId: string;
+  streamId: string;
+  threadId: string | null;
+  messageIds: string[];
+  startedAt: number;
+  deadlineAt: number;
 };

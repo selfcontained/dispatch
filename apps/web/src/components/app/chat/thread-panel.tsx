@@ -1,4 +1,3 @@
-import { RoutingIndicator } from "./routing-indicator";
 import { useDeliveryAgents } from "@/hooks/use-agent-tree";
 /**
  * The thread behind one block, Slack-style: a panel to the right of the
@@ -568,9 +567,6 @@ export function ThreadPanel({
             </div>
           </>
         ) : null}
-      </div>
-      <div className="relative h-0">
-        <RoutingIndicator streamId={rootId} threadId={threadBlockId} />
       </div>
       <div className="shrink-0 border-t border-foreground/20 bg-background px-4 pb-3 pt-3">
         {error || stopError ? (

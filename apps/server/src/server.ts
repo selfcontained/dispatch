@@ -435,12 +435,19 @@ const authRuntime = createAuthRuntime({
 });
 const brainStore = new BrainStore(pool);
 const routingShadowStore = new RoutingShadowStore(pool, (agentId) => {
-  uiEventBroker.publish({ type: "stream.changed", agentId });
+  uiEventBroker.publish({
+    type: "routing.metadata_changed",
+    streamId: agentId,
+  });
 });
 const routingSettings = new RoutingSettings(pool);
 const routingShadow = new RoutingShadow(
   () => routingSettings.configuration(),
-  routingShadowStore
+  routingShadowStore,
+  fetch,
+  3000,
+  (streamId, pending) =>
+    uiEventBroker.publish({ type: "routing.pending", streamId, pending })
 );
 const streamService = new StreamService({
   routingShadow,
@@ -940,7 +947,8 @@ async function registerRoutes() {
         (await authRuntime.isPasswordSetCached()) &&
         (await canManageEngineUpdates(request))
       );
-    }
+    },
+    (event) => uiEventBroker.publish(event)
   );
   const shadowRetention = setInterval(
     () => {

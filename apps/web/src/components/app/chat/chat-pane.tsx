@@ -1,4 +1,3 @@
-import { RoutingIndicator } from "./routing-indicator";
 import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import {
   useCallback,
@@ -1430,10 +1429,6 @@ export function ChatPane({
                 </motion.div>
               ) : null}
             </AnimatePresence>
-          </div>
-
-          <div className="relative h-0">
-            <RoutingIndicator streamId={rootId} active={active} />
           </div>
           <div
             className={cn(

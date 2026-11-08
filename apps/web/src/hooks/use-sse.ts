@@ -1,3 +1,4 @@
+import { routingPendingKey } from "./use-routing-pending";
 import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import { useEffect } from "react";
 import type {
@@ -405,7 +406,38 @@ export function useSSE(authState: AuthState): void {
         recordSSEEvent();
         const payload = JSON.parse(event.data) as UiEvent;
 
+        if (payload.type === "routing.pending") {
+          const queryKey = routingPendingKey(payload.streamId);
+          void queryClient.cancelQueries({ queryKey });
+          queryClient.setQueryData(queryKey, { pending: payload.pending });
+          return;
+        }
+        if (payload.type === "routing.metadata_changed") {
+          invalidateStreamFeed(queryClient, payload.streamId);
+          void queryClient.invalidateQueries({
+            queryKey: [...STREAM_QUERY_PREFIX, payload.streamId, "thread"],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["routing-experiment-settings"],
+          });
+          return;
+        }
+        if (payload.type === "routing.config_changed") {
+          queryClient.setQueriesData(
+            { queryKey: ["routing-pending"] },
+            { pending: [] }
+          );
+          void queryClient.invalidateQueries({ queryKey: ["routing-pending"] });
+          void queryClient.invalidateQueries({
+            queryKey: ["routing-experiment-settings"],
+          });
+          return;
+        }
         if (payload.type === "snapshot") {
+          void queryClient.invalidateQueries({ queryKey: ["routing-pending"] });
+          void queryClient.invalidateQueries({
+            queryKey: ["routing-experiment-settings"],
+          });
           queryClient.setQueryData<Agent[]>(
             ["agents"],
             sortAgentsByCreatedAtDesc(payload.agents)
@@ -761,6 +793,10 @@ export function useSSE(authState: AuthState): void {
         handleSSEMessage(event);
       };
       opened.onerror = () => {
+        queryClient.setQueriesData(
+          { queryKey: ["routing-pending"] },
+          { pending: [] }
+        );
         recordSSEReconnect();
         // CONNECTING means the browser is retrying on its own — leave it be.
         // CLOSED means it has given up; the instance is dead, so drop it and

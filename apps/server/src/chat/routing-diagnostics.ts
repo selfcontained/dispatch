@@ -98,6 +98,17 @@ export function routingDiagnostic(row: {
     r.latencyMs >= 0
       ? { latencyMs: r.latencyMs }
       : {}),
+    ...(cost.basis !== "unknown"
+      ? { inputTokens: obj(r.usage).input_tokens as number }
+      : {}),
+    ...(cost.basis === "cache-aware"
+      ? {
+          cachedReadTokens: obj(obj(r.usage).input_tokens_details)
+            .cached_tokens as number,
+          cacheWriteTokens: obj(obj(r.usage).input_tokens_details)
+            .cache_write_tokens as number,
+        }
+      : {}),
     costUsd: cost.usd,
     costBasis: cost.basis,
   };

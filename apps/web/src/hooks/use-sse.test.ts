@@ -890,6 +890,8 @@ describe("useSSE message handling", () => {
     emit({ type: "snapshot", agents: [] });
 
     expectInvalidatedSet(invalidateQueries, [
+      ["routing-pending"],
+      ["routing-experiment-settings"],
       ["agent-turn-label"],
       ["scheduled-messages-upcoming"],
       ["agent-pull-requests"],
@@ -1423,6 +1425,54 @@ describe("useSSE message handling", () => {
       agent: { ...before, name: "Renamed agent" },
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
+  it("routes pending and settled evidence through SSE without broad stream invalidations, and refreshes on reconnect", () => {
+    const { emit, queryClient, invalidateQueries } = renderMessages();
+    const pending = [
+      {
+        turnId: 1,
+        agentId: "agt_1",
+        streamId: "agt_1",
+        threadId: null,
+        messageIds: ["opener"],
+        startedAt: 100,
+        deadlineAt: 3100,
+      },
+    ];
+    emit({ type: "routing.pending", streamId: "agt_1", pending });
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending,
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    emit({ type: "routing.metadata_changed", streamId: "agt_1" });
+    expectInvalidatedSet(invalidateQueries, [
+      ["stream", "agt_1"],
+      ["stream", "agt_1", "thread"],
+      ["routing-experiment-settings"],
+    ]);
+    emit({ type: "routing.pending", streamId: "agt_1", pending: [] });
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending: [],
+    });
+    invalidateQueries.mockClear();
+    emit({ type: "snapshot", agents: [] });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["routing-pending"],
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["routing-experiment-settings"],
+    });
+    emit({ type: "routing.pending", streamId: "agt_1", pending });
+    emit({ type: "routing.config_changed", mode: "off", configured: false });
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending: [],
+    });
+    emit({ type: "routing.pending", streamId: "agt_1", pending });
+    act(() => FakeEventSource.instances[0]!.fail(false));
+    expect(queryClient.getQueryData(["routing-pending", "agt_1"])).toEqual({
+      pending: [],
+    });
   });
 
   it("refetches an agent's chat feed and the sidebar unread summary on chat.changed", () => {
