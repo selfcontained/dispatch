@@ -46,6 +46,21 @@ Full automated E2E belongs in PR CI; locally run only new or updated E2E coverag
   branch and commit IDs or the exact uncommitted state, and anything still open.
   Attach copyable IDs, screenshots, and relevant preview links through Dispatch.
   Distinguish mocked coverage from live runtime validation.
+- Retire each reviewer you launched and own promptly once its review is
+  complete and every finding is reviewer-verified fixed or dismissed, including
+  clean reviews with no findings. Do not archive while a finding response,
+  reviewer verification, or final scoped review is outstanding. A posting
+  receipt, your own claimed fix, or passing tests is not reviewer resolution;
+  only the reviewer settles its findings.
+- Before retiring a settled reviewer, preserve its original final review and
+  resolution records, evidence/history, and required handoff references. Use
+  `archive_agent` with `cleanupWorktree: "keep"` to preserve its worktree. Do not
+  wait for CI, acceptance, PR merge, or task completion, or retain a completed
+  reviewer idle just in case. Later source changes still require appropriate
+  fresh scoped review.
+- This retirement duty applies only to reviewers you own and can archive. Do
+  not stop unrelated agents or change parent-controlled builder retirement;
+  your own availability and retirement remain governed by the next paragraph.
 - Remain available for integration questions and review fixes. End your turn
   after the handoff; the parent will contact you if needed and archive you once
   your work is consumed. Do not delete your worktree or archive yourself before
