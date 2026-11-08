@@ -15,8 +15,16 @@ export function registerScheduledMessageTools(
       "schedule_message",
       {
         description:
-          "Schedule a freeform message to yourself once or repeatedly. Recurrence requires completion criteria and a count or expiry. Messages can steer your active turn without interrupting tools. Repeated ticks collapse until pickup. Cancel when the criteria are met. Maximum lifetime seven days, 100 accepted deliveries, ten active schedules; minimum interval 60 seconds. Timestamps must include a timezone offset. Cancellation cannot recall an engine-accepted message.",
-        inputSchema: scheduleMessageSchema.shape,
+          "Schedule a freeform message to yourself once or repeatedly. Prefer task watches for event-driven updates over redundant polling. Recurring reminders must be concise wake-up instructions; reference authoritative records without copying their contents. Recurrence requires completion criteria and a count or expiry. Messages can steer your active turn without interrupting tools. Repeated ticks collapse until pickup. Cancel when the criteria are met. Maximum lifetime seven days, 100 accepted deliveries, ten active schedules; minimum interval 60 seconds. Timestamps must include a timezone offset. Cancellation cannot recall an engine-accepted message.",
+        inputSchema: {
+          ...scheduleMessageSchema.shape,
+          message: scheduleMessageSchema.shape.message.describe(
+            "For recurring reminders, use a short wake-up instruction: next check, authoritative task/reference, and stop condition. Maximum 500 characters (UTF-16 code units after trimming). No history, evidence, copied handoffs, or full task/persona text. Keep context in records; read references only when needed."
+          ),
+          stop_when: scheduleMessageSchema.shape.stop_when.describe(
+            "A concise completion condition, not context storage. Agent recurring reminders allow at most 500 characters (UTF-16 code units after trimming)."
+          ),
+        },
       },
       async (input) => {
         try {
@@ -24,7 +32,7 @@ export function registerScheduledMessageTools(
             content: [
               {
                 type: "text" as const,
-                text: jsonText(await service.create(agentId, input)),
+                text: jsonText(await service.create(agentId, input, "agent")),
               },
             ],
           };

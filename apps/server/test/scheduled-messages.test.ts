@@ -22,6 +22,11 @@ import type {
   PromptSource,
 } from "../src/agents/acp/prompt-source.js";
 
+import Fastify from "fastify";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { registerScheduledMessageTools } from "../src/shared/mcp/scheduled-message-tools.js";
+import { registerScheduledMessageRoutes } from "../src/routes/scheduled-messages.js";
+
 let pool: Pool;
 const id = "agt_scheduled_test";
 let service: ScheduledMessageService;
@@ -92,6 +97,110 @@ beforeEach(async () => {
   );
 });
 describe("scheduled messages", () => {
+  it("accepts exactly 500 trimmed UTF-16 units without truncation", async () => {
+    const message = "😀".repeat(250);
+    const s = await service.create(id, {
+      ...input(),
+      message: `  ${message}  `,
+      stop_when: "x".repeat(500),
+    });
+    expect(s.message).toBe(message);
+    expect(s.stopWhen).toHaveLength(500);
+  });
+  it.each(["message", "stop_when"] as const)(
+    "rejects oversized agent recurring %s before any write",
+    async (field) => {
+      const connect = vi.spyOn(pool, "connect");
+      try {
+        await expect(
+          service.create(id, { ...input(), [field]: "x".repeat(501) })
+        ).rejects.toThrow("keep context in task/conversation records");
+        expect(connect).not.toHaveBeenCalled();
+        expect(notice).not.toHaveBeenCalled();
+      } finally {
+        connect.mockRestore();
+      }
+      expect(await service.list(id)).toHaveLength(0);
+    }
+  );
+  it("retains long agent one-offs and human recurring reminders", async () => {
+    const message = "x".repeat(8000);
+    expect(
+      (
+        await service.create(id, {
+          ...input(),
+          interval_seconds: undefined,
+          message,
+        })
+      ).message
+    ).toBe(message);
+    expect(
+      (
+        await service.create(
+          id,
+          { ...input(), message, stop_when: "x".repeat(2000) },
+          "human"
+        )
+      ).message
+    ).toBe(message);
+  });
+  it("uses trusted entry-point origin rather than request-body bypasses", async () => {
+    const handlers = new Map<string, (input: unknown) => Promise<unknown>>();
+    registerScheduledMessageTools(
+      {
+        registerTool: (
+          name: string,
+          _config: unknown,
+          handler: (input: unknown) => Promise<unknown>
+        ) => handlers.set(name, handler),
+      } as unknown as McpServer,
+      new Set(["schedule_message"]),
+      id,
+      service
+    );
+    const long = { ...input(), message: "x".repeat(501) };
+    expect(await handlers.get("schedule_message")!(long)).toMatchObject({
+      isError: true,
+    });
+    expect(
+      await handlers.get("schedule_message")!({ ...long, origin: "human" })
+    ).toMatchObject({ isError: true });
+    expect(await service.list(id)).toHaveLength(0);
+    const app = Fastify();
+    await registerScheduledMessageRoutes(app, service);
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/v1/agents/${id}/scheduled-messages`,
+        payload: long,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().message).toBe(long.message);
+    } finally {
+      await app.close();
+    }
+  });
+  it("delivers and cancels existing oversized schedules without creation revalidation", async () => {
+    const s = await service.create(id, input());
+    const message = "legacy ".repeat(200);
+    await pool.query("UPDATE scheduled_messages SET payload=$2 WHERE id=$1", [
+      s.id,
+      JSON.stringify({ ...s, message, stopWhen: message }),
+    ]);
+    await service.tick(Date.parse(s.deliverAt));
+    expect(prompt).toHaveBeenCalledWith(
+      id,
+      expect.stringContaining(message),
+      expect.anything(),
+      expect.anything()
+    );
+    await service.change(id, s.id, "cancel");
+    expect((await service.list(id))[0]!.status).toBe("cancelled");
+    reject(new Error("cancelled"));
+    settle();
+    await flush();
+  });
+
   it("summarizes the earliest eligible delivery per agent and follows schedule changes", async () => {
     expect(await service.upcoming()).toEqual({});
     const later = await service.create(id, {

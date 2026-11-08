@@ -28,7 +28,7 @@ export async function registerScheduledMessageRoutes(
       const input = parseInput(scheduleMessageSchema, request.body, reply);
       if (!p || !input) return;
       try {
-        return await service.create(p.agentId, input);
+        return await service.create(p.agentId, input, "human");
       } catch (error) {
         return reply.code(400).send({ error: errorMessage(error) });
       }
