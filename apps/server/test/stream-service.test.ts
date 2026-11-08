@@ -7232,7 +7232,7 @@ describe("turn startup racing lifecycle settlement", () => {
         const cut = await rows.lastTurn(A);
         expect(cut?.payload.state).toBe("settled");
         expect(cut?.payload.blockId).toBeUndefined();
-        expect(cancel).toHaveBeenCalledWith(A);
+        expect(cancel).toHaveBeenCalledWith(A, cut!.id);
       } finally {
         release();
         await starting;

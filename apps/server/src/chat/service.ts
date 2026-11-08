@@ -225,7 +225,7 @@ export type StreamAgent = Pick<
 
 export type StreamServiceDeps = {
   routingShadow?: {
-    cancel?(agentId: string): void;
+    cancel?(agentId: string, turnId?: number): void;
     frozen?(
       turnId: number,
       placement: import("./routing-shadow.js").ShadowInput["placement"]
@@ -4013,15 +4013,15 @@ export class StreamService {
   }
 
   /** A turn settled or was cut: its current response takes its own text. */
-  cancelRouting(agentId: string): void {
-    this.deps.routingShadow?.cancel?.(agentId);
+  cancelRouting(agentId: string, turnId?: number): void {
+    this.deps.routingShadow?.cancel?.(agentId, turnId);
   }
 
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
   }): Promise<void> {
-    this.cancelRouting(input.agentId);
+    this.cancelRouting(input.agentId, input.turnRow.id);
     const blockId = input.turnRow.payload.blockId;
     if (typeof blockId !== "string") return;
     const streamId = await this.turnStreamOf(input.agentId, blockId);
