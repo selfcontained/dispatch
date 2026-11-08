@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity, Pause, Radio, Terminal, X } from "lucide-react";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import { api } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -52,7 +51,7 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
       </DialogTrigger>
       <DialogContent
         overlayClassName="background-work-overlay"
-        className="background-work-dialog w-[min(480px,calc(100vw-2rem))] gap-4 font-sans text-foreground"
+        className="background-work-dialog w-[min(440px,calc(100vw-2rem))] gap-2 p-3 font-sans text-foreground"
       >
         <DialogHeader>
           <div className="flex items-center justify-between">
@@ -72,7 +71,7 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
             Commands and monitors reported by this agent's current session.
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 space-y-2 overflow-y-auto">
+        <div className="min-h-0 overflow-y-auto">
           {query.isPending ? (
             <div
               className="h-14 animate-pulse rounded-lg bg-muted/50"
@@ -87,31 +86,45 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
               No reported background work.
             </p>
           ) : (
-            items.map((item) => {
-              const Icon = item.kind === "monitor" ? Radio : Terminal;
-              const StateIcon = item.state === "paused" ? Pause : Activity;
-              return (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/15 p-3"
-                >
-                  <Icon className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 break-words text-sm font-medium line-clamp-2">
-                    {item.name}
-                  </span>
-                  <Badge
-                    className={
-                      item.state === "paused"
-                        ? "shrink-0 gap-1 normal-case tracking-normal border-status-waiting/30 bg-status-waiting/10 text-status-waiting [[data-theme-mode=light]_&]:text-amber-800"
-                        : "shrink-0 gap-1 normal-case tracking-normal border-status-working/30 bg-status-working/10 text-status-working [[data-theme-mode=light]_&]:text-emerald-800"
-                    }
+            <ul className="divide-y divide-border/40">
+              {items.map((item) => {
+                const Icon = item.kind === "monitor" ? Radio : Terminal;
+                return (
+                  <li
+                    key={item.id}
+                    className="flex min-h-9 items-center gap-2.5 px-1 py-2"
                   >
-                    <StateIcon className="size-3" />
-                    {item.state}
-                  </Badge>
-                </div>
-              );
-            })
+                    <Icon
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      role="img"
+                      aria-label={
+                        item.kind === "monitor" ? "Monitor" : "Command"
+                      }
+                    />
+                    <span className="min-w-0 flex-1 break-words text-[13px] line-clamp-2">
+                      {item.name}
+                    </span>
+                    <span
+                      className={
+                        item.state === "paused"
+                          ? "flex shrink-0 items-center gap-1.5 text-xs text-status-waiting [[data-theme-mode=light]_&]:text-amber-800"
+                          : "flex shrink-0 items-center gap-1.5 text-xs text-status-working [[data-theme-mode=light]_&]:text-emerald-800"
+                      }
+                    >
+                      {item.state === "paused" ? (
+                        <Pause className="size-3" aria-hidden="true" />
+                      ) : (
+                        <span
+                          className="size-1.5 rounded-full bg-current"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {item.state}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </DialogContent>
