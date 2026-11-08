@@ -75,15 +75,42 @@ for (const mobile of [false, true]) {
     const editor = page.locator(
       '[data-placeholder="Reply in thread…"]:visible'
     );
-    await editor.fill("idle thread sleep:5000");
+    await editor.fill("idle thread sleep:10000");
     await editor.press("Enter");
     await location(root.id);
     await expect(
       page.getByTestId("chat-thread-panel").filter({ visible: true })
     ).toContainText("Waiting for the requested delay");
     await capture("idle-start");
+    async function executionTurnId(blockId: string) {
+      const response = await request.get(
+        `/api/v1/streams/${agent.id}/blocks/${root.id}/thread`,
+        { headers: authHeaders() }
+      );
+      expect(response.ok()).toBe(true);
+      const thread = await response.json();
+      const block = thread.replies.find(
+        (reply: { id: string }) => reply.id === blockId
+      );
+      expect(block?.data?.turnEventId).toBeDefined();
+      return block.data.turnEventId;
+    }
+    const initial = await call("get_conversation_context");
+    const initialExecution = await executionTurnId(initial.activeTurnId);
     await send("same discussion steering", root.id);
-    await location(root.id);
+    const discussion = page
+      .getByTestId("chat-thread-panel")
+      .filter({ visible: true });
+    await expect(
+      discussion
+        .getByTestId("chat-thread-turn")
+        .filter({ hasText: "Steered:" })
+        .filter({ hasText: "same discussion steering" })
+    ).toBeVisible();
+    const steered = await call("get_conversation_context");
+    expect(steered.current).toEqual(initial.current);
+    // A pickup may split the response block, but must keep the execution turn.
+    expect(await executionTurnId(steered.activeTurnId)).toBe(initialExecution);
     await expect
       .poll(async () => (await call("get_conversation_context")).current, {
         timeout: 15_000,
@@ -127,8 +154,13 @@ for (const mobile of [false, true]) {
     await send("queued next thread sleep:5000", root.id);
     await page.reload({ waitUntil: "domcontentloaded" });
     await location(root.id);
+    const released = await call("get_conversation_context");
+    expect(released.activeTurnId).not.toBe(initial.activeTurnId);
     await expect(
-      page.getByTestId("chat-thread-panel").filter({ visible: true })
+      page
+        .getByTestId("chat-thread-panel")
+        .filter({ visible: true })
+        .locator(`[data-chat-entry-id="${released.activeTurnId}"]`)
     ).toContainText("Waiting for the requested delay");
     await capture("queue-released-after-reload");
   });
