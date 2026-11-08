@@ -73,9 +73,13 @@ export function RoutingSettings(): JSX.Element {
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    onSuccess: (data) => {
+    onSuccess: (data, submitted) => {
       client.setQueryData(queryKey, data);
-      setKey("");
+      if (submitted.apiKey !== undefined) {
+        setKey((current) =>
+          current.trim() === submitted.apiKey ? "" : current
+        );
+      }
       check.reset();
       void client.invalidateQueries({ queryKey });
     },

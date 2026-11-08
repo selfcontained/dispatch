@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { onlineManager, useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -8,7 +8,11 @@ type Pending = {
   streamId: string;
   threadId: string | null;
   startedAt: number;
+  deadlineAt?: number;
 };
+const subscribeOnline = (onChange: () => void) =>
+  onlineManager.subscribe(onChange);
+
 /** Server lifecycle state, scoped to this conversation; no optimistic or shadow spinner. */
 export function RoutingIndicator({
   streamId,
@@ -19,6 +23,11 @@ export function RoutingIndicator({
   threadId?: string | null;
   active?: boolean;
 }) {
+  const online = useSyncExternalStore(
+    subscribeOnline,
+    () => onlineManager.isOnline(),
+    () => true
+  );
   const settings = useQuery({
     queryKey: ["routing-experiment-settings"],
     queryFn: () =>
@@ -46,23 +55,46 @@ export function RoutingIndicator({
     staleTime: 0,
   });
   const item =
-    active && settings.data?.mode === "active"
+    active &&
+    online &&
+    !settings.isError &&
+    settings.data?.mode === "active" &&
+    settings.data?.configured === true &&
+    !pending.isError &&
+    pending.failureCount === 0 &&
+    pending.fetchStatus !== "paused"
       ? pending.data?.pending?.find(
           (p) => p.streamId === streamId && p.threadId === threadId
         )
       : undefined;
   const turn = item?.turnId;
   const startedAt = item?.startedAt;
+  // Production routing has a three-second total deadline. An explicit server
+  // deadline can shorten it; cached rows cannot extend the default bound.
+  const deadlineAt =
+    startedAt === undefined
+      ? undefined
+      : Math.min(item?.deadlineAt ?? Infinity, startedAt + 3000);
   const [visible, setVisible] = useState<number>();
   useEffect(() => {
     setVisible(undefined);
-    if (turn === undefined) return;
-    const timer = setTimeout(
-      () => setVisible(turn),
-      Math.max(0, 300 - (Date.now() - (startedAt ?? Date.now())))
-    );
-    return () => clearTimeout(timer);
-  }, [turn, startedAt]);
+    if (
+      turn === undefined ||
+      startedAt === undefined ||
+      deadlineAt === undefined ||
+      !Number.isFinite(deadlineAt)
+    )
+      return;
+    const remaining = deadlineAt - Date.now();
+    const showAfter = Math.max(0, startedAt + 300 - Date.now());
+    if (remaining <= showAfter) return;
+    const showTimer = setTimeout(() => setVisible(turn), showAfter);
+    const expiryTimer = setTimeout(() => setVisible(undefined), remaining);
+    return () => {
+      clearTimeout(showTimer);
+      clearTimeout(expiryTimer);
+    };
+  }, [turn, startedAt, deadlineAt]);
   return (
     <div
       className="pointer-events-none absolute bottom-2 left-5 z-10 h-5 w-5"
