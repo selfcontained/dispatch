@@ -129,6 +129,10 @@ for (const mobile of [false, true]) {
     await panel
       .getByRole("button", { name: "Send now", exact: true })
       .scrollIntoViewIfNeeded();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      panel.getByText("Queued for a reply here", { exact: true })
+    ).toBeVisible();
     await capture("queued");
     await panel.getByRole("button", { name: "Send now", exact: true }).click();
     await location(null);

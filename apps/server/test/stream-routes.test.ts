@@ -1449,6 +1449,52 @@ describe("stream routes with a deliverable engine", () => {
     await app.close();
   });
 
+  it("retains held thread delivery on repeated reads and clears it after pickup", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { app, ready, streams } = buildApp({ held: true, gate });
+    await ready;
+    const root = await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      text: "Thread",
+    });
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/streams/${agentId}/blocks`,
+      payload: { text: "Reply here", replyTo: root.id },
+    });
+    const id = sent.json().block.id;
+    try {
+      for (let read = 0; read < 2; read++) {
+        const response = await app.inject({
+          method: "GET",
+          url: `/api/v1/streams/${agentId}/blocks/${root.id}/thread`,
+        });
+        expect(
+          response.json().replies.find((block: Block) => block.id === id)
+            .delivery
+        ).toEqual([expect.objectContaining({ agentId, state: "held" })]);
+      }
+      expect((await store.getById(id))?.delivery?.[0]?.state).toBe("pending");
+      release();
+      await settled(streams, id);
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/streams/${agentId}/blocks/${root.id}/thread`,
+      });
+      expect(
+        response.json().replies.find((block: Block) => block.id === id).delivery
+      ).toEqual([expect.objectContaining({ state: "delivered" })]);
+    } finally {
+      release();
+      await streams.waitForInFlightDeliveries(1000);
+      await app.close();
+    }
+  });
+
   it("persists as pending, responds at once, then settles delivered=true", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {

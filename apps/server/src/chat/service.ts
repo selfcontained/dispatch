@@ -88,6 +88,7 @@ import {
   compactFeedTurnDetails,
   composeStreamFeed,
   loadBlockEntry,
+  markHeld,
 } from "./feed.js";
 import {
   loadNewestTurnBlockId,
@@ -3701,6 +3702,13 @@ export class StreamService {
       includeReviews: true,
       isHeld: this.heldCheck(),
     });
+  }
+
+  /** Thread reloads use the same runtime delivery projection as feed/SSE reads. */
+  async threadForUi(blockId: string) {
+    const thread = await this.store.listThread(blockId);
+    if (thread) markHeld([thread.root, ...thread.replies], this.heldCheck());
+    return thread;
   }
 
   /**
