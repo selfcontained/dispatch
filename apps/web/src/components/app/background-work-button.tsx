@@ -1,7 +1,7 @@
 import "./background-work.css";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Pause, Radio, Terminal, X } from "lucide-react";
+import { ListTree, Pause, Radio, Terminal, X } from "lucide-react";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -36,13 +36,12 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
       {items.length > 0 && (
         <DialogTrigger asChild>
           <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
+            variant="ghost-primary"
+            size="icon-sm"
             aria-label={`Background work ${items.length}`}
             title={`Background work (${items.length})`}
           >
-            <Terminal className="size-4" aria-hidden="true" />
+            <ListTree className="size-4" aria-hidden="true" />
           </Button>
         </DialogTrigger>
       )}
