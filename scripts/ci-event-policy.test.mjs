@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
@@ -353,4 +355,90 @@ test("rerunning old event with a new attempt cannot clear retarget", async () =>
     }),
     /WAITING_FOR_EVIDENCE/
   );
+});
+
+test("CI evidence reads the event privately and never logs PR title/body", () => {
+  const record = job.steps.find(
+    (step) => step.name === "Record integration context"
+  );
+  assert.equal(record.env, undefined);
+  for (const workflow of [code, metadata]) {
+    const loggedInputs = JSON.stringify(workflow);
+    assert.doesNotMatch(
+      loggedInputs,
+      /toJSON\(github\.event(?:\.pull_request)?\)/
+    );
+    assert.doesNotMatch(
+      loggedInputs,
+      /\$\{\{[^}]*github\.event\.pull_request\.(?:title|body)/
+    );
+  }
+  const directory = mkdtempSync(join(tmpdir(), "dispatch-ci-context-"));
+  try {
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@example.com",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@example.com",
+      RUNNER_TEMP: directory,
+      GITHUB_EVENT_PATH: join(directory, "event.json"),
+      GITHUB_RUN_ID: "42",
+      GITHUB_RUN_ATTEMPT: "1",
+    };
+    const git = (args) =>
+      execFileSync("git", args, {
+        cwd: directory,
+        env,
+        encoding: "utf8",
+      }).trim();
+    git(["init", "--quiet"]);
+    const tree = git(["mktree"]);
+    const base = git(["commit-tree", tree, "-m", "base"]);
+    const head = git(["commit-tree", tree, "-p", base, "-m", "head"]);
+    const merge = git([
+      "commit-tree",
+      tree,
+      "-p",
+      base,
+      "-p",
+      head,
+      "-m",
+      "merge",
+    ]);
+    git(["update-ref", "HEAD", merge]);
+    const secret = "claude.ai/code/session/private-regression-sentinel";
+    writeFileSync(
+      env.GITHUB_EVENT_PATH,
+      JSON.stringify({
+        pull_request: {
+          number: 123,
+          title: secret,
+          body: secret,
+          updated_at: "2026-11-07T00:02:00Z",
+          head: { sha: head, repo: { full_name: "owner/repo" } },
+          base: {
+            ref: "main",
+            sha: "stale-event-base",
+            repo: { full_name: "owner/repo" },
+          },
+        },
+      })
+    );
+    const script = record.run.split("<<'JS'\n")[1].replace(/\nJS\s*$/, "");
+    const output = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      { cwd: directory, env, encoding: "utf8" }
+    );
+    assert.equal(output, "");
+    const raw = readFileSync(join(directory, "ci-context.json"), "utf8");
+    assert.ok(!raw.includes(secret));
+    const proof = JSON.parse(raw);
+    assert.equal(proof.base, base);
+    assert.equal(proof.head, head);
+    assert.equal(proof.merge, merge);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

@@ -42,13 +42,11 @@ jobs:
       # Capture the actual integration tree before executing PR code. The
       # event base SHA can lag the merge ref; its parents are authoritative.
       - name: Record integration context
-        env:
-          CI_CONTEXT: ${{ toJSON(github.event.pull_request) }}
         run: |
           node --input-type=module <<'JS'
           import { execFileSync } from 'node:child_process';
-          import { writeFileSync } from 'node:fs';
-          const pr = JSON.parse(process.env.CI_CONTEXT);
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const pr = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request;
           const [merge, base, head, ...extra] = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { encoding: 'utf8' }).trim().split(/\s+/);
           if (extra.length || !base || head !== pr.head.sha) throw new Error('Expected the PR integration merge with the pinned head');
           writeFileSync(`${process.env.RUNNER_TEMP}/ci-context.json`, JSON.stringify({
