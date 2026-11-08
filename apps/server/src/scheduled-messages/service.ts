@@ -134,9 +134,21 @@ export class ScheduledMessageService {
   }
   async create(
     agentId: string,
-    raw: ScheduleMessageInput
+    raw: ScheduleMessageInput,
+    origin: "agent" | "human" = "agent"
   ): Promise<ScheduledMessage> {
     const input = scheduleMessageSchema.parse(raw);
+    // Trusted entry-point context, never a property of the request body.
+    // Count UTF-16 code units after schema trimming, matching Zod string caps.
+    // Creation only: saved schedules remain deliverable and cancellable.
+    if (origin === "agent" && input.interval_seconds) {
+      for (const field of ["message", "stop_when"] as const) {
+        if ((input[field]?.length ?? 0) > 500)
+          throw new Error(
+            `Agent recurring ${field} must be at most 500 characters (UTF-16 code units after trimming). Shorten the reminder; keep context in task/conversation records and reference them instead.`
+          );
+      }
+    }
     return this.serial(agentId, async () => {
       const now = Date.now();
       const { first, expiry } = validateSchedule(input, now);
