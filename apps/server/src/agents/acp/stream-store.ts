@@ -223,6 +223,21 @@ export class StreamStore {
     );
   }
 
+  /** Merge a turn change without overwriting concurrent lifecycle settlement. */
+  async patchTurnPayload(
+    id: number,
+    patch: Record<string, unknown>
+  ): Promise<StreamEventRow> {
+    const result = await this.db.query<Row>(
+      `UPDATE agent_stream_events
+          SET payload = payload || $2::jsonb, updated_at = NOW()
+        WHERE id = $1 AND kind = 'turn'
+        RETURNING *`,
+      [id, JSON.stringify(patch)]
+    );
+    return toRow(result.rows[0]);
+  }
+
   /**
    * A new turn starting ends any retry still offered on an earlier one:
    * the conversation has moved past that failure. Returns the rows it

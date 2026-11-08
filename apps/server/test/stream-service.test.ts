@@ -7158,6 +7158,126 @@ describe("steering pickup receipts", () => {
   );
 });
 
+describe("turn startup racing lifecycle settlement", () => {
+  beforeEach(async () => {
+    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+      A,
+    ]);
+  });
+
+  it.each(["stop", "archive", "restart", "exit", "turn end"] as const)(
+    "%s during routing preserves settlement and settles the late response block",
+    async (lifecycle) => {
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const routing = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const cancel = vi.fn();
+      const { svc, events } = build({
+        deps: {
+          routingShadow: {
+            observe: () => undefined,
+            cancel,
+            route: async () => {
+              entered();
+              // Remain pending even after cancellation: block insertion can
+              // already be in flight when a lifecycle action cuts the turn.
+              await gate;
+              return undefined;
+            },
+          },
+        },
+      });
+      const rows = new StreamStore(pool);
+      const rec = new StreamRecorder(rows);
+      rec.setTurnBlocks({
+        started: (input) => svc.recordTurnStarted(input),
+        settled: (input) => svc.recordTurnSettled(input),
+      });
+      const starting = rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "started",
+        text: "work",
+      });
+      await routing;
+      try {
+        if (lifecycle === "restart") {
+          expect(await rec.reconcile(A)).toBe(1);
+        } else if (lifecycle === "exit") {
+          await rec.handle({
+            type: "exit",
+            agentId: A,
+            expected: true,
+            code: 0,
+            signal: null,
+            stderrTail: "",
+          });
+        } else if (lifecycle === "turn end") {
+          await rec.handle({
+            type: "turn",
+            agentId: A,
+            state: "settled",
+            stopReason: "end_turn",
+          });
+        } else {
+          // Stop and archive share beginStop/settleStopped in the manager.
+          rec.beginStop(A);
+          expect(await rec.settleStopped(A)).toBe(1);
+        }
+        const cut = await rows.lastTurn(A);
+        expect(cut?.payload.state).toBe("settled");
+        expect(cut?.payload.blockId).toBeUndefined();
+        expect(cancel).toHaveBeenCalledWith(A);
+      } finally {
+        release();
+        await starting;
+      }
+      const turn = await rows.lastTurn(A);
+      expect(turn?.payload).toMatchObject({
+        state: "settled",
+        blockId: expect.any(String),
+        endedAt: expect.any(String),
+        ...(lifecycle === "stop" || lifecycle === "archive"
+          ? { error: "stopped" }
+          : {}),
+        ...(lifecycle === "restart" ? { error: "interrupted by restart" } : {}),
+      });
+      const blockId = turn!.payload.blockId;
+      expect(await svc.turnEntry(A)).toMatchObject({
+        id: blockId,
+        block: { turn: { settled: true } },
+      });
+      // Settlement must be published after the pointer exists, so a client
+      // which observed the late insertion cannot retain a live empty response.
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "stream.entry",
+          entry: expect.objectContaining({
+            id: blockId,
+            block: expect.objectContaining({
+              turn: expect.objectContaining({ settled: true }),
+            }),
+          }),
+        })
+      );
+      await rec.handle({
+        type: "exit",
+        agentId: A,
+        expected: true,
+        code: 0,
+        signal: null,
+        stderrTail: "",
+      });
+      expect((await rows.lastTurn(A))?.payload).toEqual(turn!.payload);
+    }
+  );
+});
+
 describe("steering response boundaries", () => {
   beforeEach(async () => {
     await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
