@@ -1,3 +1,4 @@
+import { MessageThreadTap } from "./message-thread-tap";
 import { ConversationLocationLink } from "./conversation-location-link";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
@@ -1628,6 +1629,10 @@ export const BlockView = memo(function BlockView({
     !inThread &&
     block.threadId !== null &&
     (isUserInputBlock(block) || isFailedParentInput(block));
+  const openTextThread =
+    block.kind === "text" && !inThread && ctx.onOpenThread
+      ? () => ctx.onOpenThread?.(mirroredInput ? block.threadId! : block.id)
+      : undefined;
   const replyAction =
     !inThread && ctx.onOpenThread ? (
       <ReplyInThreadButton
@@ -1778,16 +1783,21 @@ export const BlockView = memo(function BlockView({
         deliveryIndicator={deliveryIndicator}
       >
         {block.text ? (
-          <Markdown
-            className="prose-p:whitespace-pre-line prose-li:whitespace-pre-line"
-            renderText={(text) => (
-              <MentionText
-                spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
-              />
-            )}
-          >
-            {block.text}
-          </Markdown>
+          <MessageThreadTap onOpen={openTextThread}>
+            <Markdown
+              className="prose-p:whitespace-pre-line prose-li:whitespace-pre-line"
+              renderText={(text) => (
+                <MentionText
+                  spans={mentionSpans(
+                    text,
+                    historicalMentionablesOf(block, ctx)
+                  )}
+                />
+              )}
+            >
+              {block.text}
+            </Markdown>
+          </MessageThreadTap>
         ) : null}
         {body}
         <AttachmentList block={block} ctx={ctx} />
@@ -1933,12 +1943,14 @@ export const BlockView = memo(function BlockView({
         {block.sharedMessage ? (
           <SharedMessageEntry share={block.sharedMessage} />
         ) : block.turn ? (
-          <TurnAnswer
-            block={block}
-            turn={block.turn}
-            ctx={ctx}
-            folded={folded}
-          />
+          <MessageThreadTap onOpen={openTextThread}>
+            <TurnAnswer
+              block={block}
+              turn={block.turn}
+              ctx={ctx}
+              folded={folded}
+            />
+          </MessageThreadTap>
         ) : !ctx.readOnly &&
           (block.author.kind === "agent" || block.author.kind === "system") &&
           typeof (block.data as { scheduledMessageId?: unknown } | null)
@@ -1969,15 +1981,20 @@ export const BlockView = memo(function BlockView({
             }
           />
         ) : block.text ? (
-          <Markdown
-            renderText={(text) => (
-              <MentionText
-                spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
-              />
-            )}
-          >
-            {block.text}
-          </Markdown>
+          <MessageThreadTap onOpen={openTextThread}>
+            <Markdown
+              renderText={(text) => (
+                <MentionText
+                  spans={mentionSpans(
+                    text,
+                    historicalMentionablesOf(block, ctx)
+                  )}
+                />
+              )}
+            >
+              {block.text}
+            </Markdown>
+          </MessageThreadTap>
         ) : null}
         {body}
       </InputSurface>
