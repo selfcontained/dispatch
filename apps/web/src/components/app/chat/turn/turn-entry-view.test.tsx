@@ -106,9 +106,15 @@ function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
 }
 
 describe("TurnEntryView", () => {
-  it("links home output back to its stored source discussion", () => {
+  it("links home output back to another agent's stored source discussion", () => {
     renderTurn(
       turn({
+        prompt: {
+          source: "agent",
+          text: "Review this",
+          senderAgentId: "agt_parent",
+          attachments: [],
+        },
         sourceConversation: {
           streamId: "agt_parent",
           threadId: "source-thread",

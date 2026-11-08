@@ -181,9 +181,10 @@ test.describe("Live agent", () => {
     await expect(
       threadTurns.first().getByTestId("harness-result")
     ).toContainText("in the thread", { timeout: TURN_TIMEOUT });
-    await expect(
-      threadTurns.getByTestId("turn-source-discussion")
-    ).toHaveAttribute("href", new RegExp(`thread=${rootId}.*block=${replyId}`));
+    // The original discussion is already visible; no redundant source navigation.
+    await expect(threadTurns.getByTestId("turn-source-discussion")).toHaveCount(
+      0
+    );
     // Output ownership survives reload while source input stays at its original anchor.
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(mainTurns).toHaveCount(1);

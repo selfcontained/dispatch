@@ -1,4 +1,5 @@
 import type { ChatTurnEntry } from "@dispatch/shared";
+import { CornerUpLeft } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { agentHistoryRoute, agentRoute } from "@/lib/agent-routes";
@@ -33,9 +34,11 @@ export function conversationLocation(
 export function ConversationLocationLink({
   turn,
   homeId,
+  threadId = null,
 }: {
   turn: ChatTurnEntry;
   homeId: string;
+  threadId?: string | null;
 }) {
   const source = turn.sourceConversation;
   const record = useAgentRecord(
@@ -43,17 +46,28 @@ export function ConversationLocationLink({
   );
   if (
     !source ||
+    turn.prompt.source !== "agent" ||
+    !turn.prompt.senderAgentId ||
+    turn.prompt.senderAgentId === turn.agentId ||
     (!source.streamId.startsWith("tsk_") && !record) ||
-    (source.streamId === homeId && source.threadId === null)
+    (source.streamId === homeId && source.threadId === threadId)
   )
     return null;
+  const destinationLabel = source.blockId
+    ? "View original message"
+    : source.threadId
+      ? "View original discussion"
+      : "View original conversation";
   return (
     <Link
       data-testid="turn-source-discussion"
-      className="mb-1 inline-flex min-h-8 items-center text-xs text-muted-foreground hover:underline"
+      aria-label={`Source: ${destinationLabel}`}
+      title={destinationLabel}
+      className="inline-flex shrink-0 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1 text-[10px] font-normal leading-4 text-primary transition-colors hover:border-primary/60 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       to={conversationLocation(source, record?.archived === true, homeId)}
     >
-      Open source discussion
+      <CornerUpLeft aria-hidden="true" className="size-3" />
+      Source
     </Link>
   );
 }
