@@ -298,7 +298,7 @@ describe("registerStreamTools", () => {
       expect.objectContaining({ agentHome: "agt_child", to: "agt_parent" })
     );
     expect(tool("post").config.description).toContain(
-      "source messages never move it"
+      "Steering never moves it"
     );
     expect(tool("post").config.description).toContain(
       "Questions, forms, and reviews preserve dedicated routing"

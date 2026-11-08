@@ -81,3 +81,28 @@ it("allows a fresh interrupt after the active recipient turn changes", async () 
     ).toBe(false)
   );
 });
+
+it("sends a queued thread message into ongoing work without interrupting", async () => {
+  const { api } = await import("@/lib/api");
+  vi.mocked(api).mockClear();
+  const client = new QueryClient();
+  render(
+    <QueryClientProvider client={client}>
+      <QueuedMessageActions
+        agentId="agent"
+        messageId="thread-message"
+        recipientIds={["agent"]}
+        threadId="other-thread"
+      />
+    </QueryClientProvider>
+  );
+  const button = screen.getByRole("button", { name: "Send now" });
+  expect(button.title).toContain("replies stay in its current conversation");
+  fireEvent.click(button);
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      expect.stringContaining("/thread-message/send-now"),
+      { method: "POST", body: JSON.stringify({ interrupt: false }) }
+    )
+  );
+});

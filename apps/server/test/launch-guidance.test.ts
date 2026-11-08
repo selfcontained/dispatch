@@ -23,7 +23,7 @@ describe("launch guidance", () => {
     expect(guidance).toContain(
       "Every agent, including a child, owns a home stream"
     );
-    expect(guidance).toContain("Incoming source discussions never move output");
+    expect(guidance).toContain("Its output location is frozen when it starts");
     expect(guidance).toContain("agentHome child plus to child");
     expect(guidance).toContain("to (delivery only)");
     expect(guidance).not.toContain("launch-card thread");

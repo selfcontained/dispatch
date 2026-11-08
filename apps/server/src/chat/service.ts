@@ -2548,7 +2548,7 @@ export class StreamService {
         (active?.payload.prompt as PromptSource | undefined)?.conversation ??
         null,
       activeTurnId: turn?.id ?? null,
-      note: "Ordinary output and default posts belong at home. source is delivery context only; current may be a legacy block pinned until settlement.",
+      note: "Ordinary output stays at current for the entire active turn. User-thread starts use that discussion; other work starts at home. Explicit default/current/home/root posts select home.",
     };
   }
 
@@ -3742,7 +3742,7 @@ export class StreamService {
 
   /**
    * A turn opened: its block, by the agent, empty until the turn settles.
-   * All new ordinary output belongs at the executing agent's home root.
+   * User-thread turns freeze their source location here; other work uses home.
    * Source discussion and legacy engine.after metadata stay context only.
    * The recorder retains this block pointer through reconnect and settlement.
    */
@@ -3751,7 +3751,43 @@ export class StreamService {
     turnRow: StreamEventRow;
     prompt: PromptSource;
   }): Promise<string | null> {
-    const streamId = await this.streamOf(input.agentId);
+    let streamId = await this.streamOf(input.agentId);
+    let threadId: string | null = null;
+    let replyTo: string | null = null;
+    const source = input.prompt;
+    if (
+      source.source === "chat" &&
+      source.userMessage === true &&
+      !source.awaited
+    ) {
+      const ids = source.chatMessageIds ?? [source.chatMessageId];
+      const openers = await Promise.all(
+        ids.map((id) => this.store.getById(id))
+      );
+      const first = openers[0];
+      // Validate persisted provenance as well as exact discussion identity.
+      // Structured answers and agent/system notices retain their dedicated routing.
+      if (
+        first?.threadId &&
+        openers.every(
+          (opener) =>
+            opener?.author.kind === "user" &&
+            opener.kind === "text" &&
+            opener.streamId === first.streamId &&
+            opener.threadId === first.threadId &&
+            addressedTo(opener).includes(input.agentId)
+        )
+      ) {
+        const answered = first.replyTo
+          ? await this.store.getById(first.replyTo)
+          : null;
+        if (answered?.kind !== "question" && answered?.kind !== "form") {
+          streamId = first.streamId;
+          threadId = first.threadId;
+          replyTo = first.id;
+        }
+      }
+    }
     const block = await this.store.insert({
       streamId,
       author: { kind: "agent", agentId: input.agentId },
@@ -3759,8 +3795,8 @@ export class StreamService {
       origin: "turn",
       data: { turnEventId: input.turnRow.id },
       text: "",
-      threadId: null,
-      replyTo: null,
+      threadId,
+      replyTo,
     });
     return block.id;
   }
@@ -4175,6 +4211,11 @@ export class StreamService {
             block.kind === "task"
               ? await this.taskReferenceText(block, agentId)
               : envelopeText(block),
+          userThreadTurn:
+            from.kind === "user" &&
+            !!block.threadId &&
+            !structuredAnswer &&
+            !finding,
           quotedContext: closes
             ? undefined
             : await this.automaticContext(block, agentId),
