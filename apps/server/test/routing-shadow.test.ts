@@ -801,6 +801,43 @@ describe("optional routing shadow", () => {
     await finished();
     expect((await records())[0].result.applied).toBe(false);
   });
+  it("cancels only the settled turn while a newer routing attempt remains active", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    transport.mockImplementation(async () => {
+      await gate;
+      return ok();
+    });
+    const first = await input("first", false);
+    const second = await input("second", false);
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport
+    );
+    const firstTask = experiment.route(first);
+    const secondTask = experiment.route(second);
+    try {
+      await idle(async () => transport.mock.calls.length === 2);
+      experiment.cancel(A, first.turnRow.id);
+      expect(await firstTask).toBeUndefined();
+      expect(experiment.pending(A)).toEqual([
+        expect.objectContaining({ turnId: second.turnRow.id }),
+      ]);
+    } finally {
+      release();
+    }
+    await secondTask;
+    const rows = await finished(2);
+    expect(
+      rows.find((r) => Number(r.turn_id) === first.turnRow.id).status
+    ).toBe("timeout");
+    expect(
+      rows.find((r) => Number(r.turn_id) === second.turnRow.id).status
+    ).toBe("ok");
+  });
   it("rejects invalid probabilities and discards unknown provider fields", () => {
     expect(() =>
       parseShadowResponse({

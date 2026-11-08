@@ -78,6 +78,10 @@ const cases: [string, string[]][] = [
   ["packages/shared/src/scheduled-messages.ts", ["jobs-owner"]],
   ["e2e/jobs-webhook-ui.spec.ts", ["code-review", "jobs-owner"]],
   ["apps/server/src/stream-manager.ts", ["stream-delivery-owner"]],
+  ["apps/server/src/routes/routing-shadow.ts", ["stream-delivery-owner"]],
+  ["apps/server/test/routing-shadow.test.ts", ["stream-delivery-owner"]],
+  ["docs/routing-shadow-experiment.md", ["stream-delivery-owner"]],
+  ["scripts/evaluate-routing.ts", ["stream-delivery-owner"]],
   [
     "apps/web/src/hooks/use-sse.ts",
     ["stream-delivery-owner", "frontend-react-review"],

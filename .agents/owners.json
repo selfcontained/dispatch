@@ -128,6 +128,10 @@
       "paths": [
         "apps/server/src/agents/acp/stream-*.ts",
         "apps/server/src/chat/**",
+        "apps/server/src/routes/routing-shadow.ts",
+        "apps/server/test/routing-shadow.test.ts",
+        "docs/routing-shadow-experiment.md",
+        "scripts/evaluate-routing.ts",
         "packages/shared/src/index.ts",
         "packages/shared/src/background-work.ts",
         "apps/server/src/routes/streams.ts",

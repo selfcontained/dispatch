@@ -449,9 +449,12 @@ export class RoutingShadow {
     number,
     { agentId: string; controller: AbortController }
   >();
-  cancel(agentId: string) {
+  cancel(agentId: string, turnId?: number) {
     for (const [id, entry] of this.controllers)
-      if (entry.agentId === agentId) {
+      if (
+        entry.agentId === agentId &&
+        (turnId === undefined || id === turnId)
+      ) {
         entry.controller.abort();
         this.pendingTurns.delete(id);
       }
