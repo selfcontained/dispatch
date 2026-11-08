@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Response } from "@playwright/test";
 
 import {
   authHeaders,
@@ -31,18 +31,47 @@ async function sendChat(page: Page, text: string): Promise<void> {
 
 // Other journeys can have active turns. The shared Stop control then opens a
 // picker; select this test's agent instead of assuming the app is otherwise idle.
-async function stopTurn(page: Page, agentId: string): Promise<void> {
-  const cancelled = page.waitForResponse(
-    (response) =>
+async function stopTurn(
+  page: Page,
+  agent: { id: string; name: string }
+): Promise<void> {
+  let cancelled: Response | undefined;
+  const observeCancellation = (response: Response) => {
+    if (
       new URL(response.url()).pathname ===
-        `/api/v1/agents/${agentId}/runtime/cancel` &&
+        `/api/v1/agents/${agent.id}/runtime/cancel` &&
       response.request().method() === "POST"
-  );
-  const choice = page.getByTestId(`chat-stop-agent-${agentId}`);
-  await page.getByTestId("chat-stop-turn").click();
-  await Promise.race([cancelled, choice.waitFor({ state: "visible" })]);
-  if (await choice.isVisible()) await choice.click();
-  expect((await cancelled).ok()).toBeTruthy();
+    )
+      cancelled = response;
+  };
+  const trigger = page.getByTestId("chat-stop-turn");
+  const action = page
+    .getByTestId(`chat-stop-agent-${agent.id}`)
+    .or(
+      page.getByRole("button", {
+        name: `Stop ${agent.name}'s turn`,
+        exact: true,
+      })
+    )
+    .or(
+      trigger.and(page.locator('[aria-haspopup="menu"][aria-expanded="false"]'))
+    )
+    .first();
+  page.on("response", observeCancellation);
+  try {
+    // Other journeys can finish between opening the picker and selecting its
+    // row. Re-resolve the target's current control instead of waiting for a
+    // request that an unmounted picker never sent. Each click is awaited, so
+    // no losing race can leave a pending action that cancels a later turn.
+    await expect(async () => {
+      if (cancelled) return;
+      await action.click({ timeout: 1000 });
+      expect(cancelled).toBeDefined();
+    }).toPass({ timeout: TURN_TIMEOUT });
+    expect(cancelled!.ok()).toBeTruthy();
+  } finally {
+    page.off("response", observeCancellation);
+  }
 }
 
 test.describe("Live agent", () => {
@@ -84,7 +113,7 @@ test.describe("Live agent", () => {
     );
     await sendChat(page, "permission-test stop");
     await expect(approvals).toBeVisible();
-    await stopTurn(page, agent.id);
+    await stopTurn(page, agent);
     await expect(approvals).toHaveCount(0);
     const res = await request.get(`/api/v1/agents/${agent.id}/permissions`, {
       headers: authHeaders(),
@@ -199,7 +228,7 @@ test.describe("Live agent", () => {
     );
     await page.getByTestId("create-agent-context-submit").click();
     const { agent } = (await (await createResponse).json()) as {
-      agent: { id: string };
+      agent: { id: string; name: string };
     };
     trackAgent(agent.id);
     await expect(page).toHaveURL(
@@ -242,7 +271,7 @@ test.describe("Live agent", () => {
     await expect(turns).toHaveCount(3, { timeout: TURN_TIMEOUT });
     const stop = page.getByTestId("chat-stop-turn");
     await expect(stop).toBeVisible({ timeout: TURN_TIMEOUT });
-    await stopTurn(page, agent.id);
+    await stopTurn(page, agent);
     await expect(turns.nth(2)).toHaveAttribute("data-settled", "true", {
       timeout: 15_000,
     });

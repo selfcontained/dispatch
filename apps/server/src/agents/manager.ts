@@ -660,6 +660,13 @@ export class AgentManager {
     return this.runtime.getMcpInventory(id);
   }
 
+  getBackgroundWork(id: string) {
+    return (
+      this.runtime.getBackgroundWork?.(id) ??
+      Promise.resolve({ status: "unsupported" as const, items: [] })
+    );
+  }
+
   /** The live session's ACP slash commands, including advertised skills. */
   getCommands(id: string): AvailableCommand[] | null {
     return this.runtime.getCommands(id);

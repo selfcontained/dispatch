@@ -1,4 +1,12 @@
 import {
+  backgroundIngress,
+  backgroundCapability,
+  supportsBackground,
+  type BackgroundNotification,
+} from "./background-ingress.js";
+import { BackgroundWorkRegistry } from "./background-work.js";
+import type { BackgroundSnapshot } from "@dispatch/shared";
+import {
   ownedEnvironment,
   killOwnedProcesses,
 } from "../../shared/process/owned-processes.js";
@@ -154,6 +162,7 @@ type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 type Live = {
   supportsImages: boolean;
   mcpInventorySupported: boolean;
+  backgroundWork: BackgroundWorkRegistry;
   /** Retained past an HTTP timeout so retries never accumulate native RPCs. */
   inventoryRead?: Promise<unknown>;
   steeringSupported: boolean;
@@ -710,7 +719,37 @@ export class AcpDriver {
       Writable.toWeb(child.stdin),
       Readable.toWeb(child.stdout)
     );
-    const conn = new acp.ClientSideConnection(() => client, stream);
+    const backgroundWork = new BackgroundWorkRegistry();
+    let backgroundSupported = false;
+    let backgroundReady = false;
+    const pendingBackground: BackgroundNotification[] = [];
+    const receiveBackground = (notification: BackgroundNotification) => {
+      if (!backgroundReady) {
+        if (pendingBackground.length < 200)
+          pendingBackground.push(notification);
+        else backgroundWork.invalidate();
+        return;
+      }
+      const entry = this.live.get(launch.agentId);
+      if (
+        !entry ||
+        entry.conn !== conn ||
+        notification.sessionId !== entry.sessionId ||
+        !backgroundSupported ||
+        (engine.id !== "claude" && engine.id !== "codex")
+      )
+        return;
+      backgroundWork.apply(notification.update);
+    };
+    const conn = new acp.ClientSideConnection(
+      () => client,
+      backgroundIngress(stream, receiveBackground, () =>
+        this.opts.logger.warn(
+          { agentId: launch.agentId },
+          "Rejected malformed background lifecycle notification"
+        )
+      )
+    );
 
     const meta = {
       ...(launch.systemPromptAppend
@@ -750,8 +789,19 @@ export class AcpDriver {
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
           ...(sessionCapabilities ? { session: sessionCapabilities } : {}),
-          ...(engine.subagentTranscripts
-            ? { _meta: { "subagent-transcript": true } }
+          ...(engine.subagentTranscripts ||
+          engine.id === "claude" ||
+          engine.id === "codex"
+            ? {
+                _meta: {
+                  ...(engine.subagentTranscripts
+                    ? { "subagent-transcript": true }
+                    : {}),
+                  ...(engine.id === "claude" || engine.id === "codex"
+                    ? backgroundCapability
+                    : {}),
+                },
+              }
             : {}),
         },
       });
@@ -760,6 +810,10 @@ export class AcpDriver {
       initializing = false;
       supportsImages =
         initialized.agentCapabilities?.promptCapabilities?.image === true;
+      backgroundSupported =
+        (engine.id === "claude" || engine.id === "codex") &&
+        supportsBackground(initialized._meta);
+      backgroundWork.setSupported(backgroundSupported);
       const inventory = initialized._meta?.["dispatch/mcpInventory"];
       mcpInventorySupported =
         !!inventory &&
@@ -909,6 +963,7 @@ export class AcpDriver {
     const entry: Live = {
       supportsImages,
       mcpInventorySupported,
+      backgroundWork,
       steeringSupported,
       pickupReceiptsSupported,
       promptReceiptsSupported,
@@ -932,6 +987,9 @@ export class AcpDriver {
       promptTurns: new Map(),
     };
     this.live.set(launch.agentId, entry);
+    backgroundReady = true;
+    for (const notification of pendingBackground.splice(0))
+      receiveBackground(notification);
     this.emit({
       type: "config",
       agentId: launch.agentId,
@@ -984,6 +1042,15 @@ export class AcpDriver {
 
   supportsMcpInventory(agentId: string): boolean {
     return this.live.get(agentId)?.mcpInventorySupported ?? false;
+  }
+
+  getBackgroundWork(agentId: string): BackgroundSnapshot {
+    return (
+      this.live.get(agentId)?.backgroundWork.snapshot() ?? {
+        status: "offline",
+        items: [],
+      }
+    );
   }
 
   async getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse> {
