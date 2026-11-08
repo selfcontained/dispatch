@@ -154,3 +154,12 @@ Full automated E2E belongs in PR CI; locally run only new or updated E2E coverag
   trigger-launched task agent you did not launch must archive itself. An open
   preview does not keep an agent active; keep it independently where supported,
   otherwise say the stop hook will tear it down.
+
+## PR descriptions
+
+Keep the PR description about the final implementation and review context.
+Edit it when scope or review facts change, not merely to record CI pending or
+passed status. CI progress belongs in checks, comments, and task handoffs.
+After changing a PR base, require fresh code validation against that target;
+follow the recovery procedure in `docs/testing-strategy.md` if metadata reports
+missing current-target evidence. Never substitute a metadata pass for code CI.

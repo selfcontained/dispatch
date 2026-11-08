@@ -3,16 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [main, acp-runtime]
-    # Naming `types` replaces the default set, so the first three are the
-    # defaults restored. `edited` is the addition: it re-runs when a title or
-    # description changes, so a session link pasted in after a green run can't
-    # sit behind a stale check. PR descriptions here are rarely edited, so the
-    # extra full runs are cheap.
-    types: [opened, synchronize, reopened, edited]
+    # Metadata edits are validated independently, without restarting code CI.
+    # After retargeting, close/reopen or push a commit for fresh code evidence.
+    types: [opened, synchronize, reopened]
 
-# One run per PR: a push or description edit cancels the run it supersedes,
-# so stale heads stop holding one of the two self-hosted runners. The newest
-# run still reports `ci` for the current head.
+# Only a new code-validation event supersedes an existing code run.
 concurrency:
   group: ci-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -43,6 +38,34 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+
+      # Capture the actual integration tree before executing PR code. The
+      # event base SHA can lag the merge ref; its parents are authoritative.
+      - name: Record integration context
+        env:
+          CI_CONTEXT: ${{ toJSON(github.event.pull_request) }}
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+          const pr = JSON.parse(process.env.CI_CONTEXT);
+          const [merge, base, head, ...extra] = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { encoding: 'utf8' }).trim().split(/\s+/);
+          if (extra.length || !base || head !== pr.head.sha) throw new Error('Expected the PR integration merge with the pinned head');
+          writeFileSync(`${process.env.RUNNER_TEMP}/ci-context.json`, JSON.stringify({
+            version: 1, number: pr.number, head, base, merge, eventUpdatedAt: pr.updated_at,
+            target: pr.base.ref, repository: pr.base.repo.full_name,
+            headRepository: pr.head.repo.full_name,
+            run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT
+          }));
+          JS
+
+      - name: Upload integration context before validation
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-context-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-context.json
+          if-no-files-found: error
+          retention-days: 30
 
       # `docs` only when every change is an edit or addition to allowlisted
       # prose (see scripts/ci-change-scope.mjs); anything else, including a

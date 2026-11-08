@@ -127,3 +127,46 @@ not fix retained allocations, cap native memory or total RSS, coordinate separat
 worktrees/CI jobs, or guarantee cleanup after cancellation. Worker heap failure
 must remain a failing run. Host admission and lifecycle cleanup need separate
 ownership-aware follow-up; do not use broad process kills or a host-wide test lock.
+
+## PR metadata and code validation
+
+Code CI subscribes to opened, synchronize, and reopened PR events on `main`
+and `acp-runtime`. Title/body edits only run the independently required
+`PR metadata` job; they cannot cancel or replace `ci`. Both required identities
+remain unchanged, and the code job is unconditional.
+
+CI records its triggering event's PR timestamp, head/repositories/target, and
+actual checked-out merge parents before tests in a run-attempt-specific artifact.
+Metadata uses only PR and Actions read permissions, never checks out PR code,
+and checks successful code-run/job evidence. It waits up to 45 minutes for initial
+or new-head CI (50-minute job timeout), polling every 20 seconds. Existing valid
+same-head/target evidence returns immediately, even if the base tip advanced.
+Only the first 100 same-head runs/artifacts/jobs are considered; unavailable,
+invalid, expired, API-error or timed-out evidence fails closed.
+
+A base retarget, including an automatic base change, requires fresh evidence.
+Both the immutable triggering PR `updated_at` and the server artifact creation
+time must be strictly later than the latest base-change timeline timestamp.
+This rejects delayed old events, reruns of old events, retargets away and back,
+and same-second ambiguity. The actual merge parents supply the tested base SHA;
+the event's base SHA is not assumed to match the integration checkout.
+
+After retargeting, close and reopen the PR or push a new commit in a later second
+to start code validation against the new target. Normal concurrent metadata waits
+for that run automatically. For bootstrap (older CI without evidence), artifact
+expiry (30-day retention), or a metadata timeout, create fresh CI this way and
+retry the failed metadata run after it succeeds. Rerunning an old code event
+cannot repair a stale retarget snapshot. Failed/pending code CI remains independently
+required; metadata does not publish synthetic code checks.
+
+PR descriptions describe the final implementation and review context. Update
+them when scope or review facts change, not merely to record a pending/passed run.
+Put CI progress and results in checks, comments, or task handoffs.
+
+API contracts: [workflow runs](https://docs.github.com/en/rest/actions/workflow-runs),
+[artifacts](https://docs.github.com/en/rest/actions/artifacts),
+[base-change timeline events](https://docs.github.com/en/graphql/reference/pulls),
+and [rerun event SHA/ref preservation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs).
+Local policy fixtures exercise the embedded workflow script and bounded ZIP
+parser; they are not a live GitHub event demonstration. A controlled title/body
+edit demonstration must wait until the corrected workflows take effect.
