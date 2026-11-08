@@ -3781,7 +3781,15 @@ export class StreamService {
         const answered = first.replyTo
           ? await this.store.getById(first.replyTo)
           : null;
-        if (answered?.kind !== "question" && answered?.kind !== "form") {
+        const structuredReply =
+          answered?.kind === "question"
+            ? answered.state?.answer?.blockId === first.id ||
+              answered.state?.cancellation?.blockId === first.id
+            : answered?.kind === "form"
+              ? answered.state?.submission?.blockId === first.id ||
+                answered.state?.cancellation?.blockId === first.id
+              : false;
+        if (!structuredReply) {
           streamId = first.streamId;
           threadId = first.threadId;
           replyTo = first.id;

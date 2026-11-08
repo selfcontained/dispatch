@@ -316,7 +316,7 @@ export function registerStreamTools(
       "get_conversation_context",
       {
         description:
-          "Inspect home (ordinary output root), current (recorded output, possibly legacy), source (input discussion), and activeTurnId. Source reply anchors are for explicit posts, never a destination for ordinary prose. Read-only; legacy open output may retain its stored location until settlement.",
+          "Inspect home (explicit default-post destination), current (the active turn’s frozen output location), source (input discussion), and activeTurnId. User-thread starts stream ordinary output in that discussion; other work starts at home. Source alone never reroutes an ongoing turn. Read-only.",
         inputSchema: {},
       },
       async () => {

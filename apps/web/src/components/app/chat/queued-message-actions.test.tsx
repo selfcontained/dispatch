@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { QueuedMessageActions } from "./queued-message-actions";
-const state = vi.hoisted(() => ({ turn: "turn_a" }));
+const state = vi.hoisted(() => ({ turn: "turn_a", steering: true }));
 vi.mock("@/lib/api", () => ({ api: vi.fn(async () => ({})) }));
 vi.mock("@/hooks/use-agent-tree", () => ({
   useDeliveryAgents: () => [
@@ -19,7 +19,7 @@ vi.mock("@/hooks/use-agent-tree", () => ({
       inputState: {
         active: true,
         interruptSupported: true,
-        steeringSupported: true,
+        steeringSupported: state.steering,
         conversation: { streamId: "agent", threadId: null },
       },
     },
@@ -28,6 +28,7 @@ vi.mock("@/hooks/use-agent-tree", () => ({
 afterEach(cleanup);
 beforeEach(() => {
   state.turn = "turn_a";
+  state.steering = true;
 });
 function setup() {
   const client = new QueryClient();
@@ -106,3 +107,33 @@ it("sends a queued thread message into ongoing work without interrupting", async
     )
   );
 });
+
+it.each(["image", "interrupt-only"])(
+  "keeps an explicit interrupt fallback for thread %s",
+  async (kind) => {
+    const { api } = await import("@/lib/api");
+    vi.mocked(api).mockClear();
+    state.steering = kind !== "interrupt-only";
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <QueuedMessageActions
+          agentId="agent"
+          messageId="thread-fallback"
+          recipientIds={["agent"]}
+          threadId="thread"
+          requiresNextTurn={kind === "image"}
+        />
+      </QueryClientProvider>
+    );
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Interrupt and reply" })
+    );
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        expect.stringContaining("/thread-fallback/send-now"),
+        { method: "POST", body: JSON.stringify({ interrupt: true }) }
+      )
+    );
+  }
+);

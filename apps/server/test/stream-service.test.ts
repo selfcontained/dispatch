@@ -4969,7 +4969,7 @@ describe("StreamService turn blocks", () => {
   it.each(["question", "form"] as const)(
     "routes a structured %s answer back to root work through delivery and turn creation",
     async (kind) => {
-      const { svc, injectedOpts } = build();
+      const { svc, injectedOpts, injected } = build();
       const ask = await svc.post(
         A,
         kind === "question"
@@ -5011,6 +5011,16 @@ describe("StreamService turn blocks", () => {
       await svc.waitForInFlightDeliveries(1_000);
       expect(injectedOpts[1]!.source).toMatchObject({
         conversation: { streamId: A, threadId: ask.id },
+      });
+      expect(injected[1]!.text).toContain("When this message starts a turn");
+      const commentTurn = await svc.recordTurnStarted({
+        agentId: A,
+        turnRow: turnRow(702, injectedOpts[1]!.source!),
+        prompt: injectedOpts[1]!.source!,
+      });
+      expect(await svc.store.getById(commentTurn!)).toMatchObject({
+        streamId: A,
+        threadId: ask.id,
       });
     }
   );

@@ -824,6 +824,13 @@ describe("context reader tools", () => {
       }
     );
     const find = (name: string) => server.tools.find((t) => t.name === name)!;
+    const description = find("get_conversation_context").config.description;
+    expect(description).toContain("active turn’s frozen output location");
+    expect(description).toContain("explicit default-post destination");
+    expect(description).toContain(
+      "Source alone never reroutes an ongoing turn"
+    );
+
     await find("get_message").handler({ id: BLOCK, offset: 8000 });
     expect(getMessage).toHaveBeenCalledWith(AGENT_ID, BLOCK, 8000);
     await find("get_thread").handler({ id: BLOCK, before: OTHER, limit: 3 });

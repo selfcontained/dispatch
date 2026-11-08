@@ -64,7 +64,7 @@ export function QueuedMessageActions({
       : null
     : safeNow
       ? "send-now"
-      : canInterrupt && !threadId
+      : canInterrupt
         ? "interrupt"
         : null;
   const action = useMutation({
@@ -124,7 +124,9 @@ export function QueuedMessageActions({
             ) : null}
             {pendingDelivery && action.isSuccess
               ? "Interrupt requested"
-              : "Send now"}
+              : sendNow === "interrupt" && !pendingDelivery && threadId
+                ? "Interrupt and reply"
+                : "Send now"}
           </Button>
         ) : null}
         {!pendingDelivery ? (
