@@ -51,19 +51,19 @@ export function RoutingMetadata({
     () => onlineManager.isOnline(),
     () => true
   );
+  // A retained completion is authoritative over an older cached pending snapshot.
+  const decisions = block.routing?.filter((d) => d.status !== "pending") ?? [];
   const pending =
     eligible && online && !snapshot.isError && snapshot.fetchStatus !== "paused"
       ? (snapshot.data?.pending?.filter(
           (p) =>
-            p.streamId === block.streamId && p.messageIds.includes(block.id)
+            p.streamId === block.streamId &&
+            p.messageIds.includes(block.id) &&
+            !decisions.some(
+              (d) => d.turnId === p.turnId && d.agentId === p.agentId
+            )
         ) ?? [])
       : [];
-  const decisions =
-    block.routing?.filter(
-      (d) =>
-        d.status !== "pending" &&
-        !pending.some((p) => p.turnId === d.turnId && p.agentId === d.agentId)
-    ) ?? [];
   if (!eligible && !block.routing?.length) return null;
   return (
     <div

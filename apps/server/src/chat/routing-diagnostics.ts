@@ -18,7 +18,7 @@ export function routingDiagnostic(row: {
 }): RoutingDiagnostic | null {
   const r = obj(row.result);
   if (r.mode !== "active" && r.mode !== "shadow") return null;
-  const status = [
+  const storedStatus = [
     "pending",
     "ok",
     "timeout",
@@ -32,6 +32,10 @@ export function routingDiagnostic(row: {
   ].includes(row.status)
     ? row.status
     : "error";
+  const status =
+    r.outcome === "timeout" || r.outcome === "cancelled"
+      ? "timeout"
+      : storedStatus;
   const placement =
     r.mode === "active" ? obj(r.actualPlacement) : obj(row.placement);
   const actual =
@@ -58,19 +62,28 @@ export function routingDiagnostic(row: {
     probabilities.some((p) => p.value === choice && p.probability >= 0.8) &&
     probability(r.confidence) &&
     r.confidence >= 0.8;
+  const acceptedPlacement = obj(r.acceptedPlacement);
+  const acceptedAndFrozen =
+    r.outcome === "accepted" &&
+    typeof acceptedPlacement.streamId === "string" &&
+    acceptedPlacement.streamId === placement.streamId &&
+    acceptedPlacement.threadId === placement.threadId &&
+    acceptedPlacement.replyTo === placement.replyTo;
   const reason =
     status === "pending"
       ? "Decision pending"
       : status !== "ok"
-        ? ({
-            timeout: "Timeout fallback",
-            provider_error: "Provider error fallback",
-            skipped_daily_cap: "Daily limit fallback",
-            skipped_concurrency: "Concurrency limit fallback",
-            interrupted: "Interrupted fallback",
-            refusal: "Provider refusal fallback",
-            malformed: "Invalid response fallback",
-          }[status] ?? "Provider error fallback")
+        ? r.outcome === "cancelled"
+          ? "Cancelled fallback"
+          : ({
+              timeout: "Timeout fallback",
+              provider_error: "Provider error fallback",
+              skipped_daily_cap: "Daily limit fallback",
+              skipped_concurrency: "Concurrency limit fallback",
+              interrupted: "Interrupted fallback",
+              refusal: "Provider refusal fallback",
+              malformed: "Invalid response fallback",
+            }[status] ?? "Provider error fallback")
         : r.mode === "shadow"
           ? "Shadow only; default preserved"
           : row.explicit_thread
@@ -79,7 +92,11 @@ export function routingDiagnostic(row: {
               ? "Below threshold; default preserved"
               : choice === "keep_existing_default"
                 ? "Model chose existing default"
-                : r.candidate === true && actual !== "Unknown"
+                : (acceptedAndFrozen ||
+                      (r.outcome === undefined && r.applied === true)) &&
+                    ((choice === "initiating_discussion" &&
+                      actual === "Thread") ||
+                      (choice === "home_root" && actual === "Root"))
                   ? "Recommendation applied"
                   : "Default preserved";
   const cost = routingCost(r.usage);

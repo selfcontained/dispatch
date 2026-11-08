@@ -7,6 +7,7 @@ import {
   routingDiagnostic,
 } from "../src/chat/routing-diagnostics.js";
 import {
+  routingCost,
   estimateRoutingUsd,
   summarizeRouting,
 } from "../src/chat/routing-metrics.js";
@@ -977,6 +978,8 @@ describe("routing feed diagnostics", () => {
         probabilities: [{ value: "initiating_discussion", probability: 0.95 }],
         confidence: 0.81,
         candidate: true,
+        outcome: "accepted",
+        acceptedPlacement: { streamId: A, threadId: "thread" },
         actualPlacement: { streamId: A, threadId: "thread" },
       },
     };
@@ -1096,3 +1099,102 @@ it("serves lightweight pending snapshots and publishes sanitized configuration c
   expect(transport).not.toHaveBeenCalled();
   await app.close();
 });
+
+it("keeps malformed provider usage unpriced through parse and cost calculation", () => {
+  for (const usage of [
+    { input_tokens: 100, output_tokens: -1 },
+    { input_tokens: 100, input_tokens_details: null },
+    {
+      input_tokens: 100,
+      input_tokens_details: { cached_tokens: -1, cache_write_tokens: 0 },
+    },
+    {
+      input_tokens: 100,
+      input_tokens_details: {
+        cached_tokens: 0,
+        cache_write_tokens: "invalid-secret",
+      },
+    },
+  ]) {
+    const parsed = parseShadowResponse({ ...answer, usage });
+    expect(routingCost(parsed.usage)).toEqual({ usd: null, basis: "unknown" });
+    expect(JSON.stringify(parsed.usage)).not.toContain("invalid-secret");
+  }
+  expect(
+    routingCost(
+      parseShadowResponse({ ...answer, usage: { input_tokens: 100 } }).usage
+    )
+  ).toEqual({ usd: 0.00001, basis: "uncached-estimate" });
+});
+it.each(["timeout", "cancelled"] as const)(
+  "records %s fallback if candidate persistence finishes after route returned",
+  async (outcome) => {
+    const source = await input("narrow clarification", false);
+    transport.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...answer,
+          answers: [
+            {
+              type: "choice",
+              name: "destination",
+              choice: "initiating_discussion",
+              probabilities: [
+                { value: "initiating_discussion", probability: 0.95 },
+              ],
+              confidence: 0.9,
+            },
+          ],
+        })
+      )
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = store.finish.bind(store);
+    let entered = false,
+      persisted = false;
+    vi.spyOn(store, "finish").mockImplementation(async (...args) => {
+      entered = true;
+      await gate;
+      await original(...args);
+      persisted = true;
+    });
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport,
+      500
+    );
+    const routed = experiment.route(source);
+    try {
+      await idle(async () => entered);
+      if (outcome === "cancelled") experiment.cancel(A);
+      expect(await routed).toBeUndefined();
+      experiment.frozen(source.turnRow.id, source.placement);
+      await idle(
+        async () =>
+          (await records())[0]?.result.outcome === outcome &&
+          !!(await records())[0]?.result.actualPlacement
+      );
+    } finally {
+      release();
+    }
+    await idle(async () => persisted);
+    const [record] = await records();
+    expect(record.status).toBe("timeout");
+    expect(record.result).toMatchObject({
+      candidate: true,
+      outcome,
+      actualPlacement: source.placement,
+      applied: false,
+    });
+    expect(routingDiagnostic(record)).toMatchObject({
+      actual: "Root",
+      choice: "initiating_discussion",
+      reason:
+        outcome === "cancelled" ? "Cancelled fallback" : "Timeout fallback",
+    });
+  }
+);

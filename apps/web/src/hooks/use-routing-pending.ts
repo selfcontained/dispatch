@@ -14,7 +14,7 @@ export function useRoutingPending(streamId: string, enabled: boolean) {
     enabled,
     staleTime: Infinity,
     retry: false,
-    refetchOnMount: false,
+    refetchOnMount: true,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });

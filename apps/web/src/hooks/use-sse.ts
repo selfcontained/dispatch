@@ -413,6 +413,15 @@ export function useSSE(authState: AuthState): void {
           return;
         }
         if (payload.type === "routing.metadata_changed") {
+          for (const query of queryClient.getQueryCache().findAll({
+            queryKey: [...STREAM_QUERY_PREFIX, payload.streamId],
+          })) {
+            if (
+              query.state.fetchStatus === "fetching" &&
+              query.state.data === undefined
+            )
+              invalidateOnceFirstFetchSettles(queryClient, query.queryKey);
+          }
           invalidateStreamFeed(queryClient, payload.streamId);
           void queryClient.invalidateQueries({
             queryKey: [...STREAM_QUERY_PREFIX, payload.streamId, "thread"],

@@ -1427,6 +1427,56 @@ describe("useSSE message handling", () => {
     expect(invalidateQueries).not.toHaveBeenCalled();
   });
 
+  it("refetches routing completion after delayed first feed and thread snapshots settle", async () => {
+    const { emit, queryClient } = renderMessages();
+    const resolvers: ((value: { completed: boolean }) => void)[] = [];
+    const fetches = [
+      vi.fn(
+        () =>
+          new Promise<{ completed: boolean }>((resolve) =>
+            resolvers.push(resolve)
+          )
+      ),
+      vi.fn(
+        () =>
+          new Promise<{ completed: boolean }>((resolve) =>
+            resolvers.push(resolve)
+          )
+      ),
+    ];
+    const keys = [
+      streamFeedQueryKey("agt_1"),
+      threadQueryKey("agt_1", "opener"),
+    ];
+    const observers = keys.map(
+      (queryKey, i) =>
+        new QueryObserver(queryClient, {
+          queryKey,
+          queryFn: fetches[i],
+          retry: false,
+        })
+    );
+    const subscriptions = observers.map((observer) =>
+      observer.subscribe(() => {})
+    );
+    try {
+      await waitFor(() => expect(resolvers).toHaveLength(2));
+      emit({ type: "routing.metadata_changed", streamId: "agt_1" });
+      emit({ type: "routing.metadata_changed", streamId: "agt_1" });
+      for (const fetch of fetches) fetch.mockResolvedValue({ completed: true });
+      await act(async () => {
+        for (const resolve of resolvers) resolve({ completed: false });
+      });
+      await waitFor(() => {
+        for (const key of keys)
+          expect(queryClient.getQueryData(key)).toEqual({ completed: true });
+      });
+      for (const fetch of fetches) expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      for (const unsubscribe of subscriptions) unsubscribe();
+    }
+  });
+
   it("routes pending and settled evidence through SSE without broad stream invalidations, and refreshes on reconnect", () => {
     const { emit, queryClient, invalidateQueries } = renderMessages();
     const pending = [

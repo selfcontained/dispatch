@@ -21,6 +21,7 @@ export function routingCost(usage: unknown): {
   const u = obj(usage);
   const details = obj(u.input_tokens_details);
   if (
+    u.invalid === true ||
     !count(u.input_tokens) ||
     (u.output_tokens !== undefined && !count(u.output_tokens)) ||
     (u.total_tokens !== undefined &&

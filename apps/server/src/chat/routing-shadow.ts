@@ -50,6 +50,12 @@ export type ShadowInput = {
     replyTo: string | null;
   };
 };
+type RoutingOutcomeDiagnostics = {
+  totalRoutingDelayMs?: number;
+  actualPlacement?: ShadowInput["placement"];
+  outcome?: "accepted" | "default" | "timeout" | "cancelled";
+  acceptedPlacement?: ShadowInput["placement"];
+};
 const object = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -95,7 +101,23 @@ export function parseShadowResponse(raw: unknown) {
       probabilities.push({ value: p.value, probability: p.probability });
     }
   }
-  const usage: Record<string, number | Record<string, number>> = {};
+  const usage: Record<string, number | Record<string, number> | boolean> = {};
+  let usageInvalid = response.usage !== undefined && !object(response.usage);
+  const rawUsage = object(response.usage) ?? {};
+  const tokenCount = (value: unknown) =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  for (const key of ["input_tokens", "output_tokens", "total_tokens"]) {
+    if (key in rawUsage && !tokenCount(rawUsage[key])) usageInvalid = true;
+  }
+  if ("input_tokens_details" in rawUsage) {
+    const cache = object(rawUsage.input_tokens_details);
+    if (
+      !cache ||
+      !tokenCount(cache.cached_tokens) ||
+      !tokenCount(cache.cache_write_tokens)
+    )
+      usageInvalid = true;
+  }
   for (const [key, value] of Object.entries(object(response.usage) ?? {})) {
     if (
       ["input_tokens", "output_tokens", "total_tokens"].includes(key) &&
@@ -119,6 +141,7 @@ export function parseShadowResponse(raw: unknown) {
     }
     usage.input_tokens_details = safe;
   }
+  if (usageInvalid) usage.invalid = true;
   return {
     choice: answer.choice,
     probabilities,
@@ -337,7 +360,7 @@ export class RoutingShadowStore {
   }
   async finish(turnId: number, status: string, result: unknown) {
     await this.pool.query(
-      `UPDATE routing_shadow_records SET status = $2, result = $3::jsonb || result WHERE turn_id = $1`,
+      `UPDATE routing_shadow_records SET status = CASE WHEN result->>'outcome' IN ('timeout', 'cancelled') OR $3::jsonb->>'outcome' IN ('timeout', 'cancelled') THEN 'timeout' ELSE $2 END, result = $3::jsonb || result WHERE turn_id = $1`,
       [turnId, status, JSON.stringify(result)]
     );
     void this.changed(turnId).catch(() => {});
@@ -460,10 +483,7 @@ export class RoutingShadow {
   // Retained only while startup work can still finish after its deadline.
   private readonly activeDiagnostics = new Map<
     number,
-    {
-      totalRoutingDelayMs?: number;
-      actualPlacement?: ShadowInput["placement"];
-    }
+    RoutingOutcomeDiagnostics
   >();
   private readonly controllers = new Map<
     number,
@@ -475,7 +495,7 @@ export class RoutingShadow {
         entry.agentId === agentId &&
         (turnId === undefined || id === turnId)
       ) {
-        entry.controller.abort();
+        entry.controller.abort("cancelled");
         const pending = this.pendingTurns.get(id);
         this.pendingTurns.delete(id);
         if (pending) this.notifyPending(pending.streamId);
@@ -490,7 +510,8 @@ export class RoutingShadow {
     }
   }
   cancelAll() {
-    for (const { controller } of this.controllers.values()) controller.abort();
+    for (const { controller } of this.controllers.values())
+      controller.abort("cancelled");
     const streams = new Set(
       [...this.pendingTurns.values()].map((p) => p.streamId)
     );
@@ -523,10 +544,7 @@ export class RoutingShadow {
     input: ShadowInput
   ): Promise<ShadowInput["placement"] | undefined> {
     const routeStarted = Date.now();
-    const diagnostics: {
-      totalRoutingDelayMs?: number;
-      actualPlacement?: ShadowInput["placement"];
-    } = {};
+    const diagnostics: RoutingOutcomeDiagnostics = {};
     this.activeDiagnostics.set(input.turnRow.id, diagnostics);
     const controller = new AbortController();
     this.controllers.set(input.turnRow.id, {
@@ -539,7 +557,7 @@ export class RoutingShadow {
         once: true,
       });
       timer = setTimeout(() => {
-        controller.abort();
+        controller.abort("timeout");
         resolve(undefined);
       }, this.timeoutMs);
     });
@@ -564,7 +582,17 @@ export class RoutingShadow {
         this.activeDiagnostics.delete(input.turnRow.id);
       });
     try {
-      return await Promise.race([task, deadline]);
+      const selected = await Promise.race([task, deadline]);
+      // Only the race winner is accepted; a provider candidate may finish persisting later.
+      diagnostics.outcome = selected
+        ? "accepted"
+        : controller.signal.aborted
+          ? controller.signal.reason === "cancelled"
+            ? "cancelled"
+            : "timeout"
+          : "default";
+      if (selected) diagnostics.acceptedPlacement = selected;
+      return selected;
     } finally {
       clearTimeout(timer);
       const pending = this.pendingTurns.get(input.turnRow.id);
@@ -574,14 +602,19 @@ export class RoutingShadow {
       diagnostics.totalRoutingDelayMs = Date.now() - routeStarted;
       void this.store.pool
         .query(
-          "UPDATE routing_shadow_records SET result = result || $2::jsonb WHERE turn_id = $1 AND result->>'mode' = 'active'",
+          "UPDATE routing_shadow_records SET status = CASE WHEN $2::jsonb->>'outcome' IN ('timeout', 'cancelled') THEN 'timeout' ELSE status END, result = result || $2::jsonb WHERE turn_id = $1 AND result->>'mode' = 'active'",
           [
             input.turnRow.id,
             JSON.stringify({
               totalRoutingDelayMs: diagnostics.totalRoutingDelayMs,
+              outcome: diagnostics.outcome,
+              ...(diagnostics.acceptedPlacement
+                ? { acceptedPlacement: diagnostics.acceptedPlacement }
+                : {}),
             }),
           ]
         )
+        .then(() => this.store.changed(input.turnRow.id))
         .catch(() => {});
     }
   }
@@ -589,10 +622,7 @@ export class RoutingShadow {
     input: ShadowInput,
     config: ShadowConfig,
     signal?: AbortSignal,
-    diagnostics: {
-      totalRoutingDelayMs?: number;
-      actualPlacement?: ShadowInput["placement"];
-    } = {},
+    diagnostics: RoutingOutcomeDiagnostics = {},
     routeStarted = Date.now()
   ): Promise<ShadowInput["placement"] | undefined> {
     const evidence = await shadowEvidence(this.store.pool, input);

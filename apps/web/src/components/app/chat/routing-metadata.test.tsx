@@ -164,3 +164,51 @@ it("does not flash pending for fast completions or revive expired entries on rem
   await tick(500);
   expect(screen.queryByRole("status")).toBeNull();
 });
+it("refreshes inactive pending invalidated on reconnect when mounted, without refetching fresh mounts", async () => {
+  const view = show();
+  await tick();
+  expect(apiMock).toHaveBeenCalledTimes(1);
+  view.unmount();
+  act(() =>
+    client.setQueryData(["routing-pending", "stream"], { pending: [pending()] })
+  );
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["routing-pending"] });
+  });
+  const remount = show();
+  await tick();
+  expect(apiMock).toHaveBeenCalledTimes(2);
+  expect(client.getQueryData(["routing-pending", "stream"])).toEqual({
+    pending: [],
+  });
+  remount.unmount();
+  show();
+  await tick();
+  expect(apiMock).toHaveBeenCalledTimes(2);
+});
+it("never lets an expired pending snapshot suppress a completed diagnostic", async () => {
+  act(() =>
+    client.setQueryData(["routing-pending", "stream"], {
+      pending: [
+        {
+          ...pending(),
+          startedAt: Date.now() - 4000,
+          deadlineAt: Date.now() - 1000,
+        },
+      ],
+    })
+  );
+  render(
+    <QueryClientProvider client={client}>
+      <RoutingMetadata
+        block={{ ...opener, routing: [result] }}
+        agentName={() => "Agent"}
+      />
+    </QueryClientProvider>
+  );
+  await tick();
+  expect(
+    screen.getByRole("button", { name: "Routing details: Root" })
+  ).toBeTruthy();
+  expect(screen.queryByRole("status")).toBeNull();
+});
