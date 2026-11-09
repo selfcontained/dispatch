@@ -399,7 +399,7 @@ describe("merge-risk gate", () => {
       ],
     },
   });
-  it("needs a confident routine choice and a sub-high risk score for routine", () => {
+  it("needs a confident routine choice for routine; the risk score does not override it", () => {
     expect(
       assessMergeRisk("ok", answers("routine", 0.9, 0.9, 1.2)).verdict
     ).toBe("routine");
@@ -409,11 +409,13 @@ describe("merge-risk gate", () => {
     expect(
       assessMergeRisk("ok", answers("routine", 0.9, 0.6, 1.2)).verdict
     ).toBe("abstain");
-  });
-  it("recommends a read on a high risk score even when the choice says routine", () => {
-    const result = assessMergeRisk("ok", answers("routine", 0.95, 0.95, 2.2));
-    expect(result.verdict).toBe("human_review");
-    expect(result.changeRiskLabel).toBe("high");
+    // A high blast-radius score is shown but does not force a read (v2).
+    const highScore = assessMergeRisk(
+      "ok",
+      answers("routine", 0.95, 0.95, 2.2)
+    );
+    expect(highScore.verdict).toBe("routine");
+    expect(highScore.changeRiskLabel).toBe("high");
   });
   it("accepts a merely plausible human_review choice", () => {
     expect(
@@ -429,13 +431,24 @@ describe("merge-risk gate", () => {
       assessMergeRisk("provider_error", answers("routine", 1, 1, 0)).verdict
     ).toBe("abstain");
   });
-  it("asks the four fixed questions", () => {
+  it("asks the five fixed questions and reports the surface predicate", () => {
     expect(MERGE_RISK_QUESTIONS.map((q) => `${q.type}:${q.name}`)).toEqual([
       "score:change_risk",
       "predicate:review_adequate",
       "predicate:description_matches_diff",
+      "predicate:new_user_facing_surface",
       "choice:needs_human",
     ]);
+    expect(
+      assessMergeRisk("ok", {
+        ...answers("human_review", 0.9, 0.9, 1.0),
+        new_user_facing_surface: {
+          type: "predicate",
+          name: "new_user_facing_surface",
+          probability: 0.93,
+        },
+      }).newSurface
+    ).toBe(0.93);
   });
 });
 
@@ -483,6 +496,11 @@ describe("merge-risk assessor", () => {
           type: "predicate",
           name: "description_matches_diff",
           probability: 0.8,
+        },
+        {
+          type: "predicate",
+          name: "new_user_facing_surface",
+          probability: choice === "routine" ? 0.1 : 0.9,
         },
         {
           type: "choice",

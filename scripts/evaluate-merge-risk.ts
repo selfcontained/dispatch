@@ -7,8 +7,12 @@
  * distributions, which is what the first grading pass is for.
  *
  *   bun scripts/evaluate-merge-risk.ts --fixtures /tmp/merge-risk-fixtures.json \
- *     [--live] [--limit 200] [--only labelled] [--out /tmp/merge-risk-evaluation.json] \
+ *     [--live] [--limit 200] [--only labelled] [--split all|development|holdout] \
+ *     [--policy current|previous|both] [--out /tmp/merge-risk-evaluation.json] \
  *     [--sheet /tmp/merge-risk-sheet.md]
+ *
+ * The split assigns every third labelled PR (by number) to holdout. Tune on
+ * development; confirm once on holdout and do not tune on it afterwards.
  */
 import "dotenv/config";
 import { createHash } from "node:crypto";
@@ -26,10 +30,10 @@ import {
   assessMergeRisk,
   MERGE_RISK_GATE,
   MERGE_RISK_PROMPT_VERSION,
-  MERGE_RISK_QUESTIONS,
   type MergeRiskVerdict,
 } from "../apps/server/src/agents/merge-risk/policy.js";
 import type { MergeRiskEvidence } from "../apps/server/src/agents/merge-risk/evidence.js";
+import { POLICIES, type PolicyName } from "./evals/merge-risk-policies.js";
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) => {
@@ -44,6 +48,8 @@ const labelsPath = path.resolve(
 );
 const limit = Number(option("--limit", "250"));
 const only = option("--only", "all");
+const split = option("--split", "all");
+const policyName = option("--policy", "current");
 const out = path.resolve(option("--out", "/tmp/merge-risk-evaluation.json"));
 const sheet = path.resolve(option("--sheet", "/tmp/merge-risk-sheet.md"));
 if (
@@ -51,11 +57,13 @@ if (
   limit < 1 ||
   limit > 1000 ||
   !["all", "labelled"].includes(only) ||
+  !["all", "development", "holdout"].includes(split) ||
+  !["current", "previous", "both"].includes(policyName) ||
   !out.startsWith("/tmp/") ||
   !sheet.startsWith("/tmp/")
 )
   throw new Error(
-    "Use --limit 1–1000, --only all|labelled, --out and --sheet under /tmp/."
+    "Use --limit 1–1000, --only all|labelled, --split all|development|holdout, --policy current|previous|both, --out and --sheet under /tmp/."
   );
 
 type Fixture = {
@@ -84,20 +92,37 @@ const labels = (
     labels: Record<string, Label>;
   }
 ).labels;
+const labelledNumbers = Object.keys(labels)
+  .map(Number)
+  .sort((a, b) => a - b);
+const holdout = new Set(labelledNumbers.filter((_, i) => i % 3 === 2));
+const inSplit = (n: number) =>
+  split === "all" ||
+  !labels[String(n)] ||
+  (split === "holdout") === holdout.has(n);
 const fixtures = file.fixtures
   .filter((f) => only === "all" || labels[String(f.prNumber)])
+  .filter((f) => inSplit(f.prNumber))
   .slice(0, limit);
+const policies = (
+  policyName === "both" ? ["current", "previous"] : [policyName]
+) as PolicyName[];
 const fingerprint = (x: unknown) =>
   createHash("sha256").update(JSON.stringify(x)).digest("hex");
 const manifest = {
   model: DECISIONS_MODEL,
-  promptVersion: MERGE_RISK_PROMPT_VERSION,
+  deployedPromptVersion: MERGE_RISK_PROMPT_VERSION,
   repo: file.repo,
+  split,
   fixtures: fixtures.length,
   labelled: fixtures.filter((f) => labels[String(f.prNumber)]).length,
   fixtureHash: fingerprint(fixtures.map((f) => f.evidence)),
-  policyHash: fingerprint(MERGE_RISK_QUESTIONS),
-  questions: MERGE_RISK_QUESTIONS.map((q) => ({ name: q.name, type: q.type })),
+  policies: policies.map((name) => ({
+    name,
+    version: POLICIES[name].version,
+    hash: fingerprint(POLICIES[name].questions),
+    questions: POLICIES[name].questions.map((q) => `${q.type}:${q.name}`),
+  })),
   gate: MERGE_RISK_GATE,
   timeoutMs: 20_000,
   concurrency: 2,
@@ -112,6 +137,7 @@ const key = process.env.DISPATCH_DECISIONS_API_KEY?.trim();
 if (!key) throw new Error("Set DISPATCH_DECISIONS_API_KEY; no requests made.");
 
 type Row = {
+  policy: PolicyName;
   prNumber: number;
   url: string;
   title: string;
@@ -127,6 +153,7 @@ type Row = {
   reviewAdequate: number | null;
   descriptionMatches: number | null;
   needsHuman: unknown;
+  newSurface: number | null;
   label: Label | null;
   correct: boolean | null;
   falseRoutine: boolean;
@@ -140,6 +167,92 @@ const count = <T extends string>(values: T[]) =>
     acc[v] = (acc[v] ?? 0) + 1;
     return acc;
   }, {});
+/** Verdict under an alternative gate, computed from stored probabilities. */
+function gated(
+  r: Row,
+  gate: {
+    humanP: number;
+    routineP: number;
+    routineConfidence: number;
+    scoreForcesHuman: number | null;
+    surfaceForcesHuman: number | null;
+  }
+): MergeRiskVerdict {
+  const needs = r.needsHuman as {
+    choice: string;
+    probabilities: { value: string; probability: number }[];
+    confidence?: number;
+  } | null;
+  if (!needs || r.status !== "ok") return "abstain";
+  const p = (v: string) =>
+    needs.probabilities.find((x) => x.value === v)?.probability ?? 0;
+  if (
+    (gate.scoreForcesHuman !== null &&
+      (r.changeRisk ?? 0) >= gate.scoreForcesHuman) ||
+    (gate.surfaceForcesHuman !== null &&
+      (r.newSurface ?? 0) >= gate.surfaceForcesHuman) ||
+    p("human_review") >= gate.humanP
+  )
+    return "human_review";
+  if (
+    p("routine") >= gate.routineP &&
+    (needs.confidence ?? 0) >= gate.routineConfidence
+  )
+    return "routine";
+  return "abstain";
+}
+const GATES = {
+  deployed: {
+    humanP: 0.5,
+    routineP: 0.8,
+    routineConfidence: 0.8,
+    scoreForcesHuman: null,
+    surfaceForcesHuman: null,
+  },
+  "v1-score-forces-high": {
+    humanP: 0.5,
+    routineP: 0.8,
+    routineConfidence: 0.8,
+    scoreForcesHuman: 2,
+    surfaceForcesHuman: null,
+  },
+  "choice-critical": {
+    humanP: 0.5,
+    routineP: 0.8,
+    routineConfidence: 0.8,
+    scoreForcesHuman: 2.5,
+    surfaceForcesHuman: null,
+  },
+  "choice-surface": {
+    humanP: 0.5,
+    routineP: 0.8,
+    routineConfidence: 0.8,
+    scoreForcesHuman: 2.5,
+    surfaceForcesHuman: 0.7,
+  },
+  "lenient-routine": {
+    humanP: 0.5,
+    routineP: 0.6,
+    routineConfidence: 0.6,
+    scoreForcesHuman: 2.5,
+    surfaceForcesHuman: 0.7,
+  },
+};
+function confusion(group: Row[], verdictOf: (r: Row) => MergeRiskVerdict) {
+  const labelled = group.filter((r) => r.label);
+  const c = (v: MergeRiskVerdict, l: string) =>
+    labelled.filter((r) => verdictOf(r) === v && r.label!.label === l).length;
+  return {
+    labelled: labelled.length,
+    agree: labelled.filter((r) => verdictOf(r) === r.label!.label).length,
+    routine_ok: c("routine", "routine"),
+    human_ok: c("human_review", "human_review"),
+    false_routine: c("routine", "human_review"),
+    over_cautious: c("human_review", "routine"),
+    abstain_on_routine: c("abstain", "routine"),
+    abstain_on_human: c("abstain", "human_review"),
+  };
+}
 function summarize(group: Row[]) {
   const labelled = group.filter((r) => r.label);
   const bySubsystem: Record<string, { n: number; meanRisk: number }> = {};
@@ -164,6 +277,12 @@ function summarize(group: Row[]) {
     missedHuman: labelled.filter(
       (r) => r.label?.label === "human_review" && r.verdict === "abstain"
     ).length,
+    gates: Object.fromEntries(
+      Object.entries(GATES).map(([name, gate]) => [
+        name,
+        confusion(group, (r) => gated(r, gate)),
+      ])
+    ),
     bySubsystem,
     latency: durationSummary(group.map((r) => r.latencyMs)),
     knownEstimatedUsd: group.reduce((s, r) => s + (r.estimatedUsd ?? 0), 0),
@@ -176,8 +295,13 @@ function save() {
     JSON.stringify(
       {
         manifest,
-        complete: rows.length === fixtures.length,
-        summary: summarize(rows),
+        complete: rows.length === fixtures.length * policies.length,
+        summaries: Object.fromEntries(
+          policies.map((p) => [
+            p,
+            summarize(rows.filter((r) => r.policy === p)),
+          ])
+        ),
         results: rows,
       },
       null,
@@ -185,15 +309,15 @@ function save() {
     ) + "\n",
     { mode: 0o600 }
   );
-  const sorted = [...rows].sort(
-    (a, b) => (b.changeRisk ?? -1) - (a.changeRisk ?? -1)
-  );
+  const sorted = [...rows]
+    .filter((r) => r.policy === policies[0])
+    .sort((a, b) => (b.changeRisk ?? -1) - (a.changeRisk ?? -1));
   const pct = (v: number | null) =>
     v === null ? "—" : `${Math.round(v * 100)}%`;
   writeFileSync(
     sheet,
     [
-      `# Merge-risk grading sheet (${file.repo}, ${rows.length} PRs, ${MERGE_RISK_PROMPT_VERSION})`,
+      `# Merge-risk grading sheet (${file.repo}, ${sorted.length} PRs, ${POLICIES[policies[0]!].version})`,
       "",
       "Fill the **Your call** column with `routine` or `human_review` (what you would have wanted: read it before merge, or not). Add a short why when you disagree with the model.",
       "",
@@ -211,19 +335,23 @@ function save() {
     { mode: 0o600 }
   );
 }
+const jobs = fixtures.flatMap((fixture) =>
+  policies.map((policy) => ({ fixture, policy }))
+);
 let cursor = 0;
 async function worker() {
-  while (cursor < fixtures.length) {
-    const fixture = fixtures[cursor++]!;
+  while (cursor < jobs.length) {
+    const { fixture, policy } = jobs[cursor++]!;
     const response = await requestDecisions(
       key!,
       fixture.evidence as unknown as Record<string, unknown>,
-      MERGE_RISK_QUESTIONS,
+      POLICIES[policy].questions,
       { timeoutMs: manifest.timeoutMs }
     );
     const assessment = assessMergeRisk(response.status, response.answers);
     const label = labels[String(fixture.prNumber)] ?? null;
     rows.push({
+      policy,
       prNumber: fixture.prNumber,
       url: fixture.url,
       title: fixture.evidence.pull_request.title,
@@ -244,18 +372,25 @@ async function worker() {
     });
     if (rows.length % 20 === 0) {
       save();
-      process.stdout.write(`${rows.length}/${fixtures.length} completed\n`);
+      process.stdout.write(`${rows.length}/${jobs.length} completed\n`);
     }
   }
 }
 process.stdout.write(
-  `Running ${fixtures.length} merge-risk requests (${manifest.labelled} labelled).\n`
+  `Running ${jobs.length} merge-risk requests (${fixtures.length} fixtures × ${policies.length} policies; ${manifest.labelled} labelled; split ${split}).\n`
 );
 await Promise.all([worker(), worker()]);
 save();
 process.stdout.write(
   JSON.stringify(
-    { complete: true, out, sheet, summary: summarize(rows) },
+    {
+      complete: true,
+      out,
+      sheet,
+      summaries: Object.fromEntries(
+        policies.map((p) => [p, summarize(rows.filter((r) => r.policy === p))])
+      ),
+    },
     null,
     2
   ) + "\n"

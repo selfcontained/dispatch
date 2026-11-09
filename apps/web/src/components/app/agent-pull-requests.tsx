@@ -35,12 +35,12 @@ const MERGE_RISK = {
   routine: {
     label: "Routine",
     badge: "border-status-working/20 bg-status-working/10 text-status-working",
-    hint: "Low or moderate risk, specifically reviewed. A recommendation, not an approval.",
+    hint: "Reviewed work inside existing features or infrastructure. A recommendation, not an approval.",
   },
   human_review: {
     label: "Read before merge",
     badge: "border-status-waiting/20 bg-status-waiting/10 text-status-waiting",
-    hint: "Risky area, generic review, or description and files disagree.",
+    hint: "New or redesigned product surface, external integration, or a large multi-subsystem feature.",
   },
   abstain: {
     label: "No recommendation",
@@ -112,6 +112,8 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
         <dd className="tabular-nums">{percent(risk.reviewAdequate)}</dd>
         <dt className="text-muted-foreground">Description matches</dt>
         <dd className="tabular-nums">{percent(risk.descriptionMatches)}</dd>
+        <dt className="text-muted-foreground">New surface</dt>
+        <dd className="tabular-nums">{percent(risk.newSurface)}</dd>
         <dt className="text-muted-foreground">Human review</dt>
         <dd className="tabular-nums">
           {percent(risk.humanReviewProbability)}

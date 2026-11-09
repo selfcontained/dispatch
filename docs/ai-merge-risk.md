@@ -65,26 +65,43 @@ which tell the model the evidence is untrusted.
 
 ## Questions and gate
 
-One request carries four questions (`merge-risk-v1`):
+One request carries five questions (`merge-risk-v2`):
 
-| name                       | type                                     | asks                                                    |
-| -------------------------- | ---------------------------------------- | ------------------------------------------------------- |
-| `change_risk`              | score: low / moderate / high / critical  | blast radius of the change itself                       |
-| `review_adequate`          | predicate                                | did reviews engage with the riskiest parts specifically |
-| `description_matches_diff` | predicate                                | does the description account for the files that changed |
-| `needs_human`              | choice: routine / human_review / abstain | the headline recommendation                             |
+| name                       | type                                     | asks                                                                                   |
+| -------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------- |
+| `change_risk`              | score: low / moderate / high / critical  | blast radius of the change itself (display only)                                       |
+| `review_adequate`          | predicate                                | did reviews engage with the riskiest parts specifically                                |
+| `description_matches_diff` | predicate                                | does the description account for the files that changed                                |
+| `new_user_facing_surface`  | predicate                                | new or redesigned top-level surface, concept, website content, or external integration |
+| `needs_human`              | choice: routine / human_review / abstain | the headline recommendation                                                            |
 
-`assessMergeRisk` turns answers into a verdict. **human_review** needs a risk
-score at or above the "high" level, or a `human_review` choice with
-probability ≥ 0.5 — recommending a read is the cheap direction. **routine**
-needs a `routine` choice with probability ≥ 0.8 and confidence ≥ 0.8 and a risk
-score below "high". Anything else, including provider errors, abstains. These
-thresholds are initial policy, not a measured accuracy guarantee.
+The headline question is framed around what reviewers cannot check: product
+judgment. Reviewers and CI cover code correctness, so the maintainer reads
+new or redesigned top-level surfaces, new external integrations, public
+website content, and large multi-subsystem features; additions inside an
+existing feature, persistence and migrations, release/CI plumbing, fixes,
+hardening, and small UI adjustments are routine once reviewed.
 
-The row badge shows "Routine" or "Read before merge"; abstentions show nothing
-on the row but appear in the popover. The popover lists the level, the two
-predicate probabilities, the human-review probability and confidence, the
-head commit, and when it was assessed.
+`assessMergeRisk` turns answers into a verdict. **human_review** needs a
+`human_review` choice with probability ≥ 0.5 — recommending a read is the
+cheap direction. **routine** needs a `routine` choice with probability ≥ 0.8
+and confidence ≥ 0.8. The risk score and predicates are shown but do not
+override the choice. Anything else, including provider errors, abstains.
+
+v1 (`merge-risk-v1`, kept in `scripts/evals/merge-risk-policies.ts` for
+comparison) framed the question as blast radius and forced a read whenever the
+score reached "high". Against the maintainer's first 35 grades it agreed on
+9/24 development and 5/11 held-out PRs, flagging most migrations and release
+work the maintainer considered routine. v2 agreed on 16/24 and 7/11 with no
+false routines in either slice. These are small samples: the thresholds are
+policy settings, not a measured accuracy guarantee, and further grades should
+be collected from live use before loosening anything.
+
+The row marker shows a green shield for routine and an amber one for read
+before merge; abstentions show nothing on the row but appear in the popover.
+The popover lists the level, the three predicate probabilities, the
+human-review probability and confidence, the head commit, and when it was
+assessed.
 
 ## Diagnostics and metrics
 

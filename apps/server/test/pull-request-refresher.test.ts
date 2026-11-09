@@ -631,6 +631,7 @@ it("attaches merge-risk assessments to observed heads and carries them while the
       changeRiskLabel: "moderate",
       reviewAdequate: 0.9,
       descriptionMatches: 0.9,
+      newSurface: 0.1,
       routineProbability: 0.9,
       humanReviewProbability: 0.1,
       confidence: 0.9,

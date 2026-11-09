@@ -42,6 +42,8 @@ export type MergeRiskSummary = {
   changeRiskLabel: string | null;
   reviewAdequate: number | null;
   descriptionMatches: number | null;
+  /** Probability the change adds or redesigns a top-level product surface. */
+  newSurface: number | null;
   routineProbability: number | null;
   humanReviewProbability: number | null;
   confidence: number | null;
