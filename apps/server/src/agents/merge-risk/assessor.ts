@@ -48,6 +48,7 @@ type Options = {
 type Row = {
   status: string;
   head_sha: string;
+  prompt_version: string;
   created_at: Date;
   result: Record<string, unknown>;
 };
@@ -171,7 +172,7 @@ export class MergeRiskAssessor {
     fingerprint?: string
   ): Promise<MergeRiskSummary | undefined> {
     const rows = await this.options.pool.query<Row>(
-      `SELECT status, head_sha, created_at, result FROM merge_risk_decision_records
+      `SELECT status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records
         WHERE url = $1 AND head_sha = $2 AND ($3::text IS NULL OR review_fingerprint = $3)
           AND status NOT IN ('pending') AND status NOT LIKE 'skipped%'
         ORDER BY created_at DESC, id DESC LIMIT 1`,
@@ -290,7 +291,7 @@ function toSummary(row: Row): MergeRiskSummary {
     humanReviewProbability: num(r.humanReviewProbability),
     confidence: num(r.confidence),
     status: row.status,
-    promptVersion: MERGE_RISK_PROMPT_VERSION,
+    promptVersion: row.prompt_version,
     headSha: row.head_sha,
     assessedAt: new Date(row.created_at).toISOString(),
   };

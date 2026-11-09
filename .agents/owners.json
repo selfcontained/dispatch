@@ -490,7 +490,7 @@
         "docs/ai-merge-risk.md",
         "scripts/backfill-merge-risk.ts",
         "scripts/evaluate-merge-risk.ts",
-        "scripts/evals/merge-risk-labels.json"
+        "scripts/evals/merge-risk-*"
       ],
       "personas": ["review-lifecycle-owner"]
     }
