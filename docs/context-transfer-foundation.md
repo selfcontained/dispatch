@@ -51,7 +51,8 @@ All transitions use revision/state compare-and-set. Concurrent duplicate events
 reconcile the same intent; mismatched handoffs or competing successors fail.
 Replaying an immutable preparation after a lost response returns its durable row,
 even after the original observation ages. Launch reservation separately checks
-current identity. Restarting a coordinator does not create a second launch key.
+current identity and boundary. Preparation replay also requires the same current
+boundary. Restarting a coordinator does not create a second launch key.
 Cancellation remains available when preparation is disabled. Terminal attempts
 require explicit supervised recovery before a new chain can be considered.
 

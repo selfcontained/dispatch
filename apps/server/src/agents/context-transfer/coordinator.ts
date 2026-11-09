@@ -59,6 +59,9 @@ export class ContextTransferCoordinator {
         "Handoff identity does not match current worktree or permissions"
       );
     }
+    if (request.budget.boundary !== expected.boundary) {
+      throw new TransferConflict("Preparation boundary no longer current");
+    }
     // A committed preparation may outlive its budget observation after a lost reply.
     // Reconcile its immutable request rather than create another intent.
     if (
@@ -85,11 +88,14 @@ export class ContextTransferCoordinator {
   /** Returns a stable reconciliation key, never calls a launcher. */
   async reserveLaunch(
     id: string,
-    currentIdentity: RuntimeIdentity
+    current: { identity: RuntimeIdentity; boundary: number }
   ): Promise<TransferRecord> {
     this.enabled();
     const row = await this.read(id);
-    if (!sameIdentity(row.request.budget.identity, currentIdentity)) {
+    if (
+      !sameIdentity(row.request.budget.identity, current.identity) ||
+      row.request.budget.boundary !== current.boundary
+    ) {
       throw new TransferConflict(
         "Worktree or permissions changed before launch reservation"
       );

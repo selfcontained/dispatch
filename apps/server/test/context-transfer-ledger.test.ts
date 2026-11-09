@@ -19,10 +19,10 @@ async function prepare(c = controller()) {
 }
 async function reserved() {
   const row = await prepare();
-  return controller().reserveLaunch(
-    row.transferId,
-    row.request.budget.identity
-  );
+  return controller().reserveLaunch(row.transferId, {
+    identity: row.request.budget.identity,
+    boundary: 7,
+  });
 }
 async function receipted() {
   const row = await reserved();
@@ -91,6 +91,20 @@ describe("dormant context transfer ledger", () => {
     );
     expect((await prepare(restarted)).transferId).toBe(row.transferId);
   });
+  it("rejects replay and reservation after the current boundary advances", async () => {
+    const row = await prepare();
+    const r = transferFixture();
+    await expect(
+      controller().prepare(r, { identity: r.handoff.identity, boundary: 8 })
+    ).rejects.toThrow("boundary");
+    await expect(
+      controller().reserveLaunch(row.transferId, {
+        identity: r.handoff.identity,
+        boundary: 8,
+      })
+    ).rejects.toThrow("changed");
+    expect((await ledger.get(row.transferId))?.state).toBe("prepared");
+  });
   it("never rebinds an existing boundary to a new handoff or permission claim", async () => {
     await prepare();
     const r = transferFixture();
@@ -123,10 +137,10 @@ describe("dormant context transfer ledger", () => {
   it("recovers one stable launch intent after a crash without calling a launcher", async () => {
     const row = await reserved();
     const restarted = controller(new PgTransferLedger(pool));
-    const again = await restarted.reserveLaunch(
-      row.transferId,
-      row.request.budget.identity
-    );
+    const again = await restarted.reserveLaunch(row.transferId, {
+      identity: row.request.budget.identity,
+      boundary: 7,
+    });
     expect(again.launchKey).toBe(row.launchKey);
     expect(again.revision).toBe(row.revision);
     expect(again.state).toBe("launch_reserved");
@@ -172,7 +186,7 @@ describe("dormant context transfer ledger", () => {
           ? "9".repeat(40)
           : "/different";
       await expect(
-        controller().reserveLaunch(row.transferId, identity)
+        controller().reserveLaunch(row.transferId, { identity, boundary: 7 })
       ).rejects.toThrow("changed");
       expect((await ledger.get(row.transferId))?.state).toBe("prepared");
     }
@@ -207,7 +221,10 @@ describe("dormant context transfer ledger", () => {
     expect(result.failureReason).toBe("pickup_mismatch");
     expect(result.successorAgentId).toBe("successor");
     await expect(
-      controller().reserveLaunch(row.transferId, row.request.budget.identity)
+      controller().reserveLaunch(row.transferId, {
+        identity: row.request.budget.identity,
+        boundary: 7,
+      })
     ).rejects.toThrow("terminal");
   });
   it.each([
