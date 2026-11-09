@@ -85,3 +85,10 @@ export function matchEmoji(query: string) {
     .sort(([a], [b]) => Number(b === query) - Number(a === query))
     .slice(0, 8);
 }
+
+export function emojiForAlias(alias: string): string | undefined {
+  const value = Object.prototype.hasOwnProperty.call(emojiShortcodes, alias)
+    ? emojiShortcodes[alias]
+    : undefined;
+  return typeof value === "string" ? value : undefined;
+}

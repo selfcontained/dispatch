@@ -19,7 +19,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import {
   emojiQueryAt,
-  emojiShortcodes,
+  emojiForAlias,
   matchEmoji,
 } from "@/lib/emoji-shortcodes";
 
@@ -118,10 +118,12 @@ export const ComposerInput = forwardRef<
   const [cursor, setCursor] = useState({ text: props.value, caret: 0, end: 0 });
   const [dismissed, setDismissed] = useState("");
   const [active, setActive] = useState(0);
+  const [focused, setFocused] = useState(false);
   const listId = useId();
   const query = emojiQueryAt(cursor.text, cursor.caret);
   const signature = `${cursor.caret}:${cursor.text}`;
   const candidates =
+    focused &&
     query &&
     dismissed !== signature &&
     cursor.caret === cursor.end &&
@@ -313,10 +315,12 @@ export const ComposerInput = forwardRef<
         const value = plainText(view.state.doc);
         const caret = textOffset(view.state.doc, from);
         const query = emojiQueryAt(value, caret);
-        const emoji = query && emojiShortcodes[query.query];
+        const emoji = query && emojiForAlias(query.query);
         if (!emoji) return false;
         // Preserve the complete typed alias as the previous undo state.
-        view.dispatch(view.state.tr.insertText(text, from, to));
+        const typed = view.state.tr.insertText(text, from, to);
+        view.dispatch(typed);
+        if (!view.state.doc.eq(typed.doc)) return true;
         view.dispatch(
           closeHistory(view.state.tr).insertText(
             emoji,
@@ -372,6 +376,14 @@ export const ComposerInput = forwardRef<
         return true;
       },
       handleDOMEvents: {
+        focus: () => {
+          setFocused(true);
+          return false;
+        },
+        blur: () => {
+          setFocused(false);
+          return false;
+        },
         // The parent handles file drops; don't let the editor parse them.
         drop: (_view, event) => !!event.dataTransfer?.files.length,
       },
@@ -441,6 +453,7 @@ export const ComposerInput = forwardRef<
                   "flex w-full justify-start gap-2",
                   index === selected && "bg-accent"
                 )}
+                onPointerDown={(event) => event.preventDefault()}
                 onMouseDown={(event) => event.preventDefault()}
                 onPointerMove={() => setActive(index)}
                 onClick={() => pickEmoji(emoji)}
@@ -455,10 +468,11 @@ export const ComposerInput = forwardRef<
         ref={host}
         onKeyDownCapture={(event) => {
           if (candidates.length && !event.nativeEvent.isComposing) {
+            const modified =
+              event.shiftKey || event.ctrlKey || event.metaKey || event.altKey;
             if (
-              ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(
-                event.key
-              )
+              ["ArrowDown", "ArrowUp", "Escape"].includes(event.key) ||
+              (!modified && ["Enter", "Tab"].includes(event.key))
             ) {
               event.preventDefault();
               event.stopPropagation();

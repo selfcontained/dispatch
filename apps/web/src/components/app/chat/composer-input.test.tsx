@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { createRef, useState } from "react";
+import { EditorView } from "prosemirror-view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ComposerInput,
@@ -72,6 +73,7 @@ function setup(value = "", extra: Partial<ComposerInputProps> = {}) {
     );
   }
   render(<Harness />);
+  act(() => ref.current!.focus());
   return { ref, changed, input: screen.getByTestId("chat-composer-input") };
 }
 
@@ -281,6 +283,15 @@ describe("ComposerInput caret scrolling", () => {
 });
 
 describe("ComposerInput emoji suggestions", () => {
+  it("hides suggestions on blur and reopens on focus", () => {
+    const { input, ref } = setup(":smi");
+    act(() => ref.current!.setSelectionRange(4, 4));
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    act(() => input.blur());
+    expect(screen.queryByRole("listbox")).toBeNull();
+    act(() => input.focus());
+    expect(screen.getByRole("listbox")).toBeTruthy();
+  });
   it("tracks keyboard highlight for assistive technology and hides on range selections", () => {
     const { input, ref } = setup(":smi");
     act(() => ref.current!.setSelectionRange(4, 4));
@@ -326,5 +337,71 @@ describe("ComposerInput emoji suggestions", () => {
     fireEvent.click(screen.getByRole("option", { name: ":heart:" }));
     expect(input.textContent).toBe("❤️");
     expect(document.activeElement).toBe(input);
+  });
+});
+
+describe("ComposerInput conversion safety", () => {
+  function typeColon(value: string, caret: number, maxLength = 20000) {
+    let view: EditorView | undefined;
+    const original = EditorView.prototype.dispatch;
+    vi.spyOn(EditorView.prototype, "dispatch").mockImplementation(function (
+      this: EditorView,
+      tr
+    ) {
+      // Capture the live editor to exercise its real text-input transaction handler.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      view = this;
+      original.call(this, tr);
+    });
+    const result = setup(value, { maxLength });
+    act(() => result.ref.current!.setSelectionRange(caret, caret));
+    act(() => {
+      const pos = view!.state.selection.from;
+      const handled = view!.props.handleTextInput!.call(
+        view!.props,
+        view!,
+        pos,
+        pos,
+        ":",
+        () => view!.state.tr.insertText(":")
+      );
+      if (!handled) view!.dispatch(view!.state.tr.insertText(":"));
+    });
+    return result;
+  }
+  it.each(["constructor", "__proto__", "unknown_alias"])(
+    "keeps unsupported %s literal",
+    (alias) => {
+      const { input } = typeColon(`:${alias}`, alias.length + 1);
+      expect(input.textContent).toBe(`:${alias}:`);
+    }
+  );
+  it.each([":smileX", ":smile", ":smile\ntail"])(
+    "does not consume text when colon exceeds the limit: %s",
+    (text) => {
+      const { input, changed } = typeColon(text, 6, text.length);
+      expect(input.textContent).toBe(text.replaceAll("\n", ""));
+      expect(changed).not.toHaveBeenCalled();
+    }
+  );
+  it("converts an accepted colon with a separate undo step", () => {
+    const { input, changed } = typeColon(":smile tail", 6);
+    expect(changed).toHaveBeenLastCalledWith("😄 tail", 2);
+    fireEvent.keyDown(input, { key: "z", ctrlKey: true });
+    expect(input.textContent).toBe(":smile: tail");
+  });
+  it("preserves newline and modified submit/focus keys", () => {
+    const parent = vi.fn();
+    const { input, ref } = setup(":smi", { onKeyDown: parent });
+    act(() => ref.current!.setSelectionRange(4, 4));
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(parent).toHaveBeenCalledTimes(1);
+    expect(input.textContent).toBe(":smi");
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    expect(parent).toHaveBeenCalledTimes(2);
+    expect(input.textContent).toBe(":smi");
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(parent).toHaveBeenCalledTimes(3);
+    expect(input.querySelectorAll("p")).toHaveLength(2);
   });
 });
