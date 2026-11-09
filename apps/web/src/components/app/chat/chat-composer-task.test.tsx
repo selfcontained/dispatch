@@ -94,3 +94,19 @@ it("blocks task sharing when the selected Interrupt becomes unavailable", () => 
   fireEvent.click(screen.getByRole("button", { name: "Share task" }));
   expect(onSend).not.toHaveBeenCalled();
 });
+
+it("holds task sharing while the agent is starting up", () => {
+  const onSend = vi.fn(async () => {});
+  render(
+    <ChatComposer
+      agentId={null}
+      disabledReason={null}
+      waitReason="The agent is starting up."
+      onSend={onSend}
+    />
+  );
+  const share = screen.getByRole("button", { name: "Share task" });
+  expect((share as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(share);
+  expect(onSend).not.toHaveBeenCalled();
+});

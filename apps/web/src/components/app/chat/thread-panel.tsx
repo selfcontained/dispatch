@@ -209,6 +209,8 @@ export function ThreadPanel({
   error = null,
   mentionables: mentionablesOverride,
 }: ThreadPanelProps): JSX.Element {
+  // A starting agent takes a draft, but answers and block toggles wait.
+  const answersDisabled = disabledReason !== null || waitReason !== null;
   // With a finding open over it, the panel is the finding's own thread:
   // the finding in full, its status controls, and its discussion.
   const threadBlockId = findingId ?? blockId;
@@ -493,7 +495,7 @@ export function ThreadPanel({
             ctx={ctx}
             answering={answeringBlockId === thread.root.id}
             submitting={submittingBlockId === thread.root.id}
-            answersDisabled={disabledReason !== null}
+            answersDisabled={answersDisabled}
             onAnswer={onAnswer}
             inThread
             threadRoot={blockId}
@@ -558,7 +560,7 @@ export function ThreadPanel({
                               ctx={ctx}
                               answering={answeringBlockId === reply.id}
                               submitting={submittingBlockId === reply.id}
-                              answersDisabled={disabledReason !== null}
+                              answersDisabled={answersDisabled}
                               onAnswer={onAnswer}
                               inThread
                             />

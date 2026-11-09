@@ -1269,6 +1269,8 @@ export function ChatPane({
     isLoading: feed.isLoading,
     error: feed.error,
   });
+  // A starting agent takes a draft, but answers and block toggles wait.
+  const waitReason = composerWaitReason(agent);
   const answeringBlockId = answer.isPending
     ? (answer.variables?.blockId ?? null)
     : null;
@@ -1386,7 +1388,9 @@ export function ChatPane({
                     ctx={ctx}
                     answeringBlockId={answeringBlockId}
                     submittingBlockId={submittingBlockId}
-                    answersDisabled={disabledReason !== null}
+                    answersDisabled={
+                      disabledReason !== null || waitReason !== null
+                    }
                     onAnswer={onAnswer}
                     scrollRef={scrollRef}
                     pinnedIds={pinnedIds}
@@ -1467,7 +1471,7 @@ export function ChatPane({
               onSend={onSend}
               uploadFile={uploadFile}
               disabledReason={disabledReason}
-              waitReason={composerWaitReason(agent)}
+              waitReason={waitReason}
               sending={send.isPending}
               autoFocus={active && !isMobile && !openThreadId}
               mentionables={mentionables}

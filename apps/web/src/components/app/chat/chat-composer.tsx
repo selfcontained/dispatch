@@ -1329,6 +1329,7 @@ export function ChatComposer({
                 <ShareTaskPicker
                   disabled={
                     disabled ||
+                    Boolean(waitReason) ||
                     Boolean(sending) ||
                     inFlight ||
                     Boolean(deliveryBlockedReason)
