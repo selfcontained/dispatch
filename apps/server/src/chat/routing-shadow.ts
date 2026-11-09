@@ -7,7 +7,7 @@ import type { StreamEventRow } from "../agents/acp/stream-store.js";
 import { BlockStore, isBlockId } from "./store.js";
 
 export const SHADOW_MODEL = "gpt-6-luna";
-export const SHADOW_PROMPT_VERSION = "root-first-side-threads-v3";
+export const SHADOW_PROMPT_VERSION = "bidirectional-side-threads-v6";
 const CHOICES = [
   "initiating_discussion",
   "home_root",
@@ -237,6 +237,7 @@ export async function shadowEvidence(pool: Pool, input: ShadowInput) {
       text: r.text,
     })),
     hasInitiatingDiscussion: true,
+    currentLocation: first.threadId ? "thread" : "home_root",
   };
   let serialized = JSON.stringify(data);
   while (Buffer.byteLength(serialized, "utf8") > 8192) {
@@ -252,12 +253,9 @@ export async function shadowEvidence(pool: Pool, input: ShadowInput) {
   }
   return {
     messageIds: ids,
-    explicitThread:
-      !!first.threadId ||
-      !!source.answerIn ||
-      /\b(?:reply|answer|respond|post)\b.{0,35}\b(?:home root|main stream|top level|at root)\b/i.test(
-        first.text
-      ),
+    // A thread origin is context, not an instruction to keep the response there.
+    // Dedicated answer targets remain server-owned and cannot be reclassified.
+    explicitThread: !!source.answerIn,
     target: {
       streamId: first.streamId,
       threadId: first.threadId ?? first.id,
@@ -423,12 +421,12 @@ export async function requestRoutingDecision(
               {
                 value: "initiating_discussion",
                 description:
-                  "Answer a narrow contained side question in the initiating discussion.",
+                  "Answer in the initiating discussion for side questions, thread follow-ups, or closing acknowledgments.",
               },
               {
                 value: "home_root",
                 description:
-                  "Answer the primary task conversation at the agent home root (default).",
+                  "Answer the primary task conversation at the agent home root, including returning from a side thread.",
               },
               {
                 value: "keep_existing_default",
@@ -740,6 +738,7 @@ export class RoutingShadow {
         anchor: "Please explain the implementation.",
         nearby: ["I chose it to reduce complexity."],
         hasInitiatingDiscussion: true,
+        currentLocation: "home_root",
       }),
       this.transport,
       undefined,

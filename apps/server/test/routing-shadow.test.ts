@@ -211,7 +211,7 @@ describe("optional routing shadow", () => {
     release();
     const [record] = await finished();
     expect(record).toMatchObject({
-      explicit_thread: true,
+      explicit_thread: false,
       status: "ok",
       result: {
         choice: "home_root",
@@ -470,8 +470,99 @@ describe("optional routing shadow", () => {
       applied: true,
     });
   });
-  it("keeps explicit threads and uncertain active choices in their existing placement", async () => {
+  it("returns a thread-origin response to root without moving its source", async () => {
+    const event = await input(
+      "That settles it. Continue implementing the main task."
+    );
+    const evidence = await shadowEvidence(pool, event);
+    expect(evidence?.explicitThread).toBe(false);
+    expect(JSON.parse(evidence!.input).currentLocation).toBe("thread");
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport
+    );
+    const service = new StreamService({
+      pool,
+      routingShadow: experiment,
+      getAgent: async () => null,
+      filesRoot: "/tmp",
+      publishUiEvent: () => {},
+    });
+    const id = await service.recordTurnStarted(event);
+    expect(await service.store.getById(id!)).toMatchObject({
+      streamId: A,
+      threadId: null,
+      replyTo: null,
+    });
+    expect(await service.store.getById(evidence!.messageIds[0])).toMatchObject({
+      streamId: A,
+      threadId: event.placement.threadId,
+      replyTo: event.placement.threadId,
+    });
+    await idle(async () => (await records())[0]?.result.applied === true);
+    expect((await records())[0].explicit_thread).toBe(false);
+  });
+  it.each([
+    "Thanks, that answers it.",
+    "Keep this answer in this thread: explain the example.",
+  ])(
+    "preserves the thread when the classifier chooses the discussion: %s",
+    async (text) => {
+      const event = await input(text);
+      transport.mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              answers: [
+                {
+                  ...answer.answers[0],
+                  choice: "initiating_discussion",
+                  probabilities: [
+                    { value: "initiating_discussion", probability: 0.95 },
+                  ],
+                },
+              ],
+            })
+          )
+      );
+      const experiment = new RoutingShadow(
+        { ...enabled, mode: "active" },
+        store,
+        transport
+      );
+      expect(await experiment.route(event)).toEqual(event.placement);
+    }
+  );
+  it("keeps ambiguous thread replies in place when the classifier selects the default", async () => {
+    const event = await input("okay");
+    transport.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            answers: [
+              {
+                ...answer.answers[0],
+                choice: "keep_existing_default",
+                probabilities: [
+                  { value: "keep_existing_default", probability: 0.95 },
+                ],
+              },
+            ],
+          })
+        )
+    );
+    const experiment = new RoutingShadow(
+      { ...enabled, mode: "active" },
+      store,
+      transport
+    );
+    expect(await experiment.route(event)).toBeUndefined();
+  });
+  it("keeps dedicated answer targets and uncertain active choices in their existing placement", async () => {
     const event = await input();
+    if (event.prompt.source === "chat")
+      event.prompt.answerIn = event.placement.threadId!;
     const experiment = new RoutingShadow(
       { ...enabled, mode: "active" },
       store,
@@ -479,7 +570,7 @@ describe("optional routing shadow", () => {
     );
     expect(await experiment.route(event)).toBeUndefined();
     expect((await finished())[0].result.applied).toBe(false);
-    const root = await input("explain", false);
+    const root = await input("explain", true);
     transport.mockImplementation(
       async () =>
         new Response(
@@ -1118,8 +1209,8 @@ describe("routing feed diagnostics", () => {
 
 it("keeps root-first semantics and contained side-question examples in the versioned policy", () => {
   expect(ROUTING_INSTRUCTIONS).toContain("Same topic alone is insufficient");
-  expect(ROUTING_INSTRUCTIONS).toContain("implementation approvals");
-  expect(ROUTING_INSTRUCTIONS).toContain("explicit destination requests");
+  expect(ROUTING_INSTRUCTIONS).toContain("implementation requests/approvals");
+  expect(ROUTING_INSTRUCTIONS).toContain("destination expressly requested");
   for (const name of [
     "same-topic-approval",
     "same-topic-design",
