@@ -176,7 +176,16 @@ async function worker() {
             }
           : null,
     };
-    const evidence = buildMergeRiskEvidence(input);
+    let evidence: ReturnType<typeof buildMergeRiskEvidence>;
+    try {
+      evidence = buildMergeRiskEvidence(input);
+    } catch (error) {
+      skipped.push({
+        number: pr.number,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     fixtures.push({
       id: `pr-${gh.number}`,
       prNumber: gh.number,

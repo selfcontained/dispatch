@@ -117,7 +117,18 @@ const isDependency = (p: string) =>
   );
 
 const clip = (text: string, max: number) =>
-  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  max <= 0 ? "" : text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
+/** The payload could not be brought under the byte limit; do not send it. */
+export class MergeRiskEvidenceTooLarge extends Error {
+  constructor(
+    readonly bytes: number,
+    readonly limit: number
+  ) {
+    super(`Merge-risk evidence is ${bytes} bytes; limit ${limit}.`);
+    this.name = "MergeRiskEvidenceTooLarge";
+  }
+}
 const clean = (text: string | undefined | null) =>
   (text ?? "").replace(/\r/g, "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "");
 
@@ -293,5 +304,9 @@ export function buildMergeRiskEvidence(
     stage();
     evidence = build();
   }
+  // Refs, subsystem names and counts sit outside the budgets; if structure
+  // alone still exceeds the limit, callers abstain rather than send.
+  const bytes = size(evidence);
+  if (bytes > limit) throw new MergeRiskEvidenceTooLarge(bytes, limit);
   return evidence;
 }

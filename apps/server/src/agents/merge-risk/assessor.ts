@@ -15,7 +15,10 @@ import {
   loadCodeowners,
   type CodeownersConfig,
 } from "../../personas/codeowners.js";
-import { buildMergeRiskEvidence } from "./evidence.js";
+import {
+  buildMergeRiskEvidence,
+  MergeRiskEvidenceTooLarge,
+} from "./evidence.js";
 import {
   assessMergeRisk,
   MERGE_RISK_PROMPT_VERSION,
@@ -139,7 +142,13 @@ export class MergeRiskAssessor {
       });
     } catch (error) {
       this.options.warn?.(error);
-      await this.finish(id, "error", {}).catch(() => {});
+      await this.finish(
+        id,
+        error instanceof MergeRiskEvidenceTooLarge
+          ? "skipped_oversized"
+          : "error",
+        {}
+      ).catch(() => {});
     }
     return this.latest(url, headSha, fingerprint);
   }

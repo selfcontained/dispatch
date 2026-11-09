@@ -19,6 +19,7 @@ import {
   buildMergeRiskEvidence,
   classifyFiles,
   MERGE_RISK_EVIDENCE_LIMIT,
+  MergeRiskEvidenceTooLarge,
 } from "../src/agents/merge-risk/evidence.js";
 import {
   assessMergeRisk,
@@ -303,13 +304,61 @@ describe("merge-risk evidence budget", () => {
     const evidence = buildMergeRiskEvidence(
       {
         ...base,
+        pullRequest: { ...base.pullRequest, body: "d".repeat(400) },
+        briefing: "b".repeat(400),
         files: [{ path: "a.ts", additions: 1, deletions: 0 }],
-        reviews: [{ reviewer: "r", summary: "s", findings: [] }],
+        reviews: [{ reviewer: "r", summary: "s".repeat(400), findings: [] }],
       },
       700
     );
     expect(size(evidence)).toBeLessThanOrEqual(700);
     expect(evidence.change_summary.flags).toBeDefined();
+    // A zero budget yields an empty string, not the whole text minus one char.
+    expect(evidence.pull_request.description).toBe("");
+    expect(evidence.briefing).toBe("");
+  });
+  it("holds the limit when every field is oversized at once, with zero budgets yielding empty text", () => {
+    const long = "x".repeat(20_000);
+    const evidence = buildMergeRiskEvidence({
+      ...base,
+      pullRequest: { ...base.pullRequest, body: long },
+      briefing: long,
+      files: Array.from({ length: 400 }, (_, i) => ({
+        path: `packages/${"deep/".repeat(12)}component-${i}.tsx`,
+        additions: 3,
+        deletions: 1,
+      })),
+      reviews: Array.from({ length: 10 }, (_, r) => ({
+        reviewer: `reviewer-${r}`,
+        summary: long,
+        findings: Array.from({ length: 15 }, () => ({
+          title: "t".repeat(160),
+          severity: "major",
+          status: "fixed" as const,
+          note: long,
+        })),
+      })),
+    });
+    expect(size(evidence)).toBeLessThanOrEqual(limit);
+    expect(evidence.pull_request.description.length).toBeLessThan(2000);
+    expect(evidence.briefing.length).toBeLessThan(1500);
+  });
+  it("refuses a payload whose preserved structure alone exceeds the limit", () => {
+    expect(() =>
+      buildMergeRiskEvidence(
+        {
+          ...base,
+          pullRequest: {
+            ...base.pullRequest,
+            baseRef: "b".repeat(500),
+            headRef: "h".repeat(500),
+          },
+          files: [],
+          reviews: [],
+        },
+        400
+      )
+    ).toThrow(MergeRiskEvidenceTooLarge);
   });
 });
 
