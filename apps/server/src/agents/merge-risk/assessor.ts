@@ -168,7 +168,8 @@ export class MergeRiskAssessor {
   }
 
   private async reserve(url: string, headSha: string, fingerprint: string) {
-    const raw = Number(this.options.env?.DISPATCH_MERGE_RISK_DAILY_CAP ?? 25);
+    const env = this.options.env ?? process.env;
+    const raw = Number(env.DISPATCH_MERGE_RISK_DAILY_CAP ?? 25);
     const cap = Number.isInteger(raw) && raw >= 0 && raw <= 100 ? raw : 0;
     const client = await this.options.pool.connect();
     try {

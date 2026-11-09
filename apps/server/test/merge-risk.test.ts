@@ -552,6 +552,28 @@ describe("merge-risk assessor", () => {
     expect(rows.rows).toEqual([{ status: "skipped_daily_cap" }]);
   });
 
+  it("reads the daily cap from process.env when no environment is injected", async () => {
+    await review([]);
+    vi.stubEnv("DISPATCH_MERGE_RISK_DAILY_CAP", "0");
+    try {
+      const assessor = new MergeRiskAssessor({
+        pool,
+        settings,
+        agentRoot: async () => null,
+        readDetails: details,
+        transport,
+      });
+      expect(await assessor.assess(url, pr(), [builder])).toBeUndefined();
+      expect(transport).not.toHaveBeenCalled();
+      const rows = await pool.query(
+        "SELECT status FROM merge_risk_decision_records"
+      );
+      expect(rows.rows).toEqual([{ status: "skipped_daily_cap" }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("does not assess a head that GitHub no longer reports", async () => {
     await review([]);
     details.mockImplementation(async () => ({
