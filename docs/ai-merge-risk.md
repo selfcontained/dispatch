@@ -27,9 +27,18 @@ recommendation. One provider request is made when all of these hold:
 Records are keyed by PR URL, head SHA, and a fingerprint of the review state
 (which reviewers posted and the status of each finding). A new commit or a
 newly resolved review triggers a fresh assessment; an unchanged PR does not.
-The latest record for a head is attached to the PR snapshot (`mergeRisk` on
-`AgentPullRequest`) and survives the PR merging. A stale head (the GitHub read
-and the checks observation disagree) is skipped without a provider call.
+A stale head (the GitHub read and the checks observation disagree) is skipped
+without a provider call.
+
+A recommendation is shown only while the gate still holds for the current
+observation. If checks are rerun and fail on the same head, a finding is
+reopened, or a new review arrives with an open finding, the PR snapshot
+(`mergeRisk` on `AgentPullRequest`) carries no recommendation until the gate
+holds again; the stored record then returns without another request. Once the
+PR has merged, the latest record for its head stays visible as history. The
+refresher carries a previous same-head verdict forward only when the assessor
+could not answer (checks unavailable or an error), never over a verdict the
+assessor deliberately withheld.
 
 `DISPATCH_MERGE_RISK_DAILY_CAP` bounds provider requests per UTC day (default
 25, accepted range 0–100; invalid values fail closed to 0). A database lock
@@ -44,9 +53,13 @@ counts; the changed file list with per-file line counts and tags (migration,
 test, docs, ci, deps, deleted); subsystems touched, derived from the checkout's
 `.agents/owners.json` persona slugs; counts of uncovered files and non-test
 lines; the launch briefing; every review's reviewer, summary, and findings
-(severity, title, status, verification note); and the CI summary. Free text is
-clipped first and the file list last when the payload is over budget. Raw
-diffs, tool output, attachments, and credentials are never included. The
+(severity, title, status, verification note); and the CI summary. When the
+payload is over budget it shrinks in stages — free text first, then the file
+list, then finding and review detail with explicit `omitted_findings`,
+`omitted_open_findings`, and `omitted_reviews` counts — until it fits; the
+structured counts and CI summary are never dropped, so the limit is a hard
+bound. Raw diffs, tool output, attachments, and credentials are never
+included. The
 evidence is sent as `input_json` separated from the question instructions,
 which tell the model the evidence is untrusted.
 

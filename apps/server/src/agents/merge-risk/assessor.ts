@@ -57,10 +57,15 @@ export class MergeRiskAssessor {
   }
 
   /**
-   * The recommendation to show for this PR observation. A stored record for
-   * the same head and review state wins; otherwise an open PR with passing
-   * checks and no open findings earns one provider request, subject to the
-   * setting, the daily cap, and fleet concurrency.
+   * The recommendation to show for this PR observation.
+   *
+   * A recommendation is only ever shown while the deterministic gate still
+   * holds for the current head and review state (open PR, passing checks, no
+   * open findings), or as history once the PR has merged. Failing or rerunning
+   * checks, a reopened finding, or a new review with open findings hide it
+   * until the gate holds again; the same stored record then returns without
+   * another provider request. A new review state that passes the gate earns
+   * one request, subject to the setting, the daily cap, and fleet concurrency.
    */
   async assess(
     url: string,
@@ -69,25 +74,25 @@ export class MergeRiskAssessor {
   ): Promise<MergeRiskSummary | undefined> {
     const headSha = pr.ci?.headSha;
     if (!headSha || pr.ci?.availability !== "available") return undefined;
-    const config = await this.options.settings.configuration();
     const reviews = await loadReviewEvidence(this.options.pool, ownerAgentIds);
     const fingerprint = reviewFingerprint(reviews);
-    const stored = await this.latest(url, headSha, fingerprint);
-    if (stored) return stored;
-    const eligible =
-      config.mergeRiskEnabled &&
-      !!config.apiKey &&
+    if (pr.status === "Merged") return this.latest(url, headSha);
+    const gateHolds =
       pr.status === "Open" &&
       pr.ci.summary.status === "passing" &&
       allFindingsResolved(reviews);
-    if (!eligible) return this.latest(url, headSha);
+    if (!gateHolds) return undefined;
+    const stored = await this.latest(url, headSha, fingerprint);
+    if (stored) return stored;
+    const config = await this.options.settings.configuration();
+    if (!config.mergeRiskEnabled || !config.apiKey) return undefined;
     const id = await this.reserve(url, headSha, fingerprint);
-    if (!id) return this.latest(url, headSha);
+    if (!id) return undefined;
     try {
       const details = await this.readDetails(url);
       if (!details || details.headRefOid !== headSha) {
         await this.finish(id, "skipped_stale_head", {});
-        return this.latest(url, headSha);
+        return undefined;
       }
       const owners = await this.owners(ownerAgentIds);
       const evidence = buildMergeRiskEvidence({
@@ -115,7 +120,7 @@ export class MergeRiskAssessor {
       // The setting can change while evidence is being gathered.
       if (!(await this.options.settings.configuration()).mergeRiskEnabled) {
         await this.finish(id, "skipped_config_changed", {});
-        return this.latest(url, headSha);
+        return undefined;
       }
       const response = await requestDecisions(
         config.apiKey,
@@ -136,7 +141,7 @@ export class MergeRiskAssessor {
       this.options.warn?.(error);
       await this.finish(id, "error", {}).catch(() => {});
     }
-    return this.latest(url, headSha);
+    return this.latest(url, headSha, fingerprint);
   }
 
   private async owners(agentIds: string[]): Promise<CodeownersConfig | null> {

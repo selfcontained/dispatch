@@ -240,6 +240,79 @@ describe("merge-risk evidence", () => {
   });
 });
 
+describe("merge-risk evidence budget", () => {
+  const limit = MERGE_RISK_EVIDENCE_LIMIT;
+  const size = (value: unknown) =>
+    Buffer.byteLength(JSON.stringify(value), "utf8");
+  const base = {
+    pullRequest: {
+      number: 1,
+      title: "T",
+      body: "b",
+      baseRef: "main",
+      headRef: "f",
+      additions: 1,
+      deletions: 1,
+    },
+    owners: null,
+    ci: {
+      status: "passing" as const,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      pending: 0,
+    },
+  };
+  it("holds the byte limit for many reviews with long multibyte finding titles", () => {
+    const evidence = buildMergeRiskEvidence({
+      ...base,
+      files: [],
+      reviews: Array.from({ length: 10 }, (_, r) => ({
+        reviewer: `reviewer-${r}`,
+        summary: "ü".repeat(900),
+        findings: Array.from({ length: 15 }, (_, f) => ({
+          title: "é".repeat(160),
+          severity: "major",
+          status: f === 0 ? ("open" as const) : ("fixed" as const),
+          note: "ß".repeat(300),
+        })),
+      })),
+    });
+    expect(size(evidence)).toBeLessThanOrEqual(limit);
+    expect(evidence.reviews.length).toBeGreaterThan(0);
+    const first = evidence.reviews[0]!;
+    expect(first.omitted_findings).toBe(15 - first.findings.length);
+    expect(first.findings[0]!.status).toBe("open");
+    expect(evidence.ci).toEqual(base.ci);
+  });
+  it("holds the byte limit for hundreds of long paths and keeps the omitted count", () => {
+    const evidence = buildMergeRiskEvidence({
+      ...base,
+      files: Array.from({ length: 400 }, (_, i) => ({
+        path: `packages/${"deep/".repeat(12)}component-${i}-${"名".repeat(20)}.tsx`,
+        additions: 3,
+        deletions: 1,
+      })),
+      reviews: [],
+    });
+    expect(size(evidence)).toBeLessThanOrEqual(limit);
+    expect(evidence.pull_request.files_changed).toBe(400);
+    expect(evidence.files.at(-1)).toMatch(/more files$/);
+  });
+  it("fits a tiny limit by dropping to structure only", () => {
+    const evidence = buildMergeRiskEvidence(
+      {
+        ...base,
+        files: [{ path: "a.ts", additions: 1, deletions: 0 }],
+        reviews: [{ reviewer: "r", summary: "s", findings: [] }],
+      },
+      700
+    );
+    expect(size(evidence)).toBeLessThanOrEqual(700);
+    expect(evidence.change_summary.flags).toBeDefined();
+  });
+});
+
 describe("merge-risk gate", () => {
   const answers = (
     choice: string,
@@ -606,6 +679,48 @@ describe("merge-risk assessor", () => {
       verdict: "abstain",
       status: "provider_error",
     });
+  });
+
+  it("hides a stored verdict while the gate fails and restores it without a new request when the gate holds again", async () => {
+    await review([{ resolved: true }]);
+    const first = await service().assess(url, pr(), [builder]);
+    expect(first?.verdict).toBe("routine");
+    // Same head, checks rerun and fail: nothing is shown.
+    const failing = pr({
+      ci: {
+        ...pr().ci!,
+        summary: { ...pr().ci!.summary, status: "failing", failed: 1 },
+      },
+    });
+    expect(await service().assess(url, failing, [builder])).toBeUndefined();
+    // A finding is reopened: the fingerprint changes and the gate fails.
+    const finding = (
+      await pool.query<{ id: string }>(
+        "SELECT id FROM blocks WHERE kind='finding'"
+      )
+    ).rows[0]!;
+    await blocks.update(finding.id, { state: { status: "open" } });
+    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
+    // A second review with an open finding also fails the gate.
+    await blocks.update(finding.id, {
+      state: { status: "resolved", resolution: "fixed" },
+    });
+    await review([{ resolved: false }]);
+    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
+    expect(transport).toHaveBeenCalledTimes(1);
+    // Resolving it yields a new review state and one more request.
+    const open = (
+      await pool.query<{ id: string }>(
+        "SELECT id FROM blocks WHERE kind='finding' AND state->>'status'='open'"
+      )
+    ).rows[0]!;
+    await blocks.update(open.id, {
+      state: { status: "resolved", resolution: "dismissed" },
+    });
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      verdict: "routine",
+    });
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it("fingerprints reviewer identity and finding status only", () => {

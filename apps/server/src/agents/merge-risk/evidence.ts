@@ -95,7 +95,12 @@ export type MergeRiskEvidence = {
       status: string;
       note: string;
     }[];
+    /** Present when the byte budget dropped findings from this review. */
+    omitted_findings?: number;
+    omitted_open_findings?: number;
   }[];
+  /** Present when the byte budget dropped whole reviews. */
+  omitted_reviews?: number;
   ci: MergeRiskCi | { status: "unknown" };
 };
 
@@ -175,7 +180,10 @@ export function buildMergeRiskEvidence(
     briefing: 1500,
     summary: 900,
     note: 300,
+    title: 160,
     files: 80,
+    reviews: 10,
+    findings: 15,
   };
   const build = (): MergeRiskEvidence => ({
     pull_request: {
@@ -202,28 +210,87 @@ export function buildMergeRiskEvidence(
           ]
         : classified.lines,
     briefing: clip(clean(input.briefing), budgets.briefing),
-    reviews: input.reviews.slice(0, 10).map((review) => ({
+    reviews: input.reviews.slice(0, budgets.reviews).map((review) => ({
       reviewer: clip(clean(review.reviewer), 80),
       summary: clip(clean(review.summary), budgets.summary),
-      findings: review.findings.slice(0, 15).map((finding) => ({
+      findings: review.findings.slice(0, budgets.findings).map((finding) => ({
         severity: finding.severity,
-        title: clip(clean(finding.title), 160),
+        title: clip(clean(finding.title), budgets.title),
         status: finding.status,
         note: clip(clean(finding.note), budgets.note),
       })),
+      ...(review.findings.length > budgets.findings
+        ? {
+            omitted_findings: review.findings.length - budgets.findings,
+            omitted_open_findings: review.findings
+              .slice(budgets.findings)
+              .filter((f) => f.status === "open").length,
+          }
+        : {}),
     })),
+    ...(input.reviews.length > budgets.reviews
+      ? { omitted_reviews: input.reviews.length - budgets.reviews }
+      : {}),
     ci: input.ci ?? { status: "unknown" },
   });
+  const size = (value: MergeRiskEvidence) =>
+    Buffer.byteLength(JSON.stringify(value), "utf8");
+  // Shrink in stages until the payload fits: free text first, then the file
+  // list, then finding and review detail (always leaving omitted counts), and
+  // finally every free-text field. Structured counts and the CI summary are
+  // never dropped, so the final stage always fits any sane limit.
+  const stages: Array<() => void> = [
+    () => {
+      budgets.description = Math.floor(budgets.description / 2);
+      budgets.briefing = Math.floor(budgets.briefing / 2);
+      budgets.summary = Math.floor(budgets.summary / 2);
+      budgets.note = Math.floor(budgets.note / 2);
+    },
+    () => {
+      budgets.description = Math.floor(budgets.description / 2);
+      budgets.briefing = Math.floor(budgets.briefing / 2);
+      budgets.note = Math.floor(budgets.note / 2);
+      budgets.files = 40;
+    },
+    () => {
+      budgets.files = 20;
+      budgets.note = 0;
+      budgets.findings = 8;
+    },
+    () => {
+      budgets.files = 10;
+      budgets.title = 80;
+      budgets.findings = 4;
+      budgets.summary = Math.min(budgets.summary, 240);
+    },
+    () => {
+      budgets.findings = 2;
+      budgets.reviews = 6;
+      budgets.description = Math.min(budgets.description, 300);
+      budgets.briefing = 0;
+    },
+    () => {
+      budgets.files = 0;
+      budgets.title = 40;
+      budgets.reviews = 3;
+      budgets.summary = Math.min(budgets.summary, 120);
+    },
+    () => {
+      budgets.findings = 0;
+      budgets.description = 0;
+    },
+    () => {
+      budgets.reviews = 1;
+      budgets.summary = 0;
+    },
+    () => {
+      budgets.reviews = 0;
+    },
+  ];
   let evidence = build();
-  // Shrink the free-text fields first, then the file list, until the payload
-  // fits. Structured counts are never dropped.
-  for (let round = 0; round < 12; round++) {
-    if (Buffer.byteLength(JSON.stringify(evidence), "utf8") <= limit) break;
-    budgets.description = Math.floor(budgets.description / 2);
-    budgets.briefing = Math.floor(budgets.briefing / 2);
-    budgets.summary = Math.max(120, Math.floor(budgets.summary / 2));
-    budgets.note = Math.floor(budgets.note / 2);
-    if (round >= 2) budgets.files = Math.max(10, Math.floor(budgets.files / 2));
+  for (const stage of stages) {
+    if (size(evidence) <= limit) break;
+    stage();
     evidence = build();
   }
   return evidence;
