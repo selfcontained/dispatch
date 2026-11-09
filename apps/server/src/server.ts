@@ -1,3 +1,4 @@
+import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
 import { registerRoutingShadowRoutes } from "./routes/routing-shadow.js";
@@ -188,7 +189,11 @@ installRequestLifecycle(app, {
 registerHttpLogging(app);
 const pool = createPool(config);
 const serviceResourcesProbePool = createServiceResourcesProbePool(config);
-const agentManager = new AgentManager(pool, app.log, config);
+const routingSettings = new RoutingSettings(pool);
+const steeringDecisions = new SteeringDecisions(pool, routingSettings);
+const agentManager = new AgentManager(pool, app.log, config, {
+  classifySteering: steeringDecisions.classify,
+});
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
@@ -440,7 +445,6 @@ const routingShadowStore = new RoutingShadowStore(pool, (agentId) => {
     streamId: agentId,
   });
 });
-const routingSettings = new RoutingSettings(pool);
 const routingShadow = new RoutingShadow(
   () => routingSettings.configuration(),
   routingShadowStore,
@@ -958,6 +962,7 @@ async function registerRoutes() {
   const shadowRetention = setInterval(
     () => {
       void routingShadowStore.prune().catch(() => {});
+      void steeringDecisions.prune().catch(() => {});
     },
     60 * 60 * 1000
   );

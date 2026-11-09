@@ -7,7 +7,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   encodeMessage,
@@ -630,17 +630,25 @@ async function heldTurnHost(
   };
 }
 
-function withinSeconds<T>(promise: Promise<T>, what: string): Promise<T> {
+function withinSeconds<T>(
+  promise: Promise<T>,
+  what: string,
+  timeoutMs = 2000
+): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`${what} timed out`)), 2_000)
+      setTimeout(() => reject(new Error(`${what} timed out`)), timeoutMs)
     ),
   ]);
 }
 
-async function attached(stateRoot: string) {
+async function attached(
+  stateRoot: string,
+  classifySteering?: Parameters<typeof createAcpRuntime>[0]["classifySteering"]
+) {
   const runtime = createAcpRuntime({
+    classifySteering,
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",
@@ -1826,5 +1834,190 @@ describe("AcpRuntime explicit interruption", () => {
     expect(host.cancels()).toBe(0);
     host.settle();
     await urgent.settled;
+  });
+});
+
+describe("intent-aware steering", () => {
+  const decision = (
+    choice: "steer_current" | "queue_next" | "keep_existing_default"
+  ) => ({ choice, valid: () => true, finish: vi.fn() });
+  it("queues independent same-discussion work until the active turn settles", async () => {
+    const host = await heldTurnHost("injected");
+    const chosen = decision("queue_next");
+    const classify = vi.fn(async () => chosen);
+    const runtime = await attached(host.stateRoot, classify);
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    const later = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await vi.waitFor(() =>
+      expect(chosen.finish).toHaveBeenCalledWith("queued")
+    );
+    expect(host.steers).toEqual([]);
+    expect(host.prompts).toHaveLength(1);
+    host.settle();
+    await withinSeconds(later.accepted, "separate turn");
+    expect(host.prompts).toHaveLength(2);
+    host.settle();
+  });
+  it("steers relevant cross-discussion corrections without canceling or moving output", async () => {
+    const host = await heldTurnHost("injected");
+    const chosen = decision("steer_current");
+    const runtime = await attached(host.stateRoot, async () => chosen);
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    const next = runtime.prompt(
+      agentId,
+      envelope(1),
+      { ...post(1), conversation: { streamId: agentId, threadId: "other" } },
+      { delivery: "auto" }
+    );
+    await withinSeconds(next.accepted, "classified steer");
+    expect(host.steers).toEqual([envelope(1)]);
+    expect(chosen.finish).toHaveBeenCalledWith("steered");
+    expect(host.cancels()).toBe(0);
+    expect(host.prompts).toHaveLength(1);
+    host.settle();
+  });
+  it("expires a late classification when its target turn finishes", async () => {
+    const host = await heldTurnHost("injected");
+    let resolve!: (value: ReturnType<typeof decision>) => void;
+    const classify = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof decision>>((r) => {
+          resolve = r;
+        })
+    );
+    const runtime = await attached(host.stateRoot, classify);
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    const next = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await vi.waitFor(() => expect(classify).toHaveBeenCalledOnce());
+    host.settle();
+    await withinSeconds(next.accepted, "queued turn starts");
+    const chosen = decision("steer_current");
+    resolve(chosen);
+    await vi.waitFor(() =>
+      expect(chosen.finish).toHaveBeenCalledWith("expired")
+    );
+    expect(host.steers).toEqual([]);
+    expect(host.prompts).toHaveLength(2);
+    host.settle();
+  });
+  it("lets Send now override a pending classification", async () => {
+    const host = await heldTurnHost("injected");
+    let resolve!: (value: ReturnType<typeof decision>) => void;
+    const classify = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof decision>>((r) => {
+          resolve = r;
+        })
+    );
+    const runtime = await attached(host.stateRoot, classify);
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    const source = post(1);
+    const next = runtime.prompt(agentId, envelope(1), source, {
+      delivery: "auto",
+    });
+    expect(
+      runtime.controlQueuedPrompt(
+        [agentId],
+        (source as { chatMessageId: string }).chatMessageId,
+        "send-now"
+      )
+    ).toBe(true);
+    await withinSeconds(next.accepted, "manual override");
+    const chosen = decision("queue_next");
+    resolve(chosen);
+    await vi.waitFor(() =>
+      expect(chosen.finish).toHaveBeenCalledWith("overridden")
+    );
+    expect(host.steers).toEqual([envelope(1)]);
+    host.settle();
+  });
+  it("falls back to current delivery rules when classification fails", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot, async () => {
+      throw new Error("unavailable");
+    });
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    await withinSeconds(
+      runtime.prompt(agentId, envelope(1), post(1), { delivery: "auto" })
+        .accepted,
+      "fallback"
+    );
+    expect(host.steers).toEqual([envelope(1)]);
+    host.settle();
+  });
+  it("preserves user order when later classification finishes first", async () => {
+    const host = await heldTurnHost("injected");
+    const resolves: ((value: ReturnType<typeof decision>) => void)[] = [];
+    const runtime = await attached(
+      host.stateRoot,
+      () => new Promise((resolve) => resolves.push(resolve))
+    );
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    const first = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    const second = runtime.prompt(agentId, envelope(2), post(2), {
+      delivery: "auto",
+    });
+    resolves[1]!(decision("steer_current"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(host.steers).toEqual([]);
+    resolves[0]!(decision("steer_current"));
+    await withinSeconds(
+      Promise.all([first.accepted, second.accepted]),
+      "ordered steering"
+    );
+    expect(host.steers).toEqual([envelope(1), envelope(2)]);
+    host.settle();
+  });
+  it("bounds classification wait and ignores a result after the deadline", async () => {
+    const host = await heldTurnHost("injected");
+    let resolve!: (value: ReturnType<typeof decision>) => void;
+    const runtime = await attached(
+      host.stateRoot,
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        })
+    );
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    const next = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await withinSeconds(next.accepted, "deadline fallback", 4500);
+    const late = decision("queue_next");
+    resolve(late);
+    await vi.waitFor(() => expect(late.finish).toHaveBeenCalledWith("expired"));
+    expect(host.steers).toEqual([envelope(1)]);
+    host.settle();
+  });
+  it("does not classify explicit queue, images, awaited inputs, commands, or idle prompts", async () => {
+    const host = await heldTurnHost("injected");
+    const classify = vi.fn(async () => decision("queue_next"));
+    const runtime = await attached(host.stateRoot, classify);
+    await runtime.prompt(agentId, "work", post(0)).accepted;
+    runtime.prompt(agentId, "later", post(1), { delivery: "queue" });
+    runtime.prompt(agentId, "image", post(2), {
+      delivery: "auto",
+      images: [{ path: "/tmp/image", mimeType: "image/png" }] as PromptImage[],
+    });
+    await runtime.prompt(
+      agentId,
+      "awaited",
+      { ...post(3), awaited: true },
+      { delivery: "auto" }
+    ).accepted;
+    await runtime.prompt(
+      agentId,
+      "command",
+      { ...post(4), steeringExcluded: true },
+      { delivery: "auto" }
+    ).accepted;
+    expect(classify).not.toHaveBeenCalled();
+    host.settle();
   });
 });

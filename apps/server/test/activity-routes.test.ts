@@ -855,3 +855,31 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(tokenUsage.by_model[0].model).toBe("claude-opus-4-20250514");
   });
 });
+
+it("filters decision metrics by the selected date range without exposing raw records", async () => {
+  const messageId = "00000000-0000-4000-8000-000000000001";
+  const old = new Date(Date.now() - 2 * 86400000).toISOString();
+  const recent = new Date(Date.now() - 86400000).toISOString();
+  const start = new Date(Date.now() - 1.5 * 86400000).toISOString();
+  await ctx.pool.query(
+    "INSERT INTO steering_decision_records(agent_id,message_id,turn_seq,status,prompt_version,result,created_at) VALUES('metrics',$1,1,'ok','v1',$2,$4),('metrics',$1,2,'ok','v1',$3,$5)",
+    [
+      messageId,
+      JSON.stringify({ outcome: "steered", usage: { input_tokens: 50 } }),
+      JSON.stringify({ outcome: "queued", usage: { input_tokens: 50 } }),
+      old,
+      recent,
+    ]
+  );
+  const result = await authedInject(
+    "GET",
+    `/api/v1/activity/decisions?start=${encodeURIComponent(start)}`
+  );
+  expect(result.statusCode).toBe(200);
+  expect(result.json().steering).toMatchObject({
+    attempts: 1,
+    queued: 1,
+    steered: 0,
+  });
+  expect(result.body).not.toContain(messageId);
+});

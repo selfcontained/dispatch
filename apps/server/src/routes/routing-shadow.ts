@@ -60,6 +60,7 @@ export async function registerRoutingShadowRoutes(
         const parsed = z
           .object({
             mode: z.enum(["off", "active"]).optional(),
+            steeringMode: z.enum(["off", "active"]).optional(),
             apiKey: z
               .string()
               .trim()

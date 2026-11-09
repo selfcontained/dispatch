@@ -30,6 +30,11 @@ import type {
   RuntimeEventListener,
   RuntimeLaunch,
 } from "../runtime.js";
+import type {
+  ClassifySteering,
+  SteeringDecision,
+  SteeringOutcome,
+} from "../steering.js";
 import { HostClient } from "./host-client.js";
 import {
   type HostLaunch,
@@ -204,6 +209,13 @@ type Waiting = {
   alone: boolean;
   /** The turn that took it, once one has; later jobs for it just wait on it. */
   taken: boolean;
+  steering?: {
+    seq: number;
+    controller: AbortController;
+    pending: boolean;
+    decision?: SteeringDecision;
+    outcome?: SteeringOutcome;
+  };
   delivery: "auto" | "queue" | "interrupt";
   resolveSettled: () => void;
   resolveAccepted: () => void;
@@ -286,6 +298,14 @@ function steers(
 ): boolean {
   if (w.steerTurnSeq !== undefined && w.steerTurnSeq === entry.turnSeq)
     return true;
+  if (
+    w.steering &&
+    w.steering.seq === entry.turnSeq &&
+    w.steering.decision?.valid()
+  ) {
+    if (w.steering.decision.choice === "queue_next") return false;
+    if (w.steering.decision.choice === "steer_current") return true;
+  }
   if (w.source?.scheduleId || w.source?.awaited === true) return true;
   if (w.source?.source !== "chat") return false;
   if (w.source.userMessage !== true && !w.source.conversation) return true;
@@ -338,6 +358,7 @@ function sourceBlockIds(source?: PromptSource): string[] {
 }
 
 export type AcpRuntimeDeps = {
+  classifySteering?: ClassifySteering;
   config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
   logger: FastifyBaseLogger;
   /** The journal position last applied for this agent. */
@@ -367,6 +388,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   const stateDir = (agentId: string) =>
     path.join(config.agentStateRoot, agentId);
 
+  function finishDecision(w: Waiting, outcome: SteeringOutcome) {
+    if (w.steering) w.steering.outcome = outcome;
+    w.steering?.decision?.finish(outcome);
+    w.steering?.controller.abort();
+    w.steering = undefined;
+  }
+
   function dispatchEntry(agentId: string, entry: Live, journal: JournalEntry) {
     if (journal.seq <= entry.lastSeq) return; // replayed, already applied
     entry.lastSeq = journal.seq;
@@ -395,6 +423,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   function failWaiting(entry: Live, error: Error) {
     for (const w of entry.waiting.splice(0)) {
+      finishDecision(w, "expired");
       w.rejectAccepted(error);
       w.resolveSettled();
     }
@@ -483,11 +512,24 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           if (!entry.client.welcome?.steeringSupported) break;
           const index = entry.waiting.findIndex(
             (w) =>
-              w.delivery === "auto" && !w.images?.length && steers(w, entry)
+              w.delivery === "auto" &&
+              !w.images?.length &&
+              !w.steering?.pending &&
+              !(
+                isUserPost(w) &&
+                entry.waiting
+                  .slice(0, entry.waiting.indexOf(w))
+                  .some(
+                    (earlier) =>
+                      isUserPost(earlier) && earlier.steering?.pending
+                  )
+              ) &&
+              steers(w, entry)
           );
           if (index < 0) break;
           batch = entry.waiting.splice(index, 1);
         } else {
+          for (const w of entry.waiting) finishDecision(w, "expired");
           batch = takeBatch(entry.waiting);
         }
         for (const w of batch) w.taken = true;
@@ -557,9 +599,18 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             if (outcome === "promptRequired") {
               // The engine won the idle race. The message was not consumed;
               // wait for its terminal event, then start an ordinary tracked turn.
+              for (const w of batch) finishDecision(w, "declined");
               await requeue();
               continue;
             }
+            for (const w of batch)
+              finishDecision(
+                w,
+                w.steering?.decision?.valid() &&
+                  w.steering.decision.choice === "steer_current"
+                  ? "steered"
+                  : "default"
+              );
           } else {
             // Set this before submitting: ack and settle can arrive together.
             entry.turnOpen = true;
@@ -575,6 +626,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             if (outcome === "deferred") {
               // The engine started a turn of its own first. The prompt waits
               // here, still deletable and interruptible, until that settles.
+              for (const w of batch) finishDecision(w, "declined");
               await requeue();
               continue;
             }
@@ -592,6 +644,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           entry.settleWaiters = entry.settleWaiters.filter(
             (w) => w !== onSettle
           );
+          for (const w of batch) finishDecision(w, "failed");
           if (!steering) entry.turnOpen = false;
           for (const w of batch) {
             w.rejectAccepted(
@@ -610,6 +663,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   /** Seq 0 marks an event the server made up (a host that vanished). */
   function emit(agentId: string, entry: Live, event: DriverEvent, seq: number) {
     if (event.type === "turn") {
+      for (const w of entry.waiting) finishDecision(w, "expired");
       entry.turnOpen = event.state === "started";
       entry.turnSeq = event.state === "started" ? seq : undefined;
       entry.turnBlockIds = new Set(
@@ -1018,12 +1072,75 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         entry.waiting.push(own);
       }
       entry.pending += 1;
+      if (
+        deps.classifySteering &&
+        own.delivery === "auto" &&
+        isUserPost(own) &&
+        !own.source?.steeringExcluded &&
+        !own.source?.awaited &&
+        !own.source?.scheduleId &&
+        !own.images?.length &&
+        entry.turnOpen &&
+        entry.turnSeq !== undefined &&
+        entry.conversation &&
+        entry.client.welcome?.steeringSupported &&
+        source?.source === "chat"
+      ) {
+        const state: NonNullable<Waiting["steering"]> = {
+          seq: entry.turnSeq,
+          controller: new AbortController(),
+          pending: true,
+          decision: undefined as SteeringDecision | undefined,
+        };
+        own.steering = state;
+        const timer = setTimeout(() => {
+          if (own.steering !== state) return;
+          finishDecision(own, "expired");
+          void pump(agentId, entry);
+        }, 3000);
+        void deps
+          .classifySteering({
+            agentId,
+            messageId: source.chatMessageId,
+            turnSeq: state.seq,
+            activeMessageIds: [...entry.turnBlockIds],
+            conversation: entry.conversation,
+            defaultSteers: steers(own, entry),
+            signal: state.controller.signal,
+          })
+          .then((decision) => {
+            if (
+              own.steering !== state ||
+              live.get(agentId) !== entry ||
+              !entry.turnOpen ||
+              entry.turnSeq !== state.seq ||
+              own.taken
+            ) {
+              decision?.finish(state.outcome ?? "expired");
+              return;
+            }
+            state.pending = false;
+            state.decision = decision;
+            if (decision?.valid() && decision.choice === "queue_next")
+              decision.finish("queued");
+            if (decision?.choice === "keep_existing_default")
+              decision.finish("default");
+          })
+          .catch(() => {
+            if (own.steering === state) state.pending = false;
+          })
+          .finally(() => {
+            clearTimeout(timer);
+            void pump(agentId, entry);
+          });
+      }
       if (opts?.signal) {
         const discard = () => {
           if (own.taken) return;
           const index = entry.waiting.indexOf(own);
           if (index < 0) return;
           entry.waiting.splice(index, 1);
+          finishDecision(own, "overridden");
           own.cancelled = true;
           own.rejectAccepted(
             Object.assign(
@@ -1089,6 +1206,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         return false;
       for (const target of targets) {
         const { entry, prompt } = target!;
+        finishDecision(prompt, "overridden");
         entry.waiting.splice(entry.waiting.indexOf(prompt), 1);
         if (action === "delete") {
           prompt.cancelled = true;

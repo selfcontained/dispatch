@@ -14,6 +14,8 @@ export type PromptSource = {
    * conversation; another agent's post without one steers any open turn.
    */
   userMessage?: boolean;
+  /** Structured answers and commands retain their dedicated delivery policy. */
+  steeringExcluded?: boolean;
   /** Agent-authored scheduled content, explicitly eligible for steering. */
   scheduleId?: string;
   scheduleDeliveryId?: string;
