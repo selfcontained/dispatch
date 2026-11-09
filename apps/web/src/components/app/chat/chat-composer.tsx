@@ -326,7 +326,7 @@ export function ChatComposer({
   }, [agentId, pendingDrafts, draft, setPendingDrafts, setStoredDraft]);
   // ---- @mentions: the token under the caret opens the picker ---------------
   const mentionedRecipients = mentionSpans(text, mentionables ?? []).flatMap(
-    (span) => (span.kind === "mention" ? [span.agent] : [])
+    (span) => (span.kind === "mention" && !span.silent ? [span.agent] : [])
   );
   const recipients = [
     ...new Map(
@@ -1229,6 +1229,20 @@ export function ChatComposer({
         <div className="relative">
           {mentionOpen ? (
             <MentionPicker
+              silent={mentionQuery?.silent}
+              onSilentChange={(silent) => {
+                if (!mentionQuery || silent === !!mentionQuery.silent) return;
+                const start = mentionQuery.start;
+                const next =
+                  text.slice(0, start) +
+                  (silent ? "!" : "") +
+                  text.slice(start + (mentionQuery.silent ? 1 : 0));
+                const nextCaret = caret + (silent ? 1 : -1);
+                setText(next);
+                setCaret(nextCaret);
+                textareaRef.current?.setValue(next, nextCaret);
+                textareaRef.current?.focus();
+              }}
               candidates={mentionCandidates}
               activeIndex={activeMention}
               onPick={pickMention}

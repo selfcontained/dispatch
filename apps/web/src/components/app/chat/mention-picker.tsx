@@ -1,8 +1,13 @@
+import { Bell, BellOff } from "lucide-react";
+import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { createPortal } from "react-dom";
 
-import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
-import { seatClasses } from "@/lib/agent-seat";
-import type { Mentionable, MentionSpan } from "@/lib/mentions";
+import { Button } from "@/components/ui/button";
+import {
+  mentionChipClasses,
+  type Mentionable,
+  type MentionSpan,
+} from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,12 +15,16 @@ import { cn } from "@/lib/utils";
  * Keyboard moves the highlight (the composer owns the keys); a click picks.
  */
 export function MentionPicker({
+  silent = false,
+  onSilentChange,
   candidates,
   activeIndex,
   onPick,
   onHover,
   anchor,
 }: {
+  silent?: boolean;
+  onSilentChange: (silent: boolean) => void;
   candidates: readonly Mentionable[];
   activeIndex: number;
   onPick: (agent: Mentionable) => void;
@@ -35,56 +44,102 @@ export function MentionPicker({
     <div
       className="fixed z-50 w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       style={style}
-      role="listbox"
-      aria-label="Mention an agent"
       data-testid="mention-picker"
     >
-      {candidates.map((agent, index) => (
-        <button
-          key={agent.id}
-          type="button"
-          role="option"
-          aria-selected={index === activeIndex}
-          className={cn(
-            "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm",
-            index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
-          )}
-          // Mouse down would take focus from the textarea and close the
-          // list before the click lands.
-          onMouseDown={(event) => event.preventDefault()}
-          onMouseEnter={() => onHover(index)}
-          onClick={() => onPick(agent)}
-          data-testid="mention-option"
-          data-agent-id={agent.id}
-          title={agent.mentionName ?? agent.name}
-        >
-          {agent.seat !== undefined ? (
-            <AgentSeatBadge seat={agent.seat} name={agent.name} size="sm" />
-          ) : (
-            <AgentSeatBadge
-              seat={null}
-              name={agent.name}
-              size="sm"
-              data-testid="mention-session-icon"
-            />
-          )}
-          <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-          {agent.mentionName ? (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-              {agent.id.slice(-6)}
+      <div className="flex justify-end gap-1 border-b border-border px-2 py-1">
+        {[false, true].map((mode) => (
+          <Button
+            variant="ghost"
+            size="icon"
+            key={String(mode)}
+            type="button"
+            title={
+              mode
+                ? "Reference only — won’t notify"
+                : "Mention — notifies agent"
+            }
+            aria-label={
+              mode
+                ? "Reference only — won’t notify"
+                : "Mention — notifies agent"
+            }
+            aria-pressed={silent === mode}
+            className={cn(
+              "size-6 rounded p-1",
+              silent === mode
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:bg-muted/60"
+            )}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSilentChange(mode)}
+          >
+            {mode ? (
+              <BellOff className="size-3.5" />
+            ) : (
+              <Bell className="size-3.5" />
+            )}
+          </Button>
+        ))}
+      </div>
+      <div
+        role="listbox"
+        aria-label={
+          silent ? "Reference an agent without notifying" : "Mention an agent"
+        }
+      >
+        {candidates.map((agent, index) => (
+          <button
+            key={agent.id}
+            type="button"
+            role="option"
+            aria-selected={index === activeIndex}
+            className={cn(
+              "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm",
+              index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
+            )}
+            // Mouse down would take focus from the textarea and close the
+            // list before the click lands.
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => onHover(index)}
+            onClick={() => onPick(agent)}
+            data-testid="mention-option"
+            data-agent-id={agent.id}
+            title={
+              silent
+                ? "Reference only — won’t notify"
+                : (agent.mentionName ?? agent.name)
+            }
+            aria-label={
+              silent
+                ? `${agent.name}, reference only, won’t notify`
+                : agent.name
+            }
+          >
+            <span className="min-w-0 flex-1 truncate">
+              <span
+                className={mentionChipClasses(agent.seat, silent)}
+                data-silent={String(silent)}
+              >
+                {silent ? "!" : ""}@{agent.name}
+              </span>
             </span>
-          ) : null}
-          {agent.seat !== undefined ? (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-              @{agent.seat}
-            </span>
-          ) : (
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              Session
-            </span>
-          )}
-        </button>
-      ))}
+            {agent.mentionName ? (
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                {agent.id.slice(-6)}
+              </span>
+            ) : null}
+            {agent.seat !== undefined ? (
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                @{agent.seat}
+              </span>
+            ) : (
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                Session
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
     </div>,
     document.body
   );
@@ -102,14 +157,31 @@ export function MentionText({
         span.kind === "mention" ? (
           <span
             key={index}
-            className={cn(
-              "box-decoration-clone rounded-full border px-1 py-0 text-[0.8em] font-medium",
-              seatClasses(span.agent.seat ?? 1).face
-            )}
+            className={mentionChipClasses(span.agent.seat, span.silent)}
+            data-silent={String(!!span.silent)}
             data-testid="chat-mention"
             data-agent-id={span.agent.id}
+            title={
+              span.silent ? "Reference only — won’t notify" : span.agent.name
+            }
+            aria-label={
+              span.silent
+                ? `${span.agent.name}, reference only, won’t notify`
+                : span.agent.name
+            }
           >
-            {span.text}
+            {span.silent ? (
+              <AgentSessionLink
+                agentId={span.agent.id}
+                name={span.agent.name}
+                decorative={false}
+                className="!text-inherit !no-underline hover:!underline"
+              >
+                {span.text}
+              </AgentSessionLink>
+            ) : (
+              span.text
+            )}
           </span>
         ) : (
           <span key={index}>{span.text}</span>

@@ -448,13 +448,14 @@ export function historicalMentionablesOf(
   block: Block,
   ctx: FeedContext
 ): Mentionable[] {
-  const ids =
+  const data =
     block.author.kind === "user" &&
     (block.kind === "text" || block.kind === "task")
-      ? block.data?.mentions
+      ? block.data
       : undefined;
+  const ids = [...(data?.mentions ?? []), ...(data?.references ?? [])];
   if (ids?.length) {
-    return ids.map((id) => {
+    return [...new Set(ids)].map((id) => {
       const name = agentDisplayName(id, ctx);
       const peer = ctx.peers?.[id];
       return {
@@ -463,6 +464,10 @@ export function historicalMentionablesOf(
         seat: id === ctx.agentId ? ctx.agentSeat : peer?.seat,
         agentType: id === ctx.agentId ? ctx.agentType : peer?.agentType,
         qualifiedMentionName: `${name.trim()} [${id}]`,
+        mentionModes: [
+          ...(data?.mentions?.includes(id) ? ["mention" as const] : []),
+          ...(data?.references?.includes(id) ? ["reference" as const] : []),
+        ],
       };
     });
   }

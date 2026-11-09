@@ -80,6 +80,20 @@ async function seedAll() {
 }
 
 describe("composeStreamFeed", () => {
+  it("hydrates an archived agent named only by a silent reference", async () => {
+    await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: A,
+      text: "!@Archived child",
+      data: { references: [ARCHIVED_CHILD] },
+    });
+    const feed = await composeStreamFeed(store, A);
+    expect(feed.agentNames).toMatchObject({
+      [ARCHIVED_CHILD]: "Archived child",
+    });
+  });
+
   it("lists the stream's blocks in ascending time order, and nothing else", async () => {
     const { m1, m2, m3 } = await seedAll();
     const feed = await composeStreamFeed(store, A);

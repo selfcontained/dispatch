@@ -126,3 +126,74 @@ describe("task card recipients", () => {
     ).toMatchObject({ id: "external", name: "Former reviewer" });
   });
 });
+
+describe("historical silent references", () => {
+  it.each(["Review", "Review fix"])(
+    "keeps mixed-mode identity with an external %s collision",
+    (externalName) => {
+      const text = `@${externalName} [external] compare !@Review fix the test`;
+      const post = block({
+        author: { kind: "user" },
+        text,
+        body: {
+          kind: "text",
+          data: { mentions: ["external"], references: [STREAM_ID] },
+          state: null,
+        },
+      });
+      const spans = mentionSpans(
+        text,
+        historicalMentionablesOf(post, {
+          ...ctx,
+          agentName: "Review",
+          names: { external: externalName },
+        })
+      ).filter((span) => span.kind === "mention");
+      expect(spans).toMatchObject([
+        { text: `@${externalName} [external]`, agent: { id: "external" } },
+        { text: "!@Review", silent: true, agent: { id: STREAM_ID } },
+      ]);
+    }
+  );
+
+  it("keeps a reference-only archived agent as a chip with its exact identity", () => {
+    const post = block({
+      author: { kind: "user" },
+      text: "!@Former peer [archived]",
+      body: { kind: "text", data: { references: ["archived"] }, state: null },
+    });
+    expect(
+      mentionSpans(
+        post.text,
+        historicalMentionablesOf(post, {
+          ...ctx,
+          peers: {},
+          names: { archived: "Former peer" },
+        })
+      )
+    ).toMatchObject([
+      {
+        kind: "mention",
+        silent: true,
+        agent: { id: "archived", name: "Former peer" },
+      },
+    ]);
+  });
+
+  it("allows the same identity to be both mentioned and referenced", () => {
+    const post = block({
+      author: { kind: "user" },
+      text: "@builder and !@builder",
+      body: {
+        kind: "text",
+        data: { mentions: [STREAM_ID], references: [STREAM_ID] },
+        state: null,
+      },
+    });
+    const spans = mentionSpans(post.text, historicalMentionablesOf(post, ctx));
+    expect(spans.filter((span) => span.kind === "mention")).toMatchObject([
+      { agent: { id: STREAM_ID } },
+      { silent: true, agent: { id: STREAM_ID } },
+    ]);
+  });
+});

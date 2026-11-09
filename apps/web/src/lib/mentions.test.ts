@@ -125,3 +125,25 @@ it("keeps qualified identity valid after another same-name session disappears", 
   expect(after[0]!.mentionName).toBeUndefined();
   expect(mentionSpans(draft, after)[0]).toMatchObject({ agent: { id: "new" } });
 });
+
+it("autocompletes silent references and preserves their mode when inserted and painted", () => {
+  expect(mentionQueryAt("ask !@rev", 9)).toEqual({
+    start: 4,
+    query: "rev",
+    silent: true,
+  });
+  expect(mentionQueryAt("word!@rev", 9)).toBeNull();
+  const result = insertMention("ask !@rev about it", 4, 9, agents[2]!);
+  expect(result).toEqual({ text: "ask !@reviewer about it", caret: 15 });
+  expect(mentionSpans(result.text, agents)[1]).toMatchObject({
+    kind: "mention",
+    text: "!@reviewer",
+    silent: true,
+    agent: agents[2],
+  });
+  expect(
+    mentionSpans("!@badge demo parent @reviewer", agents).filter(
+      (s) => s.kind === "mention"
+    )
+  ).toMatchObject([{ agent: agents[0], silent: true }, { agent: agents[2] }]);
+});

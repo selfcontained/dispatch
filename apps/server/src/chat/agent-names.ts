@@ -20,7 +20,7 @@ function collect(value: unknown, into: Set<string>): void {
     if (typeof child === "string") {
       if (AGENT_ID_KEYS.has(key)) into.add(child);
     } else if (
-      (key === "mentions" || key === "recipients") &&
+      (key === "mentions" || key === "references" || key === "recipients") &&
       Array.isArray(child)
     ) {
       for (const id of child) if (typeof id === "string") into.add(id);

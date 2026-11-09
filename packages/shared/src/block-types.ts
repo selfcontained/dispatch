@@ -229,6 +229,8 @@ export type BlockRecipientData = {
    * was delivered to, in order of mention. `toAgentId` is the first.
    */
   mentions?: string[];
+  /** Silent agent references: context only, never delivery recipients. */
+  references?: string[];
   /**
    * A reply delivered to more than one agent without naming them (a
    * person's comment reaches both sides of the thread): every agent it went

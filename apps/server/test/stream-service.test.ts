@@ -5263,6 +5263,23 @@ describe("StreamService turn blocks", () => {
 });
 
 describe("StreamService @mentions", () => {
+  it("keeps silent references as context without delivering to the referenced agent", async () => {
+    const { svc, injected } = build({ withDelivery: true });
+    const res = await svc.sendUserPost(A, {
+      text: "Compare this with !@Peer’s approach",
+    });
+    expect(res.block).toMatchObject({
+      toAgentId: A,
+      data: { references: [B] },
+    });
+    await settled(svc, res.block.id);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      "Silent agent references (context only; not notified)"
+    );
+    expect(injected[0]!.text).toContain(B);
+  });
+
   it("delivers a post to every agent named with @, first named first, and records it on the block", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, cwd, status, parent_agent_id)

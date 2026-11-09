@@ -1281,10 +1281,12 @@ export class StreamService {
     );
     const liveRecipients = recipients.filter((id) => liveFor.get(id));
     const live = liveRecipients.length === recipients.length;
+    const references = findMentions(text, tree, true);
     const textData = {
       ...(input.delivery ? { delivery: input.delivery } : {}),
       ...(rawCommand ? { acpCommand: true as const } : {}),
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
+      ...(references.length ? { references } : {}),
       ...(mentioned.length === 0 && recipients.length > 1
         ? { recipients }
         : {}),
@@ -4224,6 +4226,15 @@ export class StreamService {
     const mentioned =
       (block.kind === "text" || block.kind === "task") &&
       (block.data?.mentions?.length ?? 0) > 0;
+    const references =
+      block.kind === "text" || block.kind === "task"
+        ? await Promise.all(
+            (block.data?.references ?? []).map(async (id) => ({
+              id,
+              name: (await this.deps.getAgent(id))?.name ?? id,
+            }))
+          )
+        : [];
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
@@ -4280,6 +4291,7 @@ export class StreamService {
       const envelope =
         own.rawPrompt ??
         buildPostEnvelope({
+          references,
           blockId: block.id,
           from,
           text:

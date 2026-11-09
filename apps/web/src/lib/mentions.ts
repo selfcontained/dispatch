@@ -1,3 +1,6 @@
+import { seatClasses } from "@/lib/agent-seat";
+import { cn } from "@/lib/utils";
+
 /**
  * `@name` names an agent in this tree or another running parent session. The server is
  * the authority on who a post reaches; this is the client's half: the
@@ -9,6 +12,8 @@ export type Mentionable = {
   mentionName?: string;
   qualifiedMentionName?: string;
   agentType?: string | null;
+  /** Historical routing metadata limits which token modes may name this identity. */
+  mentionModes?: readonly ("mention" | "reference")[];
   /** Its number in the tree, drawn beside the name. */
   seat?: number;
 };
@@ -17,7 +22,7 @@ export type Mentionable = {
 export function mentionQueryAt(
   text: string,
   caret: number
-): { start: number; query: string } | null {
+): { start: number; query: string; silent?: boolean } | null {
   const before = text.slice(0, caret);
   const at = before.lastIndexOf("@");
   if (at === -1) return null;
@@ -27,7 +32,10 @@ export function mentionQueryAt(
   // A query runs to the caret without a line break; spaces are fine, names
   // hold them.
   if (/[\n\r]/.test(query)) return null;
-  return { start: at, query };
+  const silent = at > 0 && before[at - 1] === "!";
+  const start = silent ? at - 1 : at;
+  if (start > 0 && /[\p{L}\p{N}_]/u.test(before[start - 1]!)) return null;
+  return { start, query, ...(silent ? { silent: true } : {}) };
 }
 
 /** Candidates for a query: by name, then by seat number, in tree order. */
@@ -51,7 +59,8 @@ export function insertMention(
   caret: number,
   agent: Mentionable
 ): { text: string; caret: number } {
-  const token = `@${agent.mentionName ?? agent.name} `;
+  const silent = text[start] === "!";
+  const token = `${silent ? "!" : ""}@${agent.mentionName ?? agent.name} `;
   // Reuse a following space rather than adding a second one after the token.
   const suffix = text.slice(caret);
   const next =
@@ -63,7 +72,7 @@ export function insertMention(
 
 export type MentionSpan =
   | { kind: "text"; text: string }
-  | { kind: "mention"; text: string; agent: Mentionable };
+  | { kind: "mention"; text: string; agent: Mentionable; silent?: boolean };
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -88,17 +97,24 @@ export function mentionSpans(
     })
     .filter(({ name }) => name.length > 0)
     .sort((a, b) => b.name.length - a.name.length);
-  const hits: Array<{ start: number; end: number; agent: Mentionable }> = [];
+  const hits: Array<{
+    start: number;
+    end: number;
+    agent: Mentionable;
+    silent?: boolean;
+  }> = [];
   for (const { agent, name } of byLength) {
     const re = new RegExp(
-      `(^|[\\s([{"'])@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}_])`,
+      `(^|[\\s([{"'])(!?)@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}_])`,
       "giu"
     );
     for (const match of text.matchAll(re)) {
+      const mode = match[2] ? "reference" : "mention";
+      if (agent.mentionModes && !agent.mentionModes.includes(mode)) continue;
       const start = match.index + match[1]!.length;
-      const end = start + 1 + name.length;
+      const end = start + match[2]!.length + 1 + name.length;
       if (hits.some((h) => start < h.end && end > h.start)) continue;
-      hits.push({ start, end, agent });
+      hits.push({ start, end, agent, ...(match[2] ? { silent: true } : {}) });
     }
   }
   hits.sort((a, b) => a.start - b.start);
@@ -112,10 +128,23 @@ export function mentionSpans(
       kind: "mention",
       text: text.slice(hit.start, hit.end),
       agent: hit.agent,
+      ...(hit.silent ? { silent: true } : {}),
     });
     cursor = hit.end;
   }
   if (cursor < text.length)
     spans.push({ kind: "text", text: text.slice(cursor) });
   return spans;
+}
+
+// Keep picker, editable decorations, and sent chips on the same geometry.
+export function mentionChipClasses(
+  seat: number | undefined,
+  silent = false
+): string {
+  return cn(
+    "agent-mention-chip box-decoration-clone rounded-full border px-1 py-0 text-xs font-medium",
+    seatClasses(seat ?? 1).face,
+    silent && "saturate-[0.8] opacity-90"
+  );
 }
