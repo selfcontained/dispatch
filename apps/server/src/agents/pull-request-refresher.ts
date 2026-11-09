@@ -23,6 +23,12 @@ type Options = {
     commit: CommitPullRequestNotice
   ) => Promise<void>;
   notifyChecks?: Options["notify"];
+  /** Merge-risk recommendation for an observed head; owners are the agents tracking the PR. */
+  assess?: (
+    url: string,
+    value: AgentPullRequest,
+    ownerAgentIds: string[]
+  ) => Promise<AgentPullRequest["mergeRisk"]>;
   warn: (error: unknown) => void;
 };
 
@@ -315,6 +321,30 @@ export class PullRequestRefresher {
               "Could not refresh PR. Check GitHub authentication and try again."
             );
           const previous = this.urls.get(url);
+          // The assessor decides what to show for this observation, including
+          // hiding a verdict the current gate rejects. Only when it could not
+          // answer (checks unavailable, or it threw) does the previous
+          // same-head verdict carry over.
+          let assessed = false;
+          if (this.options.assess && value.ci?.availability === "available") {
+            const owners = [...agents]
+              .filter(([, urls]) => urls.has(url))
+              .map(([id]) => id);
+            try {
+              const mergeRisk = await this.options.assess(url, value, owners);
+              assessed = true;
+              if (mergeRisk) value = { ...value, mergeRisk };
+            } catch (error) {
+              this.options.warn(error);
+            }
+          }
+          if (
+            !assessed &&
+            !value.mergeRisk &&
+            previous?.value.mergeRisk &&
+            previous.value.mergeRisk.headSha === value.ci?.headSha
+          )
+            value = { ...value, mergeRisk: previous.value.mergeRisk };
           // A transport failure must not discard a previously observed lifecycle,
           // nor keep displaying old-head checks as current.
           // CI-only errors must not delay healthy lifecycle reads/notices.

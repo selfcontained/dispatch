@@ -883,3 +883,32 @@ it("filters decision metrics by the selected date range without exposing raw rec
   });
   expect(result.body).not.toContain(messageId);
 });
+
+it("summarizes merge-risk verdicts without exposing pull request URLs", async () => {
+  const url = "https://github.com/acme/widgets/pull/77";
+  await ctx.pool.query(
+    `INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version,result) VALUES
+       ($1,'aaa','f1','ok','v1',$2),($1,'bbb','f1','ok','v1',$3),($1,'ccc','f1','skipped_daily_cap','v1','{}'),($1,'ddd','f1','timeout','v1','{}')`,
+    [
+      url,
+      JSON.stringify({
+        verdict: "human_review",
+        usage: { input_tokens: 50 },
+        latencyMs: 300,
+      }),
+      JSON.stringify({ verdict: "routine", usage: { input_tokens: 50 } }),
+    ]
+  );
+  const result = await authedInject("GET", "/api/v1/activity/decisions");
+  expect(result.statusCode).toBe(200);
+  expect(result.json().mergeRisk).toMatchObject({
+    attempts: 3,
+    routine: 1,
+    humanReview: 1,
+    abstain: 0,
+    failures: 1,
+    skipped: 1,
+    medianMs: 300,
+  });
+  expect(result.body).not.toContain("acme/widgets");
+});

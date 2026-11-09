@@ -355,3 +355,88 @@ it("offers refresh before a CI snapshot is available", async () => {
   ).toBeTruthy();
   expect(screen.getByText(/Never/)).toBeTruthy();
 });
+
+it("shows the merge-risk recommendation on the row and its details in the popover", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  render(
+    <PullRequestRow
+      isError={false}
+      onDismiss={() => {}}
+      pr={{
+        url: "https://github.com/a/b/pull/1",
+        title: "Change",
+        status: "Open",
+        mergeRisk: {
+          verdict: "human_review",
+          changeRisk: 2.3,
+          changeRiskLabel: "high",
+          reviewAdequate: 0.91,
+          descriptionMatches: 0.4,
+          newSurface: 0.9,
+          routineProbability: 0.1,
+          humanReviewProbability: 0.9,
+          confidence: 0.95,
+          status: "ok",
+          promptVersion: "merge-risk-v2",
+          headSha: "abcdef1234",
+          assessedAt: "2026-11-09T12:00:00Z",
+        },
+      }}
+    />
+  );
+  expect(
+    screen.getByTestId("merge-risk-marker").getAttribute("aria-label")
+  ).toBe("Merge risk: Read before merge");
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Merge risk for pull request #1: Read before merge",
+    })
+  );
+  expect(screen.getByTestId("merge-risk-badge").textContent).toBe(
+    "Read before merge"
+  );
+  expect(
+    (await screen.findByText("Change risk")).nextElementSibling?.textContent
+  ).toBe("high(2.30)");
+  expect(
+    screen.getByText("Description matches").nextElementSibling?.textContent
+  ).toBe("40%");
+  expect(screen.getByText(/merging stays a human decision/i)).toBeTruthy();
+});
+
+it("hides abstentions from the row", () => {
+  render(
+    <PullRequestRow
+      isError={false}
+      onDismiss={() => {}}
+      pr={{
+        url: "https://github.com/a/b/pull/1",
+        title: "Change",
+        status: "Open",
+        mergeRisk: {
+          verdict: "abstain",
+          changeRisk: 0.5,
+          changeRiskLabel: "low",
+          reviewAdequate: null,
+          descriptionMatches: null,
+          newSurface: null,
+          routineProbability: 0.6,
+          humanReviewProbability: 0.3,
+          confidence: 0.5,
+          status: "ok",
+          promptVersion: "merge-risk-v2",
+          headSha: "abcdef1234",
+          assessedAt: "2026-11-09T12:00:00Z",
+        },
+      }}
+    />
+  );
+  expect(screen.queryByTestId("merge-risk-marker")).toBeNull();
+});

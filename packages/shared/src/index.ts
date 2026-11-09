@@ -233,7 +233,7 @@ export {
 } from "./inbox-resources.js";
 export type { InboxResource } from "./inbox-resources.js";
 
-export type { AgentPullRequest } from "./pull-requests.js";
+export type { AgentPullRequest, MergeRiskSummary } from "./pull-requests.js";
 
 /** Maximum trimmed length for newly created task label names (UTF-16 units). */
 export const TASK_LABEL_NAME_MAX_LENGTH = 16;
@@ -242,4 +242,5 @@ export type { BackgroundItem, BackgroundSnapshot } from "./background-work.js";
 export type {
   DecisionMetrics,
   DecisionsMetricsResponse,
+  MergeRiskMetrics,
 } from "./decision-types.js";

@@ -19,6 +19,7 @@ export type ShadowConfig = {
   apiKey: string;
   dailyCap: number;
   steeringEnabled?: boolean;
+  mergeRiskEnabled?: boolean;
 };
 export function routingShadowConfig(
   env: NodeJS.ProcessEnv = process.env

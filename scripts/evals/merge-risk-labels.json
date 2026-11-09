@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "description": "Human judgements per pull request number for scripts/evaluate-merge-risk.ts: would a maintainer have wanted to read this change before it merged? label is routine or human_review; why is optional. Grade from the sheet the evaluator writes, not from the model's verdict.",
+  "labels": {
+    "1238": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1239": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1240": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1251": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1255": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1256": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1257": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1262": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1265": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1267": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1276": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1278": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1282": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1284": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1290": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1304": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1308": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1311": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1329": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1333": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1339": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1344": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1352": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1355": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1369": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1371": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1376": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1377": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1379": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1381": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1384": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1388": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1398": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1399": {
+      "label": "routine",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    },
+    "1410": {
+      "label": "human_review",
+      "gradedAt": "2026-11-09",
+      "by": "maintainer"
+    }
+  }
+}

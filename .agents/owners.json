@@ -482,6 +482,17 @@
         "scripts/evals/steering-fixtures.ts"
       ],
       "personas": ["stream-delivery-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/agents/merge-risk/**",
+        "apps/server/test/merge-risk.test.ts",
+        "docs/ai-merge-risk.md",
+        "scripts/backfill-merge-risk.ts",
+        "scripts/evaluate-merge-risk.ts",
+        "scripts/evals/merge-risk-*"
+      ],
+      "personas": ["review-lifecycle-owner"]
     }
   ],
   "fallback": ["code-review"]

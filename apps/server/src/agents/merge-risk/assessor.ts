@@ -1,0 +1,303 @@
+/**
+ * Produces one merge-risk recommendation per (pull request, head, review
+ * state) and remembers it. Called by the PR refresher after each GitHub read;
+ * it decides whether a provider request is warranted and otherwise returns
+ * what is already stored. Never merges, approves, or blocks anything.
+ */
+import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
+import type { Pool } from "pg";
+import {
+  requestDecisions,
+  DECISIONS_MODEL,
+} from "../../chat/decisions-client.js";
+import type { RoutingSettings } from "../../chat/routing-settings.js";
+import {
+  loadCodeowners,
+  type CodeownersConfig,
+} from "../../personas/codeowners.js";
+import {
+  buildMergeRiskEvidence,
+  MergeRiskEvidenceTooLarge,
+} from "./evidence.js";
+import {
+  assessMergeRisk,
+  MERGE_RISK_PROMPT_VERSION,
+  MERGE_RISK_QUESTIONS,
+  type MergeRiskAssessment,
+} from "./policy.js";
+import {
+  allFindingsResolved,
+  loadBriefing,
+  loadReviewEvidence,
+  readPullRequestDetails,
+  reviewFingerprint,
+  type PullRequestDetails,
+} from "./sources.js";
+
+type Options = {
+  pool: Pool;
+  settings: RoutingSettings;
+  /** Checkout root for an owning agent, used to read its ownership map. */
+  agentRoot: (agentId: string) => Promise<string | null>;
+  readDetails?: (url: string) => Promise<PullRequestDetails | null>;
+  transport?: typeof fetch;
+  env?: NodeJS.ProcessEnv;
+  warn?: (error: unknown) => void;
+};
+
+type Row = {
+  status: string;
+  head_sha: string;
+  prompt_version: string;
+  created_at: Date;
+  result: Record<string, unknown>;
+};
+
+export class MergeRiskAssessor {
+  private readonly readDetails: NonNullable<Options["readDetails"]>;
+  constructor(private readonly options: Options) {
+    this.readDetails =
+      options.readDetails ?? ((url) => readPullRequestDetails(url));
+  }
+
+  /**
+   * The recommendation to show for this PR observation.
+   *
+   * Nothing runs while the setting is off or no token is stored: no queries,
+   * no provider calls, and no recommendation is returned, so previously
+   * recorded verdicts disappear from the UI until it is turned back on.
+   *
+   * A recommendation is only ever shown while the deterministic gate still
+   * holds for the current head and review state (open PR, passing checks, no
+   * open findings), or as history once the PR has merged. Failing or rerunning
+   * checks, a reopened finding, or a new review with open findings hide it
+   * until the gate holds again; the same stored record then returns without
+   * another provider request. A new review state that passes the gate earns
+   * one request, subject to the setting, the daily cap, and fleet concurrency.
+   */
+  async assess(
+    url: string,
+    pr: AgentPullRequest,
+    ownerAgentIds: string[]
+  ): Promise<MergeRiskSummary | undefined> {
+    const headSha = pr.ci?.headSha;
+    if (!headSha || pr.ci?.availability !== "available") return undefined;
+    // Off means off: no reads, no lookups, and no recommendation shown.
+    const config = await this.options.settings.configuration();
+    if (!config.mergeRiskEnabled || !config.apiKey) return undefined;
+    const reviews = await loadReviewEvidence(this.options.pool, ownerAgentIds);
+    const fingerprint = reviewFingerprint(reviews);
+    if (pr.status === "Merged") return this.latest(url, headSha);
+    const gateHolds =
+      pr.status === "Open" &&
+      pr.ci.summary.status === "passing" &&
+      allFindingsResolved(reviews);
+    if (!gateHolds) return undefined;
+    const stored = await this.latest(url, headSha, fingerprint);
+    if (stored) return stored;
+    const id = await this.reserve(url, headSha, fingerprint);
+    if (!id) return undefined;
+    try {
+      const details = await this.readDetails(url);
+      if (!details || details.headRefOid !== headSha) {
+        await this.finish(id, "skipped_stale_head", {});
+        return undefined;
+      }
+      const owners = await this.owners(ownerAgentIds);
+      const evidence = buildMergeRiskEvidence({
+        pullRequest: {
+          number: details.number,
+          title: details.title,
+          body: details.body,
+          baseRef: details.baseRefName,
+          headRef: details.headRefName,
+          additions: details.additions,
+          deletions: details.deletions,
+        },
+        files: details.files,
+        owners,
+        briefing: await loadBriefing(this.options.pool, ownerAgentIds),
+        reviews,
+        ci: {
+          status: pr.ci.summary.status,
+          total: pr.ci.summary.total,
+          passed: pr.ci.summary.passed,
+          failed: pr.ci.summary.failed,
+          pending: pr.ci.summary.pending,
+        },
+      });
+      // The setting can change while evidence is being gathered.
+      if (!(await this.options.settings.configuration()).mergeRiskEnabled) {
+        await this.finish(id, "skipped_config_changed", {});
+        return undefined;
+      }
+      const response = await requestDecisions(
+        config.apiKey,
+        evidence as unknown as Record<string, unknown>,
+        MERGE_RISK_QUESTIONS,
+        { transport: this.options.transport, timeoutMs: 20_000 }
+      );
+      const assessment = assessMergeRisk(response.status, response.answers);
+      await this.finish(id, response.status, {
+        ...serialize(assessment),
+        usage: response.usage,
+        latencyMs: response.latencyMs,
+        ...(response.httpStatus === undefined
+          ? {}
+          : { httpStatus: response.httpStatus }),
+      });
+    } catch (error) {
+      this.options.warn?.(error);
+      await this.finish(
+        id,
+        error instanceof MergeRiskEvidenceTooLarge
+          ? "skipped_oversized"
+          : "error",
+        {}
+      ).catch(() => {});
+    }
+    return this.latest(url, headSha, fingerprint);
+  }
+
+  private async owners(agentIds: string[]): Promise<CodeownersConfig | null> {
+    for (const agentId of agentIds) {
+      try {
+        const root = await this.options.agentRoot(agentId);
+        if (root) return await loadCodeowners(root);
+      } catch {
+        // A missing or invalid map leaves subsystems empty; the file list still carries the paths.
+      }
+    }
+    return null;
+  }
+
+  private async latest(
+    url: string,
+    headSha: string,
+    fingerprint?: string
+  ): Promise<MergeRiskSummary | undefined> {
+    const rows = await this.options.pool.query<Row>(
+      `SELECT status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records
+        WHERE url = $1 AND head_sha = $2 AND ($3::text IS NULL OR review_fingerprint = $3)
+          AND status NOT IN ('pending') AND status NOT LIKE 'skipped%'
+        ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [url, headSha, fingerprint ?? null]
+    );
+    const row = rows.rows[0];
+    return row ? toSummary(row) : undefined;
+  }
+
+  private async reserve(url: string, headSha: string, fingerprint: string) {
+    const env = this.options.env ?? process.env;
+    const raw = Number(env.DISPATCH_MERGE_RISK_DAILY_CAP ?? 25);
+    const cap = Number.isInteger(raw) && raw >= 0 && raw <= 100 ? raw : 0;
+    const client = await this.options.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(719394023)");
+      await client.query(
+        "UPDATE merge_risk_decision_records SET status='interrupted' WHERE status='pending' AND created_at < now() - interval '2 minutes'"
+      );
+      await client.query(
+        "INSERT INTO merge_risk_decision_daily(day) VALUES((now() AT TIME ZONE 'UTC')::date) ON CONFLICT DO NOTHING"
+      );
+      const daily = await client.query<{ calls: number }>(
+        "SELECT calls FROM merge_risk_decision_daily WHERE day=(now() AT TIME ZONE 'UTC')::date"
+      );
+      const pending = await client.query(
+        "SELECT 1 FROM merge_risk_decision_records WHERE status='pending' LIMIT 2"
+      );
+      const status =
+        daily.rows[0]!.calls >= cap
+          ? "skipped_daily_cap"
+          : pending.rowCount! >= 2
+            ? "skipped_concurrency"
+            : "pending";
+      const record = await client.query<{ id: string }>(
+        `INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version,result)
+         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id`,
+        [
+          url,
+          headSha,
+          fingerprint,
+          status,
+          MERGE_RISK_PROMPT_VERSION,
+          JSON.stringify({ model: DECISIONS_MODEL }),
+        ]
+      );
+      if (record.rowCount && status === "pending")
+        await client.query(
+          "UPDATE merge_risk_decision_daily SET calls=calls+1 WHERE day=(now() AT TIME ZONE 'UTC')::date"
+        );
+      await client.query("COMMIT");
+      return record.rows[0] && status === "pending"
+        ? record.rows[0].id
+        : undefined;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async finish(
+    id: string,
+    status: string,
+    result: Record<string, unknown>
+  ) {
+    await this.options.pool.query(
+      "UPDATE merge_risk_decision_records SET status=$2,result=result || $3::jsonb WHERE id=$1",
+      [id, status, JSON.stringify(result)]
+    );
+  }
+
+  async prune() {
+    await this.options.pool.query(
+      "DELETE FROM merge_risk_decision_records WHERE created_at < now() - interval '14 days' OR id IN (SELECT id FROM merge_risk_decision_records ORDER BY created_at DESC,id DESC OFFSET 2000)"
+    );
+    await this.options.pool.query(
+      "DELETE FROM merge_risk_decision_daily WHERE day < (now() AT TIME ZONE 'UTC')::date - 2"
+    );
+  }
+}
+
+function serialize(a: MergeRiskAssessment) {
+  const p = (value: string) =>
+    a.needsHuman?.probabilities.find((x) => x.value === value)?.probability ??
+    null;
+  return {
+    verdict: a.verdict,
+    changeRisk: a.changeRisk,
+    changeRiskLabel: a.changeRiskLabel,
+    reviewAdequate: a.reviewAdequate,
+    descriptionMatches: a.descriptionMatches,
+    newSurface: a.newSurface,
+    routineProbability: p("routine"),
+    humanReviewProbability: p("human_review"),
+    confidence: a.needsHuman?.confidence ?? null,
+  };
+}
+
+const num = (v: unknown) => (typeof v === "number" ? v : null);
+function toSummary(row: Row): MergeRiskSummary {
+  const r = row.result;
+  const verdict = r.verdict;
+  return {
+    verdict:
+      verdict === "routine" || verdict === "human_review" ? verdict : "abstain",
+    changeRisk: num(r.changeRisk),
+    changeRiskLabel:
+      typeof r.changeRiskLabel === "string" ? r.changeRiskLabel : null,
+    reviewAdequate: num(r.reviewAdequate),
+    descriptionMatches: num(r.descriptionMatches),
+    newSurface: num(r.newSurface),
+    routineProbability: num(r.routineProbability),
+    humanReviewProbability: num(r.humanReviewProbability),
+    confidence: num(r.confidence),
+    status: row.status,
+    promptVersion: row.prompt_version,
+    headSha: row.head_sha,
+    assessedAt: new Date(row.created_at).toISOString(),
+  };
+}
