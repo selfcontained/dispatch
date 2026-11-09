@@ -27,13 +27,20 @@ import {
   estimateRoutingUsd,
 } from "../apps/server/src/chat/routing-metrics.js";
 import {
-  assessMergeRisk,
   MERGE_RISK_GATE,
   MERGE_RISK_PROMPT_VERSION,
   type MergeRiskVerdict,
 } from "../apps/server/src/agents/merge-risk/policy.js";
+import type {
+  DecisionAnswer,
+  DecisionsStatus,
+} from "../apps/server/src/chat/decisions-client.js";
 import type { MergeRiskEvidence } from "../apps/server/src/agents/merge-risk/evidence.js";
-import { POLICIES, type PolicyName } from "./evals/merge-risk-policies.js";
+import {
+  OFFLINE_GATES,
+  POLICIES,
+  type PolicyName,
+} from "./evals/merge-risk-policies.js";
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) => {
@@ -154,6 +161,8 @@ type Row = {
   descriptionMatches: number | null;
   needsHuman: unknown;
   newSurface: number | null;
+  /** Allowlisted provider answers, so gates can be recomputed offline. */
+  answers: Record<string, DecisionAnswer>;
   label: Label | null;
   correct: boolean | null;
   falseRoutine: boolean;
@@ -167,77 +176,6 @@ const count = <T extends string>(values: T[]) =>
     acc[v] = (acc[v] ?? 0) + 1;
     return acc;
   }, {});
-/** Verdict under an alternative gate, computed from stored probabilities. */
-function gated(
-  r: Row,
-  gate: {
-    humanP: number;
-    routineP: number;
-    routineConfidence: number;
-    scoreForcesHuman: number | null;
-    surfaceForcesHuman: number | null;
-  }
-): MergeRiskVerdict {
-  const needs = r.needsHuman as {
-    choice: string;
-    probabilities: { value: string; probability: number }[];
-    confidence?: number;
-  } | null;
-  if (!needs || r.status !== "ok") return "abstain";
-  const p = (v: string) =>
-    needs.probabilities.find((x) => x.value === v)?.probability ?? 0;
-  if (
-    (gate.scoreForcesHuman !== null &&
-      (r.changeRisk ?? 0) >= gate.scoreForcesHuman) ||
-    (gate.surfaceForcesHuman !== null &&
-      (r.newSurface ?? 0) >= gate.surfaceForcesHuman) ||
-    p("human_review") >= gate.humanP
-  )
-    return "human_review";
-  if (
-    p("routine") >= gate.routineP &&
-    (needs.confidence ?? 0) >= gate.routineConfidence
-  )
-    return "routine";
-  return "abstain";
-}
-const GATES = {
-  deployed: {
-    humanP: 0.5,
-    routineP: 0.8,
-    routineConfidence: 0.8,
-    scoreForcesHuman: null,
-    surfaceForcesHuman: null,
-  },
-  "v1-score-forces-high": {
-    humanP: 0.5,
-    routineP: 0.8,
-    routineConfidence: 0.8,
-    scoreForcesHuman: 2,
-    surfaceForcesHuman: null,
-  },
-  "choice-critical": {
-    humanP: 0.5,
-    routineP: 0.8,
-    routineConfidence: 0.8,
-    scoreForcesHuman: 2.5,
-    surfaceForcesHuman: null,
-  },
-  "choice-surface": {
-    humanP: 0.5,
-    routineP: 0.8,
-    routineConfidence: 0.8,
-    scoreForcesHuman: 2.5,
-    surfaceForcesHuman: 0.7,
-  },
-  "lenient-routine": {
-    humanP: 0.5,
-    routineP: 0.6,
-    routineConfidence: 0.6,
-    scoreForcesHuman: 2.5,
-    surfaceForcesHuman: 0.7,
-  },
-};
 function confusion(group: Row[], verdictOf: (r: Row) => MergeRiskVerdict) {
   const labelled = group.filter((r) => r.label);
   const c = (v: MergeRiskVerdict, l: string) =>
@@ -278,9 +216,12 @@ function summarize(group: Row[]) {
       (r) => r.label?.label === "human_review" && r.verdict === "abstain"
     ).length,
     gates: Object.fromEntries(
-      Object.entries(GATES).map(([name, gate]) => [
+      Object.entries(OFFLINE_GATES).map(([name, assess]) => [
         name,
-        confusion(group, (r) => gated(r, gate)),
+        confusion(
+          group,
+          (r) => assess(r.status as DecisionsStatus, r.answers).verdict
+        ),
       ])
     ),
     bySubsystem,
@@ -348,7 +289,11 @@ async function worker() {
       POLICIES[policy].questions,
       { timeoutMs: manifest.timeoutMs }
     );
-    const assessment = assessMergeRisk(response.status, response.answers);
+    // Each policy is scored with its own gate: v1 rows describe v1 as deployed.
+    const assessment = POLICIES[policy].assess(
+      response.status,
+      response.answers
+    );
     const label = labels[String(fixture.prNumber)] ?? null;
     rows.push({
       policy,
@@ -362,6 +307,7 @@ async function worker() {
       findings: fixture.meta.findings,
       status: response.status,
       ...assessment,
+      answers: response.answers,
       label,
       correct: label ? assessment.verdict === label.label : null,
       falseRoutine:

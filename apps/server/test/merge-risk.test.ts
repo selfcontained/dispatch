@@ -31,6 +31,11 @@ import {
   type PullRequestDetails,
 } from "../src/agents/merge-risk/sources.js";
 import { RoutingSettings } from "../src/chat/routing-settings.js";
+import {
+  assessMergeRiskV1,
+  OFFLINE_GATES,
+  POLICIES,
+} from "../../../scripts/evals/merge-risk-policies.js";
 import { BlockStore } from "../src/chat/store.js";
 
 const questions: DecisionQuestion[] = [
@@ -449,6 +454,80 @@ describe("merge-risk gate", () => {
         },
       }).newSurface
     ).toBe(0.93);
+  });
+});
+
+describe("merge-risk offline policies", () => {
+  const answers = (
+    choice: string,
+    probability: number,
+    confidence: number,
+    score: number
+  ) => ({
+    change_risk: {
+      type: "score" as const,
+      name: "change_risk",
+      score,
+      probabilities: [],
+    },
+    needs_human: {
+      type: "choice" as const,
+      name: "needs_human",
+      choice,
+      confidence,
+      probabilities: [
+        {
+          value: "routine",
+          probability: choice === "routine" ? probability : 1 - probability,
+        },
+        {
+          value: "human_review",
+          probability: choice === "routine" ? 1 - probability : probability,
+        },
+      ],
+    },
+  });
+  it("scores the previous policy with its own gate: a high score forced a read under v1", () => {
+    const high = answers("routine", 0.9, 0.95, 2.2);
+    expect(POLICIES.previous.assess("ok", high).verdict).toBe("human_review");
+    expect(POLICIES.current.assess("ok", high).verdict).toBe("routine");
+    const moderate = answers("routine", 0.9, 0.95, 1.2);
+    expect(assessMergeRiskV1("ok", moderate).verdict).toBe("routine");
+  });
+  it("keeps the runtime choice requirements in every offline gate", () => {
+    // Accepted answer whose choice disagrees with its probabilities.
+    const odd = {
+      ...answers("routine", 0.9, 0.9, 1.0),
+      needs_human: {
+        type: "choice" as const,
+        name: "needs_human",
+        choice: "abstain",
+        confidence: 0.9,
+        probabilities: [
+          { value: "routine", probability: 0.9 },
+          { value: "human_review", probability: 0.1 },
+        ],
+      },
+    };
+    for (const [name, gate] of Object.entries(OFFLINE_GATES))
+      expect(gate("ok", odd).verdict, name).toBe("abstain");
+    expect(OFFLINE_GATES.deployed).toBe(assessMergeRisk);
+    expect(OFFLINE_GATES.previous).toBe(assessMergeRiskV1);
+    // v1 also required the human_review choice, not just its probability.
+    const humanProbOnly = {
+      ...answers("routine", 0.4, 0.9, 1.0),
+      needs_human: {
+        type: "choice" as const,
+        name: "needs_human",
+        choice: "abstain",
+        confidence: 0.9,
+        probabilities: [
+          { value: "routine", probability: 0.4 },
+          { value: "human_review", probability: 0.6 },
+        ],
+      },
+    };
+    expect(assessMergeRiskV1("ok", humanProbOnly).verdict).toBe("abstain");
   });
 });
 
