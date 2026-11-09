@@ -126,6 +126,26 @@ export function RoutingSettings(): JSX.Element {
           />
         </label>
       )}
+      {data && !(data.aiEnabled ?? data.configured) && data.configured && (
+        <div className="flex items-center justify-between gap-3 rounded border border-border p-3">
+          <div className="min-w-0">
+            <p className="text-xs font-medium">OpenAI API key saved</p>
+            <p className="text-xs text-muted-foreground">
+              AI features are off. Your saved key is retained.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label="Remove OpenAI API key"
+            disabled={save.isPending || check.isPending}
+            onClick={() => save.mutate({ removeKey: true })}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Remove key
+          </Button>
+        </div>
+      )}
       {data && (data.aiEnabled ?? data.configured) && (
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">

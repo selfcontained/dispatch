@@ -344,3 +344,33 @@ it("hides setup until opt-in and retains configured preferences on re-enable", a
   );
   expect(writes().at(-1)).toEqual({ aiEnabled: false });
 });
+
+it("removes a saved key while AI stays off without enabling any features", async () => {
+  saved = { ...saved, aiEnabled: false };
+  render(
+    <QueryClientProvider client={client}>
+      <RoutingSettings />
+    </QueryClientProvider>
+  );
+  const remove = await screen.findByRole("button", {
+    name: "Remove OpenAI API key",
+  });
+  expect(
+    screen
+      .getByRole("switch", { name: "Enable Dispatch AI" })
+      .getAttribute("aria-checked")
+  ).toBe("false");
+  fireEvent.click(remove);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Remove OpenAI API key" })
+    ).toBeNull()
+  );
+  expect(writes()).toEqual([{ removeKey: true }]);
+  expect(
+    screen
+      .getByRole("switch", { name: "Enable Dispatch AI" })
+      .getAttribute("aria-checked")
+  ).toBe("false");
+  expect(screen.queryByRole("checkbox")).toBeNull();
+});
