@@ -63,6 +63,10 @@ export class MergeRiskAssessor {
   /**
    * The recommendation to show for this PR observation.
    *
+   * Nothing runs while the setting is off or no token is stored: no queries,
+   * no provider calls, and no recommendation is returned, so previously
+   * recorded verdicts disappear from the UI until it is turned back on.
+   *
    * A recommendation is only ever shown while the deterministic gate still
    * holds for the current head and review state (open PR, passing checks, no
    * open findings), or as history once the PR has merged. Failing or rerunning
@@ -78,6 +82,9 @@ export class MergeRiskAssessor {
   ): Promise<MergeRiskSummary | undefined> {
     const headSha = pr.ci?.headSha;
     if (!headSha || pr.ci?.availability !== "available") return undefined;
+    // Off means off: no reads, no lookups, and no recommendation shown.
+    const config = await this.options.settings.configuration();
+    if (!config.mergeRiskEnabled || !config.apiKey) return undefined;
     const reviews = await loadReviewEvidence(this.options.pool, ownerAgentIds);
     const fingerprint = reviewFingerprint(reviews);
     if (pr.status === "Merged") return this.latest(url, headSha);
@@ -88,8 +95,6 @@ export class MergeRiskAssessor {
     if (!gateHolds) return undefined;
     const stored = await this.latest(url, headSha, fingerprint);
     if (stored) return stored;
-    const config = await this.options.settings.configuration();
-    if (!config.mergeRiskEnabled || !config.apiKey) return undefined;
     const id = await this.reserve(url, headSha, fingerprint);
     if (!id) return undefined;
     try {

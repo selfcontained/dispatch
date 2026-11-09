@@ -14,6 +14,11 @@ routine that the gates would reject.
 
 ## When a pull request is assessed
 
+With the setting off (or no token stored) nothing runs: the assessor returns
+before any query, GitHub read, or provider call, and no recommendation is
+shown — including verdicts recorded while it was on, which reappear when it
+is turned back on.
+
 The PR refresher already polls GitHub for each tracked pull request. After an
 observation with available checks it asks `MergeRiskAssessor` for a
 recommendation. One provider request is made when all of these hold:

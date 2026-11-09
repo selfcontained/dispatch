@@ -746,7 +746,11 @@ describe("merge-risk assessor", () => {
     expect(
       await service().assess(url, pr({ status: "Merged" }), [builder])
     ).toMatchObject({ verdict: "routine" });
+    // Off means off: the stored verdict for this head is no longer shown and
+    // no pool query runs for either head.
     await settings.save({ mergeRiskMode: "off" });
+    const queries = vi.spyOn(pool, "query");
+    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
     expect(
       await service().assess(
         url,
@@ -754,6 +758,8 @@ describe("merge-risk assessor", () => {
         [builder]
       )
     ).toBeUndefined();
+    expect(queries).not.toHaveBeenCalled();
+    queries.mockRestore();
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
