@@ -464,6 +464,23 @@
     {
       "paths": ["e2e/**"],
       "personas": ["code-review"]
+    },
+    {
+      "paths": [
+        "apps/server/src/routes/activity/**",
+        "apps/server/test/activity-routes.test.ts",
+        "packages/shared/src/decision-types.ts"
+      ],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": [
+        "apps/server/test/steering-*.test.ts",
+        "docs/ai-steering.md",
+        "scripts/evaluate-steering.ts",
+        "scripts/evals/steering-fixtures.ts"
+      ],
+      "personas": ["stream-delivery-owner"]
     }
   ],
   "fallback": ["code-review"]
