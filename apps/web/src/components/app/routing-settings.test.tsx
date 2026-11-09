@@ -301,3 +301,31 @@ it("tests the candidate and locks edits and saves while the check is pending", a
   fireEvent.change(input, { target: { value: "different-candidate" } });
   expect(screen.queryByText("OpenAI HTTP 403: Permission denied.")).toBeNull();
 });
+
+it.each(["Cancel", "Escape"])(
+  "clears a candidate result when discarding via %s",
+  async (action) => {
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+    fireEvent.change(screen.getByLabelText("Access token"), {
+      target: { value: "controlled-candidate" },
+    });
+    apiMock.mockResolvedValueOnce({
+      status: "provider_error",
+      message: "Candidate permission failure",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await screen.findByText("Candidate permission failure");
+    if (action === "Escape")
+      fireEvent.keyDown(screen.getByLabelText("Access token"), {
+        key: "Escape",
+      });
+    else
+      fireEvent.click(
+        screen.getByRole("button", { name: "Cancel token edit" })
+      );
+    expect(screen.getByLabelText("Access token is set")).toBeTruthy();
+    expect(screen.queryByText("Candidate permission failure")).toBeNull();
+    expect(screen.getByLabelText("Token set")).toBeTruthy();
+  }
+);

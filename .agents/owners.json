@@ -130,6 +130,7 @@
         "apps/server/src/chat/**",
         "apps/server/src/routes/routing-shadow.ts",
         "apps/server/test/routing-shadow.test.ts",
+        "apps/server/test/routing-token-check.test.ts",
         "docs/routing-shadow-experiment.md",
         "scripts/evaluate-routing.ts",
         "packages/shared/src/index.ts",

@@ -206,6 +206,7 @@ export function RoutingSettings(): JSX.Element {
                   placeholder="Enter token"
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
+                      check.reset();
                       setEditing(false);
                       setKey("");
                     }
@@ -260,6 +261,7 @@ export function RoutingSettings(): JSX.Element {
                           save.isPending || check.isPending || !data.configured
                         }
                         onClick={() => {
+                          check.reset();
                           setKey("");
                           setEditing(false);
                           save.reset();
