@@ -154,6 +154,50 @@ describe("steering decisions", () => {
     await settings.save({ steeringMode: "off" });
     expect(result?.valid()).toBe(false);
   });
+  it.each([
+    { name: "steering is disabled", change: { steeringMode: "off" as const } },
+    { name: "the token is removed", change: { removeKey: true } },
+  ])(
+    "does not send evidence after $name during a blocked reservation",
+    async ({ change }) => {
+      await enable();
+      const data = await input();
+      const locker = await pool.connect();
+      await locker.query("BEGIN");
+      await locker.query("SELECT pg_advisory_xact_lock(719394022)");
+      const pending = service().classify(data);
+      try {
+        await vi.waitFor(
+          async () => {
+            const waiting = await pool.query(
+              "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock(719394022)'"
+            );
+            expect(waiting.rowCount).toBeGreaterThan(0);
+          },
+          { timeout: 4000 }
+        );
+        await settings.save(change);
+        await locker.query("COMMIT");
+        expect(await pending).toBeUndefined();
+        expect(transport).not.toHaveBeenCalled();
+        const rows = (
+          await pool.query(
+            "SELECT status,result FROM steering_decision_records"
+          )
+        ).rows;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          status: "skipped_config_changed",
+          result: { selected: "keep_existing_default", outcome: "default" },
+        });
+        expect(rows[0].result).not.toHaveProperty("usage");
+      } finally {
+        await locker.query("ROLLBACK");
+        locker.release();
+        await pending;
+      }
+    }
+  );
   it("keeps the default for low certainty and malformed responses", async () => {
     await enable();
     transport.mockImplementationOnce(async () => response("queue_next", 0.5));

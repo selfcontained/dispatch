@@ -154,13 +154,29 @@ export class SteeringDecisions {
     if (!config.steeringEnabled || !config.apiKey || input.signal.aborted)
       return;
     const evidence = await steeringEvidence(this.pool, input);
-    if (!evidence || input.signal.aborted) return;
+    if (!evidence || input.signal.aborted || !this.settings.isCurrent(config))
+      return;
     const cap = Number(this.env.DISPATCH_STEERING_DAILY_CAP ?? 25);
     const id = await this.reserve(
       input,
       Number.isInteger(cap) && cap >= 0 && cap <= 100 ? cap : 0
     );
     if (!id) return;
+    // Evidence reads and the reservation lock can outlive an opt-out or key
+    // removal. Recheck after the final await before handing evidence to fetch.
+    if (!this.settings.isCurrent(config)) {
+      await this.pool.query(
+        "UPDATE steering_decision_records SET status='skipped_config_changed',result=result || $2::jsonb WHERE id=$1",
+        [
+          id,
+          JSON.stringify({
+            selected: "keep_existing_default",
+            outcome: "default",
+          }),
+        ]
+      );
+      return;
+    }
     const started = Date.now();
     const decision = input.signal.aborted
       ? { status: "timeout", result: {} }
