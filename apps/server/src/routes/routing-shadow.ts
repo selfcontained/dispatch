@@ -8,6 +8,38 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { timingSafeEqual } from "node:crypto";
 import type { RoutingShadowStore } from "../chat/routing-shadow.js";
 
+/** Classify rejected input without echoing any credential characters. */
+export function routingInputError(body: unknown): string {
+  const key =
+    body && typeof body === "object"
+      ? (body as { apiKey?: unknown }).apiKey
+      : undefined;
+  if (typeof key === "string") {
+    const candidate = key.trim();
+    const prefix = "Token format rejected before contacting OpenAI: ";
+    if (candidate.length < 10)
+      return (
+        prefix +
+        "too short (minimum 10 characters). Paste the complete API key."
+      );
+    if (candidate.length > 2048)
+      return (
+        prefix + "too long (maximum 2048 characters). Paste only the API key."
+      );
+    if (/\s/.test(candidate))
+      return (
+        prefix +
+        "contains whitespace or line breaks. Paste only the API key without a Bearer prefix."
+      );
+    if (!/^[\x21-\x7e]+$/.test(candidate))
+      return (
+        prefix +
+        "contains hidden, control, or non-ASCII characters. Copy the API key again."
+      );
+  }
+  return "Invalid settings request. Provide a valid mode, API key, or removeKey action without conflicting or unknown fields.";
+}
+
 /** Dedicated bearer-only diagnostic export, including during first-run mode. */
 export async function registerRoutingShadowRoutes(
   app: FastifyInstance,
@@ -77,10 +109,7 @@ export async function registerRoutingShadowRoutes(
           .safeParse(request.body);
         if (!parsed.success || (parsed.data.apiKey && parsed.data.removeKey))
           return reply.code(400).send({
-            error:
-              typeof (request.body as { apiKey?: unknown })?.apiKey === "string"
-                ? "Token format rejected before contacting OpenAI. Paste only the API key (10–2048 characters), without spaces, line breaks, hidden characters, quotes, or a Bearer prefix."
-                : "Provide a valid mode, API key, or removeKey action.",
+            error: routingInputError(request.body),
           });
         reply.header("Cache-Control", "no-store");
         const saved = await settings.save(parsed.data).catch((error) => {
@@ -120,8 +149,7 @@ export async function registerRoutingShadowRoutes(
           .safeParse(request.body ?? {});
         if (!parsed.success)
           return reply.code(400).send({
-            error:
-              "Token format rejected before contacting OpenAI. Paste only the API key (10–2048 characters), without spaces, line breaks, hidden characters, quotes, or a Bearer prefix.",
+            error: routingInputError(request.body),
           });
         return settings.check(parsed.data.apiKey);
       }

@@ -51,3 +51,19 @@ it("sanitizes network exceptions and blocks writes", async () => {
   );
   expect(connect).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["sk-abc", "too short"],
+  ["x".repeat(2049), "too long"],
+  ["controlled token", "whitespace"],
+  ["controlled\u200btoken", "hidden"],
+])(
+  "classifies local format failures without echoing input",
+  async (candidate, detail) => {
+    const { routingInputError } =
+      await import("../src/routes/routing-shadow.js");
+    const error = routingInputError({ apiKey: candidate });
+    expect(error).toContain(detail);
+    expect(error).not.toContain(candidate);
+  }
+);
