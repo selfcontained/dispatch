@@ -1,11 +1,16 @@
 import type { Pool } from "pg";
-import { routingShadowConfig, type ShadowConfig } from "./routing-shadow.js";
+import {
+  routingShadowConfig,
+  SHADOW_MODEL,
+  type ShadowConfig,
+} from "./routing-shadow.js";
 export type RoutingMode = "off" | "active";
 export class RoutingSettings {
   private cached?: ShadowConfig;
   constructor(
     private readonly pool: Pool,
-    private readonly env: NodeJS.ProcessEnv = process.env
+    private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly transport: typeof fetch = fetch
   ) {}
   private async stored() {
     const read = async () => {
@@ -63,12 +68,68 @@ export class RoutingSettings {
       dailyCap: routingShadowConfig(this.env).dailyCap,
     };
   }
+  /** Non-generating check. Never return arbitrary provider text (it may echo secrets). */
+  async check(apiKey?: string) {
+    const candidate = apiKey ?? (await this.configuration()).apiKey;
+    if (!candidate)
+      return {
+        status: "unconfigured",
+        message: "No saved token. Enter an OpenAI API token.",
+      };
+    try {
+      const response = await this.transport(
+        `https://api.openai.com/v1/models/${SHADOW_MODEL}`,
+        {
+          headers: { Authorization: `Bearer ${candidate}` },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+      if (response.ok)
+        return {
+          status: "ok",
+          message:
+            "Token and model-read access verified. Inference permissions and quota are not tested.",
+        };
+      const status = response.status;
+      const detail =
+        status === 401
+          ? "Invalid or expired API token. Replace the token."
+          : status === 403
+            ? "Permission denied. Grant model-read permission in the OpenAI project."
+            : status === 404
+              ? "Routing model unavailable for this project. Check model access."
+              : status === 429
+                ? "Rate or quota limit reached. Check OpenAI billing and retry later."
+                : status >= 500
+                  ? "OpenAI service unavailable. Retry later."
+                  : "OpenAI rejected the check. Check project configuration and retry.";
+      return {
+        status: "provider_error",
+        message: `OpenAI HTTP ${status}: ${detail}`,
+      };
+    } catch (error) {
+      const timeout =
+        error instanceof Error &&
+        ["TimeoutError", "AbortError"].includes(error.name);
+      return {
+        status: "error",
+        message: timeout
+          ? "OpenAI check timed out. Retry."
+          : "Could not reach OpenAI. Check the server network and retry.",
+      };
+    }
+  }
   async save(input: {
     mode?: RoutingMode;
     steeringMode?: RoutingMode;
     apiKey?: string;
     removeKey?: boolean;
   }) {
+    if (input.apiKey !== undefined && !input.removeKey) {
+      const result = await this.check(input.apiKey);
+      if (result.status !== "ok")
+        throw new TokenValidationError(result.message);
+    }
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -99,3 +160,5 @@ export class RoutingSettings {
     return this.status();
   }
 }
+
+export class TokenValidationError extends Error {}

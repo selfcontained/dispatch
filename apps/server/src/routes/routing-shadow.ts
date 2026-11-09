@@ -1,4 +1,7 @@
-import { RoutingSettings } from "../chat/routing-settings.js";
+import {
+  RoutingSettings,
+  TokenValidationError,
+} from "../chat/routing-settings.js";
 import type { RoutingShadow } from "../chat/routing-shadow.js";
 import * as z from "zod/v4";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -77,7 +80,14 @@ export async function registerRoutingShadowRoutes(
             error: "Provide a valid mode, API key, or removeKey action.",
           });
         reply.header("Cache-Control", "no-store");
-        const saved = await settings.save(parsed.data);
+        const saved = await settings.save(parsed.data).catch((error) => {
+          if (error instanceof TokenValidationError) {
+            reply.code(422).send({ error: error.message });
+            return null;
+          }
+          throw error;
+        });
+        if (!saved) return;
         if (saved.mode !== "active" || !saved.configured)
           experiment.cancelAll();
         publish?.({
@@ -90,14 +100,26 @@ export async function registerRoutingShadowRoutes(
     );
     app.post(
       "/api/v1/experiments/routing/check",
-      privateRoute,
-      async (_request, reply) => {
+      { ...privateRoute, bodyLimit: 8192 },
+      async (request, reply) => {
         reply.header("Cache-Control", "no-store");
-        try {
-          return await experiment.checkConnection();
-        } catch {
-          return { status: "error" };
-        }
+        const parsed = z
+          .object({
+            apiKey: z
+              .string()
+              .trim()
+              .min(10)
+              .max(2048)
+              .regex(/^[\x21-\x7e]+$/)
+              .optional(),
+          })
+          .strict()
+          .safeParse(request.body ?? {});
+        if (!parsed.success)
+          return reply
+            .code(400)
+            .send({ error: "Enter a valid candidate token." });
+        return settings.check(parsed.data.apiKey);
       }
     );
   }

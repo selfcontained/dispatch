@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -35,15 +35,12 @@ export function RoutingSettings(): JSX.Element {
     refetchOnWindowFocus: false,
   });
   const check = useMutation({
-    mutationFn: () =>
-      api<{ status: string }>(`${endpoint}/check`, { method: "POST" }),
+    mutationFn: (apiKey?: string) =>
+      api<{ status: string; message?: string }>(`${endpoint}/check`, {
+        method: "POST",
+        body: JSON.stringify(apiKey === undefined ? {} : { apiKey }),
+      }),
   });
-  const resetCheck = check.reset;
-  useEffect(() => {
-    if (!check.isSuccess && !check.isError) return;
-    const timer = setTimeout(() => resetCheck(), 2500);
-    return () => clearTimeout(timer);
-  }, [check.isSuccess, check.isError, check.submittedAt, resetCheck]);
   const save = useMutation({
     mutationFn: (body: {
       mode?: "off" | "active";
@@ -112,7 +109,7 @@ export function RoutingSettings(): JSX.Element {
               id="routing-enabled"
               aria-label="Route replies automatically"
               checked={data.configured && data.mode === "active"}
-              disabled={save.isPending || !data.configured}
+              disabled={save.isPending || check.isPending || !data.configured}
               onCheckedChange={(on) =>
                 save.mutate({ mode: on === true ? "active" : "off" })
               }
@@ -132,7 +129,7 @@ export function RoutingSettings(): JSX.Element {
             <Checkbox
               aria-label="Smart steering"
               checked={data.configured && data.steeringMode === "active"}
-              disabled={save.isPending || !data.configured}
+              disabled={save.isPending || check.isPending || !data.configured}
               onCheckedChange={(on) =>
                 save.mutate({ steeringMode: on === true ? "active" : "off" })
               }
@@ -180,12 +177,11 @@ export function RoutingSettings(): JSX.Element {
                 className="h-8 min-w-12 px-3 text-xs"
                 aria-label="Test connection"
                 disabled={
-                  !data.configured ||
-                  editToken ||
+                  (editToken ? key.trim().length < 10 : !data.configured) ||
                   check.isPending ||
                   save.isPending
                 }
-                onClick={() => check.mutate()}
+                onClick={() => check.mutate(editToken ? key.trim() : undefined)}
               >
                 Test
               </Button>
@@ -198,11 +194,15 @@ export function RoutingSettings(): JSX.Element {
                   aria-label="Access token"
                   className={`h-11 sm:h-9 min-w-0 ${save.error ? "ring-1 ring-destructive" : ""}`}
                   value={key}
-                  disabled={save.isPending}
+                  disabled={save.isPending || check.isPending}
                   autoComplete="new-password"
                   spellCheck={false}
                   maxLength={2048}
-                  onChange={(e) => setKey(e.target.value)}
+                  onChange={(e) => {
+                    setKey(e.target.value);
+                    check.reset();
+                    save.reset();
+                  }}
                   placeholder="Enter token"
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
@@ -212,7 +212,8 @@ export function RoutingSettings(): JSX.Element {
                     if (
                       e.key === "Enter" &&
                       key.trim().length >= 10 &&
-                      !save.isPending
+                      !save.isPending &&
+                      !check.isPending
                     )
                       save.mutate({ apiKey: key.trim() });
                   }}
@@ -235,7 +236,11 @@ export function RoutingSettings(): JSX.Element {
                       size="sm"
                       variant="primary"
                       className="h-8 w-16 px-2"
-                      disabled={save.isPending || key.trim().length < 10}
+                      disabled={
+                        save.isPending ||
+                        check.isPending ||
+                        key.trim().length < 10
+                      }
                       onClick={() => save.mutate({ apiKey: key.trim() })}
                     >
                       {save.isPending ? (
@@ -251,7 +256,9 @@ export function RoutingSettings(): JSX.Element {
                         className="h-8 w-8 shrink-0"
                         aria-label="Cancel token edit"
                         title="Cancel"
-                        disabled={save.isPending || !data.configured}
+                        disabled={
+                          save.isPending || check.isPending || !data.configured
+                        }
                         onClick={() => {
                           setKey("");
                           setEditing(false);
@@ -270,7 +277,7 @@ export function RoutingSettings(): JSX.Element {
                       className="h-11 w-11 sm:h-8 sm:w-8 shrink-0"
                       aria-label="Edit access token"
                       title="Edit token"
-                      disabled={save.isPending}
+                      disabled={save.isPending || check.isPending}
                       onClick={() => {
                         setEditing(true);
                         check.reset();
@@ -284,7 +291,7 @@ export function RoutingSettings(): JSX.Element {
                       className="h-11 w-11 sm:h-8 sm:w-8 shrink-0 hover:text-destructive"
                       aria-label="Remove access token"
                       title="Remove token and turn off routing and steering"
-                      disabled={save.isPending}
+                      disabled={save.isPending || check.isPending}
                       onClick={() =>
                         save.mutate({ removeKey: true, mode: "off" })
                       }
@@ -295,6 +302,21 @@ export function RoutingSettings(): JSX.Element {
                 )}
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              {editToken
+                ? "Test checks the entered token. Save validates it again before replacing the saved token."
+                : "Test checks the saved token."}
+            </p>
+            {check.data?.message && (
+              <p role={testFailed ? "alert" : "status"} className="text-xs">
+                {check.data.message}
+              </p>
+            )}
+            {check.error && (
+              <p role="alert" className="text-xs text-destructive">
+                {check.error.message}
+              </p>
+            )}
             <span className="sr-only" role="status">
               {check.isPending || check.data || check.error ? testLabel : ""}
             </span>
@@ -303,7 +325,7 @@ export function RoutingSettings(): JSX.Element {
       )}
       {save.error && (
         <p role="alert" className="text-xs text-destructive">
-          Couldn’t save changes.
+          Couldn’t save changes. {save.error.message}
         </p>
       )}
     </section>

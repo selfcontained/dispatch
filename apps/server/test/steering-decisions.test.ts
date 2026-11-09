@@ -82,7 +82,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM settings");
   blocks = new BlockStore(pool);
-  settings = new RoutingSettings(pool, {});
+  settings = new RoutingSettings(pool, {}, async () => new Response("{}"));
   transport.mockReset();
   transport.mockImplementation(async () => response());
 });

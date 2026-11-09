@@ -210,14 +210,6 @@ it.each([
     });
     expect(screen.getByLabelText(label)).toBeTruthy();
     expect(test.textContent).toBe("Test");
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2499);
-    });
-    expect(screen.getByLabelText(label)).toBeTruthy();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2);
-    });
-    expect(screen.getByLabelText("Token set")).toBeTruthy();
     expect(
       apiMock.mock.calls.filter(([, init]) => init?.method === "POST")
     ).toHaveLength(1);
@@ -277,4 +269,35 @@ it("toggles steering independently of reply routing", async () => {
   await waitFor(() =>
     expect(steering.getAttribute("aria-checked")).toBe("false")
   );
+});
+
+it("tests the candidate and locks edits and saves while the check is pending", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  const input = screen.getByLabelText("Access token") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "controlled-candidate" } });
+  let resolve!: (value: unknown) => void;
+  apiMock.mockImplementationOnce(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  await waitFor(() => expect(input.disabled).toBe(true));
+  expect(
+    (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled
+  ).toBe(true);
+  expect(JSON.parse(apiMock.mock.calls.at(-1)![1]!.body as string)).toEqual({
+    apiKey: "controlled-candidate",
+  });
+  await act(async () =>
+    resolve({
+      status: "provider_error",
+      message: "OpenAI HTTP 403: Permission denied.",
+    })
+  );
+  await screen.findByText("OpenAI HTTP 403: Permission denied.");
+  fireEvent.change(input, { target: { value: "different-candidate" } });
+  expect(screen.queryByText("OpenAI HTTP 403: Permission denied.")).toBeNull();
 });
