@@ -1,7 +1,7 @@
 ## What's Changed
-* Add silent agent references with matching mention chips by @selfcontained in https://github.com/selfcontained/dispatch/pull/1414
-* Allow AI routing to return thread responses to root by @selfcontained in https://github.com/selfcontained/dispatch/pull/1415
-* Add smart message steering and AI decision metrics by @selfcontained in https://github.com/selfcontained/dispatch/pull/1416
+* Close thread pane when clicking outside by @selfcontained in https://github.com/selfcontained/dispatch/pull/1418
+* Fix OpenAI token checks and validate replacements before saving by @selfcontained in https://github.com/selfcontained/dispatch/pull/1419
+* Add merge-risk assessment with a production backfill harness by @selfcontained in https://github.com/selfcontained/dispatch/pull/1420
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.2...v1.7.3
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.3...v1.7.4
