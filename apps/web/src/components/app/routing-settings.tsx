@@ -172,21 +172,25 @@ export function RoutingSettings(): JSX.Element {
                   )}
                 </span>
               </label>
-              <Button
-                size="sm"
-                className="h-8 min-w-12 px-3 text-xs"
-                aria-label="Test connection"
-                disabled={
-                  (editToken ? key.trim().length < 10 : !data.configured) ||
-                  check.isPending ||
-                  save.isPending
-                }
-                onClick={() => check.mutate(editToken ? key.trim() : undefined)}
-              >
-                Test
-              </Button>
+              {!editToken && (
+                <Button
+                  size="sm"
+                  className="h-8 min-w-12 px-3 text-xs"
+                  aria-label="Test connection"
+                  disabled={
+                    (editToken ? key.trim().length < 10 : !data.configured) ||
+                    check.isPending ||
+                    save.isPending
+                  }
+                  onClick={() =>
+                    check.mutate(editToken ? key.trim() : undefined)
+                  }
+                >
+                  Test
+                </Button>
+              )}
             </div>
-            <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] sm:grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
               {editToken ? (
                 <Input
                   id="routing-token"
@@ -206,6 +210,7 @@ export function RoutingSettings(): JSX.Element {
                   placeholder="Enter token"
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
+                      save.reset();
                       check.reset();
                       setEditing(false);
                       setKey("");
@@ -236,7 +241,7 @@ export function RoutingSettings(): JSX.Element {
                     <Button
                       size="sm"
                       variant="primary"
-                      className="h-8 w-16 px-2"
+                      className="h-8 px-2 text-xs"
                       disabled={
                         save.isPending ||
                         check.isPending ||
@@ -245,9 +250,12 @@ export function RoutingSettings(): JSX.Element {
                       onClick={() => save.mutate({ apiKey: key.trim() })}
                     >
                       {save.isPending ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <>
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />{" "}
+                          Validating…
+                        </>
                       ) : (
-                        "Save"
+                        "Validate & save"
                       )}
                     </Button>
                     {data.configured && (
@@ -306,7 +314,7 @@ export function RoutingSettings(): JSX.Element {
             </div>
             <p className="text-xs text-muted-foreground">
               {editToken
-                ? "Test checks the entered token. Save validates it again before replacing the saved token."
+                ? "Validate & save checks the entered token before replacing the saved token."
                 : "Test checks the saved token."}
             </p>
             {check.data?.message && (

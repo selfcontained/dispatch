@@ -77,7 +77,10 @@ export async function registerRoutingShadowRoutes(
           .safeParse(request.body);
         if (!parsed.success || (parsed.data.apiKey && parsed.data.removeKey))
           return reply.code(400).send({
-            error: "Provide a valid mode, API key, or removeKey action.",
+            error:
+              typeof (request.body as { apiKey?: unknown })?.apiKey === "string"
+                ? "Token format rejected before contacting OpenAI. Paste only the API key (10–2048 characters), without spaces, line breaks, hidden characters, quotes, or a Bearer prefix."
+                : "Provide a valid mode, API key, or removeKey action.",
           });
         reply.header("Cache-Control", "no-store");
         const saved = await settings.save(parsed.data).catch((error) => {
@@ -116,9 +119,10 @@ export async function registerRoutingShadowRoutes(
           .strict()
           .safeParse(request.body ?? {});
         if (!parsed.success)
-          return reply
-            .code(400)
-            .send({ error: "Enter a valid candidate token." });
+          return reply.code(400).send({
+            error:
+              "Token format rejected before contacting OpenAI. Paste only the API key (10–2048 characters), without spaces, line breaks, hidden characters, quotes, or a Bearer prefix.",
+          });
         return settings.check(parsed.data.apiKey);
       }
     );
