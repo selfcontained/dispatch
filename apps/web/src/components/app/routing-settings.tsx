@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 
@@ -95,7 +96,7 @@ export function RoutingSettings(): JSX.Element {
         : CheckCircle2;
   return (
     <section
-      className="max-w-xl space-y-4 p-4 md:p-6"
+      className="m-4 max-w-xl space-y-4 rounded-lg border border-border p-4 md:m-6 md:p-6"
       aria-labelledby="routing-settings-heading"
     >
       <div>
@@ -115,7 +116,7 @@ export function RoutingSettings(): JSX.Element {
         </p>
       )}
       {data && (
-        <label className="flex items-center justify-between gap-3 rounded border border-border p-3">
+        <label className="flex items-center justify-between gap-3">
           <span className="text-sm font-medium">Enable Dispatch AI</span>
           <Switch
             aria-label="Enable Dispatch AI"
@@ -337,7 +338,7 @@ export function RoutingSettings(): JSX.Element {
             </span>
           </div>
           <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
-            <Switch
+            <Checkbox
               id="routing-enabled"
               aria-label="Route replies automatically"
               checked={
@@ -361,7 +362,7 @@ export function RoutingSettings(): JSX.Element {
             </div>
           </label>
           <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
-            <Switch
+            <Checkbox
               aria-label="Smart steering"
               checked={
                 data.configured &&
@@ -382,7 +383,7 @@ export function RoutingSettings(): JSX.Element {
             </div>
           </label>
           <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
-            <Switch
+            <Checkbox
               aria-label="Merge risk assessment"
               checked={
                 data.configured &&
