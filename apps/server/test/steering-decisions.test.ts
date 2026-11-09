@@ -101,7 +101,7 @@ describe("steering decisions", () => {
     expect(transport).not.toHaveBeenCalled();
     await enable();
     expect(await settings.status()).toMatchObject({
-      mode: "off",
+      mode: "active",
       steeringMode: "active",
       configured: true,
     });

@@ -135,7 +135,7 @@ beforeEach(async () => {
   await pool.query("TRUNCATE routing_shadow_records, routing_shadow_daily");
   await pool.query("DELETE FROM blocks");
   await pool.query(
-    "DELETE FROM settings WHERE key IN ('routing_mode', 'routing_api_key')"
+    "DELETE FROM settings WHERE key IN ('routing_mode', 'routing_api_key', 'steering_mode', 'merge_risk_mode', 'dispatch_ai_enabled', 'dispatch_ai_initialized')"
   );
   store = new RoutingShadowStore(pool);
   svc = new StreamService({
@@ -696,6 +696,87 @@ describe("optional routing shadow", () => {
     });
     expect((await store.summary()).activeRouting.n).toBe(1);
     expect(transport).not.toHaveBeenCalled();
+  });
+  it("gates all AI while retaining choices across disable, replacement, removal and reload", async () => {
+    const transport = vi.fn(async () => new Response("{}"));
+    const settings = new RoutingSettings(pool, {}, transport);
+    await settings.save({ aiEnabled: true });
+    expect(await settings.configuration()).toMatchObject({
+      enabled: false,
+      steeringEnabled: false,
+    });
+    await settings.save({ apiKey: "synthetic-first-key" });
+    expect(await settings.configuration()).toMatchObject({
+      enabled: true,
+      steeringEnabled: true,
+      mergeRiskEnabled: true,
+    });
+    await settings.save({ mode: "off", mergeRiskMode: "active" });
+    await settings.save({ aiEnabled: false });
+    expect(await settings.configuration()).toMatchObject({
+      enabled: false,
+      steeringEnabled: false,
+      mergeRiskEnabled: false,
+    });
+    await settings.save({ apiKey: "synthetic-replacement" });
+    await settings.save({ aiEnabled: true });
+    expect(await new RoutingSettings(pool, {}).configuration()).toMatchObject({
+      enabled: false,
+      steeringEnabled: true,
+      mergeRiskEnabled: true,
+    });
+    await settings.save({ removeKey: true });
+    await settings.save({ apiKey: "synthetic-after-removal", aiEnabled: true });
+    expect(await settings.configuration()).toMatchObject({
+      enabled: false,
+      steeringEnabled: true,
+      mergeRiskEnabled: true,
+    });
+    transport.mockResolvedValueOnce(new Response("{}", { status: 401 }));
+    await expect(
+      settings.save({ apiKey: "synthetic-rejected", mode: "active" })
+    ).rejects.toThrow();
+    expect((await settings.configuration()).apiKey).toBe(
+      "synthetic-after-removal"
+    );
+    expect((await settings.configuration()).enabled).toBe(false);
+  });
+  it("preserves all existing installation preferences and explicit first-setup choices", async () => {
+    await pool.query(
+      "INSERT INTO settings(key,value) VALUES ('routing_api_key','synthetic-existing'),('routing_mode','off'),('steering_mode','active'),('merge_risk_mode','off')"
+    );
+    const settings = new RoutingSettings(
+      pool,
+      {},
+      async () => new Response("{}")
+    );
+    await settings.save({ apiKey: "synthetic-replacement" });
+    expect(await settings.configuration()).toMatchObject({
+      enabled: false,
+      steeringEnabled: true,
+      mergeRiskEnabled: false,
+    });
+    await settings.save({ aiEnabled: false });
+    await settings.save({ aiEnabled: true });
+    expect(await settings.configuration()).toMatchObject({
+      enabled: false,
+      steeringEnabled: true,
+      mergeRiskEnabled: false,
+    });
+    await pool.query(
+      "DELETE FROM settings WHERE key IN ('routing_api_key','routing_mode','steering_mode','merge_risk_mode','dispatch_ai_initialized')"
+    );
+    await settings.save({
+      apiKey: "synthetic-explicit",
+      mode: "off",
+      steeringMode: "off",
+      mergeRiskMode: "off",
+    });
+    expect(await settings.configuration()).toMatchObject({
+      enabled: false,
+      steeringEnabled: false,
+      mergeRiskEnabled: false,
+    });
   });
   it("uses only saved tokens and keeps secrets out of status", async () => {
     const settings = new RoutingSettings(

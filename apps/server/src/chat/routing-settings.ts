@@ -15,7 +15,7 @@ export class RoutingSettings {
   private async stored() {
     const read = async () => {
       const rows = await this.pool.query<{ key: string; value: string }>(
-        "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key','steering_mode','merge_risk_mode')"
+        "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key','steering_mode','merge_risk_mode','dispatch_ai_enabled','dispatch_ai_initialized')"
       );
       return Object.fromEntries(rows.rows.map((r) => [r.key, r.value]));
     };
@@ -38,14 +38,16 @@ export class RoutingSettings {
     if (this.cached) return this.cached;
     const saved = await this.stored();
     const config = routingShadowConfig(this.env);
-    const mode = saved.routing_mode === "active" ? "active" : "off";
+    const enabled =
+      saved.dispatch_ai_enabled !== "false" && !!saved.routing_api_key;
+    const mode = enabled && saved.routing_mode === "active" ? "active" : "off";
     return (this.cached = {
       ...config,
       mode,
       enabled: mode === "active",
       apiKey: saved.routing_api_key || "",
-      steeringEnabled: saved.steering_mode === "active",
-      mergeRiskEnabled: saved.merge_risk_mode === "active",
+      steeringEnabled: enabled && saved.steering_mode === "active",
+      mergeRiskEnabled: enabled && saved.merge_risk_mode === "active",
     });
   }
   isCurrent(config: ShadowConfig) {
@@ -54,15 +56,36 @@ export class RoutingSettings {
   async status() {
     const saved = await this.stored();
     return {
-      mode:
+      routingPreference:
         saved.routing_mode === "active"
           ? ("active" as const)
           : ("off" as const),
+      aiEnabled:
+        saved.dispatch_ai_enabled === "true" ||
+        (saved.dispatch_ai_enabled !== "false" && !!saved.routing_api_key),
+      mode:
+        saved.dispatch_ai_enabled !== "false" &&
+        !!saved.routing_api_key &&
+        saved.routing_mode === "active"
+          ? ("active" as const)
+          : ("off" as const),
+      steeringPreference:
+        saved.steering_mode === "active"
+          ? ("active" as const)
+          : ("off" as const),
+      mergeRiskPreference:
+        saved.merge_risk_mode === "active"
+          ? ("active" as const)
+          : ("off" as const),
       steeringMode:
+        saved.dispatch_ai_enabled !== "false" &&
+        !!saved.routing_api_key &&
         saved.steering_mode === "active"
           ? ("active" as const)
           : ("off" as const),
       mergeRiskMode:
+        saved.dispatch_ai_enabled !== "false" &&
+        !!saved.routing_api_key &&
         saved.merge_risk_mode === "active"
           ? ("active" as const)
           : ("off" as const),
@@ -79,7 +102,7 @@ export class RoutingSettings {
     if (!candidate)
       return {
         status: "unconfigured",
-        message: "No saved token. Enter an OpenAI API token.",
+        message: "No saved API key. Enter an OpenAI API key.",
       };
     try {
       const response = await this.transport(
@@ -93,12 +116,12 @@ export class RoutingSettings {
         return {
           status: "ok",
           message:
-            "Token and model-read access verified. Inference permissions and quota are not tested.",
+            "API key and model-read access verified. Inference permissions and quota are not tested.",
         };
       const status = response.status;
       const detail =
         status === 401
-          ? "Invalid or expired API token. Replace the token."
+          ? "Invalid or expired API key. Replace the API key."
           : status === 403
             ? "Permission denied. Grant model-read permission in the OpenAI project."
             : status === 404
@@ -125,6 +148,7 @@ export class RoutingSettings {
     }
   }
   async save(input: {
+    aiEnabled?: boolean;
     mode?: RoutingMode;
     steeringMode?: RoutingMode;
     mergeRiskMode?: RoutingMode;
@@ -139,11 +163,44 @@ export class RoutingSettings {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      // Serialize preference transitions, including concurrent first-key saves.
+      await client.query("SELECT pg_advisory_xact_lock(87412031)");
+      const rows = await client.query<{ key: string; value: string }>(
+        "SELECT key,value FROM settings WHERE key IN ('routing_api_key','dispatch_ai_initialized')"
+      );
+      const previous = Object.fromEntries(
+        rows.rows.map((r) => [r.key, r.value])
+      );
+      // Existing keys are migrated without changing deliberate feature choices.
+      // Removal never resets initialization; replacement and re-enable preserve choices.
+      const firstSetup =
+        !!input.apiKey &&
+        !previous.routing_api_key &&
+        previous.dispatch_ai_initialized !== "true";
+      const initialized =
+        firstSetup ||
+        !!previous.routing_api_key ||
+        previous.dispatch_ai_initialized === "true";
       for (const [key, value] of [
-        ["routing_mode", input.removeKey ? "off" : input.mode],
+        [
+          "dispatch_ai_enabled",
+          input.removeKey
+            ? "false"
+            : input.aiEnabled === undefined
+              ? undefined
+              : String(input.aiEnabled),
+        ],
+        ["dispatch_ai_initialized", initialized ? "true" : undefined],
+        ["routing_mode", input.mode ?? (firstSetup ? "active" : undefined)],
         ["routing_api_key", input.apiKey],
-        ["steering_mode", input.removeKey ? "off" : input.steeringMode],
-        ["merge_risk_mode", input.removeKey ? "off" : input.mergeRiskMode],
+        [
+          "steering_mode",
+          input.steeringMode ?? (firstSetup ? "active" : undefined),
+        ],
+        [
+          "merge_risk_mode",
+          input.mergeRiskMode ?? (firstSetup ? "active" : undefined),
+        ],
       ] as const) {
         if (value !== undefined)
           await client.query(
