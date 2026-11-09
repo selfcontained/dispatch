@@ -698,10 +698,14 @@ describe("optional routing shadow", () => {
     expect(transport).not.toHaveBeenCalled();
   });
   it("uses only saved tokens and keeps secrets out of status", async () => {
-    const settings = new RoutingSettings(pool, {
-      DISPATCH_DECISIONS_API_KEY: "ignored-production-secret",
-      DISPATCH_ROUTING_MODE: "active",
-    });
+    const settings = new RoutingSettings(
+      pool,
+      {
+        DISPATCH_DECISIONS_API_KEY: "ignored-production-secret",
+        DISPATCH_ROUTING_MODE: "active",
+      },
+      async () => new Response("{}")
+    );
     expect(await settings.status()).toMatchObject({
       mode: "off",
       configured: false,
@@ -730,18 +734,32 @@ describe("optional routing shadow", () => {
       DISPATCH_DEV_STACK: "1",
       DISPATCH_DECISIONS_API_KEY: "test-dev-seed",
     };
-    const settings = new RoutingSettings(pool, env);
+    const settings = new RoutingSettings(
+      pool,
+      env,
+      async () => new Response("{}")
+    );
     expect(await settings.status()).toMatchObject({
       configured: true,
       mode: "off",
       keySource: "settings",
     });
     await settings.save({ mode: "active", apiKey: "test-saved-replacement" });
-    expect((await new RoutingSettings(pool, env).configuration()).apiKey).toBe(
-      "test-saved-replacement"
-    );
+    expect(
+      (
+        await new RoutingSettings(
+          pool,
+          env,
+          async () => new Response("{}")
+        ).configuration()
+      ).apiKey
+    ).toBe("test-saved-replacement");
     await settings.save({ removeKey: true });
-    const restarted = new RoutingSettings(pool, env);
+    const restarted = new RoutingSettings(
+      pool,
+      env,
+      async () => new Response("{}")
+    );
     expect(await restarted.configuration()).toMatchObject({
       apiKey: "",
       mode: "off",
@@ -772,7 +790,11 @@ describe("optional routing shadow", () => {
     }
   );
   it("checks a synthetic connection while off using the shared persistent request cap", async () => {
-    const settings = new RoutingSettings(pool, {});
+    const settings = new RoutingSettings(
+      pool,
+      {},
+      async () => new Response("{}")
+    );
     await settings.save({ mode: "off", apiKey: "synthetic-secret" });
     const experiment = new RoutingShadow(
       () => settings.configuration(),
@@ -794,7 +816,11 @@ describe("optional routing shadow", () => {
   });
   it("serves settings without secret readback and rejects invalid secret payloads", async () => {
     const app = Fastify();
-    const settings = new RoutingSettings(pool, {});
+    const settings = new RoutingSettings(
+      pool,
+      {},
+      async () => new Response("{}")
+    );
     const experiment = new RoutingShadow(
       () => settings.configuration(),
       store,
@@ -895,7 +921,11 @@ describe("optional routing shadow", () => {
   });
   it("rejects anonymous settings and paid checks even in first-run mode", async () => {
     const app = Fastify();
-    const settings = new RoutingSettings(pool, {});
+    const settings = new RoutingSettings(
+      pool,
+      {},
+      async () => new Response("{}")
+    );
     await registerRoutingShadowRoutes(
       app,
       store,
@@ -1230,7 +1260,11 @@ it("keeps root-first semantics and contained side-question examples in the versi
 
 it("serves lightweight pending snapshots and publishes sanitized configuration changes without metrics or paid calls", async () => {
   const app = Fastify();
-  const settings = new RoutingSettings(pool, {});
+  const settings = new RoutingSettings(
+    pool,
+    {},
+    async () => new Response("{}")
+  );
   const experiment = new RoutingShadow(enabled, store, transport);
   const cancelAll = vi.spyOn(experiment, "cancelAll");
   const summary = vi.spyOn(store, "summary");

@@ -1,9 +1,44 @@
-import { RoutingSettings } from "../chat/routing-settings.js";
+import {
+  RoutingSettings,
+  TokenValidationError,
+} from "../chat/routing-settings.js";
 import type { RoutingShadow } from "../chat/routing-shadow.js";
 import * as z from "zod/v4";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { timingSafeEqual } from "node:crypto";
 import type { RoutingShadowStore } from "../chat/routing-shadow.js";
+
+/** Classify rejected input without echoing any credential characters. */
+export function routingInputError(body: unknown): string {
+  const key =
+    body && typeof body === "object"
+      ? (body as { apiKey?: unknown }).apiKey
+      : undefined;
+  if (typeof key === "string") {
+    const candidate = key.trim();
+    const prefix = "Token format rejected before contacting OpenAI: ";
+    if (candidate.length < 10)
+      return (
+        prefix +
+        "too short (minimum 10 characters). Paste the complete API key."
+      );
+    if (candidate.length > 2048)
+      return (
+        prefix + "too long (maximum 2048 characters). Paste only the API key."
+      );
+    if (/\s/.test(candidate))
+      return (
+        prefix +
+        "contains whitespace or line breaks. Paste only the API key without a Bearer prefix."
+      );
+    if (!/^[\x21-\x7e]+$/.test(candidate))
+      return (
+        prefix +
+        "contains hidden, control, or non-ASCII characters. Copy the API key again."
+      );
+  }
+  return "Invalid settings request. Provide a valid mode, API key, or removeKey action without conflicting or unknown fields.";
+}
 
 /** Dedicated bearer-only diagnostic export, including during first-run mode. */
 export async function registerRoutingShadowRoutes(
@@ -74,10 +109,17 @@ export async function registerRoutingShadowRoutes(
           .safeParse(request.body);
         if (!parsed.success || (parsed.data.apiKey && parsed.data.removeKey))
           return reply.code(400).send({
-            error: "Provide a valid mode, API key, or removeKey action.",
+            error: routingInputError(request.body),
           });
         reply.header("Cache-Control", "no-store");
-        const saved = await settings.save(parsed.data);
+        const saved = await settings.save(parsed.data).catch((error) => {
+          if (error instanceof TokenValidationError) {
+            reply.code(422).send({ error: error.message });
+            return null;
+          }
+          throw error;
+        });
+        if (!saved) return;
         if (saved.mode !== "active" || !saved.configured)
           experiment.cancelAll();
         publish?.({
@@ -90,14 +132,26 @@ export async function registerRoutingShadowRoutes(
     );
     app.post(
       "/api/v1/experiments/routing/check",
-      privateRoute,
-      async (_request, reply) => {
+      { ...privateRoute, bodyLimit: 8192 },
+      async (request, reply) => {
         reply.header("Cache-Control", "no-store");
-        try {
-          return await experiment.checkConnection();
-        } catch {
-          return { status: "error" };
-        }
+        const parsed = z
+          .object({
+            apiKey: z
+              .string()
+              .trim()
+              .min(10)
+              .max(2048)
+              .regex(/^[\x21-\x7e]+$/)
+              .optional(),
+          })
+          .strict()
+          .safeParse(request.body ?? {});
+        if (!parsed.success)
+          return reply.code(400).send({
+            error: routingInputError(request.body),
+          });
+        return settings.check(parsed.data.apiKey);
       }
     );
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -26,6 +26,7 @@ const queryKey = ["routing-experiment-settings"];
 export function RoutingSettings(): JSX.Element {
   const [key, setKey] = useState("");
   const [editing, setEditing] = useState(false);
+  const [validatedAndSaved, setValidatedAndSaved] = useState(false);
   const client = useQueryClient();
   const settings = useQuery({
     queryKey,
@@ -35,15 +36,12 @@ export function RoutingSettings(): JSX.Element {
     refetchOnWindowFocus: false,
   });
   const check = useMutation({
-    mutationFn: () =>
-      api<{ status: string }>(`${endpoint}/check`, { method: "POST" }),
+    mutationFn: (apiKey?: string) =>
+      api<{ status: string; message?: string }>(`${endpoint}/check`, {
+        method: "POST",
+        body: JSON.stringify(apiKey === undefined ? {} : { apiKey }),
+      }),
   });
-  const resetCheck = check.reset;
-  useEffect(() => {
-    if (!check.isSuccess && !check.isError) return;
-    const timer = setTimeout(() => resetCheck(), 2500);
-    return () => clearTimeout(timer);
-  }, [check.isSuccess, check.isError, check.submittedAt, resetCheck]);
   const save = useMutation({
     mutationFn: (body: {
       mode?: "off" | "active";
@@ -57,6 +55,10 @@ export function RoutingSettings(): JSX.Element {
       }),
     onSuccess: (data, submitted) => {
       client.setQueryData(queryKey, data);
+      if (submitted.apiKey !== undefined || submitted.removeKey)
+        setValidatedAndSaved(
+          submitted.apiKey !== undefined && !submitted.removeKey
+        );
       if (submitted.apiKey !== undefined)
         setKey((current) =>
           current.trim() === submitted.apiKey ? "" : current
@@ -68,7 +70,7 @@ export function RoutingSettings(): JSX.Element {
   });
   const data = settings.data;
   const editToken = editing || data?.configured === false;
-  const testOk = check.data?.status === "ok";
+  const testOk = check.data?.status === "ok" || validatedAndSaved;
   const testFailed = !!check.error || (!!check.data && !testOk);
   const testLabel = check.isPending
     ? "Testing connection"
@@ -112,7 +114,7 @@ export function RoutingSettings(): JSX.Element {
               id="routing-enabled"
               aria-label="Route replies automatically"
               checked={data.configured && data.mode === "active"}
-              disabled={save.isPending || !data.configured}
+              disabled={save.isPending || check.isPending || !data.configured}
               onCheckedChange={(on) =>
                 save.mutate({ mode: on === true ? "active" : "off" })
               }
@@ -132,7 +134,7 @@ export function RoutingSettings(): JSX.Element {
             <Checkbox
               aria-label="Smart steering"
               checked={data.configured && data.steeringMode === "active"}
-              disabled={save.isPending || !data.configured}
+              disabled={save.isPending || check.isPending || !data.configured}
               onCheckedChange={(on) =>
                 save.mutate({ steeringMode: on === true ? "active" : "off" })
               }
@@ -156,7 +158,10 @@ export function RoutingSettings(): JSX.Element {
                 <span
                   className="flex h-4 w-4 items-center justify-center"
                   title={
-                    check.isPending || check.data || check.error
+                    check.isPending ||
+                    check.data ||
+                    check.error ||
+                    validatedAndSaved
                       ? testLabel
                       : data.configured
                         ? "Token set"
@@ -167,7 +172,10 @@ export function RoutingSettings(): JSX.Element {
                     <TestIcon
                       className={`h-3 w-3 transition-colors ${check.isPending ? "animate-spin text-muted-foreground" : testOk ? "text-green-600 dark:text-green-400" : testFailed ? "text-destructive" : "text-muted-foreground"}`}
                       aria-label={
-                        check.isPending || check.data || check.error
+                        check.isPending ||
+                        check.data ||
+                        check.error ||
+                        validatedAndSaved
                           ? testLabel
                           : "Token set"
                       }
@@ -175,22 +183,26 @@ export function RoutingSettings(): JSX.Element {
                   )}
                 </span>
               </label>
-              <Button
-                size="sm"
-                className="h-8 min-w-12 px-3 text-xs"
-                aria-label="Test connection"
-                disabled={
-                  !data.configured ||
-                  editToken ||
-                  check.isPending ||
-                  save.isPending
-                }
-                onClick={() => check.mutate()}
-              >
-                Test
-              </Button>
+              {!editToken && (
+                <Button
+                  size="sm"
+                  className="h-8 min-w-12 px-3 text-xs"
+                  aria-label="Test connection"
+                  disabled={
+                    (editToken ? key.trim().length < 10 : !data.configured) ||
+                    check.isPending ||
+                    save.isPending
+                  }
+                  onClick={() => {
+                    setValidatedAndSaved(false);
+                    check.mutate(undefined);
+                  }}
+                >
+                  Test
+                </Button>
+              )}
             </div>
-            <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] sm:grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
               {editToken ? (
                 <Input
                   id="routing-token"
@@ -198,21 +210,28 @@ export function RoutingSettings(): JSX.Element {
                   aria-label="Access token"
                   className={`h-11 sm:h-9 min-w-0 ${save.error ? "ring-1 ring-destructive" : ""}`}
                   value={key}
-                  disabled={save.isPending}
+                  disabled={save.isPending || check.isPending}
                   autoComplete="new-password"
                   spellCheck={false}
                   maxLength={2048}
-                  onChange={(e) => setKey(e.target.value)}
+                  onChange={(e) => {
+                    setKey(e.target.value);
+                    check.reset();
+                    save.reset();
+                  }}
                   placeholder="Enter token"
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
+                      save.reset();
+                      check.reset();
                       setEditing(false);
                       setKey("");
                     }
                     if (
                       e.key === "Enter" &&
                       key.trim().length >= 10 &&
-                      !save.isPending
+                      !save.isPending &&
+                      !check.isPending
                     )
                       save.mutate({ apiKey: key.trim() });
                   }}
@@ -234,14 +253,21 @@ export function RoutingSettings(): JSX.Element {
                     <Button
                       size="sm"
                       variant="primary"
-                      className="h-8 w-16 px-2"
-                      disabled={save.isPending || key.trim().length < 10}
+                      className="h-8 px-2 text-xs"
+                      disabled={
+                        save.isPending ||
+                        check.isPending ||
+                        key.trim().length < 10
+                      }
                       onClick={() => save.mutate({ apiKey: key.trim() })}
                     >
                       {save.isPending ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <>
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />{" "}
+                          Validating…
+                        </>
                       ) : (
-                        "Save"
+                        "Validate & save"
                       )}
                     </Button>
                     {data.configured && (
@@ -251,8 +277,11 @@ export function RoutingSettings(): JSX.Element {
                         className="h-8 w-8 shrink-0"
                         aria-label="Cancel token edit"
                         title="Cancel"
-                        disabled={save.isPending || !data.configured}
+                        disabled={
+                          save.isPending || check.isPending || !data.configured
+                        }
                         onClick={() => {
+                          check.reset();
                           setKey("");
                           setEditing(false);
                           save.reset();
@@ -270,8 +299,9 @@ export function RoutingSettings(): JSX.Element {
                       className="h-11 w-11 sm:h-8 sm:w-8 shrink-0"
                       aria-label="Edit access token"
                       title="Edit token"
-                      disabled={save.isPending}
+                      disabled={save.isPending || check.isPending}
                       onClick={() => {
+                        setValidatedAndSaved(false);
                         setEditing(true);
                         check.reset();
                       }}
@@ -284,7 +314,7 @@ export function RoutingSettings(): JSX.Element {
                       className="h-11 w-11 sm:h-8 sm:w-8 shrink-0 hover:text-destructive"
                       aria-label="Remove access token"
                       title="Remove token and turn off routing and steering"
-                      disabled={save.isPending}
+                      disabled={save.isPending || check.isPending}
                       onClick={() =>
                         save.mutate({ removeKey: true, mode: "off" })
                       }
@@ -295,15 +325,40 @@ export function RoutingSettings(): JSX.Element {
                 )}
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              {editToken
+                ? "Validate & save checks the entered token before replacing the saved token."
+                : "Test checks the saved token."}
+            </p>
+            {validatedAndSaved && (
+              <p
+                role="status"
+                className="text-xs text-green-600 dark:text-green-400"
+              >
+                Token validated and saved.
+              </p>
+            )}
+            {check.data?.message && (
+              <p role={testFailed ? "alert" : "status"} className="text-xs">
+                {check.data.message}
+              </p>
+            )}
+            {check.error && (
+              <p role="alert" className="text-xs text-destructive">
+                {check.error.message}
+              </p>
+            )}
             <span className="sr-only" role="status">
-              {check.isPending || check.data || check.error ? testLabel : ""}
+              {check.isPending || check.data || check.error || validatedAndSaved
+                ? testLabel
+                : ""}
             </span>
           </div>
         </div>
       )}
       {save.error && (
         <p role="alert" className="text-xs text-destructive">
-          Couldn’t save changes.
+          Couldn’t save changes. {save.error.message}
         </p>
       )}
     </section>

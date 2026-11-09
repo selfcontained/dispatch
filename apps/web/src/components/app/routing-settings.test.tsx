@@ -86,13 +86,7 @@ it("uses a checkbox and a masked DB token with inline edit and cancel", async ()
   const input = screen.getByLabelText("Access token") as HTMLInputElement;
   expect(input.type).toBe("password");
   expect(input.value).toBe("");
-  expect(
-    (
-      screen.getByRole("button", {
-        name: "Test connection",
-      }) as HTMLButtonElement
-    ).disabled
-  ).toBe(true);
+  expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
   fireEvent.change(input, { target: { value: "discarded-test-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Cancel token edit" }));
   expect(screen.getByLabelText("Access token is set")).toBeTruthy();
@@ -129,7 +123,7 @@ it("saves the edited token and returns to masking without exposing saved token d
   fireEvent.change(screen.getByLabelText("Access token"), {
     target: { value: "new-test-token-value" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
   await screen.findByLabelText("Access token is set");
   expect(writes()).toEqual([{ apiKey: "new-test-token-value" }]);
   expect(
@@ -153,13 +147,7 @@ it("removes the token and turns routing off in the same request", async () => {
       .getByRole("checkbox", { name: "Route replies automatically" })
       .getAttribute("aria-checked")
   ).toBe("false");
-  expect(
-    (
-      screen.getByRole("button", {
-        name: "Test connection",
-      }) as HTMLButtonElement
-    ).disabled
-  ).toBe(true);
+  expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
 });
 it("keeps enablement disabled until an unconfigured token is saved", async () => {
   saved = { ...saved, mode: "off", configured: false, storedKey: false };
@@ -172,7 +160,11 @@ it("keeps enablement disabled until an unconfigured token is saved", async () =>
     ).disabled
   ).toBe(true);
   expect(
-    (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled
+    (
+      screen.getByRole("button", {
+        name: "Validate & save",
+      }) as HTMLButtonElement
+    ).disabled
   ).toBe(true);
   expect((screen.getByLabelText("Access token") as HTMLInputElement).type).toBe(
     "password"
@@ -210,14 +202,6 @@ it.each([
     });
     expect(screen.getByLabelText(label)).toBeTruthy();
     expect(test.textContent).toBe("Test");
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2499);
-    });
-    expect(screen.getByLabelText(label)).toBeTruthy();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2);
-    });
-    expect(screen.getByLabelText("Token set")).toBeTruthy();
     expect(
       apiMock.mock.calls.filter(([, init]) => init?.method === "POST")
     ).toHaveLength(1);
@@ -230,7 +214,7 @@ it("keeps a failed token edit visible for correction", async () => {
     target: { value: "unsaved-test-token" },
   });
   apiMock.mockRejectedValueOnce(new Error("write failed"));
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
   await screen.findByRole("alert");
   expect(
     (screen.getByLabelText("Access token") as HTMLInputElement).value
@@ -277,4 +261,45 @@ it("toggles steering independently of reply routing", async () => {
   await waitFor(() =>
     expect(steering.getAttribute("aria-checked")).toBe("false")
   );
+});
+
+it("uses one validation/save action while editing", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
+  fireEvent.change(screen.getByLabelText("Access token"), {
+    target: { value: "controlled-candidate" },
+  });
+  let resolve!: (value: unknown) => void;
+  apiMock.mockImplementationOnce(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText("Access token") as HTMLInputElement).disabled
+    ).toBe(true)
+  );
+  await act(async () => resolve(saved));
+  await screen.findByLabelText("Access token is set");
+  expect(writes()).toEqual([{ apiKey: "controlled-candidate" }]);
+});
+
+it("shows a green success check after validation/save and clears it on edit", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  fireEvent.change(screen.getByLabelText("Access token"), {
+    target: { value: "controlled-candidate" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
+  await screen.findByText("Token validated and saved.");
+  expect(
+    screen.getByLabelText("Connection successful").getAttribute("class")
+  ).toContain("text-green-600");
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  expect(screen.queryByText("Token validated and saved.")).toBeNull();
+  expect(screen.queryByLabelText("Connection successful")).toBeNull();
 });
