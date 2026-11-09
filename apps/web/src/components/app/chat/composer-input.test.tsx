@@ -279,3 +279,52 @@ describe("ComposerInput caret scrolling", () => {
     expect(scrollTop).toBe(132);
   });
 });
+
+describe("ComposerInput emoji suggestions", () => {
+  it("tracks keyboard highlight for assistive technology and hides on range selections", () => {
+    const { input, ref } = setup(":smi");
+    act(() => ref.current!.setSelectionRange(4, 4));
+    const first = input.getAttribute("aria-activedescendant");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).not.toBe(first);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.getAttribute("aria-activedescendant")).toBe(first);
+    act(() => ref.current!.setSelectionRange(1, 4));
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it.each(["Enter", "Tab"])(
+    "selects with %s without invoking send and restores shortcode on undo",
+    (key) => {
+      const send = vi.fn();
+      const text = "😀 @reviewer\n:smi tail";
+      const { input, ref, changed } = setup(text, { onKeyDown: send });
+      const caret = text.indexOf(" tail");
+      act(() => {
+        ref.current!.focus();
+        ref.current!.setSelectionRange(caret, caret);
+      });
+      expect(
+        screen.getByRole("listbox", { name: "Emoji shortcodes" })
+      ).toBeTruthy();
+      fireEvent.keyDown(input, { key });
+      expect(send).not.toHaveBeenCalled();
+      expect(changed).toHaveBeenLastCalledWith("😀 @reviewer\n😄 tail", 15);
+      expect(screen.getByTestId("chat-composer-mention")).toBeTruthy();
+      fireEvent.keyDown(input, { key: "z", ctrlKey: true });
+      expect(input.textContent).toContain(":smi tail");
+    }
+  );
+  it("dismisses with Escape and supports mouse selection", () => {
+    const send = vi.fn();
+    const { input, ref } = setup(":smi", { onKeyDown: send });
+    act(() => ref.current!.setSelectionRange(4, 4));
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(send).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    act(() => ref.current!.setValue(":hea", 4));
+    fireEvent.click(screen.getByRole("option", { name: ":heart:" }));
+    expect(input.textContent).toBe("❤️");
+    expect(document.activeElement).toBe(input);
+  });
+});

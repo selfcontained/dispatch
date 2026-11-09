@@ -3,6 +3,8 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useRef,
+  useState,
+  useId,
   type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
@@ -13,6 +15,13 @@ import { closeHistory, history, redo, undo } from "prosemirror-history";
 import { baseKeymap, splitBlock } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import "prosemirror-view/style/prosemirror.css";
+import { createPortal } from "react-dom";
+import { Button } from "@/components/ui/button";
+import {
+  emojiQueryAt,
+  emojiShortcodes,
+  matchEmoji,
+} from "@/lib/emoji-shortcodes";
 
 import {
   mentionChipClasses,
@@ -106,6 +115,37 @@ export const ComposerInput = forwardRef<
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<EditorView | null>(null);
   const current = useRef(props);
+  const [cursor, setCursor] = useState({ text: props.value, caret: 0, end: 0 });
+  const [dismissed, setDismissed] = useState("");
+  const [active, setActive] = useState(0);
+  const listId = useId();
+  const query = emojiQueryAt(cursor.text, cursor.caret);
+  const signature = `${cursor.caret}:${cursor.text}`;
+  const candidates =
+    query &&
+    dismissed !== signature &&
+    cursor.caret === cursor.end &&
+    !props.slashOpen &&
+    !props.disabled
+      ? matchEmoji(query.query)
+      : [];
+  const selected = Math.min(active, candidates.length - 1);
+  const popup = useRef({ open: false, selected: 0 });
+  popup.current = { open: candidates.length > 0, selected };
+  function pickEmoji(emoji: string) {
+    const view = editor.current;
+    if (!view || !query) return;
+    view.dispatch(
+      closeHistory(view.state.tr)
+        .insertText(
+          emoji,
+          documentPosition(view.state.doc, query.start),
+          documentPosition(view.state.doc, cursor.caret)
+        )
+        .scrollIntoView()
+    );
+    view.focus();
+  }
 
   useImperativeHandle(
     ref,
@@ -179,12 +219,24 @@ export const ComposerInput = forwardRef<
           "min-h-14 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl px-4 pb-2 pt-4 text-sm leading-6 text-foreground caret-foreground outline-none pointer-coarse:text-base selection:bg-primary selection:text-primary-foreground",
           current.current.disabled && "opacity-50"
         ),
-        role: current.current.slashOpen ? "combobox" : "textbox",
+        role:
+          current.current.slashOpen || popup.current.open
+            ? "combobox"
+            : "textbox",
         "aria-label": "Message the agent",
         "aria-multiline": "true",
         "aria-placeholder": current.current.placeholder,
         "aria-disabled": String(current.current.disabled),
-        "aria-expanded": String(current.current.slashOpen),
+        "aria-expanded": String(
+          current.current.slashOpen || popup.current.open
+        ),
+        ...(popup.current.open
+          ? {
+              "aria-autocomplete": "list",
+              "aria-controls": listId,
+              "aria-activedescendant": `${listId}-${popup.current.selected}`,
+            }
+          : {}),
         ...(current.current.slashOpen
           ? {
               "aria-autocomplete": "list",
@@ -239,6 +291,14 @@ export const ComposerInput = forwardRef<
           return;
         }
         view.updateState(next);
+        setCursor({
+          text: plainText(next.doc),
+          caret: textOffset(next.doc, next.selection.from),
+          end: textOffset(next.doc, next.selection.to),
+        });
+        setActive(0);
+        if (transaction.docChanged || transaction.selectionSet)
+          setDismissed("");
         if (transaction.docChanged && !transaction.getMeta("external")) {
           current.current.onChange(
             plainText(next.doc),
@@ -247,6 +307,24 @@ export const ComposerInput = forwardRef<
         }
         if (transaction.selectionSet)
           current.current.onSelect(textOffset(next.doc, next.selection.from));
+      },
+      handleTextInput(view, from, to, text) {
+        if (text !== ":" || from !== to || view.composing) return false;
+        const value = plainText(view.state.doc);
+        const caret = textOffset(view.state.doc, from);
+        const query = emojiQueryAt(value, caret);
+        const emoji = query && emojiShortcodes[query.query];
+        if (!emoji) return false;
+        // Preserve the complete typed alias as the previous undo state.
+        view.dispatch(view.state.tr.insertText(text, from, to));
+        view.dispatch(
+          closeHistory(view.state.tr).insertText(
+            emoji,
+            documentPosition(view.state.doc, query.start),
+            from + 1
+          )
+        );
+        return true;
       },
       // Rich clipboard markup never enters the plain-text document.
       clipboardTextParser: (text) =>
@@ -303,7 +381,7 @@ export const ComposerInput = forwardRef<
       editor.current = null;
       view.destroy();
     };
-  }, []);
+  }, [listId]);
 
   useLayoutEffect(() => {
     current.current = props;
@@ -329,12 +407,78 @@ export const ComposerInput = forwardRef<
     view.setProps({});
   }, [props]);
 
+  useLayoutEffect(() => {
+    editor.current?.setProps({});
+  });
+
+  const rect = editor.current?.dom.getBoundingClientRect();
   return (
-    <div
-      ref={host}
-      onKeyDownCapture={props.onKeyDown}
-      onPasteCapture={props.onPaste}
-      className="[&_[data-empty=true]]:before:pointer-events-none [&_[data-empty=true]]:before:absolute [&_[data-empty=true]]:before:text-muted-foreground [&_[data-empty=true]]:before:content-[attr(data-placeholder)]"
-    />
+    <>
+      {candidates.length > 0 &&
+        rect &&
+        createPortal(
+          <div
+            id={listId}
+            role="listbox"
+            aria-label="Emoji shortcodes"
+            className="fixed z-50 w-64 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+            style={{
+              left: Math.max(8, Math.min(rect.left, window.innerWidth - 264)),
+              bottom: Math.max(8, window.innerHeight - rect.top + 4),
+              maxWidth: "calc(100vw - 16px)",
+              maxHeight: Math.max(48, rect.top - 16),
+            }}
+          >
+            {candidates.map(([alias, emoji], index) => (
+              <Button
+                key={alias}
+                type="button"
+                variant="ghost"
+                role="option"
+                id={`${listId}-${index}`}
+                aria-selected={index === selected}
+                className={cn(
+                  "flex w-full justify-start gap-2",
+                  index === selected && "bg-accent"
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onPointerMove={() => setActive(index)}
+                onClick={() => pickEmoji(emoji)}
+              >
+                <span aria-hidden="true">{emoji}</span>:{alias}:
+              </Button>
+            ))}
+          </div>,
+          document.body
+        )}
+      <div
+        ref={host}
+        onKeyDownCapture={(event) => {
+          if (candidates.length && !event.nativeEvent.isComposing) {
+            if (
+              ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(
+                event.key
+              )
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              if (event.key === "Escape") setDismissed(signature);
+              else if (event.key === "ArrowDown" || event.key === "ArrowUp")
+                setActive(
+                  (selected +
+                    (event.key === "ArrowDown" ? 1 : -1) +
+                    candidates.length) %
+                    candidates.length
+                );
+              else pickEmoji(candidates[selected]![1]);
+              return;
+            }
+          }
+          props.onKeyDown(event);
+        }}
+        onPasteCapture={props.onPaste}
+        className="[&_[data-empty=true]]:before:pointer-events-none [&_[data-empty=true]]:before:absolute [&_[data-empty=true]]:before:text-muted-foreground [&_[data-empty=true]]:before:content-[attr(data-placeholder)]"
+      />
+    </>
   );
 });
