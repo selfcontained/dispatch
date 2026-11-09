@@ -26,6 +26,7 @@ const queryKey = ["routing-experiment-settings"];
 export function RoutingSettings(): JSX.Element {
   const [key, setKey] = useState("");
   const [editing, setEditing] = useState(false);
+  const [validatedAndSaved, setValidatedAndSaved] = useState(false);
   const client = useQueryClient();
   const settings = useQuery({
     queryKey,
@@ -54,6 +55,10 @@ export function RoutingSettings(): JSX.Element {
       }),
     onSuccess: (data, submitted) => {
       client.setQueryData(queryKey, data);
+      if (submitted.apiKey !== undefined || submitted.removeKey)
+        setValidatedAndSaved(
+          submitted.apiKey !== undefined && !submitted.removeKey
+        );
       if (submitted.apiKey !== undefined)
         setKey((current) =>
           current.trim() === submitted.apiKey ? "" : current
@@ -65,7 +70,7 @@ export function RoutingSettings(): JSX.Element {
   });
   const data = settings.data;
   const editToken = editing || data?.configured === false;
-  const testOk = check.data?.status === "ok";
+  const testOk = check.data?.status === "ok" || validatedAndSaved;
   const testFailed = !!check.error || (!!check.data && !testOk);
   const testLabel = check.isPending
     ? "Testing connection"
@@ -153,7 +158,10 @@ export function RoutingSettings(): JSX.Element {
                 <span
                   className="flex h-4 w-4 items-center justify-center"
                   title={
-                    check.isPending || check.data || check.error
+                    check.isPending ||
+                    check.data ||
+                    check.error ||
+                    validatedAndSaved
                       ? testLabel
                       : data.configured
                         ? "Token set"
@@ -164,7 +172,10 @@ export function RoutingSettings(): JSX.Element {
                     <TestIcon
                       className={`h-3 w-3 transition-colors ${check.isPending ? "animate-spin text-muted-foreground" : testOk ? "text-green-600 dark:text-green-400" : testFailed ? "text-destructive" : "text-muted-foreground"}`}
                       aria-label={
-                        check.isPending || check.data || check.error
+                        check.isPending ||
+                        check.data ||
+                        check.error ||
+                        validatedAndSaved
                           ? testLabel
                           : "Token set"
                       }
@@ -182,9 +193,10 @@ export function RoutingSettings(): JSX.Element {
                     check.isPending ||
                     save.isPending
                   }
-                  onClick={() =>
-                    check.mutate(editToken ? key.trim() : undefined)
-                  }
+                  onClick={() => {
+                    setValidatedAndSaved(false);
+                    check.mutate(undefined);
+                  }}
                 >
                   Test
                 </Button>
@@ -289,6 +301,7 @@ export function RoutingSettings(): JSX.Element {
                       title="Edit token"
                       disabled={save.isPending || check.isPending}
                       onClick={() => {
+                        setValidatedAndSaved(false);
                         setEditing(true);
                         check.reset();
                       }}
@@ -317,6 +330,14 @@ export function RoutingSettings(): JSX.Element {
                 ? "Validate & save checks the entered token before replacing the saved token."
                 : "Test checks the saved token."}
             </p>
+            {validatedAndSaved && (
+              <p
+                role="status"
+                className="text-xs text-green-600 dark:text-green-400"
+              >
+                Token validated and saved.
+              </p>
+            )}
             {check.data?.message && (
               <p role={testFailed ? "alert" : "status"} className="text-xs">
                 {check.data.message}
@@ -328,7 +349,9 @@ export function RoutingSettings(): JSX.Element {
               </p>
             )}
             <span className="sr-only" role="status">
-              {check.isPending || check.data || check.error ? testLabel : ""}
+              {check.isPending || check.data || check.error || validatedAndSaved
+                ? testLabel
+                : ""}
             </span>
           </div>
         </div>

@@ -287,3 +287,19 @@ it("uses one validation/save action while editing", async () => {
   await screen.findByLabelText("Access token is set");
   expect(writes()).toEqual([{ apiKey: "controlled-candidate" }]);
 });
+
+it("shows a green success check after validation/save and clears it on edit", async () => {
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  fireEvent.change(screen.getByLabelText("Access token"), {
+    target: { value: "controlled-candidate" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
+  await screen.findByText("Token validated and saved.");
+  expect(
+    screen.getByLabelText("Connection successful").getAttribute("class")
+  ).toContain("text-green-600");
+  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  expect(screen.queryByText("Token validated and saved.")).toBeNull();
+  expect(screen.queryByLabelText("Connection successful")).toBeNull();
+});
