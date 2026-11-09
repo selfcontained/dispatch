@@ -451,7 +451,7 @@ export function historicalMentionablesOf(
   const ids =
     block.author.kind === "user" &&
     (block.kind === "text" || block.kind === "task")
-      ? block.data?.mentions
+      ? [...(block.data?.mentions ?? []), ...(block.data?.references ?? [])]
       : undefined;
   if (ids?.length) {
     return ids.map((id) => {

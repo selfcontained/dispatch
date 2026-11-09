@@ -15,7 +15,8 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function findMentions(
   text: string,
-  agents: readonly Mentionable[]
+  agents: readonly Mentionable[],
+  silent = false
 ): string[] {
   if (!text.includes("@") || agents.length === 0) return [];
   const byLength = agents
@@ -36,15 +37,15 @@ export function findMentions(
   const taken: Array<[number, number]> = [];
   for (const { agent, name } of byLength) {
     const re = new RegExp(
-      `(^|[\\s([{"'])@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}_])`,
+      `(^|[\\s([{"'])(!?)@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}_])`,
       "giu"
     );
     for (const match of text.matchAll(re)) {
       const start = match.index + match[1].length;
-      const end = start + 1 + name.length;
+      const end = start + match[2].length + 1 + name.length;
       if (taken.some(([s, e]) => start < e && end > s)) continue;
       taken.push([start, end]);
-      hits.push({ at: start, id: agent.id });
+      if (Boolean(match[2]) === silent) hits.push({ at: start, id: agent.id });
     }
   }
   hits.sort((a, b) => a.at - b.at);

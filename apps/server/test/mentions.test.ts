@@ -39,3 +39,18 @@ describe("findMentions", () => {
     expect(findMentions("@Über-Prüfer, hi", agents)).toEqual(["agt_x"]);
   });
 });
+
+it("separates silent references from recipients, including mixed and qualified names", () => {
+  const candidates = [
+    ...agents,
+    { id: "external", name: "Review", mentionName: "Review [external]" },
+  ];
+  const text =
+    "!@badge demo parent, @reviewer, !@Review [external], @badge demo";
+  expect(findMentions(text, candidates)).toEqual(["agt_r", "agt_c"]);
+  expect(findMentions(text, candidates, true)).toEqual(["agt_p", "external"]);
+  expect(findMentions("!@reviewer then @reviewer", candidates)).toEqual([
+    "agt_r",
+  ]);
+  expect(findMentions("word!@reviewer", candidates, true)).toEqual([]);
+});

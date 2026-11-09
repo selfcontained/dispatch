@@ -115,6 +115,7 @@ export function describeReview(
  * body passes through `escapeEnvelopeMarkers`.
  */
 export function buildPostEnvelope(input: {
+  references?: Array<{ id: string; name: string }>;
   blockId: string;
   from: EnvelopeSender;
   text: string;
@@ -179,6 +180,11 @@ export function buildPostEnvelope(input: {
   }
   if (input.threadId) {
     context.push(`In the thread under ${input.threadId}.`);
+  }
+  if (input.references?.length) {
+    context.push(
+      `Silent agent references (context only; not notified): ${escapeEnvelopeMarkers(JSON.stringify(input.references))}. These references do not request forwarding or contacting those agents.`
+    );
   }
   const alsoTo = input.addressed?.alsoTo ?? [];
   if (input.addressed?.mention) {

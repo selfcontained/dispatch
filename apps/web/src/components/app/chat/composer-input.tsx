@@ -14,8 +14,11 @@ import { baseKeymap, splitBlock } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import "prosemirror-view/style/prosemirror.css";
 
-import { seatClasses } from "@/lib/agent-seat";
-import { mentionSpans, type Mentionable } from "@/lib/mentions";
+import {
+  mentionChipClasses,
+  mentionSpans,
+  type Mentionable,
+} from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
 // Plain text is still the persisted/API value. Decorations only affect layout;
@@ -207,12 +210,13 @@ export const ComposerInput = forwardRef<
             if (span.kind === "mention") {
               decorations.push(
                 Decoration.inline(position, position + span.text.length, {
-                  class: cn(
-                    "box-decoration-clone rounded-full border px-1 py-0 text-xs",
-                    seatClasses(span.agent.seat ?? 1).face
-                  ),
+                  class: mentionChipClasses(span.agent.seat, span.silent),
+                  "data-silent": String(!!span.silent),
                   "data-testid": "chat-composer-mention",
                   "data-agent-id": span.agent.id,
+                  title: span.silent
+                    ? "Reference only — won’t notify"
+                    : span.agent.name,
                 })
               );
             }
