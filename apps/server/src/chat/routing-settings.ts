@@ -197,7 +197,10 @@ export class RoutingSettings {
           "steering_mode",
           input.steeringMode ?? (firstSetup ? "active" : undefined),
         ],
-        ["merge_risk_mode", input.mergeRiskMode],
+        [
+          "merge_risk_mode",
+          input.mergeRiskMode ?? (firstSetup ? "active" : undefined),
+        ],
       ] as const) {
         if (value !== undefined)
           await client.query(
