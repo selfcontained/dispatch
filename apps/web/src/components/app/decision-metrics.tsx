@@ -1,4 +1,4 @@
-import type { DecisionMetrics } from "@dispatch/shared";
+import type { DecisionMetrics, MergeRiskMetrics } from "@dispatch/shared";
 import { useDecisionMetrics, type ActivityRange } from "@/hooks/use-activity";
 import { StatCard } from "./stat-card";
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,57 @@ function Metrics({
     </div>
   );
 }
+function MergeRisk({ data }: { data: MergeRiskMetrics }) {
+  return (
+    <div className="space-y-3">
+      <h3 className="text-xs font-medium">Merge risk</h3>
+      <div className="flex flex-wrap gap-2 sm:gap-3">
+        <StatCard
+          label="API attempts"
+          value={data.attempts}
+          sub={`${data.skipped} skipped`}
+        />
+        <StatCard
+          label="Routine"
+          value={data.routine}
+          sub="Merging without a read looked reasonable"
+        />
+        <StatCard
+          label="Human review"
+          value={data.humanReview}
+          sub="A read before merge was recommended"
+        />
+        <StatCard label="Abstained" value={data.abstain} />
+        <StatCard label="API failures" value={data.failures} />
+        <StatCard
+          label="API latency"
+          value={ms(data.medianMs)}
+          sub={`p95 ${ms(data.p95Ms)}`}
+        />
+        <StatCard
+          label="Known estimated API cost"
+          value={
+            data.attempts > 0 && data.unknownCostCalls === data.attempts
+              ? "—"
+              : `$${data.knownEstimatedUsd.toFixed(5)}`
+          }
+          sub={
+            data.unknownCostCalls
+              ? `${data.unknownCostCalls} attempts unpriced`
+              : "Usage-based estimate"
+          }
+        />
+      </div>
+      {data.attempts === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No assessments in this range. Enable merge risk in Settings → AI
+          routing; open pull requests with passing checks and resolved findings
+          are assessed once per head.
+        </p>
+      )}
+    </div>
+  );
+}
 export function DecisionMetricsSection({
   range,
   dailyDate,
@@ -119,6 +170,7 @@ export function DecisionMetricsSection({
             data={query.data.steering}
             steering
           />
+          {query.data.mergeRisk && <MergeRisk data={query.data.mergeRisk} />}
         </>
       )}
     </section>

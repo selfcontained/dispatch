@@ -43,6 +43,7 @@ beforeEach(() => {
         ...saved,
         ...(body.mode ? { mode: body.mode } : {}),
         ...(body.steeringMode ? { steeringMode: body.steeringMode } : {}),
+        ...(body.mergeRiskMode ? { mergeRiskMode: body.mergeRiskMode } : {}),
         ...(body.apiKey ? { configured: true, storedKey: true } : {}),
         ...(body.removeKey
           ? { configured: false, storedKey: false, keySource: "none" }
@@ -302,4 +303,22 @@ it("shows a green success check after validation/save and clears it on edit", as
   fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
   expect(screen.queryByText("Token validated and saved.")).toBeNull();
   expect(screen.queryByLabelText("Connection successful")).toBeNull();
+});
+
+it("toggles merge risk assessment on its own setting", async () => {
+  await show();
+  const mergeRisk = screen.getByRole("checkbox", {
+    name: "Merge risk assessment",
+  });
+  expect(mergeRisk.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(mergeRisk);
+  await waitFor(() =>
+    expect(mergeRisk.getAttribute("aria-checked")).toBe("true")
+  );
+  expect(writes().at(-1)).toEqual({ mergeRiskMode: "active" });
+  expect(
+    screen
+      .getByRole("checkbox", { name: "Smart steering" })
+      .getAttribute("aria-checked")
+  ).toBe("false");
 });

@@ -1,6 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { ActivityRouteDeps } from "./shared.js";
-import { summarizeDecisions } from "../../chat/decision-metrics.js";
+import {
+  summarizeDecisions,
+  summarizeMergeRisk,
+} from "../../chat/decision-metrics.js";
 
 export async function registerActivityDecisionRoutes(
   app: FastifyInstance,
@@ -12,7 +15,10 @@ export async function registerActivityDecisionRoutes(
       "created_at"
     );
     const read = async (
-      table: "routing_shadow_records" | "steering_decision_records"
+      table:
+        | "routing_shadow_records"
+        | "steering_decision_records"
+        | "merge_risk_decision_records"
     ) =>
       (
         await deps.pool.query<{
@@ -23,14 +29,16 @@ export async function registerActivityDecisionRoutes(
           range.params
         )
       ).rows;
-    const [routing, steering] = await Promise.all([
+    const [routing, steering, mergeRisk] = await Promise.all([
       read("routing_shadow_records"),
       read("steering_decision_records"),
+      read("merge_risk_decision_records"),
     ]);
     reply.header("Cache-Control", "no-store");
     return {
       routing: summarizeDecisions(routing, "routing"),
       steering: summarizeDecisions(steering, "steering"),
+      mergeRisk: summarizeMergeRisk(mergeRisk),
       retentionDays: 14,
       retainedLimit: 2000,
     };

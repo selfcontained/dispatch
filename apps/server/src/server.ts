@@ -3,6 +3,7 @@ import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
 import { registerRoutingShadowRoutes } from "./routes/routing-shadow.js";
 import { PullRequestRefresher } from "./agents/pull-request-refresher.js";
+import { MergeRiskAssessor } from "./agents/merge-risk/assessor.js";
 import {
   registerPortfolioBoundary,
   registerPortfolioRoutes,
@@ -217,11 +218,21 @@ const updateCheckTracker = new SubsystemTracker({
   description: "Checks the configured release channel for Dispatch updates.",
   expectedCadenceMs: 6 * 60 * 60 * 1000,
 });
+const mergeRiskAssessor = new MergeRiskAssessor({
+  pool,
+  settings: routingSettings,
+  agentRoot: async (id) => {
+    const agent = await agentManager.getAgent(id);
+    return agent?.worktreePath ?? agent?.cwd ?? null;
+  },
+  warn: (error) => app.log.warn({ err: error }, "Merge-risk assessment failed"),
+});
 const pullRequests = new PullRequestRefresher({
   pool,
   listAgentIds: async () =>
     (await agentManager.listAgents()).map((agent) => agent.id),
   publish: (event) => uiEventBroker.publish(event),
+  assess: (url, value, owners) => mergeRiskAssessor.assess(url, value, owners),
   notify: async (id, previous, current, commit) => {
     await streamService.pullRequestTransition(id, previous, current, commit);
   },
@@ -963,6 +974,7 @@ async function registerRoutes() {
     () => {
       void routingShadowStore.prune().catch(() => {});
       void steeringDecisions.prune().catch(() => {});
+      void mergeRiskAssessor.prune().catch(() => {});
     },
     60 * 60 * 1000
   );

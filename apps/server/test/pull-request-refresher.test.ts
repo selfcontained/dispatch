@@ -601,3 +601,64 @@ it("refreshes only an owned PR and preserves observations on failure", async () 
   expect(f.read).not.toHaveBeenCalled();
   await f.service.stop();
 });
+
+it("attaches merge-risk assessments to observed heads and carries them while the head is unchanged", async () => {
+  const f = fixture();
+  const ci: NonNullable<AgentPullRequest["ci"]> = {
+    checkedAt: "2026-11-09T00:00:00Z",
+    headSha: "head1",
+    availability: "available",
+    summary: {
+      status: "passing",
+      total: 1,
+      passed: 1,
+      failed: 0,
+      pending: 0,
+      skipped: 0,
+    },
+    checks: [],
+  };
+  f.read.mockImplementation(async (url, title) => ({
+    url,
+    title,
+    status: "Open",
+    ci,
+  }));
+  const assess = vi.fn(
+    async (): Promise<AgentPullRequest["mergeRisk"]> => ({
+      verdict: "routine",
+      changeRisk: 1,
+      changeRiskLabel: "moderate",
+      reviewAdequate: 0.9,
+      descriptionMatches: 0.9,
+      routineProbability: 0.9,
+      humanReviewProbability: 0.1,
+      confidence: 0.9,
+      status: "ok",
+      promptVersion: "v1",
+      headSha: "head1",
+      assessedAt: "2026-11-09T00:00:01Z",
+    })
+  );
+  const service = new PullRequestRefresher({
+    pool: { query: f.query } as unknown as Pool,
+    read: f.read,
+    publish: f.publish,
+    listAgentIds: f.listAgentIds,
+    assess,
+    warn: vi.fn(),
+  });
+  await service.refresh();
+  expect(assess).toHaveBeenCalledWith(
+    "https://github.com/a/b/pull/0",
+    expect.objectContaining({ status: "Open" }),
+    ["a"]
+  );
+  expect(service.get("a")[0]!.mergeRisk?.verdict).toBe("routine");
+  // A later observation of the same head without a fresh assessment keeps the verdict;
+  // an assessment failure is logged, not fatal.
+  assess.mockRejectedValue(new Error("provider down"));
+  await service.refreshOne("a", "https://github.com/a/b/pull/0");
+  expect(service.get("a")[0]!.mergeRisk?.verdict).toBe("routine");
+  await service.stop();
+});

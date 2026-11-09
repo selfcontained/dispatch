@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "description": "Human judgements per pull request number for scripts/evaluate-merge-risk.ts: would a maintainer have wanted to read this change before it merged? label is routine or human_review; why is optional. Grade from the sheet the evaluator writes, not from the model's verdict.",
+  "labels": {}
+}

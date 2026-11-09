@@ -15,7 +15,7 @@ export class RoutingSettings {
   private async stored() {
     const read = async () => {
       const rows = await this.pool.query<{ key: string; value: string }>(
-        "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key','steering_mode')"
+        "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key','steering_mode','merge_risk_mode')"
       );
       return Object.fromEntries(rows.rows.map((r) => [r.key, r.value]));
     };
@@ -45,6 +45,7 @@ export class RoutingSettings {
       enabled: mode === "active",
       apiKey: saved.routing_api_key || "",
       steeringEnabled: saved.steering_mode === "active",
+      mergeRiskEnabled: saved.merge_risk_mode === "active",
     });
   }
   isCurrent(config: ShadowConfig) {
@@ -59,6 +60,10 @@ export class RoutingSettings {
           : ("off" as const),
       steeringMode:
         saved.steering_mode === "active"
+          ? ("active" as const)
+          : ("off" as const),
+      mergeRiskMode:
+        saved.merge_risk_mode === "active"
           ? ("active" as const)
           : ("off" as const),
       modeSource: "settings",
@@ -122,6 +127,7 @@ export class RoutingSettings {
   async save(input: {
     mode?: RoutingMode;
     steeringMode?: RoutingMode;
+    mergeRiskMode?: RoutingMode;
     apiKey?: string;
     removeKey?: boolean;
   }) {
@@ -137,6 +143,7 @@ export class RoutingSettings {
         ["routing_mode", input.removeKey ? "off" : input.mode],
         ["routing_api_key", input.apiKey],
         ["steering_mode", input.removeKey ? "off" : input.steeringMode],
+        ["merge_risk_mode", input.removeKey ? "off" : input.mergeRiskMode],
       ] as const) {
         if (value !== undefined)
           await client.query(

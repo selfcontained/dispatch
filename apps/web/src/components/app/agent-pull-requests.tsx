@@ -15,6 +15,8 @@ import {
   GitPullRequest,
   GitPullRequestClosed,
   GitPullRequestDraft,
+  ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,9 +28,112 @@ import {
 } from "@/components/ui/popover";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { AgentPullRequest } from "@dispatch/shared";
+import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
 
 type Status = AgentPullRequest["status"];
+const MERGE_RISK = {
+  routine: {
+    label: "Routine",
+    badge: "border-status-working/20 bg-status-working/10 text-status-working",
+    hint: "Low or moderate risk, specifically reviewed. A recommendation, not an approval.",
+  },
+  human_review: {
+    label: "Read before merge",
+    badge: "border-status-waiting/20 bg-status-waiting/10 text-status-waiting",
+    hint: "Risky area, generic review, or description and files disagree.",
+  },
+  abstain: {
+    label: "No recommendation",
+    badge: "border-border bg-muted/50 text-muted-foreground",
+    hint: "Evidence too thin or the model was not confident.",
+  },
+} satisfies Record<
+  MergeRiskSummary["verdict"],
+  { label: string; badge: string; hint: string }
+>;
+const percent = (value: number | null) =>
+  value === null ? "—" : `${Math.round(value * 100)}%`;
+/** Row-sized marker; the full badge and details live in the popover. */
+function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
+  const state = MERGE_RISK[risk.verdict];
+  const Icon = risk.verdict === "routine" ? ShieldCheck : ShieldAlert;
+  return (
+    <span
+      role="img"
+      data-testid="merge-risk-marker"
+      aria-label={`Merge risk: ${state.label}`}
+      title={`Merge risk: ${state.label}`}
+      className={cn(
+        "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
+        risk.verdict === "routine"
+          ? "text-status-working"
+          : "text-status-waiting"
+      )}
+    >
+      <Icon aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
+    </span>
+  );
+}
+function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
+  const state = MERGE_RISK[risk.verdict];
+  return (
+    <Badge
+      data-testid="merge-risk-badge"
+      title={`Merge risk: ${state.label}`}
+      className={cn(
+        "shrink-0 px-1.5 py-0 text-[10px] normal-case tracking-normal",
+        state.badge
+      )}
+    >
+      {state.label}
+    </Badge>
+  );
+}
+function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
+  const state = MERGE_RISK[risk.verdict];
+  return (
+    <div className="border-t border-border px-3 pt-3 pb-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-xs font-semibold">Merge risk</h4>
+        <MergeRiskBadge risk={risk} />
+      </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">{state.hint}</p>
+      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+        <dt className="text-muted-foreground">Change risk</dt>
+        <dd>
+          {risk.changeRiskLabel ?? "—"}
+          {risk.changeRisk !== null && (
+            <span className="ml-1 tabular-nums text-muted-foreground">
+              ({risk.changeRisk.toFixed(2)})
+            </span>
+          )}
+        </dd>
+        <dt className="text-muted-foreground">Review engaged</dt>
+        <dd className="tabular-nums">{percent(risk.reviewAdequate)}</dd>
+        <dt className="text-muted-foreground">Description matches</dt>
+        <dd className="tabular-nums">{percent(risk.descriptionMatches)}</dd>
+        <dt className="text-muted-foreground">Human review</dt>
+        <dd className="tabular-nums">
+          {percent(risk.humanReviewProbability)}
+          {risk.confidence !== null && (
+            <span className="ml-1 text-muted-foreground">
+              · confidence {percent(risk.confidence)}
+            </span>
+          )}
+        </dd>
+      </dl>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Assessed{" "}
+        {new Date(risk.assessedAt).toLocaleString([], {
+          dateStyle: "short",
+          timeStyle: "short",
+        })}{" "}
+        for commit <span className="font-mono">{risk.headSha.slice(0, 7)}</span>
+        . Display only; merging stays a human decision.
+      </p>
+    </div>
+  );
+}
 const STATES = {
   Open: {
     icon: GitPullRequest,
@@ -365,6 +470,25 @@ export function PullRequestRow({
             {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
             <span className="sr-only">{STATES[status].label}</span>
           </AgentMetadataLink>
+          {!isError && pr.mergeRisk && pr.mergeRisk.verdict !== "abstain" && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              data-agent-control="true"
+              aria-label={`Merge risk for pull request ${ref.number}: ${MERGE_RISK[pr.mergeRisk.verdict].label}`}
+              aria-haspopup="dialog"
+              aria-expanded={open}
+              aria-controls={open ? contentId : undefined}
+              onPointerDownCapture={() => {
+                openOnPointerDown.current = open;
+              }}
+              onClick={toggleDetails}
+              data-pr-details-trigger={contentId}
+            >
+              <MergeRiskMarker risk={pr.mergeRisk} />
+            </Button>
+          )}
           {(isError ||
             pr.ci?.availability !== "available" ||
             pr.ci.summary.total > 0) && (
@@ -422,7 +546,7 @@ export function PullRequestRow({
         sideOffset={8}
         collisionPadding={12}
         data-agent-control="true"
-        className="w-[360px] max-w-[calc(100vw-1.5rem)] p-0"
+        className="max-h-[var(--radix-popper-available-height)] w-[360px] max-w-[calc(100vw-1.5rem)] overflow-y-auto p-0"
       >
         <PopoverArrow />
         <div className="px-3 py-3">
@@ -442,6 +566,7 @@ export function PullRequestRow({
           </a>
         </div>
         <>
+          {!isError && pr.mergeRisk && <MergeRiskDetails risk={pr.mergeRisk} />}
           <div className="border-t border-border px-3 pt-3 pb-2">
             <h4 className="text-xs font-semibold">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (

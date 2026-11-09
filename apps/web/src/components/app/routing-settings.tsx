@@ -16,6 +16,7 @@ import { api } from "@/lib/api";
 type Status = {
   mode: "off" | "shadow" | "active";
   steeringMode: "off" | "active";
+  mergeRiskMode?: "off" | "active";
   modeSource: string;
   configured: boolean;
   keySource: string;
@@ -46,6 +47,7 @@ export function RoutingSettings(): JSX.Element {
     mutationFn: (body: {
       mode?: "off" | "active";
       steeringMode?: "off" | "active";
+      mergeRiskMode?: "off" | "active";
       apiKey?: string;
       removeKey?: boolean;
     }) =>
@@ -145,6 +147,24 @@ export function RoutingSettings(): JSX.Element {
                 {data.configured
                   ? "Steer related messages. Queue new requests."
                   : "Add an access token to enable steering."}
+              </p>
+            </div>
+          </label>
+          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+            <Checkbox
+              aria-label="Merge risk assessment"
+              checked={data.configured && data.mergeRiskMode === "active"}
+              disabled={save.isPending || !data.configured}
+              onCheckedChange={(on) =>
+                save.mutate({ mergeRiskMode: on === true ? "active" : "off" })
+              }
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Merge risk assessment</div>
+              <p className="text-xs text-muted-foreground">
+                {data.configured
+                  ? "Recommend a human read before merge. Never merges."
+                  : "Add an access token to enable merge risk."}
               </p>
             </div>
           </label>
@@ -313,7 +333,7 @@ export function RoutingSettings(): JSX.Element {
                       variant="ghost"
                       className="h-11 w-11 sm:h-8 sm:w-8 shrink-0 hover:text-destructive"
                       aria-label="Remove access token"
-                      title="Remove token and turn off routing and steering"
+                      title="Remove token and turn off routing, steering, and merge risk"
                       disabled={save.isPending || check.isPending}
                       onClick={() =>
                         save.mutate({ removeKey: true, mode: "off" })

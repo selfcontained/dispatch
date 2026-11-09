@@ -35,11 +35,42 @@ const examples = [
     skipped: 0,
   },
 ] as const;
+const previewMergeRisk: PresentedPullRequest["mergeRisk"][] = [
+  {
+    verdict: "routine",
+    changeRisk: 1.1,
+    changeRiskLabel: "moderate",
+    reviewAdequate: 0.94,
+    descriptionMatches: 0.97,
+    routineProbability: 0.88,
+    humanReviewProbability: 0.12,
+    confidence: 0.86,
+    status: "ok",
+    promptVersion: "merge-risk-v1",
+    headSha: "0123456789abcdef",
+    assessedAt: new Date(Date.now() - 600_000).toISOString(),
+  },
+  {
+    verdict: "human_review",
+    changeRisk: 2.3,
+    changeRiskLabel: "high",
+    reviewAdequate: 0.91,
+    descriptionMatches: 0.41,
+    routineProbability: 0.2,
+    humanReviewProbability: 0.8,
+    confidence: 0.9,
+    status: "ok",
+    promptVersion: "merge-risk-v1",
+    headSha: "0123456789abcdef",
+    assessedAt: new Date(Date.now() - 300_000).toISOString(),
+  },
+];
 export const previewPullRequests: PresentedPullRequest[] = examples.map(
   (example, i) => ({
     url: `https://github.com/example/dispatch/pull/${1380 + i}`,
     title: example.title,
     status: example.status,
+    ...(previewMergeRisk[i] ? { mergeRisk: previewMergeRisk[i] } : {}),
     ci: {
       checkedAt: new Date().toISOString(),
       headSha: "0123456789abcdef",

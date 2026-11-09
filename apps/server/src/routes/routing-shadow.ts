@@ -96,6 +96,7 @@ export async function registerRoutingShadowRoutes(
           .object({
             mode: z.enum(["off", "active"]).optional(),
             steeringMode: z.enum(["off", "active"]).optional(),
+            mergeRiskMode: z.enum(["off", "active"]).optional(),
             apiKey: z
               .string()
               .trim()
