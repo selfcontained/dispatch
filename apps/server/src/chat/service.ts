@@ -4248,6 +4248,9 @@ export class StreamService {
         source: "chat",
         chatMessageId: block.id,
         userMessage: from.kind === "user",
+        ...(structuredAnswer || block.kind !== "text" || own.rawPrompt
+          ? { steeringExcluded: true }
+          : {}),
         // A review, or a word under one of its findings, is what the agent
         // on the other side is waiting for: it reaches a busy agent now.
         ...(block.kind === "review" || finding ? { awaited: true } : {}),

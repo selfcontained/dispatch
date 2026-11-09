@@ -13,12 +13,12 @@ const CHOICES = [
   "home_root",
   "keep_existing_default",
 ] as const;
-type Choice = (typeof CHOICES)[number];
 export type ShadowConfig = {
   enabled: boolean;
   mode?: "off" | "shadow" | "active";
   apiKey: string;
   dailyCap: number;
+  steeringEnabled?: boolean;
 };
 export function routingShadowConfig(
   env: NodeJS.ProcessEnv = process.env
@@ -60,8 +60,6 @@ const object = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-const choice = (value: unknown): value is Choice =>
-  CHOICES.includes(value as Choice);
 const probability = (value: unknown): value is number =>
   typeof value === "number" &&
   Number.isFinite(value) &&
@@ -69,7 +67,13 @@ const probability = (value: unknown): value is number =>
   value <= 1;
 
 /** Whitelist fields; never retain raw provider output or error messages. */
-export function parseShadowResponse(raw: unknown) {
+export function parseShadowResponse(
+  raw: unknown,
+  allowedChoices: readonly string[] = CHOICES,
+  questionName = "destination"
+) {
+  const choice = (value: unknown): value is string =>
+    typeof value === "string" && allowedChoices.includes(value);
   const response = object(raw);
   if (
     !response ||
@@ -81,11 +85,11 @@ export function parseShadowResponse(raw: unknown) {
   if (answer?.type === "refusal" || answer?.refusal) throw new Error("refusal");
   if (
     answer?.type !== "choice" ||
-    answer.name !== "destination" ||
+    answer.name !== questionName ||
     !choice(answer.choice)
   )
     throw new Error("malformed");
-  const probabilities: { value: Choice; probability: number }[] = [];
+  const probabilities: { value: string; probability: number }[] = [];
   if (answer.probabilities !== undefined) {
     if (!Array.isArray(answer.probabilities) || answer.probabilities.length > 3)
       throw new Error("malformed");
@@ -390,7 +394,28 @@ export async function requestRoutingDecision(
   evidence: string,
   transport: typeof fetch = fetch,
   signal?: AbortSignal,
-  timeoutMs = 3000
+  timeoutMs = 3000,
+  policy = {
+    name: "destination",
+    instructions: ROUTING_INSTRUCTIONS,
+    choices: [
+      {
+        value: "initiating_discussion",
+        description:
+          "Answer in the initiating discussion for side questions, thread follow-ups, or closing acknowledgments.",
+      },
+      {
+        value: "home_root",
+        description:
+          "Answer the primary task conversation at the agent home root, including returning from a side thread.",
+      },
+      {
+        value: "keep_existing_default",
+        description:
+          "Keep the existing destination; uncertain or insufficient evidence.",
+      },
+    ],
+  }
 ) {
   const started = Date.now();
   const controller = new AbortController();
@@ -415,25 +440,7 @@ export async function requestRoutingDecision(
         questions: [
           {
             type: "choice",
-            name: "destination",
-            instructions: ROUTING_INSTRUCTIONS,
-            choices: [
-              {
-                value: "initiating_discussion",
-                description:
-                  "Answer in the initiating discussion for side questions, thread follow-ups, or closing acknowledgments.",
-              },
-              {
-                value: "home_root",
-                description:
-                  "Answer the primary task conversation at the agent home root, including returning from a side thread.",
-              },
-              {
-                value: "keep_existing_default",
-                description:
-                  "Keep the existing destination; uncertain or insufficient evidence.",
-              },
-            ],
+            ...policy,
           },
         ],
       }),
@@ -459,7 +466,9 @@ export async function requestRoutingDecision(
         await reader.cancel().catch(() => {});
       }
       result = parseShadowResponse(
-        JSON.parse(Buffer.concat(chunks).toString("utf8"))
+        JSON.parse(Buffer.concat(chunks).toString("utf8")),
+        policy.choices.map((c) => c.value),
+        policy.name
       );
       status = "ok";
     }

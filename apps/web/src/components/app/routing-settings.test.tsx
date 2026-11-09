@@ -42,6 +42,7 @@ beforeEach(() => {
       saved = {
         ...saved,
         ...(body.mode ? { mode: body.mode } : {}),
+        ...(body.steeringMode ? { steeringMode: body.steeringMode } : {}),
         ...(body.apiKey ? { configured: true, storedKey: true } : {}),
         ...(body.removeKey
           ? { configured: false, storedKey: false, keySource: "none" }
@@ -70,9 +71,11 @@ const writes = () =>
     .map(([, init]) => JSON.parse(init!.body as string));
 it("uses a checkbox and a masked DB token with inline edit and cancel", async () => {
   await show();
-  expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
-    "true"
-  );
+  expect(
+    screen
+      .getByRole("checkbox", { name: "Route replies automatically" })
+      .getAttribute("aria-checked")
+  ).toBe("true");
   const masked = screen.getByLabelText(
     "Access token is set"
   ) as HTMLInputElement;
@@ -97,18 +100,26 @@ it("uses a checkbox and a masked DB token with inline edit and cancel", async ()
 });
 it("toggles active/off without changing the token", async () => {
   await show();
-  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "Route replies automatically" })
+  );
   await waitFor(() =>
-    expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
-      "false"
-    )
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Route replies automatically" })
+        .getAttribute("aria-checked")
+    ).toBe("false")
   );
   expect(writes()).toEqual([{ mode: "off" }]);
-  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "Route replies automatically" })
+  );
   await waitFor(() =>
-    expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
-      "true"
-    )
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Route replies automatically" })
+        .getAttribute("aria-checked")
+    ).toBe("true")
   );
   expect(writes()).toEqual([{ mode: "off" }, { mode: "active" }]);
 });
@@ -130,12 +141,18 @@ it("removes the token and turns routing off in the same request", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Remove access token" }));
   await screen.findByLabelText("Access token");
   expect(writes()).toEqual([{ removeKey: true, mode: "off" }]);
-  expect((screen.getByRole("checkbox") as HTMLButtonElement).disabled).toBe(
-    true
-  );
-  expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe(
-    "false"
-  );
+  expect(
+    (
+      screen.getByRole("checkbox", {
+        name: "Route replies automatically",
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true);
+  expect(
+    screen
+      .getByRole("checkbox", { name: "Route replies automatically" })
+      .getAttribute("aria-checked")
+  ).toBe("false");
   expect(
     (
       screen.getByRole("button", {
@@ -147,9 +164,13 @@ it("removes the token and turns routing off in the same request", async () => {
 it("keeps enablement disabled until an unconfigured token is saved", async () => {
   saved = { ...saved, mode: "off", configured: false, storedKey: false };
   await show();
-  expect((screen.getByRole("checkbox") as HTMLButtonElement).disabled).toBe(
-    true
-  );
+  expect(
+    (
+      screen.getByRole("checkbox", {
+        name: "Route replies automatically",
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true);
   expect(
     (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled
   ).toBe(true);
@@ -235,4 +256,25 @@ it("supports Escape to discard and Enter to save a token edit", async () => {
   fireEvent.keyDown(screen.getByLabelText("Access token"), { key: "Enter" });
   await screen.findByLabelText("Access token is set");
   expect(writes()).toEqual([{ apiKey: "keyboard-test-token" }]);
+});
+
+it("toggles steering independently of reply routing", async () => {
+  await show();
+  const steering = screen.getByRole("checkbox", {
+    name: "Smart steering",
+  });
+  fireEvent.click(steering);
+  await waitFor(() =>
+    expect(steering.getAttribute("aria-checked")).toBe("true")
+  );
+  expect(writes().at(-1)).toEqual({ steeringMode: "active" });
+  expect(
+    screen
+      .getByRole("checkbox", { name: "Route replies automatically" })
+      .getAttribute("aria-checked")
+  ).toBe("true");
+  fireEvent.click(steering);
+  await waitFor(() =>
+    expect(steering.getAttribute("aria-checked")).toBe("false")
+  );
 });

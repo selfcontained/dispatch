@@ -144,7 +144,7 @@ export type AgentRuntime = {
 export function createAgentRuntime(
   config: AppConfig,
   logger: FastifyBaseLogger,
-  deps: Pick<AcpRuntimeDeps, "hostSeq" | "syncJournal">
+  deps: Pick<AcpRuntimeDeps, "hostSeq" | "syncJournal" | "classifySteering">
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {
     return createInertRuntime();

@@ -376,7 +376,10 @@ export class AgentManager {
     logger: FastifyBaseLogger,
     config: AppConfig,
     /** Tests inject a fake runtime; the server takes the configured one. */
-    options: { runtime?: AgentRuntime } = {}
+    options: {
+      runtime?: AgentRuntime;
+      classifySteering?: import("./steering.js").ClassifySteering;
+    } = {}
   ) {
     this.pool = pool;
     this.logger = logger;
@@ -388,6 +391,7 @@ export class AgentManager {
     this.runtime =
       options.runtime ??
       createAgentRuntime(config, logger, {
+        classifySteering: options.classifySteering,
         hostSeq: async (agentId) => {
           const result = await pool.query<{
             host_seq: number;

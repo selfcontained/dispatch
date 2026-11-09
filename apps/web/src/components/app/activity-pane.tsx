@@ -1,3 +1,4 @@
+import { DecisionMetricsSection } from "./decision-metrics";
 import { useEffect, useState } from "react";
 import { CalendarIcon } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
@@ -250,6 +251,8 @@ export function ActivityPane({
                 )}
               </div>
             ) : null}
+
+            <DecisionMetricsSection range={range} dailyDate={dailyDateParam} />
 
             {!hasTokenData && (
               <div className="py-12 text-center text-sm text-muted-foreground">

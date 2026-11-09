@@ -239,3 +239,7 @@ export type { AgentPullRequest } from "./pull-requests.js";
 export const TASK_LABEL_NAME_MAX_LENGTH = 16;
 
 export type { BackgroundItem, BackgroundSnapshot } from "./background-work.js";
+export type {
+  DecisionMetrics,
+  DecisionsMetricsResponse,
+} from "./decision-types.js";

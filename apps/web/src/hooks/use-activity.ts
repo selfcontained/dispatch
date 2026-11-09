@@ -163,3 +163,15 @@ export function useTokenByProject(range: ActivityRange, dailyDate?: string) {
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
+
+export function useDecisionMetrics(range: ActivityRange, dailyDate?: string) {
+  return useQuery({
+    queryKey: ["decision-metrics", range, dailyDate],
+    queryFn: () =>
+      api<import("@dispatch/shared").DecisionsMetricsResponse>(
+        `/api/v1/activity/decisions?${activityParams(range, dailyDate)}`
+      ),
+    ...ACTIVITY_QUERY_OPTIONS,
+    refetchInterval: 30_000,
+  });
+}
