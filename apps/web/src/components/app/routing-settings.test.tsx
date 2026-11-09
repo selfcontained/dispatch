@@ -15,6 +15,7 @@ vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 const apiMock = vi.mocked(api);
 let client: QueryClient;
 let saved: {
+  aiEnabled?: boolean;
   mode: string;
   modeSource: string;
   configured: boolean;
@@ -41,6 +42,7 @@ beforeEach(() => {
       const body = JSON.parse(init.body as string);
       saved = {
         ...saved,
+        ...(body.aiEnabled !== undefined ? { aiEnabled: body.aiEnabled } : {}),
         ...(body.mode ? { mode: body.mode } : {}),
         ...(body.steeringMode ? { steeringMode: body.steeringMode } : {}),
         ...(body.mergeRiskMode ? { mergeRiskMode: body.mergeRiskMode } : {}),
@@ -64,7 +66,7 @@ async function show() {
       <RoutingSettings />
     </QueryClientProvider>
   );
-  await screen.findByRole("checkbox", { name: "Route replies automatically" });
+  await screen.findByRole("switch", { name: "Route replies automatically" });
 }
 const writes = () =>
   apiMock.mock.calls
@@ -74,45 +76,45 @@ it("uses a checkbox and a masked DB token with inline edit and cancel", async ()
   await show();
   expect(
     screen
-      .getByRole("checkbox", { name: "Route replies automatically" })
+      .getByRole("switch", { name: "Route replies automatically" })
       .getAttribute("aria-checked")
   ).toBe("true");
   const masked = screen.getByLabelText(
-    "Access token is set"
+    "OpenAI API key is set"
   ) as HTMLInputElement;
   expect(masked.readOnly).toBe(true);
   expect(masked.value).toMatch(/^•+$/);
   expect(screen.queryByRole("combobox")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
-  const input = screen.getByLabelText("Access token") as HTMLInputElement;
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
+  const input = screen.getByLabelText("OpenAI API key") as HTMLInputElement;
   expect(input.type).toBe("password");
   expect(input.value).toBe("");
   expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
   fireEvent.change(input, { target: { value: "discarded-test-token" } });
-  fireEvent.click(screen.getByRole("button", { name: "Cancel token edit" }));
-  expect(screen.getByLabelText("Access token is set")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel key edit" }));
+  expect(screen.getByLabelText("OpenAI API key is set")).toBeTruthy();
   expect(writes()).toEqual([]);
 });
 it("toggles active/off without changing the token", async () => {
   await show();
   fireEvent.click(
-    screen.getByRole("checkbox", { name: "Route replies automatically" })
+    screen.getByRole("switch", { name: "Route replies automatically" })
   );
   await waitFor(() =>
     expect(
       screen
-        .getByRole("checkbox", { name: "Route replies automatically" })
+        .getByRole("switch", { name: "Route replies automatically" })
         .getAttribute("aria-checked")
     ).toBe("false")
   );
   expect(writes()).toEqual([{ mode: "off" }]);
   fireEvent.click(
-    screen.getByRole("checkbox", { name: "Route replies automatically" })
+    screen.getByRole("switch", { name: "Route replies automatically" })
   );
   await waitFor(() =>
     expect(
       screen
-        .getByRole("checkbox", { name: "Route replies automatically" })
+        .getByRole("switch", { name: "Route replies automatically" })
         .getAttribute("aria-checked")
     ).toBe("true")
   );
@@ -120,12 +122,12 @@ it("toggles active/off without changing the token", async () => {
 });
 it("saves the edited token and returns to masking without exposing saved token data", async () => {
   await show();
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
-  fireEvent.change(screen.getByLabelText("Access token"), {
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
+  fireEvent.change(screen.getByLabelText("OpenAI API key"), {
     target: { value: "new-test-token-value" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
-  await screen.findByLabelText("Access token is set");
+  await screen.findByLabelText("OpenAI API key is set");
   expect(writes()).toEqual([{ apiKey: "new-test-token-value" }]);
   expect(
     JSON.stringify(client.getQueryData(["routing-experiment-settings"]))
@@ -133,29 +135,28 @@ it("saves the edited token and returns to masking without exposing saved token d
 });
 it("removes the token and turns routing off in the same request", async () => {
   await show();
-  fireEvent.click(screen.getByRole("button", { name: "Remove access token" }));
-  await screen.findByLabelText("Access token");
-  expect(writes()).toEqual([{ removeKey: true, mode: "off" }]);
-  expect(
-    (
-      screen.getByRole("checkbox", {
-        name: "Route replies automatically",
-      }) as HTMLButtonElement
-    ).disabled
-  ).toBe(true);
-  expect(
-    screen
-      .getByRole("checkbox", { name: "Route replies automatically" })
-      .getAttribute("aria-checked")
-  ).toBe("false");
-  expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove OpenAI API key" })
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("switch", { name: "Route replies automatically" })
+    ).toBeNull()
+  );
+  expect(writes()).toEqual([{ removeKey: true }]);
 });
 it("keeps enablement disabled until an unconfigured token is saved", async () => {
-  saved = { ...saved, mode: "off", configured: false, storedKey: false };
+  saved = {
+    ...saved,
+    aiEnabled: true,
+    mode: "off",
+    configured: false,
+    storedKey: false,
+  };
   await show();
   expect(
     (
-      screen.getByRole("checkbox", {
+      screen.getByRole("switch", {
         name: "Route replies automatically",
       }) as HTMLButtonElement
     ).disabled
@@ -167,9 +168,9 @@ it("keeps enablement disabled until an unconfigured token is saved", async () =>
       }) as HTMLButtonElement
     ).disabled
   ).toBe(true);
-  expect((screen.getByLabelText("Access token") as HTMLInputElement).type).toBe(
-    "password"
-  );
+  expect(
+    (screen.getByLabelText("OpenAI API key") as HTMLInputElement).type
+  ).toBe("password");
 });
 it.each([
   { status: "ok", label: "Connection successful" },
@@ -210,42 +211,42 @@ it.each([
 );
 it("keeps a failed token edit visible for correction", async () => {
   await show();
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
-  fireEvent.change(screen.getByLabelText("Access token"), {
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
+  fireEvent.change(screen.getByLabelText("OpenAI API key"), {
     target: { value: "unsaved-test-token" },
   });
   apiMock.mockRejectedValueOnce(new Error("write failed"));
   fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
   await screen.findByRole("alert");
   expect(
-    (screen.getByLabelText("Access token") as HTMLInputElement).value
+    (screen.getByLabelText("OpenAI API key") as HTMLInputElement).value
   ).toBe("unsaved-test-token");
 });
 
 it("supports Escape to discard and Enter to save a token edit", async () => {
   await show();
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
-  fireEvent.change(screen.getByLabelText("Access token"), {
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
+  fireEvent.change(screen.getByLabelText("OpenAI API key"), {
     target: { value: "discard-test-token" },
   });
-  fireEvent.keyDown(screen.getByLabelText("Access token"), { key: "Escape" });
-  expect(screen.getByLabelText("Access token is set")).toBeTruthy();
+  fireEvent.keyDown(screen.getByLabelText("OpenAI API key"), { key: "Escape" });
+  expect(screen.getByLabelText("OpenAI API key is set")).toBeTruthy();
   expect(writes()).toEqual([]);
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
   expect(
-    (screen.getByLabelText("Access token") as HTMLInputElement).value
+    (screen.getByLabelText("OpenAI API key") as HTMLInputElement).value
   ).toBe("");
-  fireEvent.change(screen.getByLabelText("Access token"), {
+  fireEvent.change(screen.getByLabelText("OpenAI API key"), {
     target: { value: "keyboard-test-token" },
   });
-  fireEvent.keyDown(screen.getByLabelText("Access token"), { key: "Enter" });
-  await screen.findByLabelText("Access token is set");
+  fireEvent.keyDown(screen.getByLabelText("OpenAI API key"), { key: "Enter" });
+  await screen.findByLabelText("OpenAI API key is set");
   expect(writes()).toEqual([{ apiKey: "keyboard-test-token" }]);
 });
 
 it("toggles steering independently of reply routing", async () => {
   await show();
-  const steering = screen.getByRole("checkbox", {
+  const steering = screen.getByRole("switch", {
     name: "Smart steering",
   });
   fireEvent.click(steering);
@@ -255,7 +256,7 @@ it("toggles steering independently of reply routing", async () => {
   expect(writes().at(-1)).toEqual({ steeringMode: "active" });
   expect(
     screen
-      .getByRole("checkbox", { name: "Route replies automatically" })
+      .getByRole("switch", { name: "Route replies automatically" })
       .getAttribute("aria-checked")
   ).toBe("true");
   fireEvent.click(steering);
@@ -266,9 +267,9 @@ it("toggles steering independently of reply routing", async () => {
 
 it("uses one validation/save action while editing", async () => {
   await show();
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
   expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
-  fireEvent.change(screen.getByLabelText("Access token"), {
+  fireEvent.change(screen.getByLabelText("OpenAI API key"), {
     target: { value: "controlled-candidate" },
   });
   let resolve!: (value: unknown) => void;
@@ -281,33 +282,33 @@ it("uses one validation/save action while editing", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
   await waitFor(() =>
     expect(
-      (screen.getByLabelText("Access token") as HTMLInputElement).disabled
+      (screen.getByLabelText("OpenAI API key") as HTMLInputElement).disabled
     ).toBe(true)
   );
   await act(async () => resolve(saved));
-  await screen.findByLabelText("Access token is set");
+  await screen.findByLabelText("OpenAI API key is set");
   expect(writes()).toEqual([{ apiKey: "controlled-candidate" }]);
 });
 
 it("shows a green success check after validation/save and clears it on edit", async () => {
   await show();
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
-  fireEvent.change(screen.getByLabelText("Access token"), {
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
+  fireEvent.change(screen.getByLabelText("OpenAI API key"), {
     target: { value: "controlled-candidate" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Validate & save" }));
-  await screen.findByText("Token validated and saved.");
+  await screen.findByText("OpenAI API key validated and saved.");
   expect(
     screen.getByLabelText("Connection successful").getAttribute("class")
   ).toContain("text-green-600");
-  fireEvent.click(screen.getByRole("button", { name: "Edit access token" }));
-  expect(screen.queryByText("Token validated and saved.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
+  expect(screen.queryByText("OpenAI API key validated and saved.")).toBeNull();
   expect(screen.queryByLabelText("Connection successful")).toBeNull();
 });
 
 it("toggles merge risk assessment on its own setting", async () => {
   await show();
-  const mergeRisk = screen.getByRole("checkbox", {
+  const mergeRisk = screen.getByRole("switch", {
     name: "Merge risk assessment",
   });
   expect(mergeRisk.getAttribute("aria-checked")).toBe("false");
@@ -318,7 +319,28 @@ it("toggles merge risk assessment on its own setting", async () => {
   expect(writes().at(-1)).toEqual({ mergeRiskMode: "active" });
   expect(
     screen
-      .getByRole("checkbox", { name: "Smart steering" })
+      .getByRole("switch", { name: "Smart steering" })
       .getAttribute("aria-checked")
   ).toBe("false");
+});
+
+it("hides setup until opt-in and retains configured preferences on re-enable", async () => {
+  saved = { ...saved, aiEnabled: false };
+  render(
+    <QueryClientProvider client={client}>
+      <RoutingSettings />
+    </QueryClientProvider>
+  );
+  const master = await screen.findByRole("switch", {
+    name: "Enable Dispatch AI",
+  });
+  expect(screen.queryByLabelText("OpenAI API key is set")).toBeNull();
+  fireEvent.click(master);
+  await screen.findByLabelText("OpenAI API key is set");
+  expect(writes()).toEqual([{ aiEnabled: true }]);
+  fireEvent.click(master);
+  await waitFor(() =>
+    expect(screen.queryByLabelText("OpenAI API key is set")).toBeNull()
+  );
+  expect(writes().at(-1)).toEqual({ aiEnabled: false });
 });
