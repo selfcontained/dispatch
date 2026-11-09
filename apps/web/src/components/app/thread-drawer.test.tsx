@@ -157,6 +157,9 @@ function FramedThreadDrawer() {
           agent={agentProp}
         />
       </DrawerFrame>
+      <div role="dialog" data-testid="shared-lightbox">
+        Lightbox
+      </div>
       <button data-testid="go-n2" onClick={() => navigate("?thread=n2")} />
       <button data-testid="go-rv" onClick={() => navigate("?thread=rv")} />
     </>
@@ -332,6 +335,37 @@ describe("ThreadDrawer", () => {
 });
 
 describe("ThreadDrawer closing in its frame", () => {
+  it("dismisses outside pointer clicks, clears findings, and preserves other URL state", async () => {
+    renderFramed("?thread=rv&finding=f1&keep=yes");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    fireEvent.pointerDown(screen.getByTestId("shared-lightbox"));
+    expect(screen.getByTestId("location-search").textContent).toContain(
+      "finding=f1"
+    );
+    fireEvent.pointerDown(screen.getByTestId("drawer-title"));
+    expect(screen.getByTestId("location-search").textContent).toContain(
+      "finding=f1"
+    );
+    fireEvent.pointerDown(screen.getByTestId("location-search"));
+    expect(screen.getByTestId("location-search").textContent).toBe("?keep=yes");
+  });
+
+  it("opens and switches threads through a complete pointer/click sequence", async () => {
+    renderFramed("");
+    const click = (element: HTMLElement) => {
+      fireEvent.pointerDown(element);
+      fireEvent.pointerUp(element);
+      fireEvent.click(element);
+    };
+    click(screen.getByTestId("go-rv"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(titleText()).toBe("Review");
+    click(screen.getByTestId("go-n2"));
+    expect(screen.getByTestId("location-search").textContent).toBe(
+      "?thread=n2"
+    );
+  });
+
   it("stays mounted with the closed thread's content until the slide ends", () => {
     renderFramed("?thread=rv&finding=f1");
     fireEvent.click(screen.getByTestId("drawer-close"));

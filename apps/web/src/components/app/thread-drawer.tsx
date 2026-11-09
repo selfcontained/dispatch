@@ -1,5 +1,6 @@
 import { ConversationReturnLink } from "./chat/conversation-location-link";
 import { useMemo, useState } from "react";
+import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { MotionConfig } from "framer-motion";
 import { ArrowLeft, X } from "lucide-react";
 
@@ -177,74 +178,93 @@ export function ThreadDrawer({
   const depth = pages.length;
 
   return (
-    <aside
-      data-testid="thread-drawer"
-      data-depth={depth}
-      className={cn(
-        "flex h-full min-h-0 w-full flex-col text-foreground",
-        className
-      )}
-      aria-label={heading.title}
+    <DismissableLayer
+      asChild
+      onPointerDownOutside={(event) => {
+        const target = event.target;
+        // React-owned portals are inside the layer already. Shared overlays
+        // (such as the file lightbox) live beside the drawer in the app tree.
+        if (
+          isMobile ||
+          !current ||
+          (target instanceof Element &&
+            target.closest(
+              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-testid="drawer-resize-handle"]'
+            ))
+        )
+          return;
+        closeAll();
+      }}
     >
-      <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-[env(safe-area-inset-top)]">
-        {depth > 1 ? (
+      <aside
+        data-testid="thread-drawer"
+        data-depth={depth}
+        className={cn(
+          "flex h-full min-h-0 w-full flex-col text-foreground",
+          className
+        )}
+        aria-label={heading.title}
+      >
+        <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-[env(safe-area-inset-top)]">
+          {depth > 1 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label="Back"
+              data-testid="drawer-back"
+              onClick={back}
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          ) : (
+            <span className="w-2" aria-hidden="true" />
+          )}
+          {identity && identity.kind !== "user" ? (
+            <div className="mr-2 shrink-0" data-testid="drawer-identity">
+              <Avatar author={identity} />
+            </div>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div
+              className="truncate text-sm font-semibold text-foreground"
+              data-testid="drawer-title"
+            >
+              {heading.title}
+            </div>
+            {heading.subtitle ? (
+              <div
+                className="truncate text-[11.5px] text-muted-foreground"
+                data-testid="drawer-subtitle"
+              >
+                {heading.subtitle}
+              </div>
+            ) : null}
+            {identity ? (
+              <div className="mt-0.5 flex min-w-0" data-testid="drawer-meta">
+                <AuthorMeta author={identity} />
+              </div>
+            ) : null}
+          </div>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 shrink-0"
-            aria-label="Back"
-            data-testid="drawer-back"
-            onClick={back}
+            className="h-7 w-7 shrink-0"
+            aria-label="Close"
+            title="Close"
+            data-testid="drawer-close"
+            onClick={closeAll}
           >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
-        ) : (
-          <span className="w-2" aria-hidden="true" />
-        )}
-        {identity && identity.kind !== "user" ? (
-          <div className="mr-2 shrink-0" data-testid="drawer-identity">
-            <Avatar author={identity} />
-          </div>
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <div
-            className="truncate text-sm font-semibold text-foreground"
-            data-testid="drawer-title"
-          >
-            {heading.title}
-          </div>
-          {heading.subtitle ? (
-            <div
-              className="truncate text-[11.5px] text-muted-foreground"
-              data-testid="drawer-subtitle"
-            >
-              {heading.subtitle}
-            </div>
-          ) : null}
-          {identity ? (
-            <div className="mt-0.5 flex min-w-0" data-testid="drawer-meta">
-              <AuthorMeta author={identity} />
-            </div>
-          ) : null}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0"
-          aria-label="Close"
-          title="Close"
-          data-testid="drawer-close"
-          onClick={closeAll}
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </Button>
-      </div>
-      <ConversationReturnLink inDrawer />
-      <MotionConfig reducedMotion="user">
-        <DrawerStack pages={pages} />
-      </MotionConfig>
-    </aside>
+        <ConversationReturnLink inDrawer />
+        <MotionConfig reducedMotion="user">
+          <DrawerStack pages={pages} />
+        </MotionConfig>
+      </aside>
+    </DismissableLayer>
   );
 }
