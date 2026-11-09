@@ -12,6 +12,8 @@ export type Mentionable = {
   mentionName?: string;
   qualifiedMentionName?: string;
   agentType?: string | null;
+  /** Historical routing metadata limits which token modes may name this identity. */
+  mentionModes?: readonly ("mention" | "reference")[];
   /** Its number in the tree, drawn beside the name. */
   seat?: number;
 };
@@ -107,6 +109,8 @@ export function mentionSpans(
       "giu"
     );
     for (const match of text.matchAll(re)) {
+      const mode = match[2] ? "reference" : "mention";
+      if (agent.mentionModes && !agent.mentionModes.includes(mode)) continue;
       const start = match.index + match[1]!.length;
       const end = start + match[2]!.length + 1 + name.length;
       if (hits.some((h) => start < h.end && end > h.start)) continue;
