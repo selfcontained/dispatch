@@ -56,6 +56,8 @@ function renderTabs(
         name: item.file_name,
         source: item.source,
         size: item.size_bytes,
+        media: item.media,
+        mimeType: item.mime_type,
         updatedAt: item.created_at,
         description: item.description,
         url: `/api/v1/agents/${AGENT_ID}/files/${encodeURIComponent(item.file_name)}`,
@@ -147,22 +149,27 @@ describe("DetailTabs", () => {
     );
 
     expect(screen.queryByText("Loading file…")).toBeNull();
-    await screen.findByText("second.png");
+    await screen.findByRole("dialog", { name: "second.png" });
     const lightbox = within(screen.getByTestId("file-lightbox"));
     expect(apiMock).toHaveBeenCalledWith("/api/v1/files/2");
     // Caption falls back to the timestamp-stripped file name.
-    expect(lightbox.getByText("second.png")).toBeTruthy();
+    expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe(
+      "second.png"
+    );
     // Index and count both reached the lightbox.
     expect(lightbox.getByText("2/3")).toBeTruthy();
 
-    // ArrowRight advances to the third item, proving index wiring is live
-    // state (not a snapshot) and totalItems permits forward navigation.
+    // Only explicit navigation changes images while leaving comments.
     fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe(
+      "second.png"
+    );
+    fireEvent.click(lightbox.getByRole("button", { name: "Next image" }));
     const thirdLightbox = within(screen.getByTestId("file-lightbox"));
-    await thirdLightbox.findByText("Third shot");
+    await screen.findByRole("dialog", { name: "Third shot" });
     expect(thirdLightbox.getByText("3/3")).toBeTruthy();
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(thirdLightbox.getByRole("button", { name: "Close image" }));
     expect(screen.queryByTestId("file-lightbox")).toBeNull();
   });
 });
