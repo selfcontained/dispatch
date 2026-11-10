@@ -8,9 +8,12 @@ const HOLD_MS = 500;
 /** Passive gesture classification; the existing reply button owns keyboard access. */
 export function MessageThreadTap({
   onOpen,
+  dismissingCurrentThread = false,
   children,
 }: {
   onOpen?: () => void;
+  /** Snapshot on pointerdown: this tap dismisses the thread it would open. */
+  dismissingCurrentThread?: boolean;
   children: ReactNode;
 }) {
   const gesture = useRef<{
@@ -53,7 +56,10 @@ export function MessageThreadTap({
           x: event.clientX,
           y: event.clientY,
           at: performance.now(),
-          valid: !interactive(event.target) && !selection(),
+          valid:
+            !dismissingCurrentThread &&
+            !interactive(event.target) &&
+            !selection(),
           released: false,
         };
       }}

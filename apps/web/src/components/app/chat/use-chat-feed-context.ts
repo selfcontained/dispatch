@@ -29,6 +29,7 @@ export type ChatFeedContextInput = {
   onOpenPath?: FeedContext["onOpenPath"];
   onToggleReaction?: FeedContext["onToggleReaction"];
   onOpenThread?: FeedContext["onOpenThread"];
+  openThreadId?: FeedContext["openThreadId"];
   onSubmitForm?: FeedContext["onSubmitForm"];
   onSetBlockState?: FeedContext["onSetBlockState"];
   settingBlockStateId?: FeedContext["settingBlockStateId"];
@@ -69,6 +70,7 @@ export function useChatFeedContext({
   onOpenPath,
   onToggleReaction,
   onOpenThread,
+  openThreadId,
   onSubmitForm,
   onSetBlockState,
   settingBlockStateId,
@@ -150,6 +152,7 @@ export function useChatFeedContext({
       onOpenPath,
       onToggleReaction,
       onOpenThread,
+      openThreadId,
       onSubmitForm,
       onSetBlockState,
       settingBlockStateId,
@@ -169,6 +172,7 @@ export function useChatFeedContext({
       onOpenPath,
       onToggleReaction,
       onOpenThread,
+      openThreadId,
       onSubmitForm,
       onSetBlockState,
       settingBlockStateId,

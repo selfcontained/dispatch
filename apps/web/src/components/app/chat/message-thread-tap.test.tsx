@@ -86,3 +86,21 @@ it("accepts touch pointer-leave after release", () => {
   fireEvent.click(target);
   expect(open).toHaveBeenCalledTimes(1);
 });
+it("keeps a dismissing gesture invalid after the pointerdown closes its thread", () => {
+  const open = vi.fn();
+  const view = (dismissing: boolean) => (
+    <MessageThreadTap onOpen={open} dismissingCurrentThread={dismissing}>
+      <p>Message content</p>
+    </MessageThreadTap>
+  );
+  const { rerender } = render(view(true));
+  const target = screen.getByText("Message content");
+  down(target);
+  // The outside layer clears the URL before pointerup/click.
+  rerender(view(false));
+  release(target);
+  expect(open).not.toHaveBeenCalled();
+  down(target);
+  release(target);
+  expect(open).toHaveBeenCalledTimes(1);
+});

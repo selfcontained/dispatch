@@ -179,6 +179,8 @@ export type FeedContext = {
   onToggleReaction?: (blockId: string, emoji: string, remove: boolean) => void;
   /** Opens a block's thread in the drawer, on one finding when given. */
   onOpenThread?: (blockId: string, findingId?: string) => void;
+  /** Thread named by the main pane URL, for pointer gesture classification. */
+  openThreadId?: string | null;
   /** Submits a form block's values. */
   onSubmitForm?: (
     blockId: string,
@@ -1799,7 +1801,12 @@ export const BlockView = memo(function BlockView({
         deliveryIndicator={deliveryIndicator}
       >
         {block.text ? (
-          <MessageThreadTap onOpen={openTextThread}>
+          <MessageThreadTap
+            onOpen={openTextThread}
+            dismissingCurrentThread={
+              ctx.openThreadId === (mirroredInput ? block.threadId : block.id)
+            }
+          >
             <Markdown
               className="prose-p:whitespace-pre-line prose-li:whitespace-pre-line"
               renderText={(text) => (
@@ -1971,7 +1978,12 @@ export const BlockView = memo(function BlockView({
         {block.sharedMessage ? (
           <SharedMessageEntry share={block.sharedMessage} />
         ) : block.turn ? (
-          <MessageThreadTap onOpen={openTextThread}>
+          <MessageThreadTap
+            onOpen={openTextThread}
+            dismissingCurrentThread={
+              ctx.openThreadId === (mirroredInput ? block.threadId : block.id)
+            }
+          >
             <TurnAnswer
               block={block}
               turn={block.turn}
@@ -2009,7 +2021,12 @@ export const BlockView = memo(function BlockView({
             }
           />
         ) : block.text ? (
-          <MessageThreadTap onOpen={openTextThread}>
+          <MessageThreadTap
+            onOpen={openTextThread}
+            dismissingCurrentThread={
+              ctx.openThreadId === (mirroredInput ? block.threadId : block.id)
+            }
+          >
             <Markdown
               renderText={(text) => (
                 <MentionText
