@@ -28,6 +28,7 @@ import {
 import { MergeRiskAssessor } from "../src/agents/merge-risk/assessor.js";
 import {
   reviewFingerprint,
+  loadReviewEvidence,
   type PullRequestDetails,
 } from "../src/agents/merge-risk/sources.js";
 import { RoutingSettings } from "../src/chat/routing-settings.js";
@@ -678,6 +679,34 @@ describe("merge-risk assessor", () => {
       statusCheckRollup: null,
     }));
   });
+
+  it.each([false, true])(
+    "keeps archived reviewer evidence and eligibility (resolved: %s)",
+    async (resolved) => {
+      await review([{ resolved }]);
+      const evidence = await loadReviewEvidence(pool, [builder]);
+      const before = await service().assess(url, pr(), [builder]);
+      await pool.query("UPDATE agents SET deleted_at=now() WHERE id=$1", [
+        reviewer,
+      ]);
+      try {
+        const archivedEvidence = await loadReviewEvidence(pool, [builder]);
+        expect(archivedEvidence).toEqual(evidence);
+        expect(reviewFingerprint(archivedEvidence)).toBe(
+          reviewFingerprint(evidence)
+        );
+        expect(await service().assess(url, pr(), [builder])).toEqual(before);
+        expect(before).toMatchObject(
+          resolved ? { verdict: "routine" } : { displayState: "waiting_review" }
+        );
+        expect(transport).toHaveBeenCalledTimes(resolved ? 1 : 0);
+      } finally {
+        await pool.query("UPDATE agents SET deleted_at=NULL WHERE id=$1", [
+          reviewer,
+        ]);
+      }
+    }
+  );
 
   it("assesses an open, passing, fully resolved pull request once per head and review state", async () => {
     await review([{ resolved: true }]);

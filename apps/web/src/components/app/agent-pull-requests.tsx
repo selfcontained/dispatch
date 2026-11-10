@@ -171,12 +171,15 @@ function EvidencePercent({
     value === null
       ? undefined
       : meaning === "support"
-        ? `color-mix(in srgb, hsl(var(--status-working)) ${Math.round(value * 100)}%, #ef4444)`
+        ? `color-mix(in srgb, var(--risk-positive) ${Math.round(value * 100)}%, var(--risk-negative))`
         : meaning === "attention"
-          ? `color-mix(in srgb, hsl(var(--status-waiting)) ${Math.round(value * 100)}%, hsl(var(--muted-foreground)))`
-          : "hsl(var(--status-reviewing))";
+          ? `color-mix(in srgb, var(--risk-attention) ${Math.round(value * 100)}%, var(--risk-neutral))`
+          : "var(--risk-context)";
   return (
-    <span className="tabular-nums font-medium" style={{ color }}>
+    <span
+      className="tabular-nums font-medium text-muted-foreground [--risk-positive:#166534] [--risk-negative:#991b1b] [--risk-attention:#92400e] [--risk-neutral:#475569] [--risk-context:#1e40af] [[data-theme-mode=dark]_&]:[--risk-positive:#86efac] [[data-theme-mode=dark]_&]:[--risk-negative:#fca5a5] [[data-theme-mode=dark]_&]:[--risk-attention:#fcd34d] [[data-theme-mode=dark]_&]:[--risk-neutral:#cbd5e1] [[data-theme-mode=dark]_&]:[--risk-context:#93c5fd]"
+      style={{ color }}
+    >
       {percent(value)}
     </span>
   );
