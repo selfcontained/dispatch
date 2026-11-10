@@ -292,6 +292,25 @@ describe("ThreadPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  it("delegates embedded Escape to its containing drawer", () => {
+    client.setQueryData(threadQueryKey("agt_1", "root"), thread);
+    const { onClose } = renderPanel({ chrome: false });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("does not close for an Escape already handled by an overlay", () => {
+    client.setQueryData(threadQueryKey("agt_1", "root"), thread);
+    const { onClose } = renderPanel();
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    event.preventDefault();
+    fireEvent(window, event);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   const naming = () =>
     findingBlock(
       "f1",

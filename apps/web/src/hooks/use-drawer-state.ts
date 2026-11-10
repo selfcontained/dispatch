@@ -11,6 +11,7 @@ import {
 
 type UseDrawerStateOptions = {
   sidebarAgentId: string | null;
+  threadOpen?: boolean;
   isMobile: boolean;
   agentIds: readonly string[];
   mobileDrawerOpen: boolean;
@@ -20,6 +21,7 @@ type UseDrawerStateOptions = {
 
 export function useDrawerState({
   sidebarAgentId,
+  threadOpen = false,
   isMobile,
   agentIds,
   mobileDrawerOpen,
@@ -62,6 +64,16 @@ export function useDrawerState({
     },
     [isMobile, setDesktopDrawerState, setMobileLeftOpen, setMobileDrawerOpen]
   );
+
+  // A thread replaces the sidebar instead of covering an open sidebar
+  // that would spring back when the thread URL is cleared.
+  useEffect(() => {
+    if (!threadOpen) return;
+    if (isMobile) setMobileDrawerOpen(false);
+    setDesktopDrawerState((prev) =>
+      prev.isOpen ? { ...prev, isOpen: false } : prev
+    );
+  }, [threadOpen, isMobile, setDesktopDrawerState, setMobileDrawerOpen]);
 
   const toggleDrawerPinned = useCallback(() => {
     setDesktopDrawerState((prev) => ({

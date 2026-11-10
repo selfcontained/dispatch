@@ -61,7 +61,7 @@ function sameTarget(a: ThreadTarget, b: ThreadTarget | null): boolean {
 /**
  * A thread (or a review, or another agent's turn) open beside the stream,
  * from the URL. Its own panel, not a page over the sidebar: closing it
- * returns to the stream, and the sidebar is wherever it was. Only a
+ * returns to the stream with the sidebar closed. Only a
  * finding stacks over its review inside it, with a way back to the
  * review; everywhere else the one control is close. While its frame
  * slides shut it keeps showing the thread the URL just stopped naming.
@@ -180,6 +180,12 @@ export function ThreadDrawer({
   return (
     <DismissableLayer
       asChild
+      onEscapeKeyDown={(event) => {
+        if (!current) return;
+        event.preventDefault();
+        if (findingId) back();
+        else closeAll();
+      }}
       onPointerDownOutside={(event) => {
         const target = event.target;
         // React-owned portals are inside the layer already. Shared overlays
@@ -189,7 +195,7 @@ export function ThreadDrawer({
           !current ||
           (target instanceof Element &&
             target.closest(
-              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-testid="drawer-resize-handle"], [data-background-work-trigger]'
+              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-testid="drawer-resize-handle"], [data-background-work-trigger], [data-testid="toggle-drawer"]'
             ))
         )
           return;

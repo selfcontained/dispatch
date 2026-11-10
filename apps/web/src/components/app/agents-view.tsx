@@ -137,6 +137,17 @@ export function AgentsView({
   const { expandedAgentId, setExpandedAgentId, toggleAgentDetails } =
     useExpandedAgent();
 
+  // A thread replaces the sidebar in the right-hand slot. Its URL is the
+  // navigation state; useDrawerState takes the sidebar down when it opens.
+  const hasActiveAgent = Boolean(validatedSelectedAgentId);
+  const drawerRoute = useDrawerRoute();
+  const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
+    drawerRoute;
+  const [taskPaneParams] = useSearchParams();
+  const threadDrawerOpen =
+    drawerRoute.depth > 0 && hasActiveAgent && !taskPaneParams.has("task");
+  const taskPaneOpen = taskPaneParams.has("task");
+
   const sidebarAgentId = validatedSelectedAgentId;
   const agentIds = useMemo(() => agents.map((a) => a.id), [agents]);
   const {
@@ -149,6 +160,7 @@ export function AgentsView({
     toggleDrawerPinned,
   } = useDrawerState({
     sidebarAgentId,
+    threadOpen: threadDrawerOpen,
     isMobile,
     agentIds: agentsLoaded ? agentIds : [],
     mobileDrawerOpen,
@@ -247,9 +259,9 @@ export function AgentsView({
     const streamStarted =
       !prevFocusedAgentHasStreamRef.current && focusedAgentHasStream;
     prevFocusedAgentHasStreamRef.current = focusedAgentHasStream;
-    if (!streamStarted) return;
+    if (!streamStarted || threadDrawerOpen) return;
     setDrawerOpenState(true);
-  }, [focusedAgentHasStream, setDrawerOpenState]);
+  }, [focusedAgentHasStream, setDrawerOpenState, threadDrawerOpen]);
 
   useAgentFocus(focusedAgentId, "authenticated");
 
@@ -288,17 +300,6 @@ export function AgentsView({
     [focusedAgentId, isMobile, navTo, setMobileDrawerOpen]
   );
 
-  // A thread (or a review, or a child's turn) lives in the URL and opens
-  // in a drawer of its own, in the sidebar's slot. The sidebar keeps its
-  // own open state underneath: closing the thread gives the slot back.
-  const hasActiveAgent = Boolean(validatedSelectedAgentId);
-  const drawerRoute = useDrawerRoute();
-  const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
-    drawerRoute;
-  const [taskPaneParams] = useSearchParams();
-  const threadDrawerOpen =
-    drawerRoute.depth > 0 && hasActiveAgent && !taskPaneParams.has("task");
-  const taskPaneOpen = taskPaneParams.has("task");
   useEffect(() => {
     if (isMobile && taskPaneOpen) {
       setMobileLeftOpen(false);
@@ -321,17 +322,17 @@ export function AgentsView({
       setMobileLeftOpen(false);
     }
   }, [noAgentOnMobile, setMobileLeftOpen]);
-  // On a phone the two are sheets over the same edge: a thread opening
-  // takes the sidebar's sheet down.
-  useEffect(() => {
-    if (isMobile && threadDrawerOpen && mobileDrawerOpen) {
-      setMobileDrawerOpen(false);
-    }
-  }, [isMobile, mobileDrawerOpen, setMobileDrawerOpen, threadDrawerOpen]);
   const closeDrawer = useCallback(() => {
     setDrawerOpenState(false);
   }, [setDrawerOpenState]);
-  const setDrawerOpen = setDrawerOpenState;
+  // Explicit sidebar opening replaces the thread rather than waiting beneath it.
+  const setDrawerOpen = useCallback(
+    (open: boolean) => {
+      if (open) closeDrawerPages();
+      setDrawerOpenState(open);
+    },
+    [closeDrawerPages, setDrawerOpenState]
+  );
 
   /** Pushes a block's thread (or a review) onto the drawer; from the Inbox. */
   const handleOpenBlock = useCallback(
@@ -404,7 +405,7 @@ export function AgentsView({
     sidebarAgentId,
     validatedSelectedAgentId,
     drawerOpen,
-    setDrawerOpen: setDrawerOpenState,
+    setDrawerOpen,
     leftPanelOpen,
     handleSetLeftPanelOpen,
     openCreateDialog,
@@ -605,7 +606,7 @@ export function AgentsView({
                 exitSplit={exitSplit}
                 onTabChange={onTabChange}
                 drawerPanelOpen={drawerPanelOpen}
-                setDrawerOpen={setDrawerOpenState}
+                setDrawerOpen={setDrawerOpen}
                 unseenFileCount={unseenFileCount}
                 openInputCount={inbox.inputs.length}
               />

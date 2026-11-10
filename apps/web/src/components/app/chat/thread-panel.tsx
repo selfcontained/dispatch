@@ -367,14 +367,16 @@ export function ThreadPanel({
     seen.count = replyCount;
   }, [replyCount, threadBlockId, loadedRootId, jumpedRef]);
 
-  // Escape closes the panel, as it would a sheet.
+  // Embedded panels delegate Escape to the containing drawer's layer, so
+  // nested menus and findings do not also dismiss their parent panel.
   useEffect(() => {
+    if (!chrome) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !event.defaultPrevented) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [chrome, onClose]);
 
   return (
     <aside

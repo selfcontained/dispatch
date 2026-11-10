@@ -55,7 +55,7 @@ for (const pinned of [false, true]) {
         await message(roots[0]!).click({ position: { x: 12, y: 12 } });
         await expect(page).not.toHaveURL(/thread=/);
         await expect(page.getByTestId("thread-drawer")).toHaveCount(0);
-        expect(await sidebarState()).toBe(initiallyOpen);
+        expect(await sidebarState()).toBe(false);
         // A later gesture still opens the same thread normally.
         await message(roots[0]!).click({ position: { x: 12, y: 12 } });
         await expect(page).toHaveURL(new RegExp(`thread=${roots[0]}`));
@@ -65,10 +65,33 @@ for (const pinned of [false, true]) {
       await expect(page).toHaveURL(new RegExp(`thread=${roots[1]}`));
       await page.getByTestId("drawer-close").click();
       await expect(page).not.toHaveURL(/thread=/);
-      expect(await sidebarState()).toBe(initiallyOpen);
+      expect(await sidebarState()).toBe(false);
+      // Explicit sidebar opening is intentional and replaces the thread.
+      await message(roots[0]!).click({ position: { x: 12, y: 12 } });
+      // Floating drawers cover the header toggle; pinned drawers leave it reachable.
+      if (!pinned) await page.getByTestId("drawer-close").click();
+      await page.getByTestId("toggle-drawer").click();
+      await expect(page).not.toHaveURL(/thread=/);
+      await expect.poll(sidebarState).toBe(true);
+      await expect(page.getByTestId("thread-drawer")).toHaveCount(0);
+      // Opening another thread takes the sidebar down; Escape keeps it down.
+      await message(roots[0]!).click({ position: { x: 12, y: 12 } });
+      await expect(page.getByTestId("thread-drawer")).toBeVisible();
+      await expect(page).toHaveURL(new RegExp(`thread=${roots[0]}`));
+      await page
+        .getByTestId("thread-drawer")
+        .getByRole("button", { name: "Message actions", exact: true })
+        .first()
+        .click();
+      await expect(page.getByRole("menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page).toHaveURL(new RegExp(`thread=${roots[0]}`));
+      await page.keyboard.press("Escape");
+      await expect(page).not.toHaveURL(/thread=/);
+      await expect.poll(sidebarState).toBe(false);
       const path = testInfo.outputPath("dismissed.png");
       await page.screenshot({ path, fullPage: true });
-      await testInfo.attach("dismissed sidebar preserved", {
+      await testInfo.attach("dismissed sidebar stays closed", {
         path,
         contentType: "image/png",
       });
