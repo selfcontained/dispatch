@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { agentListQuery } from "@/hooks/use-agents";
+import { streamFeedFilters, threadQueryKey } from "@/hooks/use-stream";
 import { imageFeedbackMessage } from "@/lib/image-feedback-message";
 import { createClientId } from "@/lib/client-id";
 import { api, ApiError } from "@/lib/api";
@@ -506,6 +507,20 @@ export function ImageComments({
       setShareAttempt((old) => (old?.id === batch.id ? null : old));
       setSelected(null);
       void queryClient.invalidateQueries({ queryKey: ["files"] });
+      // Share bypasses the chat composer's cache reconciliation. A stored
+      // receipt must refresh its destination even if its SSE event was missed.
+      // Keep the server's feed projection (ordering and attachment dimensions).
+      void queryClient.invalidateQueries(
+        streamFeedFilters(batch.location.streamId)
+      );
+      if (batch.location.threadId)
+        void queryClient.invalidateQueries({
+          queryKey: threadQueryKey(
+            batch.location.streamId,
+            batch.location.threadId
+          ),
+          exact: true,
+        });
       if (onShared) onShared(batch.location);
       else onClose();
     },

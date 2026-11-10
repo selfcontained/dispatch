@@ -88,8 +88,52 @@ async function open(
     const field = await screen.findByPlaceholderText("Add a note…");
     fireEvent.change(field, { target: { value: text } });
   };
-  return { draft, file, unmount: view.unmount };
+  return { draft, file, client, unmount: view.unmount };
 }
+
+it.each([false, true])(
+  "refreshes confirmed destination caches without SSE (duplicate receipt: %s)",
+  async (duplicate) => {
+    mockApi.mockImplementation(async (url, init) => {
+      if (url === "/api/v1/agents")
+        return { agents: [{ id: "agent-a", name: "Agent A" }] };
+      if (url.endsWith("/files")) return { file: { id: 80 } };
+      if (url.endsWith("/metadata")) return { routing: [] };
+      if (duplicate) throw new ApiError(409, "Already stored");
+      return {
+        delivered: false,
+        block: {
+          id: JSON.parse(init!.body as string).id,
+          streamId: "stored-parent",
+          threadId: "stored-thread",
+        },
+      };
+    });
+    const shared = vi.fn();
+    const { draft, client } = await open(undefined, ImageComments, shared);
+    const destination = duplicate ? "agent-a" : "stored-parent";
+    const keys = [
+      ["stream", destination],
+      ["stream", destination, "launch-replies", true],
+      ["stream", destination, "thread", "stored-thread"],
+      ["stream", destination, "thread", "unrelated-thread"],
+      ["stream", "unrelated-agent"],
+    ];
+    for (const key of keys) client.setQueryData(key, { receipt: "old" });
+    await draft("Visible even when the stored event does not arrive.");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Share with agent (1)" })
+    );
+    await waitFor(() => expect(shared).toHaveBeenCalledTimes(1));
+    expect(keys.map((key) => client.getQueryState(key)?.isInvalidated)).toEqual(
+      [true, true, !duplicate, false, false]
+    );
+    expect(
+      mockApi.mock.calls.filter(([url]) => url.endsWith("/blocks"))
+    ).toHaveLength(1);
+  }
+);
 
 it.each(["upload", "post"])(
   "collects two notes and shares exactly one frozen batch during %s",
