@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { useAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,6 +64,48 @@ const commentsFamily = atomFamily((key: string) =>
   })
 );
 
+type ShareAttempt = {
+  id: string;
+  recipient: string;
+  items: Callout[];
+  copyId?: number;
+  metadataId?: number;
+  attempted?: boolean;
+};
+const sharesFamily = atomFamily((key: string) =>
+  atomWithLocalStorage<ShareAttempt | null>(
+    `dispatch:image-comment-share:${key}`,
+    null,
+    {
+      validate: (value): value is ShareAttempt | null => {
+        if (value === null) return true;
+        if (!value || typeof value !== "object") return false;
+        const batch = value as ShareAttempt;
+        return (
+          typeof batch.id === "string" &&
+          typeof batch.recipient === "string" &&
+          Array.isArray(batch.items) &&
+          batch.items.length > 0 &&
+          batch.items.every(
+            (c) =>
+              c &&
+              typeof c.id === "string" &&
+              typeof c.note === "string" &&
+              Number.isInteger(c.number) &&
+              [c.x, c.y, c.width, c.height].every(
+                (n) =>
+                  typeof n === "number" &&
+                  Number.isFinite(n) &&
+                  n >= 0 &&
+                  n <= 1
+              )
+          )
+        );
+      },
+    }
+  )
+);
+
 /** Image callouts use normalized, oriented image coordinates; sent notes are also in the stream. */
 export function ImageComments({
   file,
@@ -84,7 +127,14 @@ export function ImageComments({
   const [comments, setComments] = useAtom(
     commentsFamily(`${file.url}:${file.updatedAt}`)
   );
+  const [shareAttempt, setShareAttempt] = useAtom(
+    sharesFamily(`${file.url}:${file.updatedAt}`)
+  );
   const [selected, setSelected] = useState<string | null>(null);
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
   const [mode, setMode] = useState<"comment" | "pan">("comment");
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -122,10 +172,15 @@ export function ImageComments({
   const [preview, setPreview] = useState<Callout | null>(null);
   const { data: agents = [] } = useQuery({
     ...agentListQuery,
-    enabled: selected !== null,
+    enabled:
+      selected !== null ||
+      comments.some((c) => !c.sent && !!c.note.trim()) ||
+      !!shareAttempt,
   });
   const pathAgent = window.location.pathname.match(/\/agents\/([^/]+)/)?.[1];
   const defaultRecipient = pathAgent ?? file.ownerAgentId ?? "";
+  const [recipient, setRecipient] = useState(defaultRecipient);
+  const shareRecipient = shareAttempt?.recipient ?? recipient;
   const current = comments.find((c) => c.id === selected);
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -154,9 +209,14 @@ export function ImageComments({
     const q = p.matrixTransform(world.current!.getScreenCTM()!.inverse());
     return { x: q.x / imageSize.width, y: q.y / imageSize.height };
   };
-  const update = (id: string, patch: Partial<Callout>) =>
+  const update = (id: string, patch: Partial<Callout>) => {
+    if (shareAttempt?.attempted || send.isPending) return;
+    setShareAttempt(null);
     setComments((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  };
   const create = (region: Pick<Callout, "x" | "y" | "width" | "height">) => {
+    if (shareAttempt?.attempted || send.isPending) return;
+    setShareAttempt(null);
     const c: Callout = {
       ...region,
       id: createClientId(),
@@ -169,45 +229,58 @@ export function ImageComments({
     setSelected(c.id);
   };
   const send = useMutation({
-    mutationFn: async (c: Callout) => {
-      if (!image.current || !loaded || !c.recipient || !c.note.trim())
-        throw new Error("Choose an agent and write a note.");
-      let copyId = c.copyId;
-      if (!copyId) {
-        // Bound export memory and keep a new filename/identity. Never overwrite the source.
-        const scale = Math.min(
-          1,
-          2560 / Math.max(imageSize.width, imageSize.height)
+    mutationFn: async (batch: ShareAttempt) => {
+      if (!image.current || !loaded || !batch.recipient || !batch.items.length)
+        throw new Error("Add notes and choose an agent.");
+      const text = imageFeedbackMessage(
+        batch.items.map((c) => `${c.number}. ${c.note.trim()}`).join("\n\n"),
+        file.name
+      );
+      if (text.length > BLOCK_TEXT_MAX_CHARS)
+        throw new Error(
+          "These notes are too long for one message. Shorten them before sharing."
         );
+      const cache = (patch: Partial<ShareAttempt>) =>
+        setShareAttempt((old) =>
+          old?.id === batch.id ? { ...old, ...patch } : old
+        );
+      let copyId = batch.copyId;
+      const scale = Math.min(
+        1,
+        2560 / Math.max(imageSize.width, imageSize.height)
+      );
+      if (!copyId) {
         const canvas = document.createElement("canvas");
         canvas.width = Math.round(imageSize.width * scale);
         canvas.height = Math.round(imageSize.height * scale);
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("Unable to create annotated copy.");
         ctx.drawImage(image.current, 0, 0, canvas.width, canvas.height);
-        const x = c.x * canvas.width,
-          y = c.y * canvas.height;
-        ctx.strokeStyle = "#fb923c";
-        ctx.lineWidth = Math.max(3, canvas.width / 400);
-        if (c.width || c.height)
-          ctx.strokeRect(
-            x,
-            y,
-            c.width * canvas.width,
-            c.height * canvas.height
-          );
-        const r = Math.max(14, canvas.width / 80);
-        const bx = Math.max(r, Math.min(canvas.width - r, x));
-        const by = Math.max(r, Math.min(canvas.height - r, y));
-        ctx.fillStyle = "#9a3412";
-        ctx.beginPath();
-        ctx.arc(bx, by, r, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.fillStyle = "white";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = `bold ${r}px sans-serif`;
-        ctx.fillText(String(c.number), bx, by);
+        for (const c of batch.items) {
+          const x = c.x * canvas.width,
+            y = c.y * canvas.height;
+          ctx.strokeStyle = "#fb923c";
+          ctx.lineWidth = Math.max(3, canvas.width / 400);
+          if (c.width || c.height)
+            ctx.strokeRect(
+              x,
+              y,
+              c.width * canvas.width,
+              c.height * canvas.height
+            );
+          const r = Math.max(14, canvas.width / 80),
+            bx = Math.max(r, Math.min(canvas.width - r, x)),
+            by = Math.max(r, Math.min(canvas.height - r, y));
+          ctx.fillStyle = "#9a3412";
+          ctx.beginPath();
+          ctx.arc(bx, by, r, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `bold ${r}px sans-serif`;
+          ctx.fillText(String(c.number), bx, by);
+        }
         const blob = await new Promise<Blob>((resolve, reject) =>
           canvas.toBlob(
             (b) =>
@@ -216,18 +289,17 @@ export function ImageComments({
           )
         );
         const body = new FormData();
-        body.append("file", blob, `feedback-${c.id}.png`);
+        body.append("file", blob, `feedback-${batch.id}.png`);
         const uploaded = await api<{ file: { id: number } }>(
-          `/api/v1/agents/${encodeURIComponent(c.recipient)}/files`,
+          `/api/v1/agents/${encodeURIComponent(batch.recipient)}/files`,
           { method: "POST", body }
         );
         copyId = uploaded.file.id;
-        update(c.id, { copyId });
+        cache({ copyId });
       }
       const metadata = {
-        schema: "dispatch.image-feedback.v1",
-        annotationId: c.id,
-        number: c.number,
+        schema: "dispatch.image-feedback.v2",
+        shareId: batch.id,
         original: {
           fileId: file.id,
           name: file.name,
@@ -238,27 +310,25 @@ export function ImageComments({
         },
         derivedFileId: copyId,
         derivedSize: {
-          width: Math.round(
-            imageSize.width *
-              Math.min(1, 2560 / Math.max(imageSize.width, imageSize.height))
-          ),
-          height: Math.round(
-            imageSize.height *
-              Math.min(1, 2560 / Math.max(imageSize.width, imageSize.height))
-          ),
+          width: Math.round(imageSize.width * scale),
+          height: Math.round(imageSize.height * scale),
         },
         sourceLocation: window.location.pathname + window.location.search,
-        region: {
-          x: c.x,
-          y: c.y,
-          width: c.width,
-          height: c.height,
-          units: "normalized",
-          origin: "top-left",
-        },
-        note: c.note.trim(),
+        annotations: batch.items.map((c) => ({
+          id: c.id,
+          number: c.number,
+          region: {
+            x: c.x,
+            y: c.y,
+            width: c.width,
+            height: c.height,
+            units: "normalized",
+            origin: "top-left",
+          },
+          note: c.note.trim(),
+        })),
       };
-      let metadataId = c.metadataId;
+      let metadataId = batch.metadataId;
       if (!metadataId) {
         const body = new FormData();
         body.append(
@@ -266,32 +336,31 @@ export function ImageComments({
           new Blob([JSON.stringify(metadata, null, 2)], {
             type: "application/json",
           }),
-          `feedback-${c.id}.json`
+          `feedback-${batch.id}.json`
         );
         const uploaded = await api<{ file: { id: number } }>(
-          `/api/v1/agents/${encodeURIComponent(c.recipient)}/files`,
+          `/api/v1/agents/${encodeURIComponent(batch.recipient)}/files`,
           { method: "POST", body }
         );
         metadataId = uploaded.file.id;
-        update(c.id, { metadataId });
+        cache({ metadataId });
       }
-      // Stable IDs make response-loss retries safe; an existing block confirms receipt.
-      update(c.id, { attempted: true });
+      cache({ attempted: true });
       let delivered: boolean | null = null;
       try {
         const result = await api<{ delivered: boolean | null }>(
-          `/api/v1/streams/${encodeURIComponent(c.recipient)}/blocks`,
+          `/api/v1/streams/${encodeURIComponent(batch.recipient)}/blocks`,
           {
             method: "POST",
             body: JSON.stringify({
-              id: c.id,
-              to: c.recipient,
-              text: imageFeedbackMessage(c.note, file.name, c.number),
+              id: batch.id,
+              to: batch.recipient,
+              text,
               attachments: [
                 {
                   type: "file",
                   fileId: copyId,
-                  caption: `Callout ${c.number} on ${file.name}`,
+                  caption: `Feedback on ${file.name}`,
                 },
                 {
                   type: "file",
@@ -306,18 +375,48 @@ export function ImageComments({
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 409) throw error;
         await api(
-          `/api/v1/streams/${encodeURIComponent(c.recipient)}/blocks/${c.id}/metadata`
+          `/api/v1/streams/${encodeURIComponent(batch.recipient)}/blocks/${batch.id}/metadata`
         );
       }
-      return { ...c, delivered };
+      return { ...batch, delivered };
     },
-    onSuccess: (c) => {
-      update(c.id, { sent: true, delivered: c.delivered });
+    onSuccess: (batch) => {
+      const ids = new Set(batch.items.map((c) => c.id));
+      setComments((cs) =>
+        cs.map((c) =>
+          ids.has(c.id)
+            ? {
+                ...c,
+                sent: true,
+                recipient: batch.recipient,
+                delivered: batch.delivered,
+              }
+            : c
+        )
+      );
+      setShareAttempt(null);
       setSelected(null);
+      requestAnimationFrame(() => {
+        if (selectedRef.current === null)
+          document.getElementById(`comment-${batch.items[0].id}`)?.focus();
+      });
       void queryClient.invalidateQueries({ queryKey: ["files"] });
     },
   });
   const busy = send.isPending;
+  const frozen = busy || !!shareAttempt?.attempted;
+  const unshared = comments.filter((c) => !c.sent && c.note.trim());
+  const share = () => {
+    if (busy) return;
+    const batch = shareAttempt ?? {
+      id: createClientId(),
+      recipient: shareRecipient,
+      items: unshared.map((c) => ({ ...c })),
+    };
+    setShareAttempt(batch);
+    setSelected(null);
+    send.mutate(batch);
+  };
   const close = () => {
     if (!busy) onClose();
   };
@@ -407,6 +506,11 @@ export function ImageComments({
                 : "Loading image…"}
             </p>
           )}
+          {loaded && !comments.length && (
+            <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-white/70">
+              Click or drag to leave a note
+            </p>
+          )}
           <svg
             ref={svg}
             viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
@@ -414,7 +518,7 @@ export function ImageComments({
             aria-label="Image callouts. Press Enter to add a centered note."
             tabIndex={0}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && loaded && !busy) {
+              if (e.key === "Enter" && loaded && !frozen) {
                 e.preventDefault();
                 create({ x: 0.5, y: 0.5, width: 0, height: 0 });
               }
@@ -437,7 +541,7 @@ export function ImageComments({
                   };
                 return;
               }
-              if (!loaded || busy || e.button !== 0) return;
+              if (!loaded || frozen || e.button !== 0) return;
               const p = point(e);
               if (p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) return;
               setSelected(null);
@@ -564,7 +668,9 @@ export function ImageComments({
                   open={selected === c.id}
                   onOpenChange={(open) => {
                     if (!busy) {
-                      setSelected(open ? c.id : null);
+                      setSelected((current) =>
+                        open ? c.id : current === c.id ? null : current
+                      );
                       send.reset();
                     }
                   }}
@@ -591,6 +697,7 @@ export function ImageComments({
                     onCloseAutoFocus={(e) => {
                       e.preventDefault();
                       requestAnimationFrame(() => {
+                        if (selectedRef.current !== null) return;
                         (
                           document.getElementById(`comment-${c.id}`) ??
                           svg.current
@@ -643,7 +750,7 @@ export function ImageComments({
                           maxLength={4000}
                           placeholder="Add a note…"
                           value={c.note}
-                          disabled={busy || c.attempted}
+                          disabled={frozen}
                           onChange={(e) =>
                             update(c.id, {
                               note: e.target.value,
@@ -652,46 +759,19 @@ export function ImageComments({
                             })
                           }
                         />
-                        <div className="flex items-center gap-2">
-                          <label htmlFor={`to-${c.id}`} className="text-xs">
-                            To
-                          </label>
-                          <select
-                            id={`to-${c.id}`}
-                            className="min-w-0 flex-1 rounded border bg-background p-1 text-xs"
-                            value={c.recipient}
-                            disabled={busy || c.attempted}
-                            onChange={(e) =>
-                              update(c.id, {
-                                recipient: e.target.value,
-                                copyId: undefined,
-                                metadataId: undefined,
-                              })
-                            }
-                          >
-                            <option value="">Choose agent</option>
-                            {agents.map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.name}
-                              </option>
-                            ))}
-                          </select>
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            disabled={
-                              busy || !c.note.trim() || !c.recipient || !loaded
-                            }
-                            onClick={() => send.mutate(c)}
-                          >
-                            {busy ? "Sending…" : "Send"}
-                          </Button>
-                        </div>
+                        <Button
+                          size="sm"
+                          disabled={busy || !c.note.trim()}
+                          onClick={() => setSelected(null)}
+                        >
+                          Done
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          disabled={busy}
+                          disabled={frozen}
                           onClick={() => {
+                            setShareAttempt(null);
                             setComments((cs) =>
                               cs.filter((n) => n.id !== c.id)
                             );
@@ -701,20 +781,15 @@ export function ImageComments({
                         >
                           Delete draft
                         </Button>
-                        {send.isError && (
-                          <p role="alert" className="text-xs text-destructive">
-                            {send.error.message} Your note is kept. If delivery
-                            is uncertain, check the conversation before
-                            retrying.
-                          </p>
-                        )}
                       </>
                     )}
                   </PopoverContent>
                 </Popover>
               );
             })}
-          <div className="absolute inset-x-0 bottom-3 flex justify-center">
+        </div>
+        <footer className="flex flex-wrap items-center justify-center gap-2 border-t bg-background p-2">
+          <div className="mr-auto flex justify-center">
             <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/80 p-1 text-white">
               <Button
                 size="icon"
@@ -767,12 +842,53 @@ export function ImageComments({
               </Button>
             </div>
           </div>
-          {loaded && !comments.length && (
-            <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-white/70">
-              Click or drag to leave a note
+          <label className="sr-only" htmlFor="share-recipient">
+            Agent
+          </label>
+          <select
+            id="share-recipient"
+            aria-label="Agent"
+            className="max-w-36 rounded border bg-background p-2 text-xs"
+            value={shareRecipient}
+            disabled={frozen}
+            onChange={(e) => {
+              setRecipient(e.target.value);
+              setShareAttempt(null);
+              send.reset();
+            }}
+          >
+            <option value="">Choose agent</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={
+              busy ||
+              !loaded ||
+              !shareRecipient ||
+              (!unshared.length && !shareAttempt)
+            }
+            onClick={share}
+          >
+            {busy
+              ? "Sharing…"
+              : `Share with agent${unshared.length ? ` (${unshared.length})` : ""}`}
+          </Button>
+          {send.isError && (
+            <p
+              role="alert"
+              className="w-full text-center text-xs text-destructive"
+            >
+              {send.error.message} Notes are kept. Retry sharing; if delivery is
+              uncertain, check the conversation.
             </p>
           )}
-        </div>
+        </footer>
       </DialogContent>
     </Dialog>
   );

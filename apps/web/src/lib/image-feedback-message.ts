@@ -5,9 +5,9 @@
 export function imageFeedbackMessage(
   note: string,
   fileName: string,
-  number: number
+  number?: number
 ): string {
-  return `${note.trim()}\n\nFeedback on ${fileName} · Callout ${number}`.replace(
+  return `${note.trim()}\n\nFeedback on ${fileName}${number === undefined ? "" : ` · Callout ${number}`}`.replace(
     /@/g,
     "@\u200b"
   );

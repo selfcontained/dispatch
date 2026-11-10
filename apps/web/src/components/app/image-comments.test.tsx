@@ -84,7 +84,7 @@ async function open() {
 }
 
 it.each(["upload", "post"])(
-  "keeps the sending draft frozen when other bubbles are clicked during %s",
+  "collects two notes and shares exactly one frozen batch during %s",
   async (heldStage) => {
     let release!: (value: unknown) => void;
     const held = new Promise((resolve) => {
@@ -107,30 +107,29 @@ it.each(["upload", "post"])(
     });
     const { draft } = await open();
     await draft("First note");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await draft("Second note");
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() =>
-      expect(
-        (screen.getByPlaceholderText("Add a note…") as HTMLTextAreaElement)
-          .disabled
-      ).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    // Collecting notes has no upload or delivery side effects.
+    expect(uploads).toBe(0);
+    expect(mockApi.mock.calls.some(([url]) => url.endsWith("/blocks"))).toBe(
+      false
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Share with agent (2)" })
+    );
+    await screen.findByRole("button", { name: "Sharing…" });
     const first = screen.getByRole("button", {
       name: "Comment 1, draft",
     }) as HTMLButtonElement;
     expect(first.disabled).toBe(true);
     fireEvent.click(first);
+    expect(screen.queryByPlaceholderText("Add a note…")).toBeNull();
     expect(
-      (screen.getByPlaceholderText("Add a note…") as HTMLTextAreaElement).value
-    ).toBe("Second note");
-    expect(
-      (screen.getByPlaceholderText("Add a note…") as HTMLTextAreaElement)
+      (screen.getByRole("button", { name: "Sharing…" }) as HTMLButtonElement)
         .disabled
     ).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "Sending…" }) as HTMLButtonElement)
-        .disabled
-    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Sharing…" }));
     await act(async () => {
       release(
         heldStage === "upload" ? { file: { id: 11 } } : { delivered: false }
@@ -141,7 +140,27 @@ it.each(["upload", "post"])(
     expect(posts).toHaveLength(1);
     const body = JSON.parse(posts[0][1]!.body as string);
     expect(body.to).toBe("agent-a");
+    expect(body.text).toContain("First note");
     expect(body.text).toContain("Second note");
+    expect(body.attachments).toHaveLength(2);
+    expect(uploads).toBe(2);
+    await screen.findByRole("button", { name: "Comment 1, sent" });
+    const metadataBody = mockApi.mock.calls.filter(([url]) =>
+      url.endsWith("/files")
+    )[1][1]!.body as FormData;
+    const metadataFile = metadataBody.get("file") as File;
+    const json = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsText(metadataFile);
+    });
+    const data = JSON.parse(json);
+    expect(data.schema).toBe("dispatch.image-feedback.v2");
+    expect(data.shareId).toBe(body.id);
+    expect(data.annotations.map((c: { note: string }) => c.note)).toEqual([
+      "First note",
+      "Second note",
+    ]);
   }
 );
 
@@ -154,4 +173,25 @@ it("returns focus to the same bubble after keyboard dismissal", async () => {
   });
   const bubble = screen.getByRole("button", { name: "Comment 1, draft" });
   await waitFor(() => expect(document.activeElement).toBe(bubble));
+});
+
+it("does not let a closing note steal focus from the next note", async () => {
+  mockApi.mockResolvedValue({ agents: [{ id: "agent-a", name: "Agent A" }] });
+  const frames: FrameRequestCallback[] = [];
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const { draft } = await open();
+  await draft("First inline note");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  await draft("Next inline note");
+  act(() => {
+    frames.splice(0).forEach((callback) => callback(1));
+  });
+  const field = screen.getByPlaceholderText(
+    "Add a note…"
+  ) as HTMLTextAreaElement;
+  expect(field.value).toBe("Next inline note");
+  expect(document.activeElement).toBe(field);
 });
