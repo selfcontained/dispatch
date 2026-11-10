@@ -189,6 +189,8 @@ export function ImageComments({
   useEffect(() => {
     selectedRef.current = selected;
   }, [selected]);
+  const noteEditor = useRef<HTMLTextAreaElement>(null);
+  const notePopover = useRef<HTMLDivElement>(null);
   const markupButton = useRef<HTMLButtonElement>(null);
   const [markup, setMarkup] = useState(false);
   const [hintDismissed, setHintDismissed] = useAtom(markupHintDismissedAtom);
@@ -650,12 +652,15 @@ export function ImageComments({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0 rounded-lg text-white hover:bg-white/20 hover:text-white"
+                  data-image-markup-hint
                   aria-label="Dismiss markup hint"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     setHintDismissed(true);
-                    svg.current?.focus();
+                    if (selected)
+                      (noteEditor.current ?? notePopover.current)?.focus();
+                    else svg.current?.focus();
                   }}
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
@@ -859,6 +864,7 @@ export function ImageComments({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
+                    ref={notePopover}
                     className="z-[140] w-[min(320px,calc(100vw-24px))] space-y-3"
                     onCloseAutoFocus={(e) => {
                       e.preventDefault();
@@ -881,7 +887,9 @@ export function ImageComments({
                       if (
                         busy ||
                         (target instanceof Element &&
-                          target.closest("[data-image-share]"))
+                          target.closest(
+                            "[data-image-share], [data-image-markup-hint]"
+                          ))
                       )
                         e.preventDefault();
                     }}
@@ -930,6 +938,7 @@ export function ImageComments({
                           Comment {c.number}
                         </label>
                         <Textarea
+                          ref={noteEditor}
                           autoFocus
                           id={`note-${c.id}`}
                           maxLength={4000}

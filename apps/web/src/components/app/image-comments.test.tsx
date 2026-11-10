@@ -501,3 +501,26 @@ it("dismisses markup guidance without creating a note and remembers it across im
   await second.draft("Another image");
   expect(screen.getByDisplayValue("Another image")).toBeTruthy();
 });
+
+it.each([false, true])(
+  "keeps unsaved note edits when dismissing guidance (saved: %s)",
+  async (saved) => {
+    const view = await open();
+    await view.draft("Original");
+    if (saved) {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      fireEvent.click(screen.getByRole("button", { name: "Comment 1, draft" }));
+    }
+    const editor = screen.getByPlaceholderText("Add a note…");
+    fireEvent.change(editor, { target: { value: "Unsaved edits" } });
+    const dismiss = screen.getByRole("button", { name: "Dismiss markup hint" });
+    act(() => dismiss.focus());
+    fireEvent.click(dismiss);
+    expect(screen.getByDisplayValue("Unsaved edits")).toBe(editor);
+    expect(document.activeElement).toBe(editor);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      screen.getByRole("button", { name: "Comment 1, draft" })
+    ).toBeTruthy();
+  }
+);
