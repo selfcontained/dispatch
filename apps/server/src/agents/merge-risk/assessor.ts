@@ -88,23 +88,19 @@ export class MergeRiskAssessor {
       ...displaySummary(state, headSha),
       ...(previous ? { previous } : {}),
     });
-    if (!headSha || pr.ci?.availability !== "available")
-      return display("unavailable");
+    if (!headSha) return display("unavailable");
     const reviews = await loadReviewEvidence(this.options.pool, ownerAgentIds);
     const fingerprint = reviewFingerprint(reviews);
     if (pr.status === "Merged")
       return (await this.latest(url, headSha)) ?? display("not_ready");
     const gateHolds =
-      pr.status === "Open" &&
-      pr.ci.summary.status === "passing" &&
+      (pr.status === "Open" || pr.status === "Draft") &&
       allFindingsResolved(reviews);
     if (!gateHolds)
       return display(
-        pr.status !== "Open"
+        pr.status !== "Open" && pr.status !== "Draft"
           ? "not_ready"
-          : pr.ci.summary.status !== "passing"
-            ? "waiting_ci"
-            : "waiting_review"
+          : "waiting_review"
       );
     const stored = await this.latest(url, headSha, fingerprint);
     if (stored)
@@ -153,13 +149,16 @@ export class MergeRiskAssessor {
         owners,
         briefing: await loadBriefing(this.options.pool, ownerAgentIds),
         reviews,
-        ci: {
-          status: pr.ci.summary.status,
-          total: pr.ci.summary.total,
-          passed: pr.ci.summary.passed,
-          failed: pr.ci.summary.failed,
-          pending: pr.ci.summary.pending,
-        },
+        ci:
+          pr.ci?.availability === "available"
+            ? {
+                status: pr.ci.summary.status,
+                total: pr.ci.summary.total,
+                passed: pr.ci.summary.passed,
+                failed: pr.ci.summary.failed,
+                pending: pr.ci.summary.pending,
+              }
+            : null,
       });
       // The setting can change while evidence is being gathered.
       if (!(await this.options.settings.configuration()).mergeRiskEnabled) {

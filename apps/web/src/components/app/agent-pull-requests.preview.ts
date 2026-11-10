@@ -3,10 +3,10 @@ import type { PresentedPullRequest } from "./agent-pull-requests";
 // Used only by the development-only ?pr-preview=1 view of the seeded demo agent.
 const examples = [
   {
-    status: "Open",
+    status: "Draft",
     title: "Show pull request status in session details",
-    passed: 12,
-    failed: 0,
+    passed: 11,
+    failed: 1,
     pending: 0,
     skipped: 0,
   },

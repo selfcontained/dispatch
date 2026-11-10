@@ -64,7 +64,9 @@ function fixture(
 }
 describe("cached PR risk", () => {
   it("invokes the registered tool with synthetic provenance and no work", async () => {
-    const { read, inventory } = fixture();
+    const { read, inventory, pr } = fixture();
+    pr.status = "Draft";
+    pr.ci!.summary.status = "pending";
     const server = new McpServer({ name: "fixture", version: "1" });
     registerPullRequestRiskTool(
       server,
@@ -86,6 +88,8 @@ describe("cached PR risk", () => {
       expect(result.isError).toBeFalsy();
       const data = JSON.parse((result.content as { text: string }[])[0]!.text);
       expect(data).toMatchObject({
+        lifecycle: "Draft",
+        ci: { summary: { status: "pending" } },
         headSha: "head",
         state: "current",
         source: "cached_inventory",

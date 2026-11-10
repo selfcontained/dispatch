@@ -11,9 +11,7 @@ export function riskNotice(pr: AgentPullRequest, agentId: string) {
     risk.displayState ||
     !risk.headSha ||
     risk.headSha !== pr.ci?.headSha ||
-    pr.ci.availability !== "available" ||
-    pr.status !== "Open" ||
-    pr.ci.summary.status !== "passing"
+    (pr.status !== "Open" && pr.status !== "Draft")
   )
     return undefined;
   const hash = createHash("sha256")

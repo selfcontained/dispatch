@@ -5,7 +5,11 @@ import { riskFixture } from "./pull-request-risk-fixture.js";
 describe("risk observation", () => {
   it("uses a durable per-result, per-owner identity and explicit non-approval wording", () => {
     const pr = riskFixture();
+    pr.status = "Draft";
+    pr.ci!.summary.status = "failing";
+    pr.ci!.availability = "unavailable";
     const first = riskNotice(pr, "owner")!;
+    expect(riskNotice({ ...pr, status: "Open" }, "owner")?.id).toBe(first.id);
     expect(first.text).toContain("Routine change recommendation");
     expect(first.text).toContain("abc123");
     expect(first.text).toContain("not merge approval");
