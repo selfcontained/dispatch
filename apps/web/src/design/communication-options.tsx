@@ -1,6 +1,9 @@
-import { useState } from "react";
-import { createRoot } from "react-dom/client";
 import {
+  Area,
+  AreaChart,
+  Scatter,
+  ScatterChart,
+  ZAxis,
   Bar,
   BarChart,
   CartesianGrid,
@@ -14,20 +17,19 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import "../index.css";
+import "./communication-options.css";
 
 const rows = [
   { label: "Mon", observed: 42, planned: 40 },
   { label: "Tue", observed: 56, planned: 50 },
-  { label: "Wed", observed: null, planned: 60 },
+  { label: "Wed", observed: 61, planned: 60 },
   { label: "Thu", observed: 68, planned: 65 },
   { label: "Fri", observed: 74, planned: 70 },
 ];
 const config = {
-  observed: { label: "Observed", color: "hsl(var(--chart-1))" },
-  planned: { label: "Planned", color: "hsl(var(--chart-2))" },
+  observed: { label: "Observed", color: "var(--viz-observed)" },
+  planned: { label: "Planned", color: "var(--viz-planned)" },
 };
 const options = [
   {
@@ -59,8 +61,14 @@ function SampleChart({ line, height }: { line: boolean; height: string }) {
   const children = (
     <>
       <CartesianGrid vertical={false} />
-      <XAxis dataKey="label" tickLine={false} axisLine={false} />
+      <XAxis
+        tick={{ fill: "hsl(var(--muted-foreground))" }}
+        dataKey="label"
+        tickLine={false}
+        axisLine={false}
+      />
       <YAxis
+        tick={{ fill: "hsl(var(--muted-foreground))" }}
         domain={[0, "auto"]}
         width={36}
         tickLine={false}
@@ -101,131 +109,180 @@ function SampleChart({ line, height }: { line: boolean; height: string }) {
           {children}
         </LineChart>
       ) : (
-        <BarChart data={rows} accessibilityLayer>
+        <BarChart
+          data={rows}
+          accessibilityLayer
+          barCategoryGap="12%"
+          barGap={2}
+        >
           {children}
         </BarChart>
       )}
     </ChartContainer>
   );
 }
-function Options() {
-  const [dark, setDark] = useState(false);
+export function StreamVisualizationReview({
+  direction,
+}: {
+  direction: number;
+}) {
+  const option = options[direction];
   return (
-    <div className={dark ? "dark" : ""}>
-      <main
-        className="min-h-screen bg-background text-foreground p-4 md:p-10 overflow-auto"
-        style={{ height: "100dvh" }}
-      >
-        <div className="mx-auto max-w-6xl space-y-6">
-          <header className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                Dispatch · Design checkpoint
-              </p>
-              <h1 className="text-2xl font-semibold mt-2">
-                Data, in the conversation
-              </h1>
-              <p className="text-sm text-muted-foreground mt-2">
-                Three directions · identical synthetic data · no telemetry
-                collected
-              </p>
+    <div
+      className="space-y-4 w-full min-w-0 max-w-3xl"
+      data-testid="stream-visualization-review"
+    >
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span
+          className="rounded bg-violet-500/15 px-2 py-1"
+          style={{ color: "var(--viz-observed)" }}
+        >
+          DESIGN REVIEW
+        </span>
+        <span>Synthetic data · not connected to telemetry</span>
+      </div>
+      <h2 className="text-lg font-semibold">
+        {direction + 1}. {option.name}
+      </h2>
+      <p className="text-sm text-muted-foreground">{option.description}</p>
+      <Card className={`${option.padding} border-l-4 border-l-violet-500`}>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Metric · Friday delivery
+        </p>
+        <p className={`${option.metric} font-semibold mt-2`}>
+          74 <span className="text-sm text-muted-foreground">items</span>
+        </p>
+        <p className="text-sm mt-2" style={{ color: "var(--viz-observed)" }}>
+          +6 items from Thursday
+        </p>
+      </Card>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {["Bar", "Line", "Area", "Scatter"].map((kind) => (
+          <Card key={kind} className={`${option.padding} min-w-0 space-y-3`}>
+            <h3 className="font-semibold">{kind} chart</h3>
+            <p className="text-xs text-muted-foreground">
+              {kind === "Scatter"
+                ? "Planned vs observed · items on both axes"
+                : "Daily delivery · items · 2–6 Nov 2026"}
+            </p>
+            {kind === "Bar" || kind === "Line" ? (
+              <SampleChart line={kind === "Line"} height={option.height} />
+            ) : (
+              <ChartContainer
+                config={config}
+                className={`${option.height} w-full aspect-auto`}
+              >
+                {kind === "Area" ? (
+                  <AreaChart data={rows} accessibilityLayer>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                      dataKey="label"
+                    />
+                    <YAxis
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                      width={32}
+                      domain={[0, "auto"]}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Area
+                      dataKey="observed"
+                      type="linear"
+                      stroke="var(--color-observed)"
+                      fill="var(--color-observed)"
+                      fillOpacity={0.22}
+                      connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                    <Area
+                      dataKey="planned"
+                      type="linear"
+                      stroke="var(--color-planned)"
+                      fill="var(--color-planned)"
+                      fillOpacity={0.08}
+                      strokeDasharray="5 4"
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                ) : (
+                  <ScatterChart accessibilityLayer>
+                    <CartesianGrid />
+                    <XAxis
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                      type="number"
+                      dataKey="planned"
+                      name="Planned"
+                      domain={[0, "auto"]}
+                    />
+                    <YAxis
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                      type="number"
+                      dataKey="observed"
+                      name="Observed"
+                      width={32}
+                      domain={[0, "auto"]}
+                    />
+                    <ZAxis range={[70, 70]} />
+                    <ChartTooltip
+                      cursor={{ strokeDasharray: "3 3" }}
+                      content={<ChartTooltipContent />}
+                    />
+                    <Scatter
+                      name="Observed"
+                      data={rows.filter((r) => r.observed !== null)}
+                      fill="var(--color-observed)"
+                      isAnimationActive={false}
+                    />
+                  </ScatterChart>
+                )}
+              </ChartContainer>
+            )}
+            <div className="flex gap-4 text-xs">
+              <span style={{ color: "var(--viz-observed)" }}>● Observed</span>
+              {kind !== "Scatter" && (
+                <span style={{ color: "var(--viz-planned)" }}>┄ Planned</span>
+              )}
             </div>
-            <Button variant="default" onClick={() => setDark(!dark)}>
-              {dark ? "Light theme" : "Dark theme"}
-            </Button>
-          </header>
-          <div className="grid gap-6 lg:grid-cols-3">
-            {options.map((option, i) => (
-              <section key={option.name} className="min-w-0 space-y-4">
-                <div>
-                  <h2 className="font-semibold">
-                    {i + 1}. {option.name}
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {option.description}
-                  </p>
-                </div>
-                <Card
-                  className={`${option.padding} space-y-3 ${i === 2 ? "border-t-4 border-t-primary" : ""}`}
-                >
-                  <p className="text-sm text-muted-foreground">
-                    Items delivered · Friday
-                  </p>
-                  <p className={`${option.metric} font-semibold tabular-nums`}>
-                    74{" "}
-                    <span className="text-sm font-normal text-muted-foreground">
-                      items
-                    </span>
-                  </p>
-                  <p className="text-sm">+6 items compared with Thursday</p>
-                  <p className="text-xs text-muted-foreground">
-                    Synthetic · as of 6 Nov 2026
-                  </p>
-                </Card>
-                {[false, true].map((line) => (
-                  <Card
-                    key={String(line)}
-                    className={`${option.padding} space-y-3`}
-                  >
-                    <div>
-                      <h3 className="font-medium">
-                        {line ? "Delivery over time" : "Daily delivery"}
-                      </h3>
-                      <p className="text-xs text-muted-foreground">
-                        Items · 2–6 Nov 2026
-                      </p>
-                    </div>
-                    <SampleChart line={line} height={option.height} />
-                    <div className="flex gap-4 text-xs">
-                      <span>● Observed</span>
-                      <span>┄ Planned</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Synthetic example · Wednesday observation missing
-                    </p>
-                    <details>
-                      <summary className="cursor-pointer text-sm">
-                        View exact data
-                      </summary>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs mt-3 text-left">
-                          <caption className="sr-only">
-                            Daily delivery in items, synthetic
-                          </caption>
-                          <thead>
-                            <tr>
-                              <th scope="col">Day</th>
-                              <th scope="col">Observed</th>
-                              <th scope="col">Planned</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rows.map((r) => (
-                              <tr key={r.label} className="border-t">
-                                <th scope="row" className="py-2">
-                                  {r.label}
-                                </th>
-                                <td>{r.observed ?? "Missing"}</td>
-                                <td>{r.planned}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </details>
-                  </Card>
-                ))}
-              </section>
-            ))}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Review prototype only. All directions retain explicit units, zero
-            baseline, gaps for missing observations and exact data. Final stream
-            API and persistence are not connected yet.
-          </p>
-        </div>
-      </main>
+            <details>
+              <summary className="cursor-pointer text-xs">
+                View exact data · {kind}
+              </summary>
+              <table className="w-full mt-3 text-xs text-left">
+                <caption className="sr-only">
+                  Synthetic delivery in items. Missing Wednesday observation.
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Day</th>
+                    <th scope="col">Observed</th>
+                    <th scope="col">Planned</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.label} className="border-t">
+                      <th scope="row" className="py-2">
+                        {r.label}
+                      </th>
+                      <td>{r.observed ?? "Missing"}</td>
+                      <td>{r.planned}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+            <p className="text-xs text-muted-foreground">
+              {kind === "Scatter"
+                ? "Each point is one day · units: items."
+                : "Complete synthetic sample · zero baseline."}
+            </p>
+          </Card>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Review fixture inside the real stream message renderer. Schema and
+        posting API are still pending selection.
+      </p>
     </div>
   );
 }
-createRoot(document.getElementById("root")!).render(<Options />);

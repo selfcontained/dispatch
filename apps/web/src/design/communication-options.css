@@ -1,0 +1,8 @@
+:root {
+  --viz-observed: #a78bfa;
+  --viz-planned: #22d3ee;
+}
+[data-theme-mode="light"] {
+  --viz-observed: #6d28d9;
+  --viz-planned: #0e7490;
+}

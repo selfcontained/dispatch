@@ -15,7 +15,15 @@ import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
-import { memo, type ReactNode } from "react";
+import { lazy, Suspense, memo, type ReactNode } from "react";
+
+const StreamVisualizationReview = import.meta.env.DEV
+  ? lazy(() =>
+      import("@/design/communication-options").then((module) => ({
+        default: module.StreamVisualizationReview,
+      }))
+    )
+  : null;
 import {
   type Block,
   type BlockAuthor,
@@ -1108,6 +1116,21 @@ function BlockBody({
       ? () => setState({ cancellation: true })
       : undefined;
   const recovery = isFailedParentInput(block);
+  // Review-only fixtures: real persisted stream posts, opt-in on isolated dev builds.
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).has("vizReview")
+  ) {
+    const match = /^Visualization design review: ([123])$/.exec(
+      block.text ?? ""
+    );
+    if (match && StreamVisualizationReview)
+      return (
+        <Suspense fallback={<p>Loading review sample…</p>}>
+          <StreamVisualizationReview direction={Number(match[1]) - 1} />
+        </Suspense>
+      );
+  }
   switch (block.kind) {
     case "question":
       return (

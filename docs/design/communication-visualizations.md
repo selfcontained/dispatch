@@ -82,3 +82,22 @@ empty/missing/large/long-label cases; actual isolated MCP calls; served browser
 post/update/reload/thread flows at desktop/mobile in both themes. This prototype
 only exercises theme toggles and exact-table disclosure; it proves no post/update
 or persistence behavior yet.
+
+## Revision after user review
+
+The user rejected the standalone comparison as insufficient and requested real
+stream context, desktop coverage, stronger colors, tighter bar grouping and more
+chart types than bar/line. The revised development preview renders persisted
+sample posts through the actual chat BlockBody host with the normal stream shell.
+It is explicitly enabled by `vizReview` on development builds only; these are
+review fixtures, not new public block types or evidence of a completed MCP API.
+Deep links select each of the three sample messages. The fixture is lazy-loaded
+and excluded from production rendering. No production stream or database is used.
+
+Each direction now shows a metric, bar, line, area and scatter chart, using the
+same complete synthetic observations (42, 56, 61, 68, 74) and planned values
+(40, 50, 60, 65, 70). Missing-data stress cases remain required for implementation,
+but no longer obscure the basic design comparison. Bars use 12% category gaps
+and 2px gaps within groups. Theme colors use the app's data-theme-mode attribute.
+The additional chart types expand the original bar/line scope at user request;
+final API design must cover area and numeric scatter semantics deliberately.
