@@ -8,7 +8,10 @@ import { mergeRiskCapacity } from "./budget.js";
 import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
 import type { Pool } from "pg";
 import { createHash } from "node:crypto";
-import { retainedEvidence } from "./explanation-evidence.js";
+import {
+  retainedEvidence,
+  explanationSnapshot,
+} from "./explanation-evidence.js";
 import {
   requestDecisions,
   DECISIONS_MODEL,
@@ -92,7 +95,9 @@ export class MergeRiskAssessor {
       ...(previous ? { previous } : {}),
     });
     if (!headSha) return display("unavailable");
-    const reviews = await loadReviewEvidence(this.options.pool, ownerAgentIds);
+    const reviews = await loadReviewEvidence(this.options.pool, ownerAgentIds, {
+      settlementProvenance: true,
+    });
     const fingerprint = reviewFingerprint(reviews);
     if (pr.status === "Merged")
       return (await this.latest(url, headSha)) ?? display("not_ready");
@@ -176,7 +181,12 @@ export class MergeRiskAssessor {
             id,
             ownerAgentIds,
             createHash("sha256").update(JSON.stringify(reviews)).digest("hex"),
-            JSON.stringify(retainedEvidence(evidence, config.apiKey)),
+            JSON.stringify(
+              retainedEvidence(
+                explanationSnapshot(evidence, reviews),
+                config.apiKey
+              )
+            ),
           ]
         )
         .catch(() => {

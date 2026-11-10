@@ -1,3 +1,4 @@
+import type { MergeRiskEvidence, MergeRiskReview } from "./evidence.js";
 /** Defense in depth for retained and follow-up evidence; never stores the API key. */
 export function retainedEvidence(value: unknown, apiKey: string): unknown {
   if (typeof value === "string") {
@@ -21,4 +22,21 @@ export function retainedEvidence(value: unknown, apiKey: string): unknown {
       Object.entries(value).map(([k, v]) => [k, retainedEvidence(v, apiKey)])
     );
   return value;
+}
+
+/** Snapshot-only attribution: keep the scoring payload and fingerprint unchanged. */
+export function explanationSnapshot(
+  evidence: MergeRiskEvidence,
+  reviews: MergeRiskReview[]
+) {
+  return {
+    ...evidence,
+    reviews: evidence.reviews.map((review, i) => ({
+      ...review,
+      findings: review.findings.map((finding, j) => ({
+        ...finding,
+        settlement_by: reviews[i]?.findings[j]?.settlementBy ?? "unknown",
+      })),
+    })),
+  };
 }

@@ -231,6 +231,7 @@ it("withholds identities and summaries while retaining bounded technical mitigat
         summary: "private summary",
         findings: [
           {
+            settlement_by: "reviewer",
             title: "Recheck settings after eligibility",
             note: "Verified settings changes prevent provider dispatch",
             path: "auth/session.ts",
@@ -373,9 +374,16 @@ it.each(["off", "removed", "replaced"])(
   }
 );
 
-it.each([false, true])(
-  "carries stored findings and redacts truncated credentials (legacy snapshot: %s)",
-  async (legacy) => {
+it.each(
+  [false, true].flatMap((legacy) =>
+    ["reviewer", "person", "author", "unknown"].map((role) => ({
+      legacy,
+      role,
+    }))
+  )
+)(
+  "carries attributed findings and redacts credentials ($role, legacy=$legacy)",
+  async ({ legacy, role }) => {
     const { BlockStore } = await import("../src/chat/store.js");
     const { MergeRiskAssessor } =
       await import("../src/agents/merge-risk/assessor.js");
@@ -413,6 +421,20 @@ it.each([false, true])(
         status: "resolved",
         resolution: "fixed",
         note: credentialNote,
+        ...(role === "unknown"
+          ? {}
+          : {
+              by:
+                role === "person"
+                  ? { kind: "user", userId: "person" }
+                  : {
+                      kind: "agent",
+                      agentId:
+                        role === "author"
+                          ? "explain-owner"
+                          : "full-context-reviewer",
+                    },
+            }),
       },
     });
     await blocks.update(review.id, { state: { blocks: [finding.id] } });
@@ -499,8 +521,22 @@ it.each([false, true])(
       severity: "major",
       status: "fixed",
     });
-    expect(actual.evidence.reviews[0].findings[0].note).toContain(
-      technicalNote
+    expect(actual.evidence.reviews[0].findings[0].settlement_by).toBe(role);
+    if (role === "reviewer" || role === "person")
+      expect(actual.evidence.reviews[0].findings[0].note).toContain(
+        technicalNote
+      );
+    else
+      expect(actual.evidence.reviews[0].findings[0].note).toBe(
+        "[unverified resolution note withheld]"
+      );
+    const scoringPayload = JSON.parse(String(scoring.mock.calls[0][1]?.body))
+      .input[0].content[1].data;
+    expect(scoringPayload.reviews[0].findings[0]).not.toHaveProperty(
+      "settlement_by"
+    );
+    expect(scoringPayload.reviews[0].findings[0]).not.toHaveProperty(
+      "settlementBy"
     );
     expect(JSON.stringify(actual)).not.toContain("SYNTHETICKEYMATERIAL");
     expect(JSON.stringify(actual)).not.toContain("BEGIN PRIVATE KEY");
@@ -512,6 +548,20 @@ it.each([false, true])(
         .calls
     ).toBe(2);
     await service().explain(input());
+    expect(transport).toHaveBeenCalledTimes(1);
+    await blocks.update(finding.id, {
+      state: {
+        status: "resolved",
+        resolution: "fixed",
+        note: credentialNote,
+        by: {
+          kind: "agent",
+          agentId:
+            role === "author" ? "full-context-reviewer" : "explain-owner",
+        },
+      },
+    });
+    expect((await service().explain(input())).state).toBe("unavailable");
     expect(transport).toHaveBeenCalledTimes(1);
     await pool.query("DELETE FROM blocks WHERE to_agent_id='explain-owner'");
   }

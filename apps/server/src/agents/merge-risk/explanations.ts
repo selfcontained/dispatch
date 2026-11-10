@@ -79,7 +79,9 @@ export class RiskExplanations {
       )
     )
       return null;
-    const reviews = await loadReviewEvidence(this.deps.pool, row.owner_ids);
+    const reviews = await loadReviewEvidence(this.deps.pool, row.owner_ids, {
+      settlementProvenance: true,
+    });
     if (
       !allFindingsResolved(reviews) ||
       reviewFingerprint(reviews) !== row.review_fingerprint ||
@@ -200,8 +202,12 @@ export function followupEvidence(raw: unknown): unknown {
                   const finding = raw as Record<string, unknown>;
                   return {
                     ...finding,
-                    title: finding.title,
-                    note: finding.note,
+                    settlement_by: finding.settlement_by ?? "unknown",
+                    note:
+                      finding.settlement_by === "reviewer" ||
+                      finding.settlement_by === "person"
+                        ? finding.note
+                        : "[unverified resolution note withheld]",
                   };
                 })
               : [],

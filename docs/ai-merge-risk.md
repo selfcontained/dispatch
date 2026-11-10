@@ -220,8 +220,10 @@ to the saved assessment-time snapshot.
 New assessments retain their bounded evidence in a separate private table,
 with assessment/head/review identity, full review digest, owner IDs and project
 scope. Reviewer identities, launch prose and review summaries are withheld. Bounded
-technical finding titles and verification notes remain available for explaining
-specific mitigations; raw review bodies are never included. These
+technical finding titles remain available. Resolution notes are supplied only
+when recorded by the finding reviewer or a person; author/unknown notes are
+withheld and explicitly labeled unverified. Snapshot-only settlement attribution
+leaves scoring input and fingerprints unchanged. Raw review bodies are never included. These
 snapshots and explanations expire with assessment records (14 days/2,000 rows).
 Legacy results without snapshots return unavailable rather than refetching,
 rescoring or claiming new evidence was present in the original assessment.

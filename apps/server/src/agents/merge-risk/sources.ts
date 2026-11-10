@@ -19,6 +19,7 @@ type ReviewRow = {
   blocks: unknown;
 };
 type FindingRow = {
+  author_agent_id: string | null;
   data: Record<string, unknown> | null;
   state: Record<string, unknown> | null;
 };
@@ -26,7 +27,8 @@ type FindingRow = {
 /** Reviews posted to any of the owning agents, oldest first, with findings. */
 export async function loadReviewEvidence(
   pool: Pool,
-  agentIds: string[]
+  agentIds: string[],
+  options: { settlementProvenance?: boolean } = {}
 ): Promise<MergeRiskReview[]> {
   if (!agentIds.length) return [];
   const reviews = await pool.query<ReviewRow>(
@@ -44,7 +46,7 @@ export async function loadReviewEvidence(
     const findings = ids.length
       ? (
           await pool.query<FindingRow>(
-            `SELECT data, state FROM blocks WHERE kind = 'finding' AND id = ANY($1::uuid[]) ORDER BY created_at, id`,
+            `SELECT data, state, author_agent_id FROM blocks WHERE kind = 'finding' AND id = ANY($1::uuid[]) ORDER BY created_at, id`,
             [ids]
           )
         ).rows
@@ -55,7 +57,22 @@ export async function loadReviewEvidence(
       findings: findings.map((f) => {
         const status = f.state?.status;
         const resolution = f.state?.resolution;
+        const by = f.state?.by as
+          | { kind?: unknown; agentId?: unknown }
+          | null
+          | undefined;
+        const settlementBy =
+          by?.kind === "user"
+            ? "person"
+            : by?.kind === "agent" && typeof by.agentId === "string"
+              ? agentIds.includes(by.agentId)
+                ? "author"
+                : by.agentId === f.author_agent_id
+                  ? "reviewer"
+                  : "unknown"
+              : "unknown";
         return {
+          ...(options.settlementProvenance ? { settlementBy } : {}),
           title: String(f.data?.title ?? ""),
           severity: String(f.data?.severity ?? "unknown"),
           status:
