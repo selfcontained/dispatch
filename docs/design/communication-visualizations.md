@@ -122,3 +122,24 @@ The theme retains control of all six colors. Stable observed/planned mapping
 remains intact when switching. Tonal colors provide less categorical distinction;
 line dashes and exact tables remain necessary and further final accessibility
 validation remains required.
+
+## Neon and size exploration
+
+User requested a more neon graph palette and smaller vertical footprint. Review
+now offers dedicated cyan/pink and lime/cyan graph-token candidates alongside
+the existing selected-theme pair. Tokens are scoped to development fixtures;
+dark variants are bright neon, light variants use deeper saturated colors for
+contrast. Final theme architecture remains subject to user choice.
+
+Compact plots reduced from 160px to 128px; analytical from 224px to 160px;
+presentation from 256px to 176px. Padding and repeated notes reduced, metric
+converted to a compact strip. The four-chart review gallery is not the intended
+unit of posting: agents will post individual chart/metric blocks.
+
+Additional potentially useful communication types (proposals, not implemented
+scope): heatmap for pattern/matrix summaries; histogram for distributions;
+waterfall for additive change attribution; interval/range for uncertainty;
+bullet/progress for target comparisons; timeline for durations/overlap. Horizontal
+and stacked bars are also useful variants for long labels and composition.
+Prioritize bounded declarative data and exact tables rather than exposing a
+library's entire option surface.

@@ -20,6 +20,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { Card } from "@/components/ui/card";
+import "./communication-options.css";
 
 const rows = [
   { label: "Mon", observed: 42, planned: 40 },
@@ -29,10 +30,21 @@ const rows = [
   { label: "Fri", observed: 74, planned: 70 },
 ];
 const palettes = [
-  { name: "Theme pair", slots: [1, 2] },
-  { name: "Alternate pair", slots: [1, 3] },
-  { name: "Secondary pair", slots: [3, 4] },
-  { name: "Tonal pair", slots: [1, 5] },
+  {
+    name: "Neon cyan / pink",
+    colors: ["var(--graph-cyan)", "var(--graph-pink)"],
+    description: "Dedicated graph palette · cyan + electric pink",
+  },
+  {
+    name: "Neon lime / cyan",
+    colors: ["var(--graph-lime)", "var(--graph-cyan)"],
+    description: "Dedicated graph palette · acid lime + cyan",
+  },
+  {
+    name: "Theme palette",
+    colors: ["hsl(var(--chart-1))", "hsl(var(--chart-2))"],
+    description: "Existing selected-theme chart slots 1 + 2",
+  },
 ] as const;
 const config = {
   observed: { label: "Observed", color: "var(--review-series-1)" },
@@ -43,25 +55,25 @@ const options = [
     name: "Compact inline",
     description:
       "Quiet, dense blocks that sit naturally between messages. Best for frequent updates.",
-    padding: "p-4",
-    height: "h-40",
-    metric: "text-3xl",
+    padding: "p-3",
+    height: "h-32",
+    metric: "text-2xl",
   },
   {
     name: "Analytical panel",
     description:
       "More room for axes, comparison and exact values. Best for explaining a result.",
-    padding: "p-6",
-    height: "h-56",
-    metric: "text-4xl",
+    padding: "p-4",
+    height: "h-40",
+    metric: "text-3xl",
   },
   {
     name: "Presentation card",
     description:
       "A strong headline and generous space. Best for occasional milestones and handoffs.",
-    padding: "p-8",
-    height: "h-64",
-    metric: "text-5xl",
+    padding: "p-5",
+    height: "h-44",
+    metric: "text-4xl",
   },
 ];
 function SampleChart({ line, height }: { line: boolean; height: string }) {
@@ -138,12 +150,12 @@ export function StreamVisualizationReview({
   const palette = palettes[paletteIndex];
   return (
     <div
-      className="space-y-4 w-full min-w-0 max-w-3xl"
+      className="visualization-review space-y-3 w-full min-w-0 max-w-3xl"
       data-testid="stream-visualization-review"
       style={
         {
-          "--review-series-1": `hsl(var(--chart-${palette.slots[0]}))`,
-          "--review-series-2": `hsl(var(--chart-${palette.slots[1]}))`,
+          "--review-series-1": palette.colors[0],
+          "--review-series-2": palette.colors[1],
         } as CSSProperties
       }
     >
@@ -162,7 +174,7 @@ export function StreamVisualizationReview({
       <p className="text-sm text-muted-foreground">{option.description}</p>
       <div className="space-y-2" aria-label="Theme chart palette comparison">
         <p className="text-xs text-muted-foreground">
-          Compare colors from your selected theme
+          Graph palette · neon or selected-theme colors
         </p>
         <div className="flex flex-wrap gap-2">
           {palettes.map((item, index) => (
@@ -174,11 +186,11 @@ export function StreamVisualizationReview({
               onClick={() => setPaletteIndex(index)}
             >
               <span className="flex gap-1" aria-hidden="true">
-                {item.slots.map((slot) => (
+                {item.colors.map((color) => (
                   <span
-                    key={slot}
+                    key={color}
                     className="size-2.5 rounded-full border border-foreground/20"
-                    style={{ backgroundColor: `hsl(var(--chart-${slot}))` }}
+                    style={{ backgroundColor: color }}
                   />
                 ))}
               </span>
@@ -187,27 +199,33 @@ export function StreamVisualizationReview({
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          {palette.name} · theme chart slots {palette.slots.join(" + ")}. Dashed
-          planned line distinguishes series beyond color.
+          {palette.description}. Light themes use deeper saturated tones for
+          contrast.
         </p>
       </div>
       <Card
-        className={`${option.padding} border-l-4 border-l-[var(--review-series-1)]`}
+        className="flex flex-wrap items-center justify-between gap-2 border-l-4 px-3 py-2"
+        style={{ borderLeftColor: "var(--review-series-1)" }}
       >
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Metric · Friday delivery
-        </p>
-        <p className={`${option.metric} font-semibold mt-2`}>
-          74 <span className="text-sm text-muted-foreground">items</span>
-        </p>
-        <p className="text-sm mt-2" style={{ color: "var(--review-series-1)" }}>
-          +6 items from Thursday
+        <div>
+          <p className="text-xs text-muted-foreground">
+            Friday delivery · items
+          </p>
+          <p className={`${option.metric} font-semibold tabular-nums`}>
+            74{" "}
+            <span className="text-xs font-normal text-muted-foreground">
+              items
+            </span>
+          </p>
+        </div>
+        <p className="text-xs" style={{ color: "var(--review-series-1)" }}>
+          +6 from Thursday
         </p>
       </Card>
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         {["Bar", "Line", "Area", "Scatter"].map((kind) => (
-          <Card key={kind} className={`${option.padding} min-w-0 space-y-3`}>
-            <h3 className="font-semibold">{kind} chart</h3>
+          <Card key={kind} className={`${option.padding} min-w-0 space-y-1.5`}>
+            <h3 className="text-sm font-semibold">{kind} chart</h3>
             <p className="text-xs text-muted-foreground">
               {kind === "Scatter"
                 ? "Planned vs observed · items on both axes"
@@ -301,7 +319,8 @@ export function StreamVisualizationReview({
               </summary>
               <table className="w-full mt-3 text-xs text-left">
                 <caption className="sr-only">
-                  Synthetic delivery in items. Missing Wednesday observation.
+                  Synthetic delivery in items. All five observations are
+                  present.
                 </caption>
                 <thead>
                   <tr>
@@ -323,17 +342,13 @@ export function StreamVisualizationReview({
                 </tbody>
               </table>
             </details>
-            <p className="text-xs text-muted-foreground">
-              {kind === "Scatter"
-                ? "Each point is one day · units: items."
-                : "Complete synthetic sample · zero baseline."}
-            </p>
           </Card>
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
-        Review fixture inside the real stream message renderer. Schema and
-        posting API are still pending selection.
+        Synthetic design review · 2–6 Nov 2026 · zero baseline · scatter:
+        planned x, observed y, both in items. Schema and posting API pending
+        selection.
       </p>
     </div>
   );

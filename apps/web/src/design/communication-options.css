@@ -1,0 +1,11 @@
+/* Review-only graph accents: candidates for a dedicated chart token palette. */
+.visualization-review {
+  --graph-cyan: #00e5ff;
+  --graph-pink: #ff3df2;
+  --graph-lime: #b6ff00;
+}
+[data-theme-mode="light"] .visualization-review {
+  --graph-cyan: #007c96;
+  --graph-pink: #c000ae;
+  --graph-lime: #4b7800;
+}
