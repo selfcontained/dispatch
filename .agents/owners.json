@@ -219,6 +219,7 @@
         "apps/web/src/components/app/jobs*",
         "apps/web/src/components/app/template*",
         "apps/server/test/*job*",
+        "apps/server/test/jobs/**",
         "apps/server/test/*template*",
         "apps/server/test/templates/**",
         "e2e/*job*",
