@@ -74,7 +74,7 @@ export function registerJobTools(
           .enum(["default", "continue", "pause", "finish"])
           .default("default")
           .describe(
-            "Whether the Loop should start another run, pause, or finish. Default continues when more runs are allowed."
+            "Loop jobs only: continue starts another run, pause stops the chain, and finish disables the job. Default continues when more runs are allowed. Ignored when Loop is disabled."
           ),
         phase: z
           .string()
@@ -111,7 +111,7 @@ export function registerJobTools(
       })
       .optional()
       .describe(
-        "Run-to-run handoff for Loop jobs. Dispatch stores it and gives it to the successor run."
+        "Run-to-run handoff for Loop jobs. Dispatch stores it and gives it to the successor run. Omit for ordinary runs; continuation actions have no scheduling effect when Loop is disabled."
       ),
   });
 

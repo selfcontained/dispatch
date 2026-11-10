@@ -1404,7 +1404,9 @@ function buildJobPrompt(job: JobRecord, run: JobRunRecord): string {
               ]
             : []),
         ]
-      : []),
+      : [
+          "Loop is disabled. Complete this run without continuation; continuation actions are ignored and do not disable future scheduled runs.",
+        ]),
     "Use repo tools when they are relevant to the job.",
     "\nJob prompt:",
     job.prompt!,

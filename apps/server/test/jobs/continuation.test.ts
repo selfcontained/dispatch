@@ -192,6 +192,61 @@ describe("continuation jobs", () => {
     }
   );
 
+  it.each([undefined, "finish", "continue", "pause"] as const)(
+    "preserves non-loop cron after completion with action %s",
+    async (action) => {
+      const store = new JobStore(pool);
+      const record = await job({
+        continuationEnabled: false,
+        schedule: "0 7 * * 0",
+      });
+      const first = await store.createRun(record.id, {
+        ...runConfig(record.name),
+        autoArchive: record.autoArchive,
+      });
+      const agentId = `agt_cont_nonloop_${action ?? "ordinary"}`;
+      await addAgent(agentId);
+      await store.attachAgent(first.id, agentId);
+      const service = new JobService(pool, agents, logger, config);
+      const terminal = vi.fn();
+      service.onRunStateChange(terminal);
+      const report = {
+        status: "completed",
+        summary: "Assessment complete",
+        tasks: [],
+        ...(action ? { continuation: { action } } : {}),
+      };
+      try {
+        const completed = await service.completeRunForAgent(agentId, report);
+        expect(completed).toMatchObject({
+          status: "completed",
+          report: { status: "completed", summary: report.summary, tasks: [] },
+          continuationPending: false,
+          config: { autoArchive: record.autoArchive },
+        });
+        expect(terminal).toHaveBeenCalledWith(completed);
+        expect(await store.getRun(first.id)).toMatchObject({
+          status: "completed",
+          report: { summary: report.summary },
+        });
+        expect(await store.getJob(record.id)).toMatchObject({
+          enabled: true,
+          schedule: "0 7 * * 0",
+          continuationEnabled: false,
+        });
+        const next = await store.createRun(record.id, {
+          ...runConfig(record.name),
+          triggerSource: "scheduled",
+        });
+        expect(next.status).toBe("started");
+        await store.setEnabled(record.id, false);
+        expect((await store.getJob(record.id))!.enabled).toBe(false);
+      } finally {
+        await service.shutdown();
+      }
+    }
+  );
+
   it("arms without cron, defaults to ten, and exposes its complete list shape", async () => {
     const service = new JobService(pool, agents, logger, config);
     const created = await service.addJob({

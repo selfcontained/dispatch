@@ -623,7 +623,9 @@ export class JobStore {
         [run.id, JSON.stringify(validated), JSON.stringify(continuation)]
       );
       run = mapRun(result.rows[0]);
-      if (continuation.action === "finish")
+      // Continuation controls only Loop jobs; ordinary completion must never
+      // retire a recurring schedule, even when the caller supplies finish.
+      if (job.rows[0]?.continuation_enabled && continuation.action === "finish")
         await client.query(
           `UPDATE jobs SET enabled = FALSE, updated_at = NOW() WHERE id = $1`,
           [run.jobId]
