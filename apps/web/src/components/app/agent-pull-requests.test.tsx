@@ -406,7 +406,7 @@ it("shows the merge-risk recommendation on the row and its details in the popove
     (await screen.findByText("Change risk")).nextElementSibling?.textContent
   ).toBe("high");
   expect(
-    screen.getByText("Description matches ↑").nextElementSibling?.textContent
+    screen.getByText("Description matches").nextElementSibling?.textContent
   ).toBe("40%");
   expect(screen.getByText(/Not merge approval/i)).toBeTruthy();
 });

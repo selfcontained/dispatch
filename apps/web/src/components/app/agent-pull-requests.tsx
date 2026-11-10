@@ -228,7 +228,7 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
               className="text-muted-foreground"
               title="Higher means stronger review engagement."
             >
-              Review engaged ↑
+              Review engaged
             </dt>
             <dd className="text-right">
               <EvidencePercent
@@ -240,7 +240,7 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
               className="text-muted-foreground"
               title="Higher means the description better matches the change."
             >
-              Description matches ↑
+              Description matches
             </dt>
             <dd className="text-right">
               <EvidencePercent
