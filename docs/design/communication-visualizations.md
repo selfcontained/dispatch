@@ -90,7 +90,7 @@ chart data. Structured data also travels in agent delivery/history envelopes.
 
 Reuse installed Recharts 3.8.1 and the shadcn ChartContainer/tooltip composition.
 Renderer is lazy-loaded from the chat body; no new dependency is added. Heatmaps
-use a native table with colored cells. Other types compose existing Recharts
+use a continuous SVG matrix with a shared intensity scale and a native exact-value table. Other types compose existing Recharts
 primitives. No UI changes to Markdown's list renderer are included.
 
 Official references:
@@ -105,11 +105,10 @@ Official references:
 Initial standalone gallery and subsequent development-only review controls were
 removed at the user's request. Current previews show actual independent persisted
 blocks, including six-series samples and all ten types. User selected a stronger
-neon direction and smaller samples during iteration; final visual acceptance and
-merge approval remain required. No additional chart families or collection flows
+neon direction and smaller samples during iteration; the final grouped visual proposal was approved by the user. Required owner review, CI and merge acceptance remain outstanding. No additional chart families or collection flows
 are implied by this contract.
 
-## Grouping proposal (awaiting approval)
+## Responsive grouping
 
 At the user's request, `visualizationGroup` posts one authored group containing
 1–6 related metrics OR charts. Items have `{kind: "metric"|"chart", data: ...}`;
@@ -123,6 +122,6 @@ groups through one/two/three. A single metric is a compact tile. Related group
 members share the post's author, routing and thread; unrelated posts never auto-pack.
 Desktop and mobile proposal captures show the actual grouped renderer.
 
-Tests and checks remain paused by explicit user instruction until visual proposal
-approval. Latest grouping/heatmap changes are intentionally unverified by those
-checks; earlier passing results must not be represented as final-head evidence.
+The user approved the complete grouped proposal and verification resumed. Current
+review evidence belongs in the PR/task handoff; earlier prototype captures are
+historical and do not substitute for final-head checks.

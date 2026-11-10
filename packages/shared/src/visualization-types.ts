@@ -165,24 +165,34 @@ export function parseVisualization(
     if (v.type === "histogram") {
       numeric(p.from);
       numeric(p.to);
-      if (
-        (p.from as number) >= (p.to as number) ||
-        (previousEnd !== undefined && (p.from as number) < previousEnd)
-      )
+      if ((p.from as number) >= (p.to as number))
         throw new Error(
           "Histogram bins must be ordered, non-overlapping ranges."
         );
       const width = (p.to as number) - (p.from as number);
-      if (
-        binWidth !== undefined &&
-        (Math.abs(width - binWidth) > Math.max(1, binWidth) * 1e-9 ||
-          Math.abs((p.from as number) - (previousEnd as number)) >
-            Math.max(1, binWidth) * 1e-9)
-      )
-        throw new Error(
-          "Histogram bins must have equal widths and be contiguous."
+      if (binWidth !== undefined) {
+        // Account for endpoint subtraction rounding without treating a whole
+        // declared unit as the tolerance floor for tiny bins. Cap the allowance
+        // relative to the first bin so low-precision coordinates cannot justify
+        // visibly different widths or gaps.
+        const coordinateScale = Math.max(
+          Math.abs(p.from as number),
+          Math.abs(p.to as number),
+          Math.abs(previousEnd as number)
         );
-      binWidth = width;
+        const tolerance = Math.max(
+          binWidth * 1e-9,
+          Math.min(binWidth * 1e-6, Number.EPSILON * coordinateScale * 4)
+        );
+        if (
+          Math.abs(width - binWidth) > tolerance ||
+          Math.abs((p.from as number) - (previousEnd as number)) > tolerance
+        )
+          throw new Error(
+            "Histogram bins must have equal widths and be contiguous."
+          );
+      }
+      binWidth ??= width;
       previousEnd = p.to as number;
       if (p.values.some((n) => n !== null && (n as number) < 0))
         throw new Error("Histogram counts cannot be negative.");

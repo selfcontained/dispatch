@@ -442,16 +442,21 @@ function ChartCard({ data }: { data: ChartData }) {
           className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]"
         >
           {data.series.map((s, i) => (
-            <li key={s.id} className="flex gap-1.5 items-center">
+            <li
+              key={s.id}
+              className="flex max-w-full min-w-0 gap-1.5 items-start"
+            >
               <span
                 aria-hidden="true"
-                className="h-0.5 w-3"
+                className="mt-1.5 h-0.5 w-3 shrink-0"
                 style={{ background: `var(--graph-${s.color})` }}
               />
-              {s.label}
-              {i > 0 && (data.type === "line" || data.type === "area")
-                ? " (dashed)"
-                : ""}
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {s.label}
+                {i > 0 && (data.type === "line" || data.type === "area")
+                  ? " (dashed)"
+                  : ""}
+              </span>
             </li>
           ))}
         </ul>

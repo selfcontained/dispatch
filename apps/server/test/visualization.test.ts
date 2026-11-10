@@ -180,3 +180,45 @@ describe("visualization groups", () => {
     ).toBe("visualization_group");
   });
 });
+
+it("keeps histogram width/contiguity tolerance relative even for picosecond bins", () => {
+  const bins = (ranges: number[][]) => ({
+    ...base,
+    type: "histogram",
+    xUnit: "seconds",
+    points: ranges.map(([from, to], i) => ({
+      label: `Bin ${i}`,
+      from,
+      to,
+      values: [1],
+    })),
+  });
+  for (const ranges of [
+    [
+      [0, 1e-12],
+      [1e-12, 1e-10],
+    ],
+    [
+      [0, 1e-12],
+      [9e-10, 9.01e-10],
+    ],
+    [
+      [0, 1e-12],
+      [0.5e-12, 1.5e-12],
+    ],
+  ])
+    expect(() => parseVisualization("chart", bins(ranges))).toThrow();
+  for (const ranges of [
+    [
+      [0, 1e-12],
+      [1e-12, 2e-12],
+      [2e-12, 3e-12],
+    ],
+    [
+      [0, 0.1],
+      [0.1, 0.2],
+      [0.2, 0.1 + 0.2],
+    ],
+  ])
+    expect(() => parseVisualization("chart", bins(ranges))).not.toThrow();
+});

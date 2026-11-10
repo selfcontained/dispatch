@@ -9845,6 +9845,25 @@ describe("visualization post/update permissions and storage", () => {
     await service.update(A, block.id, { data: { ...metric, value: 74 } });
     const stored = await new BlockStore(pool).getById(block.id);
     expect(stored?.data).toMatchObject({ value: 74 });
+    expect(
+      JSON.parse((await service.getMessage(A, block.id)).content).value
+    ).toBe(74);
+    expect(
+      (await service.getThread(A, reply.id)).messages.some(
+        (message) => JSON.parse(message.content).value === 42
+      )
+    ).toBe(true);
+    const grouped = await service.post(A, {
+      visualizationGroup: {
+        version: 1,
+        items: [{ kind: "metric", data: metric }],
+      },
+    });
+    expect(
+      JSON.parse((await service.getMessage(A, grouped.id)).content).items[0]
+        .data.value
+    ).toBe(metric.value);
+
     expect(stored?.author).toEqual({ kind: "agent", agentId: A });
     await expect(
       service.update(B, block.id, { data: { ...metric, value: 99 } })

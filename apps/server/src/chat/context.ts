@@ -1,5 +1,38 @@
 import type { Block } from "@dispatch/shared";
 
+/** Only author-supplied visual fields, excluding service-owned scheduling/routing data. */
+export function publicVisualizationData(
+  block: Block
+): Record<string, unknown> | null {
+  if (
+    block.kind !== "metric" &&
+    block.kind !== "chart" &&
+    block.kind !== "visualization_group"
+  )
+    return null;
+  const keys =
+    block.kind === "visualization_group"
+      ? ["version", "title", "items"]
+      : [
+          "version",
+          "title",
+          "unit",
+          "dataKind",
+          "description",
+          "source",
+          "asOf",
+          ...(block.kind === "metric"
+            ? ["value", "comparison"]
+            : ["type", "xLabel", "xUnit", "series", "points"]),
+        ];
+  const data = block.data as Record<string, unknown>;
+  return Object.fromEntries(
+    keys
+      .filter((key) => data?.[key] !== undefined)
+      .map((key) => [key, data[key]])
+  );
+}
+
 export const AUTO_CONTEXT_CHARS = 4000;
 export const MESSAGE_CONTENT_CHARS = 8000;
 
@@ -7,6 +40,11 @@ export const MESSAGE_CONTENT_CHARS = 8000;
 export function messageContent(block: Block): string {
   const parts = [block.turn?.result?.text ?? block.text];
   switch (block.kind) {
+    case "metric":
+    case "chart":
+    case "visualization_group":
+      parts.push(JSON.stringify(publicVisualizationData(block)));
+      break;
     case "question":
     case "form":
     case "finding":
