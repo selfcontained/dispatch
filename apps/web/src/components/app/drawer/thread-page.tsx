@@ -33,6 +33,7 @@ export type ThreadPageProps = {
   onOpenPath?: (path: string, line: number | null) => void;
   onOpenThread: (blockId: string, findingId?: string) => void;
   onBack: () => void;
+  escapeHandledByParent?: boolean;
   /**
    * Why nothing can be posted here, in place of the one derived from
    * `agent`. A task's stream is not one agent's: its threads stay open
@@ -54,6 +55,7 @@ export function ThreadPage({
   onOpenPath,
   onOpenThread,
   onBack,
+  escapeHandledByParent,
   disabledReason: disabledOverride,
   mentionables,
 }: ThreadPageProps): JSX.Element {
@@ -160,6 +162,7 @@ export function ThreadPage({
       disabledReason={disabledReason}
       isMobile={isMobile}
       chrome={false}
+      escapeHandledByParent={escapeHandledByParent}
       onClose={onBack}
       onAnswer={onAnswer}
       answeringBlockId={
