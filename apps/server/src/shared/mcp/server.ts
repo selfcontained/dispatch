@@ -1,3 +1,7 @@
+import {
+  registerPullRequestRiskTool,
+  type RiskReader,
+} from "./pull-request-risk-tools.js";
 import { registerScheduledMessageTools } from "./scheduled-message-tools.js";
 import type { ScheduledMessageService } from "../../scheduled-messages/service.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -96,6 +100,7 @@ const AGENT_TOOLS = new Set([
   "set_active_personality",
   "clear_active_personality",
   "list_agents",
+  "get_pull_request_risk",
   "launch_agent",
   "launch_owner_reviews",
   "archive_agent",
@@ -359,6 +364,7 @@ export type McpRequestContext = UsageCallbacks & {
    * has read the result.
    */
   whenResponseFinished?: () => Promise<void>;
+  readPullRequestRisk?: RiskReader;
   listAgentsForAgent?: (
     agentId: string,
     senderRepoRoot: string | null
@@ -452,6 +458,7 @@ export async function createDispatchMcpServer(
   const allowed = new Set(TOOL_SETS[agentType]);
 
   // ── Agent browser login link ─────────────────────────────────────
+  registerPullRequestRiskTool(server, allowed, context.readPullRequestRisk);
   registerLoginLinkTools(server, allowed, {
     issueLoginLink: context.issueLoginLink,
   });

@@ -902,6 +902,11 @@ async function registerRoutes() {
     mcpLaunchAgent: mcpHandlers.launchAgent,
     mcpArchiveAgent: mcpHandlers.archiveAgent,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
+    pullRequests,
+    riskEnabled: async () => {
+      const settings = await routingSettings.configuration();
+      return !!settings.mergeRiskEnabled && !!settings.apiKey;
+    },
     mcpJobComplete: mcpHandlers.jobComplete,
     mcpJobFailed: mcpHandlers.jobFailed,
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,
