@@ -40,6 +40,7 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
       {(items.length > 0 || open) && (
         <PopoverTrigger asChild>
           <Button
+            data-background-work-trigger=""
             variant="ghost-primary"
             size="icon-sm"
             aria-label={`Background work ${items.length}`}

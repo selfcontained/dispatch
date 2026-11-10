@@ -350,6 +350,26 @@ describe("ThreadDrawer closing in its frame", () => {
     expect(screen.getByTestId("location-search").textContent).toBe("?keep=yes");
   });
 
+  it("retains the thread for the background-work trigger but dismisses neutral click-away", async () => {
+    renderFramed("?thread=rv&keep=yes");
+    const trigger = document.createElement("button");
+    trigger.setAttribute("data-background-work-trigger", "");
+    document.body.appendChild(trigger);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      fireEvent.pointerDown(trigger);
+      expect(screen.getByTestId("location-search").textContent).toBe(
+        "?thread=rv&keep=yes"
+      );
+      fireEvent.pointerDown(screen.getByTestId("location-search"));
+      expect(screen.getByTestId("location-search").textContent).toBe(
+        "?keep=yes"
+      );
+    } finally {
+      trigger.remove();
+    }
+  });
+
   it("opens and switches threads through a complete pointer/click sequence", async () => {
     renderFramed("");
     const click = (element: HTMLElement) => {
