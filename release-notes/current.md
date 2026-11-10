@@ -1,11 +1,14 @@
 ## What's Changed
-* Guide Dispatch AI setup with an OpenAI API key by @selfcontained in https://github.com/selfcontained/dispatch/pull/1421
-* Insert inline emoji with Slack-style shortcodes by @selfcontained in https://github.com/selfcontained/dispatch/pull/1422
-* Show background work in an anchored popover by @selfcontained in https://github.com/selfcontained/dispatch/pull/1424
-* Keep archived reviewers’ reviews discoverable by @selfcontained in https://github.com/selfcontained/dispatch/pull/1427
-* Keep message-body thread opening on phones and fix pane dismissal by @selfcontained in https://github.com/selfcontained/dispatch/pull/1426
-* Keep PR risk badges visible across assessment states by @selfcontained in https://github.com/selfcontained/dispatch/pull/1425
-* Collect image callouts and share feedback in one message by @selfcontained in https://github.com/selfcontained/dispatch/pull/1423
+* Keep recurring non-loop jobs enabled after run completion by @selfcontained in https://github.com/selfcontained/dispatch/pull/1428
+* test: expose recurring parent-answer EXPLAIN plan failures by @selfcontained in https://github.com/selfcontained/dispatch/pull/1430
+* fix: preserve initial thread fetch when sending early by @selfcontained in https://github.com/selfcontained/dispatch/pull/1429
+* Refresh image feedback destination after confirmed Share by @selfcontained in https://github.com/selfcontained/dispatch/pull/1431
+* Make markup guidance hint dismissible by @selfcontained in https://github.com/selfcontained/dispatch/pull/1432
+* Expose cached PR risk through read-only MCP by @selfcontained in https://github.com/selfcontained/dispatch/pull/1433
+* Notify owner streams when merge-risk assessments arrive by @selfcontained in https://github.com/selfcontained/dispatch/pull/1434
+* Fix compact shared image feedback lists by @selfcontained in https://github.com/selfcontained/dispatch/pull/1435
+* Add metric, chart and responsive group communication blocks by @selfcontained in https://github.com/selfcontained/dispatch/pull/1436
+* Assess PR risk before CI passes by @selfcontained in https://github.com/selfcontained/dispatch/pull/1437
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.4...v1.7.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.5...v1.7.6
