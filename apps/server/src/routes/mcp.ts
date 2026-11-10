@@ -1,3 +1,5 @@
+import { createRiskReader } from "../shared/mcp/pull-request-risk-tools.js";
+import type { PullRequestRefresher } from "../agents/pull-request-refresher.js";
 import type { RedeemCodexReset } from "../agents/codex-reset.js";
 import type { ScheduledMessageService } from "../scheduled-messages/service.js";
 import path from "node:path";
@@ -43,6 +45,8 @@ function onceResponseFinished(res: {
 }
 
 type McpRouteDeps = {
+  pullRequests?: Pick<PullRequestRefresher, "get">;
+  riskEnabled?: () => Promise<boolean>;
   redeemCodexReset?: RedeemCodexReset;
   providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   config: {
@@ -232,6 +236,19 @@ export async function registerMcpRoutes(
     // the calling session can wait for its own response to be delivered.
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      readPullRequestRisk: createRiskReader({
+        caller: agent,
+        getAgent: (id) => deps.agentManager.getAgent(id),
+        visibleAgents: () =>
+          (
+            deps.mcpListAgentsForAgent as (
+              id: string,
+              root: string | null
+            ) => Promise<{ id: string }[]>
+          )(agent.id, repoRoot),
+        inventory: deps.pullRequests,
+        enabled: deps.riskEnabled,
+      }),
       providerPlans,
       redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
       enabledAgentTypes,
@@ -321,6 +338,19 @@ export async function registerMcpRoutes(
     // the calling session can wait for its own response to be delivered.
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      readPullRequestRisk: createRiskReader({
+        caller: agent,
+        getAgent: (id) => deps.agentManager.getAgent(id),
+        visibleAgents: () =>
+          (
+            deps.mcpListAgentsForAgent as (
+              id: string,
+              root: string | null
+            ) => Promise<{ id: string }[]>
+          )(agent.id, repoRoot),
+        inventory: deps.pullRequests,
+        enabled: deps.riskEnabled,
+      }),
       providerPlans,
       redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
       enabledAgentTypes,
