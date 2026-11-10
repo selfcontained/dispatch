@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 
 import { FileActions } from "@/components/app/file-lightbox-actions";
-import { ImageFeedbackPrototype } from "@/components/app/image-feedback-prototype";
+import { ImageComments } from "@/components/app/image-comments";
 import { ZoomableImage } from "@/components/app/file-lightbox-image";
 import {
   MarkdownViewer,
@@ -51,17 +51,6 @@ export function FileLightbox({
   fileIndex,
   setFileId,
 }: FileLightboxProps): JSX.Element | null {
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const feedbackButtonRef = useRef<HTMLButtonElement>(null);
-  const restoreFeedbackFocus = useRef(false);
-  useEffect(() => {
-    if (feedbackOpen || !restoreFeedbackFocus.current) return;
-    restoreFeedbackFocus.current = false;
-    const frame = requestAnimationFrame(() =>
-      feedbackButtonRef.current?.focus()
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [feedbackOpen]);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const {
     data: queriedFile,
@@ -102,7 +91,7 @@ export function FileLightbox({
   }, [fileId]);
 
   useEffect(() => {
-    if (fileId === null || feedbackOpen) return;
+    if (fileId === null || file?.media === "image") return;
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -133,7 +122,7 @@ export function FileLightbox({
     canGoPrev,
     currentIndex,
     fileId,
-    feedbackOpen,
+    file?.media,
     selectIndex,
     setFileId,
   ]);
@@ -171,16 +160,17 @@ export function FileLightbox({
     : "";
   const showLoadError = files === undefined && !file && !!error && !isFetching;
 
-  if (feedbackOpen && file && isImage) {
+  if (file && isImage) {
     return (
-      <ImageFeedbackPrototype
-        key={file.id}
+      <ImageComments
+        key={`${file.url}:${file.updatedAt}:${currentIndex}`}
         file={file}
         src={src}
-        onClose={() => {
-          restoreFeedbackFocus.current = true;
-          setFeedbackOpen(false);
-        }}
+        caption={caption}
+        positionLabel={`${currentIndex + 1}/${totalItems}`}
+        onClose={() => setFileId(null)}
+        onPrevious={canGoPrev ? () => selectIndex(currentIndex - 1) : undefined}
+        onNext={canGoNext ? () => selectIndex(currentIndex + 1) : undefined}
       />
     );
   }
@@ -218,17 +208,6 @@ export function FileLightbox({
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           {file ? (
             <>
-              {import.meta.env.DEV && isImage && (
-                <Button
-                  ref={feedbackButtonRef}
-                  size="sm"
-                  variant="default"
-                  className="text-foreground"
-                  onClick={() => setFeedbackOpen(true)}
-                >
-                  Callout feedback · Prototype
-                </Button>
-              )}
               <FileActions
                 src={src}
                 fileName={file.name}
