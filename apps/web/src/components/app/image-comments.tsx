@@ -15,11 +15,12 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
-  PopoverAnchor,
+  PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { agentListQuery } from "@/hooks/use-agents";
+import { imageFeedbackMessage } from "@/lib/image-feedback-message";
 import { createClientId } from "@/lib/client-id";
 import { api, ApiError } from "@/lib/api";
 import { atomWithLocalStorage } from "@/lib/store";
@@ -284,7 +285,8 @@ export function ImageComments({
             method: "POST",
             body: JSON.stringify({
               id: c.id,
-              text: `${c.note.trim()}\n\nFeedback on ${file.name} · Callout ${c.number}`,
+              to: c.recipient,
+              text: imageFeedbackMessage(c.note, file.name, c.number),
               attachments: [
                 {
                   type: "file",
@@ -567,7 +569,7 @@ export function ImageComments({
                     }
                   }}
                 >
-                  <PopoverAnchor asChild>
+                  <PopoverTrigger asChild>
                     <Button
                       size="icon"
                       variant={selected === c.id ? "primary" : "default"}
@@ -576,18 +578,25 @@ export function ImageComments({
                         left: Math.max(0, Math.min(stageSize.width - 40, left)),
                         top: Math.max(0, Math.min(stageSize.height - 32, top)),
                       }}
+                      id={`comment-${c.id}`}
+                      disabled={busy}
                       aria-label={`Comment ${c.number}${c.sent ? ", sent" : ", draft"}`}
-                      onClick={() => {
-                        setSelected(c.id);
-                        send.reset();
-                      }}
                     >
                       <MessageCircle className="h-4 w-4" />
                       <span className="text-xs">{c.number}</span>
                     </Button>
-                  </PopoverAnchor>
+                  </PopoverTrigger>
                   <PopoverContent
                     className="z-[140] w-[min(320px,calc(100vw-24px))] space-y-3"
+                    onCloseAutoFocus={(e) => {
+                      e.preventDefault();
+                      requestAnimationFrame(() => {
+                        (
+                          document.getElementById(`comment-${c.id}`) ??
+                          svg.current
+                        )?.focus();
+                      });
+                    }}
                     collisionPadding={12}
                     side={stageSize.width < 640 ? "bottom" : "right"}
                     onEscapeKeyDown={(e) => {
