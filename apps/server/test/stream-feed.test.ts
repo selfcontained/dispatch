@@ -105,10 +105,12 @@ describe("composeStreamFeed", () => {
     ).toBe(true);
     const first = await composeStreamFeed(store, A, {
       reviewsOnly: true,
+      includeLaunchReplies: ARCHIVED_CHILD,
       limit: 2,
     });
     const second = await composeStreamFeed(store, A, {
       reviewsOnly: true,
+      includeLaunchReplies: ARCHIVED_CHILD,
       limit: 2,
       cursor: decodeFeedCursor(first.nextCursor!),
     });

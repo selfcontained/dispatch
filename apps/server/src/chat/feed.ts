@@ -112,7 +112,7 @@ async function listBlockEntries(
     `(b.author_kind = 'agent' AND (b.to_agent_id IS NULL OR ${FAILED_PARENT_INPUT_SQL}) AND b.kind IN ('question', 'form'))`,
   ];
   if (includeReviews) scopes.push("b.kind = 'review'");
-  if (includeLaunchReplies) {
+  if (includeLaunchReplies && !reviewsOnly) {
     let viewer = "";
     if (typeof includeLaunchReplies === "string") {
       params.push(includeLaunchReplies);

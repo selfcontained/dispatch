@@ -1245,7 +1245,16 @@ describe("shareFeedByEntryId", () => {
       );
       await screen.findByText("ready");
       expect(
-        apiMock.mock.calls.filter(([url]) => String(url).includes("/blocks?"))
+        apiMock.mock.calls.filter(
+          ([url]) =>
+            String(url).includes("/blocks?") &&
+            !String(url).includes("reviewsOnly=1")
+        )
+      ).toHaveLength(1);
+      expect(
+        apiMock.mock.calls.filter(([url]) =>
+          String(url).includes("reviewsOnly=1")
+        )
       ).toHaveLength(1);
       expect(
         client.getQueryCache().findAll({ queryKey: ["stream", agentId] })
