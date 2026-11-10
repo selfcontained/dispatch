@@ -465,7 +465,7 @@ it("updates waiting to evaluating to inconclusive without presenting prior-head 
   expect(
     screen.queryByText(/Does not describe current merge readiness/)
   ).toBeNull();
-  expect(screen.getByText("previou")).toBeTruthy();
+  expect(screen.getByText("a1b2c3d")).toBeTruthy();
   rerender(
     <PullRequestRow
       {...props}
@@ -496,4 +496,27 @@ it("updates waiting to evaluating to inconclusive without presenting prior-head 
     screen.getByRole("button", { name: /No recommendation/ })
   ).toBeTruthy();
   expect(screen.queryByText("Previous assessment")).toBeNull();
+});
+
+it("hides disabled risk even when PR details are opened", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  const { previewPullRequests } = await import("./agent-pull-requests.preview");
+  const disabled = previewPullRequests.find(
+    (pr) => pr.mergeRisk?.displayState === "disabled"
+  )!;
+  render(<PullRequestRow isError={false} onDismiss={() => {}} pr={disabled} />);
+  expect(screen.queryByTestId("merge-risk-marker")).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: /Check details for pull request/ })
+  );
+  expect(screen.queryByTestId("merge-risk-badge")).toBeNull();
+  expect(screen.queryByText("Merge risk")).toBeNull();
+  expect(screen.getByText("Checks")).toBeTruthy();
 });

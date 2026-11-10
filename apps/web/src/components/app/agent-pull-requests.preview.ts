@@ -130,7 +130,10 @@ export const previewPullRequests: PresentedPullRequest[] = examples.map(
 
 // Synthetic lifecycle fixtures, never provider-backed. Development preview only.
 const fixtureBase = previewPullRequests[0];
-const prior = { ...previewMergeRisk[0]!, headSha: "previous1234567" };
+const prior = {
+  ...previewMergeRisk[0]!,
+  headSha: "a1b2c3d4e5f678901234567890abcdef123456789",
+};
 for (const [i, displayState] of (
   [
     "not_ready",

@@ -199,12 +199,15 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
       {assessment && (
         <div className="space-y-3">
           {risk.displayState && (
-            <div className="flex items-center justify-between gap-3">
-              <h5 className="text-xs font-medium text-muted-foreground">
-                Previous assessment
-              </h5>
-              <MergeRiskBadge risk={assessment} />
-            </div>
+            <>
+              <hr className="border-border" />
+              <div className="flex items-center justify-between gap-3">
+                <h5 className="text-xs font-medium text-foreground">
+                  Previous assessment
+                </h5>
+                <MergeRiskBadge risk={assessment} />
+              </div>
+            </>
           )}
           <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 text-[11px]">
             <dt className="text-muted-foreground">Change risk</dt>
@@ -576,6 +579,8 @@ export function PullRequestRow({
   agentName?: string;
   isError: boolean;
 }) {
+  const risk =
+    pr.mergeRisk?.displayState === "disabled" ? undefined : pr.mergeRisk;
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const closeFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -635,13 +640,13 @@ export function PullRequestRow({
             {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
             <span className="sr-only">{STATES[status].label}</span>
           </AgentMetadataLink>
-          {!isError && pr.mergeRisk && (
+          {!isError && risk && (
             <Button
               variant="ghost"
               size="icon-sm"
               className="shrink-0"
               data-agent-control="true"
-              aria-label={`Merge risk for pull request ${ref.number}: ${riskDisplay(pr.mergeRisk).label}`}
+              aria-label={`Merge risk for pull request ${ref.number}: ${riskDisplay(risk).label}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}
@@ -651,7 +656,7 @@ export function PullRequestRow({
               onClick={toggleDetails}
               data-pr-details-trigger={contentId}
             >
-              <MergeRiskMarker risk={pr.mergeRisk} />
+              <MergeRiskMarker risk={risk} />
             </Button>
           )}
           {(isError ||
@@ -731,7 +736,7 @@ export function PullRequestRow({
           </a>
         </div>
         <>
-          {!isError && pr.mergeRisk && <MergeRiskDetails risk={pr.mergeRisk} />}
+          {!isError && risk && <MergeRiskDetails risk={risk} />}
           <div className="border-t border-border p-3">
             <h4 className="text-xs font-semibold">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
