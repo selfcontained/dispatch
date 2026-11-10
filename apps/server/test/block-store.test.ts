@@ -64,6 +64,18 @@ async function seedAgentPosts(streamId: string, n: number, from = 0) {
 }
 
 describe("BlockStore.reviewSummary", () => {
+  it("retains resolved reviews from archived authors", async () => {
+    const review = await store.insert({
+      streamId: A,
+      author: agent(GONE),
+      kind: "review",
+    });
+    expect((await store.reviewSummary()).agents[GONE]).toMatchObject({
+      threadId: review.id,
+      status: "resolved",
+      openFindings: 0,
+    });
+  });
   it("ignores malformed shown IDs and findings outside the review's stream", async () => {
     const review = await store.insert({
       streamId: A,
@@ -190,7 +202,7 @@ describe("BlockStore.reviewSummary", () => {
     });
     await store.update(newer.id, { state: { blocks: [finding.id] } });
     await store.insert({ streamId: A, author: USER, kind: "review" });
-    await store.insert({ streamId: A, author: agent(GONE), kind: "review" });
+
     // Unrelated posts and findings cannot change which review is selected.
     await seedAgentPosts(A, 105);
     expect(await store.reviewSummary()).toEqual({

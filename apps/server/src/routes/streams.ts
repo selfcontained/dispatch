@@ -206,6 +206,7 @@ export async function registerStreamRoutes(
       limit?: string;
       fullTurnDetails?: string;
       launchReplies?: string;
+      reviewsOnly?: string;
     };
     if (!(await requireRoot(reply, rootId))) return reply;
     const rawCursor = query.cursor || null;
@@ -218,6 +219,7 @@ export async function registerStreamRoutes(
       return reply.code(400).send({ error: "limit must be a number." });
     }
     return streams.feed(rootId, {
+      reviewsOnly: query.reviewsOnly === "1",
       cursor,
       limit,
       includeLaunchReplies:

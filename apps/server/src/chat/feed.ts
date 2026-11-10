@@ -40,6 +40,7 @@ export { clampFeedLimit, decodeFeedCursor, encodeFeedCursor };
 export type ComposeFeedOptions = {
   /** Include review cards from child launch threads for quiet and full views. */
   includeReviews?: boolean;
+  reviewsOnly?: boolean;
   /** Surface activity whose home is an agent launch thread. */
   includeLaunchReplies?: boolean | string;
   /** Opaque cursor from a previous page's `nextCursor`; already decoded. */
@@ -98,7 +99,8 @@ async function listBlockEntries(
   limit: number,
   onlyIds?: readonly string[],
   includeReviews = false,
-  includeLaunchReplies: boolean | string = false
+  includeLaunchReplies: boolean | string = false,
+  reviewsOnly = false
 ): Promise<Keyed<StreamBlockEntry>[]> {
   const params: unknown[] = [streamId];
   let clause = cursorClause("block", "uuid", cursor, params, "b");
@@ -120,7 +122,9 @@ async function listBlockEntries(
       `EXISTS (SELECT 1 FROM blocks host WHERE host.id = b.thread_id AND host.kind = 'launch'${viewer})`
     );
   }
-  let scope = `AND (${scopes.join(" OR ")})`;
+  let scope = reviewsOnly
+    ? "AND b.kind = 'review'"
+    : `AND (${scopes.join(" OR ")})`;
   if (onlyIds !== undefined) {
     params.push([...onlyIds]);
     clause += ` AND b.id = ANY($${params.length}::uuid[])`;
@@ -415,7 +419,8 @@ export async function composeStreamFeed(
       limit + 1,
       undefined,
       opts.includeReviews,
-      opts.includeLaunchReplies
+      opts.includeLaunchReplies,
+      opts.reviewsOnly
     ),
     store.countUnread(streamId),
   ]);

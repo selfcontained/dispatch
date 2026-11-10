@@ -457,12 +457,29 @@ export function InboxPanel({
               review={review}
               authorName={
                 review.author.kind === "agent"
-                  ? (agentNameById?.(review.author.agentId) ?? "Agent")
+                  ? (agentNames[review.author.agentId] ??
+                    agentNameById?.(review.author.agentId) ??
+                    "Agent")
                   : "You"
               }
               onOpenBlock={onOpenBlock}
             />
           ))}
+        </div>
+      ) : null}
+      {inbox.hasOlderReviews || inbox.reviewsError ? (
+        <div className="px-3 py-2">
+          {inbox.reviewsError ? <p role="alert">{inbox.reviewsError}</p> : null}
+          <Button
+            variant="default"
+            size="sm"
+            disabled={inbox.loadingOlderReviews}
+            onClick={inbox.loadOlderReviews}
+          >
+            {inbox.loadingOlderReviews
+              ? "Loading reviews…"
+              : "Load older reviews"}
+          </Button>
         </div>
       ) : null}
       {checklists.length > 0 ? (

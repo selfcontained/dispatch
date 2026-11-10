@@ -637,3 +637,22 @@ describe("typed inbox resources", () => {
     expect(deriveInbox([blockEntry(generic)], ROOT, ROOT).links).toEqual([]);
   });
 });
+
+describe("review history merging", () => {
+  it("retains more than twelve reviews and uses the newest duplicate state", () => {
+    const reviews = Array.from({ length: 30 }, (_, i) =>
+      blockEntry(reviewBlock({ id: `review-${i}`, createdAt: at("10:00") }))
+    );
+    const older = reviews[0]!;
+    const updated = {
+      ...older,
+      block: { ...older.block, text: "Updated", updatedAt: at("12:00") },
+    };
+    const inbox = deriveInbox([...reviews, updated, older], ROOT, ROOT);
+    expect(inbox.reviews).toHaveLength(30);
+    expect(inbox.reviews.find((b) => b.id === older.block.id)?.text).toBe(
+      "Updated"
+    );
+    expect(new Set(inbox.reviews.map((b) => b.id)).size).toBe(30);
+  });
+});
