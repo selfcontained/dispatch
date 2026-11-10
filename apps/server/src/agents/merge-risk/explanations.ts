@@ -1,3 +1,4 @@
+import { retainedEvidence } from "./explanation-evidence.js";
 import { mergeRiskCapacity } from "./budget.js";
 import { createHash } from "node:crypto";
 import type { AgentPullRequest } from "@dispatch/shared";
@@ -149,7 +150,10 @@ export class RiskExplanations {
     }
     const result = await requestExplanation(
       config.apiKey,
-      explanationInput(snapshot.evidence, snapshot.result),
+      explanationInput(
+        retainedEvidence(snapshot.evidence, config.apiKey),
+        snapshot.result
+      ),
       this.deps.transport
     );
     const current =
@@ -177,7 +181,7 @@ export class RiskExplanations {
   }
 }
 
-/** Preserve structured grounding while withholding private review/launch prose. */
+/** Keep bounded technical findings; withhold identities, launch text and summaries. */
 export function followupEvidence(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const evidence = raw as Record<string, unknown>;
@@ -196,8 +200,8 @@ export function followupEvidence(raw: unknown): unknown {
                   const finding = raw as Record<string, unknown>;
                   return {
                     ...finding,
-                    title: "[title withheld]",
-                    note: "[note withheld]",
+                    title: finding.title,
+                    note: finding.note,
                   };
                 })
               : [],

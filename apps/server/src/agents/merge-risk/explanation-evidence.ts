@@ -3,7 +3,7 @@ export function retainedEvidence(value: unknown, apiKey: string): unknown {
   if (typeof value === "string") {
     let text = value
       .replace(
-        /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+        /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
         "[redacted private key]"
       )
       .replace(

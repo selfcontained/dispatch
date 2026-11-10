@@ -223,7 +223,7 @@ it.each(["routine", "human_review", "abstain"])(
     expect(body.instructions).toContain("abstain");
   }
 );
-it("withholds private review prose and handles sparse evidence without inventing context", () => {
+it("withholds identities and summaries while retaining bounded technical mitigations", () => {
   const safe = followupEvidence({
     reviews: [
       {
@@ -231,8 +231,8 @@ it("withholds private review prose and handles sparse evidence without inventing
         summary: "private summary",
         findings: [
           {
-            title: "private title",
-            note: "private note",
+            title: "Recheck settings after eligibility",
+            note: "Verified settings changes prevent provider dispatch",
             path: "auth/session.ts",
             status: "fixed",
           },
@@ -243,6 +243,12 @@ it("withholds private review prose and handles sparse evidence without inventing
   });
   expect(JSON.stringify(safe)).not.toContain("private summary");
   expect(JSON.stringify(safe)).toContain("auth/session.ts");
+  expect(JSON.stringify(safe)).toContain("Recheck settings after eligibility");
+  expect(JSON.stringify(safe)).toContain(
+    "Verified settings changes prevent provider dispatch"
+  );
+  expect(JSON.stringify(safe)).not.toContain("private name");
+  expect(JSON.stringify(safe)).not.toContain("private launch");
   expect(followupEvidence(null)).toEqual({});
 });
 it("prices Responses input/cache/output honestly; malformed usage stays unknown", () => {
@@ -364,5 +370,149 @@ it.each(["off", "removed", "replaced"])(
     } finally {
       spy.mockRestore();
     }
+  }
+);
+
+it.each([false, true])(
+  "carries stored findings and redacts truncated credentials (legacy snapshot: %s)",
+  async (legacy) => {
+    const { BlockStore } = await import("../src/chat/store.js");
+    const { MergeRiskAssessor } =
+      await import("../src/agents/merge-risk/assessor.js");
+    const blocks = new BlockStore(pool);
+    await pool.query("DELETE FROM merge_risk_decision_records");
+    await pool.query(
+      "INSERT INTO agents(id,name,cwd,status,persona) VALUES('full-context-reviewer','Reviewer','/tmp','stopped','auth-trust-owner') ON CONFLICT DO NOTHING"
+    );
+    const review = await blocks.insert({
+      streamId: "full-context-reviewer",
+      toAgentId: "explain-owner",
+      author: { kind: "agent", agentId: "full-context-reviewer" },
+      kind: "review",
+      data: { summary: "Private reviewer summary" },
+    });
+    const technicalNote =
+      "Verified key replacement during DB waits prevents dispatch";
+    const credentialNote =
+      technicalNote +
+      "\n-----BEGIN PRIVATE KEY-----\n" +
+      "SYNTHETICKEYMATERIAL".repeat(30) +
+      "\n-----END PRIVATE KEY-----";
+    const finding = await blocks.insert({
+      streamId: "full-context-reviewer",
+      toAgentId: "explain-owner",
+      author: { kind: "agent", agentId: "full-context-reviewer" },
+      kind: "finding",
+      replyTo: review.id,
+      data: {
+        title: "Prevent stale provider dispatch",
+        severity: "major",
+        path: "apps/server/src/agents/merge-risk/explanations.ts",
+      },
+      state: {
+        status: "resolved",
+        resolution: "fixed",
+        note: credentialNote,
+      },
+    });
+    await blocks.update(review.id, { state: { blocks: [finding.id] } });
+    const scoring = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        answers: [
+          { type: "score", name: "change_risk", score: 2.1, probabilities: [] },
+          { type: "predicate", name: "review_adequate", probability: 0.94 },
+          {
+            type: "predicate",
+            name: "description_matches_diff",
+            probability: 0.93,
+          },
+          {
+            type: "predicate",
+            name: "new_user_facing_surface",
+            probability: 0.1,
+          },
+          {
+            type: "choice",
+            name: "needs_human",
+            choice: "human_review",
+            confidence: 0.9,
+            probabilities: [{ value: "human_review", probability: 0.9 }],
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 0, total_tokens: 100 },
+      })
+    );
+    const assessor = new MergeRiskAssessor({
+      pool,
+      settings,
+      agentRoot: async () => null,
+      transport: scoring,
+      readDetails: async () => ({
+        number: 1,
+        title: "Explain assessment",
+        body: "Add explicit on-demand explanations inside the existing PR popover",
+        state: "OPEN",
+        isDraft: false,
+        mergedAt: null,
+        additions: 100,
+        deletions: 10,
+        baseRefName: "main",
+        headRefName: "feature",
+        headRefOid: "abc",
+        files: [
+          {
+            path: "apps/server/src/agents/merge-risk/explanations.ts",
+            additions: 90,
+            deletions: 5,
+          },
+          {
+            path: "apps/web/src/components/app/agent-pull-requests.tsx",
+            additions: 10,
+            deletions: 5,
+          },
+        ],
+        statusCheckRollup: [],
+      }),
+    });
+    pr.mergeRisk = await assessor.assess(pr.url, pr, ["explain-owner"]);
+    expect(pr.mergeRisk?.status).toBe("ok");
+    id = pr.mergeRisk!.assessmentId!;
+    const saved = (
+      await pool.query(
+        "SELECT evidence FROM merge_risk_evidence_snapshots WHERE assessment_id=$1",
+        [id]
+      )
+    ).rows[0].evidence;
+    expect(JSON.stringify(saved)).not.toContain("SYNTHETICKEYMATERIAL");
+    if (legacy) {
+      saved.reviews[0].findings[0].note = credentialNote.slice(0, 300);
+      await pool.query(
+        "UPDATE merge_risk_evidence_snapshots SET evidence=$2 WHERE assessment_id=$1",
+        [id, JSON.stringify(saved)]
+      );
+    }
+    expect((await service().explain(input())).state).toBe("ready");
+    const wire = JSON.parse(String(transport.mock.calls[0][1]?.body));
+    const actual = JSON.parse(wire.input[0].content[0].text);
+    expect(actual.evidence.reviews[0].findings[0]).toMatchObject({
+      title: "Prevent stale provider dispatch",
+      severity: "major",
+      status: "fixed",
+    });
+    expect(actual.evidence.reviews[0].findings[0].note).toContain(
+      technicalNote
+    );
+    expect(JSON.stringify(actual)).not.toContain("SYNTHETICKEYMATERIAL");
+    expect(JSON.stringify(actual)).not.toContain("BEGIN PRIVATE KEY");
+    expect(actual.evidence.reviews[0].summary).toBe("[summary withheld]");
+    expect(actual.evidence.reviews[0].reviewer).toBe("reviewer");
+    expect(actual.assessment.reviewAdequate).toBe(0.94);
+    expect(
+      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
+        .calls
+    ).toBe(2);
+    await service().explain(input());
+    expect(transport).toHaveBeenCalledTimes(1);
+    await pool.query("DELETE FROM blocks WHERE to_agent_id='explain-owner'");
   }
 );
