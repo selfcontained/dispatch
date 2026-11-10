@@ -728,3 +728,64 @@ it("clears cached risk immediately on disable and suppresses in-flight progress"
   ).toBe(true);
   await service.stop();
 });
+
+it.each([false, true])(
+  "preserves review invalidation during an assessment (initial refresh: %s)",
+  async (initial) => {
+    const f = fixture();
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let pause = initial;
+    const service = new PullRequestRefresher({
+      pool: { query: f.query } as unknown as Pool,
+      listAgentIds: f.listAgentIds,
+      read: f.read,
+      publish: f.publish,
+      warn: vi.fn(),
+      assess: async () => {
+        if (pause) {
+          pause = false;
+          entered();
+          await paused;
+        }
+        return { verdict: "routine" } as never;
+      },
+    });
+    if (!initial) {
+      await service.refresh();
+      pause = true;
+    }
+    const flight = initial
+      ? service.refresh()
+      : service.refreshOne("a", "https://github.com/a/b/pull/0");
+    await started;
+    service.observeBlock({
+      id: "review-racing",
+      kind: "review",
+      toAgentId: "a",
+      attachments: [],
+      blocks: [
+        {
+          id: "finding-racing",
+          kind: "finding",
+          attachments: [],
+          state: { status: "resolved", resolution: "fixed" },
+        },
+      ],
+    } as unknown as Block);
+    release();
+    await flight;
+    expect(service.get("a")[0]!.mergeRisk).toBeUndefined();
+    const before = f.read.mock.calls.length;
+    await service.refresh();
+    expect(f.read).toHaveBeenCalledTimes(before + 1);
+    expect(service.get("a")[0]!.mergeRisk?.verdict).toBe("routine");
+    await service.stop();
+  }
+);

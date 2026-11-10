@@ -125,6 +125,7 @@ export class PullRequestRefresher {
     this.stopped = false;
     this.signal();
   }
+  private reviewGeneration = new Map<string, number>();
   private reviewStates = new Map<string, string>();
   /** Explicit PR posts and edits to previously tracked posts reconcile inventory. */
   observeBlock(block: Block) {
@@ -147,6 +148,10 @@ export class PullRequestRefresher {
           // GitHub freshness deadline intact. Reuse the existing bounded queue.
           for (const pr of this.get(current.toAgentId)) {
             const entry = this.urls.get(pr.url);
+            this.reviewGeneration.set(
+              pr.url,
+              (this.reviewGeneration.get(pr.url) ?? 0) + 1
+            );
             if (entry) entry.due = 0;
           }
           changed = true;
@@ -354,6 +359,7 @@ export class PullRequestRefresher {
       Array.from({ length: Math.min(2, queue.length) }, async () => {
         while (queue.length && !this.stopped) {
           const [url, title] = queue.shift()!;
+          const reviewGeneration = this.reviewGeneration.get(url) ?? 0;
           this.attempts.push(Date.now());
           let value: AgentPullRequest;
           try {
@@ -382,7 +388,12 @@ export class PullRequestRefresher {
                 value,
                 owners,
                 (risk) => {
-                  if (this.stopped || this.riskHidden) return;
+                  if (
+                    this.stopped ||
+                    this.riskHidden ||
+                    (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration
+                  )
+                    return;
                   for (const id of owners) {
                     if (this.isDismissed(id, url)) continue;
                     const current = { ...value, mergeRisk: risk };
@@ -495,6 +506,12 @@ export class PullRequestRefresher {
               }
             }
           }
+          const reviewChanged =
+            (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration;
+          // A result based on older review evidence cannot be current. Keep the
+          // URL due so the dirty follow-up consumes the new evidence, even on
+          // its first refresh when no cache entry existed at invalidation time.
+          if (reviewChanged) value = { ...value, mergeRisk: undefined };
           this.urls.set(url, {
             value,
             lifecycle,
@@ -502,7 +519,7 @@ export class PullRequestRefresher {
               value.ci?.availability === "available" ? value : previous?.checks,
             failures,
             checkedAt: Date.now(),
-            due: Date.now() + delay,
+            due: reviewChanged ? 0 : Date.now() + delay,
           });
           this.pendingUrls.delete(url);
         }
@@ -510,7 +527,10 @@ export class PullRequestRefresher {
     );
     if (this.stopped) return;
     for (const url of this.urls.keys())
-      if (!links.has(url)) this.urls.delete(url);
+      if (!links.has(url)) {
+        this.urls.delete(url);
+        this.reviewGeneration.delete(url);
+      }
     publishSnapshots();
     await Promise.all(
       notices.map(async (notify) => {
