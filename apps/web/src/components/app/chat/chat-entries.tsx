@@ -16,7 +16,13 @@ import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
-import { memo, type ReactNode } from "react";
+import { lazy, Suspense, memo, type ReactNode } from "react";
+
+const VisualizationBlock = lazy(() =>
+  import("./visualization-block").then((module) => ({
+    default: module.VisualizationBlock,
+  }))
+);
 import {
   type Block,
   type BlockAuthor,
@@ -1110,6 +1116,14 @@ function BlockBody({
       : undefined;
   const recovery = isFailedParentInput(block);
   switch (block.kind) {
+    case "visualization_group":
+    case "metric":
+    case "chart":
+      return (
+        <Suspense fallback={<p>Loading visualization…</p>}>
+          <VisualizationBlock kind={block.kind} data={block.data} />
+        </Suspense>
+      );
     case "question":
       return (
         <QuestionOptions
@@ -1198,6 +1212,10 @@ function BlockBody({
     case "text":
     case "file":
       return null;
+    default:
+      return (
+        <p className="text-xs text-muted-foreground">Unsupported block type.</p>
+      );
   }
 }
 

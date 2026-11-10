@@ -1,5 +1,12 @@
 import { riskNotice } from "../agents/pull-request-risk-notice.js";
 import {
+  parseVisualization,
+  parseVisualizationGroup,
+  type VisualizationGroupData,
+  type MetricData,
+  type ChartData,
+} from "@dispatch/shared";
+import {
   formatCheckNotice,
   formatStatusNotice,
 } from "../agents/pull-request-check-notice.js";
@@ -141,6 +148,9 @@ export type BlockAttachmentInput =
 
 /** What an agent hands `post`. */
 export type PostInput = {
+  visualizationGroup?: VisualizationGroupData | null;
+  metric?: MetricData | null;
+  chart?: ChartData | null;
   /** Explicit recipient; omitted posts are for people unless replyTo infers a recipient. */
   to?: string | null;
   /** Explicit task destination; never changes subsequent turn routing. */
@@ -528,6 +538,9 @@ export function resolveKindAndData(input: PostInput): {
   data: unknown;
 } {
   const given = [
+    input.visualizationGroup ? "visualization_group" : null,
+    input.metric ? "metric" : null,
+    input.chart ? "chart" : null,
     input.question ? "question" : null,
     input.form ? "form" : null,
     input.link ? "link" : null,
@@ -553,6 +566,28 @@ export function resolveKindAndData(input: PostInput): {
     );
   }
   switch (kind) {
+    case "visualization_group":
+      try {
+        return {
+          kind,
+          data: parseVisualizationGroup(input.visualizationGroup),
+        };
+      } catch (error) {
+        throw new StreamValidationError(
+          error instanceof Error
+            ? error.message
+            : "Invalid visualization group."
+        );
+      }
+    case "metric":
+    case "chart":
+      try {
+        return { kind, data: parseVisualization(kind, input[kind]) };
+      } catch (error) {
+        throw new StreamValidationError(
+          error instanceof Error ? error.message : "Invalid visualization."
+        );
+      }
     case "task": {
       const id = input.task?.id;
       if (typeof id !== "string" || !/^tsk_[a-f0-9]{12}$/.test(id.trim()))
@@ -726,6 +761,11 @@ function validUpdateData(block: Block, value: unknown): unknown {
         ...(block.kind === "form" ? { form: value as BlockFormData } : {}),
         ...(block.kind === "link" ? { link: value as BlockLinkData } : {}),
         ...(block.kind === "tasks" ? { tasks: value as BlockTasksData } : {}),
+        ...(block.kind === "visualization_group"
+          ? { visualizationGroup: value as VisualizationGroupData }
+          : {}),
+        ...(block.kind === "metric" ? { metric: value as MetricData } : {}),
+        ...(block.kind === "chart" ? { chart: value as ChartData } : {}),
         attachments: block.attachments.map((a) =>
           a.type === "file" ? { type: "file" as const, fileId: a.fileId } : a
         ),
@@ -762,6 +802,13 @@ type TurnPublish = { done: Promise<void>; again: boolean };
  * says when the data is the point (review findings, question options, form fields).
  */
 function envelopeText(block: Block): string {
+  if (
+    block.kind === "metric" ||
+    block.kind === "chart" ||
+    block.kind === "visualization_group"
+  )
+    return `${block.text}\n${block.kind}: ${JSON.stringify(block.data)}`;
+
   if (block.kind === "review") {
     const review = describeReview(block, reviewFindings(block));
     return block.text.trim() ? `${block.text.trim()}\n\n${review}` : review;

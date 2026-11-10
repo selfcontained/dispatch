@@ -1,0 +1,68 @@
+.visualization-block {
+  --graph-cyan: #00e5ff;
+  --graph-pink: #ff3df2;
+  --graph-lime: #b6ff00;
+  --graph-orange: #ff982b;
+  --graph-purple: #bd8aff;
+  --graph-yellow: #ffe600;
+}
+[data-theme-mode="light"] .visualization-block {
+  --graph-cyan: #007c96;
+  --graph-pink: #c000ae;
+  --graph-lime: #4b7800;
+  --graph-orange: #ad4b00;
+  --graph-purple: #7632c3;
+  --graph-yellow: #806000;
+}
+
+.visualization-group {
+  container-type: inline-size;
+  max-width: 1040px;
+}
+.visualization-metric-grid,
+.visualization-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+.visualization-metric-grid > .metric-tile {
+  max-width: none;
+}
+@container (min-width: 320px) {
+  .visualization-metric-grid:not([data-count="1"]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 560px) {
+  .visualization-metric-grid:not([data-count="1"]):not([data-count="2"]) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@container (min-width: 760px) {
+  .visualization-metric-grid:not([data-count="1"]):not([data-count="2"]):not(
+      [data-count="3"]
+    ) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@container (min-width: 640px) {
+  .visualization-chart-grid:not([data-count="1"]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 960px) {
+  .visualization-chart-grid:not([data-count="1"]):not([data-count="2"]) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.metric-tile,
+.visualization-chart-grid > [data-kind="chart-card"] {
+  display: flex;
+  flex-direction: column;
+}
+.metric-tile > p:last-child,
+.visualization-chart-grid > [data-kind="chart-card"] > p:last-child {
+  margin-top: auto !important;
+  padding-top: 8px;
+}

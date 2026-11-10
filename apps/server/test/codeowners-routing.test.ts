@@ -10,6 +10,10 @@ const root = path.resolve(import.meta.dirname, "../../..");
 
 // Real files anchor cross-layer routing. Exact sets also catch accidental fan-out.
 const cases: [string, string[]][] = [
+  ["packages/shared/src/visualization-types.ts", ["stream-delivery-owner"]],
+  ["apps/server/test/visualization.test.ts", ["stream-delivery-owner"]],
+  ["apps/server/test/visualization-context.test.ts", ["stream-delivery-owner"]],
+  ["docs/design/communication-visualizations.md", ["stream-delivery-owner"]],
   [".github/workflows/ci.yml", ["release-update-owner"]],
   ["scripts/ci-owner-coverage.ts", ["review-lifecycle-owner"]],
   ["apps/server/src/personas/coverage.ts", ["review-lifecycle-owner"]],

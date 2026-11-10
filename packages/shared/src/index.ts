@@ -244,3 +244,4 @@ export type {
   DecisionsMetricsResponse,
   MergeRiskMetrics,
 } from "./decision-types.js";
+export * from "./visualization-types.js";

@@ -1,3 +1,8 @@
+import {
+  metricSchema,
+  chartSchema,
+  visualizationGroupSchema,
+} from "../../chat/visualization-schema.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import {
@@ -401,6 +406,21 @@ export function registerStreamTools(
             .describe(
               "Destination alias for text, attachments, links, and tasks only. current (default), home, and root all mean your own home root, including children. Cannot combine with replyTo, taskId, agentHome, question, form, or review. Does not move subsequent ordinary replies or deliver to another agent; use to for delivery."
             ),
+          visualizationGroup: visualizationGroupSchema
+            .optional()
+            .describe(
+              "One authored group of 1–6 related metrics OR charts. Dispatch chooses columns responsively; no column counts or nested/mixed groups."
+            ),
+          metric: metricSchema
+            .optional()
+            .describe(
+              "A version 1 metric card. Explicit unit and measured/estimated/synthetic classification required."
+            ),
+          chart: chartSchema
+            .optional()
+            .describe(
+              "A bounded version 1 chart: up to 6 uniquely colored series and 200 points. Types: bar, line, area, scatter (x + xUnit), heatmap, histogram (from/to bins), waterfall (deltas), interval/timeline (one series; values [start,end]), bullet (actual,target). No code or library options. Missing values are null."
+            ),
           question: questionSchema.optional(),
           form: formSchema.optional(),
           link: linkSchema.optional(),
@@ -428,6 +448,11 @@ export function registerStreamTools(
             replyTo: args.replyTo ?? null,
             placement: args.placement,
             agentHome: args.agentHome,
+            ...(args.visualizationGroup
+              ? { visualizationGroup: args.visualizationGroup }
+              : {}),
+            ...(args.metric ? { metric: args.metric } : {}),
+            ...(args.chart ? { chart: args.chart } : {}),
             question: args.question ?? null,
             form: args.form ?? null,
             link: args.link ?? null,
@@ -478,7 +503,7 @@ export function registerStreamTools(
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-              "Replacement data for the block's kind (question options, form fields, link, review, tasks)."
+              "Replacement data for the block's kind (including complete versioned metric or chart payloads)."
             ),
           state: z
             .record(z.string(), z.unknown())

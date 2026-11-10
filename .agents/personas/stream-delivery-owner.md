@@ -27,6 +27,9 @@ Trace the affected producer, stored message, route, and browser consumer in `age
 
 - Background work is a bounded live host-memory snapshot, separate from transcript and host journal events. Terminal reports remove current rows; a transient ID-only guard prevents late metadata from recreating finished work. No database projection/history/output retention should be added. Disconnection must return unavailable/offline rather than claim prior rows remain current.
 
+- Visualization metric/chart/group public payloads must survive persisted feeds, paginated readers, bounded automatic context and immutable shares, excluding scheduling/private metadata. Textless visuals must remain readable by agents.
+- Chart inputs are bounded inert data. Preserve finite values, units, missing-data semantics, stable series colors and exact tables. Histogram bin tolerances must scale to bin width, including very small units; cumulative waterfall positions become unknown after missing deltas. Explicit groups share one author/thread and adapt to container width without packing unrelated posts.
+
 ## Findings
 
 Optional AI routing must default to Off, preserve explicit destinations and structured replies, and freeze a server-authorized destination before output starts. Invalid explicit modes must not fall through to legacy opt-in. Provider failures, cancellation, and the whole routing deadline preserve existing placement; late work must not reopen settled turns or cancel newer turns.

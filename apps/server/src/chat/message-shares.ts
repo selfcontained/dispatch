@@ -1,3 +1,4 @@
+import { publicVisualizationData } from "./context.js";
 import type { Block, SharedMessagePresentation } from "@dispatch/shared";
 import type { Queryable } from "./store.js";
 
@@ -5,6 +6,11 @@ import type { Queryable } from "./store.js";
 export function sharedMessageSnapshot(block: Block) {
   let data: unknown = null;
   switch (block.kind) {
+    case "metric":
+    case "chart":
+    case "visualization_group":
+      data = publicVisualizationData(block);
+      break;
     case "question":
       data = {
         options: block.data.options,
