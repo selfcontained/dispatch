@@ -109,3 +109,16 @@ palette. Series now reference the existing --chart-1 and --chart-2 tokens
 directly, as other Dispatch charts do. Metric accent and legend swatches follow
 those same slots. The selected theme owns those colors; no per-block color
 strings or separate light/dark palette is introduced.
+
+## Palette comparison after user feedback
+
+User asked for screenshots directly in active chat and disliked the initial
+selected-theme pair. New screenshots are posted at home root with each visual
+iteration instead of being hidden in prior feedback threads. Development review
+fixtures now offer four local palette comparisons using existing theme slots:
+1+2 (theme pair), 1+3 (alternate), 3+4 (secondary), and 1+5 (tonal). These are
+review controls, not a proposed production chart editor or arbitrary color API.
+The theme retains control of all six colors. Stable observed/planned mapping
+remains intact when switching. Tonal colors provide less categorical distinction;
+line dashes and exact tables remain necessary and further final accessibility
+validation remains required.

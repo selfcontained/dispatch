@@ -1,3 +1,5 @@
+import { useState, type CSSProperties } from "react";
+import { Button } from "@/components/ui/button";
 import {
   Area,
   AreaChart,
@@ -26,9 +28,15 @@ const rows = [
   { label: "Thu", observed: 68, planned: 65 },
   { label: "Fri", observed: 74, planned: 70 },
 ];
+const palettes = [
+  { name: "Theme pair", slots: [1, 2] },
+  { name: "Alternate pair", slots: [1, 3] },
+  { name: "Secondary pair", slots: [3, 4] },
+  { name: "Tonal pair", slots: [1, 5] },
+] as const;
 const config = {
-  observed: { label: "Observed", color: "hsl(var(--chart-1))" },
-  planned: { label: "Planned", color: "hsl(var(--chart-2))" },
+  observed: { label: "Observed", color: "var(--review-series-1)" },
+  planned: { label: "Planned", color: "var(--review-series-2)" },
 };
 const options = [
   {
@@ -126,15 +134,23 @@ export function StreamVisualizationReview({
   direction: number;
 }) {
   const option = options[direction];
+  const [paletteIndex, setPaletteIndex] = useState(0);
+  const palette = palettes[paletteIndex];
   return (
     <div
       className="space-y-4 w-full min-w-0 max-w-3xl"
       data-testid="stream-visualization-review"
+      style={
+        {
+          "--review-series-1": `hsl(var(--chart-${palette.slots[0]}))`,
+          "--review-series-2": `hsl(var(--chart-${palette.slots[1]}))`,
+        } as CSSProperties
+      }
     >
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span
           className="rounded bg-primary/15 px-2 py-1"
-          style={{ color: "hsl(var(--chart-1))" }}
+          style={{ color: "var(--review-series-1)" }}
         >
           DESIGN REVIEW
         </span>
@@ -144,8 +160,39 @@ export function StreamVisualizationReview({
         {direction + 1}. {option.name}
       </h2>
       <p className="text-sm text-muted-foreground">{option.description}</p>
+      <div className="space-y-2" aria-label="Theme chart palette comparison">
+        <p className="text-xs text-muted-foreground">
+          Compare colors from your selected theme
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {palettes.map((item, index) => (
+            <Button
+              key={item.name}
+              size="sm"
+              variant={paletteIndex === index ? "primary" : "default"}
+              aria-pressed={paletteIndex === index}
+              onClick={() => setPaletteIndex(index)}
+            >
+              <span className="flex gap-1" aria-hidden="true">
+                {item.slots.map((slot) => (
+                  <span
+                    key={slot}
+                    className="size-2.5 rounded-full border border-foreground/20"
+                    style={{ backgroundColor: `hsl(var(--chart-${slot}))` }}
+                  />
+                ))}
+              </span>
+              {item.name}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {palette.name} · theme chart slots {palette.slots.join(" + ")}. Dashed
+          planned line distinguishes series beyond color.
+        </p>
+      </div>
       <Card
-        className={`${option.padding} border-l-4 border-l-[hsl(var(--chart-1))]`}
+        className={`${option.padding} border-l-4 border-l-[var(--review-series-1)]`}
       >
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Metric · Friday delivery
@@ -153,7 +200,7 @@ export function StreamVisualizationReview({
         <p className={`${option.metric} font-semibold mt-2`}>
           74 <span className="text-sm text-muted-foreground">items</span>
         </p>
-        <p className="text-sm mt-2" style={{ color: "hsl(var(--chart-1))" }}>
+        <p className="text-sm mt-2" style={{ color: "var(--review-series-1)" }}>
           +6 items from Thursday
         </p>
       </Card>
@@ -239,9 +286,13 @@ export function StreamVisualizationReview({
               </ChartContainer>
             )}
             <div className="flex gap-4 text-xs">
-              <span style={{ color: "hsl(var(--chart-1))" }}>● Observed</span>
+              <span style={{ color: "var(--review-series-1)" }}>
+                ● Observed
+              </span>
               {kind !== "Scatter" && (
-                <span style={{ color: "hsl(var(--chart-2))" }}>┄ Planned</span>
+                <span style={{ color: "var(--review-series-2)" }}>
+                  ┄ Planned
+                </span>
               )}
             </div>
             <details>
