@@ -411,7 +411,7 @@ it("shows the merge-risk recommendation on the row and its details in the popove
   expect(screen.getByText(/merging stays a human decision/i)).toBeTruthy();
 });
 
-it("hides abstentions from the row", () => {
+it("keeps inconclusive assessments discoverable on the row", () => {
   render(
     <PullRequestRow
       isError={false}
@@ -438,5 +438,66 @@ it("hides abstentions from the row", () => {
       }}
     />
   );
-  expect(screen.queryByTestId("merge-risk-marker")).toBeNull();
+  expect(
+    screen.getByTestId("merge-risk-marker").getAttribute("aria-label")
+  ).toContain("No recommendation");
+});
+
+it("updates waiting to evaluating to inconclusive without presenting prior-head history as current", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  const { previewPullRequests } = await import("./agent-pull-requests.preview");
+  const waiting = previewPullRequests.find(
+    (pr) => pr.mergeRisk?.displayState === "waiting_ci"
+  )!;
+  const props = { isError: false, onDismiss: () => {} };
+  const { rerender } = render(<PullRequestRow {...props} pr={waiting} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: /Merge risk for pull request/ })
+  );
+  expect(
+    screen.getByText("Previous assessment · historical context only")
+  ).toBeTruthy();
+  expect(
+    screen.getByText(/Does not describe current merge readiness/)
+  ).toBeTruthy();
+  expect(screen.getByText("previou")).toBeTruthy();
+  rerender(
+    <PullRequestRow
+      {...props}
+      pr={{
+        ...waiting,
+        mergeRisk: { ...waiting.mergeRisk!, displayState: "evaluating" },
+      }}
+    />
+  );
+  expect(
+    screen.getByRole("button", { name: /Risk · evaluating/ })
+  ).toBeTruthy();
+  rerender(
+    <PullRequestRow
+      {...props}
+      pr={{
+        ...waiting,
+        mergeRisk: {
+          ...waiting.mergeRisk!,
+          displayState: undefined,
+          previous: undefined,
+          verdict: "abstain",
+        },
+      }}
+    />
+  );
+  expect(
+    screen.getByRole("button", { name: /No recommendation/ })
+  ).toBeTruthy();
+  expect(
+    screen.queryByText("Previous assessment · historical context only")
+  ).toBeNull();
 });

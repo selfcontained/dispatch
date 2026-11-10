@@ -3,7 +3,7 @@ export type AgentPullRequest = {
   url: string;
   title: string;
   status: "Open" | "Draft" | "Merged" | "Closed" | "Unavailable" | "Pending";
-  /** Latest merge-risk assessment for this head, when the feature is on. */
+  /** Display lifecycle plus a current recommendation or separately labeled history. */
   mergeRisk?: MergeRiskSummary;
 };
 
@@ -36,6 +36,20 @@ export type CiSnapshot = {
  * it merges. Display only: it never merges, approves, or blocks anything.
  */
 export type MergeRiskSummary = {
+  /** Display lifecycle only; a non-current state is never a recommendation. */
+  displayState?:
+    | "disabled"
+    | "unavailable"
+    | "waiting_ci"
+    | "waiting_review"
+    | "not_ready"
+    | "evaluating"
+    | "deferred"
+    | "daily_cap"
+    | "capacity"
+    | "rate_limited"
+    | "failure";
+  previous?: MergeRiskSummary;
   verdict: "routine" | "human_review" | "abstain";
   /** Probability-weighted level index: 0 low … 3 critical. */
   changeRisk: number | null;

@@ -67,41 +67,75 @@ export class MergeRiskAssessor {
    * no provider calls, and no recommendation is returned, so previously
    * recorded verdicts disappear from the UI until it is turned back on.
    *
-   * A recommendation is only ever shown while the deterministic gate still
-   * holds for the current head and review state (open PR, passing checks, no
-   * open findings), or as history once the PR has merged. Failing or rerunning
-   * checks, a reopened finding, or a new review with open findings hide it
-   * until the gate holds again; the same stored record then returns without
-   * another provider request. A new review state that passes the gate earns
-   * one request, subject to the setting, the daily cap, and fleet concurrency.
+   * Current recommendations require the existing head/review gate. Other
+   * observations expose display-only lifecycle states with separately labeled
+   * historical context. Progress publication does not reserve another call.
    */
   async assess(
     url: string,
     pr: AgentPullRequest,
-    ownerAgentIds: string[]
+    ownerAgentIds: string[],
+    onProgress?: (risk: MergeRiskSummary) => void
   ): Promise<MergeRiskSummary | undefined> {
-    const headSha = pr.ci?.headSha;
-    if (!headSha || pr.ci?.availability !== "available") return undefined;
+    const headSha = pr.ci?.headSha ?? "";
     // Off means off: no reads, no lookups, and no recommendation shown.
     const config = await this.options.settings.configuration();
-    if (!config.mergeRiskEnabled || !config.apiKey) return undefined;
+    if (!config.mergeRiskEnabled || !config.apiKey)
+      return displaySummary("disabled", headSha);
+    const previous = await this.history(url);
+    const display = (state: NonNullable<MergeRiskSummary["displayState"]>) => ({
+      ...displaySummary(state, headSha),
+      ...(previous ? { previous } : {}),
+    });
+    if (!headSha || pr.ci?.availability !== "available")
+      return display("unavailable");
     const reviews = await loadReviewEvidence(this.options.pool, ownerAgentIds);
     const fingerprint = reviewFingerprint(reviews);
-    if (pr.status === "Merged") return this.latest(url, headSha);
+    if (pr.status === "Merged")
+      return (await this.latest(url, headSha)) ?? display("not_ready");
     const gateHolds =
       pr.status === "Open" &&
       pr.ci.summary.status === "passing" &&
       allFindingsResolved(reviews);
-    if (!gateHolds) return undefined;
+    if (!gateHolds)
+      return display(
+        pr.status !== "Open"
+          ? "not_ready"
+          : pr.ci.summary.status !== "passing"
+            ? "waiting_ci"
+            : "waiting_review"
+      );
     const stored = await this.latest(url, headSha, fingerprint);
-    if (stored) return stored;
+    if (stored)
+      return stored.status === "ok"
+        ? stored
+        : {
+            ...stored,
+            displayState: stored.displayState ?? "failure",
+            ...(previous ? { previous } : {}),
+          };
     const id = await this.reserve(url, headSha, fingerprint);
-    if (!id) return undefined;
+    if (!id) {
+      const record = await this.options.pool.query<{ status: string }>(
+        "SELECT status FROM merge_risk_decision_records WHERE url=$1 AND head_sha=$2 AND review_fingerprint=$3 ORDER BY created_at DESC,id DESC LIMIT 1",
+        [url, headSha, fingerprint]
+      );
+      return display(
+        record.rows[0]?.status === "pending"
+          ? "evaluating"
+          : record.rows[0]?.status === "skipped_daily_cap"
+            ? "daily_cap"
+            : record.rows[0]?.status === "skipped_concurrency"
+              ? "capacity"
+              : "deferred"
+      );
+    }
+    onProgress?.(display("evaluating"));
     try {
       const details = await this.readDetails(url);
       if (!details || details.headRefOid !== headSha) {
         await this.finish(id, "skipped_stale_head", {});
-        return undefined;
+        return display("unavailable");
       }
       const owners = await this.owners(ownerAgentIds);
       const evidence = buildMergeRiskEvidence({
@@ -129,7 +163,7 @@ export class MergeRiskAssessor {
       // The setting can change while evidence is being gathered.
       if (!(await this.options.settings.configuration()).mergeRiskEnabled) {
         await this.finish(id, "skipped_config_changed", {});
-        return undefined;
+        return displaySummary("disabled", headSha);
       }
       const response = await requestDecisions(
         config.apiKey,
@@ -156,7 +190,29 @@ export class MergeRiskAssessor {
         {}
       ).catch(() => {});
     }
-    return this.latest(url, headSha, fingerprint);
+    const finalConfig = await this.options.settings.configuration();
+    if (!finalConfig.mergeRiskEnabled || !finalConfig.apiKey)
+      return displaySummary("disabled", headSha);
+    const result = await this.latest(url, headSha, fingerprint);
+    return result?.status === "ok"
+      ? result
+      : {
+          ...display("failure"),
+          ...(result
+            ? {
+                status: result.status,
+                displayState: result.displayState ?? "failure",
+              }
+            : {}),
+        };
+  }
+
+  private async history(url: string): Promise<MergeRiskSummary | undefined> {
+    const rows = await this.options.pool.query<Row>(
+      "SELECT status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records WHERE url=$1 AND status = 'ok' ORDER BY created_at DESC,id DESC LIMIT 1",
+      [url]
+    );
+    return rows.rows[0] ? toSummary(rows.rows[0]) : undefined;
   }
 
   private async owners(agentIds: string[]): Promise<CodeownersConfig | null> {
@@ -284,6 +340,7 @@ function toSummary(row: Row): MergeRiskSummary {
   const r = row.result;
   const verdict = r.verdict;
   return {
+    ...(r.httpStatus === 429 ? { displayState: "rate_limited" as const } : {}),
     verdict:
       verdict === "routine" || verdict === "human_review" ? verdict : "abstain",
     changeRisk: num(r.changeRisk),
@@ -299,5 +356,27 @@ function toSummary(row: Row): MergeRiskSummary {
     promptVersion: row.prompt_version,
     headSha: row.head_sha,
     assessedAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function displaySummary(
+  displayState: NonNullable<MergeRiskSummary["displayState"]>,
+  headSha: string
+): MergeRiskSummary {
+  return {
+    displayState,
+    headSha,
+    verdict: "abstain",
+    status: "",
+    promptVersion: "",
+    assessedAt: "",
+    changeRisk: null,
+    changeRiskLabel: null,
+    reviewAdequate: null,
+    descriptionMatches: null,
+    newSurface: null,
+    routineProbability: null,
+    humanReviewProbability: null,
+    confidence: null,
   };
 }

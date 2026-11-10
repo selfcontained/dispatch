@@ -143,3 +143,50 @@ export const previewPullRequests: PresentedPullRequest[] = examples.map(
     },
   })
 );
+
+// Synthetic lifecycle fixtures, never provider-backed. Development preview only.
+const fixtureBase = previewPullRequests[0];
+const prior = { ...previewMergeRisk[0]!, headSha: "previous1234567" };
+for (const [i, displayState] of (
+  [
+    "not_ready",
+    "waiting_ci",
+    "waiting_review",
+    "evaluating",
+    "deferred",
+    "failure",
+    "unavailable",
+    "disabled",
+  ] as const
+).entries()) {
+  previewPullRequests.push({
+    ...fixtureBase,
+    url: `https://github.com/example/dispatch/pull/${1400 + i}`,
+    title: `Synthetic fixture · ${displayState.replaceAll("_", " ")}`,
+    ...(displayState === "waiting_ci"
+      ? {
+          ci: {
+            ...fixtureBase.ci!,
+            summary: {
+              ...fixtureBase.ci!.summary,
+              status: "pending" as const,
+              pending: 1,
+              passed: 11,
+            },
+          },
+        }
+      : {}),
+    mergeRisk: {
+      ...previewMergeRisk[0]!,
+      verdict: "abstain",
+      displayState,
+      ...(displayState !== "disabled" ? { previous: prior } : {}),
+    },
+  });
+}
+previewPullRequests.push({
+  ...fixtureBase,
+  url: "https://github.com/example/dispatch/pull/1420",
+  title: "Synthetic fixture · inconclusive",
+  mergeRisk: { ...previewMergeRisk[0]!, verdict: "abstain" },
+});

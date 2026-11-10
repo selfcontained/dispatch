@@ -144,3 +144,31 @@ the held-out set after inspecting it.
 
 References: [Decisions guide](https://developers.openai.com/api/docs/guides/decisions),
 [AI steering](ai-steering.md), [AI reply routing](routing-shadow-experiment.md).
+
+### Display lifecycle and historical context
+
+The PR payload uses optional `MergeRiskSummary.displayState` to distinguish
+display-only lifecycle data from a completed current assessment. When present,
+`verdict` is an abstention placeholder and the UI must not render current
+assessment metrics or an assessed timestamp. States cover setup/off, unavailable
+PR data, eligibility waiting (PR lifecycle, CI, review), evaluating, budget and
+capacity deferral, provider limits, and failure. A successful provider response
+with an abstaining verdict remains a visible inconclusive result.
+
+`previous` is a separately labeled completed assessment (including inconclusive
+results) loaded from the latest successful record for the PR, potentially from a
+different head or review state. Its head and timestamp belong to that historical
+record. It is never current merge readiness. Disabled/no-key observations return
+no history; an assessor exception cannot carry cached history forward. PR-data
+fallbacks preserve the current display state rather than restoring old risk data.
+
+An optional progress callback publishes evaluating after the existing reservation
+succeeds and before evidence/provider work completes. It does not reserve a call,
+change deduplication, or schedule retries. Review finding state changes mark the
+owning agent's tracked PRs due in the existing coalesced, rate-limited queue.
+The assessor still applies CI/review/settings gates and head/review-fingerprint
+deduplication; resolving one of several open findings cannot authorize a call.
+
+The development-only seeded-agent PR preview contains synthetic examples. It
+does not exercise provider transport, and its lifecycle rows are illustrative.
+User UX approval is required before merging this presentation change.

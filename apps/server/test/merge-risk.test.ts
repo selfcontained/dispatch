@@ -709,7 +709,9 @@ describe("merge-risk assessor", () => {
 
   it("waits for open findings, then reassesses when the review state changes", async () => {
     const id = await review([{ resolved: false }]);
-    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "waiting_review",
+    });
     expect(transport).not.toHaveBeenCalled();
     const finding = (
       await pool.query<{ id: string }>(
@@ -738,7 +740,9 @@ describe("merge-risk assessor", () => {
         },
       }),
     ])
-      expect(await service().assess(url, value, [builder])).toBeUndefined();
+      expect(await service().assess(url, value, [builder])).not.toMatchObject({
+        verdict: "routine",
+      });
     expect(transport).not.toHaveBeenCalled();
     await service().assess(url, pr(), [builder]);
     expect(transport).toHaveBeenCalledTimes(1);
@@ -750,14 +754,19 @@ describe("merge-risk assessor", () => {
     // no pool query runs for either head.
     await settings.save({ mergeRiskMode: "off" });
     const queries = vi.spyOn(pool, "query");
-    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
+    expect(await service().assess(url, pr(), [builder])).not.toHaveProperty(
+      "previous"
+    );
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "disabled",
+    });
     expect(
       await service().assess(
         url,
         pr({ ci: { ...pr().ci!, headSha: "head2" } }),
         [builder]
       )
-    ).toBeUndefined();
+    ).toMatchObject({ displayState: "disabled" });
     expect(queries).not.toHaveBeenCalled();
     queries.mockRestore();
     expect(transport).toHaveBeenCalledTimes(1);
@@ -769,7 +778,7 @@ describe("merge-risk assessor", () => {
       await service({ DISPATCH_MERGE_RISK_DAILY_CAP: "0" }).assess(url, pr(), [
         builder,
       ])
-    ).toBeUndefined();
+    ).toMatchObject({ displayState: "daily_cap" });
     expect(transport).not.toHaveBeenCalled();
     const rows = await pool.query(
       "SELECT status FROM merge_risk_decision_records"
@@ -788,7 +797,9 @@ describe("merge-risk assessor", () => {
         readDetails: details,
         transport,
       });
-      expect(await assessor.assess(url, pr(), [builder])).toBeUndefined();
+      expect(await assessor.assess(url, pr(), [builder])).toMatchObject({
+        displayState: "daily_cap",
+      });
       expect(transport).not.toHaveBeenCalled();
       const rows = await pool.query(
         "SELECT status FROM merge_risk_decision_records"
@@ -806,7 +817,9 @@ describe("merge-risk assessor", () => {
       headRefOid: "newer",
     }));
     details.mockImplementationOnce(async () => null);
-    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "unavailable",
+    });
     expect(transport).not.toHaveBeenCalled();
     const rows = await pool.query(
       "SELECT status FROM merge_risk_decision_records"
@@ -833,18 +846,22 @@ describe("merge-risk assessor", () => {
     });
   });
 
-  it("hides a stored verdict while the gate fails and restores it without a new request when the gate holds again", async () => {
+  it("labels a stored verdict as previous while the gate fails and restores it without a new request when the gate holds again", async () => {
     await review([{ resolved: true }]);
     const first = await service().assess(url, pr(), [builder]);
     expect(first?.verdict).toBe("routine");
-    // Same head, checks rerun and fail: nothing is shown.
+    // Same head, checks rerun and fail: only historical context is shown.
     const failing = pr({
       ci: {
         ...pr().ci!,
         summary: { ...pr().ci!.summary, status: "failing", failed: 1 },
       },
     });
-    expect(await service().assess(url, failing, [builder])).toBeUndefined();
+    expect(await service().assess(url, failing, [builder])).toMatchObject({
+      displayState: "waiting_ci",
+      verdict: "abstain",
+      previous: { verdict: "routine" },
+    });
     // A finding is reopened: the fingerprint changes and the gate fails.
     const finding = (
       await pool.query<{ id: string }>(
@@ -852,13 +869,21 @@ describe("merge-risk assessor", () => {
       )
     ).rows[0]!;
     await blocks.update(finding.id, { state: { status: "open" } });
-    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "waiting_review",
+      verdict: "abstain",
+      previous: { verdict: "routine" },
+    });
     // A second review with an open finding also fails the gate.
     await blocks.update(finding.id, {
       state: { status: "resolved", resolution: "fixed" },
     });
     await review([{ resolved: false }]);
-    expect(await service().assess(url, pr(), [builder])).toBeUndefined();
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "waiting_review",
+      verdict: "abstain",
+      previous: { verdict: "routine" },
+    });
     expect(transport).toHaveBeenCalledTimes(1);
     // Resolving it yields a new review state and one more request.
     const open = (
@@ -873,6 +898,43 @@ describe("merge-risk assessor", () => {
       verdict: "routine",
     });
     expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes evaluating before completing the single reserved provider request", async () => {
+    await review([]);
+    const progress = vi.fn();
+    const result = await service().assess(url, pr(), [builder], progress);
+    expect(progress).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        displayState: "evaluating",
+        verdict: "abstain",
+      })
+    );
+    expect(result?.verdict).toBe("routine");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("never presents prior-head history as a current recommendation", async () => {
+    await review([]);
+    await service().assess(url, pr(), [builder]);
+    const result = await service().assess(
+      url,
+      pr({
+        ci: {
+          ...pr().ci!,
+          headSha: "new-head",
+          summary: { ...pr().ci!.summary, status: "pending" },
+        },
+      }),
+      [builder]
+    );
+    expect(result).toMatchObject({
+      displayState: "waiting_ci",
+      verdict: "abstain",
+      headSha: "new-head",
+      previous: { verdict: "routine", headSha: pr().ci!.headSha },
+    });
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it("fingerprints reviewer identity and finding status only", () => {

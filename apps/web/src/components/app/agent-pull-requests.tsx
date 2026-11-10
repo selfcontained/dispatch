@@ -53,10 +53,69 @@ const MERGE_RISK = {
 >;
 const percent = (value: number | null) =>
   value === null ? "—" : `${Math.round(value * 100)}%`;
+const RISK_DISPLAY = {
+  disabled: {
+    label: "Risk assessment off",
+    hint: "Enable AI and merge risk in Settings and configure a provider key to use assessments.",
+  },
+  unavailable: {
+    label: "Risk unavailable",
+    hint: "Current pull request checks could not be read. Assessment waits for the next successful refresh.",
+  },
+  waiting_ci: {
+    label: "Risk · waiting for checks",
+    hint: "Assessment waits for passing checks. Current check failures and running checks still need attention.",
+  },
+  waiting_review: {
+    label: "Risk · waiting for review",
+    hint: "Resolve open review findings before assessment can begin.",
+  },
+  not_ready: {
+    label: "Risk · not assessed",
+    hint: "Assessment runs for open pull requests with passing checks and resolved review findings.",
+  },
+  evaluating: {
+    label: "Risk · evaluating",
+    hint: "Assessment is in progress. The next pull request refresh will show the outcome.",
+  },
+  daily_cap: {
+    label: "Risk · daily limit",
+    hint: "The daily assessment budget has been reached. No assessment was made. This does not schedule an extra retry.",
+  },
+  capacity: {
+    label: "Risk · capacity limit",
+    hint: "Assessment capacity was full. No assessment was made. This does not schedule an extra retry.",
+  },
+  rate_limited: {
+    label: "Risk · provider limit",
+    hint: "The provider declined the request because of a rate limit. No recommendation is available; no automatic retry is scheduled.",
+  },
+  deferred: {
+    label: "Risk · deferred",
+    hint: "Assessment was deferred by the daily budget or capacity limit. No recommendation is available; no extra request is made here.",
+  },
+  failure: {
+    label: "Risk unavailable",
+    hint: "The provider could not complete an assessment. No recommendation is available.",
+  },
+};
+function riskDisplay(risk: MergeRiskSummary) {
+  if (risk.displayState)
+    return {
+      ...RISK_DISPLAY[risk.displayState],
+      badge: MERGE_RISK.abstain.badge,
+    };
+  if (risk.status !== "ok")
+    return { ...RISK_DISPLAY.failure, badge: MERGE_RISK.abstain.badge };
+  return MERGE_RISK[risk.verdict];
+}
 /** Row-sized marker; the full badge and details live in the popover. */
 function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
-  const state = MERGE_RISK[risk.verdict];
-  const Icon = risk.verdict === "routine" ? ShieldCheck : ShieldAlert;
+  const state = riskDisplay(risk);
+  const Icon =
+    !risk.displayState && risk.status === "ok" && risk.verdict === "routine"
+      ? ShieldCheck
+      : ShieldAlert;
   return (
     <span
       role="img"
@@ -65,7 +124,7 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
       title={`Merge risk: ${state.label}`}
       className={cn(
         "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
-        risk.verdict === "routine"
+        !risk.displayState && risk.status === "ok" && risk.verdict === "routine"
           ? "text-status-working"
           : "text-status-waiting"
       )}
@@ -75,7 +134,7 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
   );
 }
 function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
-  const state = MERGE_RISK[risk.verdict];
+  const state = riskDisplay(risk);
   return (
     <Badge
       data-testid="merge-risk-badge"
@@ -90,7 +149,7 @@ function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
   );
 }
 function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
-  const state = MERGE_RISK[risk.verdict];
+  const state = riskDisplay(risk);
   return (
     <div className="border-t border-border px-3 pt-3 pb-3">
       <div className="flex items-center justify-between gap-2">
@@ -98,41 +157,58 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
         <MergeRiskBadge risk={risk} />
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">{state.hint}</p>
-      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
-        <dt className="text-muted-foreground">Change risk</dt>
-        <dd>
-          {risk.changeRiskLabel ?? "—"}
-          {risk.changeRisk !== null && (
-            <span className="ml-1 tabular-nums text-muted-foreground">
-              ({risk.changeRisk.toFixed(2)})
-            </span>
-          )}
-        </dd>
-        <dt className="text-muted-foreground">Review engaged</dt>
-        <dd className="tabular-nums">{percent(risk.reviewAdequate)}</dd>
-        <dt className="text-muted-foreground">Description matches</dt>
-        <dd className="tabular-nums">{percent(risk.descriptionMatches)}</dd>
-        <dt className="text-muted-foreground">New surface</dt>
-        <dd className="tabular-nums">{percent(risk.newSurface)}</dd>
-        <dt className="text-muted-foreground">Human review</dt>
-        <dd className="tabular-nums">
-          {percent(risk.humanReviewProbability)}
-          {risk.confidence !== null && (
-            <span className="ml-1 text-muted-foreground">
-              · confidence {percent(risk.confidence)}
-            </span>
-          )}
-        </dd>
-      </dl>
-      <p className="mt-2 text-[10px] text-muted-foreground">
-        Assessed{" "}
-        {new Date(risk.assessedAt).toLocaleString([], {
-          dateStyle: "short",
-          timeStyle: "short",
-        })}{" "}
-        for commit <span className="font-mono">{risk.headSha.slice(0, 7)}</span>
-        . Display only; merging stays a human decision.
-      </p>
+      {risk.displayState && risk.previous && (
+        <div className="mt-3 rounded border border-border p-2">
+          <p className="text-xs font-semibold">
+            Previous assessment · historical context only
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Does not describe current merge readiness. Current checks and review
+            findings still apply.
+          </p>
+          <MergeRiskDetails risk={risk.previous} />
+        </div>
+      )}
+      {!risk.displayState && (
+        <>
+          <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+            <dt className="text-muted-foreground">Change risk</dt>
+            <dd>
+              {risk.changeRiskLabel ?? "—"}
+              {risk.changeRisk !== null && (
+                <span className="ml-1 tabular-nums text-muted-foreground">
+                  ({risk.changeRisk.toFixed(2)})
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Review engaged</dt>
+            <dd className="tabular-nums">{percent(risk.reviewAdequate)}</dd>
+            <dt className="text-muted-foreground">Description matches</dt>
+            <dd className="tabular-nums">{percent(risk.descriptionMatches)}</dd>
+            <dt className="text-muted-foreground">New surface</dt>
+            <dd className="tabular-nums">{percent(risk.newSurface)}</dd>
+            <dt className="text-muted-foreground">Human review</dt>
+            <dd className="tabular-nums">
+              {percent(risk.humanReviewProbability)}
+              {risk.confidence !== null && (
+                <span className="ml-1 text-muted-foreground">
+                  · confidence {percent(risk.confidence)}
+                </span>
+              )}
+            </dd>
+          </dl>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Assessed{" "}
+            {new Date(risk.assessedAt).toLocaleString([], {
+              dateStyle: "short",
+              timeStyle: "short",
+            })}{" "}
+            for commit{" "}
+            <span className="font-mono">{risk.headSha.slice(0, 7)}</span>.
+            Display only; merging stays a human decision.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -472,13 +548,13 @@ export function PullRequestRow({
             {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
             <span className="sr-only">{STATES[status].label}</span>
           </AgentMetadataLink>
-          {!isError && pr.mergeRisk && pr.mergeRisk.verdict !== "abstain" && (
+          {!isError && pr.mergeRisk && (
             <Button
               variant="ghost"
               size="icon-sm"
               className="shrink-0"
               data-agent-control="true"
-              aria-label={`Merge risk for pull request ${ref.number}: ${MERGE_RISK[pr.mergeRisk.verdict].label}`}
+              aria-label={`Merge risk for pull request ${ref.number}: ${riskDisplay(pr.mergeRisk).label}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}

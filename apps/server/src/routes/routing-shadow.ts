@@ -48,7 +48,8 @@ export async function registerRoutingShadowRoutes(
   settings?: RoutingSettings,
   experiment?: RoutingShadow,
   authorize?: (request: FastifyRequest) => Promise<boolean>,
-  publish?: (event: import("@dispatch/shared").SharedUiEvent) => void
+  publish?: (event: import("@dispatch/shared").SharedUiEvent) => void,
+  onSettingsChanged?: () => Promise<void>
 ) {
   if (settings && experiment) {
     const privateRoute = {
@@ -122,6 +123,7 @@ export async function registerRoutingShadowRoutes(
           throw error;
         });
         if (!saved) return;
+        await onSettingsChanged?.();
         if (saved.mode !== "active" || !saved.configured)
           experiment.cancelAll();
         publish?.({
