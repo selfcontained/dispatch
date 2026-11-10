@@ -12,7 +12,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ImageComments } from "./image-comments";
 import type { FileItem } from "./types";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<typeof import("@/lib/api")>()),
@@ -39,8 +39,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function open() {
-  const file: FileItem = {
+async function open(provided?: FileItem, Component = ImageComments) {
+  const file: FileItem = provided ?? {
     id: 7,
     ownerAgentId: "agent-a",
     name: "shot.png",
@@ -56,7 +56,7 @@ async function open() {
   const view = render(
     <Provider>
       <QueryClientProvider client={client}>
-        <ImageComments
+        <Component
           file={file}
           src={file.url}
           caption="Shot"
@@ -80,7 +80,7 @@ async function open() {
     const field = await screen.findByPlaceholderText("Add a note…");
     fireEvent.change(field, { target: { value: text } });
   };
-  return { draft };
+  return { draft, file, unmount: view.unmount };
 }
 
 it.each(["upload", "post"])(
@@ -194,4 +194,153 @@ it("does not let a closing note steal focus from the next note", async () => {
   ) as HTMLTextAreaElement;
   expect(field.value).toBe("Next inline note");
   expect(document.activeElement).toBe(field);
+});
+
+it("aborts an invalidated cross-tab upload before posting, then keeps retry identity", async () => {
+  let release!: (value: unknown) => void;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let uploads = 0,
+    posts = 0;
+  mockApi.mockImplementation(async (url) => {
+    if (url === "/api/v1/agents")
+      return { agents: [{ id: "agent-a", name: "Agent A" }] };
+    if (url.endsWith("/files"))
+      return ++uploads === 1 ? held : { file: { id: uploads + 20 } };
+    if (url.endsWith("/blocks") && ++posts === 1)
+      throw new Error("Response lost");
+    return { delivered: false };
+  });
+  const { draft, file } = await open();
+  await draft("Original");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await waitFor(() => expect(uploads).toBe(1));
+  const key = `dispatch:image-comment-share:${file.url}:${file.updatedAt}`;
+  act(() => {
+    localStorage.setItem(key, "null");
+    window.dispatchEvent(
+      new StorageEvent("storage", { key, newValue: "null" })
+    );
+  });
+  await act(async () => {
+    release({ file: { id: 20 } });
+  });
+  await screen.findByRole("alert");
+  expect(posts).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain("Response lost")
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await screen.findByRole("button", { name: "Comment 1, sent" });
+  const bodies = mockApi.mock.calls
+    .filter(([url]) => url.endsWith("/blocks"))
+    .map(([, init]) => JSON.parse(init!.body as string));
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1].id).toBe(bodies[0].id);
+  expect(bodies[1].attachments).toEqual(bodies[0].attachments);
+});
+
+it("unlocks notes after a definitive rejected post and reuploads for a new target", async () => {
+  let uploads = 0;
+  mockApi.mockImplementation(async (url) => {
+    if (url === "/api/v1/agents")
+      return {
+        agents: [
+          { id: "agent-a", name: "Agent A" },
+          { id: "agent-b", name: "Agent B" },
+        ],
+      };
+    if (url.endsWith("/files")) return { file: { id: ++uploads + 30 } };
+    if (url.includes("agent-a/blocks"))
+      throw new ApiError(404, "Recipient disappeared");
+    return { delivered: false };
+  });
+  const { draft } = await open();
+  await draft("Keep this note");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await screen.findByRole("alert");
+  const target = screen.getByRole("combobox", {
+    name: "Agent",
+  }) as HTMLSelectElement;
+  expect(target.disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Comment 1, draft" }));
+  expect(
+    (screen.getByPlaceholderText("Add a note…") as HTMLTextAreaElement).disabled
+  ).toBe(false);
+  expect(
+    (screen.getByRole("button", { name: "Delete draft" }) as HTMLButtonElement)
+      .disabled
+  ).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.change(target, { target: { value: "agent-b" } });
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await screen.findByRole("button", { name: "Comment 1, sent" });
+  expect(uploads).toBe(4);
+  const bodies = mockApi.mock.calls
+    .filter(([url]) => url.endsWith("/blocks"))
+    .map(([, init]) => JSON.parse(init!.body as string));
+  expect(bodies[1].to).toBe("agent-b");
+  expect(bodies[1].attachments[0].fileId).not.toBe(
+    bodies[0].attachments[0].fileId
+  );
+});
+
+it("recovers a potentially posted identity after another tab clears the pointer and reload", async () => {
+  let rejectPost!: (reason: Error) => void;
+  const heldPost = new Promise((_resolve, reject) => {
+    rejectPost = reject;
+  });
+  let posts = 0,
+    uploads = 0;
+  mockApi.mockImplementation(async (url) => {
+    if (url === "/api/v1/agents")
+      return { agents: [{ id: "agent-a", name: "Agent A" }] };
+    if (url.endsWith("/files")) return { file: { id: ++uploads + 50 } };
+    if (url.endsWith("/blocks") && ++posts === 1) return heldPost;
+    return { delivered: false };
+  });
+  const first = await open();
+  await first.draft("Durable retry identity");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await waitFor(() => expect(posts).toBe(1));
+  const key = `dispatch:image-comment-share:${first.file.url}:${first.file.updatedAt}`;
+  act(() => {
+    localStorage.setItem(key, "null");
+    window.dispatchEvent(
+      new StorageEvent("storage", { key, newValue: "null" })
+    );
+  });
+  await act(async () => {
+    rejectPost(new Error("Response lost"));
+  });
+  await screen.findByRole("alert");
+  first.unmount();
+  // A real page reload recreates the atom families, not just their Provider.
+  vi.resetModules();
+  const { ImageComments: ReloadedComments } = await import("./image-comments");
+  await open(first.file, ReloadedComments);
+  await screen.findByRole("button", { name: "Comment 1, draft" });
+  expect(
+    (screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement)
+      .disabled
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await screen.findByRole("button", { name: "Comment 1, sent" });
+  const bodies = mockApi.mock.calls
+    .filter(([url]) => url.endsWith("/blocks"))
+    .map(([, init]) => JSON.parse(init!.body as string));
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1].id).toBe(bodies[0].id);
+  expect(bodies[1].attachments).toEqual(bodies[0].attachments);
+  expect(uploads).toBe(2);
+  expect(
+    localStorage.getItem(
+      `dispatch:image-comment-post:${first.file.url}:${first.file.updatedAt}:${bodies[0].id}`
+    )
+  ).toBe("null");
 });

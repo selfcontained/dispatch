@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
-import { useAtom } from "jotai";
+import { useAtom, useStore } from "jotai";
 import { atomFamily } from "jotai/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -72,39 +72,57 @@ type ShareAttempt = {
   metadataId?: number;
   attempted?: boolean;
 };
+const validShare = (value: unknown): value is ShareAttempt | null => {
+  if (value === null) return true;
+  if (!value || typeof value !== "object") return false;
+  const batch = value as ShareAttempt;
+  return (
+    typeof batch.id === "string" &&
+    typeof batch.recipient === "string" &&
+    Array.isArray(batch.items) &&
+    batch.items.length > 0 &&
+    batch.items.every(
+      (c) =>
+        c &&
+        typeof c.id === "string" &&
+        typeof c.note === "string" &&
+        Number.isInteger(c.number) &&
+        [c.x, c.y, c.width, c.height].every(
+          (n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1
+        )
+    )
+  );
+};
 const sharesFamily = atomFamily((key: string) =>
   atomWithLocalStorage<ShareAttempt | null>(
     `dispatch:image-comment-share:${key}`,
     null,
-    {
-      validate: (value): value is ShareAttempt | null => {
-        if (value === null) return true;
-        if (!value || typeof value !== "object") return false;
-        const batch = value as ShareAttempt;
-        return (
-          typeof batch.id === "string" &&
-          typeof batch.recipient === "string" &&
-          Array.isArray(batch.items) &&
-          batch.items.length > 0 &&
-          batch.items.every(
-            (c) =>
-              c &&
-              typeof c.id === "string" &&
-              typeof c.note === "string" &&
-              Number.isInteger(c.number) &&
-              [c.x, c.y, c.width, c.height].every(
-                (n) =>
-                  typeof n === "number" &&
-                  Number.isFinite(n) &&
-                  n >= 0 &&
-                  n <= 1
-              )
-          )
-        );
-      },
-    }
+    { validate: validShare }
   )
 );
+// A per-message recovery record cannot be erased by another tab editing drafts.
+const postedFamily = atomFamily((key: string) =>
+  atomWithLocalStorage<ShareAttempt | null>(
+    `dispatch:image-comment-post:${key}`,
+    null,
+    { validate: validShare }
+  )
+);
+function storedPost(imageKey: string): ShareAttempt | null {
+  try {
+    const prefix = `dispatch:image-comment-post:${imageKey}:`;
+    for (const key of Object.keys(window.localStorage)) {
+      if (!key.startsWith(prefix)) continue;
+      const value: unknown = JSON.parse(
+        window.localStorage.getItem(key) ?? "null"
+      );
+      if (validShare(value) && value?.attempted) return value;
+    }
+  } catch {
+    /* Storage unavailable: the mounted tab still retains its attempt. */
+  }
+  return null;
+}
 
 /** Image callouts use normalized, oriented image coordinates; sent notes are also in the stream. */
 export function ImageComments({
@@ -124,6 +142,18 @@ export function ImageComments({
   onPrevious?: () => void;
   onNext?: () => void;
 }): JSX.Element {
+  const store = useStore();
+  const imageKey = `${file.url}:${file.updatedAt}`;
+  const postedRef = useRef<ShareAttempt | null>(null);
+  const pendingPost = storedPost(imageKey) ?? postedRef.current;
+  const clearPosted = (batch: ShareAttempt) => {
+    const record = postedFamily(`${imageKey}:${batch.id}`);
+    // This atom may be new to this tab's store after reload. Prime it before
+    // clearing so the persistence helper cannot treat null as an unchanged value.
+    store.set(record, { ...batch, attempted: true });
+    store.set(record, null);
+    postedRef.current = null;
+  };
   const [comments, setComments] = useAtom(
     commentsFamily(`${file.url}:${file.updatedAt}`)
   );
@@ -180,7 +210,8 @@ export function ImageComments({
   const pathAgent = window.location.pathname.match(/\/agents\/([^/]+)/)?.[1];
   const defaultRecipient = pathAgent ?? file.ownerAgentId ?? "";
   const [recipient, setRecipient] = useState(defaultRecipient);
-  const shareRecipient = shareAttempt?.recipient ?? recipient;
+  const shareRecipient =
+    pendingPost?.recipient ?? shareAttempt?.recipient ?? recipient;
   const current = comments.find((c) => c.id === selected);
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -210,12 +241,12 @@ export function ImageComments({
     return { x: q.x / imageSize.width, y: q.y / imageSize.height };
   };
   const update = (id: string, patch: Partial<Callout>) => {
-    if (shareAttempt?.attempted || send.isPending) return;
+    if (pendingPost || shareAttempt?.attempted || send.isPending) return;
     setShareAttempt(null);
     setComments((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   };
   const create = (region: Pick<Callout, "x" | "y" | "width" | "height">) => {
-    if (shareAttempt?.attempted || send.isPending) return;
+    if (pendingPost || shareAttempt?.attempted || send.isPending) return;
     setShareAttempt(null);
     const c: Callout = {
       ...region,
@@ -240,10 +271,18 @@ export function ImageComments({
         throw new Error(
           "These notes are too long for one message. Shorten them before sharing."
         );
-      const cache = (patch: Partial<ShareAttempt>) =>
-        setShareAttempt((old) =>
-          old?.id === batch.id ? { ...old, ...patch } : old
-        );
+      const cache = (patch: Partial<ShareAttempt>) => {
+        let ownsAttempt = false;
+        setShareAttempt((old) => {
+          if (old?.id !== batch.id) return old;
+          ownsAttempt = true;
+          return { ...old, ...patch };
+        });
+        if (!ownsAttempt)
+          throw new Error(
+            "This share changed in another tab before sending. Your notes are kept; share again."
+          );
+      };
       let copyId = batch.copyId;
       const scale = Math.min(
         1,
@@ -346,6 +385,9 @@ export function ImageComments({
         cache({ metadataId });
       }
       cache({ attempted: true });
+      const submitted = { ...batch, copyId, metadataId, attempted: true };
+      postedRef.current = submitted;
+      store.set(postedFamily(`${imageKey}:${batch.id}`), submitted);
       let delivered: boolean | null = null;
       try {
         const result = await api<{ delivered: boolean | null }>(
@@ -373,6 +415,15 @@ export function ImageComments({
         );
         delivered = result.delivered;
       } catch (error) {
+        // These API responses reject before creating a block. Keep identity
+        // for network/timeout/server ambiguity, but allow recovery from rejection.
+        if (
+          error instanceof ApiError &&
+          [400, 401, 403, 404, 405, 413, 415, 422].includes(error.status)
+        ) {
+          clearPosted(batch);
+          setShareAttempt((old) => (old?.id === batch.id ? null : old));
+        }
         if (!(error instanceof ApiError) || error.status !== 409) throw error;
         await api(
           `/api/v1/streams/${encodeURIComponent(batch.recipient)}/blocks/${batch.id}/metadata`
@@ -381,10 +432,15 @@ export function ImageComments({
       return { ...batch, delivered };
     },
     onSuccess: (batch) => {
-      const ids = new Set(batch.items.map((c) => c.id));
+      clearPosted(batch);
+      const originals = new Map(batch.items.map((c) => [c.id, c]));
       setComments((cs) =>
         cs.map((c) =>
-          ids.has(c.id)
+          originals.get(c.id)?.note === c.note &&
+          originals.get(c.id)?.x === c.x &&
+          originals.get(c.id)?.y === c.y &&
+          originals.get(c.id)?.width === c.width &&
+          originals.get(c.id)?.height === c.height
             ? {
                 ...c,
                 sent: true,
@@ -394,7 +450,7 @@ export function ImageComments({
             : c
         )
       );
-      setShareAttempt(null);
+      setShareAttempt((old) => (old?.id === batch.id ? null : old));
       setSelected(null);
       requestAnimationFrame(() => {
         if (selectedRef.current === null)
@@ -404,15 +460,17 @@ export function ImageComments({
     },
   });
   const busy = send.isPending;
-  const frozen = busy || !!shareAttempt?.attempted;
+  const frozen = busy || !!pendingPost || !!shareAttempt?.attempted;
   const unshared = comments.filter((c) => !c.sent && c.note.trim());
   const share = () => {
     if (busy) return;
-    const batch = shareAttempt ?? {
-      id: createClientId(),
-      recipient: shareRecipient,
-      items: unshared.map((c) => ({ ...c })),
-    };
+    const batch = storedPost(imageKey) ??
+      postedRef.current ??
+      shareAttempt ?? {
+        id: createClientId(),
+        recipient: shareRecipient,
+        items: unshared.map((c) => ({ ...c })),
+      };
     setShareAttempt(batch);
     setSelected(null);
     send.mutate(batch);
@@ -871,7 +929,7 @@ export function ImageComments({
               busy ||
               !loaded ||
               !shareRecipient ||
-              (!unshared.length && !shareAttempt)
+              (!unshared.length && !shareAttempt && !pendingPost)
             }
             onClick={share}
           >
