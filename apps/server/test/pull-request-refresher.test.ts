@@ -707,7 +707,9 @@ it("refreshes tracked PRs promptly when review findings resolve, coalescing dupl
 it("clears cached risk immediately on disable and suppresses in-flight progress", async () => {
   const f = fixture();
   // Exercise the same callback contract with an isolated refresher.
+  const notifyRisk = vi.fn();
   const service = new PullRequestRefresher({
+    notifyRisk,
     pool: { query: f.query } as unknown as Pool,
     listAgentIds: f.listAgentIds,
     read: f.read,
@@ -721,6 +723,7 @@ it("clears cached risk immediately on disable and suppresses in-flight progress"
   });
   await service.refresh();
   expect(service.get("a")[0]!.mergeRisk).toBeUndefined();
+  expect(notifyRisk).not.toHaveBeenCalled();
   expect(
     f.publish.mock.calls
       .flatMap(([event]) => event.pullRequests ?? [])
@@ -742,7 +745,9 @@ it.each([false, true])(
       release = resolve;
     });
     let pause = initial;
+    const notifyRisk = vi.fn();
     const service = new PullRequestRefresher({
+      notifyRisk,
       pool: { query: f.query } as unknown as Pool,
       listAgentIds: f.listAgentIds,
       read: f.read,
@@ -761,6 +766,7 @@ it.each([false, true])(
       await service.refresh();
       pause = true;
     }
+    notifyRisk.mockClear();
     const flight = initial
       ? service.refresh()
       : service.refreshOne("a", "https://github.com/a/b/pull/0");
@@ -781,6 +787,7 @@ it.each([false, true])(
     } as unknown as Block);
     release();
     await flight;
+    expect(notifyRisk).not.toHaveBeenCalled();
     expect(service.get("a")[0]!.mergeRisk).toBeUndefined();
     const before = f.read.mock.calls.length;
     await service.refresh();

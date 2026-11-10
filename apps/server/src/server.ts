@@ -237,6 +237,9 @@ const pullRequests = new PullRequestRefresher({
   notify: async (id, previous, current, commit) => {
     await streamService.pullRequestTransition(id, previous, current, commit);
   },
+  notifyRisk: async (id, previous, current, commit) => {
+    await streamService.pullRequestRiskChanged(id, previous, current, commit);
+  },
   notifyChecks: async (id, previous, current, commit) => {
     await streamService.pullRequestChecksChanged(id, previous, current, commit);
   },
@@ -902,6 +905,11 @@ async function registerRoutes() {
     mcpLaunchAgent: mcpHandlers.launchAgent,
     mcpArchiveAgent: mcpHandlers.archiveAgent,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
+    pullRequests,
+    riskEnabled: async () => {
+      const settings = await routingSettings.configuration();
+      return !!settings.mergeRiskEnabled && !!settings.apiKey;
+    },
     mcpJobComplete: mcpHandlers.jobComplete,
     mcpJobFailed: mcpHandlers.jobFailed,
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,

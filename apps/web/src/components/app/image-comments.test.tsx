@@ -162,7 +162,7 @@ it.each(["upload", "post"])(
     const { draft } = await open();
     await draft("First note");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await draft("Second note");
+    await draft("Second note\ncontinued line\n\nAnother paragraph");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     // Collecting notes has no upload or delivery side effects.
     expect(uploads).toBe(0);
@@ -195,7 +195,9 @@ it.each(["upload", "post"])(
     const body = JSON.parse(posts[0][1]!.body as string);
     expect(body.to).toBe("agent-a");
     expect(body.text).toContain("First note");
-    expect(body.text).toContain("Second note");
+    expect(body.text).toContain(
+      "2. Second note\n   continued line\n   \n   Another paragraph"
+    );
     expect(body.attachments).toHaveLength(2);
     expect(uploads).toBe(2);
     await screen.findByRole("button", { name: "Comment 1, sent" });
@@ -213,7 +215,7 @@ it.each(["upload", "post"])(
     expect(data.shareId).toBe(body.id);
     expect(data.annotations.map((c: { note: string }) => c.note)).toEqual([
       "First note",
-      "Second note",
+      "Second note\ncontinued line\n\nAnother paragraph",
     ]);
   }
 );

@@ -36,6 +36,8 @@ export type CiSnapshot = {
  * it merges. Display only: it never merges, approves, or blocks anything.
  */
 export type MergeRiskSummary = {
+  /** Durable completed decision identity, independent of refresh/cache lifetime. */
+  assessmentId?: string;
   /** Display lifecycle only; a non-current state is never a recommendation. */
   displayState?:
     | "disabled"

@@ -32,7 +32,7 @@
         "apps/web/src/components/app/agent-pane*",
         "apps/web/src/components/app/agent-*",
         "apps/server/test/*agent*",
-        "apps/server/test/pull-request*.test.ts",
+        "apps/server/test/pull-request*",
         "packages/shared/src/pull-requests.ts",
         "apps/server/test/codex-reset.test.ts",
         "apps/server/test/provider-plans.test.ts",

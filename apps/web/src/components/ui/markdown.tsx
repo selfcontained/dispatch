@@ -396,6 +396,24 @@ function MarkdownDefault({
         remarkPlugins={[remarkGfm]}
         rehypePlugins={renderText ? [wrapProseText] : []}
         components={{
+          li({ children, node, ...props }) {
+            // Loose lists contain parser-generated newlines around block
+            // children. In chat's whitespace-pre-line context those become
+            // visible blank rows. Keep whitespace inside prose leaves intact.
+            return (
+              <li {...props}>
+                {Children.toArray(children).filter(
+                  (child) =>
+                    !node?.children.some(
+                      (entry) =>
+                        entry.type === "element" && entry.tagName === "p"
+                    ) ||
+                    typeof child !== "string" ||
+                    child.trim() !== ""
+                )}
+              </li>
+            );
+          },
           span({ children }) {
             return (
               <span>

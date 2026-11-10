@@ -46,6 +46,7 @@ type Options = {
 };
 
 type Row = {
+  id: string;
   status: string;
   head_sha: string;
   prompt_version: string;
@@ -209,7 +210,7 @@ export class MergeRiskAssessor {
 
   private async history(url: string): Promise<MergeRiskSummary | undefined> {
     const rows = await this.options.pool.query<Row>(
-      "SELECT status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records WHERE url=$1 AND status = 'ok' ORDER BY created_at DESC,id DESC LIMIT 1",
+      "SELECT id, status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records WHERE url=$1 AND status = 'ok' ORDER BY created_at DESC,id DESC LIMIT 1",
       [url]
     );
     return rows.rows[0] ? toSummary(rows.rows[0]) : undefined;
@@ -233,7 +234,7 @@ export class MergeRiskAssessor {
     fingerprint?: string
   ): Promise<MergeRiskSummary | undefined> {
     const rows = await this.options.pool.query<Row>(
-      `SELECT status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records
+      `SELECT id, status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records
         WHERE url = $1 AND head_sha = $2 AND ($3::text IS NULL OR review_fingerprint = $3)
           AND status NOT IN ('pending') AND status NOT LIKE 'skipped%'
         ORDER BY created_at DESC, id DESC LIMIT 1`,
@@ -340,6 +341,7 @@ function toSummary(row: Row): MergeRiskSummary {
   const r = row.result;
   const verdict = r.verdict;
   return {
+    assessmentId: row.id,
     ...(r.httpStatus === 429 ? { displayState: "rate_limited" as const } : {}),
     verdict:
       verdict === "routine" || verdict === "human_review" ? verdict : "abstain",

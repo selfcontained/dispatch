@@ -23,6 +23,7 @@ type Options = {
     commit: CommitPullRequestNotice
   ) => Promise<void>;
   notifyChecks?: Options["notify"];
+  notifyRisk?: Options["notify"];
   /** Merge-risk recommendation for an observed head; owners are the agents tracking the PR. */
   assess?: (
     url: string,
@@ -473,21 +474,38 @@ export class PullRequestRefresher {
           const checksChanged =
             previous &&
             checkChanges(previous.checks ?? previous.value, value).length > 0;
+          const reviewChanged =
+            (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration;
           for (const notify of [
             lifecycleChanged ? this.options.notify : undefined,
             checksChanged ? this.options.notifyChecks : undefined,
+            !reviewChanged && !this.riskHidden
+              ? this.options.notifyRisk
+              : undefined,
           ]) {
-            if (!notify || !previous) continue;
+            if (!notify) continue;
             for (const [id, urls] of agents) {
-              if (urls.has(url) && existingOwners.get(id)?.has(url) && notify) {
+              if (
+                urls.has(url) &&
+                (notify === this.options.notifyRisk ||
+                  existingOwners.get(id)?.has(url)) &&
+                notify
+              ) {
                 const before =
                   notify === this.options.notifyChecks
-                    ? (previous.checks ?? previous.value)
-                    : previous.lifecycle!;
+                    ? (previous!.checks ?? previous!.value)
+                    : (previous?.lifecycle ?? value);
                 notices.push(async () => {
                   if (!this.isDismissed(id, url))
                     await notify(id, before, value, async (write) => {
-                      if (this.isDismissed(id, url)) return undefined;
+                      if (
+                        this.isDismissed(id, url) ||
+                        (notify === this.options.notifyRisk &&
+                          (this.riskHidden ||
+                            (this.reviewGeneration.get(url) ?? 0) !==
+                              reviewGeneration))
+                      )
+                        return undefined;
                       const key = `${id}:${url}`;
                       const writes =
                         this.noticeWrites.get(key) ??
@@ -506,8 +524,6 @@ export class PullRequestRefresher {
               }
             }
           }
-          const reviewChanged =
-            (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration;
           // A result based on older review evidence cannot be current. Keep the
           // URL due so the dirty follow-up consumes the new evidence, even on
           // its first refresh when no cache entry existed at invalidation time.
