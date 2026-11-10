@@ -9,6 +9,7 @@ import {
   Hand,
   MessageCircle,
   Minus,
+  Pencil,
   Plus,
   X,
 } from "lucide-react";
@@ -182,7 +183,11 @@ export function ImageComments({
   useEffect(() => {
     selectedRef.current = selected;
   }, [selected]);
-  const [mode, setMode] = useState<"comment" | "pan">("comment");
+  const markupButton = useRef<HTMLButtonElement>(null);
+  const [markup, setMarkup] = useState(false);
+  const [editorNote, setEditorNote] = useState("");
+  const newComment = useRef<string | null>(null);
+  const [mode, setMode] = useState<"comment" | "pan">("pan");
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
@@ -262,6 +267,21 @@ export function ImageComments({
     setShareAttempt(null);
     setComments((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   };
+  const dismissEditor = () => {
+    const id = newComment.current;
+    if (id) setComments((cs) => cs.filter((c) => c.id !== id));
+    newComment.current = null;
+    setSelected(null);
+  };
+  const leaveMarkup = () => {
+    if (send.isPending) return;
+    dismissEditor();
+    setMarkup(false);
+    setMode("pan");
+    requestAnimationFrame(() => markupButton.current?.focus());
+    setPreview(null);
+    gesture.current = null;
+  };
   const create = (region: Pick<Callout, "x" | "y" | "width" | "height">) => {
     if (pendingPost || shareAttempt?.attempted || send.isPending) return;
     setShareAttempt(null);
@@ -273,7 +293,10 @@ export function ImageComments({
       sent: false,
       recipient: defaultRecipient,
     };
-    setComments((cs) => [...cs, c]);
+    const previous = newComment.current;
+    setComments((cs) => [...cs.filter((n) => n.id !== previous), c]);
+    newComment.current = c.id;
+    setEditorNote("");
     setSelected(c.id);
   };
   const send = useMutation({
@@ -504,7 +527,10 @@ export function ImageComments({
     send.mutate(batch);
   };
   const close = () => {
-    if (!busy) onClose();
+    if (!busy) {
+      dismissEditor();
+      onClose();
+    }
   };
   return (
     <Dialog
@@ -522,7 +548,8 @@ export function ImageComments({
         onEscapeKeyDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          if (selected) setSelected(null);
+          if (selected) dismissEditor();
+          else if (markup) leaveMarkup();
           else close();
         }}
         onPointerDownOutside={(e) => e.preventDefault()}
@@ -530,6 +557,21 @@ export function ImageComments({
         <DialogTitle className="sr-only">{caption}</DialogTitle>
         <header className="flex min-h-14 items-center gap-2 border-b px-3">
           <span className="min-w-0 flex-1 truncate text-sm">{caption}</span>
+          {!markup && (
+            <Button
+              ref={markupButton}
+              size="sm"
+              variant="default"
+              disabled={!loaded}
+              onClick={() => {
+                setMarkup(true);
+                setMode("comment");
+              }}
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              Markup
+            </Button>
+          )}
           <FileActions src={src} fileName={file.name} />
           <Button
             size="icon"
@@ -592,7 +634,7 @@ export function ImageComments({
                 : "Loading image…"}
             </p>
           )}
-          {loaded && !comments.length && (
+          {loaded && markup && !comments.length && (
             <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-white/70">
               Click or drag to leave a note
             </p>
@@ -601,10 +643,14 @@ export function ImageComments({
             ref={svg}
             viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
             className="h-full w-full touch-none select-none"
-            aria-label="Image callouts. Press Enter to add a centered note."
+            aria-label={
+              markup
+                ? "Image callouts. Press Enter to add a centered note."
+                : "Image viewer"
+            }
             tabIndex={0}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && loaded && !frozen) {
+              if (e.key === "Enter" && markup && loaded && !frozen) {
                 e.preventDefault();
                 create({ x: 0.5, y: 0.5, width: 0, height: 0 });
               }
@@ -630,7 +676,7 @@ export function ImageComments({
               if (!loaded || frozen || e.button !== 0) return;
               const p = point(e);
               if (p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) return;
-              setSelected(null);
+              dismissEditor();
               gesture.current = {
                 ...point(e),
                 clientX: e.clientX,
@@ -662,7 +708,7 @@ export function ImageComments({
               }
               const s = gesture.current;
               if (!s || pointers.current.size !== 1) return;
-              if (mode === "pan") {
+              if (!markup || mode === "pan") {
                 setPan({
                   x: s.pan.x + (e.clientX - s.clientX) / ratio,
                   y: s.pan.y + (e.clientY - s.clientY) / ratio,
@@ -692,7 +738,7 @@ export function ImageComments({
               const s = gesture.current;
               gesture.current = null;
               setPreview(null);
-              if (!s || mode === "pan") return;
+              if (!s || !markup || mode === "pan") return;
               const raw = point(e);
               const p = {
                 x: Math.max(0, Math.min(1, raw.x)),
@@ -724,7 +770,7 @@ export function ImageComments({
                 height={imageSize.height}
               />
               {[
-                ...(current ? [current] : []),
+                ...(markup && current ? [current] : []),
                 ...(preview ? [preview] : []),
               ].map((c) => (
                 <rect
@@ -741,6 +787,7 @@ export function ImageComments({
             </g>
           </svg>
           {loaded &&
+            markup &&
             comments.map((c) => {
               const left =
                 (stageSize.width - rw) / 2 +
@@ -754,9 +801,17 @@ export function ImageComments({
                   open={selected === c.id}
                   onOpenChange={(open) => {
                     if (!busy) {
-                      setSelected((current) =>
-                        open ? c.id : current === c.id ? null : current
-                      );
+                      if (open) {
+                        const previous = newComment.current;
+                        if (previous && previous !== c.id) {
+                          setComments((cs) =>
+                            cs.filter((n) => n.id !== previous)
+                          );
+                          newComment.current = null;
+                        }
+                        setEditorNote(c.note);
+                        setSelected(c.id);
+                      } else if (selected === c.id) dismissEditor();
                       send.reset();
                     }
                   }}
@@ -849,38 +904,54 @@ export function ImageComments({
                           id={`note-${c.id}`}
                           maxLength={4000}
                           placeholder="Add a note…"
-                          value={c.note}
+                          value={editorNote}
                           disabled={frozen}
-                          onChange={(e) =>
-                            update(c.id, {
-                              note: e.target.value,
-                              copyId: undefined,
-                              metadataId: undefined,
-                            })
-                          }
+                          onChange={(e) => setEditorNote(e.target.value)}
                         />
-                        <Button
-                          size="sm"
-                          disabled={busy || !c.note.trim()}
-                          onClick={() => setSelected(null)}
-                        >
-                          Done
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={frozen}
-                          onClick={() => {
-                            setShareAttempt(null);
-                            setComments((cs) =>
-                              cs.filter((n) => n.id !== c.id)
-                            );
-                            setSelected(null);
-                            send.reset();
-                          }}
-                        >
-                          Delete draft
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          {newComment.current !== c.id && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="mr-auto"
+                              disabled={frozen}
+                              onClick={() => {
+                                setShareAttempt(null);
+                                setComments((cs) =>
+                                  cs.filter((n) => n.id !== c.id)
+                                );
+                                setSelected(null);
+                                send.reset();
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={dismissEditor}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={frozen || !editorNote.trim()}
+                            onClick={() => {
+                              update(c.id, {
+                                note: editorNote.trim(),
+                                copyId: undefined,
+                                metadataId: undefined,
+                              });
+                              newComment.current = null;
+                              setSelected(null);
+                            }}
+                          >
+                            Save
+                          </Button>
+                        </div>
                       </>
                     )}
                   </PopoverContent>
@@ -891,16 +962,18 @@ export function ImageComments({
         <footer className="flex flex-wrap items-center justify-center gap-2 border-t bg-background p-2">
           <div className="mr-auto flex justify-center">
             <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/80 p-1 text-white">
-              <Button
-                size="icon"
-                variant="ghost"
-                className="text-white"
-                aria-label="Comment mode"
-                aria-pressed={mode === "comment"}
-                onClick={() => setMode("comment")}
-              >
-                <MessageCircle className="h-4 w-4" />
-              </Button>
+              {markup && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-white"
+                  aria-label="Comment mode"
+                  aria-pressed={mode === "comment"}
+                  onClick={() => setMode("comment")}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 size="icon"
                 variant="ghost"
@@ -942,63 +1015,75 @@ export function ImageComments({
               </Button>
             </div>
           </div>
-          <div className="w-full min-w-0 sm:w-auto sm:min-w-72 sm:max-w-[min(50vw,42rem)]">
-            <Select
-              value={shareRecipient || undefined}
-              disabled={frozen}
-              onValueChange={(value) => {
-                setRecipient(value);
-                setShareAttempt(null);
-                send.reset();
-              }}
-            >
-              <SelectTrigger
-                aria-label="Agent"
-                className="h-auto min-h-9 w-full [&>span]:line-clamp-none"
-                title={
-                  agents.find((a) => a.id === shareRecipient)?.name ??
-                  shareRecipient
-                }
+          {markup && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={leaveMarkup}
               >
-                <SelectValue placeholder="Choose agent">
-                  <span className="block whitespace-normal break-words text-left">
-                    {agents.find((a) => a.id === shareRecipient)?.name ??
-                      (shareRecipient || "Choose agent")}
-                  </span>
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent
-                className="z-[150] w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-24px)]"
-                collisionPadding={12}
-              >
-                {agents.map((a) => (
-                  <SelectItem
-                    key={a.id}
-                    value={a.id}
-                    className="whitespace-normal break-words"
+                Cancel markup
+              </Button>
+              <div className="w-full min-w-0 sm:w-auto sm:min-w-72 sm:max-w-[min(50vw,42rem)]">
+                <Select
+                  value={shareRecipient || undefined}
+                  disabled={frozen}
+                  onValueChange={(value) => {
+                    setRecipient(value);
+                    setShareAttempt(null);
+                    send.reset();
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label="Agent"
+                    className="h-auto min-h-9 w-full [&>span]:line-clamp-none"
+                    title={
+                      agents.find((a) => a.id === shareRecipient)?.name ??
+                      shareRecipient
+                    }
                   >
-                    {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={
-              busy ||
-              !loaded ||
-              !shareRecipient ||
-              (!unshared.length && !shareAttempt && !pendingPost)
-            }
-            onClick={share}
-          >
-            {busy
-              ? "Sharing…"
-              : `Share with agent${unshared.length ? ` (${unshared.length})` : ""}`}
-          </Button>
-          {send.isError && (
+                    <SelectValue placeholder="Choose agent">
+                      <span className="block whitespace-normal break-words text-left">
+                        {agents.find((a) => a.id === shareRecipient)?.name ??
+                          (shareRecipient || "Choose agent")}
+                      </span>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    className="z-[150] w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-24px)]"
+                    collisionPadding={12}
+                  >
+                    {agents.map((a) => (
+                      <SelectItem
+                        key={a.id}
+                        value={a.id}
+                        className="whitespace-normal break-words"
+                      >
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={
+                  busy ||
+                  !loaded ||
+                  !shareRecipient ||
+                  (!unshared.length && !shareAttempt && !pendingPost)
+                }
+                onClick={share}
+              >
+                {busy
+                  ? "Sharing…"
+                  : `Share with agent${unshared.length ? ` (${unshared.length})` : ""}`}
+              </Button>
+            </>
+          )}
+          {markup && send.isError && (
             <p
               role="alert"
               className="w-full text-center text-xs text-destructive"

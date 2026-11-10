@@ -79,6 +79,7 @@ async function open(
     naturalHeight: { value: 650 },
   });
   fireEvent.load(img);
+  fireEvent.click(screen.getByRole("button", { name: "Markup" }));
   const surface = screen.getByLabelText(
     "Image callouts. Press Enter to add a centered note."
   );
@@ -114,9 +115,9 @@ it.each(["upload", "post"])(
     });
     const { draft } = await open();
     await draft("First note");
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await draft("Second note");
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     // Collecting notes has no upload or delivery side effects.
     expect(uploads).toBe(0);
     expect(mockApi.mock.calls.some(([url]) => url.endsWith("/blocks"))).toBe(
@@ -175,6 +176,8 @@ it("returns focus to the same bubble after keyboard dismissal", async () => {
   mockApi.mockResolvedValue({ agents: [{ id: "agent-a", name: "Agent A" }] });
   const { draft } = await open();
   await draft("Keyboard note");
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Comment 1, draft" }));
   fireEvent.keyDown(screen.getByPlaceholderText("Add a note…"), {
     key: "Escape",
   });
@@ -191,7 +194,7 @@ it("does not let a closing note steal focus from the next note", async () => {
   });
   const { draft } = await open();
   await draft("First inline note");
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await draft("Next inline note");
   act(() => {
     frames.splice(0).forEach((callback) => callback(1));
@@ -221,7 +224,7 @@ it("aborts an invalidated cross-tab upload before posting, then keeps retry iden
   });
   const { draft, file } = await open();
   await draft("Original");
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
   await waitFor(() => expect(uploads).toBe(1));
   const key = `dispatch:image-comment-share:${file.url}:${file.updatedAt}`;
@@ -267,7 +270,7 @@ it("unlocks notes after a definitive rejected post and reuploads for a new targe
   });
   const { draft } = await open();
   await draft("Keep this note");
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
   await screen.findByRole("alert");
   const target = screen.getByRole("combobox", {
@@ -279,10 +282,10 @@ it("unlocks notes after a definitive rejected post and reuploads for a new targe
     (screen.getByPlaceholderText("Add a note…") as HTMLTextAreaElement).disabled
   ).toBe(false);
   expect(
-    (screen.getByRole("button", { name: "Delete draft" }) as HTMLButtonElement)
+    (screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement)
       .disabled
   ).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   fireEvent.keyDown(target, { key: "Enter" });
   fireEvent.click(await screen.findByRole("option", { name: "Agent B" }));
   fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
@@ -313,7 +316,7 @@ it("recovers a potentially posted identity after another tab clears the pointer 
   });
   const first = await open();
   await first.draft("Durable retry identity");
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
   await waitFor(() => expect(posts).toBe(1));
   const key = `dispatch:image-comment-share:${first.file.url}:${first.file.updatedAt}`;
@@ -371,7 +374,7 @@ it("hands the stored stream and block location back after sharing", async () => 
   const shared = vi.fn();
   const { draft } = await open(undefined, ImageComments, shared);
   await draft("Show where this message was stored.");
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
   await waitFor(() => expect(shared).toHaveBeenCalledTimes(1));
   const post = mockApi.mock.calls.find(([url]) => url.endsWith("/blocks"))!;
@@ -400,4 +403,41 @@ it("defaults to the actively viewed agent ahead of the source owner", async () =
   } finally {
     window.history.replaceState({}, "", "/");
   }
+});
+
+it("cancels new notes, saves explicitly, and leaves markup without losing saved notes", async () => {
+  mockApi.mockResolvedValue({ agents: [{ id: "agent-a", name: "Agent A" }] });
+  const { draft } = await open();
+  await draft("Discard me");
+  expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("button", { name: "Comment 1, draft" })).toBeNull();
+  await draft("Keep me");
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Comment 1, draft" }));
+  fireEvent.change(screen.getByPlaceholderText("Add a note…"), {
+    target: { value: "Uncommitted edit" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel markup" }));
+  expect(screen.queryByRole("button", { name: /Share with agent/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Comment 1, draft" })).toBeNull();
+  const viewer = screen.getByLabelText("Image viewer");
+  fireEvent.keyDown(viewer, { key: "Enter" });
+  expect(screen.queryByPlaceholderText("Add a note…")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Markup" }));
+  fireEvent.click(screen.getByRole("button", { name: "Comment 1, draft" }));
+  expect(
+    (screen.getByPlaceholderText("Add a note…") as HTMLTextAreaElement).value
+  ).toBe("Keep me");
+  expect(screen.getByRole("button", { name: "Delete" }).className).toContain(
+    "destructive"
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  expect(screen.queryByRole("button", { name: "Comment 1, draft" })).toBeNull();
+  expect(
+    mockApi.mock.calls.every(
+      ([url]) => !url.endsWith("/blocks") && !url.endsWith("/files")
+    )
+  ).toBe(true);
 });
