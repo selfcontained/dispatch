@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 
 import { FileActions } from "@/components/app/file-lightbox-actions";
+import { ImageFeedbackPrototype } from "@/components/app/image-feedback-prototype";
 import { ZoomableImage } from "@/components/app/file-lightbox-image";
 import {
   MarkdownViewer,
@@ -50,6 +51,7 @@ export function FileLightbox({
   fileIndex,
   setFileId,
 }: FileLightboxProps): JSX.Element | null {
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const {
     data: queriedFile,
@@ -90,7 +92,7 @@ export function FileLightbox({
   }, [fileId]);
 
   useEffect(() => {
-    if (fileId === null) return;
+    if (fileId === null || feedbackOpen) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -116,7 +118,15 @@ export function FileLightbox({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canGoNext, canGoPrev, currentIndex, fileId, selectIndex, setFileId]);
+  }, [
+    canGoNext,
+    canGoPrev,
+    currentIndex,
+    fileId,
+    feedbackOpen,
+    selectIndex,
+    setFileId,
+  ]);
 
   useEffect(() => {
     if (fileId !== null && fileNotFound) setFileId(null);
@@ -151,6 +161,17 @@ export function FileLightbox({
     : "";
   const showLoadError = files === undefined && !file && !!error && !isFetching;
 
+  if (feedbackOpen && file && isImage) {
+    return (
+      <ImageFeedbackPrototype
+        key={file.id}
+        file={file}
+        src={src}
+        onClose={() => setFeedbackOpen(false)}
+      />
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -184,6 +205,16 @@ export function FileLightbox({
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           {file ? (
             <>
+              {import.meta.env.DEV && isImage && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="text-foreground"
+                  onClick={() => setFeedbackOpen(true)}
+                >
+                  Callout feedback · Prototype
+                </Button>
+              )}
               <FileActions
                 src={src}
                 fileName={file.name}
