@@ -1,3 +1,4 @@
+import { riskNotice } from "../agents/pull-request-risk-notice.js";
 import {
   formatCheckNotice,
   formatStatusNotice,
@@ -2770,12 +2771,31 @@ export class StreamService {
     );
   }
 
+  async pullRequestRiskChanged(
+    agentId: string,
+    previous: import("@dispatch/shared").AgentPullRequest,
+    current: import("@dispatch/shared").AgentPullRequest,
+    commit: import("../agents/pull-request-refresher.js").CommitPullRequestNotice
+  ): Promise<Block | undefined> {
+    const notice = riskNotice(current, agentId);
+    if (!notice) return undefined;
+    return this.persistPullRequestNotice(
+      agentId,
+      previous,
+      current,
+      commit,
+      notice.text,
+      notice
+    );
+  }
+
   private async persistPullRequestNotice(
     agentId: string,
     previous: import("@dispatch/shared").AgentPullRequest,
     current: import("@dispatch/shared").AgentPullRequest,
     commit: import("../agents/pull-request-refresher.js").CommitPullRequestNotice,
-    checksText?: string
+    checksText?: string,
+    risk?: { id: string; assessmentId: string; recommendation: string }
   ): Promise<Block | undefined> {
     return this.withWrite(await this.streamOf(agentId), async () => {
       await this.requireAgent(agentId);
@@ -2793,7 +2813,7 @@ export class StreamService {
         );
       }
       return commit(async () => {
-        const block = await this.store.insert({
+        const insert = {
           streamId,
           author: { kind: "system" },
           toAgentId: agentId,
@@ -2807,7 +2827,13 @@ export class StreamService {
               current: current.status,
               ...(checksText
                 ? {
-                    observation: "checks",
+                    observation: risk ? "merge_risk" : "checks",
+                    ...(risk
+                      ? {
+                          assessmentId: risk.assessmentId,
+                          recommendation: risk.recommendation,
+                        }
+                      : {}),
                     headSha: current.ci?.headSha,
                     checkedAt: current.ci?.checkedAt,
                   }
@@ -2817,7 +2843,11 @@ export class StreamService {
           state: null,
           attachments: [{ type: "pr", url: current.url, title: current.title }],
           delivered: live ? null : false,
-        });
+        } satisfies import("./store.js").InsertBlockInput;
+        const block = risk
+          ? await this.store.insertIfAbsent({ ...insert, id: risk.id })
+          : await this.store.insert(insert);
+        if (!block) return undefined;
         await this.publishEntry(streamId, block.id);
         if (live)
           await this.deliverBlock(block, {

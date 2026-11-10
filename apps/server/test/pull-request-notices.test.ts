@@ -1,3 +1,4 @@
+import { riskFixture } from "./pull-request-risk-fixture.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { mapPullRequestChecks } from "../src/agents/pull-request-reader.js";
 import { AgentError } from "../src/agents/errors.js";
@@ -219,6 +220,33 @@ describe("PR observation delivery", () => {
     );
     expect(archived.delivered).toBe(false);
     expect(injected).toHaveLength(2);
+    const risk = riskFixture();
+    const write = async <T>(fn: () => Promise<T>) => fn();
+    const results = await Promise.all([
+      service.pullRequestRiskChanged("child", risk, risk, write),
+      service.pullRequestRiskChanged("child", risk, risk, write),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const observation = results.find(Boolean)!;
+    expect(observation.author).toEqual({ kind: "system" });
+    expect(observation.toAgentId).toBe("child");
+    expect(observation.streamId).toBe("child");
+    expect((await service.store.getById(observation.id))?.text).toContain(
+      "not merge approval"
+    );
+    expect(
+      await service.pullRequestRiskChanged(
+        "child",
+        risk,
+        structuredClone(risk),
+        write
+      )
+    ).toBeUndefined();
+    risk.mergeRisk!.assessmentId = "review-result-2";
+    risk.mergeRisk!.verdict = "abstain";
+    expect(
+      (await service.pullRequestRiskChanged("child", risk, risk, write))?.text
+    ).toContain("Inconclusive");
     expect(
       (await pool.query("SELECT status FROM agents WHERE id = 'archived'"))
         .rows[0].status
