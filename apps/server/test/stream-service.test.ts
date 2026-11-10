@@ -8596,22 +8596,28 @@ describe("Parent-owned child requests", () => {
         }>(
           `EXPLAIN (FORMAT JSON) SELECT 1 FROM blocks b WHERE ${FAILED_PARENT_INPUT_SQL}`
         );
+        const diagnostic = `bitmap=${bitmap} plan=${JSON.stringify(plan.rows, null, 2)}`;
         const answer = nodes(plan.rows[0]!["QUERY PLAN"][0]!.Plan).find(
           (node) =>
             node["Relation Name"] === "blocks" && node.Alias === "answer"
         );
-        expect(answer?.["Node Type"]).toMatch(
+        expect(typeof answer?.["Node Type"], diagnostic).toBe("string");
+        expect(answer?.["Node Type"], diagnostic).toMatch(
           bitmap ? /^Bitmap Heap Scan$/ : /^Index (Only )?Scan$/
         );
         const primaryKey =
           answer &&
           nodes(answer).find((node) => node["Index Name"] === "blocks_pkey");
-        expect(primaryKey?.["Node Type"]).toMatch(
+        expect(typeof primaryKey?.["Node Type"], diagnostic).toBe("string");
+        expect(primaryKey?.["Node Type"], diagnostic).toMatch(
           bitmap ? /^Bitmap Index Scan$/ : /^Index (Only )?Scan$/
         );
-        expect(primaryKey?.["Index Cond"]).toMatch(/\bid\s*=\s*CASE WHEN/);
-        expect(primaryKey?.["Index Cond"]).toContain("b.state");
-        expect(primaryKey?.["Index Cond"]).toContain("::uuid");
+        expect(typeof primaryKey?.["Index Cond"], diagnostic).toBe("string");
+        expect(primaryKey?.["Index Cond"], diagnostic).toMatch(
+          /\bid\s*=\s*CASE WHEN/
+        );
+        expect(primaryKey?.["Index Cond"], diagnostic).toContain("b.state");
+        expect(primaryKey?.["Index Cond"], diagnostic).toContain("::uuid");
       }
     } finally {
       await client.query("ROLLBACK");
