@@ -13,22 +13,6 @@ const examples = [
   {
     status: "Open",
     title: "Refresh PR status on the server",
-    passed: 8,
-    failed: 2,
-    pending: 3,
-    skipped: 1,
-  },
-  {
-    status: "Draft",
-    title: "Add compact check summaries",
-    passed: 0,
-    failed: 0,
-    pending: 3,
-    skipped: 0,
-  },
-  {
-    status: "Merged",
-    title: "Align sidebar metadata",
     passed: 12,
     failed: 0,
     pending: 0,
@@ -70,7 +54,7 @@ const previewMergeRisk: PresentedPullRequest["mergeRisk"][] = [
 export const previewPullRequests: PresentedPullRequest[] = examples.map(
   (example, i) => ({
     url: `https://github.com/example/dispatch/pull/${1380 + i}`,
-    title: example.title,
+    title: `Synthetic fixture · ${i === 0 ? "routine" : "read before merge"}`,
     status: example.status,
     ...(previewMergeRisk[i] ? { mergeRisk: previewMergeRisk[i] } : {}),
     ci: {
@@ -153,7 +137,6 @@ for (const [i, displayState] of (
     "waiting_ci",
     "waiting_review",
     "evaluating",
-    "deferred",
     "daily_cap",
     "capacity",
     "rate_limited",

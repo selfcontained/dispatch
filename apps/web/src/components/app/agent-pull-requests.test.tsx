@@ -408,7 +408,7 @@ it("shows the merge-risk recommendation on the row and its details in the popove
   expect(
     screen.getByText("Description matches").nextElementSibling?.textContent
   ).toBe("40%");
-  expect(screen.getByText(/merging stays a human decision/i)).toBeTruthy();
+  expect(screen.getByText(/Not merge approval/i)).toBeTruthy();
 });
 
 it("keeps inconclusive assessments discoverable on the row", () => {
@@ -461,12 +461,10 @@ it("updates waiting to evaluating to inconclusive without presenting prior-head 
   fireEvent.click(
     screen.getByRole("button", { name: /Merge risk for pull request/ })
   );
+  expect(screen.getByText("Previous assessment")).toBeTruthy();
   expect(
-    screen.getByText("Previous assessment · historical context only")
-  ).toBeTruthy();
-  expect(
-    screen.getByText(/Does not describe current merge readiness/)
-  ).toBeTruthy();
+    screen.queryByText(/Does not describe current merge readiness/)
+  ).toBeNull();
   expect(screen.getByText("previou")).toBeTruthy();
   rerender(
     <PullRequestRow
@@ -497,7 +495,5 @@ it("updates waiting to evaluating to inconclusive without presenting prior-head 
   expect(
     screen.getByRole("button", { name: /No recommendation/ })
   ).toBeTruthy();
-  expect(
-    screen.queryByText("Previous assessment · historical context only")
-  ).toBeNull();
+  expect(screen.queryByText("Previous assessment")).toBeNull();
 });

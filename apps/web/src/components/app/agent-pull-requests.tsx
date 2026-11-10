@@ -35,17 +35,17 @@ const MERGE_RISK = {
   routine: {
     label: "Routine",
     badge: "border-status-working/20 bg-status-working/10 text-status-working",
-    hint: "Reviewed work inside existing features or infrastructure. A recommendation, not an approval.",
+    hint: "Existing features or infrastructure.",
   },
   human_review: {
     label: "Read before merge",
-    badge: "border-status-waiting/20 bg-status-waiting/10 text-status-waiting",
-    hint: "New or redesigned product surface, external integration, or a large multi-subsystem feature.",
+    badge: "border-red-500/20 bg-red-500/10 text-red-600",
+    hint: "Review recommended for this change.",
   },
   abstain: {
     label: "No recommendation",
     badge: "border-border bg-muted/50 text-muted-foreground",
-    hint: "Evidence too thin or the model was not confident.",
+    hint: "Not enough evidence for a recommendation.",
   },
 } satisfies Record<
   MergeRiskSummary["verdict"],
@@ -56,49 +56,62 @@ const percent = (value: number | null) =>
 const RISK_DISPLAY = {
   disabled: {
     label: "Risk assessment off",
-    hint: "Enable AI and merge risk in Settings and configure a provider key to use assessments.",
+    hint: "Set up AI merge risk in Settings.",
   },
   unavailable: {
     label: "Risk unavailable",
-    hint: "Current pull request checks could not be read. Assessment waits for the next successful refresh.",
+    hint: "Checks unavailable. Waiting for refresh.",
   },
   waiting_ci: {
     label: "Risk · waiting for checks",
-    hint: "Assessment waits for passing checks. Current check failures and running checks still need attention.",
+    hint: "Waiting for passing checks.",
   },
   waiting_review: {
     label: "Risk · waiting for review",
-    hint: "Resolve open review findings before assessment can begin.",
+    hint: "Waiting for resolved review findings.",
   },
   not_ready: {
     label: "Risk · not assessed",
-    hint: "Assessment runs for open pull requests with passing checks and resolved review findings.",
+    hint: "Starts when checks pass and review findings are resolved.",
   },
   evaluating: {
     label: "Risk · evaluating",
-    hint: "Assessment is in progress. The next pull request refresh will show the outcome.",
+    hint: "Assessing this change.",
   },
   daily_cap: {
     label: "Risk · daily limit",
-    hint: "The daily assessment budget has been reached. No assessment was made. This does not schedule an extra retry.",
+    hint: "Daily budget reached. No assessment.",
   },
   capacity: {
     label: "Risk · capacity limit",
-    hint: "Assessment capacity was full. No assessment was made. This does not schedule an extra retry.",
+    hint: "Capacity full. No assessment.",
   },
   rate_limited: {
     label: "Risk · provider limit",
-    hint: "The provider declined the request because of a rate limit. No recommendation is available; no automatic retry is scheduled.",
+    hint: "Provider rate limit. No automatic retry.",
   },
   deferred: {
     label: "Risk · deferred",
-    hint: "Assessment was deferred by the daily budget or capacity limit. No recommendation is available; no extra request is made here.",
+    hint: "Assessment deferred. No recommendation.",
   },
   failure: {
-    label: "Risk unavailable",
-    hint: "The provider could not complete an assessment. No recommendation is available.",
+    label: "Assessment failed",
+    hint: "Provider failed. No recommendation.",
   },
 };
+function riskTone(risk: MergeRiskSummary) {
+  if (
+    risk.displayState === "failure" ||
+    risk.displayState === "unavailable" ||
+    (!risk.displayState && risk.status !== "ok") ||
+    (!risk.displayState && risk.verdict === "human_review")
+  )
+    return "text-red-600 [[data-theme-mode=dark]_&]:text-red-400";
+  if (risk.displayState === "evaluating") return "text-status-waiting";
+  if (!risk.displayState && risk.verdict === "routine")
+    return "text-status-working";
+  return "text-muted-foreground";
+}
 function riskDisplay(risk: MergeRiskSummary) {
   if (risk.displayState)
     return {
@@ -124,9 +137,7 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
       title={`Merge risk: ${state.label}`}
       className={cn(
         "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
-        !risk.displayState && risk.status === "ok" && risk.verdict === "routine"
-          ? "text-status-working"
-          : "text-status-waiting"
+        riskTone(risk)
       )}
     >
       <Icon aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -141,7 +152,8 @@ function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
       title={`Merge risk: ${state.label}`}
       className={cn(
         "shrink-0 px-1.5 py-0 text-[10px] normal-case tracking-normal",
-        state.badge
+        state.badge,
+        riskTone(risk)
       )}
     >
       {state.label}
@@ -159,13 +171,7 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
       <p className="mt-2 text-[11px] text-muted-foreground">{state.hint}</p>
       {risk.displayState && risk.previous && (
         <div className="mt-3 rounded border border-border p-2">
-          <p className="text-xs font-semibold">
-            Previous assessment · historical context only
-          </p>
-          <p className="text-[11px] text-muted-foreground">
-            Does not describe current merge readiness. Current checks and review
-            findings still apply.
-          </p>
+          <p className="text-xs font-semibold">Previous assessment</p>
           <MergeRiskDetails risk={risk.previous} />
         </div>
       )}
@@ -204,8 +210,8 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
               timeStyle: "short",
             })}{" "}
             for commit{" "}
-            <span className="font-mono">{risk.headSha.slice(0, 7)}</span>.
-            Display only; merging stays a human decision.
+            <span className="font-mono">{risk.headSha.slice(0, 7)}</span>. Not
+            merge approval.
           </p>
         </>
       )}
