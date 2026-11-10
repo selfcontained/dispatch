@@ -115,11 +115,19 @@ function MergeRisk({ data }: { data: MergeRiskMetrics }) {
           }
         />
       </div>
+      {data.explanations && data.explanations.attempts > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Explanations: {data.explanations.attempts} attempts · $
+          {data.explanations.knownEstimatedUsd.toFixed(5)} known estimated cost
+          · {data.explanations.unknownCostCalls} unpriced. Uses the shared
+          assessment limit.
+        </p>
+      )}
       {data.attempts === 0 && (
         <p className="text-xs text-muted-foreground">
           No assessments in this range. Enable merge risk in Settings → AI
-          routing; open pull requests with passing checks and resolved findings
-          are assessed once per head.
+          routing; open or draft pull requests with a known head and resolved
+          findings are assessed once per head.
         </p>
       )}
     </div>

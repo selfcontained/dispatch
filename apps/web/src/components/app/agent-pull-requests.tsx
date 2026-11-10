@@ -184,10 +184,87 @@ function EvidencePercent({
     </span>
   );
 }
+function RiskExplanation({
+  agentId,
+  url,
+  assessmentId,
+}: {
+  agentId: string;
+  url: string;
+  assessmentId: string;
+}) {
+  const [requested, setRequested] = useState(false);
+  const query = useQuery<{ state: string; text?: string }>({
+    queryKey: ["risk-explanation", agentId, url, assessmentId],
+    enabled: false,
+    retry: false,
+    staleTime: Infinity,
+    queryFn: () =>
+      api(`/api/v1/agents/${agentId}/pull-requests/explain`, {
+        method: "POST",
+        body: JSON.stringify({ url, assessmentId }),
+      }),
+  });
+  const ready = requested && !query.isError && query.data?.state === "ready";
+  return (
+    <div className="space-y-1.5 text-[11px] text-muted-foreground">
+      {!ready && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-1 text-[11px]"
+          disabled={query.isFetching}
+          onClick={() => {
+            setRequested(true);
+            void query.refetch();
+          }}
+        >
+          {query.isFetching
+            ? "Explaining…"
+            : requested && (query.isError || query.data)
+              ? "Retry explanation"
+              : "Explain assessment"}
+        </Button>
+      )}
+      {query.isFetching && (
+        <span role="status">Preparing a short explanation.</span>
+      )}
+      {!query.isFetching && ready && (
+        <>
+          <p className="whitespace-pre-wrap break-words text-foreground">
+            {query.data?.text}
+          </p>
+          <p>
+            Evidence-based follow-up · not private scoring reasoning or merge
+            approval.
+          </p>
+        </>
+      )}
+      {requested &&
+        !query.isFetching &&
+        (query.isError || (query.data && !ready)) && (
+          <p role="status">
+            {query.data?.state === "unavailable"
+              ? "Explanation unavailable for this assessment. Older assessments may lack saved evidence."
+              : query.data?.state === "limited"
+                ? "Assessment limit reached. Try again later."
+                : query.data?.state === "pending"
+                  ? "An explanation is already in progress. Check again shortly."
+                  : "Could not explain this assessment. You can retry."}
+          </p>
+        )}
+    </div>
+  );
+}
+
 function MergeRiskDetails({
   risk,
   ci,
+  agentId,
+  url,
 }: {
+  agentId?: string;
+  url: string;
   risk: MergeRiskSummary;
   ci: AgentPullRequest["ci"];
 }) {
@@ -218,6 +295,17 @@ function MergeRiskDetails({
         </div>
         <p className="text-[11px] text-muted-foreground">{state.hint}</p>
       </div>
+      {agentId &&
+        !risk.displayState &&
+        risk.status === "ok" &&
+        risk.assessmentId && (
+          <RiskExplanation
+            key={risk.assessmentId}
+            agentId={agentId}
+            url={url}
+            assessmentId={risk.assessmentId}
+          />
+        )}
       {assessment && (
         <div className="space-y-3">
           {risk.displayState && (
@@ -592,6 +680,7 @@ export function AgentPullRequests({
 export function PullRequestRow({
   onDismiss,
   refresh,
+  agentId,
   pr,
   isError,
 }: {
@@ -599,6 +688,7 @@ export function PullRequestRow({
   refresh?: ReturnType<typeof usePullRequestRefresh>;
   pr: PresentedPullRequest;
   agentName?: string;
+  agentId?: string;
   isError: boolean;
 }) {
   const risk =
@@ -758,7 +848,14 @@ export function PullRequestRow({
           </a>
         </div>
         <>
-          {!isError && risk && <MergeRiskDetails risk={risk} ci={pr.ci} />}
+          {!isError && risk && (
+            <MergeRiskDetails
+              risk={risk}
+              ci={pr.ci}
+              agentId={agentId}
+              url={pr.url}
+            />
+          )}
           <div className="border-t border-border p-3">
             <h4 className="text-xs font-semibold">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
@@ -883,7 +980,7 @@ function RefreshablePullRequestRow({
   agentId: string;
 }) {
   const refresh = usePullRequestRefresh(agentId, props.pr.url);
-  return <PullRequestRow {...props} refresh={refresh} />;
+  return <PullRequestRow {...props} agentId={agentId} refresh={refresh} />;
 }
 
 function usePullRequestRefresh(agentId: string, url: string) {

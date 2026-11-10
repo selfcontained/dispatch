@@ -912,3 +912,47 @@ it("summarizes merge-risk verdicts without exposing pull request URLs", async ()
   });
   expect(result.body).not.toContain("acme/widgets");
 });
+
+it("dates explanation usage by each immutable attempt rather than latest retry", async () => {
+  const old = new Date(Date.now() - 2 * 86400000).toISOString();
+  const recent = new Date(Date.now() - 86400000).toISOString();
+  const split = new Date(Date.now() - 1.5 * 86400000).toISOString();
+  const id = (
+    await ctx.pool.query(
+      "INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version) VALUES('private-eval','head','review','ok','v') RETURNING id"
+    )
+  ).rows[0].id;
+  await ctx.pool.query(
+    "INSERT INTO merge_risk_explanations(assessment_id,status,created_at,result) VALUES($1,'ok',$2,$3)",
+    [
+      id,
+      recent,
+      JSON.stringify({
+        attempts: [
+          { attemptedAt: old, estimatedUsd: 0.1 },
+          { attemptedAt: recent, estimatedUsd: 0.2 },
+        ],
+      }),
+    ]
+  );
+  const today = await authedInject(
+    "GET",
+    `/api/v1/activity/decisions?start=${encodeURIComponent(split)}`
+  );
+  expect(today.statusCode).toBe(200);
+  expect(today.json().mergeRisk.explanations).toEqual({
+    attempts: 1,
+    knownEstimatedUsd: 0.2,
+    unknownCostCalls: 0,
+  });
+  const yesterday = await authedInject(
+    "GET",
+    `/api/v1/activity/decisions?end=${encodeURIComponent(split)}`
+  );
+  expect(yesterday.json().mergeRisk.explanations).toEqual({
+    attempts: 1,
+    knownEstimatedUsd: 0.1,
+    unknownCostCalls: 0,
+  });
+  expect(today.body).not.toContain("private-eval");
+});

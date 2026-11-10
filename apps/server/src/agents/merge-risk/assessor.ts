@@ -1,3 +1,4 @@
+import { mergeRiskCapacity } from "./budget.js";
 /**
  * Produces one merge-risk recommendation per (pull request, head, review
  * state) and remembers it. Called by the PR refresher after each GitHub read;
@@ -6,6 +7,8 @@
  */
 import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
 import type { Pool } from "pg";
+import { createHash } from "node:crypto";
+import { retainedEvidence } from "./explanation-evidence.js";
 import {
   requestDecisions,
   DECISIONS_MODEL,
@@ -165,6 +168,23 @@ export class MergeRiskAssessor {
         await this.finish(id, "skipped_config_changed", {});
         return displaySummary("disabled", headSha);
       }
+      await this.options.pool
+        .query(
+          `INSERT INTO merge_risk_evidence_snapshots(assessment_id,owner_ids,review_digest,evidence,owner_projects)
+         VALUES($1,$2,$3,$4,coalesce((SELECT jsonb_object_agg(id, project_id) FROM agents WHERE id=ANY($2::text[])),'{}'::jsonb)) ON CONFLICT DO NOTHING`,
+          [
+            id,
+            ownerAgentIds,
+            createHash("sha256").update(JSON.stringify(reviews)).digest("hex"),
+            JSON.stringify(retainedEvidence(evidence, config.apiKey)),
+          ]
+        )
+        .catch(() => {
+          // Retention failure must not change scoring or log private payloads.
+          this.options.warn?.(
+            new Error("Merge-risk evidence snapshot unavailable.")
+          );
+        });
       const response = await requestDecisions(
         config.apiKey,
         evidence as unknown as Record<string, unknown>,
@@ -245,30 +265,10 @@ export class MergeRiskAssessor {
 
   private async reserve(url: string, headSha: string, fingerprint: string) {
     const env = this.options.env ?? process.env;
-    const raw = Number(env.DISPATCH_MERGE_RISK_DAILY_CAP ?? 25);
-    const cap = Number.isInteger(raw) && raw >= 0 && raw <= 100 ? raw : 0;
     const client = await this.options.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(719394023)");
-      await client.query(
-        "UPDATE merge_risk_decision_records SET status='interrupted' WHERE status='pending' AND created_at < now() - interval '2 minutes'"
-      );
-      await client.query(
-        "INSERT INTO merge_risk_decision_daily(day) VALUES((now() AT TIME ZONE 'UTC')::date) ON CONFLICT DO NOTHING"
-      );
-      const daily = await client.query<{ calls: number }>(
-        "SELECT calls FROM merge_risk_decision_daily WHERE day=(now() AT TIME ZONE 'UTC')::date"
-      );
-      const pending = await client.query(
-        "SELECT 1 FROM merge_risk_decision_records WHERE status='pending' LIMIT 2"
-      );
-      const status =
-        daily.rows[0]!.calls >= cap
-          ? "skipped_daily_cap"
-          : pending.rowCount! >= 2
-            ? "skipped_concurrency"
-            : "pending";
+      const status = await mergeRiskCapacity(client, env);
       const record = await client.query<{ id: string }>(
         `INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version,result)
          VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id`,

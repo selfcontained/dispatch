@@ -199,3 +199,47 @@ Reads do not refresh inventory, schedule assessments, invoke providers, change
 settings, merge or notify. No refresh control is accepted. This deliberately
 cannot recover an assessment that the authoritative runtime inventory no longer
 retains; it reports absent instead of performing a database or provider lookup.
+
+## On-demand explanation
+
+The PR popover's quiet **Explain assessment** action makes one bounded text
+request only after a person clicks it. It uses `gpt-6-luna` Responses with the
+same stored key and master/merge-risk controls. It shares the existing UTC-day
+call counter and two-call fleet capacity with scoring; no limits are increased.
+Polling, CI changes, opening the popover and MCP reads never generate text.
+Failures can be retried explicitly, with each provider attempt consuming a slot.
+
+This is an evidence-based follow-up, not recovered private reasoning from the
+scoring request. The prompt asks for 2–4 sentences identifying concrete files
+and subsystems, separating technical blast radius from maintainer/product
+judgment, recognizing review mitigations and acknowledging uncertainty. Neither
+an explanation nor a routine assessment implies approval or merge readiness.
+The existing CI indicator remains the current observation; explanation CI refers
+to the saved assessment-time snapshot.
+
+New assessments retain their bounded evidence in a separate private table,
+with assessment/head/review identity, full review digest, owner IDs and project
+scope. Private launch/review prose is withheld from the follow-up prompt. These
+snapshots and explanations expire with assessment records (14 days/2,000 rows).
+Legacy results without snapshots return unavailable rather than refetching,
+rescoring or claiming new evidence was present in the original assessment.
+Scope, current inventory identity, settings and review freshness are checked
+before cache access, before generation and before publishing its result.
+Cross-project owner evidence is refused. Explanation generation is browser-only;
+agent bearer requests are rejected and MCP keeps its existing read-only shape.
+
+Input is capped at 16 KiB, output at 512 tokens and the response body at 32 KiB;
+requests have a 20-second timeout, no tools, redirects, background generation or
+automatic retries. Only completed assistant text is retained. Raw provider errors,
+refusals and reasoning items are discarded. Explicit retries retain per-attempt
+usage, including unsuccessful attempts with unknown cost when usage is absent.
+Activity reports explanation counts and costs separately from scoring. Standard
+short-context Responses estimates use $0.10/M uncached input, $0.01/M cached input
+and $0.50/M output (including reasoning tokens), with $0.125/M cache writes; missing/invalid usage remains
+unpriced. Decisions retain their existing zero-output accounting.
+
+Provider contract: [Responses reference](https://developers.openai.com/api/reference/python/resources/responses/methods/create)
+and [gpt-6-luna model/pricing](https://developers.openai.com/api/docs/models/gpt-6-luna),
+verified 2026-11-10. Automated validation uses synthetic provider responses.
+A separate user-authorized tuning run made twelve bounded live Responses calls
+in the isolated dev environment; no production writes or rescoring occurred.
