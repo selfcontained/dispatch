@@ -314,7 +314,15 @@ export function ImageComments({
       if (!image.current || !loaded || !batch.recipient || !batch.items.length)
         throw new Error("Add notes and choose an agent.");
       const text = imageFeedbackMessage(
-        batch.items.map((c) => `${c.number}. ${c.note.trim()}`).join("\n\n"),
+        batch.items
+          .map((c) => {
+            const marker = `${c.number}. `;
+            return (
+              marker +
+              c.note.trim().replace(/\n/g, `\n${" ".repeat(marker.length)}`)
+            );
+          })
+          .join("\n\n"),
         file.name
       );
       if (text.length > BLOCK_TEXT_MAX_CHARS)

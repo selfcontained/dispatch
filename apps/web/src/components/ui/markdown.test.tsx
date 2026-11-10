@@ -195,3 +195,39 @@ it("preserves entity-shaped query parameters in generated PR check links", () =>
   ).toBe(url);
   expect(screen.getAllByRole("link")).toHaveLength(2);
 });
+
+describe("Markdown list whitespace in chat", () => {
+  it("removes structural blank rows from shared feedback but preserves prose", () => {
+    const { container } = render(
+      <Markdown className="prose-p:whitespace-pre-line prose-li:whitespace-pre-line">
+        {
+          "1. First note\n\n2. Second note\n   continued line\n\n   Another paragraph\n\nFeedback on shot.png"
+        }
+      </Markdown>
+    );
+    const items = container.querySelectorAll("li");
+    expect(items).toHaveLength(2);
+    expect(items[0].innerHTML).toBe("<p>First note</p>");
+    expect(items[1].innerHTML).toBe(
+      "<p>Second note\ncontinued line</p><p>Another paragraph</p>"
+    );
+    expect(container.querySelector("ol")?.nextElementSibling?.textContent).toBe(
+      "Feedback on shot.png"
+    );
+  });
+
+  it("preserves tight lists, nested lists, inline spaces, and starting numbers", () => {
+    const { container } = render(
+      <Markdown>
+        {"3. A **bold** **note**\n4. Next note\n   - nested note"}
+      </Markdown>
+    );
+    expect(container.querySelector("ol")?.getAttribute("start")).toBe("3");
+    expect(container.querySelector("li")?.innerHTML).toBe(
+      "A <strong>bold</strong> <strong>note</strong>"
+    );
+    expect(container.querySelector("li ul li")?.textContent).toBe(
+      "nested note"
+    );
+  });
+});
