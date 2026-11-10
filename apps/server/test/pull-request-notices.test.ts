@@ -1,4 +1,4 @@
-import { riskFixture } from "./risk-fixture.js";
+import { riskFixture } from "./pull-request-risk-fixture.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { mapPullRequestChecks } from "../src/agents/pull-request-reader.js";
 import { AgentError } from "../src/agents/errors.js";

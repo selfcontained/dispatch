@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { riskNotice } from "../src/agents/pull-request-risk-notice.js";
-import { riskFixture } from "./risk-fixture.js";
+import { riskFixture } from "./pull-request-risk-fixture.js";
 
 describe("risk observation", () => {
   it("uses a durable per-result, per-owner identity and explicit non-approval wording", () => {
