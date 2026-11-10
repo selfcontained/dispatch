@@ -6,6 +6,8 @@ describe("risk observation", () => {
   it("uses a durable per-result, per-owner identity and explicit non-approval wording", () => {
     const pr = riskFixture();
     pr.status = "Draft";
+    pr.ci!.summary.status = "failing";
+    pr.ci!.availability = "unavailable";
     const first = riskNotice(pr, "owner")!;
     expect(riskNotice({ ...pr, status: "Open" }, "owner")?.id).toBe(first.id);
     expect(first.text).toContain("Routine change recommendation");

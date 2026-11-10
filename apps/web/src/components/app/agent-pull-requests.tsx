@@ -60,11 +60,11 @@ const RISK_DISPLAY = {
   },
   unavailable: {
     label: "Risk unavailable",
-    hint: "Checks unavailable. Waiting for refresh.",
+    hint: "Head or assessment unavailable. Waiting for refresh.",
   },
   waiting_ci: {
     label: "Risk · waiting for checks",
-    hint: "Waiting for passing checks.",
+    hint: "Awaiting refresh from an earlier assessment policy.",
   },
   waiting_review: {
     label: "Risk · waiting for review",
@@ -72,7 +72,7 @@ const RISK_DISPLAY = {
   },
   not_ready: {
     label: "Risk · not assessed",
-    hint: "Starts when checks pass and review findings are resolved.",
+    hint: "Requires a known head and resolved review findings. CI is assessed separately.",
   },
   evaluating: {
     label: "Risk · evaluating",
@@ -184,7 +184,15 @@ function EvidencePercent({
     </span>
   );
 }
-function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
+function MergeRiskDetails({
+  risk,
+  ci,
+}: {
+  risk: MergeRiskSummary;
+  ci: AgentPullRequest["ci"];
+}) {
+  const checks = ciPresentation(ci);
+  const ChecksIcon = checks.icon;
   const state = riskDisplay(risk);
   const assessment = risk.displayState ? risk.previous : risk;
   return (
@@ -192,7 +200,21 @@ function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-3">
           <h4 className="text-xs font-semibold">Merge risk</h4>
-          <MergeRiskBadge risk={risk} />
+          <div className="flex items-center gap-2">
+            <MergeRiskBadge risk={risk} />
+            <span
+              tabIndex={0}
+              aria-label={`Current CI: ${checks.label}`}
+              title={`Current CI: ${checks.label}. Risk is independent of checks; required checks must pass before merge.`}
+              className={cn(
+                "inline-flex items-center gap-1 text-[10px]",
+                checks.color
+              )}
+            >
+              <ChecksIcon aria-hidden="true" className="h-3 w-3" />
+              <span>CI</span>
+            </span>
+          </div>
         </div>
         <p className="text-[11px] text-muted-foreground">{state.hint}</p>
       </div>
@@ -736,7 +758,7 @@ export function PullRequestRow({
           </a>
         </div>
         <>
-          {!isError && risk && <MergeRiskDetails risk={risk} />}
+          {!isError && risk && <MergeRiskDetails risk={risk} ci={pr.ci} />}
           <div className="border-t border-border p-3">
             <h4 className="text-xs font-semibold">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (

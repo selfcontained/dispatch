@@ -520,3 +520,39 @@ it("hides disabled risk even when PR details are opened", async () => {
   expect(screen.queryByText("Merge risk")).toBeNull();
   expect(screen.getByText("Checks")).toBeTruthy();
 });
+
+it("shows current CI independently beside the same risk assessment as checks change", async () => {
+  const { previewPullRequests } = await import("./agent-pull-requests.preview");
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  const base = previewPullRequests[0]!;
+  const props = { isError: false, onDismiss: () => {} };
+  const { rerender } = render(<PullRequestRow {...props} pr={base} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: /Merge risk for pull request #1380/ })
+  );
+  expect(screen.getByLabelText("Current CI: 1 failed").title).toContain(
+    "required checks must pass"
+  );
+  expect(screen.getByTestId("merge-risk-badge").textContent).toBe("Routine");
+  rerender(
+    <PullRequestRow
+      {...props}
+      pr={{
+        ...base,
+        ci: {
+          ...base.ci!,
+          summary: { ...base.ci!.summary, failed: 0, pending: 1 },
+        },
+      }}
+    />
+  );
+  expect(screen.getByLabelText("Current CI: 1 pending")).toBeTruthy();
+  expect(screen.getByTestId("merge-risk-badge").textContent).toBe("Routine");
+});

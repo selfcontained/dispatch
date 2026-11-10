@@ -774,6 +774,32 @@ describe("merge-risk assessor", () => {
     expect(records.rows).toEqual([{ status: "ok" }]);
   });
 
+  it.each(["pending", "failing", "none", "unavailable"] as const)(
+    "assesses before CI passes (%s), reusing one result through CI-only changes",
+    async (state) => {
+      await review([]);
+      const observation = pr();
+      observation.ci = {
+        ...observation.ci!,
+        availability: state === "unavailable" ? "unavailable" : "available",
+        summary: {
+          ...observation.ci!.summary,
+          status: state === "unavailable" ? "none" : state,
+        },
+      };
+      const assessor = service();
+      const result = await assessor.assess(url, observation, [builder]);
+      expect(result).toMatchObject({ status: "ok", headSha: "head1" });
+      for (const status of ["passing", "pending", "failing", "none"] as const) {
+        observation.ci.summary.status = status;
+        expect(await assessor.assess(url, observation, [builder])).toEqual(
+          result
+        );
+      }
+      expect(transport).toHaveBeenCalledTimes(1);
+    }
+  );
+
   it("waits for open findings, then reassesses when the review state changes", async () => {
     const id = await review([{ resolved: false }]);
     expect(await service().assess(url, pr(), [builder])).toMatchObject({
@@ -795,18 +821,9 @@ describe("merge-risk assessor", () => {
     expect(id).toBeTruthy();
   });
 
-  it("skips closed PRs, failing checks, merged PRs, and a disabled setting, but keeps showing the stored verdict", async () => {
+  it("skips closed PRs, merged PRs, and a disabled setting, but keeps showing the stored verdict", async () => {
     await review([]);
-    for (const value of [
-      pr({ status: "Closed" }),
-      pr({ status: "Merged" }),
-      pr({
-        ci: {
-          ...pr().ci!,
-          summary: { ...pr().ci!.summary, status: "failing", failed: 1 },
-        },
-      }),
-    ])
+    for (const value of [pr({ status: "Closed" }), pr({ status: "Merged" })])
       expect(await service().assess(url, value, [builder])).not.toMatchObject({
         verdict: "routine",
       });
@@ -879,11 +896,11 @@ describe("merge-risk assessor", () => {
 
   it("does not assess a head that GitHub no longer reports", async () => {
     await review([]);
+    const current = await details(url);
     details.mockImplementation(async () => ({
-      ...(await details.getMockImplementation()!(url))!,
+      ...current!,
       headRefOid: "newer",
     }));
-    details.mockImplementationOnce(async () => null);
     expect(await service().assess(url, pr(), [builder])).toMatchObject({
       displayState: "unavailable",
     });
@@ -913,11 +930,11 @@ describe("merge-risk assessor", () => {
     });
   });
 
-  it("labels a stored verdict as previous while the gate fails and restores it without a new request when the gate holds again", async () => {
+  it("keeps a stored verdict through CI changes, labels it previous while reviews fail and restores it without a new request when the gate holds again", async () => {
     await review([{ resolved: true }]);
     const first = await service().assess(url, pr(), [builder]);
     expect(first?.verdict).toBe("routine");
-    // Same head, checks rerun and fail: only historical context is shown.
+    // Same head, checks rerun and fail: the same assessment remains current.
     const failing = pr({
       ci: {
         ...pr().ci!,
@@ -925,9 +942,9 @@ describe("merge-risk assessor", () => {
       },
     });
     expect(await service().assess(url, failing, [builder])).toMatchObject({
-      displayState: "waiting_ci",
-      verdict: "abstain",
-      previous: { verdict: "routine" },
+      status: "ok",
+      verdict: "routine",
+      assessmentId: first?.assessmentId,
     });
     // A finding is reopened: the fingerprint changes and the gate fails.
     const finding = (
@@ -996,7 +1013,7 @@ describe("merge-risk assessor", () => {
       [builder]
     );
     expect(result).toMatchObject({
-      displayState: "waiting_ci",
+      displayState: "unavailable",
       verdict: "abstain",
       headSha: "new-head",
       previous: { verdict: "routine", headSha: pr().ci!.headSha },

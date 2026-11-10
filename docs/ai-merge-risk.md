@@ -9,8 +9,7 @@ pull request before it merges?_ It is a recommendation shown on the agent's PR
 row and in the PR details popover. It never merges, approves, blocks, enables
 GitHub auto-merge, or changes any review state. The deterministic gates stay
 where they are: CI must pass and findings must be resolved regardless of what
-the model says. The model can only recommend a read; it cannot make a change
-routine that the gates would reject.
+the model says. Risk and current CI are separate signals: a routine recommendation does not mean a PR is merge-ready.
 
 ## When a pull request is assessed
 
@@ -20,12 +19,12 @@ shown — including verdicts recorded while it was on, which reappear when it
 is turned back on.
 
 The PR refresher already polls GitHub for each tracked pull request. After an
-observation with available checks it asks `MergeRiskAssessor` for a
+observation with a known head it asks `MergeRiskAssessor` for a
 recommendation. One provider request is made when all of these hold:
 
 - the setting is on and a token is stored;
 - the PR is **Open** or **Draft** (not merged or closed); draft status remains visible and never grants merge approval;
-- the current head's checks are **passing**;
+- the current head is known (checks may be pending, failing, absent, or unavailable);
 - every finding in reviews addressed to the agents tracking the PR is resolved;
 - no record exists yet for this (PR, head commit, review state).
 
@@ -35,15 +34,15 @@ newly resolved review triggers a fresh assessment; an unchanged PR does not.
 A stale head (the GitHub read and the checks observation disagree) is skipped
 without a provider call.
 
-A recommendation is shown only while the gate still holds for the current
-observation. If checks are rerun and fail on the same head, a finding is
-reopened, or a new review arrives with an open finding, the PR snapshot
-(`mergeRisk` on `AgentPullRequest`) carries no recommendation until the gate
-holds again; the stored record then returns without another request. Once the
-PR has merged, the latest record for its head stays visible as history. The
-refresher carries a previous same-head verdict forward only when the assessor
-could not answer (checks unavailable or an error), never over a verdict the
-assessor deliberately withheld.
+A recommendation is shown for the current head and review state independently
+of CI. CI-only transitions reuse that result without another provider call;
+the compact CI indicator beside risk shows the current checks, rather than
+the CI snapshot gathered as assessment evidence. Passing required checks is
+still mandatory for merge. Reopened findings withhold the current recommendation
+until resolved; head or review changes follow the existing assessment policy.
+Merged PRs retain their latest head result as history. Missing heads cannot
+be assessed. The refresher retains its existing settings/review invalidation
+and historical-context behavior.
 
 `DISPATCH_MERGE_RISK_DAILY_CAP` bounds provider requests per UTC day (default
 25, accepted range 0–100; invalid values fail closed to 0). A database lock
