@@ -495,6 +495,14 @@
         "scripts/evals/merge-risk-*"
       ],
       "personas": ["review-lifecycle-owner"]
+    },
+    {
+      "paths": [
+        "packages/shared/src/visualization-types.ts",
+        "apps/server/test/visualization*.test.ts",
+        "docs/design/communication-visualizations.md"
+      ],
+      "personas": ["stream-delivery-owner"]
     }
   ],
   "fallback": ["code-review"]
