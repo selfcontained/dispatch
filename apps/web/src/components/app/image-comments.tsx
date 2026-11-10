@@ -26,8 +26,22 @@ import { createClientId } from "@/lib/client-id";
 import { api, ApiError } from "@/lib/api";
 import { atomWithLocalStorage } from "@/lib/store";
 import type { FileItem } from "./types";
+import { seatClasses } from "@/lib/agent-seat";
+import { agentTurnLocation } from "@/lib/agent-routes";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { FileActions } from "./file-lightbox-actions";
 
+export type ImageShareLocation = {
+  streamId: string;
+  threadId: string | null;
+  blockId: string;
+};
 type Callout = {
   id: string;
   number: number;
@@ -42,6 +56,7 @@ type Callout = {
   metadataId?: number;
   delivered?: boolean | null;
   attempted?: boolean;
+  location?: ImageShareLocation;
 };
 const commentsFamily = atomFamily((key: string) =>
   atomWithLocalStorage<Callout[]>(`dispatch:image-comments:${key}`, [], {
@@ -133,6 +148,7 @@ export function ImageComments({
   onClose,
   onPrevious,
   onNext,
+  onShared,
 }: {
   file: FileItem;
   src: string;
@@ -141,6 +157,7 @@ export function ImageComments({
   onClose: () => void;
   onPrevious?: () => void;
   onNext?: () => void;
+  onShared?: (location: ImageShareLocation) => void;
 }): JSX.Element {
   const store = useStore();
   const imageKey = `${file.url}:${file.updatedAt}`;
@@ -298,7 +315,7 @@ export function ImageComments({
         for (const c of batch.items) {
           const x = c.x * canvas.width,
             y = c.y * canvas.height;
-          ctx.strokeStyle = "#fb923c";
+          ctx.strokeStyle = seatClasses(c.number).color;
           ctx.lineWidth = Math.max(3, canvas.width / 400);
           if (c.width || c.height)
             ctx.strokeRect(
@@ -310,7 +327,7 @@ export function ImageComments({
           const r = Math.max(14, canvas.width / 80),
             bx = Math.max(r, Math.min(canvas.width - r, x)),
             by = Math.max(r, Math.min(canvas.height - r, y));
-          ctx.fillStyle = "#9a3412";
+          ctx.fillStyle = seatClasses(c.number).ink;
           ctx.beginPath();
           ctx.arc(bx, by, r, 0, 2 * Math.PI);
           ctx.fill();
@@ -356,6 +373,7 @@ export function ImageComments({
         annotations: batch.items.map((c) => ({
           id: c.id,
           number: c.number,
+          color: seatClasses(c.number).color,
           region: {
             x: c.x,
             y: c.y,
@@ -389,31 +407,42 @@ export function ImageComments({
       postedRef.current = submitted;
       store.set(postedFamily(`${imageKey}:${batch.id}`), submitted);
       let delivered: boolean | null = null;
+      let location: ImageShareLocation = {
+        streamId: batch.recipient,
+        threadId: null,
+        blockId: batch.id,
+      };
       try {
-        const result = await api<{ delivered: boolean | null }>(
-          `/api/v1/streams/${encodeURIComponent(batch.recipient)}/blocks`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              id: batch.id,
-              to: batch.recipient,
-              text,
-              attachments: [
-                {
-                  type: "file",
-                  fileId: copyId,
-                  caption: `Feedback on ${file.name}`,
-                },
-                {
-                  type: "file",
-                  fileId: metadataId,
-                  caption: "Image and callout details",
-                },
-              ],
-            }),
-          }
-        );
+        const result = await api<{
+          delivered: boolean | null;
+          block?: { id: string; streamId: string; threadId: string | null };
+        }>(`/api/v1/streams/${encodeURIComponent(batch.recipient)}/blocks`, {
+          method: "POST",
+          body: JSON.stringify({
+            id: batch.id,
+            to: batch.recipient,
+            text,
+            attachments: [
+              {
+                type: "file",
+                fileId: copyId,
+                caption: `Feedback on ${file.name}`,
+              },
+              {
+                type: "file",
+                fileId: metadataId,
+                caption: "Image and callout details",
+              },
+            ],
+          }),
+        });
         delivered = result.delivered;
+        if (result.block)
+          location = {
+            streamId: result.block.streamId,
+            threadId: result.block.threadId,
+            blockId: result.block.id,
+          };
       } catch (error) {
         // These API responses reject before creating a block. Keep identity
         // for network/timeout/server ambiguity, but allow recovery from rejection.
@@ -429,7 +458,7 @@ export function ImageComments({
           `/api/v1/streams/${encodeURIComponent(batch.recipient)}/blocks/${batch.id}/metadata`
         );
       }
-      return { ...batch, delivered };
+      return { ...batch, delivered, location };
     },
     onSuccess: (batch) => {
       clearPosted(batch);
@@ -446,17 +475,16 @@ export function ImageComments({
                 sent: true,
                 recipient: batch.recipient,
                 delivered: batch.delivered,
+                location: batch.location,
               }
             : c
         )
       );
       setShareAttempt((old) => (old?.id === batch.id ? null : old));
       setSelected(null);
-      requestAnimationFrame(() => {
-        if (selectedRef.current === null)
-          document.getElementById(`comment-${batch.items[0].id}`)?.focus();
-      });
       void queryClient.invalidateQueries({ queryKey: ["files"] });
+      if (onShared) onShared(batch.location);
+      else onClose();
     },
   });
   const busy = send.isPending;
@@ -647,7 +675,7 @@ export function ImageComments({
                 };
                 setPreview({
                   id: "preview",
-                  number: 0,
+                  number: Math.max(0, ...comments.map((c) => c.number)) + 1,
                   x: Math.min(p.x, s.x),
                   y: Math.min(p.y, s.y),
                   width: Math.abs(p.x - s.x),
@@ -705,8 +733,8 @@ export function ImageComments({
                   y={c.y * imageSize.height}
                   width={c.width * imageSize.width}
                   height={c.height * imageSize.height}
-                  fill="#fb923c20"
-                  stroke="#fb923c"
+                  fill={`${seatClasses(c.number).color}20`}
+                  stroke={seatClasses(c.number).color}
                   strokeWidth={2 / (ratio * zoom)}
                 />
               ))}
@@ -737,8 +765,9 @@ export function ImageComments({
                     <Button
                       size="icon"
                       variant={selected === c.id ? "primary" : "default"}
-                      className="absolute h-8 w-10 rounded-full border border-orange-300 bg-orange-900 text-white"
+                      className={`absolute h-8 w-10 rounded-full border text-white ${seatClasses(c.number).chip} ${selected === c.id ? "ring-2 ring-white" : ""}`}
                       style={{
+                        borderColor: seatClasses(c.number).color,
                         left: Math.max(0, Math.min(stageSize.width - 40, left)),
                         top: Math.max(0, Math.min(stageSize.height - 32, top)),
                       }}
@@ -789,7 +818,20 @@ export function ImageComments({
                         )}
                         <a
                           className="block text-xs underline"
-                          href={`/agents/${encodeURIComponent(c.recipient)}`}
+                          href={
+                            c.location
+                              ? (() => {
+                                  const loc = agentTurnLocation(
+                                    c.location.streamId,
+                                    {
+                                      blockId: c.location.blockId,
+                                      threadId: c.location.threadId,
+                                    }
+                                  );
+                                  return loc.pathname + loc.search;
+                                })()
+                              : `/agents/${encodeURIComponent(c.recipient)}`
+                          }
                         >
                           Open conversation
                         </a>
@@ -900,28 +942,47 @@ export function ImageComments({
               </Button>
             </div>
           </div>
-          <label className="sr-only" htmlFor="share-recipient">
-            Agent
-          </label>
-          <select
-            id="share-recipient"
-            aria-label="Agent"
-            className="max-w-36 rounded border bg-background p-2 text-xs"
-            value={shareRecipient}
-            disabled={frozen}
-            onChange={(e) => {
-              setRecipient(e.target.value);
-              setShareAttempt(null);
-              send.reset();
-            }}
-          >
-            <option value="">Choose agent</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+          <div className="w-full min-w-0 sm:w-auto sm:min-w-72 sm:max-w-[min(50vw,42rem)]">
+            <Select
+              value={shareRecipient || undefined}
+              disabled={frozen}
+              onValueChange={(value) => {
+                setRecipient(value);
+                setShareAttempt(null);
+                send.reset();
+              }}
+            >
+              <SelectTrigger
+                aria-label="Agent"
+                className="h-auto min-h-9 w-full [&>span]:line-clamp-none"
+                title={
+                  agents.find((a) => a.id === shareRecipient)?.name ??
+                  shareRecipient
+                }
+              >
+                <SelectValue placeholder="Choose agent">
+                  <span className="block whitespace-normal break-words text-left">
+                    {agents.find((a) => a.id === shareRecipient)?.name ??
+                      (shareRecipient || "Choose agent")}
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent
+                className="z-[150] w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-24px)]"
+                collisionPadding={12}
+              >
+                {agents.map((a) => (
+                  <SelectItem
+                    key={a.id}
+                    value={a.id}
+                    className="whitespace-normal break-words"
+                  >
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             size="sm"
             variant="primary"

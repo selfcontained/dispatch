@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ComponentProps } from "react";
+import { useInRouterContext, useNavigate } from "react-router-dom";
+import { agentTurnLocation } from "@/lib/agent-routes";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 
@@ -43,6 +45,26 @@ function isNotFoundError(error: unknown): boolean {
 
 export { FileActions } from "@/components/app/file-lightbox-actions";
 
+function RoutedImageComments(
+  props: ComponentProps<typeof ImageComments>
+): JSX.Element {
+  const navigate = useNavigate();
+  return (
+    <ImageComments
+      {...props}
+      onShared={(location) => {
+        props.onClose();
+        navigate(
+          agentTurnLocation(location.streamId, {
+            blockId: location.blockId,
+            threadId: location.threadId,
+          })
+        );
+      }}
+    />
+  );
+}
+
 export function FileLightbox({
   fileId,
   files,
@@ -51,6 +73,7 @@ export function FileLightbox({
   fileIndex,
   setFileId,
 }: FileLightboxProps): JSX.Element | null {
+  const inRouter = useInRouterContext();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const {
     data: queriedFile,
@@ -161,8 +184,9 @@ export function FileLightbox({
   const showLoadError = files === undefined && !file && !!error && !isFetching;
 
   if (file && isImage) {
+    const ImageViewer = inRouter ? RoutedImageComments : ImageComments;
     return (
-      <ImageComments
+      <ImageViewer
         key={`${file.url}:${file.updatedAt}:${currentIndex}`}
         file={file}
         src={src}

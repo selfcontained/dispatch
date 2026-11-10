@@ -58,7 +58,12 @@ const SEAT_PALETTE: readonly SeatClasses[] = [
 ];
 
 /** The face is washed in the accent; the number chip is solid. */
-export type SeatClasses = { face: string; chip: string };
+export type SeatClasses = {
+  face: string;
+  chip: string;
+  color: string;
+  ink: string;
+};
 
 // Theme mode is a data attribute, not Tailwind's .dark class.
 // Spelled out per colour so Tailwind sees every class it must emit.
@@ -92,7 +97,24 @@ function seatAccent(colour: string): SeatClasses {
     lime: "bg-lime-800",
     cyan: "bg-cyan-800",
   };
-  return { face: faces[colour]!, chip: chips[colour]! };
+  const paint: Record<string, [string, string]> = {
+    sky: ["#0ea5e9", "#075985"],
+    emerald: ["#10b981", "#065f46"],
+    amber: ["#f59e0b", "#92400e"],
+    violet: ["#8b5cf6", "#5b21b6"],
+    rose: ["#f43f5e", "#9f1239"],
+    teal: ["#14b8a6", "#115e59"],
+    orange: ["#f97316", "#9a3412"],
+    fuchsia: ["#d946ef", "#86198f"],
+    lime: ["#84cc16", "#3f6212"],
+    cyan: ["#06b6d4", "#155e75"],
+  };
+  return {
+    face: faces[colour]!,
+    chip: chips[colour]!,
+    color: paint[colour]![0],
+    ink: paint[colour]![1],
+  };
 }
 
 export function seatClasses(seat: number): SeatClasses {

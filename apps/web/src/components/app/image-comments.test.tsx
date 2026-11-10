@@ -21,6 +21,8 @@ vi.mock("@/lib/api", async (original) => ({
 const mockApi = vi.mocked(api);
 let sequence = 0;
 beforeEach(() => {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.scrollIntoView = vi.fn();
   mockApi.mockReset();
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     drawImage: vi.fn(),
@@ -39,7 +41,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function open(provided?: FileItem, Component = ImageComments) {
+async function open(
+  provided?: FileItem,
+  Component = ImageComments,
+  onShared?: (location: import("./image-comments").ImageShareLocation) => void
+) {
   const file: FileItem = provided ?? {
     id: 7,
     ownerAgentId: "agent-a",
@@ -62,6 +68,7 @@ async function open(provided?: FileItem, Component = ImageComments) {
           caption="Shot"
           positionLabel="1/1"
           onClose={vi.fn()}
+          onShared={onShared}
         />
       </QueryClientProvider>
     </Provider>
@@ -276,7 +283,8 @@ it("unlocks notes after a definitive rejected post and reuploads for a new targe
       .disabled
   ).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
-  fireEvent.change(target, { target: { value: "agent-b" } });
+  fireEvent.keyDown(target, { key: "Enter" });
+  fireEvent.click(await screen.findByRole("option", { name: "Agent B" }));
   fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
   await screen.findByRole("button", { name: "Comment 1, sent" });
   expect(uploads).toBe(4);
@@ -343,4 +351,53 @@ it("recovers a potentially posted identity after another tab clears the pointer 
       `dispatch:image-comment-post:${first.file.url}:${first.file.updatedAt}:${bodies[0].id}`
     )
   ).toBe("null");
+});
+
+it("hands the stored stream and block location back after sharing", async () => {
+  mockApi.mockImplementation(async (url, init) => {
+    if (url === "/api/v1/agents")
+      return { agents: [{ id: "agent-a", name: "Agent A" }] };
+    if (url.endsWith("/files")) return { file: { id: 80 } };
+    const body = JSON.parse(init!.body as string);
+    return {
+      delivered: false,
+      block: {
+        id: body.id,
+        streamId: "stored-parent",
+        threadId: "stored-thread",
+      },
+    };
+  });
+  const shared = vi.fn();
+  const { draft } = await open(undefined, ImageComments, shared);
+  await draft("Show where this message was stored.");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Share with agent (1)" }));
+  await waitFor(() => expect(shared).toHaveBeenCalledTimes(1));
+  const post = mockApi.mock.calls.find(([url]) => url.endsWith("/blocks"))!;
+  const body = JSON.parse(post[1]!.body as string);
+  expect(shared).toHaveBeenCalledWith({
+    streamId: "stored-parent",
+    threadId: "stored-thread",
+    blockId: body.id,
+  });
+});
+
+it("defaults to the actively viewed agent ahead of the source owner", async () => {
+  window.history.replaceState({}, "", "/agents/active-agent/files");
+  try {
+    mockApi.mockResolvedValue({
+      agents: [
+        { id: "agent-a", name: "Source owner" },
+        { id: "active-agent", name: "Actively viewed agent" },
+      ],
+    });
+    const { draft } = await open();
+    await draft("Keep the active conversation as recipient.");
+    expect(
+      (await screen.findByRole("combobox", { name: "Agent" })).textContent
+    ).toContain("Actively viewed agent");
+  } finally {
+    window.history.replaceState({}, "", "/");
+  }
 });
