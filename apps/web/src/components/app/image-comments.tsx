@@ -59,6 +59,12 @@ type Callout = {
   attempted?: boolean;
   location?: ImageShareLocation;
 };
+const markupHintDismissedAtom = atomWithLocalStorage(
+  "dispatch:markup-hint-dismissed",
+  false,
+  { validate: (value): value is boolean => typeof value === "boolean" }
+);
+
 const commentsFamily = atomFamily((key: string) =>
   atomWithLocalStorage<Callout[]>(`dispatch:image-comments:${key}`, [], {
     validate: (value): value is Callout[] =>
@@ -185,6 +191,7 @@ export function ImageComments({
   }, [selected]);
   const markupButton = useRef<HTMLButtonElement>(null);
   const [markup, setMarkup] = useState(false);
+  const [hintDismissed, setHintDismissed] = useAtom(markupHintDismissedAtom);
   const [editorNote, setEditorNote] = useState("");
   const newComment = useRef<string | null>(null);
   const [mode, setMode] = useState<"comment" | "pan">("pan");
@@ -634,10 +641,27 @@ export function ImageComments({
                 : "Loading image…"}
             </p>
           )}
-          {loaded && markup && !comments.length && (
-            <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-white/70">
-              Click or drag to leave a note
-            </p>
+          {loaded && markup && !hintDismissed && (
+            <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
+              <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-white/20 bg-black/75 py-1 pl-3 pr-1 text-xs text-white shadow-md">
+                <p>Click or drag to leave a note</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 rounded-lg text-white hover:bg-white/20 hover:text-white"
+                  aria-label="Dismiss markup hint"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setHintDismissed(true);
+                    svg.current?.focus();
+                  }}
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
           )}
           <svg
             ref={svg}

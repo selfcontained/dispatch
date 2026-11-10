@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Provider } from "jotai";
+import { createStore, Provider } from "jotai";
 import {
   cleanup,
   fireEvent,
@@ -23,6 +23,7 @@ let sequence = 0;
 beforeEach(() => {
   Element.prototype.hasPointerCapture = () => false;
   Element.prototype.scrollIntoView = vi.fn();
+  localStorage.removeItem("dispatch:markup-hint-dismissed");
   mockApi.mockReset();
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     drawImage: vi.fn(),
@@ -44,7 +45,8 @@ afterEach(() => {
 async function open(
   provided?: FileItem,
   Component = ImageComments,
-  onShared?: (location: import("./image-comments").ImageShareLocation) => void
+  onShared?: (location: import("./image-comments").ImageShareLocation) => void,
+  store = createStore()
 ) {
   const file: FileItem = provided ?? {
     id: 7,
@@ -60,7 +62,7 @@ async function open(
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const view = render(
-    <Provider>
+    <Provider store={store}>
       <QueryClientProvider client={client}>
         <Component
           file={file}
@@ -474,4 +476,28 @@ it("blocks sharing staged edits and new notes until Save or Cancel", async () =>
       ([url]) => !url.endsWith("/blocks") && !url.endsWith("/files")
     )
   ).toBe(true);
+});
+
+it("dismisses markup guidance without creating a note and remembers it across images and remounts", async () => {
+  const store = createStore();
+  const first = await open(undefined, ImageComments, undefined, store);
+  expect(screen.getByText("Click or drag to leave a note")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss markup hint" }));
+  expect(screen.queryByText("Click or drag to leave a note")).toBeNull();
+  expect(screen.queryByPlaceholderText("Add a note…")).toBeNull();
+  expect(localStorage.getItem("dispatch:markup-hint-dismissed")).toBe("true");
+  await first.draft("Still annotating");
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel markup" }));
+  fireEvent.click(screen.getByRole("button", { name: "Markup" }));
+  expect(
+    screen.queryByRole("button", { name: "Dismiss markup hint" })
+  ).toBeNull();
+  first.unmount();
+  const second = await open(undefined, ImageComments, undefined, store);
+  expect(
+    screen.queryByRole("button", { name: "Dismiss markup hint" })
+  ).toBeNull();
+  await second.draft("Another image");
+  expect(screen.getByDisplayValue("Another image")).toBeTruthy();
 });
