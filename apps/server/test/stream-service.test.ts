@@ -8601,15 +8601,18 @@ describe("Parent-owned child requests", () => {
           (node) =>
             node["Relation Name"] === "blocks" && node.Alias === "answer"
         );
+        expect(typeof answer?.["Node Type"], diagnostic).toBe("string");
         expect(answer?.["Node Type"], diagnostic).toMatch(
           bitmap ? /^Bitmap Heap Scan$/ : /^Index (Only )?Scan$/
         );
         const primaryKey =
           answer &&
           nodes(answer).find((node) => node["Index Name"] === "blocks_pkey");
+        expect(typeof primaryKey?.["Node Type"], diagnostic).toBe("string");
         expect(primaryKey?.["Node Type"], diagnostic).toMatch(
           bitmap ? /^Bitmap Index Scan$/ : /^Index (Only )?Scan$/
         );
+        expect(typeof primaryKey?.["Index Cond"], diagnostic).toBe("string");
         expect(primaryKey?.["Index Cond"], diagnostic).toMatch(
           /\bid\s*=\s*CASE WHEN/
         );
