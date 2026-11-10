@@ -18,7 +18,6 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { Card } from "@/components/ui/card";
-import "./communication-options.css";
 
 const rows = [
   { label: "Mon", observed: 42, planned: 40 },
@@ -28,8 +27,8 @@ const rows = [
   { label: "Fri", observed: 74, planned: 70 },
 ];
 const config = {
-  observed: { label: "Observed", color: "var(--viz-observed)" },
-  planned: { label: "Planned", color: "var(--viz-planned)" },
+  observed: { label: "Observed", color: "hsl(var(--chart-1))" },
+  planned: { label: "Planned", color: "hsl(var(--chart-2))" },
 };
 const options = [
   {
@@ -134,8 +133,8 @@ export function StreamVisualizationReview({
     >
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span
-          className="rounded bg-violet-500/15 px-2 py-1"
-          style={{ color: "var(--viz-observed)" }}
+          className="rounded bg-primary/15 px-2 py-1"
+          style={{ color: "hsl(var(--chart-1))" }}
         >
           DESIGN REVIEW
         </span>
@@ -145,14 +144,16 @@ export function StreamVisualizationReview({
         {direction + 1}. {option.name}
       </h2>
       <p className="text-sm text-muted-foreground">{option.description}</p>
-      <Card className={`${option.padding} border-l-4 border-l-violet-500`}>
+      <Card
+        className={`${option.padding} border-l-4 border-l-[hsl(var(--chart-1))]`}
+      >
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Metric · Friday delivery
         </p>
         <p className={`${option.metric} font-semibold mt-2`}>
           74 <span className="text-sm text-muted-foreground">items</span>
         </p>
-        <p className="text-sm mt-2" style={{ color: "var(--viz-observed)" }}>
+        <p className="text-sm mt-2" style={{ color: "hsl(var(--chart-1))" }}>
           +6 items from Thursday
         </p>
       </Card>
@@ -238,9 +239,9 @@ export function StreamVisualizationReview({
               </ChartContainer>
             )}
             <div className="flex gap-4 text-xs">
-              <span style={{ color: "var(--viz-observed)" }}>● Observed</span>
+              <span style={{ color: "hsl(var(--chart-1))" }}>● Observed</span>
               {kind !== "Scatter" && (
-                <span style={{ color: "var(--viz-planned)" }}>┄ Planned</span>
+                <span style={{ color: "hsl(var(--chart-2))" }}>┄ Planned</span>
               )}
             </div>
             <details>

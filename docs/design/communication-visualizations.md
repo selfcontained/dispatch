@@ -101,3 +101,11 @@ but no longer obscure the basic design comparison. Bars use 12% category gaps
 and 2px gaps within groups. Theme colors use the app's data-theme-mode attribute.
 The additional chart types expand the original bar/line scope at user request;
 final API design must cover area and numeric scatter semantics deliberately.
+
+## Selected-theme palette correction
+
+User requested selected-theme accent colors. Removed the custom violet/cyan
+palette. Series now reference the existing --chart-1 and --chart-2 tokens
+directly, as other Dispatch charts do. Metric accent and legend swatches follow
+those same slots. The selected theme owns those colors; no per-block color
+strings or separate light/dark palette is introduced.
