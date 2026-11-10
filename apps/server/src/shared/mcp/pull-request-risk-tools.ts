@@ -61,7 +61,7 @@ export function createRiskReader(deps: {
     const candidate = assessment(risk);
     const current =
       !risk?.displayState &&
-      pr.status === "Open" &&
+      (pr.status === "Open" || pr.status === "Draft") &&
       headSha &&
       candidate?.headSha === headSha
         ? candidate

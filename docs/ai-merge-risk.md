@@ -24,7 +24,7 @@ observation with available checks it asks `MergeRiskAssessor` for a
 recommendation. One provider request is made when all of these hold:
 
 - the setting is on and a token is stored;
-- the PR is **Open** (not draft, merged, or closed);
+- the PR is **Open** or **Draft** (not merged or closed); draft status remains visible and never grants merge approval;
 - the current head's checks are **passing**;
 - every finding in reviews addressed to the agents tracking the PR is resolved;
 - no record exists yet for this (PR, head commit, review state).

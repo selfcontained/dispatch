@@ -12,7 +12,7 @@ export function riskNotice(pr: AgentPullRequest, agentId: string) {
     !risk.headSha ||
     risk.headSha !== pr.ci?.headSha ||
     pr.ci.availability !== "available" ||
-    pr.status !== "Open" ||
+    (pr.status !== "Open" && pr.status !== "Draft") ||
     pr.ci.summary.status !== "passing"
   )
     return undefined;

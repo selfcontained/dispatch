@@ -95,12 +95,12 @@ export class MergeRiskAssessor {
     if (pr.status === "Merged")
       return (await this.latest(url, headSha)) ?? display("not_ready");
     const gateHolds =
-      pr.status === "Open" &&
+      (pr.status === "Open" || pr.status === "Draft") &&
       pr.ci.summary.status === "passing" &&
       allFindingsResolved(reviews);
     if (!gateHolds)
       return display(
-        pr.status !== "Open"
+        pr.status !== "Open" && pr.status !== "Draft"
           ? "not_ready"
           : pr.ci.summary.status !== "passing"
             ? "waiting_ci"

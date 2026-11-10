@@ -544,7 +544,7 @@ describe("merge-risk assessor", () => {
   const pr = (patch: Partial<AgentPullRequest> = {}): AgentPullRequest => ({
     url,
     title: "Add thing",
-    status: "Open",
+    status: "Draft",
     ci: {
       checkedAt: new Date().toISOString(),
       headSha: "head1",
@@ -708,32 +708,70 @@ describe("merge-risk assessor", () => {
     }
   );
 
-  it("assesses an open, passing, fully resolved pull request once per head and review state", async () => {
-    await review([{ resolved: true }]);
-    const first = await service().assess(url, pr(), [builder]);
-    expect(first).toMatchObject({
-      verdict: "routine",
-      changeRiskLabel: "moderate",
-      headSha: "head1",
-      status: "ok",
+  it.each(["Open", "Draft"] as const)(
+    "assesses a %s, passing, fully resolved pull request once per head and review state",
+    async (status) => {
+      await review([{ resolved: true }]);
+      const first = await service().assess(url, pr({ status }), [builder]);
+      expect(first).toMatchObject({
+        verdict: "routine",
+        changeRiskLabel: "moderate",
+        headSha: "head1",
+        status: "ok",
+      });
+      const again = await service().assess(url, pr(), [builder]);
+      expect(again?.assessedAt).toBe(first?.assessedAt);
+      expect(transport).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(transport.mock.calls[0]![1]!.body as string);
+      const evidence = body.input[0].content[1].data;
+      expect(evidence.reviews[0]).toMatchObject({
+        reviewer: "auth-owner",
+        findings: [{ status: "fixed", note: "verified" }],
+      });
+      expect(evidence.files).toEqual(["src/auth/login.ts (+10/-2)"]);
+      const stored = await pool.query(
+        "SELECT status, result FROM merge_risk_decision_records"
+      );
+      expect(stored.rows).toHaveLength(1);
+      expect(JSON.stringify(stored.rows[0]!.result)).not.toContain(
+        "Adds the thing"
+      );
+    }
+  );
+
+  it("deduplicates Draft/Open transitions while a synthetic provider request is in flight", async () => {
+    await review([]);
+    let complete!: (response: Response) => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
     });
-    const again = await service().assess(url, pr(), [builder]);
-    expect(again?.assessedAt).toBe(first?.assessedAt);
+    transport.mockImplementation(() => {
+      started();
+      return new Promise<Response>((resolve) => {
+        complete = resolve;
+      });
+    });
+    const assessor = service();
+    const pending = assessor.assess(url, pr({ status: "Draft" }), [builder]);
+    await ready;
+    expect(
+      await assessor.assess(url, pr({ status: "Open" }), [builder])
+    ).toMatchObject({ displayState: "evaluating" });
+    complete(providerAnswers());
+    const result = await pending;
+    expect(result).toMatchObject({ status: "ok", headSha: "head1" });
+    expect(
+      await assessor.assess(url, pr({ status: "Open" }), [builder])
+    ).toEqual(result);
+    expect(
+      await assessor.assess(url, pr({ status: "Draft" }), [builder])
+    ).toEqual(result);
     expect(transport).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(transport.mock.calls[0]![1]!.body as string);
-    const evidence = body.input[0].content[1].data;
-    expect(evidence.reviews[0]).toMatchObject({
-      reviewer: "auth-owner",
-      findings: [{ status: "fixed", note: "verified" }],
-    });
-    expect(evidence.files).toEqual(["src/auth/login.ts (+10/-2)"]);
-    const stored = await pool.query(
-      "SELECT status, result FROM merge_risk_decision_records"
+    const records = await pool.query(
+      "SELECT status FROM merge_risk_decision_records"
     );
-    expect(stored.rows).toHaveLength(1);
-    expect(JSON.stringify(stored.rows[0]!.result)).not.toContain(
-      "Adds the thing"
-    );
+    expect(records.rows).toEqual([{ status: "ok" }]);
   });
 
   it("waits for open findings, then reassesses when the review state changes", async () => {
@@ -757,10 +795,10 @@ describe("merge-risk assessor", () => {
     expect(id).toBeTruthy();
   });
 
-  it("skips drafts, failing checks, merged PRs, and a disabled setting, but keeps showing the stored verdict", async () => {
+  it("skips closed PRs, failing checks, merged PRs, and a disabled setting, but keeps showing the stored verdict", async () => {
     await review([]);
     for (const value of [
-      pr({ status: "Draft" }),
+      pr({ status: "Closed" }),
       pr({ status: "Merged" }),
       pr({
         ci: {
