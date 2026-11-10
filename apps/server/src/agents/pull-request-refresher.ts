@@ -27,7 +27,8 @@ type Options = {
   assess?: (
     url: string,
     value: AgentPullRequest,
-    ownerAgentIds: string[]
+    ownerAgentIds: string[],
+    onProgress?: (risk: NonNullable<AgentPullRequest["mergeRisk"]>) => void
   ) => Promise<AgentPullRequest["mergeRisk"]>;
   warn: (error: unknown) => void;
 };
@@ -92,17 +93,70 @@ export class PullRequestRefresher {
   get(agentId: string): AgentPullRequest[] {
     return this.snapshots.get(agentId) ?? [];
   }
+  private riskHidden = false;
+  allowRisk() {
+    this.riskHidden = false;
+  }
+  /** Remove cached assessments immediately without scheduling provider work. */
+  hideRisk() {
+    this.riskHidden = true;
+    const hide = (pr: AgentPullRequest): AgentPullRequest => ({
+      ...pr,
+      mergeRisk: undefined,
+    });
+    for (const entry of this.urls.values()) {
+      entry.value = hide(entry.value);
+      if (entry.lifecycle) entry.lifecycle = hide(entry.lifecycle);
+      if (entry.checks) entry.checks = hide(entry.checks);
+    }
+    for (const [agentId, prs] of this.snapshots) {
+      const pullRequests = prs.map(hide);
+      this.snapshots.set(agentId, pullRequests);
+      this.options.publish({
+        type: "agent.pull_requests_changed",
+        agentId,
+        pullRequests,
+      });
+    }
+  }
   start() {
     if (this.started) return;
     this.started = true;
     this.stopped = false;
     this.signal();
   }
+  private reviewGeneration = new Map<string, number>();
+  private reviewStates = new Map<string, string>();
   /** Explicit PR posts and edits to previously tracked posts reconcile inventory. */
   observeBlock(block: Block) {
     if (block.kind === "text" && block.data?.pullRequestTransition) return;
     let changed = false;
     const visit = (current: Block) => {
+      if (
+        current.kind === "review" &&
+        current.toAgentId &&
+        current.blocks?.length
+      ) {
+        const signature = JSON.stringify(
+          current.blocks
+            .filter((b) => b.kind === "finding")
+            .map((b) => [b.id, b.state?.status, b.state?.resolution])
+        );
+        if (this.reviewStates.get(current.id) !== signature) {
+          this.reviewStates.set(current.id, signature);
+          // Review updates otherwise reconcile inventory but leave the five-minute
+          // GitHub freshness deadline intact. Reuse the existing bounded queue.
+          for (const pr of this.get(current.toAgentId)) {
+            const entry = this.urls.get(pr.url);
+            this.reviewGeneration.set(
+              pr.url,
+              (this.reviewGeneration.get(pr.url) ?? 0) + 1
+            );
+            if (entry) entry.due = 0;
+          }
+          changed = true;
+        }
+      }
       const refs = current.attachments.filter((a) => a.type === "pr");
       if (refs.length) {
         const signature = JSON.stringify(refs);
@@ -305,6 +359,7 @@ export class PullRequestRefresher {
       Array.from({ length: Math.min(2, queue.length) }, async () => {
         while (queue.length && !this.stopped) {
           const [url, title] = queue.shift()!;
+          const reviewGeneration = this.reviewGeneration.get(url) ?? 0;
           this.attempts.push(Date.now());
           let value: AgentPullRequest;
           try {
@@ -321,24 +376,52 @@ export class PullRequestRefresher {
               "Could not refresh PR. Check GitHub authentication and try again."
             );
           const previous = this.urls.get(url);
-          // The assessor decides what to show for this observation, including
-          // hiding a verdict the current gate rejects. Only when it could not
-          // answer (checks unavailable, or it threw) does the previous
-          // same-head verdict carry over.
+          // An assessor failure cannot establish that history is still enabled.
           let assessed = false;
-          if (this.options.assess && value.ci?.availability === "available") {
+          if (this.options.assess) {
             const owners = [...agents]
               .filter(([, urls]) => urls.has(url))
               .map(([id]) => id);
             try {
-              const mergeRisk = await this.options.assess(url, value, owners);
+              const mergeRisk = await this.options.assess(
+                url,
+                value,
+                owners,
+                (risk) => {
+                  if (
+                    this.stopped ||
+                    this.riskHidden ||
+                    (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration
+                  )
+                    return;
+                  for (const id of owners) {
+                    if (this.isDismissed(id, url)) continue;
+                    const current = { ...value, mergeRisk: risk };
+                    const next = [
+                      ...this.get(id).filter((pr) => pr.url !== url),
+                      current,
+                    ];
+                    this.snapshots.set(id, next);
+                    this.options.publish({
+                      type: "agent.pull_requests_changed",
+                      agentId: id,
+                      pullRequests: next,
+                    });
+                  }
+                }
+              );
               assessed = true;
-              if (mergeRisk) value = { ...value, mergeRisk };
+              if (
+                mergeRisk &&
+                (!this.riskHidden || mergeRisk.displayState === "disabled")
+              )
+                value = { ...value, mergeRisk };
             } catch (error) {
               this.options.warn(error);
             }
           }
           if (
+            !this.options.assess &&
             !assessed &&
             !value.mergeRisk &&
             previous?.value.mergeRisk &&
@@ -352,6 +435,7 @@ export class PullRequestRefresher {
           if (value.status === "Unavailable" && previous?.lifecycle) {
             value = {
               ...previous.lifecycle,
+              mergeRisk: value.mergeRisk,
               ci: {
                 checkedAt: new Date().toISOString(),
                 headSha: "",
@@ -422,6 +506,12 @@ export class PullRequestRefresher {
               }
             }
           }
+          const reviewChanged =
+            (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration;
+          // A result based on older review evidence cannot be current. Keep the
+          // URL due so the dirty follow-up consumes the new evidence, even on
+          // its first refresh when no cache entry existed at invalidation time.
+          if (reviewChanged) value = { ...value, mergeRisk: undefined };
           this.urls.set(url, {
             value,
             lifecycle,
@@ -429,7 +519,7 @@ export class PullRequestRefresher {
               value.ci?.availability === "available" ? value : previous?.checks,
             failures,
             checkedAt: Date.now(),
-            due: Date.now() + delay,
+            due: reviewChanged ? 0 : Date.now() + delay,
           });
           this.pendingUrls.delete(url);
         }
@@ -437,7 +527,10 @@ export class PullRequestRefresher {
     );
     if (this.stopped) return;
     for (const url of this.urls.keys())
-      if (!links.has(url)) this.urls.delete(url);
+      if (!links.has(url)) {
+        this.urls.delete(url);
+        this.reviewGeneration.delete(url);
+      }
     publishSnapshots();
     await Promise.all(
       notices.map(async (notify) => {

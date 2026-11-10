@@ -13,22 +13,6 @@ const examples = [
   {
     status: "Open",
     title: "Refresh PR status on the server",
-    passed: 8,
-    failed: 2,
-    pending: 3,
-    skipped: 1,
-  },
-  {
-    status: "Draft",
-    title: "Add compact check summaries",
-    passed: 0,
-    failed: 0,
-    pending: 3,
-    skipped: 0,
-  },
-  {
-    status: "Merged",
-    title: "Align sidebar metadata",
     passed: 12,
     failed: 0,
     pending: 0,
@@ -70,7 +54,7 @@ const previewMergeRisk: PresentedPullRequest["mergeRisk"][] = [
 export const previewPullRequests: PresentedPullRequest[] = examples.map(
   (example, i) => ({
     url: `https://github.com/example/dispatch/pull/${1380 + i}`,
-    title: example.title,
+    title: `Synthetic fixture · ${i === 0 ? "routine" : "read before merge"}`,
     status: example.status,
     ...(previewMergeRisk[i] ? { mergeRisk: previewMergeRisk[i] } : {}),
     ci: {
@@ -143,3 +127,55 @@ export const previewPullRequests: PresentedPullRequest[] = examples.map(
     },
   })
 );
+
+// Synthetic lifecycle fixtures, never provider-backed. Development preview only.
+const fixtureBase = previewPullRequests[0];
+const prior = {
+  ...previewMergeRisk[0]!,
+  headSha: "a1b2c3d4e5f678901234567890abcdef123456789",
+};
+for (const [i, displayState] of (
+  [
+    "not_ready",
+    "waiting_ci",
+    "waiting_review",
+    "evaluating",
+    "daily_cap",
+    "capacity",
+    "rate_limited",
+    "failure",
+    "unavailable",
+    "disabled",
+  ] as const
+).entries()) {
+  previewPullRequests.push({
+    ...fixtureBase,
+    url: `https://github.com/example/dispatch/pull/${1400 + i}`,
+    title: `Synthetic fixture · ${displayState.replaceAll("_", " ")}`,
+    ...(displayState === "waiting_ci"
+      ? {
+          ci: {
+            ...fixtureBase.ci!,
+            summary: {
+              ...fixtureBase.ci!.summary,
+              status: "pending" as const,
+              pending: 1,
+              passed: 11,
+            },
+          },
+        }
+      : {}),
+    mergeRisk: {
+      ...previewMergeRisk[0]!,
+      verdict: "abstain",
+      displayState,
+      ...(displayState !== "disabled" ? { previous: prior } : {}),
+    },
+  });
+}
+previewPullRequests.push({
+  ...fixtureBase,
+  url: "https://github.com/example/dispatch/pull/1420",
+  title: "Synthetic fixture · inconclusive",
+  mergeRisk: { ...previewMergeRisk[0]!, verdict: "abstain" },
+});

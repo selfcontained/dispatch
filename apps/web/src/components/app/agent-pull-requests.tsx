@@ -35,17 +35,17 @@ const MERGE_RISK = {
   routine: {
     label: "Routine",
     badge: "border-status-working/20 bg-status-working/10 text-status-working",
-    hint: "Reviewed work inside existing features or infrastructure. A recommendation, not an approval.",
+    hint: "Existing features or infrastructure.",
   },
   human_review: {
     label: "Read before merge",
-    badge: "border-status-waiting/20 bg-status-waiting/10 text-status-waiting",
-    hint: "New or redesigned product surface, external integration, or a large multi-subsystem feature.",
+    badge: "border-red-500/20 bg-red-500/10 text-red-600",
+    hint: "Review recommended for this change.",
   },
   abstain: {
     label: "No recommendation",
     badge: "border-border bg-muted/50 text-muted-foreground",
-    hint: "Evidence too thin or the model was not confident.",
+    hint: "Not enough evidence for a recommendation.",
   },
 } satisfies Record<
   MergeRiskSummary["verdict"],
@@ -53,10 +53,82 @@ const MERGE_RISK = {
 >;
 const percent = (value: number | null) =>
   value === null ? "—" : `${Math.round(value * 100)}%`;
+const RISK_DISPLAY = {
+  disabled: {
+    label: "Risk assessment off",
+    hint: "Set up AI merge risk in Settings.",
+  },
+  unavailable: {
+    label: "Risk unavailable",
+    hint: "Checks unavailable. Waiting for refresh.",
+  },
+  waiting_ci: {
+    label: "Risk · waiting for checks",
+    hint: "Waiting for passing checks.",
+  },
+  waiting_review: {
+    label: "Risk · waiting for review",
+    hint: "Waiting for resolved review findings.",
+  },
+  not_ready: {
+    label: "Risk · not assessed",
+    hint: "Starts when checks pass and review findings are resolved.",
+  },
+  evaluating: {
+    label: "Risk · evaluating",
+    hint: "Assessing this change.",
+  },
+  daily_cap: {
+    label: "Risk · daily limit",
+    hint: "Daily budget reached. No assessment.",
+  },
+  capacity: {
+    label: "Risk · capacity limit",
+    hint: "Capacity full. No assessment.",
+  },
+  rate_limited: {
+    label: "Risk · provider limit",
+    hint: "Provider rate limit. No automatic retry.",
+  },
+  deferred: {
+    label: "Risk · deferred",
+    hint: "Assessment deferred. No recommendation.",
+  },
+  failure: {
+    label: "Assessment failed",
+    hint: "Provider failed. No recommendation.",
+  },
+};
+function riskTone(risk: MergeRiskSummary) {
+  if (
+    risk.displayState === "failure" ||
+    risk.displayState === "unavailable" ||
+    (!risk.displayState && risk.status !== "ok") ||
+    (!risk.displayState && risk.verdict === "human_review")
+  )
+    return "text-red-600 [[data-theme-mode=dark]_&]:text-red-400";
+  if (risk.displayState === "evaluating") return "text-status-waiting";
+  if (!risk.displayState && risk.verdict === "routine")
+    return "text-status-working";
+  return "text-muted-foreground";
+}
+function riskDisplay(risk: MergeRiskSummary) {
+  if (risk.displayState)
+    return {
+      ...RISK_DISPLAY[risk.displayState],
+      badge: MERGE_RISK.abstain.badge,
+    };
+  if (risk.status !== "ok")
+    return { ...RISK_DISPLAY.failure, badge: MERGE_RISK.abstain.badge };
+  return MERGE_RISK[risk.verdict];
+}
 /** Row-sized marker; the full badge and details live in the popover. */
 function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
-  const state = MERGE_RISK[risk.verdict];
-  const Icon = risk.verdict === "routine" ? ShieldCheck : ShieldAlert;
+  const state = riskDisplay(risk);
+  const Icon =
+    !risk.displayState && risk.status === "ok" && risk.verdict === "routine"
+      ? ShieldCheck
+      : ShieldAlert;
   return (
     <span
       role="img"
@@ -65,9 +137,7 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
       title={`Merge risk: ${state.label}`}
       className={cn(
         "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
-        risk.verdict === "routine"
-          ? "text-status-working"
-          : "text-status-waiting"
+        riskTone(risk)
       )}
     >
       <Icon aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -75,67 +145,163 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
   );
 }
 function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
-  const state = MERGE_RISK[risk.verdict];
+  const state = riskDisplay(risk);
   return (
     <Badge
       data-testid="merge-risk-badge"
       title={`Merge risk: ${state.label}`}
       className={cn(
         "shrink-0 px-1.5 py-0 text-[10px] normal-case tracking-normal",
-        state.badge
+        state.badge,
+        riskTone(risk)
       )}
     >
       {state.label}
     </Badge>
   );
 }
-function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
-  const state = MERGE_RISK[risk.verdict];
+function EvidencePercent({
+  value,
+  meaning,
+}: {
+  value: number | null;
+  meaning: "support" | "attention" | "context";
+}) {
+  const color =
+    value === null
+      ? undefined
+      : meaning === "support"
+        ? `color-mix(in srgb, var(--risk-positive) ${Math.round(value * 100)}%, var(--risk-negative))`
+        : meaning === "attention"
+          ? `color-mix(in srgb, var(--risk-attention) ${Math.round(value * 100)}%, var(--risk-neutral))`
+          : "var(--risk-context)";
   return (
-    <div className="border-t border-border px-3 pt-3 pb-3">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-semibold">Merge risk</h4>
-        <MergeRiskBadge risk={risk} />
-      </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">{state.hint}</p>
-      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
-        <dt className="text-muted-foreground">Change risk</dt>
-        <dd>
-          {risk.changeRiskLabel ?? "—"}
-          {risk.changeRisk !== null && (
-            <span className="ml-1 tabular-nums text-muted-foreground">
-              ({risk.changeRisk.toFixed(2)})
-            </span>
-          )}
-        </dd>
-        <dt className="text-muted-foreground">Review engaged</dt>
-        <dd className="tabular-nums">{percent(risk.reviewAdequate)}</dd>
-        <dt className="text-muted-foreground">Description matches</dt>
-        <dd className="tabular-nums">{percent(risk.descriptionMatches)}</dd>
-        <dt className="text-muted-foreground">New surface</dt>
-        <dd className="tabular-nums">{percent(risk.newSurface)}</dd>
-        <dt className="text-muted-foreground">Human review</dt>
-        <dd className="tabular-nums">
-          {percent(risk.humanReviewProbability)}
-          {risk.confidence !== null && (
-            <span className="ml-1 text-muted-foreground">
-              · confidence {percent(risk.confidence)}
-            </span>
-          )}
-        </dd>
-      </dl>
-      <p className="mt-2 text-[10px] text-muted-foreground">
-        Assessed{" "}
-        {new Date(risk.assessedAt).toLocaleString([], {
-          dateStyle: "short",
-          timeStyle: "short",
-        })}{" "}
-        for commit <span className="font-mono">{risk.headSha.slice(0, 7)}</span>
-        . Display only; merging stays a human decision.
-      </p>
-    </div>
+    <span
+      className="tabular-nums font-medium text-muted-foreground [--risk-positive:#166534] [--risk-negative:#991b1b] [--risk-attention:#92400e] [--risk-neutral:#475569] [--risk-context:#1e40af] [[data-theme-mode=dark]_&]:[--risk-positive:#86efac] [[data-theme-mode=dark]_&]:[--risk-negative:#fca5a5] [[data-theme-mode=dark]_&]:[--risk-attention:#fcd34d] [[data-theme-mode=dark]_&]:[--risk-neutral:#cbd5e1] [[data-theme-mode=dark]_&]:[--risk-context:#93c5fd]"
+      style={{ color }}
+    >
+      {percent(value)}
+    </span>
   );
 }
+function MergeRiskDetails({ risk }: { risk: MergeRiskSummary }) {
+  const state = riskDisplay(risk);
+  const assessment = risk.displayState ? risk.previous : risk;
+  return (
+    <section className="space-y-3 border-t border-border p-3">
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-xs font-semibold">Merge risk</h4>
+          <MergeRiskBadge risk={risk} />
+        </div>
+        <p className="text-[11px] text-muted-foreground">{state.hint}</p>
+      </div>
+      {assessment && (
+        <div className="space-y-3">
+          {risk.displayState && (
+            <>
+              <hr className="border-border" />
+              <div className="flex items-center justify-between gap-3">
+                <h5 className="text-xs font-medium text-foreground">
+                  Previous assessment
+                </h5>
+                <MergeRiskBadge risk={assessment} />
+              </div>
+            </>
+          )}
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 text-[11px]">
+            <dt className="text-muted-foreground">Change risk</dt>
+            <dd
+              className={cn(
+                "text-right font-medium",
+                assessment.changeRiskLabel === "high" ||
+                  assessment.changeRiskLabel === "critical"
+                  ? "text-red-600 [[data-theme-mode=dark]_&]:text-red-400"
+                  : assessment.changeRiskLabel === "low"
+                    ? "text-status-working"
+                    : "text-status-waiting"
+              )}
+            >
+              {assessment.changeRiskLabel ?? "—"}
+            </dd>
+            <dt
+              className="text-muted-foreground"
+              title="Higher means stronger review engagement."
+            >
+              Review engaged
+            </dt>
+            <dd className="text-right">
+              <EvidencePercent
+                value={assessment.reviewAdequate}
+                meaning="support"
+              />
+            </dd>
+            <dt
+              className="text-muted-foreground"
+              title="Higher means the description better matches the change."
+            >
+              Description matches
+            </dt>
+            <dd className="text-right">
+              <EvidencePercent
+                value={assessment.descriptionMatches}
+                meaning="support"
+              />
+            </dd>
+            <dt
+              className="text-muted-foreground"
+              title="Likelihood of a new product surface; context, not a quality score."
+            >
+              New surface
+            </dt>
+            <dd className="text-right">
+              <EvidencePercent
+                value={assessment.newSurface}
+                meaning="context"
+              />
+            </dd>
+            <dt
+              className="text-muted-foreground"
+              title="Higher means a person is more likely to need to review this change."
+            >
+              Needs human review
+            </dt>
+            <dd className="text-right">
+              <EvidencePercent
+                value={assessment.humanReviewProbability}
+                meaning="attention"
+              />
+            </dd>
+            <dt
+              className="text-muted-foreground"
+              title="Model certainty; not merge readiness."
+            >
+              Model confidence
+            </dt>
+            <dd className="text-right">
+              <EvidencePercent
+                value={assessment.confidence}
+                meaning="context"
+              />
+            </dd>
+          </dl>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+            <span className="font-mono">{assessment.headSha.slice(0, 7)}</span>
+            <span>·</span>
+            <time dateTime={assessment.assessedAt}>
+              {new Date(assessment.assessedAt).toLocaleString([], {
+                dateStyle: "short",
+                timeStyle: "short",
+              })}
+            </time>
+            <span>· Not merge approval.</span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 const STATES = {
   Open: {
     icon: GitPullRequest,
@@ -413,6 +579,8 @@ export function PullRequestRow({
   agentName?: string;
   isError: boolean;
 }) {
+  const risk =
+    pr.mergeRisk?.displayState === "disabled" ? undefined : pr.mergeRisk;
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const closeFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -472,13 +640,13 @@ export function PullRequestRow({
             {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
             <span className="sr-only">{STATES[status].label}</span>
           </AgentMetadataLink>
-          {!isError && pr.mergeRisk && pr.mergeRisk.verdict !== "abstain" && (
+          {!isError && risk && (
             <Button
               variant="ghost"
               size="icon-sm"
               className="shrink-0"
               data-agent-control="true"
-              aria-label={`Merge risk for pull request ${ref.number}: ${MERGE_RISK[pr.mergeRisk.verdict].label}`}
+              aria-label={`Merge risk for pull request ${ref.number}: ${riskDisplay(risk).label}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}
@@ -488,7 +656,7 @@ export function PullRequestRow({
               onClick={toggleDetails}
               data-pr-details-trigger={contentId}
             >
-              <MergeRiskMarker risk={pr.mergeRisk} />
+              <MergeRiskMarker risk={risk} />
             </Button>
           )}
           {(isError ||
@@ -568,8 +736,8 @@ export function PullRequestRow({
           </a>
         </div>
         <>
-          {!isError && pr.mergeRisk && <MergeRiskDetails risk={pr.mergeRisk} />}
-          <div className="border-t border-border px-3 pt-3 pb-2">
+          {!isError && risk && <MergeRiskDetails risk={risk} />}
+          <div className="border-t border-border p-3">
             <h4 className="text-xs font-semibold">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
               <p className="mt-2 text-[11px] text-muted-foreground">

@@ -653,13 +653,139 @@ it("attaches merge-risk assessments to observed heads and carries them while the
   expect(assess).toHaveBeenCalledWith(
     "https://github.com/a/b/pull/0",
     expect.objectContaining({ status: "Open" }),
-    ["a"]
+    ["a"],
+    expect.any(Function)
   );
   expect(service.get("a")[0]!.mergeRisk?.verdict).toBe("routine");
   // A later observation of the same head without a fresh assessment keeps the verdict;
   // an assessment failure is logged, not fatal.
   assess.mockRejectedValue(new Error("provider down"));
   await service.refreshOne("a", "https://github.com/a/b/pull/0");
-  expect(service.get("a")[0]!.mergeRisk?.verdict).toBe("routine");
+  // A failed assessor cannot establish that historical data is still enabled.
+  expect(service.get("a")[0]!.mergeRisk).toBeUndefined();
   await service.stop();
 });
+
+it("refreshes tracked PRs promptly when review findings resolve, coalescing duplicate publications", async () => {
+  const f = fixture();
+  await f.service.refresh();
+  const review = {
+    id: "review-1",
+    kind: "review",
+    toAgentId: "a",
+    attachments: [],
+    blocks: [
+      {
+        id: "finding-1",
+        kind: "finding",
+        attachments: [],
+        state: { status: "open" },
+      },
+    ],
+  } as unknown as Block;
+  f.service.observeBlock(review);
+  await f.service.refresh();
+  const before = f.read.mock.calls.length;
+  const resolved = {
+    ...review,
+    blocks: [
+      {
+        ...review.blocks![0],
+        state: { status: "resolved", resolution: "fixed" },
+      },
+    ],
+  };
+  f.service.observeBlock(resolved);
+  await f.service.refresh();
+  expect(f.read).toHaveBeenCalledTimes(before + 1);
+  f.service.observeBlock(resolved);
+  await f.service.refresh();
+  expect(f.read).toHaveBeenCalledTimes(before + 1);
+  await f.service.stop();
+});
+
+it("clears cached risk immediately on disable and suppresses in-flight progress", async () => {
+  const f = fixture();
+  // Exercise the same callback contract with an isolated refresher.
+  const service = new PullRequestRefresher({
+    pool: { query: f.query } as unknown as Pool,
+    listAgentIds: f.listAgentIds,
+    read: f.read,
+    publish: f.publish,
+    warn: vi.fn(),
+    assess: async (_url, _value, _owners, progress) => {
+      service.hideRisk();
+      progress?.({ verdict: "routine" } as never);
+      return { verdict: "routine" } as never;
+    },
+  });
+  await service.refresh();
+  expect(service.get("a")[0]!.mergeRisk).toBeUndefined();
+  expect(
+    f.publish.mock.calls
+      .flatMap(([event]) => event.pullRequests ?? [])
+      .every((pr) => !pr.mergeRisk)
+  ).toBe(true);
+  await service.stop();
+});
+
+it.each([false, true])(
+  "preserves review invalidation during an assessment (initial refresh: %s)",
+  async (initial) => {
+    const f = fixture();
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let pause = initial;
+    const service = new PullRequestRefresher({
+      pool: { query: f.query } as unknown as Pool,
+      listAgentIds: f.listAgentIds,
+      read: f.read,
+      publish: f.publish,
+      warn: vi.fn(),
+      assess: async () => {
+        if (pause) {
+          pause = false;
+          entered();
+          await paused;
+        }
+        return { verdict: "routine" } as never;
+      },
+    });
+    if (!initial) {
+      await service.refresh();
+      pause = true;
+    }
+    const flight = initial
+      ? service.refresh()
+      : service.refreshOne("a", "https://github.com/a/b/pull/0");
+    await started;
+    service.observeBlock({
+      id: "review-racing",
+      kind: "review",
+      toAgentId: "a",
+      attachments: [],
+      blocks: [
+        {
+          id: "finding-racing",
+          kind: "finding",
+          attachments: [],
+          state: { status: "resolved", resolution: "fixed" },
+        },
+      ],
+    } as unknown as Block);
+    release();
+    await flight;
+    expect(service.get("a")[0]!.mergeRisk).toBeUndefined();
+    const before = f.read.mock.calls.length;
+    await service.refresh();
+    expect(f.read).toHaveBeenCalledTimes(before + 1);
+    expect(service.get("a")[0]!.mergeRisk?.verdict).toBe("routine");
+    await service.stop();
+  }
+);

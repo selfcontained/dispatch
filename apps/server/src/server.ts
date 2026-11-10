@@ -232,7 +232,8 @@ const pullRequests = new PullRequestRefresher({
   listAgentIds: async () =>
     (await agentManager.listAgents()).map((agent) => agent.id),
   publish: (event) => uiEventBroker.publish(event),
-  assess: (url, value, owners) => mergeRiskAssessor.assess(url, value, owners),
+  assess: (url, value, owners, onProgress) =>
+    mergeRiskAssessor.assess(url, value, owners, onProgress),
   notify: async (id, previous, current, commit) => {
     await streamService.pullRequestTransition(id, previous, current, commit);
   },
@@ -968,7 +969,12 @@ async function registerRoutes() {
         (await canManageEngineUpdates(request))
       );
     },
-    (event) => uiEventBroker.publish(event)
+    (event) => uiEventBroker.publish(event),
+    async () => {
+      const config = await routingSettings.configuration();
+      if (!config.mergeRiskEnabled || !config.apiKey) pullRequests.hideRisk();
+      else pullRequests.allowRisk();
+    }
   );
   const shadowRetention = setInterval(
     () => {
