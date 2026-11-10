@@ -63,8 +63,8 @@ it("discovers work while hidden, shows an icon-only trigger, and removes it when
   });
   await screen.findByText("No reported background work.");
   expect(
-    screen.queryByRole("button", { name: "Background work 1" })
-  ).toBeNull();
+    screen.queryByRole("button", { name: "Background work 0" })
+  ).toBeTruthy();
   expect(screen.getByText("No reported background work.")).toBeTruthy();
   fireEvent.click(
     screen.getByRole("button", { name: "Close background work" })
@@ -80,3 +80,44 @@ it.each(["unsupported", "offline", "unavailable"] as const)(
     expect(screen.queryByRole("button")).toBeNull();
   }
 );
+
+it("dismisses with Escape and returns focus to the retained trigger", async () => {
+  setup({
+    status: "supported",
+    items: [
+      { id: "monitor", name: "Watch tests", kind: "monitor", state: "paused" },
+    ],
+  });
+  const trigger = screen.getByRole("button", { name: "Background work 1" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  expect(screen.getByText("paused")).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(trigger);
+});
+
+it("resets the open surface when the selected agent changes", () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity } },
+  });
+  client.setQueryData(key, {
+    status: "supported",
+    items: [
+      { id: "one", name: "Agent one work", kind: "shell", state: "running" },
+    ],
+  });
+  const view = render(
+    <QueryClientProvider client={client}>
+      <BackgroundWorkButton agentId="agent-one" />
+    </QueryClientProvider>
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Background work 1" }));
+  view.rerender(
+    <QueryClientProvider client={client}>
+      <BackgroundWorkButton agentId={null} />
+    </QueryClientProvider>
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByText("Agent one work")).toBeNull();
+});

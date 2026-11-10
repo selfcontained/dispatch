@@ -1,22 +1,26 @@
-import "./background-work.css";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ListTree, Pause, Radio, Terminal, X } from "lucide-react";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
+  return agentId ? (
+    <AgentBackgroundWork key={agentId} agentId={agentId} />
+  ) : null;
+}
 
 /** Only current host-memory reports; no history, output or persisted projection. */
-export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
+function AgentBackgroundWork({ agentId }: { agentId: string }) {
+  const titleId = useId();
+  const descriptionId = useId();
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["background-work", agentId],
@@ -32,10 +36,11 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
   const items = available ? query.data!.items : [];
   if (!items.length && !open) return null;
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {items.length > 0 && (
-        <DialogTrigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      {(items.length > 0 || open) && (
+        <PopoverTrigger asChild>
           <Button
+            data-background-work-trigger=""
             variant="ghost-primary"
             size="icon-sm"
             aria-label={`Background work ${items.length}`}
@@ -43,31 +48,39 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
           >
             <ListTree className="size-4" aria-hidden="true" />
           </Button>
-        </DialogTrigger>
+        </PopoverTrigger>
       )}
-      <DialogContent
-        overlayClassName="background-work-overlay"
-        className="background-work-dialog w-[min(440px,calc(100vw-2rem))] gap-2 p-3 font-sans text-foreground"
+      <PopoverContent
+        align="end"
+        side="top"
+        sideOffset={8}
+        collisionPadding={12}
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        onEscapeKeyDown={(event) => event.stopPropagation()}
+        className="w-[min(640px,calc(100vw-1.5rem))] max-h-[var(--radix-popover-content-available-height)] p-3 font-sans text-foreground"
       >
-        <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle className="text-base">Background work</DialogTitle>
-            <DialogClose asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                aria-label="Close background work"
-              >
-                <X className="size-4" />
-              </Button>
-            </DialogClose>
-          </div>
-          <DialogDescription className="sr-only">
-            Commands and monitors reported by this agent's current session.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="min-h-0 overflow-y-auto">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 id={titleId} className="text-base font-semibold">
+            Background work
+          </h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label="Close background work"
+            onClick={() => setOpen(false)}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        <p id={descriptionId} className="sr-only">
+          Commands and monitors reported by this agent's current session.
+        </p>
+        <ScrollArea
+          fitContentWidth
+          className="max-h-[min(60vh,calc(var(--radix-popover-content-available-height)-5rem))]"
+        >
           {query.isPending ? (
             <div
               className="h-14 animate-pulse rounded-lg bg-muted/50"
@@ -97,7 +110,7 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
                         item.kind === "monitor" ? "Monitor" : "Command"
                       }
                     />
-                    <span className="min-w-0 flex-1 break-words text-[13px] line-clamp-2">
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px]">
                       {item.name}
                     </span>
                     <span
@@ -122,8 +135,8 @@ export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
               })}
             </ul>
           )}
-        </div>
-      </DialogContent>
-    </Dialog>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
   );
 }

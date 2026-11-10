@@ -189,7 +189,7 @@ export function ThreadDrawer({
           !current ||
           (target instanceof Element &&
             target.closest(
-              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-testid="drawer-resize-handle"]'
+              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-testid="drawer-resize-handle"], [data-background-work-trigger]'
             ))
         )
           return;
