@@ -71,6 +71,12 @@ function threadSubject(root: Block): string {
   }
   return (
     {
+      visualization_group:
+        root.kind === "visualization_group"
+          ? (root.data.title ?? "Visualizations")
+          : "Visualizations",
+      metric: root.kind === "metric" ? root.data.title : "Metric",
+      chart: root.kind === "chart" ? root.data.title : "Chart",
       text: "",
       question: "a question",
       form: "a form",

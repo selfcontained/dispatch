@@ -118,6 +118,7 @@ The rest of the tree is documentation: `skills/` (the skill bodies agents load),
 | `subagents`       | Work should be delegated, or another agent needs coordinating |
 | `repo-tools`      | A repo script should become a first-class tool                |
 | `communicate`     | Something needs to reach the user and the channel is unchosen |
+| `visualize`       | Numeric results need a metric, chart or responsive group      |
 | `sharing`         | An artifact needs to reach the user as a posted file          |
 | `review-workflow` | A PR is going up, or review feedback needs working            |
 | `ui-validation`   | A UI change needs proving in a browser                        |

@@ -1,145 +1,128 @@
-# Metric and chart blocks — design checkpoint
+# Metric and chart communication blocks
 
-Status: review prototype; visual selection pending. No production block contract changed.
-Preview: `/design-options.html` on the isolated web stack (development entry only).
+Agents post independent metric/chart blocks through the existing `post` tool and
+replace their payload through `update({ id, data })`. No review badges, palette
+picker, gallery wrapper, dashboard collection, or provider calls ship with them.
 
-## Directions
+## Metric
 
-All three show identical synthetic delivery data: observed 42, 56, missing, 68,
-74 items; planned 40, 50, 60, 65, 70. The metric is Friday's 74 items, with a
-6-item change from Thursday. These are communication examples, not collected
-session analytics.
+```json
+{
+  "metric": {
+    "version": 1,
+    "title": "Items delivered",
+    "unit": "items",
+    "dataKind": "synthetic",
+    "value": 74,
+    "comparison": { "value": 6, "label": "since Thursday" }
+  }
+}
+```
 
-1. Compact inline: 160px charts and restrained cards. Fits frequent stream
-   updates; less space for axis labels and longer explanations.
-2. Analytical panel: 224px charts, moderate padding. Prioritizes comparison
-   and reading exact values; consumes more vertical stream space.
-3. Presentation card: 256px charts, larger headline and accent. Strong for
-   milestones and summaries; expensive for frequent small updates.
+Values display compactly; the exact number remains available to assistive
+technology and in the value's title. Null means missing.
 
-All retain explicit units, zero baseline, null gaps and expandable native HTML
-tables. Light/dark theme controls and responsive stacking are reviewable.
-The three styles share one prototype, not three independent feature systems.
+## Chart
 
-## Library fit
+```json
+{
+  "chart": {
+    "version": 1,
+    "type": "line",
+    "title": "Workstream progress",
+    "unit": "items",
+    "xLabel": "Day",
+    "dataKind": "synthetic",
+    "series": [
+      { "id": "design", "label": "Design", "color": "cyan" },
+      { "id": "build", "label": "Build", "color": "pink" },
+      { "id": "review", "label": "Review", "color": "lime" }
+    ],
+    "points": [
+      { "label": "Monday", "values": [10, 20, 30] },
+      { "label": "Tuesday", "values": [12, null, 34] }
+    ]
+  }
+}
+```
 
-Installed Recharts is 3.8.1; package range is ^3.8.1. Existing jobs, activity and
-service-resource charts use the shadcn ChartContainer wrapper. Reuse that stack:
-no new dependency is warranted for bars, lines or multiple series.
+`version`, `title`, `unit` and `dataKind` are required for both kinds. dataKind is
+measured, estimated or synthetic, as declared by the author. Optional description,
+source and asOf are plain explanatory text, never fetched or executed. Those
+fields do not override server-owned authorship, routing or immutable provenance.
+
+Series IDs and named colors are explicit and unique; reordering a series should
+move its ID, color and values together. Supported graph slots are cyan, pink,
+lime, orange, purple and yellow. Dedicated neon tokens have deeper light-theme
+counterparts. Dash patterns and labeled exact tables complement color.
+
+| Type               | Point semantics                                                                                                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| bar, line, area    | One value per series; null is missing. Area baseline is zero, with unstacked translucent fills.                                                                               |
+| scatter            | Numeric x plus one y value per series; xLabel/xUnit explicitly describe x; unit describes y.                                                                                  |
+| heatmap            | One row label and one numeric/missing cell per series. A common continuous scale includes zero; missing cells are uncolored.                                                  |
+| histogram          | Contiguous, equal-width numeric bins with from/to and explicit xUnit; values are nonnegative frequencies. Labels cannot replace exact bin boundaries.                         |
+| waterfall          | One series; each value is a signed delta. Starts at zero. Missing delta makes following cumulative positions unknown. Exact table includes input delta and derived start/end. |
+| interval, timeline | One series; values are [start,end] in the stated unit, or [null,null]. Timeline values are numeric offsets, not executable dates.                                             |
+| bullet             | Two series in actual, target order; values give a bar and target dot for each row.                                                                                            |
+
+Exact tables expose raw plotted values, scatter coordinates, histogram boundaries,
+range endpoints and waterfall cumulative positions. No interpolation fills nulls.
+Cartesian domains include zero; long labels may shorten on axes, with full labels
+in the table. Large horizontal datasets scroll inside a bounded chart viewport.
+
+Limits: six series, 200 points, 64KiB UTF-8 encoded payload, 160-character labels,
+2,000-character explanations/source, unique safe series IDs up to 64 characters.
+Numbers must be finite and within ±1e15 to keep derived plot geometry bounded.
+Unknown versions, malformed data, inconsistent row arity, duplicated series/colors,
+reversed ranges, overlapping/unequal histogram bins and overflow totals fail
+validation. Renderer fallback handles invalid/unsupported payloads without code
+execution. JSON does not accept arbitrary chart library props, HTML, callbacks,
+URLs to execute, custom CSS colors or source requests.
+
+## Integration and library
+
+Uses existing shared BlockBody, blocks.data persistence, chat service post/update
+ownership/routing, stream/thread feeds and MCP schemas. A kind-constraint migration
+adds metric/chart. Full payload replacement is validated before writing; existing
+service-owned delivery intent is preserved. A recipient cannot replace an author's
+chart data. Structured data also travels in agent delivery/history envelopes.
+
+Reuse installed Recharts 3.8.1 and the shadcn ChartContainer/tooltip composition.
+Renderer is lazy-loaded from the chat body; no new dependency is added. Heatmaps
+use a native table with colored cells. Other types compose existing Recharts
+primitives. No UI changes to Markdown's list renderer are included.
 
 Official references:
 
-- https://recharts.github.io/en-US/guide/sizes/ documents sizing and responsive support.
+- https://recharts.github.io/en-US/guide/sizes/
 - https://github.com/recharts/recharts/blob/main/storybook/stories/API/Accessibility.mdx
-  documents the default accessibility layer in v3 and keyboard navigation.
-- https://recharts.github.io/en-US/examples/LineChartConnectNulls/ documents null gaps.
+- https://recharts.github.io/en-US/examples/LineChartConnectNulls/
+- https://recharts.github.io/en-US/examples/Waterfall/
 
-The wrapper already supplies responsive sizing, theme colors and tooltip/legend
-compositions. Keyboard interaction still needs runtime verification in the final
-stream renderer; a native exact-value table is the dependable alternative.
-Use stable series order/IDs, explicit legend labels, line patterns as well as
-colors, visible focus styles, and no silent null-to-zero conversion.
-Units belong in headings and accessible table captions. Bar axes include zero;
-initial line axes should also include zero to avoid unstated truncation.
-Long labels need wrapping/full table labels rather than unannounced shortening.
+## Review state
 
-Recharts is already bundled by existing screens. This does not make additional
-imports free: measure final build chunks and use a lazy renderer if they enlarge
-the stream entry chunk substantially. No credible incremental byte estimate is
-claimed at this prototype checkpoint.
+Initial standalone gallery and subsequent development-only review controls were
+removed at the user's request. Current previews show actual independent persisted
+blocks, including six-series samples and all ten types. User selected a stronger
+neon direction and smaller samples during iteration; final visual acceptance and
+merge approval remain required. No additional chart families or collection flows
+are implied by this contract.
 
-## Proposed bounded contract (independent of presentation)
+## Grouping proposal (awaiting approval)
 
-Add metric and chart variants to shared BlockBody; each has `version: 1`, title,
-unit, optional description/source/asOf, and dataKind measured/estimated/synthetic.
-Source is inert text, never fetched. Immutable Block author/recipient/routing
-provenance remains service-owned; payload labels cannot override it.
+At the user's request, `visualizationGroup` posts one authored group containing
+1–6 related metrics OR charts. Items have `{kind: "metric"|"chart", data: ...}`;
+nested groups and mixed metric/chart groups are excluded. The group has version 1
+and an optional title; its total payload remains bounded at 64KiB. Updates replace
+the group payload through the same ownership boundary as individual blocks.
 
-Metric: finite numeric value or explicit null, optional label and comparison
-(value plus explanatory label). No executable formatters, markup or callbacks.
-Chart: bar or line; x-axis label; one common unit; ordered series with unique
-stable IDs and labels; ordered rows with labels and values aligned with series.
-Null means missing. Reject row/series arity mismatches and nonfinite values.
-Proposed limits: 6 series, 200 rows, 12 metrics, 160-character labels,
-2,000-character descriptions and 64KiB total encoded payload. Unknown versions
-must produce a graceful unsupported block, not execute or silently reinterpret.
-Finalize the exact schema before exposing MCP descriptions.
+Agents choose grouping intent, not column counts. Container queries use the
+available message width: metrics wrap through one/two/three/four columns; chart
+groups through one/two/three. A single metric is a compact tile. Related group
+members share the post's author, routing and thread; unrelated posts never auto-pack.
+Desktop and mobile proposal captures show the actual grouped renderer.
 
-## Integration and access plan
-
-Inspected shared block-types.ts, chat/service.ts PostInput/UpdateInput and
-resolveKindAndData, chat/store.ts entry point, shared/mcp/stream-tools.ts,
-and web chat/block-bodies.tsx. Extend the existing post payload selector and
-update data validation; retain service ownership checks, destination resolution,
-thread permissions, author identity and attachment provenance paths.
-Do not add a parallel publishing endpoint or derive author identity from data.
-Persist through the existing data field, then verify history/reload/thread feeds.
-Coordinate stream-tools changes with PR1433 before touching MCP registration.
-
-Required final coverage: contract bounds/finite values/version handling;
-post/update storage round trips and unauthorized/cross-stream attempts; renderer
-empty/missing/large/long-label cases; actual isolated MCP calls; served browser
-post/update/reload/thread flows at desktop/mobile in both themes. This prototype
-only exercises theme toggles and exact-table disclosure; it proves no post/update
-or persistence behavior yet.
-
-## Revision after user review
-
-The user rejected the standalone comparison as insufficient and requested real
-stream context, desktop coverage, stronger colors, tighter bar grouping and more
-chart types than bar/line. The revised development preview renders persisted
-sample posts through the actual chat BlockBody host with the normal stream shell.
-It is explicitly enabled by `vizReview` on development builds only; these are
-review fixtures, not new public block types or evidence of a completed MCP API.
-Deep links select each of the three sample messages. The fixture is lazy-loaded
-and excluded from production rendering. No production stream or database is used.
-
-Each direction now shows a metric, bar, line, area and scatter chart, using the
-same complete synthetic observations (42, 56, 61, 68, 74) and planned values
-(40, 50, 60, 65, 70). Missing-data stress cases remain required for implementation,
-but no longer obscure the basic design comparison. Bars use 12% category gaps
-and 2px gaps within groups. Theme colors use the app's data-theme-mode attribute.
-The additional chart types expand the original bar/line scope at user request;
-final API design must cover area and numeric scatter semantics deliberately.
-
-## Selected-theme palette correction
-
-User requested selected-theme accent colors. Removed the custom violet/cyan
-palette. Series now reference the existing --chart-1 and --chart-2 tokens
-directly, as other Dispatch charts do. Metric accent and legend swatches follow
-those same slots. The selected theme owns those colors; no per-block color
-strings or separate light/dark palette is introduced.
-
-## Palette comparison after user feedback
-
-User asked for screenshots directly in active chat and disliked the initial
-selected-theme pair. New screenshots are posted at home root with each visual
-iteration instead of being hidden in prior feedback threads. Development review
-fixtures now offer four local palette comparisons using existing theme slots:
-1+2 (theme pair), 1+3 (alternate), 3+4 (secondary), and 1+5 (tonal). These are
-review controls, not a proposed production chart editor or arbitrary color API.
-The theme retains control of all six colors. Stable observed/planned mapping
-remains intact when switching. Tonal colors provide less categorical distinction;
-line dashes and exact tables remain necessary and further final accessibility
-validation remains required.
-
-## Neon and size exploration
-
-User requested a more neon graph palette and smaller vertical footprint. Review
-now offers dedicated cyan/pink and lime/cyan graph-token candidates alongside
-the existing selected-theme pair. Tokens are scoped to development fixtures;
-dark variants are bright neon, light variants use deeper saturated colors for
-contrast. Final theme architecture remains subject to user choice.
-
-Compact plots reduced from 160px to 128px; analytical from 224px to 160px;
-presentation from 256px to 176px. Padding and repeated notes reduced, metric
-converted to a compact strip. The four-chart review gallery is not the intended
-unit of posting: agents will post individual chart/metric blocks.
-
-Additional potentially useful communication types (proposals, not implemented
-scope): heatmap for pattern/matrix summaries; histogram for distributions;
-waterfall for additive change attribution; interval/range for uncertainty;
-bullet/progress for target comparisons; timeline for durations/overlap. Horizontal
-and stacked bars are also useful variants for long labels and composition.
-Prioritize bounded declarative data and exact tables rather than exposing a
-library's entire option surface.
+Tests and checks remain paused by explicit user instruction until visual proposal
+approval. Latest grouping/heatmap changes are intentionally unverified by those
+checks; earlier passing results must not be represented as final-head evidence.

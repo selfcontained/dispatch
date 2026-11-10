@@ -17,13 +17,11 @@ import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { lazy, Suspense, memo, type ReactNode } from "react";
 
-const StreamVisualizationReview = import.meta.env.DEV
-  ? lazy(() =>
-      import("@/design/communication-options").then((module) => ({
-        default: module.StreamVisualizationReview,
-      }))
-    )
-  : null;
+const VisualizationBlock = lazy(() =>
+  import("./visualization-block").then((module) => ({
+    default: module.VisualizationBlock,
+  }))
+);
 import {
   type Block,
   type BlockAuthor,
@@ -1116,22 +1114,15 @@ function BlockBody({
       ? () => setState({ cancellation: true })
       : undefined;
   const recovery = isFailedParentInput(block);
-  // Review-only fixtures: real persisted stream posts, opt-in on isolated dev builds.
-  if (
-    import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).has("vizReview")
-  ) {
-    const match = /^Visualization design review: ([123])$/.exec(
-      block.text ?? ""
-    );
-    if (match && StreamVisualizationReview)
+  switch (block.kind) {
+    case "visualization_group":
+    case "metric":
+    case "chart":
       return (
-        <Suspense fallback={<p>Loading review sample…</p>}>
-          <StreamVisualizationReview direction={Number(match[1]) - 1} />
+        <Suspense fallback={<p>Loading visualization…</p>}>
+          <VisualizationBlock kind={block.kind} data={block.data} />
         </Suspense>
       );
-  }
-  switch (block.kind) {
     case "question":
       return (
         <QuestionOptions
@@ -1220,6 +1211,10 @@ function BlockBody({
     case "text":
     case "file":
       return null;
+    default:
+      return (
+        <p className="text-xs text-muted-foreground">Unsupported block type.</p>
+      );
   }
 }
 

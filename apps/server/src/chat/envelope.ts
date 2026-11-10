@@ -274,6 +274,9 @@ export function reactionExcerpt(text: string, maxChars: number): string {
 }
 
 const KIND_NOUN: Record<BlockKind, string> = {
+  visualization_group: "Visualization group",
+  metric: "Metric",
+  chart: "Chart",
   text: "post",
   question: "question",
   form: "form",

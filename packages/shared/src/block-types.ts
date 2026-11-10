@@ -1,3 +1,8 @@
+import type {
+  MetricData,
+  ChartData,
+  VisualizationGroupData,
+} from "./visualization-types.js";
 /**
  * Streams and blocks: the wire contract for an agent's stream. See
  * docs/design/blocks.md. A stream belongs to a root agent; a block is one
@@ -32,6 +37,9 @@ export const BLOCK_KINDS = [
   "tasks",
   "task",
   "launch",
+  "visualization_group",
+  "metric",
+  "chart",
 ] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
 
@@ -285,6 +293,13 @@ export type BlockDeliveryIntent = { delivery?: "auto" | "queue" | "interrupt" };
 
 /** `kind` with its `data` and `state`, so a switch on kind types both. */
 export type BlockBody =
+  | {
+      kind: "visualization_group";
+      data: VisualizationGroupData & BlockDeliveryIntent;
+      state: null;
+    }
+  | { kind: "metric"; data: MetricData & BlockDeliveryIntent; state: null }
+  | { kind: "chart"; data: ChartData & BlockDeliveryIntent; state: null }
   | {
       kind: "text";
       data: (BlockTextData & BlockDeliveryIntent) | null;

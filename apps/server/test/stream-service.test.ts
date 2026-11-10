@@ -1,3 +1,4 @@
+import { BlockStore } from "../src/chat/store.js";
 import {
   afterAll,
   afterEach,
@@ -9822,5 +9823,39 @@ describe("agent-owned homes", () => {
       answer: { value: "Yes" },
     });
     expect(injected.map((i) => i.agentId)).toEqual([A, B]);
+  });
+});
+
+describe("visualization post/update permissions and storage", () => {
+  const metric = {
+    version: 1 as const,
+    title: "Exact count",
+    unit: "items",
+    dataKind: "synthetic" as const,
+    value: 123456789.125,
+  };
+  it("persists and updates exact values without changing authorship or thread", async () => {
+    const block = await service.post(A, { metric });
+    expect(block.kind).toBe("metric");
+    const reply = await service.post(A, {
+      replyTo: block.id,
+      metric: { ...metric, value: 42 },
+    });
+    expect(reply.threadId).toBe(block.id);
+    await service.update(A, block.id, { data: { ...metric, value: 74 } });
+    const stored = await new BlockStore(pool).getById(block.id);
+    expect(stored?.data).toMatchObject({ value: 74 });
+    expect(stored?.author).toEqual({ kind: "agent", agentId: A });
+    await expect(
+      service.update(B, block.id, { data: { ...metric, value: 99 } })
+    ).rejects.toThrow();
+    await expect(
+      service.update(A, block.id, {
+        data: { ...metric, author: { kind: "system" } },
+      })
+    ).rejects.toThrow();
+    expect((await new BlockStore(pool).getById(block.id))?.data).toMatchObject({
+      value: 74,
+    });
   });
 });

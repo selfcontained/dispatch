@@ -1,6 +1,6 @@
 ---
 name: communicate
-description: Pick the shape for something you are about to tell the user — a plain or threaded reply, a question they answer in one click, a form, a file, a link, or a checklist. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
+description: Pick the shape for something you are about to tell the user — a plain or threaded reply, a question they answer in one click, a form, a file, a link, a checklist, or a data visualization. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
 ---
 
 # Reaching the user
@@ -41,6 +41,15 @@ Take the narrowest row that fits. A `code` attachment is not a substitute for a
 form, and a `tasks` block is overkill for one URL. When two rows could work, the
 plainer one wins: the user is already reading the stream. The one exception is
 length: anything longer than a screen goes in a file, however plain it is.
+
+## Numeric results and comparisons
+
+Use `post({ metric: ... })` for a headline number, `post({ chart: ... })` for a
+comparison, distribution or trend, and `post({ visualizationGroup: ... })` for
+related metrics or charts that should appear together. Dispatch handles responsive
+columns. Read [the visualize skill](../visualize/SKILL.md) for chart selection,
+versioned payloads, units, missing data and replacement updates. Keep ordinary
+explanation in the reply; use visual blocks when the data benefits from them.
 
 ## Main conversation or thread?
 
