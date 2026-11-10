@@ -1252,7 +1252,6 @@ export function ChatPane({
     onOpenPath,
     onToggleReaction,
     onOpenThread,
-    openThreadId,
     onSubmitForm,
     onSetBlockState,
     settingBlockStateId,

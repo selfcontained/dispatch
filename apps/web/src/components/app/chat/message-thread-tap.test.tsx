@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeAll, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, beforeAll, expect, it, vi } from "vitest";
 import { MessageThreadTap } from "./message-thread-tap";
 beforeAll(() => {
   class Pointer extends MouseEvent {
@@ -14,9 +14,18 @@ beforeAll(() => {
   }
   window.PointerEvent = Pointer as typeof PointerEvent;
 });
+let phone = true;
+beforeEach(() => {
+  phone = true;
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: phone }))
+  );
+});
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   window.getSelection()?.removeAllRanges();
 });
 function setup() {
@@ -86,21 +95,17 @@ it("accepts touch pointer-leave after release", () => {
   fireEvent.click(target);
   expect(open).toHaveBeenCalledTimes(1);
 });
-it("keeps a dismissing gesture invalid after the pointerdown closes its thread", () => {
-  const open = vi.fn();
-  const view = (dismissing: boolean) => (
-    <MessageThreadTap onOpen={open} dismissingCurrentThread={dismissing}>
-      <p>Message content</p>
-    </MessageThreadTap>
-  );
-  const { rerender } = render(view(true));
-  const target = screen.getByText("Message content");
+it("does not open on larger screens", () => {
+  phone = false;
+  const { open, target } = setup();
   down(target);
-  // The outside layer clears the URL before pointerup/click.
-  rerender(view(false));
   release(target);
   expect(open).not.toHaveBeenCalled();
+});
+it("cancels a phone gesture if the viewport grows before click", () => {
+  const { open, target } = setup();
   down(target);
+  phone = false;
   release(target);
-  expect(open).toHaveBeenCalledTimes(1);
+  expect(open).not.toHaveBeenCalled();
 });

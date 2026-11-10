@@ -165,6 +165,8 @@ export type ThreadPanelProps = {
    * drawer, whose chrome carries the title and the way back.
    */
   chrome?: boolean;
+  /** A containing dismissal layer owns Escape instead of this panel. */
+  escapeHandledByParent?: boolean;
   /** A failed action to show above the composer. */
   error?: string | null;
   /**
@@ -203,6 +205,7 @@ export function ThreadPanel({
   answeringBlockId,
   submittingBlockId,
   chrome = true,
+  escapeHandledByParent = false,
   error = null,
   mentionables: mentionablesOverride,
 }: ThreadPanelProps): JSX.Element {
@@ -367,16 +370,16 @@ export function ThreadPanel({
     seen.count = replyCount;
   }, [replyCount, threadBlockId, loadedRootId, jumpedRef]);
 
-  // Embedded panels delegate Escape to the containing drawer's layer, so
+  // Panels with parent-owned Escape delegate to the containing layer, so
   // nested menus and findings do not also dismiss their parent panel.
   useEffect(() => {
-    if (!chrome) return;
+    if (escapeHandledByParent) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [chrome, onClose]);
+  }, [escapeHandledByParent, onClose]);
 
   return (
     <aside
@@ -388,6 +391,21 @@ export function ThreadPanel({
             ? "absolute inset-0 z-20"
             : "w-[26rem] shrink-0 border-l border-border/40")
       )}
+      onKeyDownCapture={(event) => {
+        // ProseMirror prevents raw Escape at the editor target even without an
+        // open suggestion. A panel that owns Escape handles that case first.
+        if (
+          !escapeHandledByParent &&
+          event.key === "Escape" &&
+          !event.defaultPrevented &&
+          event.target instanceof Element &&
+          event.target.closest('[data-chat-composer][aria-expanded="false"]')
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }
+      }}
       role="complementary"
       aria-label={finding ? "Finding" : "Thread"}
       data-testid="chat-thread-panel"

@@ -157,6 +157,7 @@ export function ThreadDrawer({
           onOpenPath={onOpenPath}
           onOpenThread={openThread}
           onBack={back}
+          escapeHandledByParent
         />
       ),
     });
@@ -182,6 +183,13 @@ export function ThreadDrawer({
       asChild
       onEscapeKeyDown={(event) => {
         if (!current) return;
+        // Radix listens on document capture, before the composer can consume
+        // Escape for its inline suggestions. Let that expanded control handle it.
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[data-chat-composer][aria-expanded="true"]')
+        )
+          return;
         event.preventDefault();
         if (findingId) back();
         else closeAll();

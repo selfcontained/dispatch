@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtom } from "jotai";
 import { leftSidebarOpenAtom } from "@/lib/store";
 
-const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)";
+export const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)";
 
 export function useLayout() {
   const [leftOpen, setLeftOpen] = useAtom(leftSidebarOpenAtom);

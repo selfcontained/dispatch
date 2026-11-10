@@ -1,19 +1,21 @@
+import { MOBILE_BREAKPOINT_QUERY } from "@/hooks/use-layout";
 import { useEffect, useRef, type ReactNode } from "react";
 
 const INTERACTIVE =
   'a,button,input,textarea,select,label,summary,[role="button"],[role="link"],[role="menuitem"],[contenteditable="true"],[tabindex],pre,code,[data-no-thread-tap]';
 const TAP_SLOP = 8;
 const HOLD_MS = 500;
+// Check at the gesture boundaries so resizing cannot complete a phone tap
+// on a larger screen. CSS uses the same md breakpoint for the touch padding.
+const phoneViewport = () =>
+  window.matchMedia?.(MOBILE_BREAKPOINT_QUERY).matches ?? false;
 
 /** Passive gesture classification; the existing reply button owns keyboard access. */
 export function MessageThreadTap({
   onOpen,
-  dismissingCurrentThread = false,
   children,
 }: {
   onOpen?: () => void;
-  /** Snapshot on pointerdown: this tap dismisses the thread it would open. */
-  dismissingCurrentThread?: boolean;
   children: ReactNode;
 }) {
   const gesture = useRef<{
@@ -43,10 +45,17 @@ export function MessageThreadTap({
     target instanceof Element && !!target.closest(INTERACTIVE);
   return (
     <div
-      className={onOpen ? "-mx-2 min-h-11 px-2 py-2" : undefined}
+      className={
+        onOpen
+          ? "max-md:-mx-2 max-md:min-h-11 max-md:px-2 max-md:py-2"
+          : undefined
+      }
       data-message-thread-tap={onOpen ? "true" : undefined}
       onPointerDown={(event) => {
-        if (!onOpen) return;
+        if (!onOpen || !phoneViewport()) {
+          gesture.current = null;
+          return;
+        }
         if (!event.isPrimary || event.button !== 0) {
           if (gesture.current) gesture.current.valid = false;
           return;
@@ -56,10 +65,7 @@ export function MessageThreadTap({
           x: event.clientX,
           y: event.clientY,
           at: performance.now(),
-          valid:
-            !dismissingCurrentThread &&
-            !interactive(event.target) &&
-            !selection(),
+          valid: !interactive(event.target) && !selection(),
           released: false,
         };
       }}
@@ -101,6 +107,7 @@ export function MessageThreadTap({
         const tap = gesture.current;
         gesture.current = null;
         if (
+          phoneViewport() &&
           tap?.valid &&
           tap.released &&
           !event.defaultPrevented &&
