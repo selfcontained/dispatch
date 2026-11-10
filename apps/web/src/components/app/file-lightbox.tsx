@@ -52,6 +52,16 @@ export function FileLightbox({
   setFileId,
 }: FileLightboxProps): JSX.Element | null {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const feedbackButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFeedbackFocus = useRef(false);
+  useEffect(() => {
+    if (feedbackOpen || !restoreFeedbackFocus.current) return;
+    restoreFeedbackFocus.current = false;
+    const frame = requestAnimationFrame(() =>
+      feedbackButtonRef.current?.focus()
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [feedbackOpen]);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const {
     data: queriedFile,
@@ -167,7 +177,10 @@ export function FileLightbox({
         key={file.id}
         file={file}
         src={src}
-        onClose={() => setFeedbackOpen(false)}
+        onClose={() => {
+          restoreFeedbackFocus.current = true;
+          setFeedbackOpen(false);
+        }}
       />
     );
   }
@@ -207,6 +220,7 @@ export function FileLightbox({
             <>
               {import.meta.env.DEV && isImage && (
                 <Button
+                  ref={feedbackButtonRef}
                   size="sm"
                   variant="default"
                   className="text-foreground"

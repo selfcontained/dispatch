@@ -77,7 +77,9 @@ export function ImageFeedbackPrototype({
         aria-describedby={undefined}
         className="inset-0 z-[130] h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none bg-background p-0 text-foreground"
         overlayClassName="z-[125]"
+        onCloseAutoFocus={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => {
+          event.stopPropagation();
           event.preventDefault();
           if (discard) setDiscard(false);
           else if (step !== "edit") setStep("edit");
