@@ -514,7 +514,7 @@ export function ImageComments({
   const frozen = busy || !!pendingPost || !!shareAttempt?.attempted;
   const unshared = comments.filter((c) => !c.sent && c.note.trim());
   const share = () => {
-    if (busy) return;
+    if (busy || selectedRef.current) return;
     const batch = storedPost(imageKey) ??
       postedRef.current ??
       shareAttempt ?? {
@@ -853,7 +853,13 @@ export function ImageComments({
                       if (busy) e.preventDefault();
                     }}
                     onInteractOutside={(e) => {
-                      if (busy) e.preventDefault();
+                      const target = e.detail.originalEvent.target;
+                      if (
+                        busy ||
+                        (target instanceof Element &&
+                          target.closest("[data-image-share]"))
+                      )
+                        e.preventDefault();
                     }}
                   >
                     {c.sent ? (
@@ -1066,21 +1072,33 @@ export function ImageComments({
                   </SelectContent>
                 </Select>
               </div>
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={
-                  busy ||
-                  !loaded ||
-                  !shareRecipient ||
-                  (!unshared.length && !shareAttempt && !pendingPost)
-                }
-                onClick={share}
+              <span
+                data-image-share
+                className="inline-flex"
+                onPointerDown={(e) => {
+                  if (selected) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
+                }}
               >
-                {busy
-                  ? "Sharing…"
-                  : `Share with agent${unshared.length ? ` (${unshared.length})` : ""}`}
-              </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={
+                    busy ||
+                    !!selected ||
+                    !loaded ||
+                    !shareRecipient ||
+                    (!unshared.length && !shareAttempt && !pendingPost)
+                  }
+                  onClick={share}
+                >
+                  {busy
+                    ? "Sharing…"
+                    : `Share with agent${unshared.length ? ` (${unshared.length})` : ""}`}
+                </Button>
+              </span>
             </>
           )}
           {markup && send.isError && (

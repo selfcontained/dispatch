@@ -441,3 +441,37 @@ it("cancels new notes, saves explicitly, and leaves markup without losing saved 
     )
   ).toBe(true);
 });
+
+it("blocks sharing staged edits and new notes until Save or Cancel", async () => {
+  mockApi.mockResolvedValue({ agents: [{ id: "agent-a", name: "Agent A" }] });
+  const { draft } = await open();
+  await draft("Saved note");
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  const share = () =>
+    screen.getByRole("button", {
+      name: /Share with agent/,
+    }) as HTMLButtonElement;
+  expect(share().disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Comment 1, draft" }));
+  fireEvent.change(screen.getByPlaceholderText("Add a note…"), {
+    target: { value: "Staged edit" },
+  });
+  expect(share().disabled).toBe(true);
+  fireEvent.pointerDown(share(), { button: 0 });
+  fireEvent.click(share());
+  expect(screen.getByPlaceholderText("Add a note…")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(share().disabled).toBe(false);
+  await draft("New unsaved second note");
+  expect(share().disabled).toBe(true);
+  fireEvent.pointerDown(share(), { button: 0 });
+  fireEvent.click(share());
+  expect(screen.getByPlaceholderText("Add a note…")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(share().disabled).toBe(false);
+  expect(
+    mockApi.mock.calls.every(
+      ([url]) => !url.endsWith("/blocks") && !url.endsWith("/files")
+    )
+  ).toBe(true);
+});
