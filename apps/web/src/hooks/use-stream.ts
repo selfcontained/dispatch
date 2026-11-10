@@ -1198,7 +1198,13 @@ export function usePostBlock(rootId: string | null) {
       );
       if (replyTo) {
         const threadKey = threadQueryKey(rootId, replyTo);
-        await queryClient.cancelQueries({ queryKey: threadKey, exact: true });
+        // A cold thread has no snapshot for the optimistic update. Canceling
+        // its first fetch leaves the mounted panel empty: neither the send
+        // response nor SSE can upsert into an absent thread. Keep that fetch
+        // alive; SSE reconciliation follows it with fresh data when needed.
+        if (queryClient.getQueryData(threadKey) !== undefined) {
+          await queryClient.cancelQueries({ queryKey: threadKey, exact: true });
+        }
         queryClient.setQueryData<StreamThreadResponse>(threadKey, (old) =>
           upsertThreadReply(old, placeholder)
         );

@@ -67,6 +67,7 @@ import {
   useMarkStreamRead,
   useMarkThreadRead,
   usePostBlock,
+  useThread,
   useSetBlockState,
   useStreamFeed,
   useSubmitForm,
@@ -1516,6 +1517,50 @@ describe("removeBlock", () => {
 });
 
 describe("usePostBlock", () => {
+  it("keeps the cold thread fetch alive when sending before recipients load", async () => {
+    const client = seededClient([]);
+    const root = block({ id: "thread-root" });
+    const reply = block({
+      id: "reply",
+      threadId: root.id,
+      text: "Waiting for the requested delay.",
+    });
+    let resolveThread!: (value: StreamThreadResponse) => void;
+    const firstFetch = new Promise<StreamThreadResponse>((resolve) => {
+      resolveThread = resolve;
+    });
+    apiMock.mockImplementation((path: string) =>
+      path.endsWith("/thread") ? firstFetch : Promise.resolve({ block: reply })
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => ({
+        thread: useThread("agt_1", root.id),
+        post: usePostBlock("agt_1"),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => expect(apiMock).toHaveBeenCalledOnce());
+    await act(async () => {
+      await result.current.post.mutateAsync({
+        text: "idle thread",
+        replyTo: root.id,
+      });
+    });
+    // The host response arrives while the initial server snapshot is pending.
+    applyStreamEntry(client, "agt_1", blockEntry(reply));
+    await act(async () => {
+      resolveThread({ root, replies: [reply], recipients: ["agt_1"] });
+    });
+    await waitFor(() =>
+      expect(result.current.thread.recipients).toEqual(["agt_1"])
+    );
+    expect(result.current.thread.replies).toEqual([reply]);
+    expect(result.current.thread.root).toEqual(root);
+  });
+
   it.each(["explicit reply", "routed reply"])(
     "keeps streamed delivery and pickup when an older %s send response arrives",
     async (mode) => {
