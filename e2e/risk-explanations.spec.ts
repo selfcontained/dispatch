@@ -15,8 +15,16 @@ for (const mobile of [false, true]) {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-explanation-${Date.now()}`,
     });
+    await page.addInitScript(
+      (theme) => localStorage.setItem("dispatch:theme", theme),
+      mobile ? "cool-navy" : "light"
+    );
     let calls = 0;
     let release!: () => void;
+    let releaseRetry!: () => void;
+    const retryGate = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -65,9 +73,10 @@ for (const mobile of [false, true]) {
         if (calls === 1) {
           await gate;
           await route.fulfill({ json: { state: "failed" } });
-        } else if (calls === 2)
+        } else if (calls === 2) {
+          await retryGate;
           await route.fulfill({ json: { state: "unavailable" } });
-        else if (calls === 4)
+        } else if (calls === 4)
           await route.fulfill({
             status: 500,
             json: { error: "Synthetic revalidation failure" },
@@ -76,7 +85,7 @@ for (const mobile of [false, true]) {
           await route.fulfill({
             json: {
               state: "ready",
-              text: "The auth/session.ts change affects session handling. Resolved reviews mitigate correctness risk, while the new settings surface needs product judgment. This is not merge approval.",
+              text: "``auth/session.ts` changes session handling. Resolved reviews mitigate correctness risk, while the new settings surface needs product judgment. Literal `<b>x</b>` stays text. This is not merge approval.",
             },
           });
       }
@@ -100,6 +109,15 @@ for (const mobile of [false, true]) {
       exact: true,
     });
     await expect(explain).toBeVisible();
+    await expect(explain).toHaveCSS("border-top-style", "solid");
+    await expect(explain).toHaveCSS("border-top-width", "1px");
+    if (!mobile) {
+      const border = await explain.evaluate(
+        (el) => getComputedStyle(el).borderTopColor
+      );
+      await explain.hover();
+      await expect(explain).toHaveCSS("border-top-color", border);
+    }
     expect(calls).toBe(0);
     await explain.click();
     await expect(
@@ -112,9 +130,22 @@ for (const mobile of [false, true]) {
     await expect(
       page.getByText("Could not explain this assessment. You can retry.")
     ).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText("Explanation failed");
+    await expect(
+      page.getByRole("button", { name: "Retry explanation", exact: true })
+    ).toHaveCSS("border-top-width", "1px");
     await page
       .getByRole("button", { name: "Retry explanation", exact: true })
-      .click();
+      .focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByRole("button", { name: "Explaining…", exact: true })
+    ).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Explaining…", exact: true })
+    ).toBeDisabled();
+    releaseRetry();
+
     await expect(
       page.getByText(/Explanation unavailable for this assessment/)
     ).toBeVisible();
@@ -124,25 +155,40 @@ for (const mobile of [false, true]) {
     await page
       .getByRole("button", { name: "Retry explanation", exact: true })
       .click();
-    await expect(page.getByText(/The auth\/session.ts change/)).toBeVisible();
+    await expect(
+      page.getByText(/Resolved reviews mitigate correctness risk/)
+    ).toBeVisible();
+    const popup = page.locator('[role="dialog"][data-agent-control="true"]');
+    await expect(popup.locator("code")).toHaveCount(2);
+    await expect(popup.getByText("<b>x</b>", { exact: true })).toBeVisible();
+    await expect(popup.locator("b")).toHaveCount(0);
+    await expect(popup).toContainText(
+      "`auth/session.ts changes session handling."
+    );
     await expect(page.getByText(/Evidence-based follow-up/)).toBeVisible();
     await page.screenshot({
       path: `/tmp/risk-${mobile ? "mobile" : "desktop"}-result.png`,
     });
     await page.keyboard.press("Escape");
     await trigger.click();
-    await expect(page.getByText(/The auth\/session.ts change/)).toBeHidden();
+    await expect(
+      page.getByText(/Resolved reviews mitigate correctness risk/)
+    ).toBeHidden();
     await page
       .getByRole("button", { name: "Explain assessment", exact: true })
       .click();
     await expect(
       page.getByText("Could not explain this assessment. You can retry.")
     ).toBeVisible();
-    await expect(page.getByText(/The auth\/session.ts change/)).toBeHidden();
+    await expect(
+      page.getByText(/Resolved reviews mitigate correctness risk/)
+    ).toBeHidden();
     await page
       .getByRole("button", { name: "Retry explanation", exact: true })
       .click();
-    await expect(page.getByText(/The auth\/session.ts change/)).toBeVisible();
+    await expect(
+      page.getByText(/Resolved reviews mitigate correctness risk/)
+    ).toBeVisible();
     expect(calls).toBe(5);
   });
 }

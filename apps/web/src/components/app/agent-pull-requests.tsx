@@ -4,6 +4,8 @@ import { previewPullRequests } from "./agent-pull-requests.preview";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   RefreshCw,
+  Sparkles,
+  LoaderCircle,
   ExternalLink,
   Clock,
   CircleCheck,
@@ -19,6 +21,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Popover,
@@ -205,54 +208,149 @@ function RiskExplanation({
         body: JSON.stringify({ url, assessmentId }),
       }),
   });
-  const ready = requested && !query.isError && query.data?.state === "ready";
+  const ready =
+    requested &&
+    !query.isFetching &&
+    !query.isError &&
+    query.data?.state === "ready";
+  const showNotice =
+    requested && !query.isFetching && !ready && (query.isError || !!query.data);
+  const failure = query.isError || query.data?.state === "failed";
+  const notice =
+    query.isError || query.data?.state === "failed"
+      ? {
+          title: "Explanation failed",
+          message: "Could not explain this assessment. You can retry.",
+        }
+      : query.data?.state === "unavailable"
+        ? {
+            title: "Explanation unavailable",
+            message:
+              "Explanation unavailable for this assessment. Older assessments may lack saved evidence.",
+          }
+        : query.data?.state === "limited"
+          ? {
+              title: "Assessment limit reached",
+              message: "Assessment limit reached. Try again later.",
+            }
+          : query.data?.state === "pending"
+            ? {
+                title: "Already in progress",
+                message:
+                  "An explanation is already in progress. Check again shortly.",
+              }
+            : {
+                title: "Explanation failed",
+                message: "Could not explain this assessment. You can retry.",
+              };
+  const ActionIcon = query.isFetching
+    ? LoaderCircle
+    : requested
+      ? RefreshCw
+      : Sparkles;
+  const NoticeIcon = failure
+    ? CircleX
+    : query.data?.state === "pending"
+      ? Clock3
+      : CircleHelp;
+  const action = (
+    <Button
+      variant="default"
+      size="sm"
+      className="h-8 gap-1.5 border-border bg-muted/70 px-2.5 text-[11px] text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
+      aria-disabled={query.isFetching}
+      onClick={() => {
+        if (query.isFetching) return;
+        setRequested(true);
+        void query.refetch();
+      }}
+    >
+      <ActionIcon
+        aria-hidden="true"
+        className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")}
+      />
+      {query.isFetching
+        ? "Explaining…"
+        : requested && (query.isError || query.data)
+          ? "Retry explanation"
+          : "Explain assessment"}
+    </Button>
+  );
   return (
-    <div className="space-y-1.5 text-[11px] text-muted-foreground">
+    <div className="space-y-2 text-[11px] text-muted-foreground">
       {!ready && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-1 text-[11px]"
-          disabled={query.isFetching}
-          onClick={() => {
-            setRequested(true);
-            void query.refetch();
-          }}
+        <Card
+          role={showNotice ? (failure ? "alert" : "status") : undefined}
+          className={cn(
+            "rounded-lg shadow-none",
+            showNotice
+              ? cn(
+                  "border p-2.5",
+                  failure
+                    ? "border-status-blocked/35 bg-status-blocked/5"
+                    : "border-border bg-muted/30"
+                )
+              : "border-0 bg-transparent p-0 backdrop-blur-none"
+          )}
         >
-          {query.isFetching
-            ? "Explaining…"
-            : requested && (query.isError || query.data)
-              ? "Retry explanation"
-              : "Explain assessment"}
-        </Button>
-      )}
-      {query.isFetching && (
-        <span role="status">Preparing a short explanation.</span>
+          <div className="flex items-start gap-2">
+            {showNotice && (
+              <NoticeIcon
+                aria-hidden="true"
+                className={cn(
+                  "mt-0.5 h-3.5 w-3.5 shrink-0",
+                  failure ? "text-status-blocked" : "text-muted-foreground"
+                )}
+              />
+            )}
+            <div className="min-w-0 flex-1 space-y-2">
+              {showNotice && (
+                <div className="space-y-0.5">
+                  <p
+                    className={cn(
+                      "font-medium",
+                      failure ? "text-status-blocked" : "text-foreground"
+                    )}
+                  >
+                    {notice.title}
+                  </p>
+                  <p className="leading-relaxed text-muted-foreground">
+                    {notice.message}
+                  </p>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {action}
+                {query.isFetching && (
+                  <span role="status">Preparing explanation…</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
       )}
       {!query.isFetching && ready && (
         <>
-          <p className="whitespace-pre-wrap break-words text-foreground">
-            {query.data?.text}
+          <p className="whitespace-pre-wrap break-words leading-relaxed text-foreground">
+            {query.data?.text?.split(/(`[^`\n]+`)/g).map((part, index) =>
+              index % 2 === 1 ? (
+                <code
+                  key={index}
+                  className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] [overflow-wrap:anywhere]"
+                >
+                  {part.slice(1, -1)}
+                </code>
+              ) : (
+                part
+              )
+            )}
           </p>
-          <p>
+          <p className="text-[10px] leading-relaxed">
             Evidence-based follow-up · not private scoring reasoning or merge
             approval.
           </p>
         </>
       )}
-      {requested &&
-        !query.isFetching &&
-        (query.isError || (query.data && !ready)) && (
-          <p role="status">
-            {query.data?.state === "unavailable"
-              ? "Explanation unavailable for this assessment. Older assessments may lack saved evidence."
-              : query.data?.state === "limited"
-                ? "Assessment limit reached. Try again later."
-                : query.data?.state === "pending"
-                  ? "An explanation is already in progress. Check again shortly."
-                  : "Could not explain this assessment. You can retry."}
-          </p>
-        )}
     </div>
   );
 }
