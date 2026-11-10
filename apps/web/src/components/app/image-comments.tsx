@@ -60,6 +60,12 @@ type Callout = {
   attempted?: boolean;
   location?: ImageShareLocation;
 };
+const markupHintDismissedAtom = atomWithLocalStorage(
+  "dispatch:markup-hint-dismissed",
+  false,
+  { validate: (value): value is boolean => typeof value === "boolean" }
+);
+
 const commentsFamily = atomFamily((key: string) =>
   atomWithLocalStorage<Callout[]>(`dispatch:image-comments:${key}`, [], {
     validate: (value): value is Callout[] =>
@@ -184,8 +190,11 @@ export function ImageComments({
   useEffect(() => {
     selectedRef.current = selected;
   }, [selected]);
+  const noteEditor = useRef<HTMLTextAreaElement>(null);
+  const notePopover = useRef<HTMLDivElement>(null);
   const markupButton = useRef<HTMLButtonElement>(null);
   const [markup, setMarkup] = useState(false);
+  const [hintDismissed, setHintDismissed] = useAtom(markupHintDismissedAtom);
   const [editorNote, setEditorNote] = useState("");
   const newComment = useRef<string | null>(null);
   const [mode, setMode] = useState<"comment" | "pan">("pan");
@@ -649,10 +658,30 @@ export function ImageComments({
                 : "Loading image…"}
             </p>
           )}
-          {loaded && markup && !comments.length && (
-            <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-white/70">
-              Click or drag to leave a note
-            </p>
+          {loaded && markup && !hintDismissed && (
+            <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
+              <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-white/20 bg-black/75 py-1 pl-3 pr-1 text-xs text-white shadow-md">
+                <p>Click or drag to leave a note</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 rounded-lg text-white hover:bg-white/20 hover:text-white"
+                  data-image-markup-hint
+                  aria-label="Dismiss markup hint"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setHintDismissed(true);
+                    if (selected)
+                      (noteEditor.current ?? notePopover.current)?.focus();
+                    else svg.current?.focus();
+                  }}
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
           )}
           <svg
             ref={svg}
@@ -850,6 +879,7 @@ export function ImageComments({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
+                    ref={notePopover}
                     className="z-[140] w-[min(320px,calc(100vw-24px))] space-y-3"
                     onCloseAutoFocus={(e) => {
                       e.preventDefault();
@@ -872,7 +902,9 @@ export function ImageComments({
                       if (
                         busy ||
                         (target instanceof Element &&
-                          target.closest("[data-image-share]"))
+                          target.closest(
+                            "[data-image-share], [data-image-markup-hint]"
+                          ))
                       )
                         e.preventDefault();
                     }}
@@ -921,6 +953,7 @@ export function ImageComments({
                           Comment {c.number}
                         </label>
                         <Textarea
+                          ref={noteEditor}
                           autoFocus
                           id={`note-${c.id}`}
                           maxLength={4000}
