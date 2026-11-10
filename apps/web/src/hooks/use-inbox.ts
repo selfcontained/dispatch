@@ -1,9 +1,11 @@
 /**
  * The Inbox: requests, agent progress and results, derived from the
- * feed the Chat tab already holds (docs/design/blocks.md, step 4). Nothing
- * is fetched for it; it reads the same react-query cache `useStreamFeed`
- * fills and every `stream.entry` keeps current.
+ * feed the Chat tab already holds. Reviews also have an independent paged
+ * read so advancing chat history cannot hide them.
  */
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import type { StreamFeedResponse } from "@dispatch/shared";
 import { useCallback } from "react";
 import type { Block, StreamEntry } from "@dispatch/shared";
 import {
@@ -50,9 +52,11 @@ export type Inbox = {
   checklists: InboxChecklist[];
   agentNames: Record<string, string>;
   isLoading: boolean;
+  hasOlderReviews?: boolean;
+  loadingOlderReviews?: boolean;
+  loadOlderReviews?: () => void;
+  reviewsError?: string | null;
 };
-
-const REVIEWS_MAX = 12;
 
 /** An agent's open question or form for people. */
 export function isOpenInput(block: Block): block is InboxInput {
@@ -79,7 +83,7 @@ export function deriveInbox(
   const inputs: InboxInput[] = [];
   const links: InboxLink[] = [];
   const reviews: InboxReview[] = [];
-  const reviewIds = new Set<string>();
+
   const seen = new Set<string>();
   const asked = new Set<string>();
   for (const entry of entries) {
@@ -90,9 +94,11 @@ export function deriveInbox(
     // shows it, rather than a row of its own.
     for (const review of [block, ...(block.blocks ?? [])]) {
       if (review.kind !== "review") continue;
-      if (!reviewIds.has(review.id)) {
-        reviewIds.add(review.id);
-        reviews.unshift(review);
+      const existing = reviews.findIndex((item) => item.id === review.id);
+      if (existing < 0) {
+        reviews.push(review);
+      } else if (review.updatedAt > reviews[existing]!.updatedAt) {
+        reviews[existing] = review;
       }
     }
     if (block.kind === "review") continue;
@@ -117,7 +123,7 @@ export function deriveInbox(
       b.createdAt.localeCompare(a.createdAt) ||
       b.id.localeCompare(a.id)
   );
-  reviews.length = Math.min(reviews.length, REVIEWS_MAX);
+
   // Read all copies before filtering: a shown block or old paginated row
   // must not override a more recent supplemental/live version of the same ID.
   const current = new Map<string, Block>();
@@ -182,6 +188,17 @@ const EMPTY: Pick<
 /** The Inbox for one agent's page, live off the stream feed cache. */
 export function useInbox(agentId: string | null): Inbox {
   const rootId = agentId;
+  const reviewFeed = useInfiniteQuery({
+    queryKey: ["inbox-reviews", rootId],
+    enabled: rootId !== null,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api<StreamFeedResponse>(
+        `/api/v1/streams/${rootId}/blocks?reviewsOnly=1&limit=25${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`
+      ),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    refetchInterval: 5000,
+  });
   // Selected, not read whole: the page that holds the Inbox re-renders only
   // when the Inbox changes, not on every step of every turn in the stream.
   const select = useCallback(
@@ -212,9 +229,25 @@ export function useInbox(agentId: string | null): Inbox {
     rootId,
     inputs: derived.inputs,
     links: derived.links,
-    reviews: derived.reviews,
+    reviews: reviewFeed.data
+      ? deriveInbox(
+          reviewFeed.data.pages.flatMap((page) => page.entries),
+          agentId,
+          rootId
+        ).reviews
+      : derived.reviews,
+    hasOlderReviews: reviewFeed.hasNextPage,
+    loadingOlderReviews: reviewFeed.isFetchingNextPage,
+    loadOlderReviews: () => {
+      void reviewFeed.fetchNextPage();
+    },
+    reviewsError: reviewFeed.error?.message ?? null,
     checklists: derived.checklists,
-    agentNames: derived.agentNames,
+    agentNames: Object.assign(
+      {},
+      ...(reviewFeed.data?.pages.map((page) => page.agentNames) ?? []),
+      derived.agentNames
+    ),
     isLoading: rootId !== null && feed.isLoading,
   };
 }

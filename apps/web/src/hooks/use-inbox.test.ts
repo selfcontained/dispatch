@@ -101,7 +101,7 @@ function card(id: string, child: string, when: string, shown: Block[]) {
 }
 
 describe("deriveInbox reviews", () => {
-  it("ranks a late review by its own date rather than its old launch before capping", () => {
+  it("ranks a late review by its own date rather than its old launch without truncating history", () => {
     const late = reviewOf("late", "child", "root", "2026-09-02T14:00:00Z");
     const entries = [
       card("old-launch", "child", "2026-09-02T00:00:00Z", [late]),
@@ -116,12 +116,12 @@ describe("deriveInbox reviews", () => {
       blockEntry(late),
     ];
     const inbox = deriveInbox(entries, "root", "root");
-    expect(inbox.reviews).toHaveLength(12);
+    expect(inbox.reviews).toHaveLength(13);
     expect(inbox.reviews[0]!.id).toBe("late");
-    expect(inbox.reviews.map((r) => r.id)).not.toContain("r0");
+    expect(inbox.reviews.map((r) => r.id)).toContain("r0");
   });
 
-  it("counts attached and standalone copies once before applying the review cap", () => {
+  it("counts attached and standalone copies once across review pages", () => {
     const result = reviewOf("r1", "child", "root", "2026-09-02T10:00:00Z");
     const inbox = deriveInbox(
       [
@@ -635,5 +635,24 @@ describe("typed inbox resources", () => {
       attachments: [{ type: "link", url: "http://192.168.1.2:4321" }],
     });
     expect(deriveInbox([blockEntry(generic)], ROOT, ROOT).links).toEqual([]);
+  });
+});
+
+describe("review history merging", () => {
+  it("retains more than twelve reviews and uses the newest duplicate state", () => {
+    const reviews = Array.from({ length: 30 }, (_, i) =>
+      blockEntry(reviewBlock({ id: `review-${i}`, createdAt: at("10:00") }))
+    );
+    const older = reviews[0]!;
+    const updated = {
+      ...older,
+      block: { ...older.block, text: "Updated", updatedAt: at("12:00") },
+    };
+    const inbox = deriveInbox([...reviews, updated, older], ROOT, ROOT);
+    expect(inbox.reviews).toHaveLength(30);
+    expect(inbox.reviews.find((b) => b.id === older.block.id)?.text).toBe(
+      "Updated"
+    );
+    expect(new Set(inbox.reviews.map((b) => b.id)).size).toBe(30);
   });
 });

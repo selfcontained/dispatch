@@ -80,6 +80,45 @@ async function seedAll() {
 }
 
 describe("composeStreamFeed", () => {
+  it("pages archived and active reviews independently of feed advancement and stream scope", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const review = await store.insert({
+        streamId: A,
+        author: agent(i % 2 ? A : ARCHIVED_CHILD),
+        kind: "review",
+      });
+      await stamp(review.id, at(1));
+      ids.push(review.id);
+    }
+    await store.insert({
+      streamId: OTHER,
+      author: agent(OTHER),
+      kind: "review",
+    });
+    for (let i = 0; i < 5; i++)
+      await store.insert({ streamId: A, author: USER, text: "newer" });
+    expect(
+      (await composeStreamFeed(store, A, { limit: 2 })).entries.every(
+        (e) => e.block.kind !== "review"
+      )
+    ).toBe(true);
+    const first = await composeStreamFeed(store, A, {
+      reviewsOnly: true,
+      includeLaunchReplies: ARCHIVED_CHILD,
+      limit: 2,
+    });
+    const second = await composeStreamFeed(store, A, {
+      reviewsOnly: true,
+      includeLaunchReplies: ARCHIVED_CHILD,
+      limit: 2,
+      cursor: decodeFeedCursor(first.nextCursor!),
+    });
+    expect(
+      [...first.entries, ...second.entries].map((e) => e.block.id).sort()
+    ).toEqual(ids.sort());
+    expect(second.hasMore).toBe(false);
+  });
   it("hydrates an archived agent named only by a silent reference", async () => {
     await store.insert({
       streamId: A,

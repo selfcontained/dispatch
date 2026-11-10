@@ -1171,7 +1171,7 @@ export class BlockStore {
       `WITH latest AS (
          SELECT DISTINCT ON (b.author_agent_id) b.*
            FROM blocks b
-           JOIN agents a ON a.id = b.author_agent_id AND a.deleted_at IS NULL
+           JOIN agents a ON a.id = b.author_agent_id
           WHERE b.kind = 'review' AND b.author_kind = 'agent'
           ORDER BY b.author_agent_id, b.created_at DESC, b.id DESC
        )
