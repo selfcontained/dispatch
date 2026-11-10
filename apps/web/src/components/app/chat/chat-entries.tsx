@@ -1,3 +1,4 @@
+import { RiskAssessmentEntry } from "./risk-assessment-entry";
 import { MessageActions } from "./message-actions";
 import { MessageThreadTap } from "./message-thread-tap";
 import { ConversationLocationLink } from "./conversation-location-link";
@@ -2008,6 +2009,14 @@ export const BlockView = memo(function BlockView({
               ).scheduledMessage
             }
           />
+        ) : block.kind === "text" &&
+          block.author.kind === "system" &&
+          (
+            block.data?.pullRequestTransition as
+              | { observation?: string }
+              | undefined
+          )?.observation === "merge_risk" ? (
+          <RiskAssessmentEntry block={block} />
         ) : block.text ? (
           <MessageThreadTap onOpen={openTextThread}>
             <Markdown

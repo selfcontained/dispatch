@@ -237,6 +237,9 @@ const pullRequests = new PullRequestRefresher({
   notify: async (id, previous, current, commit) => {
     await streamService.pullRequestTransition(id, previous, current, commit);
   },
+  notifyRisk: async (id, previous, current, commit) => {
+    await streamService.pullRequestRiskChanged(id, previous, current, commit);
+  },
   notifyChecks: async (id, previous, current, commit) => {
     await streamService.pullRequestChecksChanged(id, previous, current, commit);
   },
