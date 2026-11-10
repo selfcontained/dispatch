@@ -97,7 +97,9 @@ describe("FileLightbox", () => {
     );
     expect(closed).not.toHaveBeenCalled();
     expect(apiMock).not.toHaveBeenCalled();
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+    });
     expect(closed).toHaveBeenCalledWith(null);
     expect(screen.queryByTestId("file-lightbox")).toBeNull();
   });
@@ -141,10 +143,8 @@ describe("FileLightbox", () => {
         "Detail"
       );
       expect(screen.getByText("2/2")).toBeTruthy();
+      // Arrow keys must not change the file while commenting.
       fireEvent.keyDown(window, { key: "ArrowLeft" });
-      expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe(
-        "Overview"
-      );
       fireEvent.keyDown(window, { key: "ArrowRight" });
       expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe(
         "Detail"

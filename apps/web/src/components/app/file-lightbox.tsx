@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ComponentProps } from "react";
+import { useInRouterContext, useNavigate } from "react-router-dom";
+import { agentTurnLocation } from "@/lib/agent-routes";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 
 import { FileActions } from "@/components/app/file-lightbox-actions";
+import { ImageComments } from "@/components/app/image-comments";
 import { ZoomableImage } from "@/components/app/file-lightbox-image";
 import {
   MarkdownViewer,
@@ -42,6 +45,26 @@ function isNotFoundError(error: unknown): boolean {
 
 export { FileActions } from "@/components/app/file-lightbox-actions";
 
+function RoutedImageComments(
+  props: ComponentProps<typeof ImageComments>
+): JSX.Element {
+  const navigate = useNavigate();
+  return (
+    <ImageComments
+      {...props}
+      onShared={(location) => {
+        props.onClose();
+        navigate(
+          agentTurnLocation(location.streamId, {
+            blockId: location.blockId,
+            threadId: location.threadId,
+          })
+        );
+      }}
+    />
+  );
+}
+
 export function FileLightbox({
   fileId,
   files,
@@ -50,6 +73,7 @@ export function FileLightbox({
   fileIndex,
   setFileId,
 }: FileLightboxProps): JSX.Element | null {
+  const inRouter = useInRouterContext();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const {
     data: queriedFile,
@@ -90,7 +114,7 @@ export function FileLightbox({
   }, [fileId]);
 
   useEffect(() => {
-    if (fileId === null) return;
+    if (fileId === null || file?.media === "image") return;
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -116,7 +140,15 @@ export function FileLightbox({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canGoNext, canGoPrev, currentIndex, fileId, selectIndex, setFileId]);
+  }, [
+    canGoNext,
+    canGoPrev,
+    currentIndex,
+    fileId,
+    file?.media,
+    selectIndex,
+    setFileId,
+  ]);
 
   useEffect(() => {
     if (fileId !== null && fileNotFound) setFileId(null);
@@ -150,6 +182,22 @@ export function FileLightbox({
       : `${Math.max(1, Math.round(file.size / 1024))} KB`
     : "";
   const showLoadError = files === undefined && !file && !!error && !isFetching;
+
+  if (file && isImage) {
+    const ImageViewer = inRouter ? RoutedImageComments : ImageComments;
+    return (
+      <ImageViewer
+        key={`${file.url}:${file.updatedAt}:${currentIndex}`}
+        file={file}
+        src={src}
+        caption={caption}
+        positionLabel={`${currentIndex + 1}/${totalItems}`}
+        onClose={() => setFileId(null)}
+        onPrevious={canGoPrev ? () => selectIndex(currentIndex - 1) : undefined}
+        onNext={canGoNext ? () => selectIndex(currentIndex + 1) : undefined}
+      />
+    );
+  }
 
   return (
     <div

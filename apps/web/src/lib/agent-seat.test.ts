@@ -39,3 +39,12 @@ describe("lineageSeats", () => {
     expect(seatClasses(0)).toEqual(seatClasses(1));
   });
 });
+
+it("provides matching paint colors for the ten cycling agent accents", () => {
+  expect(seatClasses(1).color).toBe("#0ea5e9");
+  expect(seatClasses(2).color).toBe("#10b981");
+  expect(
+    new Set(Array.from({ length: 10 }, (_, i) => seatClasses(i + 1).color)).size
+  ).toBe(10);
+  expect(seatClasses(11)).toEqual(seatClasses(1));
+});
