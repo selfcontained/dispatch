@@ -54,6 +54,87 @@ const readUntil = async (manager: EngineUpdateOperations, status: string) => {
 };
 
 describe("durable engine update operations", () => {
+  it.each(["claude", "codex"] as const)(
+    "%s verifies the installed version and recovers from a failed download without restarting",
+    async (id) => {
+      const run = vi
+        .fn()
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: "",
+          stderr: "connection reset",
+        })
+        .mockResolvedValue(done);
+      const verify = vi.fn(async (_bin: string, phase: "before" | "after") =>
+        phase === "before" || run.mock.calls.length === 1 ? "1.0.0" : "1.2.3"
+      );
+      const manager = new EngineUpdateOperations(store(), {
+        prepare: async () => installation,
+        runner: () => run,
+        verify,
+      });
+      await manager.start(id, {});
+      await vi.waitFor(async () =>
+        expect((await manager.read())[id]?.status).toBe("failed")
+      );
+      await manager.start(id, {});
+      await vi.waitFor(async () =>
+        expect((await manager.read())[id]).toMatchObject({
+          status: "succeeded",
+          retryBlocked: false,
+          message: expect.stringContaining("Verified installed version 1.2.3"),
+        })
+      );
+      expect(run).toHaveBeenCalledTimes(2);
+    }
+  );
+  it.each(["claude", "codex"] as const)(
+    "%s rejects a no-op command and recognizes a version advance after timeout",
+    async (id) => {
+      const verify = vi.fn(async (_bin?: string, _phase?: string) => "1.0.0");
+      const run = vi.fn(async () => done);
+      const manager = new EngineUpdateOperations(store(), {
+        prepare: async () => ({
+          ...installation,
+          probePath: "/selected/bin/" + id,
+        }),
+        runner: () => run,
+        verify,
+      });
+      await manager.start(id, {});
+      await vi.waitFor(async () =>
+        expect((await manager.read())[id]?.status).toBe("failed")
+      );
+      expect(verify).toHaveBeenCalledWith("/selected/bin/" + id, "after");
+      verify.mockImplementation(async (_bin?: string, phase?: string) =>
+        phase === "after" ? "2.0.0" : "1.0.0"
+      );
+      run.mockResolvedValue({ exitCode: 1, stdout: "", stderr: "timed out" });
+      await manager.start(id, {});
+      await vi.waitFor(async () =>
+        expect((await manager.read())[id]?.status).toBe("succeeded")
+      );
+    }
+  );
+  it.each(["claude", "codex"] as const)(
+    "%s cannot claim success without a verified installed version",
+    async (id) => {
+      const manager = new EngineUpdateOperations(store(), {
+        prepare: async () => installation,
+        runner: () => async () => done,
+        verify: async () => null,
+      });
+      await manager.start(id, {});
+      await vi.waitFor(async () =>
+        expect((await manager.read())[id]).toMatchObject({
+          status: "failed",
+          retryBlocked: false,
+          message: expect.stringContaining("could not be verified"),
+        })
+      );
+    }
+  );
+
   it("retries a failed terminal commit on a healthy read and restores admission", async () => {
     const storage = store();
     let failTerminal = true;
@@ -71,6 +152,7 @@ describe("durable engine update operations", () => {
     const onError = vi.fn();
     const runner = vi.fn(async () => done);
     const manager = new EngineUpdateOperations(flaky, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: () => runner,
       onError,
@@ -102,6 +184,7 @@ describe("durable engine update operations", () => {
       return completion.promise;
     });
     const manager = new EngineUpdateOperations(storage, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: (hooks) => {
         observer = hooks;
@@ -134,6 +217,7 @@ describe("durable engine update operations", () => {
     const storage = store();
     const completion = deferred<RunCommandResult>();
     const options = {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: () => vi.fn(() => completion.promise),
       mayExist: () => true,
@@ -159,6 +243,7 @@ describe("durable engine update operations", () => {
         return { exitCode: 1, stdout: "", stderr: "upgrade failed" };
       });
       const manager = new EngineUpdateOperations(storage, {
+        verify: async () => "1.0.0",
         prepare: async () => installation,
         runner: () => runner,
       });
@@ -185,6 +270,7 @@ describe("durable engine update operations", () => {
       stderr: "metadata failed",
     }));
     const manager = new EngineUpdateOperations(store(), {
+      verify: async () => "1.0.0",
       prepare: async () => ({
         ...installation,
         run: {
@@ -209,6 +295,7 @@ describe("durable engine update operations", () => {
     const storage = store();
     const completion = deferred<RunCommandResult>();
     const first = new EngineUpdateOperations(storage, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: (observer) => async () => {
         await observer.spawned?.(12345);
@@ -223,6 +310,7 @@ describe("durable engine update operations", () => {
     });
     const exists = vi.fn(() => true);
     const restarted = new EngineUpdateOperations(storage, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       mayExist: exists,
       runner: () => async () => done,
@@ -249,11 +337,13 @@ describe("durable engine update operations", () => {
     const storage = store();
     const completion = deferred<RunCommandResult>();
     const first = new EngineUpdateOperations(storage, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: () => () => completion.promise,
     });
     await first.start("codex", {});
     const restarted = new EngineUpdateOperations(storage, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       mayExist: () => true,
     });
@@ -271,6 +361,7 @@ describe("durable engine update operations", () => {
     const oldRun = vi.fn(async () => refresh.promise);
     const errors = vi.fn();
     const old = new EngineUpdateOperations(storage, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => ({
         ...installation,
         run: {
@@ -287,6 +378,7 @@ describe("durable engine update operations", () => {
     await old.start("codex", {});
     await vi.waitFor(() => expect(oldRun).toHaveBeenCalledOnce());
     const restarted = new EngineUpdateOperations(storage, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: () => async () => done,
       mayExist: (pid) => pid === process.pid,
@@ -305,6 +397,7 @@ describe("durable engine update operations", () => {
   it("rejects unverified installs without reserving or executing an operation", async () => {
     const runner = vi.fn();
     const manager = new EngineUpdateOperations(store(), {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => ({
         ...installation,
         canUpdate: false,
