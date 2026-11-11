@@ -679,6 +679,10 @@ export class EngineUpdateOperations {
       ) => Promise<Installation>;
       runner?: (observer: UpdateObserver) => CommandRunner;
       mayExist?: (pid: number) => boolean;
+      verify?: (
+        id: AcpEngineId,
+        overrides: Partial<Record<AcpEngineId, string>>
+      ) => Promise<string | null>;
       onError?: (error: unknown) => void;
     } = {}
   ) {}
@@ -786,12 +790,16 @@ export class EngineUpdateOperations {
       return { ...record };
     });
     // Start only after the durable claim commits; disconnection cannot cancel it.
-    void this.execute(operation, installation.run).catch((error) =>
+    void this.execute(operation, installation.run, overrides).catch((error) =>
       this.options.onError?.(error)
     );
     return publicOperation(operation);
   }
-  private async execute(record: StoredOperation, command: Command) {
+  private async execute(
+    record: StoredOperation,
+    command: Command,
+    overrides: Partial<Record<AcpEngineId, string>>
+  ) {
     let output = "";
     const save = async () => {
       record.output = output;
@@ -859,10 +867,21 @@ export class EngineUpdateOperations {
         (await execute(command.refresh, "refreshing", 60_000));
       const success =
         refreshed && (await execute(command, "updating", 120_000));
-      record.status = success ? "succeeded" : "failed";
-      record.message = success
-        ? "Update completed."
-        : "Update command failed. Review the output before retrying.";
+      clearEngineVersionCache();
+      const version = await (this.options.verify
+        ? this.options.verify(record.engineId, overrides)
+        : withEngineVersions(await engineStatuses(overrides)).then(
+            (statuses) =>
+              statuses.find((status) => status.id === record.engineId)
+                ?.version ?? null
+          ));
+      record.status = success && version ? "succeeded" : "failed";
+      record.message =
+        success && version
+          ? `Update completed. Verified installed version ${version}.`
+          : success
+            ? "Update command completed, but the installed version could not be verified. Recheck status before retrying."
+            : "Update command failed. Review the output before retrying.";
     } catch (error) {
       record.status = "failed";
       record.message = "Update failed. Review the output before retrying.";

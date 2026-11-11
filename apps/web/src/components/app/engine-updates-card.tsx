@@ -74,6 +74,7 @@ function EngineRow({
         `/api/v1/system/engines/${engine.id}/update`,
         {
           method: "POST",
+          signal: AbortSignal.timeout(15_000),
         }
       ),
     onSuccess: ({ operation }) => {
@@ -97,6 +98,8 @@ function EngineRow({
   const metadata = engine.update;
   const operation = metadata?.operation;
   const running = update.isPending || operation?.status === "running";
+  const retryable =
+    operation?.status === "failed" || operation?.status === "interrupted";
   const managed = engine.installed && canManage && metadata?.canUpdate;
   return (
     <section className="border-t pt-2" aria-label={engine.label}>
@@ -139,7 +142,9 @@ function EngineRow({
         <CollapsibleContent className="min-w-0 space-y-2 pt-2">
           {managed && (
             <div className="flex h-9 items-center" aria-live="polite">
-              {running || (metadata?.available && !operation?.retryBlocked) ? (
+              {running ||
+              ((metadata?.available || retryable) &&
+                !operation?.retryBlocked) ? (
                 <Button
                   size="sm"
                   disabled={running || operation?.retryBlocked}
@@ -147,7 +152,9 @@ function EngineRow({
                 >
                   {running
                     ? "Updating…"
-                    : `Update ${engine.label} to ${metadata?.latestVersion}`}
+                    : retryable
+                      ? `Retry ${engine.label} update`
+                      : `Update ${engine.label} to ${metadata?.latestVersion}`}
                 </Button>
               ) : operation?.retryBlocked ? (
                 <p className="text-sm text-muted-foreground">
@@ -201,10 +208,24 @@ function EngineRow({
               Sign in to Dispatch to update this CLI.
             </p>
           )}
-          {update.isError && (
+          {update.isError && operation?.status !== "succeeded" && (
             <p role="alert" className="text-sm text-destructive">
-              {update.error.message}
+              The update request could not be confirmed. The server may still be
+              updating. Recheck status before retrying. {update.error.message}
             </p>
+          )}
+          {(operation || update.isError) && (
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() =>
+                void queryClient.invalidateQueries({
+                  queryKey: ["system-engines"],
+                })
+              }
+            >
+              Recheck status
+            </Button>
           )}
           {(operation || update.isPending) && (
             <div role="status" className="space-y-2 text-sm">
@@ -239,7 +260,7 @@ export function EngineUpdatesCard(): JSX.Element {
           engine.update?.operation?.retryBlocked
       )
         ? 1_000
-        : false,
+        : 5_000,
   });
   return (
     <Card>
