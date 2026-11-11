@@ -23,6 +23,7 @@ export interface SystemEventPresentation {
   resource?: { label: string; url: string };
   head?: string;
   details: string;
+  defaultOpen?: boolean;
 }
 
 export function SystemEventEntry({
@@ -36,14 +37,26 @@ export function SystemEventEntry({
     lifecycle: GitPullRequest,
     info: Info,
   }[event.category];
+  const iconColor =
+    event.risk === "human_review"
+      ? "text-red-600"
+      : event.status === "Failing"
+        ? "text-destructive"
+        : event.risk === "routine" || event.status === "Passing"
+          ? "text-status-working"
+          : event.status === "Pending" || event.risk === "abstain"
+            ? "text-status-waiting"
+            : event.category === "lifecycle"
+              ? "text-status-done"
+              : "text-primary";
   return (
-    <Collapsible className="my-1 rounded-md border bg-card px-3 py-2 text-sm">
+    <Collapsible
+      defaultOpen={event.defaultOpen}
+      className="my-1 rounded-md border bg-card px-3 py-3 text-sm"
+    >
       <div className="flex items-start gap-2">
-        <Icon
-          aria-hidden
-          className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-        />
-        <div className="min-w-0 flex-1 space-y-1">
+        <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${iconColor}`} />
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium [overflow-wrap:anywhere]">
               {event.summary}
@@ -68,16 +81,18 @@ export function SystemEventEntry({
               </Badge>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span>Dispatch · 10:42</span>
-            {event.resource && (
+          {event.resource && (
+            <div className="mt-3 font-sans text-sm leading-snug">
               <a
                 href={event.resource.url}
-                className="min-w-0 break-words underline underline-offset-4 focus-visible:outline-ring"
+                className="min-w-0 break-words text-foreground underline decoration-border underline-offset-4 focus-visible:outline-ring"
               >
                 {event.resource.label}
               </a>
-            )}
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <span>Dispatch · 10:42</span>
             {event.head && (
               <code title={event.head}>{event.head.slice(0, 7)}</code>
             )}
@@ -94,9 +109,12 @@ export function SystemEventEntry({
           </div>
         </div>
       </div>
-      <CollapsibleContent className="pt-2 pl-6 text-xs text-muted-foreground">
+      <CollapsibleContent className="mt-3 ml-6 border-t pt-3 font-sans text-sm leading-relaxed">
+        <p className="mb-1 text-xs font-medium text-muted-foreground">
+          Observation details
+        </p>
         <p className="whitespace-pre-wrap break-words">{event.details}</p>
-        <p className="mt-2">
+        <p className="mt-3 text-xs text-muted-foreground">
           Informational · Not merge approval or authorization.
         </p>
       </CollapsibleContent>

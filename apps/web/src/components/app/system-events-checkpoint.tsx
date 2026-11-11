@@ -14,6 +14,7 @@ const events: SystemEventPresentation[] = [
     category: "risk" as const,
     summary: "Merge-risk assessment",
     risk,
+    defaultOpen: risk === "abstain",
     resource,
     head,
     details:
@@ -50,8 +51,9 @@ export function SystemEventsCheckpoint() {
         Compact system events · Design checkpoint
       </h1>
       <p className="mb-4 text-xs text-muted-foreground">
-        Staged feed examples for visual approval. Informational observations do
-        not authorize actions.
+        Staged feed examples for visual approval. The “No recommendation”
+        example starts with details open; every Details button can expand or
+        collapse its observation.
       </p>
       <Post
         author={{ key: "user", kind: "user", name: "You" }}
