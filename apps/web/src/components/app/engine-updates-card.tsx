@@ -1,5 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import {
+  useIsFetching,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   Collapsible,
@@ -7,7 +12,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Markdown } from "@/components/ui/markdown";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import type { EngineStatus, EngineUpdateOperation } from "@/hooks/use-engines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,7 +73,12 @@ function EngineRow({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const previousOperation = useRef<string | undefined>();
+  const checking = useIsFetching({ queryKey: ["system-engines"] }) > 0;
   const update = useMutation({
+    onMutate: () => {
+      previousOperation.current = engine.update?.operation?.id;
+    },
     mutationFn: () =>
       api<{ operation: EngineUpdateOperation }>(
         `/api/v1/system/engines/${engine.id}/update`,
@@ -99,7 +109,13 @@ function EngineRow({
   const operation = metadata?.operation;
   const running = update.isPending || operation?.status === "running";
   const retryable =
-    operation?.status === "failed" || operation?.status === "interrupted";
+    (operation?.status === "failed" || operation?.status === "interrupted") &&
+    (!metadata?.latestVersion || metadata.available);
+  const reconciled =
+    operation &&
+    operation.id !== previousOperation.current &&
+    operation.status !== "running";
+  const showRequestError = update.isError && !reconciled;
   const managed = engine.installed && canManage && metadata?.canUpdate;
   return (
     <section className="border-t pt-2" aria-label={engine.label}>
@@ -208,23 +224,26 @@ function EngineRow({
               Sign in to Dispatch to update this CLI.
             </p>
           )}
-          {update.isError && operation?.status !== "succeeded" && (
+          {showRequestError && (
             <p role="alert" className="text-sm text-destructive">
-              The update request could not be confirmed. The server may still be
-              updating. Recheck status before retrying. {update.error.message}
+              {update.error instanceof ApiError
+                ? update.error.message
+                : "The update request could not be confirmed. The server may still be updating. Recheck status before retrying."}
             </p>
           )}
-          {(operation || update.isError) && (
+          {(showRequestError ||
+            (operation && operation.status !== "succeeded")) && (
             <Button
               size="sm"
-              variant="default"
+              variant="ghost"
+              disabled={checking}
               onClick={() =>
                 void queryClient.invalidateQueries({
                   queryKey: ["system-engines"],
                 })
               }
             >
-              Recheck status
+              {checking ? "Checking status…" : "Recheck status"}
             </Button>
           )}
           {(operation || update.isPending) && (

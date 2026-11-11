@@ -55,7 +55,7 @@ describe("engine update settings persistence in isolated Postgres", () => {
     const firstStore = engineOperationStore(pool);
     const runner = vi.fn(async () => done);
     const manager = new EngineUpdateOperations(firstStore, {
-      verify: async () => "1.2.3",
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: () => runner,
     });
@@ -114,7 +114,7 @@ describe("engine update settings persistence in isolated Postgres", () => {
       return done;
     });
     const manager = new EngineUpdateOperations(engineOperationStore(pool), {
-      verify: async () => "1.2.3",
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: () => runner,
     });
@@ -145,7 +145,7 @@ describe("engine update settings persistence in isolated Postgres", () => {
   it("rolls back a failed snapshot transaction without overwriting the durable result", async () => {
     const storage = engineOperationStore(pool);
     const manager = new EngineUpdateOperations(storage, {
-      verify: async () => "1.2.3",
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
       prepare: async () => installation,
       runner: () => async () => done,
     });

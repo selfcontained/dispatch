@@ -8,6 +8,7 @@ import {
   compareVersions,
   clearEngineVersionCache,
   engineStatuses,
+  engineVersion,
   withEngineVersions,
   type EngineStatus,
 } from "./engine-availability.js";
@@ -32,6 +33,7 @@ type Command = {
 };
 export type Installation = {
   realPath: string | null;
+  probePath?: string;
   source: "native" | "npm" | "homebrew-formula" | "homebrew-cask" | "unknown";
   canUpdate: boolean;
   reason: string;
@@ -85,6 +87,7 @@ export async function inspectInstallation(
 ): Promise<Installation> {
   const result: Installation = {
     realPath: null,
+    probePath: status.path ?? undefined,
     source: "unknown",
     canUpdate: false,
     reason:
@@ -680,8 +683,8 @@ export class EngineUpdateOperations {
       runner?: (observer: UpdateObserver) => CommandRunner;
       mayExist?: (pid: number) => boolean;
       verify?: (
-        id: AcpEngineId,
-        overrides: Partial<Record<AcpEngineId, string>>
+        bin: string,
+        phase: "before" | "after"
       ) => Promise<string | null>;
       onError?: (error: unknown) => void;
     } = {}
@@ -790,15 +793,17 @@ export class EngineUpdateOperations {
       return { ...record };
     });
     // Start only after the durable claim commits; disconnection cannot cancel it.
-    void this.execute(operation, installation.run, overrides).catch((error) =>
-      this.options.onError?.(error)
-    );
+    void this.execute(
+      operation,
+      installation.run,
+      installation.probePath ?? installation.realPath!
+    ).catch((error) => this.options.onError?.(error));
     return publicOperation(operation);
   }
   private async execute(
     record: StoredOperation,
     command: Command,
-    overrides: Partial<Record<AcpEngineId, string>>
+    probePath: string
   ) {
     let output = "";
     const save = async () => {
@@ -837,6 +842,12 @@ export class EngineUpdateOperations {
       },
     });
     try {
+      const probe = (phase: "before" | "after") =>
+        this.options.verify
+          ? this.options.verify(probePath, phase)
+          : engineVersion(probePath);
+      clearEngineVersionCache();
+      const before = await probe("before");
       const execute = async (
         step: Command,
         phase: "refreshing" | "updating",
@@ -868,20 +879,16 @@ export class EngineUpdateOperations {
       const success =
         refreshed && (await execute(command, "updating", 120_000));
       clearEngineVersionCache();
-      const version = await (this.options.verify
-        ? this.options.verify(record.engineId, overrides)
-        : withEngineVersions(await engineStatuses(overrides)).then(
-            (statuses) =>
-              statuses.find((status) => status.id === record.engineId)
-                ?.version ?? null
-          ));
-      record.status = success && version ? "succeeded" : "failed";
-      record.message =
-        success && version
-          ? `Update completed. Verified installed version ${version}.`
-          : success
-            ? "Update command completed, but the installed version could not be verified. Recheck status before retrying."
-            : "Update command failed. Review the output before retrying.";
+      const version = await probe("after");
+      const advanced = Boolean(
+        before && version && compareVersions(version, before) > 0
+      );
+      record.status = advanced ? "succeeded" : "failed";
+      record.message = advanced
+        ? `Update completed. Verified installed version ${version}.`
+        : success
+          ? "Update command completed, but a newer installed version could not be verified. Recheck status before retrying."
+          : "Update command failed. Review the output before retrying.";
     } catch (error) {
       record.status = "failed";
       record.message = "Update failed. Review the output before retrying.";
