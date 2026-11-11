@@ -92,7 +92,6 @@ export function SystemEventEntry({
             </div>
           )}
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            <span>Dispatch · 10:42</span>
             {event.head && (
               <code title={event.head}>{event.head.slice(0, 7)}</code>
             )}
@@ -118,6 +117,11 @@ export function SystemEventEntry({
           Informational · Not merge approval or authorization.
         </p>
       </CollapsibleContent>
+      <footer className="mt-3 ml-6 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span>Dispatch</span>
+        <span aria-hidden>·</span>
+        <time dateTime="2026-11-10T10:42:00-07:00">10:42</time>
+      </footer>
     </Collapsible>
   );
 }
