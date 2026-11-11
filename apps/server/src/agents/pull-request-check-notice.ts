@@ -99,13 +99,7 @@ export function formatCheckNotice(
     .join(", ");
   // Never label a partial/pending rollup as terminal pass, even if an upstream
   // summary is inconsistent. Cancelled and other conclusions remain explicit.
-  const summary = ci.checks.some((c) => outcome(c) === "failed")
-    ? "failing"
-    : ci.checks.some((c) => c.status !== "COMPLETED" || !c.conclusion)
-      ? "pending"
-      : ci.checks.every((c) => outcome(c) === "passed")
-        ? "passing"
-        : "mixed";
+  const summary = checkSummary(current).toLowerCase();
   const lines = changed.slice(0, 3).map((c) => {
     const ms = Date.parse(c.completedAt ?? "") - Date.parse(c.startedAt ?? "");
     const seconds = Math.round(ms / 1000);
@@ -129,4 +123,19 @@ export function formatCheckNotice(
     "",
     `${label(ci.headSha, 12)} · ${Number.isFinite(Date.parse(ci.checkedAt)) ? new Date(ci.checkedAt).toISOString().replace("T", " ").slice(0, 16) + "Z" : "time unknown"} · Info only; no action authorized.`,
   ].join("\n");
+}
+
+/** Rollup is independent of risk; cancelled/neutral never imply passing. */
+export function checkSummary(
+  pr: AgentPullRequest
+): "Passing" | "Failing" | "Pending" | "Mixed" {
+  const checks = pr.ci?.checks ?? [];
+  if (pr.ci?.availability !== "available" || !checks.length) return "Pending";
+  return checks.some((c) => outcome(c) === "failed")
+    ? "Failing"
+    : checks.some((c) => c.status !== "COMPLETED" || !c.conclusion)
+      ? "Pending"
+      : checks.every((c) => outcome(c) === "passed")
+        ? "Passing"
+        : "Mixed";
 }

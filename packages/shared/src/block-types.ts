@@ -254,6 +254,7 @@ export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
 export type BlockTextData = BlockRecipientData & {
+  systemEvent?: import("./system-events.js").SystemEvent;
   /** Server-observed lifecycle change; excluded from explicit PR discovery. */
   pullRequestTransition?: { previous: string; current: string };
   /** Observation saved while its owner had no runtime; no send was attempted. */

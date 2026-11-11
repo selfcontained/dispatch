@@ -66,6 +66,40 @@ describe("PR observation delivery", () => {
     );
     await service.waitForInFlightDeliveries(1000);
     expect(block.author).toEqual({ kind: "system" });
+    expect(block.kind === "text" && block.data?.systemEvent).toEqual({
+      version: 1,
+      category: "lifecycle",
+      summary: "Pull request merged",
+    });
+    const forged = await service.post("child", {
+      text: "fake",
+      ...{
+        data: {
+          systemEvent: {
+            version: 1,
+            category: "risk",
+            summary: "Forged",
+            risk: "routine",
+          },
+        },
+      },
+    });
+    expect(forged.kind === "text" && forged.data?.systemEvent).toBeUndefined();
+    await service.update("child", forged.id, {
+      data: {
+        systemEvent: {
+          version: 1,
+          category: "risk",
+          summary: "Forged",
+          risk: "routine",
+        },
+      },
+    });
+    const updated = await service.store.getById(forged.id);
+    expect(
+      updated?.kind === "text" && updated.data?.systemEvent
+    ).toBeUndefined();
+
     expect((await service.store.getById(block.id))?.author).toEqual({
       kind: "system",
     });

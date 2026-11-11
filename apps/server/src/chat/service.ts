@@ -7,6 +7,7 @@ import {
   type ChartData,
 } from "@dispatch/shared";
 import {
+  checkSummary,
   formatCheckNotice,
   formatStatusNotice,
 } from "../agents/pull-request-check-notice.js";
@@ -2869,6 +2870,23 @@ export class StreamService {
           replyTo: home?.replyTo ?? null,
           text: checksText ?? formatStatusNotice(previous, current),
           data: {
+            systemEvent: {
+              version: 1,
+              category: risk ? "risk" : checksText ? "checks" : "lifecycle",
+              summary: risk
+                ? "Merge-risk assessment"
+                : checksText
+                  ? "Pull request checks"
+                  : `Pull request ${current.status.toLowerCase()}`,
+              ...(risk
+                ? { risk: current.mergeRisk!.verdict }
+                : checksText
+                  ? { status: checkSummary(current) }
+                  : {}),
+              ...(current.ci?.headSha
+                ? { head: current.ci.headSha.slice(0, 64) }
+                : {}),
+            },
             ...(!live ? { observationDeliverySkipped: true } : {}),
             pullRequestTransition: {
               previous: previous.status,
@@ -2924,6 +2942,11 @@ export class StreamService {
       replyTo: null,
       text,
       data: {
+        systemEvent: {
+          version: 1,
+          category: "info",
+          summary: delivery ? "Scheduled delivery" : "Scheduled reminder",
+        },
         scheduledMessageId: scheduleId,
         ...(delivery ? { scheduledDeliveryStatus: "waiting" } : {}),
         ...(presentation ? { scheduledMessage: presentation } : {}),
