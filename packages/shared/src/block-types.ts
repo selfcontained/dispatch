@@ -256,6 +256,8 @@ export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 export type BlockTextData = BlockRecipientData & {
   /** Server-observed lifecycle change; excluded from explicit PR discovery. */
   pullRequestTransition?: { previous: string; current: string };
+  /** Observation saved while its owner had no runtime; no send was attempted. */
+  observationDeliverySkipped?: boolean;
   /** Server-authored scheduler provenance; ordinary post/update cannot set it. */
   scheduledMessageId?: string;
   scheduledMessage?: import("./scheduled-messages.js").ScheduledMessagePresentation;
@@ -394,7 +396,12 @@ export type BlockReaction = {
  * rather than being lost. It is derived whenever the stream is read, so a
  * reload, a second tab and another device all agree on it.
  */
-export type BlockDeliveryState = "pending" | "held" | "delivered" | "failed";
+export type BlockDeliveryState =
+  | "pending"
+  | "held"
+  | "delivered"
+  | "failed"
+  | "not_attempted";
 
 export type BlockDelivery = {
   agentId: string;

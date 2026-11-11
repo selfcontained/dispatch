@@ -167,6 +167,7 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
   const data = row.data as {
     mentions?: string[];
     recipients?: string[];
+    observationDeliverySkipped?: boolean;
   } | null;
   const named =
     row.kind !== "text" && row.kind !== "task"
@@ -210,7 +211,9 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
         own === true
           ? ("delivered" as const)
           : own === false
-            ? ("failed" as const)
+            ? row.author_kind === "system" && data?.observationDeliverySkipped
+              ? ("not_attempted" as const)
+              : ("failed" as const)
             : ("pending" as const),
     };
   });
@@ -532,6 +535,7 @@ export class BlockStore {
     const result = await this.db.query(
       `UPDATE blocks
           SET delivered = NULL,
+              data = data - 'observationDeliverySkipped',
               steering_receipts = steering_receipts - $2::text[],
               deliveries = CASE
                 WHEN deliveries IS NULL THEN NULL

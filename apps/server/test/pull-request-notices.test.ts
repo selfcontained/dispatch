@@ -20,6 +20,8 @@ beforeAll(async () => {
 afterAll(() => teardownTestDb());
 describe("PR observation delivery", () => {
   it("persists in a child's home and addresses only that child; archived owners remain inert", async () => {
+    let resumed = false;
+    let failSend = false;
     const injected: Array<{ id: string; text: string }> = [];
     const service = new StreamService({
       pool,
@@ -39,11 +41,12 @@ describe("PR observation delivery", () => {
         }) as StreamAgent,
       delivery: {
         access: async (id) => {
-          if (id === "archived" || id === "stopped")
+          if (id === "archived" || (id === "stopped" && !resumed))
             throw new AgentError("Agent is not running.", 409);
           return { mode: "live" };
         },
         inject: async (id, text) => {
+          if (failSend) throw new Error("synthetic transport failure");
           injected.push({ id, text });
         },
         held: () => false,
@@ -213,6 +216,18 @@ describe("PR observation delivery", () => {
       current
     );
     expect(stopped.delivered).toBe(false);
+    expect(stopped.delivery).toEqual([
+      { agentId: "stopped", state: "not_attempted" },
+    ]);
+    expect((await service.store.getById(stopped.id))?.delivery).toEqual(
+      stopped.delivery
+    );
+    await expect(
+      service.retryDelivery(stopped.streamId, stopped.id)
+    ).rejects.toThrow("not running");
+    expect((await service.store.getById(stopped.id))?.delivery).toEqual(
+      stopped.delivery
+    );
     const archived = await service.pullRequestTransition(
       "archived",
       previous,
@@ -220,6 +235,21 @@ describe("PR observation delivery", () => {
     );
     expect(archived.delivered).toBe(false);
     expect(injected).toHaveLength(2);
+    resumed = true;
+    failSend = true;
+    await service.retryDelivery(stopped.streamId, stopped.id);
+    await service.waitForInFlightDeliveries(1000);
+    expect((await service.store.getById(stopped.id))?.delivery).toEqual([
+      { agentId: "stopped", state: "failed" },
+    ]);
+    failSend = false;
+    await service.retryDelivery(stopped.streamId, stopped.id);
+    await service.waitForInFlightDeliveries(1000);
+    expect((await service.store.getById(stopped.id))?.delivered).toBe(true);
+    await expect(
+      service.retryDelivery(stopped.streamId, stopped.id)
+    ).rejects.toThrow("already delivered");
+    expect(injected.filter((item) => item.id === "stopped")).toHaveLength(1);
     const risk = riskFixture();
     const write = async <T>(fn: () => Promise<T>) => fn();
     const results = await Promise.all([

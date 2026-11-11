@@ -118,9 +118,30 @@ function DeliveryStatus({
   const several = block.delivery.length > 1;
   const interrupt =
     block.kind === "text" && block.data?.delivery === "interrupt";
+  const skipped = inState(block, "not_attempted");
   const failed = inState(block, "failed");
   const held = inState(block, "held");
 
+  if (skipped.length > 0) {
+    return (
+      <div
+        className="mt-1 text-[11px] text-muted-foreground"
+        data-testid="chat-delivery-not-attempted"
+      >
+        Saved · agent unavailable; delivery not attempted
+        {onRetryDelivery ? (
+          <button
+            type="button"
+            className="ml-1.5 underline underline-offset-2"
+            disabled={retrying}
+            onClick={() => onRetryDelivery(block.id)}
+          >
+            {retrying ? "Sending…" : "Send to agent"}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
   if (failed.length > 0) {
     return (
       <div
