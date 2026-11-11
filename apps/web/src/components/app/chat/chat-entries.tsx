@@ -1,4 +1,5 @@
-import { RiskAssessmentEntry } from "./risk-assessment-entry";
+import { SystemEventEntry } from "./system-event-entry";
+import { systemEventOf } from "@dispatch/shared";
 import { MessageActions } from "./message-actions";
 import { MessageThreadTap } from "./message-thread-tap";
 import { ConversationLocationLink } from "./conversation-location-link";
@@ -691,6 +692,7 @@ export function Post({
   deliveryIndicator,
   contextLink,
   flush = false,
+  hideHeader = false,
   children,
   ...rest
 }: {
@@ -715,6 +717,8 @@ export function Post({
    * subject of a narrow panel (a review in the drawer) and wants the width.
    */
   flush?: boolean;
+  /** System observations own their compact heading and timestamp. */
+  hideHeader?: boolean;
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
@@ -759,7 +763,7 @@ export function Post({
       data-flush={flush ? "true" : undefined}
       {...rest}
     >
-      {flush ? null : (
+      {flush || hideHeader ? null : (
         <div className="flex w-8 shrink-0 justify-end">
           {grouped ? (
             deliveryIndicator ? null : (
@@ -788,7 +792,7 @@ export function Post({
             {action}
           </div>
         ) : null}
-        {grouped ? (
+        {hideHeader ? null : grouped ? (
           deliveryIndicator || contextLink ? (
             <div
               className={cn(
@@ -1653,6 +1657,10 @@ export const BlockView = memo(function BlockView({
   folded,
 }: BlockViewProps): JSX.Element {
   const author = blockAuthor(block, ctx);
+  const systemEvent = systemEventOf(block);
+  const systemResource = systemEvent
+    ? block.attachments.find((item) => item.type === "pr")
+    : undefined;
   // Inside the panel the thread itself says who is talking to whom; the
   // side indent would only push the replies off the left edge.
   const side = inThread ? undefined : blockSide(block, ctx);
@@ -1942,6 +1950,7 @@ export const BlockView = memo(function BlockView({
     <Post
       author={author}
       at={block.createdAt}
+      hideHeader={Boolean(systemEvent)}
       grouped={grouped}
       rule={rule}
       side={side}
@@ -2003,6 +2012,11 @@ export const BlockView = memo(function BlockView({
           typeof (block.data as { scheduledMessageId?: unknown } | null)
             ?.scheduledMessageId === "string" ? (
           <ScheduledMessageEntry
+            systemEvent={
+              systemEvent
+                ? { ...systemEvent, details: "", at: block.createdAt }
+                : undefined
+            }
             agentId={
               block.author.kind === "agent"
                 ? block.author.agentId
@@ -2027,14 +2041,22 @@ export const BlockView = memo(function BlockView({
               ).scheduledMessage
             }
           />
-        ) : block.kind === "text" &&
-          block.author.kind === "system" &&
-          (
-            block.data?.pullRequestTransition as
-              | { observation?: string }
-              | undefined
-          )?.observation === "merge_risk" ? (
-          <RiskAssessmentEntry block={block} />
+        ) : systemEvent ? (
+          <SystemEventEntry
+            event={{
+              ...systemEvent,
+              details: block.text ?? "",
+              at: block.createdAt,
+              ...(systemResource?.type === "pr"
+                ? {
+                    resource: {
+                      label: systemResource.title || "View pull request",
+                      url: systemResource.url,
+                    },
+                  }
+                : {}),
+            }}
+          />
         ) : block.text ? (
           <MessageThreadTap onOpen={openTextThread}>
             <Markdown
@@ -2053,7 +2075,19 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
       </InputSurface>
-      <AttachmentList block={block} ctx={ctx} />
+      <AttachmentList
+        block={
+          systemResource
+            ? {
+                ...block,
+                attachments: block.attachments.filter(
+                  (item) => item !== systemResource
+                ),
+              }
+            : block
+        }
+        ctx={ctx}
+      />
       {!settledParentRequest && (
         <DeliveryMeta
           block={block}

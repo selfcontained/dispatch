@@ -1,3 +1,6 @@
+import { Markdown } from "@/components/ui/markdown";
+import type { ReactNode } from "react";
+import type { SystemEvent } from "@dispatch/shared";
 import {
   ChevronDown,
   Info,
@@ -14,22 +17,20 @@ import {
 } from "@/components/ui/collapsible";
 import { MERGE_RISK } from "@/lib/merge-risk-presentation";
 
-/** Presentation model for the design checkpoint; no server-authorship contract yet. */
-export interface SystemEventPresentation {
-  category: "risk" | "checks" | "lifecycle" | "info";
-  summary: string;
-  risk?: keyof typeof MERGE_RISK;
-  status?: "Passing" | "Failing" | "Pending";
+/** Shared compact presentation for trusted observations and staged design examples. */
+export interface SystemEventPresentation extends Omit<SystemEvent, "version"> {
   resource?: { label: string; url: string };
-  head?: string;
   details: string;
   defaultOpen?: boolean;
+  at?: string;
 }
 
 export function SystemEventEntry({
   event,
+  children,
 }: {
   event: SystemEventPresentation;
+  children?: ReactNode;
 }) {
   const Icon = {
     risk: ShieldCheck,
@@ -51,6 +52,8 @@ export function SystemEventEntry({
               : "text-primary";
   return (
     <Collapsible
+      role="group"
+      aria-label={`Dispatch system observation: ${event.summary}`}
       defaultOpen={event.defaultOpen}
       className="my-1 rounded-md border bg-card px-3 py-3 text-sm"
     >
@@ -83,9 +86,14 @@ export function SystemEventEntry({
           </div>
           <time
             className="mt-1 block text-[11px] text-muted-foreground"
-            dateTime="2026-11-10T10:42:00-07:00"
+            dateTime={event.at ?? "2026-11-10T10:42:00-07:00"}
           >
-            10:42
+            {event.at
+              ? new Date(event.at).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "10:42"}
           </time>
           {event.resource && (
             <div className="mt-3 font-sans text-sm leading-snug">
@@ -118,7 +126,10 @@ export function SystemEventEntry({
         <p className="mb-1 text-xs font-medium text-muted-foreground">
           Observation details
         </p>
-        <p className="whitespace-pre-wrap break-words">{event.details}</p>
+        <div className="break-words">
+          <Markdown>{event.details}</Markdown>
+        </div>
+        {children}
         <p className="mt-3 text-xs text-muted-foreground">
           Informational · Not merge approval or authorization.
         </p>

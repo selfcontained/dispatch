@@ -1,3 +1,7 @@
+import {
+  SystemEventEntry,
+  type SystemEventPresentation,
+} from "./system-event-entry";
 import { Clock } from "lucide-react";
 import type { ScheduledMessagePresentation } from "@dispatch/shared";
 import { ScheduledMessagesButton } from "../scheduled-messages-button";
@@ -17,6 +21,7 @@ export function ScheduledMessageEntry({
   fallbackText,
   presentation,
   deliveryStatus,
+  systemEvent,
 }: {
   agentId: string;
   scheduleId: string;
@@ -24,6 +29,7 @@ export function ScheduledMessageEntry({
   fallbackText: string;
   presentation?: ScheduledMessagePresentation;
   deliveryStatus?: string;
+  systemEvent?: SystemEventPresentation;
 }) {
   const query = useScheduledMessages(agentId);
   const cached = query.data?.find((s) => s.id === scheduleId);
@@ -31,10 +37,14 @@ export function ScheduledMessageEntry({
     ? (cached ?? presentation)
     : (presentation ?? cached);
   const current = schedule ? isCurrentSchedule(schedule) : true;
-  return (
+  const content = (
     <div
       data-testid="scheduled-message-entry"
-      className={`min-w-0 overflow-hidden rounded-lg border px-3 py-2 ${current || delivery ? "border-border bg-muted/20" : "border-border/70 bg-muted/20"}`}
+      className={
+        systemEvent
+          ? "min-w-0"
+          : `min-w-0 overflow-hidden rounded-lg border px-3 py-2 ${current || delivery ? "border-border bg-muted/20" : "border-border/70 bg-muted/20"}`
+      }
     >
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
         <span
@@ -110,5 +120,10 @@ export function ScheduledMessageEntry({
         />
       </div>
     </div>
+  );
+  return systemEvent ? (
+    <SystemEventEntry event={systemEvent}>{content}</SystemEventEntry>
+  ) : (
+    content
   );
 }
