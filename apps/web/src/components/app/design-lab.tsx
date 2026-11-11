@@ -1,3 +1,4 @@
+import { SystemEventsCheckpoint } from "./system-events-checkpoint";
 import { PullRequestChecksComparison } from "./pull-request-checks-comparison";
 import { useState, type ReactNode } from "react";
 import {
@@ -1060,6 +1061,18 @@ export function DesignLab(): JSX.Element {
   const { theme, setTheme } = useTheme();
   const [scene, setScene] = useState<(typeof SCENES)[number]["id"]>("run");
   const Scene = SCENES.find((s) => s.id === scene)?.render ?? RunScene;
+  if (
+    new URLSearchParams(window.location.search).get("system-events") === "1"
+  ) {
+    return (
+      <div className="bg-background min-h-full p-4 md:p-8">
+        <div className="mb-5">
+          <ThemePicker theme={theme} setTheme={setTheme} />
+        </div>
+        <SystemEventsCheckpoint />
+      </div>
+    );
+  }
   if (new URLSearchParams(window.location.search).get("pr-checks") === "1") {
     return (
       <div className="bg-background min-h-full p-6 md:p-8">
