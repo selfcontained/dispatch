@@ -2869,6 +2869,7 @@ export class StreamService {
           replyTo: home?.replyTo ?? null,
           text: checksText ?? formatStatusNotice(previous, current),
           data: {
+            ...(!live ? { observationDeliverySkipped: true } : {}),
             pullRequestTransition: {
               previous: previous.status,
               current: current.status,

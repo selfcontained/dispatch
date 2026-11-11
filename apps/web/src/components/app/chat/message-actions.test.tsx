@@ -258,3 +258,21 @@ it.each(["Message metadata", "React"])(
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   }
 );
+
+it("reports an unavailable system observation as not attempted in metadata", async () => {
+  show(
+    block({
+      author: { kind: "system" },
+      toAgentId: "a",
+      delivered: false,
+      delivery: [{ agentId: "a", state: "not_attempted" }],
+    })
+  );
+  const dialog = await metadata();
+  expect(
+    within(dialog).getByText("Not attempted · agent unavailable")
+  ).toBeTruthy();
+  expect(
+    within(dialog).queryByText("Delivered · pickup unconfirmed")
+  ).toBeNull();
+});

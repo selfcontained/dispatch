@@ -222,17 +222,19 @@ export function MessageActions({
                 {deliveries.map((delivery) => {
                   const receipt = delivery.receipt;
                   const state =
-                    delivery.state === "failed"
-                      ? "Failed"
-                      : delivery.state === "held"
-                        ? "Queued"
-                        : delivery.state === "pending"
-                          ? "Sending"
-                          : receipt?.pickedUpAt
-                            ? "Received"
-                            : receipt?.deliveredAt
-                              ? "Sent · awaiting pickup"
-                              : "Delivered · pickup unconfirmed";
+                    delivery.state === "not_attempted"
+                      ? "Not attempted · agent unavailable"
+                      : delivery.state === "failed"
+                        ? "Failed"
+                        : delivery.state === "held"
+                          ? "Queued"
+                          : delivery.state === "pending"
+                            ? "Sending"
+                            : receipt?.pickedUpAt
+                              ? "Received"
+                              : receipt?.deliveredAt
+                                ? "Sent · awaiting pickup"
+                                : "Delivered · pickup unconfirmed";
                   return (
                     <div key={delivery.agentId} className="text-[10px]">
                       <div className="flex flex-wrap items-center justify-between gap-x-2">
