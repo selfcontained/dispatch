@@ -4,6 +4,8 @@ import { previewPullRequests } from "./agent-pull-requests.preview";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   RefreshCw,
+  Sparkles,
+  LoaderCircle,
   ExternalLink,
   Clock,
   CircleCheck,
@@ -19,6 +21,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Popover,
@@ -184,10 +187,182 @@ function EvidencePercent({
     </span>
   );
 }
+function RiskExplanation({
+  agentId,
+  url,
+  assessmentId,
+}: {
+  agentId: string;
+  url: string;
+  assessmentId: string;
+}) {
+  const [requested, setRequested] = useState(false);
+  const query = useQuery<{ state: string; text?: string }>({
+    queryKey: ["risk-explanation", agentId, url, assessmentId],
+    enabled: false,
+    retry: false,
+    staleTime: Infinity,
+    queryFn: () =>
+      api(`/api/v1/agents/${agentId}/pull-requests/explain`, {
+        method: "POST",
+        body: JSON.stringify({ url, assessmentId }),
+      }),
+  });
+  const ready =
+    requested &&
+    !query.isFetching &&
+    !query.isError &&
+    query.data?.state === "ready";
+  const showNotice =
+    requested && !query.isFetching && !ready && (query.isError || !!query.data);
+  const failure = query.isError || query.data?.state === "failed";
+  const notice =
+    query.isError || query.data?.state === "failed"
+      ? {
+          title: "Explanation failed",
+          message: "Could not explain this assessment. You can retry.",
+        }
+      : query.data?.state === "unavailable"
+        ? {
+            title: "Explanation unavailable",
+            message:
+              "Explanation unavailable for this assessment. Older assessments may lack saved evidence.",
+          }
+        : query.data?.state === "limited"
+          ? {
+              title: "Assessment limit reached",
+              message: "Assessment limit reached. Try again later.",
+            }
+          : query.data?.state === "pending"
+            ? {
+                title: "Already in progress",
+                message:
+                  "An explanation is already in progress. Check again shortly.",
+              }
+            : {
+                title: "Explanation failed",
+                message: "Could not explain this assessment. You can retry.",
+              };
+  const ActionIcon = query.isFetching
+    ? LoaderCircle
+    : requested
+      ? RefreshCw
+      : Sparkles;
+  const NoticeIcon = failure
+    ? CircleX
+    : query.data?.state === "pending"
+      ? Clock3
+      : CircleHelp;
+  const action = (
+    <Button
+      variant="default"
+      size="sm"
+      className="h-8 gap-1.5 border-border bg-muted/70 px-2.5 text-[11px] text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
+      aria-disabled={query.isFetching}
+      onClick={() => {
+        if (query.isFetching) return;
+        setRequested(true);
+        void query.refetch();
+      }}
+    >
+      <ActionIcon
+        aria-hidden="true"
+        className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")}
+      />
+      {query.isFetching
+        ? "Explaining…"
+        : requested && (query.isError || query.data)
+          ? "Retry explanation"
+          : "Explain assessment"}
+    </Button>
+  );
+  return (
+    <div className="space-y-2 text-[11px] text-muted-foreground">
+      {!ready && (
+        <Card
+          role={showNotice ? (failure ? "alert" : "status") : undefined}
+          className={cn(
+            "rounded-lg shadow-none",
+            showNotice
+              ? cn(
+                  "border p-2.5",
+                  failure
+                    ? "border-status-blocked/35 bg-status-blocked/5"
+                    : "border-border bg-muted/30"
+                )
+              : "border-0 bg-transparent p-0 backdrop-blur-none"
+          )}
+        >
+          <div className="flex items-start gap-2">
+            {showNotice && (
+              <NoticeIcon
+                aria-hidden="true"
+                className={cn(
+                  "mt-0.5 h-3.5 w-3.5 shrink-0",
+                  failure ? "text-status-blocked" : "text-muted-foreground"
+                )}
+              />
+            )}
+            <div className="min-w-0 flex-1 space-y-2">
+              {showNotice && (
+                <div className="space-y-0.5">
+                  <p
+                    className={cn(
+                      "font-medium",
+                      failure ? "text-status-blocked" : "text-foreground"
+                    )}
+                  >
+                    {notice.title}
+                  </p>
+                  <p className="leading-relaxed text-muted-foreground">
+                    {notice.message}
+                  </p>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {action}
+                {query.isFetching && (
+                  <span role="status">Preparing explanation…</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+      {!query.isFetching && ready && (
+        <>
+          <p className="whitespace-pre-wrap break-words leading-relaxed text-foreground">
+            {query.data?.text?.split(/(`[^`\n]+`)/g).map((part, index) =>
+              index % 2 === 1 ? (
+                <code
+                  key={index}
+                  className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] [overflow-wrap:anywhere]"
+                >
+                  {part.slice(1, -1)}
+                </code>
+              ) : (
+                part
+              )
+            )}
+          </p>
+          <p className="text-[10px] leading-relaxed">
+            Evidence-based follow-up · not private scoring reasoning or merge
+            approval.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MergeRiskDetails({
   risk,
   ci,
+  agentId,
+  url,
 }: {
+  agentId?: string;
+  url: string;
   risk: MergeRiskSummary;
   ci: AgentPullRequest["ci"];
 }) {
@@ -218,6 +393,17 @@ function MergeRiskDetails({
         </div>
         <p className="text-[11px] text-muted-foreground">{state.hint}</p>
       </div>
+      {agentId &&
+        !risk.displayState &&
+        risk.status === "ok" &&
+        risk.assessmentId && (
+          <RiskExplanation
+            key={risk.assessmentId}
+            agentId={agentId}
+            url={url}
+            assessmentId={risk.assessmentId}
+          />
+        )}
       {assessment && (
         <div className="space-y-3">
           {risk.displayState && (
@@ -592,6 +778,7 @@ export function AgentPullRequests({
 export function PullRequestRow({
   onDismiss,
   refresh,
+  agentId,
   pr,
   isError,
 }: {
@@ -599,6 +786,7 @@ export function PullRequestRow({
   refresh?: ReturnType<typeof usePullRequestRefresh>;
   pr: PresentedPullRequest;
   agentName?: string;
+  agentId?: string;
   isError: boolean;
 }) {
   const risk =
@@ -758,7 +946,14 @@ export function PullRequestRow({
           </a>
         </div>
         <>
-          {!isError && risk && <MergeRiskDetails risk={risk} ci={pr.ci} />}
+          {!isError && risk && (
+            <MergeRiskDetails
+              risk={risk}
+              ci={pr.ci}
+              agentId={agentId}
+              url={pr.url}
+            />
+          )}
           <div className="border-t border-border p-3">
             <h4 className="text-xs font-semibold">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
@@ -883,7 +1078,7 @@ function RefreshablePullRequestRow({
   agentId: string;
 }) {
   const refresh = usePullRequestRefresh(agentId, props.pr.url);
-  return <PullRequestRow {...props} refresh={refresh} />;
+  return <PullRequestRow {...props} agentId={agentId} refresh={refresh} />;
 }
 
 function usePullRequestRefresh(agentId: string, url: string) {

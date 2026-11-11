@@ -17,6 +17,11 @@ export type DecisionMetrics = {
 };
 /** Merge-risk recommendations are verdicts, not deliveries. */
 export type MergeRiskMetrics = {
+  explanations?: {
+    attempts: number;
+    knownEstimatedUsd: number;
+    unknownCostCalls: number;
+  };
   attempts: number;
   routine: number;
   humanReview: number;

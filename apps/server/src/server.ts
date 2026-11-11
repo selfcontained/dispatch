@@ -97,6 +97,7 @@ import {
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity/index.js";
 import { createProviderPlansReporter } from "./agents/provider-plans.js";
+import { RiskExplanations } from "./agents/merge-risk/explanations.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
@@ -1105,6 +1106,11 @@ async function registerRoutes() {
       streamManager.addViewer(agentId, stream),
     diffStatsRefresher,
     pullRequests,
+    riskExplanations: new RiskExplanations({
+      pool,
+      settings: routingSettings,
+      inventory: pullRequests,
+    }),
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
     onArchiveError: (agentId, error) =>

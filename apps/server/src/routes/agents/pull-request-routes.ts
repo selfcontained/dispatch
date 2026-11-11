@@ -5,6 +5,41 @@ export async function registerAgentPullRequestRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ) {
+  app.post<{
+    Params: { id: string };
+    Body: { url: string; assessmentId: string };
+  }>(
+    "/api/v1/agents/:id/pull-requests/explain",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["url", "assessmentId"],
+          additionalProperties: false,
+          properties: {
+            url: { type: "string", format: "uri", maxLength: 4096 },
+            assessmentId: { type: "string", pattern: "^[0-9]{1,19}$" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      // This paid action is browser-only, never an agent bearer-token capability.
+      if (request.headers.authorization)
+        return reply
+          .code(403)
+          .send({ error: "Use the browser to explain an assessment." });
+      if (!(await deps.agentManager.getAgent(request.params.id)))
+        return reply.code(404).send({ error: "Agent not found." });
+      if (!deps.riskExplanations)
+        return reply.code(503).send({ error: "Explanation unavailable." });
+      return deps.riskExplanations.explain({
+        agentId: request.params.id,
+        ...request.body,
+      });
+    }
+  );
   // Explicit authored previews only; never infer a preview from a generic URL.
   app.get<{ Params: { id: string } }>(
     "/api/v1/agents/:id/preview",

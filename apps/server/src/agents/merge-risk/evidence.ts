@@ -20,6 +20,8 @@ export type MergeRiskFile = {
 };
 
 export type MergeRiskFinding = {
+  /** Attribution for explanation snapshots only; excluded from scoring evidence. */
+  settlementBy?: "reviewer" | "person" | "author" | "unknown";
   title: string;
   severity: string;
   status: "open" | "fixed" | "dismissed";

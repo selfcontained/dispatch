@@ -651,7 +651,7 @@ describe("merge-risk assessor", () => {
   afterAll(teardownTestDb);
   beforeEach(async () => {
     await pool.query(
-      "TRUNCATE merge_risk_decision_records,merge_risk_decision_daily"
+      "TRUNCATE merge_risk_decision_records,merge_risk_decision_daily CASCADE"
     );
     await pool.query("DELETE FROM blocks");
     await pool.query("DELETE FROM settings");
