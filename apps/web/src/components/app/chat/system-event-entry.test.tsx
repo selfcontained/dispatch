@@ -24,6 +24,8 @@ describe("system event presentation", () => {
     expect(screen.getByText("Routine")).toBeTruthy();
     expect(screen.queryByText("Passing")).toBeNull();
     expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link").getAttribute("target")).toBe("_blank");
+    expect(screen.getByRole("link").getAttribute("rel")).toBe("noreferrer");
     const button = screen.getByRole("button", { name: "Details" });
     expect(button.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(button);

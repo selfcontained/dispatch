@@ -28,9 +28,11 @@ export interface SystemEventPresentation extends Omit<SystemEvent, "version"> {
 export function SystemEventEntry({
   event,
   children,
+  visibleContent,
 }: {
   event: SystemEventPresentation;
   children?: ReactNode;
+  visibleContent?: ReactNode;
 }) {
   const Icon = {
     risk: ShieldCheck,
@@ -95,10 +97,13 @@ export function SystemEventEntry({
                 })
               : "10:42"}
           </time>
+          {visibleContent}
           {event.resource && (
             <div className="mt-3 font-sans text-sm leading-snug">
               <a
                 href={event.resource.url}
+                target="_blank"
+                rel="noreferrer"
                 className="min-w-0 break-words text-foreground underline decoration-border underline-offset-4 focus-visible:outline-ring"
               >
                 {event.resource.label}
@@ -123,16 +128,22 @@ export function SystemEventEntry({
         </div>
       </div>
       <CollapsibleContent className="mt-3 ml-6 border-t pt-3 font-sans text-sm leading-relaxed">
-        <p className="mb-1 text-xs font-medium text-muted-foreground">
-          Observation details
-        </p>
-        <div className="break-words">
-          <Markdown>{event.details}</Markdown>
-        </div>
+        {event.details ? (
+          <>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
+              Observation details
+            </p>
+            <div className="break-words">
+              <Markdown>{event.details}</Markdown>
+            </div>
+          </>
+        ) : null}
         {children}
-        <p className="mt-3 text-xs text-muted-foreground">
-          Informational · Not merge approval or authorization.
-        </p>
+        {event.category !== "info" ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Informational · Not merge approval or authorization.
+          </p>
+        ) : null}
       </CollapsibleContent>
     </Collapsible>
   );

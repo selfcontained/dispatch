@@ -81,7 +81,7 @@ export function ScheduledMessageEntry({
           <Markdown>{fallbackText}</Markdown>
         )}
       </div>
-      {delivery && deliveryStatus && (
+      {!systemEvent && delivery && deliveryStatus && (
         <p className="mt-1 text-xs text-muted-foreground">
           {deliveryStatus === "accepted"
             ? "Accepted by agent"
@@ -113,16 +113,50 @@ export function ScheduledMessageEntry({
             </p>
           </div>
         )}
-        <ScheduledMessagesButton
-          agentId={agentId}
-          scheduleId={scheduleId}
-          ended={!current}
-        />
+        {!systemEvent && (
+          <ScheduledMessagesButton
+            agentId={agentId}
+            scheduleId={scheduleId}
+            ended={!current}
+          />
+        )}
       </div>
     </div>
   );
   return systemEvent ? (
-    <SystemEventEntry event={systemEvent}>{content}</SystemEventEntry>
+    <SystemEventEntry
+      event={{
+        ...systemEvent,
+        summary: schedule?.title
+          ? `${systemEvent.summary}: ${schedule.title}`
+          : systemEvent.summary,
+        defaultOpen: deliveryStatus === "uncertain",
+      }}
+      visibleContent={
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>
+            {delivery
+              ? deliveryStatus === "uncertain"
+                ? "Acceptance unconfirmed · schedule suspended"
+                : deliveryStatus === "discarded"
+                  ? "Discarded by schedule"
+                  : deliveryStatus === "accepted"
+                    ? "Accepted by agent"
+                    : "Waiting for agent"
+              : schedule
+                ? scheduleStatusLabels[schedule.status]
+                : "Schedule details unavailable"}
+          </span>
+          <ScheduledMessagesButton
+            agentId={agentId}
+            scheduleId={scheduleId}
+            ended={!current}
+          />
+        </div>
+      }
+    >
+      {content}
+    </SystemEventEntry>
   ) : (
     content
   );

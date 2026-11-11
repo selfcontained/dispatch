@@ -68,18 +68,20 @@ export function systemEventOf(block: Block): SystemEvent | undefined {
               "Inconclusive — no confident recommendation"
             ? "abstain"
             : undefined;
-    return {
-      version: 1,
-      category,
-      summary:
-        category === "risk"
-          ? "Merge-risk assessment"
-          : category === "checks"
-            ? "Pull request checks"
-            : `Pull request ${transition.current ?? "updated"}`,
-      ...(risk ? { risk } : {}),
-      ...(transition.headSha ? { head: transition.headSha.slice(0, 64) } : {}),
-    };
+    return (
+      parseSystemEvent({
+        version: 1,
+        category,
+        summary:
+          category === "risk"
+            ? "Merge-risk assessment"
+            : category === "checks"
+              ? "Pull request checks"
+              : `Pull request ${typeof transition.current === "string" ? transition.current.toLowerCase() : "updated"}`,
+        ...(risk ? { risk } : {}),
+        ...(transition.headSha ? { head: transition.headSha } : {}),
+      }) ?? { version: 1, category: "info", summary: "System update" }
+    );
   }
   if (block.data?.scheduledMessageId)
     return {

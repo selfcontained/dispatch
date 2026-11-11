@@ -60,6 +60,46 @@ describe("bounded system observations", () => {
       } as Block)
     ).toMatchObject({ status: "Pending" });
   });
+  it("projects legacy lifecycle, checks, scheduler and generic fallbacks through the same bounds", () => {
+    const base = {
+      kind: "text",
+      author: { kind: "system" },
+      toAgentId: null,
+    } as unknown as Block;
+    const project = (data: unknown, toAgentId: string | null = null) =>
+      systemEventOf({ ...base, data, toAgentId } as Block);
+    expect(
+      project({
+        pullRequestTransition: { previous: "Open", current: "Merged" },
+      })
+    ).toMatchObject({ category: "lifecycle", summary: "Pull request merged" });
+    const checks = project({
+      pullRequestTransition: { observation: "checks" },
+    });
+    expect(checks).toMatchObject({ category: "checks" });
+    expect(checks?.status).toBeUndefined();
+    expect(project({ scheduledMessageId: "s" })).toMatchObject({
+      summary: "Scheduled reminder",
+    });
+    expect(project({ scheduledMessageId: "s" }, "a")).toMatchObject({
+      summary: "Scheduled delivery",
+    });
+    expect(project(null)).toMatchObject({ summary: "System update" });
+    expect(
+      project({
+        systemEvent: { version: 2 },
+        pullRequestTransition: { current: "Closed" },
+      })
+    ).toMatchObject({ summary: "Pull request closed" });
+    expect(
+      project({
+        pullRequestTransition: { headSha: "<script>", current: "Merged" },
+      })
+    ).toMatchObject({ category: "info", summary: "System update" });
+    expect(
+      project({ pullRequestTransition: { current: "x".repeat(200) } })
+    ).toMatchObject({ category: "info" });
+  });
   it("never equates routine risk or neutral/missing checks with successful checks", () => {
     const pr = riskFixture();
     expect(checkSummary(pr)).toBe("Passing");

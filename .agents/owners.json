@@ -503,6 +503,14 @@
         "docs/design/communication-visualizations.md"
       ],
       "personas": ["stream-delivery-owner"]
+    },
+    {
+      "paths": [
+        "packages/shared/src/system-events.ts",
+        "apps/server/test/system-events.test.ts",
+        "docs/design/compact-system-events.md"
+      ],
+      "personas": ["stream-interactions-owner"]
     }
   ],
   "fallback": ["code-review"]

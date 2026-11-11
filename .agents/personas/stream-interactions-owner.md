@@ -19,6 +19,8 @@ Read `chat/service.ts`, `chat/validation.ts`, `routes/streams.ts`, `shared/mcp/s
 - Preserve composer drafts, seen state, thread navigation, and interaction state across rerender, reload, and agent switching. Key persisted values by their owner; use URL state for shareable navigation and React Query for server state.
 - Prefer shadcn primitives and verify keyboard access, focus, disabled/loading states, attachments, and overflow in the changed interaction.
 
+- Own bounded server system-event metadata and legacy projections (`packages/shared/src/system-events.ts`), producer/projection tests, and the compact observation design contract. Check attribution, live receipts, schedule recovery visibility, and link/thread interactions.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.

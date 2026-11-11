@@ -792,7 +792,37 @@ export function Post({
             {action}
           </div>
         ) : null}
-        {hideHeader ? null : grouped ? (
+        {hideHeader ? (
+          side || deliveryIndicator || contextLink ? (
+            <div
+              className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground"
+              data-testid="system-observation-receipt"
+            >
+              {side ? (
+                <span data-testid="chat-side-recipient">
+                  →{" "}
+                  {side.recipients
+                    ? side.recipients.map((recipient, index) => (
+                        <span key={recipient.agentId}>
+                          {index > 0 ? ", " : ""}
+                          <AgentSessionLink
+                            agentId={recipient.agentId}
+                            name={recipient.name}
+                          />
+                        </span>
+                      ))
+                    : side.recipientName}
+                </span>
+              ) : null}
+              {deliveryIndicator ? (
+                <span data-testid="chat-delivery-slot">
+                  {deliveryIndicator}
+                </span>
+              ) : null}
+              {contextLink}
+            </div>
+          ) : null
+        ) : grouped ? (
           deliveryIndicator || contextLink ? (
             <div
               className={cn(
@@ -880,7 +910,7 @@ export function Post({
             POST_BODY_MEASURE,
             // On phones the body takes the avatar column's width too (w-8 +
             // gap-3); on desktop it stays indented under the author.
-            !flush && "max-sm:-ml-11 max-sm:max-w-none"
+            !flush && !hideHeader && "max-sm:-ml-11 max-sm:max-w-none"
           )}
         >
           {children}
@@ -2042,21 +2072,23 @@ export const BlockView = memo(function BlockView({
             }
           />
         ) : systemEvent ? (
-          <SystemEventEntry
-            event={{
-              ...systemEvent,
-              details: block.text ?? "",
-              at: block.createdAt,
-              ...(systemResource?.type === "pr"
-                ? {
-                    resource: {
-                      label: systemResource.title || "View pull request",
-                      url: systemResource.url,
-                    },
-                  }
-                : {}),
-            }}
-          />
+          <MessageThreadTap onOpen={openTextThread}>
+            <SystemEventEntry
+              event={{
+                ...systemEvent,
+                details: block.text ?? "",
+                at: block.createdAt,
+                ...(systemResource?.type === "pr"
+                  ? {
+                      resource: {
+                        label: systemResource.title || "View pull request",
+                        url: systemResource.url,
+                      },
+                    }
+                  : {}),
+              }}
+            />
+          </MessageThreadTap>
         ) : block.text ? (
           <MessageThreadTap onOpen={openTextThread}>
             <Markdown
