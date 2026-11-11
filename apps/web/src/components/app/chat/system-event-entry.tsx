@@ -81,6 +81,12 @@ export function SystemEventEntry({
               </Badge>
             )}
           </div>
+          <time
+            className="mt-1 block text-[11px] text-muted-foreground"
+            dateTime="2026-11-10T10:42:00-07:00"
+          >
+            10:42
+          </time>
           {event.resource && (
             <div className="mt-3 font-sans text-sm leading-snug">
               <a
@@ -99,7 +105,7 @@ export function SystemEventEntry({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-5 gap-1 px-1 text-xs"
+                className="ml-auto h-5 gap-1 bg-transparent px-1 text-xs hover:bg-transparent hover:text-foreground focus-visible:bg-transparent data-[state=open]:bg-transparent"
               >
                 Details
                 <ChevronDown className="size-3" />
@@ -117,11 +123,6 @@ export function SystemEventEntry({
           Informational · Not merge approval or authorization.
         </p>
       </CollapsibleContent>
-      <footer className="mt-3 ml-6 flex items-center gap-2 text-[11px] text-muted-foreground">
-        <span>Dispatch</span>
-        <span aria-hidden>·</span>
-        <time dateTime="2026-11-10T10:42:00-07:00">10:42</time>
-      </footer>
     </Collapsible>
   );
 }
