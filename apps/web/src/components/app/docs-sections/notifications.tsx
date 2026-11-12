@@ -67,6 +67,15 @@ export function NotificationsContent() {
           by a job are the exception: their attention notifications go to
           browser notifications only, never to Slack.
         </P>
+        <P>
+          With the Slack app connected, people you allow under{" "}
+          <strong>Who can answer</strong> can answer a question or form from its
+          Slack alert, or reply in the alert&apos;s thread to message the agent.
+          Linking posts a one-time button in your channel; whoever clicks it
+          appears as a pending request until you allow it. Answers show &quot;in
+          Slack by @name&quot;. Approvals agents mark Dispatch-only always open
+          in Dispatch.
+        </P>
       </Section>
 
       <Section>

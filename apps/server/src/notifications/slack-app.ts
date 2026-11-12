@@ -26,6 +26,7 @@ export type SlackInbound = {
 export type SlackInboundHandler = (
   inbound: SlackInbound
 ) => Promise<Record<string, unknown> | void>;
+export const ANSWER_SCOPES = ["channels:history", "groups:history"];
 /** Socket Mode requires an ack within 3 seconds. */
 const ACK_BUDGET_MS = 2500;
 type Credentials = { botToken: string; appToken: string };
@@ -50,6 +51,8 @@ export class SlackApp {
   private status = "not_configured";
   private channels: SlackChannel[] = [];
   private botUserId: string | null = null;
+  /** Bot scopes Slack reported on the last auth.test; null when unknown. */
+  private scopes: string[] | null = null;
   private inbound?: SlackInboundHandler;
   private onConnected?: () => void;
   private validated?: {
@@ -103,6 +106,14 @@ export class SlackApp {
       );
     }
     if (!response.ok) throw new Error("Slack service unavailable. Try again.");
+    if (method === "auth.test") {
+      const scopes = response.headers.get("x-oauth-scopes");
+      if (scopes !== null)
+        this.scopes = scopes
+          .split(",")
+          .map((scope) => scope.trim())
+          .filter(Boolean);
+    }
     let body: Record<string, any>;
     try {
       body = (await response.json()) as Record<string, any>;
@@ -160,6 +171,10 @@ export class SlackApp {
       binding,
       channels: this.channels,
       lastDelivery: this.lastDelivery,
+      // Answering needs thread-reply events; interactivity can't be probed.
+      missingAnswerScopes: this.scopes
+        ? ANSWER_SCOPES.filter((scope) => !this.scopes!.includes(scope))
+        : null,
     };
   }
   async validate(credentials: Credentials) {
@@ -369,10 +384,9 @@ export class SlackApp {
         return;
       }
       const { binding, credentials } = config;
-      if (!binding.botUserId && !this.botUserId) {
-        const auth = await this.api(credentials.botToken, "auth.test");
-        if (typeof auth.user_id === "string") this.botUserId = auth.user_id;
-      }
+      // Also refreshes granted scopes after a manifest update + reinstall.
+      const auth = await this.api(credentials.botToken, "auth.test");
+      if (typeof auth.user_id === "string") this.botUserId = auth.user_id;
       const response = await this.api(
         credentials.appToken,
         "apps.connections.open"

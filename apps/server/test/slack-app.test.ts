@@ -206,6 +206,22 @@ describe("Slack app boundary", () => {
     expect(bodies[2]).toMatchObject({ user: "U1", thread_ts: "1.2" });
     f.app.stop();
   });
+  it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
+    const f = fixture();
+    f.transport.mockResolvedValueOnce(
+      Response.json(
+        { ok: true, team_id: "T1", team: "Local team", user_id: "UBOT" },
+        {
+          headers: { "x-oauth-scopes": "chat:write,channels:read,groups:read" },
+        }
+      )
+    );
+    await f.app.validate(credentials);
+    expect((await f.app.settings()).missingAnswerScopes).toEqual([
+      "channels:history",
+      "groups:history",
+    ]);
+  });
   it("rejects redirects, malformed credentials and unvalidated enable", async () => {
     const f = fixture();
     await expect(

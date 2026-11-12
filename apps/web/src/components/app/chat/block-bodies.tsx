@@ -252,7 +252,11 @@ export function QuestionOptions({
             role="status"
           >
             <Check className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
-            <span className="shrink-0 text-muted-foreground">Answered ·</span>
+            <span className="shrink-0 text-muted-foreground">
+              {answer?.external
+                ? `Answered in Slack by ${answer.external.displayName} ·`
+                : "Answered ·"}
+            </span>
             <span className="min-w-0 whitespace-pre-wrap break-words">
               {block.data.options.find(
                 (option) => (option.value ?? option.label) === answer!.value
@@ -725,6 +729,9 @@ export function FormBlockBody({
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Check className="h-3 w-3" />
           {block.data.title ? `${block.data.title} · submitted` : "Submitted"}
+          {submission?.external
+            ? ` in Slack by ${submission.external.displayName}`
+            : null}
         </div>
       )}
       <div className="flex flex-col gap-1.5">
