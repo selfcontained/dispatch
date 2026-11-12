@@ -14,7 +14,7 @@ import {
   stableUuid,
 } from "../src/notifications/slack-answers.js";
 import { SlackApp } from "../src/notifications/slack-app.js";
-import { setSetting, deleteSetting } from "../src/db/settings.js";
+import { setSetting, deleteSetting, getSetting } from "../src/db/settings.js";
 import type {
   SlackBinding,
   SlackInbound,
@@ -225,7 +225,7 @@ describe("answerer binding", () => {
       if (url.endsWith("apps.connections.open"))
         return Response.json({
           ok: true,
-          url: "wss://wss.slack.com/link?app_id=A1",
+          url: `wss://wss.slack.com/link?app_id=${"b".repeat(64)}`,
         });
       if (url.endsWith("chat.postMessage"))
         posted = JSON.parse(String(init?.body));
@@ -235,11 +235,23 @@ describe("answerer binding", () => {
       pool,
       "slack_app_binding",
       JSON.stringify({
-        binding,
+        binding: { ...binding, appId: "b".repeat(64) },
         credentials: { botToken: "xoxb-fixture", appToken: "xapp-fixture" },
       })
     );
-    const app = new SlackApp(pool, transport as typeof fetch, () => socket);
+    const storedBinding = await getSetting(pool, "slack_app_binding");
+    const app = new SlackApp(pool, transport as typeof fetch, () => {
+      queueMicrotask(() =>
+        socket.onmessage?.({
+          data: JSON.stringify({
+            type: "hello",
+            connection_info: { app_id: "A1" },
+            num_connections: 1,
+          }),
+        } as MessageEvent)
+      );
+      return socket;
+    });
     const answers = new SlackAnswers(
       pool,
       app,
@@ -249,6 +261,10 @@ describe("answerer binding", () => {
     answers.start();
     try {
       await app.start();
+      expect(await app.currentBinding()).toMatchObject({
+        appId: "A1",
+        generation: binding.generation,
+      });
       await answers.createLink();
       const nonce = posted.blocks[1].elements[0].value;
       const deliver = () =>
@@ -307,6 +323,15 @@ describe("answerer binding", () => {
       expect(identities).toHaveLength(1);
       expect(identities[0]!.status).toBe("pending");
       await answers.allow(identities[0]!.id);
+      expect(await answers.answerers()).toMatchObject([
+        { userId: "U_SOCKET", status: "allowed" },
+      ]);
+      await app.start();
+      expect(await app.currentBinding()).toMatchObject({
+        appId: "A1",
+        generation: binding.generation,
+      });
+      expect(await getSetting(pool, "slack_app_binding")).toBe(storedBinding);
       expect(await answers.answerers()).toMatchObject([
         { userId: "U_SOCKET", status: "allowed" },
       ]);

@@ -6,7 +6,7 @@ import {
 } from "../src/notifications/slack-app.js";
 import type { Pool } from "pg";
 
-function fixture() {
+function fixture(socketUrlAppId = "A1") {
   const settings = new Map<string, string>();
   const pool = {
     query: vi.fn(async (sql: string, values: string[]) => {
@@ -29,7 +29,7 @@ function fixture() {
         : method === "apps.connections.open"
           ? {
               ok: true,
-              url: "wss://wss.slack.com/link?app_id=A1&ticket=secret",
+              url: `wss://wss.slack.com/link?app_id=${socketUrlAppId}&ticket=secret`,
             }
           : method === "conversations.list"
             ? {
@@ -49,7 +49,18 @@ function fixture() {
     onclose: null,
     onerror: null,
   } as unknown as WebSocket;
-  const app = new SlackApp(pool, transport as typeof fetch, () => socket);
+  const app = new SlackApp(pool, transport as typeof fetch, () => {
+    queueMicrotask(() =>
+      socket.onmessage?.({
+        data: JSON.stringify({
+          type: "hello",
+          connection_info: { app_id: "A1" },
+          num_connections: 1,
+        }),
+      } as MessageEvent)
+    );
+    return socket;
+  });
   return { app, pool, settings, transport, socket };
 }
 const credentials = { botToken: "xoxb-fake", appToken: "xapp-fake" };
@@ -474,7 +485,7 @@ it("candidate validation failure leaves a connected installation healthy", async
   await f.app.validate(credentials);
   await f.app.enable("C1", "http://lan");
   f.socket.onmessage!({
-    data: JSON.stringify({ type: "hello" }),
+    data: JSON.stringify({ type: "hello", connection_info: { app_id: "A1" } }),
   } as MessageEvent);
   f.transport.mockResolvedValueOnce(
     Response.json({ ok: false, error: "invalid_auth" })
@@ -798,5 +809,76 @@ it("reports safe callback refusal and failure stages without retaining envelope 
   expect(JSON.stringify(await f.app.settings())).not.toMatch(
     /secret-provider|secret-nonce/
   );
+  expect((await f.app.settings()).callbackStageCounts).toMatchObject({
+    received: 2,
+    app_mismatch: 1,
+    accepted: 1,
+    handler_failed: 1,
+  });
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "events_api",
+      envelope_id: "background",
+      payload: { api_app_id: "A1", team_id: "T1", event: { type: "message" } },
+    }),
+  } as MessageEvent);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect((await f.app.settings()).callbackDiagnostic?.stage).toBe(
+    "handler_failed"
+  );
+  expect((await f.app.settings()).callbackStageCounts.received).toBe(2);
+  f.app.stop();
+});
+
+it("uses authenticated hello identity when the connection URL app_id is opaque", async () => {
+  const f = fixture("a".repeat(64));
+  await f.app.validate(credentials);
+  await f.app.enable("C1", "http://lan");
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "hello",
+      connection_info: { app_id: "A1" },
+      num_connections: 1,
+    }),
+  } as MessageEvent);
+  const handler = vi.fn(async () => {});
+  f.app.setInboundHandler(handler);
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "interactive",
+      envelope_id: "opaque-url",
+      payload: { type: "block_actions", api_app_id: "A1", team: { id: "T1" } },
+    }),
+  } as MessageEvent);
+  await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
+  f.app.stop();
+});
+
+it("refuses callbacks when canonical socket identity changes", async () => {
+  const f = fixture();
+  await f.app.validate(credentials);
+  await f.app.enable("C1", "http://lan");
+  const handler = vi.fn(async () => {});
+  f.app.setInboundHandler(handler);
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "hello",
+      connection_info: { app_id: "AOTHER" },
+    }),
+  } as MessageEvent);
+  expect((await f.app.settings()).status).toBe("app_identity_mismatch");
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "interactive",
+      envelope_id: "changed-app",
+      payload: { api_app_id: "A1", team: { id: "T1" }, type: "block_actions" },
+    }),
+  } as MessageEvent);
+  await vi.waitFor(async () =>
+    expect((await f.app.settings()).callbackDiagnostic?.stage).toBe(
+      "identity_unverified"
+    )
+  );
+  expect(handler).not.toHaveBeenCalled();
   f.app.stop();
 });

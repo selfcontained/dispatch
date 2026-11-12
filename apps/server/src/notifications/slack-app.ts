@@ -74,6 +74,12 @@ export class SlackAuthError extends Error {}
 /** No raw provider errors, credential-bearing socket URLs or response bodies escape this client. */
 export class SlackApp {
   private socket?: WebSocket;
+  private verifiedSocket?: {
+    generation: string;
+    revision: number;
+    appId: string;
+  };
+  private socketConnections: number | null = null;
   private reconnect?: ReturnType<typeof setTimeout>;
   private stopped = false;
   private revision = 0;
@@ -88,9 +94,13 @@ export class SlackApp {
   private recheckWork?: Promise<void>;
   private inbound?: SlackInboundHandler;
   private callbackDiagnostic: { stage: string; at: string } | null = null;
+  private callbackStageCounts: Record<string, number> = {};
   /** Fixed stage names only: never payloads, credentials or provider errors. */
   recordCallbackStage(
     stage:
+      | "identity_unverified"
+      | "received"
+      | "link_claimed"
       | "accepted"
       | "handler_completed"
       | "handler_failed"
@@ -106,6 +116,9 @@ export class SlackApp {
       | "link_already_allowed"
   ) {
     this.callbackDiagnostic = { stage, at: new Date().toISOString() };
+    this.callbackStageCounts[stage] =
+      (this.callbackStageCounts[stage] ?? 0) + 1;
+    this.onCallbackDiagnostic?.(this.callbackDiagnostic);
   }
   private onConnected?: () => void;
   private validated?: {
@@ -118,7 +131,12 @@ export class SlackApp {
   constructor(
     private pool: Pool,
     private transport: typeof fetch = fetch,
-    private openSocket: (url: string) => WebSocket = (url) => new WebSocket(url)
+    private openSocket: (url: string) => WebSocket = (url) =>
+      new WebSocket(url),
+    private onCallbackDiagnostic?: (diagnostic: {
+      stage: string;
+      at: string;
+    }) => void
   ) {}
 
   private async api(
@@ -217,6 +235,13 @@ export class SlackApp {
         !config.credentials?.appToken
       )
         throw new Error();
+      const verified = this.verifiedSocket;
+      if (
+        verified &&
+        verified.generation === config.binding.generation &&
+        verified.revision === this.revision
+      )
+        config.binding.appId = verified.appId;
       return config;
     } catch {
       throw new Error(
@@ -232,6 +257,7 @@ export class SlackApp {
     return {
       configured: !!binding,
       status: this.status,
+      socketConnections: this.socketConnections,
       binding,
       channels: this.channels,
       lastDelivery: this.lastDelivery,
@@ -239,6 +265,7 @@ export class SlackApp {
         ? ["chat:write"].filter((scope) => !this.scopes!.includes(scope))
         : null,
       callbackDiagnostic: this.callbackDiagnostic,
+      callbackStageCounts: { ...this.callbackStageCounts },
       missingImageScopes: this.scopes
         ? IMAGE_SCOPES.filter((scope) => !this.scopes!.includes(scope))
         : null,
@@ -261,10 +288,8 @@ export class SlackApp {
       "apps.connections.open"
     );
     const url = this.socketUrl(connection.url);
-    const appId = url.searchParams.get("app_id");
-    // Minimal bot scopes cannot query bots.info (requires users:read).
-    // Bind the socket app and authenticated posting workspace separately;
-    // this foundation never executes inbound payloads.
+    const appId = await this.readSocketIdentity(url.href);
+    // App identity comes only from authenticated hello, never URL query internals.
     if (!appId || typeof auth.team_id !== "string")
       throw new Error("Slack did not return app/workspace identity.");
     this.validated = {
@@ -276,6 +301,42 @@ export class SlackApp {
     };
     this.channels = await this.listChannels(credentials.botToken);
     return { teamName: String(auth.team), channels: this.channels };
+  }
+  private readSocketIdentity(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const socket = this.openSocket(url);
+      const finish = (appId?: string) => {
+        clearTimeout(timer);
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close();
+        if (appId) resolve(appId);
+        else
+          reject(
+            new Error(
+              "Slack Socket Mode did not verify its app identity. Try again."
+            )
+          );
+      };
+      const timer = setTimeout(() => finish(), 10000);
+      socket.onclose = () => finish();
+      socket.onerror = () => finish();
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(String(event.data));
+          if (message.type !== "hello") return;
+          const appId = message.connection_info?.app_id;
+          finish(
+            typeof appId === "string" && /^A[A-Z0-9]+$/.test(appId)
+              ? appId
+              : undefined
+          );
+        } catch {
+          finish();
+        }
+      };
+    });
   }
   private socketUrl(value: unknown) {
     if (typeof value !== "string")
@@ -408,17 +469,30 @@ export class SlackApp {
     message: Record<string, any>,
     ack: (payload?: Record<string, unknown>) => void
   ) {
+    const diagnose = (
+      stage: Parameters<SlackApp["recordCallbackStage"]>[0]
+    ) => {
+      if (message.type === "interactive") this.recordCallbackStage(stage);
+    };
+    diagnose("received");
+    const inboundRevision = this.revision;
     const handler = this.inbound;
     const payload = message.payload;
     const config = handler
       ? await this.configuration().catch(() => null)
       : null;
+    if (inboundRevision !== this.revision || this.stopped) {
+      ack();
+      return;
+    }
     const binding = config?.binding;
     const team =
       message.type === "interactive" ? payload?.team?.id : payload?.team_id;
     // The socket is authenticated by the app token, but bind every payload
     // to the stored installation anyway: wrong app/team is dropped unread.
     if (
+      !this.verifiedSocket ||
+      this.verifiedSocket.revision !== this.revision ||
       !handler ||
       !binding ||
       !payload ||
@@ -426,21 +500,23 @@ export class SlackApp {
       payload.api_app_id !== binding.appId ||
       team !== binding.teamId
     ) {
-      this.recordCallbackStage(
-        !handler
-          ? "handler_unavailable"
-          : !binding
-            ? "binding_unavailable"
-            : !payload || typeof payload !== "object"
-              ? "malformed"
-              : payload.api_app_id !== binding.appId
-                ? "app_mismatch"
-                : "team_mismatch"
+      diagnose(
+        !this.verifiedSocket || this.verifiedSocket.revision !== this.revision
+          ? "identity_unverified"
+          : !handler
+            ? "handler_unavailable"
+            : !binding
+              ? "binding_unavailable"
+              : !payload || typeof payload !== "object"
+                ? "malformed"
+                : payload.api_app_id !== binding.appId
+                  ? "app_mismatch"
+                  : "team_mismatch"
       );
       ack();
       return;
     }
-    this.recordCallbackStage("accepted");
+    diagnose("accepted");
     const inbound: SlackInbound = {
       type: message.type,
       payload,
@@ -450,7 +526,7 @@ export class SlackApp {
     if (message.type === "interactive" && payload.type === "view_submission") {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const work = handler(inbound).catch(() => {
-        this.recordCallbackStage("handler_failed");
+        diagnose("handler_failed");
         return undefined;
       });
       const timedOut = Symbol("timeout");
@@ -482,13 +558,26 @@ export class SlackApp {
       await handler(inbound);
       // Preserve the more specific link outcome reported by the handler.
       if (this.callbackDiagnostic?.stage === "accepted")
-        this.recordCallbackStage("handler_completed");
+        diagnose("handler_completed");
     } catch {
-      this.recordCallbackStage("handler_failed");
+      diagnose("handler_failed");
+      if (
+        message.type === "interactive" &&
+        payload.type === "block_actions" &&
+        payload.actions?.[0]?.action_id === "dispatch_link" &&
+        typeof payload.user?.id === "string"
+      ) {
+        await this.postEphemeral(
+          payload.user.id,
+          "Dispatch couldn't complete this link request. Check the Socket Mode callback status in Dispatch Settings, then request a fresh link. Nothing was allowed."
+        ).catch(() => {});
+      }
     }
   }
   stop() {
     this.stopped = true;
+    this.verifiedSocket = undefined;
+    this.socketConnections = null;
     this.revision++;
     clearTimeout(this.reconnect);
     this.reconnect = undefined;
@@ -502,6 +591,8 @@ export class SlackApp {
     this.status = "connecting";
     const retry = () => {
       if (this.stopped || revision !== this.revision || this.reconnect) return;
+      this.verifiedSocket = undefined;
+      this.socketConnections = null;
       this.status = "reconnecting";
       this.reconnect = setTimeout(() => {
         this.reconnect = undefined;
@@ -525,8 +616,6 @@ export class SlackApp {
         "apps.connections.open"
       );
       const url = this.socketUrl(response.url);
-      if (url.searchParams.get("app_id") !== binding.appId)
-        throw new Error("Slack app identity changed.");
       if (this.stopped || revision !== this.revision) return;
       const socket = this.openSocket(url.href);
       this.socket = socket;
@@ -535,6 +624,31 @@ export class SlackApp {
         try {
           const message = JSON.parse(String(event.data));
           if (message.type === "hello") {
+            this.verifiedSocket = undefined;
+            const appId = message.connection_info?.app_id;
+            // Older versions stored an opaque URL query as appId. Resolve it
+            // from this authenticated socket, preserving the installation generation.
+            const legacy = /^[0-9a-f]{64}$/.test(binding.appId);
+            if (
+              typeof appId !== "string" ||
+              !/^A[A-Z0-9]+$/.test(appId) ||
+              (!legacy && appId !== binding.appId)
+            ) {
+              this.status = "app_identity_mismatch";
+              socket.onclose = null;
+              socket.close();
+              return;
+            }
+            this.verifiedSocket = {
+              generation: binding.generation,
+              revision,
+              appId,
+            };
+            this.socketConnections =
+              Number.isInteger(message.num_connections) &&
+              message.num_connections > 0
+                ? message.num_connections
+                : null;
             this.status = "connected";
             this.backoff = 1000;
             this.onConnected?.();

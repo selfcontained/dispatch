@@ -606,10 +606,14 @@ export class SlackAnswers {
       this.app.recordCallbackStage("link_refused");
       return;
     }
-    if (typeof nonce !== "string" || typeof user.id !== "string") return;
+    if (typeof nonce !== "string" || typeof user.id !== "string") {
+      this.app.recordCallbackStage("link_refused");
+      return;
+    }
     // Only members of the bound workspace may claim (no Slack Connect
     // guests); a rejected click doesn't consume the one-time link.
     if (typeof user.team_id === "string" && user.team_id !== binding.teamId) {
+      this.app.recordCallbackStage("link_refused");
       await this.app
         .postEphemeral(
           user.id,
@@ -633,6 +637,7 @@ export class SlackAnswers {
         .catch(() => {});
       return;
     }
+    this.app.recordCallbackStage("link_claimed");
     const handle = String(user.username || user.name || "Slack user").slice(
       0,
       80
