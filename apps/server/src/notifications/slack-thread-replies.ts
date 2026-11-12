@@ -162,8 +162,11 @@ const promptIds = (prompt: PromptSource | undefined | null) =>
 export class SlackThreadReplies {
   private timer?: ReturnType<typeof setInterval>;
   private flushing = false;
-  /** Sent, but recording that failed: never sent again by this process. */
-  private sentUnrecorded = new Set<string>();
+  /**
+   * Sent (post id → Slack ts), but recording that failed. Never sent again;
+   * each flush retries the record until it lands.
+   */
+  private sentUnrecorded = new Map<string, string>();
   constructor(
     private pool: Pool,
     private app: SlackApp,
@@ -331,6 +334,20 @@ export class SlackThreadReplies {
     return !!parent.rowCount;
   }
 
+  /** Record a send; on failure remember it so it is retried, never resent. */
+  private async markSent(postBlockId: string, ts: string) {
+    try {
+      await this.pool.query(
+        `UPDATE slack_thread_replies SET sent_at = now(), slack_reply_ts = $2, reply_text = NULL
+         WHERE post_block_id = $1`,
+        [postBlockId, ts]
+      );
+      this.sentUnrecorded.delete(postBlockId);
+    } catch {
+      this.sentUnrecorded.set(postBlockId, ts);
+    }
+  }
+
   private async giveUp(postBlockId: string) {
     await this.pool.query(
       `UPDATE slack_thread_replies SET gave_up_at = now(), reply_text = NULL WHERE post_block_id = $1`,
@@ -359,8 +376,12 @@ export class SlackThreadReplies {
       const held = new Set<string>();
       for (const row of rows) {
         const thread = `${row.channel_id}:${row.thread_ts}`;
-        if (held.has(thread) || this.sentUnrecorded.has(row.post_block_id))
+        if (held.has(thread)) continue;
+        const unrecorded = this.sentUnrecorded.get(row.post_block_id);
+        if (unrecorded !== undefined) {
+          await this.markSent(row.post_block_id, unrecorded);
           continue;
+        }
         if (row.expired || row.attempts >= MAX_ATTEMPTS) {
           await this.giveUp(row.post_block_id);
           continue;
@@ -435,15 +456,7 @@ export class SlackThreadReplies {
           continue;
         }
         // Slack has it now. A failed bookkeeping write must never resend.
-        await this.pool
-          .query(
-            `UPDATE slack_thread_replies SET sent_at = now(), slack_reply_ts = $2, reply_text = NULL
-             WHERE post_block_id = $1`,
-            [row.post_block_id, sent.timestamp]
-          )
-          .catch(() => {
-            this.sentUnrecorded.add(row.post_block_id);
-          });
+        await this.markSent(row.post_block_id, sent.timestamp);
       }
     } finally {
       this.flushing = false;

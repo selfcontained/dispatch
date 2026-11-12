@@ -817,6 +817,14 @@ describe("Slack thread reply → agent → same Slack thread", () => {
       await replies.flush();
     }
     expect(calls.posted.map(sectionText)).toEqual(["only once"]);
+    // The record was retried on a later flush and landed with the Slack ts.
+    const { rows } = await real.query(
+      `SELECT sent_at, slack_reply_ts, reply_text FROM slack_thread_replies`
+    );
+    expect(rows[0].sent_at).toBeTruthy();
+    expect(rows[0].slack_reply_ts).toBe(calls.posted[0]!.ts);
+    expect(rows[0].reply_text).toBeNull();
+    expect((replies as any).sentUnrecorded.size).toBe(0);
   });
 
   it("a steering split relays the finished response it froze", async () => {
