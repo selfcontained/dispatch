@@ -9,7 +9,7 @@ import type {
   StreamThreadResponse,
 } from "@dispatch/shared";
 import {
-  hashKey,
+  type Query,
   type QueryClient,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -205,9 +205,13 @@ function invalidateOnceFirstFetchSettles(
 /** The fastest a busy stream's events may refetch one feed. */
 export const FEED_ENTRY_REFETCH_MS = 1_000;
 
-/** Feeds with a throttled refetch scheduled, and when each last ran one. */
-const scheduledFeedRefetches = new Set<string>();
-const lastFeedRefetchAt = new Map<string, number>();
+/**
+ * Feeds with a throttled refetch scheduled, and when each last ran one.
+ * Keyed by the query object, so a feed React Query garbage-collects or
+ * removes takes its bookkeeping with it.
+ */
+const scheduledFeedRefetches = new WeakSet<Query>();
+const lastFeedRefetchAt = new WeakMap<Query, number>();
 
 /**
  * An entry arrived while this feed (with data) is fetching, and that fetch
@@ -223,27 +227,38 @@ function refetchFeedAfterEntry(
   queryClient: QueryClient,
   key: readonly unknown[]
 ): void {
-  const hash = hashKey(key);
-  if (scheduledFeedRefetches.has(hash)) return;
-  scheduledFeedRefetches.add(hash);
+  const cache = queryClient.getQueryCache();
+  const owner = cache.find({ queryKey: key, exact: true });
+  if (!owner || scheduledFeedRefetches.has(owner)) return;
+  scheduledFeedRefetches.add(owner);
+  let awaited: Promise<unknown> | undefined;
   const run = () => {
-    const query = queryClient
-      .getQueryCache()
-      .find({ queryKey: key, exact: true });
+    // Removed meanwhile: nothing left to refresh, and no query to recreate.
+    if (cache.find({ queryKey: key, exact: true }) !== owner) {
+      scheduledFeedRefetches.delete(owner);
+      return;
+    }
     // Another fetch started meanwhile (focus, interval): it may predate
-    // the entries, so wait it out rather than share its answer.
-    if (query?.state.fetchStatus === "fetching" && query.promise) {
-      query.promise.then(run, run);
+    // the entries, so wait it out rather than share its answer. Never the
+    // same promise twice: a settled one would spin.
+    const inFlight = owner.promise;
+    if (
+      owner.state.fetchStatus === "fetching" &&
+      inFlight &&
+      inFlight !== awaited
+    ) {
+      awaited = inFlight;
+      inFlight.then(run, run);
       return;
     }
     const wait =
-      (lastFeedRefetchAt.get(hash) ?? 0) + FEED_ENTRY_REFETCH_MS - Date.now();
+      (lastFeedRefetchAt.get(owner) ?? 0) + FEED_ENTRY_REFETCH_MS - Date.now();
     if (wait > 0) {
       setTimeout(run, wait);
       return;
     }
-    scheduledFeedRefetches.delete(hash);
-    lastFeedRefetchAt.set(hash, Date.now());
+    scheduledFeedRefetches.delete(owner);
+    lastFeedRefetchAt.set(owner, Date.now());
     void queryClient.invalidateQueries({ queryKey: key, exact: true });
   };
   run();

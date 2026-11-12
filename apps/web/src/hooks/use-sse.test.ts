@@ -362,6 +362,40 @@ describe("applyStreamEntry", () => {
     expect(apiMock).toHaveBeenCalledTimes(3);
   });
 
+  it("drops a scheduled follow-up for a feed removed before it runs", async () => {
+    apiMock.mockResolvedValueOnce(page([]));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const key = streamFeedQueryKey("agent-gone");
+    const { result, unmount } = renderHook(() => useStreamFeed("agent-gone"), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    let resolveRefetch!: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveRefetch = resolve;
+      })
+    );
+    void queryClient.refetchQueries({ queryKey: key, exact: true });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    applyStreamEntry(
+      queryClient,
+      "agent-gone",
+      blockEntry(block({ id: "late", streamId: "agent-gone" }))
+    );
+    unmount();
+    queryClient.removeQueries({ queryKey: key, exact: true });
+    resolveRefetch(page([]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(apiMock).toHaveBeenCalledTimes(2);
+    expect(
+      queryClient.getQueryCache().find({ queryKey: key, exact: true })
+    ).toBeUndefined();
+  });
+
   it("recovers a threaded checklist arriving during the first collection fetch, and refetch replaces progress", async () => {
     let resolveFirst!: (value: StreamFeedResponse) => void;
     apiMock.mockReturnValueOnce(
