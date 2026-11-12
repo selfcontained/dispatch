@@ -3672,11 +3672,25 @@ describe("task runtime overrides", () => {
     );
     await expect(
       service.updateTask(task.id, { launchAgentType: "codex" }, USER)
-    ).rejects.toThrow(/not supported for codex/);
+    ).rejects.toThrow(
+      /launchModel "opus" is not supported for codex\. Send launchModel with the new runtime, or launchModel: null/
+    );
     expect(await service.requireTask(task.id)).toMatchObject({
       launchAgentType: "claude",
       launchModel: "opus",
     });
+    await expect(
+      service.updateTask(
+        task.id,
+        { launchAgentType: "codex", launchModel: null },
+        USER
+      )
+    ).resolves.toMatchObject({ launchAgentType: "codex", launchModel: null });
+    await service.updateTask(
+      task.id,
+      { launchAgentType: "claude", launchModel: "opus" },
+      USER
+    );
     await expect(
       service.updateTask(
         task.id,
@@ -3713,6 +3727,22 @@ describe("task runtime overrides", () => {
     expect(failed?.data).toMatchObject({
       runtimeOverride: { agentType: "codex", model: "gpt-5.5" },
     });
+  });
+
+  it("records trigger_failed when resolving the override's template throws", async () => {
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      { projectId, title: "Store down", launchAgentType: "codex" },
+      USER
+    );
+    service = build(filesRoot, {
+      getTemplate: async () => {
+        throw new Error("template store unavailable");
+      },
+    });
+    const moved = await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(moved.latestFailure?.reason).toContain("template store unavailable");
+    expect(launches).toHaveLength(0);
   });
 
   it("fails visibly at launch when the stored model leaves the catalog", async () => {

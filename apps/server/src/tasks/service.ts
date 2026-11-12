@@ -714,7 +714,12 @@ export class TaskService {
       try {
         model = validateAgentModel(agentType, requested) ?? null;
       } catch (error) {
-        throw invalid(errorMessage(error));
+        // A runtime change keeps the stored model; say how to resolve it.
+        throw invalid(
+          input.launchModel === undefined
+            ? `The task's launchModel "${requested}" is not supported for ${agentType}. Send launchModel with the new runtime, or launchModel: null for its default.`
+            : errorMessage(error)
+        );
       }
     }
     return { launchAgentType: agentType, launchModel: model };
@@ -1579,7 +1584,8 @@ export class TaskService {
   ): Promise<void> {
     const trigger = column.trigger;
     if (!trigger) return;
-    const launch = await this.effectiveLaunch(task, { ...column, trigger });
+    // The override changes only runtime/model, never the template.
+    const templateId = task.launchTemplateId ?? trigger.templateId;
     const source = task.launchTemplateId ? "task" : "column";
     // The task's own runtime intent, recorded beside the actual snapshot.
     const runtimeOverride = task.launchAgentType
@@ -1587,12 +1593,13 @@ export class TaskService {
       : undefined;
     const system: TaskActor = { kind: "system" };
     await this.store.insertEvent(task.id, "trigger_launching", system, {
-      templateId: launch.templateId,
+      templateId,
     });
     this.publish(task.projectId, task.id);
     let agent: AgentRecord;
     let configuration: TemplateRecord;
     try {
+      const launch = await this.effectiveLaunch(task, { ...column, trigger });
       configuration = await this.resolveLaunch(task.projectId, launch, caller);
       agent = await this.launchFor(task, column, launch, caller, configuration);
     } catch (error) {
@@ -1602,7 +1609,7 @@ export class TaskService {
         "Task trigger launch failed"
       );
       await this.store.insertEvent(task.id, "trigger_failed", system, {
-        templateId: launch.templateId,
+        templateId,
         ...(runtimeOverride ? { runtimeOverride } : {}),
         reason,
       });
@@ -1610,7 +1617,7 @@ export class TaskService {
     }
     await this.store.insertEvent(task.id, "trigger_launched", system, {
       agentId: agent.id,
-      templateId: launch.templateId,
+      templateId,
       columnId: column.id,
       source,
       ...(runtimeOverride ? { runtimeOverride } : {}),
