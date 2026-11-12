@@ -446,6 +446,8 @@ export async function registerSystemRoutes(
           );
         } else if (action === "disconnect")
           await deps.slackNotifier.app.disconnect();
+        else if (action === "recheck")
+          await deps.slackNotifier.app.recheckPermissions();
         else if (action === "refresh")
           return { channels: await deps.slackNotifier.app.refreshChannels() };
         else if (action === "test")

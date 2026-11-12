@@ -125,7 +125,17 @@ export class SlackNotifier {
     private pool: Pool,
     private log: FastifyBaseLogger
   ) {
-    this.app = new SlackApp(pool);
+    this.app = new SlackApp(
+      pool,
+      fetch,
+      (url) => new WebSocket(url),
+      (diagnostic) => {
+        this.log.info(
+          diagnostic,
+          "Slack Socket Mode interactive callback stage"
+        );
+      }
+    );
   }
 
   /** Register a callback to check if the user is actively viewing an agent. */

@@ -1,12 +1,21 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 import { StreamService, type StreamAgent } from "../src/chat/service.js";
 import {
   SlackAnswers,
   stableUuid,
 } from "../src/notifications/slack-answers.js";
+import { SlackApp } from "../src/notifications/slack-app.js";
+import { setSetting, deleteSetting, getSetting } from "../src/db/settings.js";
 import type {
-  SlackApp,
   SlackBinding,
   SlackInbound,
 } from "../src/notifications/slack-app.js";
@@ -39,6 +48,8 @@ function fakeSlack() {
   };
   let ts = 100;
   const app = {
+    recordCallbackStage: () => {},
+    settings: async () => ({ missingLinkScopes: [] }),
     currentBinding: async () => binding,
     setInboundHandler: () => {},
     postBlocks: async (input: { text: string; blocks: any[] }) => {
@@ -199,6 +210,138 @@ beforeEach(async () => {
 });
 
 describe("answerer binding", () => {
+  it("persists a real Socket Mode link claim and pending identity before explicit Allow", async () => {
+    let posted: any;
+    const socket = {
+      close: vi.fn(),
+      send: vi.fn(),
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+    } as unknown as WebSocket;
+    const transport = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("auth.test"))
+        return Response.json({ ok: true, team_id: "T1", user_id: "UBOT" });
+      if (url.endsWith("apps.connections.open"))
+        return Response.json({
+          ok: true,
+          url: `wss://wss.slack.com/link?app_id=${"b".repeat(64)}`,
+        });
+      if (url.endsWith("chat.postMessage"))
+        posted = JSON.parse(String(init?.body));
+      return Response.json({ ok: true, ts: "123.456" });
+    });
+    await setSetting(
+      pool,
+      "slack_app_binding",
+      JSON.stringify({
+        binding: { ...binding, appId: "b".repeat(64) },
+        credentials: { botToken: "xoxb-fixture", appToken: "xapp-fixture" },
+      })
+    );
+    const storedBinding = await getSetting(pool, "slack_app_binding");
+    const app = new SlackApp(pool, transport as typeof fetch, () => {
+      queueMicrotask(() =>
+        socket.onmessage?.({
+          data: JSON.stringify({
+            type: "hello",
+            connection_info: { app_id: "A1" },
+            num_connections: 1,
+          }),
+        } as MessageEvent)
+      );
+      return socket;
+    });
+    const answers = new SlackAnswers(
+      pool,
+      app,
+      () => null as never,
+      async () => null
+    );
+    answers.start();
+    try {
+      await app.start();
+      expect(await app.currentBinding()).toMatchObject({
+        appId: "A1",
+        generation: binding.generation,
+      });
+      await answers.createLink();
+      const nonce = posted.blocks[1].elements[0].value;
+      const deliver = () =>
+        socket.onmessage!({
+          data: JSON.stringify({
+            type: "interactive",
+            envelope_id: "db-link-fixture",
+            accepts_response_payload: false,
+            payload: {
+              type: "block_actions",
+              api_app_id: "A1",
+              team: { id: "T1" },
+              user: { id: "U_SOCKET", username: "socketmember", team_id: "T1" },
+              channel: { id: "C1" },
+              container: {
+                type: "message",
+                channel_id: "C1",
+                message_ts: "123.456",
+                is_ephemeral: false,
+              },
+              actions: [
+                {
+                  type: "button",
+                  action_id: "dispatch_link",
+                  value: nonce,
+                  block_id: "link",
+                  action_ts: "124.567",
+                },
+              ],
+            },
+          }),
+        } as MessageEvent);
+      deliver();
+      await vi.waitFor(async () =>
+        expect(await answers.answerers()).toMatchObject([
+          { userId: "U_SOCKET", status: "pending" },
+        ])
+      );
+      expect(socket.send).toHaveBeenCalledWith(
+        JSON.stringify({ envelope_id: "db-link-fixture" })
+      );
+      expect((await app.settings()).callbackDiagnostic?.stage).toBe(
+        "link_pending"
+      );
+      const { rows } = await pool.query(
+        "SELECT used_at IS NOT NULL AS used FROM slack_link_claims"
+      );
+      expect(rows).toEqual([{ used: true }]);
+      deliver();
+      await vi.waitFor(async () =>
+        expect((await app.settings()).callbackDiagnostic?.stage).toBe(
+          "link_expired"
+        )
+      );
+      const identities = await answers.answerers();
+      expect(identities).toHaveLength(1);
+      expect(identities[0]!.status).toBe("pending");
+      await answers.allow(identities[0]!.id);
+      expect(await answers.answerers()).toMatchObject([
+        { userId: "U_SOCKET", status: "allowed" },
+      ]);
+      await app.start();
+      expect(await app.currentBinding()).toMatchObject({
+        appId: "A1",
+        generation: binding.generation,
+      });
+      expect(await getSetting(pool, "slack_app_binding")).toBe(storedBinding);
+      expect(await answers.answerers()).toMatchObject([
+        { userId: "U_SOCKET", status: "allowed" },
+      ]);
+    } finally {
+      answers.stop();
+      app.stop();
+      await deleteSetting(pool, "slack_app_binding");
+    }
+  });
+
   it("is nobody by default; a one-time claim stays pending until the owner allows it", async () => {
     const { svc, answers, calls } = build();
     const q = await ask(svc, answers, calls, {

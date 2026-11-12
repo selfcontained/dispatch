@@ -33,11 +33,15 @@ export function SlackAnswerersCard({
   answerers,
   missingScopes,
   manifest,
+  missingLinkScopes,
+  missingImageScopes,
 }: {
   channelName: string;
   answerers: SlackAnswerer[];
   missingScopes: string[] | null;
   manifest: string;
+  missingLinkScopes: string[] | null;
+  missingImageScopes: string[] | null;
 }) {
   const client = useQueryClient();
   const [message, setMessage] = useState("");
@@ -82,6 +86,31 @@ export function SlackAnswerersCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Post a link, click Link my account in Slack, then return here to Allow
+          the pending identity. Settings checks for requests every 10 seconds.
+          Socket Mode and Slack Interactivity must be enabled; Dispatch cannot
+          probe the Interactivity setting.
+        </p>
+        {missingScopes === null && (
+          <p className="text-xs text-muted-foreground">
+            Slack has not supplied permission evidence. Recheck permissions;
+            unknown grants are not verified.
+          </p>
+        )}
+        {!!missingLinkScopes?.length && (
+          <p className="text-sm text-destructive">
+            Account linking needs: {missingLinkScopes.join(", ")}. Update the
+            manifest, reinstall, then recheck permissions.
+          </p>
+        )}
+        {!!missingImageScopes?.length && (
+          <p className="text-xs text-muted-foreground">
+            Optional images unavailable: {missingImageScopes.join(", ")}.
+            Account linking uses separate permissions.
+          </p>
+        )}
+
         {needsUpdate && (
           <div
             className="space-y-2 rounded-lg border border-border bg-muted/25 p-4"
@@ -97,8 +126,8 @@ export function SlackAnswerersCard({
             </div>
             <p className="text-xs text-muted-foreground">
               In Slack app management open App Manifest, paste, save, then
-              Reinstall to Workspace. Adds buttons, forms, thread replies and
-              images ({missingScopes!.join(", ")}).
+              Reinstall to Workspace, then return here and recheck permissions.
+              Missing thread reply permissions: {missingScopes!.join(", ")}.
             </p>
           </div>
         )}
@@ -180,7 +209,7 @@ export function SlackAnswerersCard({
             here.
           </span>
           <Button
-            disabled={action.isPending || needsUpdate}
+            disabled={action.isPending || !!missingLinkScopes?.length}
             onClick={() => run("link")}
           >
             <Link2 className="mr-2 size-3.5" aria-hidden="true" />

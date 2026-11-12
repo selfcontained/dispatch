@@ -6,7 +6,7 @@ import {
 } from "../src/notifications/slack-app.js";
 import type { Pool } from "pg";
 
-function fixture() {
+function fixture(socketUrlAppId = "A1") {
   const settings = new Map<string, string>();
   const pool = {
     query: vi.fn(async (sql: string, values: string[]) => {
@@ -29,7 +29,7 @@ function fixture() {
         : method === "apps.connections.open"
           ? {
               ok: true,
-              url: "wss://wss.slack.com/link?app_id=A1&ticket=secret",
+              url: `wss://wss.slack.com/link?app_id=${socketUrlAppId}&ticket=secret`,
             }
           : method === "conversations.list"
             ? {
@@ -49,7 +49,18 @@ function fixture() {
     onclose: null,
     onerror: null,
   } as unknown as WebSocket;
-  const app = new SlackApp(pool, transport as typeof fetch, () => socket);
+  const app = new SlackApp(pool, transport as typeof fetch, () => {
+    queueMicrotask(() =>
+      socket.onmessage?.({
+        data: JSON.stringify({
+          type: "hello",
+          connection_info: { app_id: "A1" },
+          num_connections: 1,
+        }),
+      } as MessageEvent)
+    );
+    return socket;
+  });
   return { app, pool, settings, transport, socket };
 }
 const credentials = { botToken: "xoxb-fake", appToken: "xapp-fake" };
@@ -430,7 +441,6 @@ describe("Slack app boundary", () => {
     expect((await f.app.settings()).missingAnswerScopes).toEqual([
       "channels:history",
       "groups:history",
-      "files:write",
     ]);
   });
   it("rejects redirects, malformed credentials and unvalidated enable", async () => {
@@ -475,7 +485,7 @@ it("candidate validation failure leaves a connected installation healthy", async
   await f.app.validate(credentials);
   await f.app.enable("C1", "http://lan");
   f.socket.onmessage!({
-    data: JSON.stringify({ type: "hello" }),
+    data: JSON.stringify({ type: "hello", connection_info: { app_id: "A1" } }),
   } as MessageEvent);
   f.transport.mockResolvedValueOnce(
     Response.json({ ok: false, error: "invalid_auth" })
@@ -639,4 +649,236 @@ it("prefers ordinary interfaces over virtual interfaces without removing options
     { interfaces: () => ({ utun4: fakeInterfaces("100.64.0.2")().test }) }
   );
   expect(virtualOnly.defaultUrl).toBe("http://100.64.0.2:6767");
+});
+
+it("routes a Slack Socket Mode link-button envelope through the real identity handler", async () => {
+  const { SlackAnswers } =
+    await import("../src/notifications/slack-answers.js");
+  const f = fixture();
+  await f.app.validate(credentials);
+  await f.app.enable("C1", "http://lan");
+  const baseQuery = vi.mocked(f.pool.query).getMockImplementation()!;
+  const identities: unknown[][] = [];
+  vi.mocked(f.pool.query).mockImplementation((async (
+    sql: string,
+    values: any[]
+  ) => {
+    if (sql.startsWith("UPDATE slack_link_claims"))
+      return { rowCount: 1, rows: [] };
+    if (sql.startsWith("INSERT INTO slack_answerers")) {
+      identities.push(values);
+      return { rowCount: 1, rows: [] };
+    }
+    return (baseQuery as any)(sql, values);
+  }) as any);
+  const answers = new SlackAnswers(
+    f.pool,
+    f.app,
+    () => null as never,
+    async () => null
+  );
+  answers.start();
+  try {
+    f.socket.onmessage!({
+      data: JSON.stringify({
+        envelope_id: "link-envelope",
+        type: "interactive",
+        accepts_response_payload: false,
+        payload: {
+          type: "block_actions",
+          api_app_id: "A1",
+          team: { id: "T1", domain: "example" },
+          user: { id: "U1", username: "member", team_id: "T1" },
+          container: {
+            type: "message",
+            message_ts: "123.456",
+            channel_id: "C1",
+            is_ephemeral: false,
+          },
+          channel: { id: "C1", name: "dispatch" },
+          actions: [
+            {
+              type: "button",
+              action_id: "dispatch_link",
+              block_id: "link",
+              value: "fixture-only-nonce",
+              action_ts: "124.567",
+            },
+          ],
+        },
+      }),
+    } as MessageEvent);
+    await vi.waitFor(() => expect(identities).toHaveLength(1));
+    expect(identities[0]?.slice(2)).toEqual(["T1", "U1", "@member"]);
+    expect(f.socket.send).toHaveBeenCalledWith(
+      JSON.stringify({ envelope_id: "link-envelope" })
+    );
+  } finally {
+    answers.stop();
+    f.app.stop();
+  }
+});
+
+it("rechecks stored grants concurrently without rebinding or sending messages, and clears unknown evidence", async () => {
+  const f = fixture();
+  await f.app.validate(credentials);
+  await f.app.enable("C1", "http://lan");
+  f.transport.mockResolvedValueOnce(
+    Response.json(
+      { ok: true, team_id: "T1" },
+      { headers: { "x-oauth-scopes": "chat:write" } }
+    )
+  );
+  await f.app.recheckPermissions();
+  expect((await f.app.settings()).missingAnswerScopes).toEqual([
+    "channels:history",
+    "groups:history",
+  ]);
+  const before = [...f.settings];
+  const count = f.transport.mock.calls.length;
+  f.transport.mockResolvedValueOnce(
+    Response.json(
+      { ok: true, team_id: "T1" },
+      {
+        headers: {
+          "x-oauth-scopes": "chat:write,channels:history,groups:history",
+        },
+      }
+    )
+  );
+  const first = f.app.recheckPermissions();
+  expect(f.app.recheckPermissions()).toBe(first);
+  await first;
+  expect(
+    f.transport.mock.calls.slice(count).map(([url]) => url.split("/").at(-1))
+  ).toEqual(["auth.test"]);
+  expect([...f.settings]).toEqual(before);
+  expect(await f.app.settings()).toMatchObject({
+    missingAnswerScopes: [],
+    missingLinkScopes: [],
+    missingImageScopes: ["files:write"],
+  });
+  await f.app.recheckPermissions();
+  expect(await f.app.settings()).toMatchObject({
+    missingAnswerScopes: null,
+    missingLinkScopes: null,
+    missingImageScopes: null,
+  });
+  f.transport.mockResolvedValueOnce(
+    Response.json({ ok: false, error: "invalid_auth" })
+  );
+  await expect(f.app.recheckPermissions()).rejects.toThrow(
+    "credentials rejected"
+  );
+  expect([...f.settings]).toEqual(before);
+  f.app.stop();
+});
+
+it("reports safe callback refusal and failure stages without retaining envelope secrets", async () => {
+  const f = fixture();
+  await f.app.validate(credentials);
+  await f.app.enable("C1", "http://lan");
+  f.app.setInboundHandler(async () => {
+    throw new Error("secret-provider-payload");
+  });
+  const deliver = (appId: string) =>
+    f.socket.onmessage!({
+      data: JSON.stringify({
+        type: "interactive",
+        envelope_id: "diagnostic",
+        payload: {
+          api_app_id: appId,
+          team: { id: "T1" },
+          type: "block_actions",
+          actions: [{ value: "secret-nonce" }],
+        },
+      }),
+    } as MessageEvent);
+  deliver("wrong");
+  await vi.waitFor(async () =>
+    expect((await f.app.settings()).callbackDiagnostic?.stage).toBe(
+      "app_mismatch"
+    )
+  );
+  deliver("A1");
+  await vi.waitFor(async () =>
+    expect((await f.app.settings()).callbackDiagnostic?.stage).toBe(
+      "handler_failed"
+    )
+  );
+  expect(JSON.stringify(await f.app.settings())).not.toMatch(
+    /secret-provider|secret-nonce/
+  );
+  expect((await f.app.settings()).callbackStageCounts).toMatchObject({
+    received: 2,
+    app_mismatch: 1,
+    accepted: 1,
+    handler_failed: 1,
+  });
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "events_api",
+      envelope_id: "background",
+      payload: { api_app_id: "A1", team_id: "T1", event: { type: "message" } },
+    }),
+  } as MessageEvent);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect((await f.app.settings()).callbackDiagnostic?.stage).toBe(
+    "handler_failed"
+  );
+  expect((await f.app.settings()).callbackStageCounts.received).toBe(2);
+  f.app.stop();
+});
+
+it("uses authenticated hello identity when the connection URL app_id is opaque", async () => {
+  const f = fixture("a".repeat(64));
+  await f.app.validate(credentials);
+  await f.app.enable("C1", "http://lan");
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "hello",
+      connection_info: { app_id: "A1" },
+      num_connections: 1,
+    }),
+  } as MessageEvent);
+  const handler = vi.fn(async () => {});
+  f.app.setInboundHandler(handler);
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "interactive",
+      envelope_id: "opaque-url",
+      payload: { type: "block_actions", api_app_id: "A1", team: { id: "T1" } },
+    }),
+  } as MessageEvent);
+  await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
+  f.app.stop();
+});
+
+it("refuses callbacks when canonical socket identity changes", async () => {
+  const f = fixture();
+  await f.app.validate(credentials);
+  await f.app.enable("C1", "http://lan");
+  const handler = vi.fn(async () => {});
+  f.app.setInboundHandler(handler);
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "hello",
+      connection_info: { app_id: "AOTHER" },
+    }),
+  } as MessageEvent);
+  expect((await f.app.settings()).status).toBe("app_identity_mismatch");
+  f.socket.onmessage!({
+    data: JSON.stringify({
+      type: "interactive",
+      envelope_id: "changed-app",
+      payload: { api_app_id: "A1", team: { id: "T1" }, type: "block_actions" },
+    }),
+  } as MessageEvent);
+  await vi.waitFor(async () =>
+    expect((await f.app.settings()).callbackDiagnostic?.stage).toBe(
+      "identity_unverified"
+    )
+  );
+  expect(handler).not.toHaveBeenCalled();
+  f.app.stop();
 });
