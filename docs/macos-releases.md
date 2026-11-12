@@ -53,7 +53,10 @@ a rerun of the same release replaces that release's older build.
 
 For an interrupted release whose tag already exists but whose GitHub release does
 not, dispatch Release from `main` with `recovery_tag` and `recovery_commit` (the
-full expected tag commit SHA), plus `recovery_tag_object` (the tag object SHA). This ignores the version bump input, validates the
+full expected tag commit SHA), plus `recovery_tag_object` (the tag object SHA).
+GitHub also requires `version=patch` on the dispatch request even for recovery;
+the recovery path ignores that input and never bumps the version. Omitting it
+returns HTTP 422 before creating a run. Recovery validates the
 unchanged tag object/commit/version and main ancestry, and rebuilds all artifacts from that
 commit using the current workflow. Do not rerun an old workflow to pick up a
 routing fix: reruns retain the old workflow definition. Recovery refuses an
@@ -62,6 +65,20 @@ exception before dispatching recovery. Record the workflow SHA separately from
 the released application SHA; artifacts include the new run ID and attempt.
 Publication rechecks the remote tag object before creating the release and before
 updating the appcast.
+
+After pinning `TAG`, `RELEASE_COMMIT`, and `TAG_OBJECT` to the reviewed existing
+tag and obtaining any required freeze exception, send one recovery dispatch:
+
+```sh
+gh workflow run release.yml --repo selfcontained/dispatch --ref main \
+  -f version=patch \
+  -f recovery_tag="$TAG" \
+  -f recovery_commit="$RELEASE_COMMIT" \
+  -f recovery_tag_object="$TAG_OBJECT"
+```
+
+Record its run ID and attempt. If the response is uncertain, inspect the run list
+before taking any further action; do not blindly resend the dispatch.
 
 The macOS jobs require `[self-hosted, macOS, ARM64]`. Checkout cleans persistent
 workspace outputs; the PostgreSQL cache remains architecture-specific and is
