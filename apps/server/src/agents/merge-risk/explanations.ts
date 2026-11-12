@@ -1,5 +1,10 @@
 import { retainedEvidence } from "./explanation-evidence.js";
-import { mergeRiskCapacity } from "./budget.js";
+import {
+  mergeRiskCapacity,
+  mergeRiskDailyCap,
+  mergeRiskDailyReset,
+  refundUnsentCall,
+} from "./budget.js";
 import { createHash } from "node:crypto";
 import type { AgentPullRequest } from "@dispatch/shared";
 import type { Pool } from "pg";
@@ -9,13 +14,30 @@ import {
   loadReviewEvidence,
   reviewFingerprint,
 } from "./sources.js";
-import { requestExplanation } from "./explanation-client.js";
+import {
+  requestExplanation,
+  type ExplanationFailure,
+} from "./explanation-client.js";
 
 type Input = { agentId: string; url: string; assessmentId: string };
-type Reply = {
-  state: "ready" | "unavailable" | "pending" | "limited" | "failed";
-  text?: string;
-};
+/**
+ * `limited` is only ever a capacity decision made before any request:
+ * `daily_cap` (shared daily budget used) or `concurrency` (two calls already
+ * in flight). Provider/network failures are `failed` with their own reason.
+ */
+export type ExplanationReply =
+  | { state: "ready"; text?: string }
+  | { state: "unavailable" | "pending" }
+  | {
+      state: "limited";
+      reason: "daily_cap";
+      used: number;
+      cap: number;
+      resetsAt: string;
+    }
+  | { state: "limited"; reason: "concurrency" }
+  | { state: "failed"; reason: ExplanationFailure | "unknown" };
+type Reply = ExplanationReply;
 type Snapshot = {
   owner_ids: string[];
   owner_projects: Record<string, string | null>;
@@ -121,8 +143,21 @@ export class RiskExplanations {
           : { state: "pending" };
       }
       if (capacity !== "pending") {
+        const used = (
+          await client.query<{ calls: number }>(
+            "SELECT calls FROM merge_risk_decision_daily WHERE day=(now() AT TIME ZONE 'UTC')::date"
+          )
+        ).rows[0]?.calls;
         await client.query("COMMIT");
-        return { state: "limited" };
+        return capacity === "skipped_daily_cap"
+          ? {
+              state: "limited",
+              reason: "daily_cap",
+              used: used ?? 0,
+              cap: mergeRiskDailyCap(this.deps.env ?? process.env),
+              resetsAt: mergeRiskDailyReset(),
+            }
+          : { state: "limited", reason: "concurrency" };
       }
       await client.query(
         "INSERT INTO merge_risk_explanations(assessment_id,status) VALUES($1,'pending') ON CONFLICT(assessment_id) DO UPDATE SET status='pending',created_at=now()",
@@ -139,7 +174,7 @@ export class RiskExplanations {
     } finally {
       client.release();
     }
-    if (!run) return { state: "failed" };
+    if (!run) return { state: "failed", reason: "unknown" };
     const config = await this.deps.settings.configuration();
     if (
       !(await this.eligible(input)) ||
@@ -148,6 +183,11 @@ export class RiskExplanations {
       !config.apiKey
     ) {
       await this.finish(input.assessmentId, "stale", {});
+      await refundUnsentCall(
+        this.deps.pool,
+        "merge_risk_explanations",
+        input.assessmentId
+      );
       return { state: "unavailable" };
     }
     const result = await requestExplanation(
@@ -161,6 +201,13 @@ export class RiskExplanations {
     const current =
       !!(await this.eligible(input)) &&
       config === (await this.deps.settings.configuration());
+    // Oversized input is rejected before any request leaves Dispatch.
+    if (result.status === "error" && result.reason === "oversized")
+      await refundUnsentCall(
+        this.deps.pool,
+        "merge_risk_explanations",
+        input.assessmentId
+      );
     // Stale work retains only accounting, never publishes generated text.
     const { text, ...accounting } = result;
     await this.finish(input.assessmentId, current ? result.status : "stale", {
@@ -171,7 +218,10 @@ export class RiskExplanations {
       ? { state: "unavailable" }
       : result.status === "ok"
         ? { state: "ready", text }
-        : { state: "failed" };
+        : {
+            state: "failed",
+            reason: result.status === "error" ? result.reason : "unknown",
+          };
   }
   private async finish(id: string, status: string, result: unknown) {
     await this.deps.pool.query(

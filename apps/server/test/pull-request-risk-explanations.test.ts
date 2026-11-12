@@ -166,10 +166,87 @@ it.each([
 });
 it.each(["0", "garbage"])("respects shared cap %s", async (cap) => {
   expect(
-    (await service({ DISPATCH_MERGE_RISK_DAILY_CAP: cap }).explain(input()))
-      .state
-  ).toBe("limited");
+    await service({ DISPATCH_MERGE_RISK_DAILY_CAP: cap }).explain(input())
+  ).toMatchObject({ state: "limited", reason: "daily_cap", cap: 0 });
   expect(transport).not.toHaveBeenCalled();
+});
+it("reports a budget spent by automatic assessments with usage and the UTC reset", async () => {
+  await pool.query(
+    "INSERT INTO merge_risk_decision_daily(day,calls) VALUES((now() AT TIME ZONE 'UTC')::date,25)"
+  );
+  const reply = await service().explain(input());
+  expect(reply).toMatchObject({
+    state: "limited",
+    reason: "daily_cap",
+    used: 25,
+    cap: 25,
+  });
+  const reset = new Date((reply as { resetsAt: string }).resetsAt);
+  expect(reset.getUTCHours()).toBe(0);
+  expect(reset.getTime()).toBeGreaterThan(Date.now());
+  expect(reset.getTime() - Date.now()).toBeLessThanOrEqual(86_400_000);
+  expect(transport).not.toHaveBeenCalled();
+  // Next UTC day: the same click succeeds.
+  await pool.query("UPDATE merge_risk_decision_daily SET day=day-1");
+  expect((await service().explain(input())).state).toBe("ready");
+});
+it.each([
+  [401, "provider_rejected"],
+  [403, "provider_rejected"],
+  [429, "provider_rate_limited"],
+  [500, "provider_error"],
+])(
+  "reports provider status %s as %s, never as a limit",
+  async (status, reason) => {
+    transport.mockImplementationOnce(async () =>
+      Response.json({ error: "private" }, { status })
+    );
+    expect(await service().explain(input())).toEqual({
+      state: "failed",
+      reason,
+    });
+    const row = (
+      await pool.query("SELECT status,result FROM merge_risk_explanations")
+    ).rows[0];
+    expect(row.status).toBe("error");
+    expect(row.result).toMatchObject({ reason, httpStatus: status });
+    expect(JSON.stringify(row.result)).not.toContain("private");
+  }
+);
+it("reports network failures and timeouts by cause", async () => {
+  transport.mockImplementationOnce(async () => {
+    throw new TypeError("fetch failed");
+  });
+  expect(await service().explain(input())).toEqual({
+    state: "failed",
+    reason: "network",
+  });
+  transport.mockImplementationOnce(async () => {
+    throw new DOMException("timed out", "TimeoutError");
+  });
+  expect(await service().explain(input())).toEqual({
+    state: "failed",
+    reason: "timeout",
+  });
+  // Both requests were sent: both stay charged.
+  expect(
+    (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
+      .calls
+  ).toBe(2);
+});
+it("returns the reservation when the assessment goes stale before any request", async () => {
+  await settings.configuration();
+  const svc = service();
+  let checks = 0;
+  const original = svc["eligible"].bind(svc);
+  svc["eligible"] = async (i: Parameters<typeof original>[0]) =>
+    ++checks === 2 ? null : original(i);
+  expect((await svc.explain(input())).state).toBe("unavailable");
+  expect(transport).not.toHaveBeenCalled();
+  expect(
+    (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
+      .calls
+  ).toBe(0);
 });
 it("respects assessor concurrency slots", async () => {
   for (const head of ["one", "two"])
@@ -177,7 +254,10 @@ it("respects assessor concurrency slots", async () => {
       "INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version) VALUES('other',$1,'r','pending','v')",
       [head]
     );
-  expect((await service().explain(input())).state).toBe("limited");
+  expect(await service().explain(input())).toEqual({
+    state: "limited",
+    reason: "concurrency",
+  });
   expect(transport).not.toHaveBeenCalled();
 });
 it("discards in-flight stale results and retains usage", async () => {

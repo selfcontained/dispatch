@@ -1,4 +1,4 @@
-import { mergeRiskCapacity } from "./budget.js";
+import { mergeRiskCapacity, refundUnsentCall } from "./budget.js";
 /**
  * Produces one merge-risk recommendation per (pull request, head, review
  * state) and remembers it. Called by the PR refresher after each GitHub read;
@@ -136,10 +136,11 @@ export class MergeRiskAssessor {
       );
     }
     onProgress?.(display("evaluating"));
+    let sent = false;
     try {
       const details = await this.readDetails(url);
       if (!details || details.headRefOid !== headSha) {
-        await this.finish(id, "skipped_stale_head", {});
+        await this.finish(id, "skipped_stale_head", {}, true);
         return display("unavailable");
       }
       const owners = await this.owners(ownerAgentIds);
@@ -170,7 +171,7 @@ export class MergeRiskAssessor {
       });
       // The setting can change while evidence is being gathered.
       if (!(await this.options.settings.configuration()).mergeRiskEnabled) {
-        await this.finish(id, "skipped_config_changed", {});
+        await this.finish(id, "skipped_config_changed", {}, true);
         return displaySummary("disabled", headSha);
       }
       await this.options.pool
@@ -195,6 +196,7 @@ export class MergeRiskAssessor {
             new Error("Merge-risk evidence snapshot unavailable.")
           );
         });
+      sent = true;
       const response = await requestDecisions(
         config.apiKey,
         evidence as unknown as Record<string, unknown>,
@@ -217,7 +219,8 @@ export class MergeRiskAssessor {
         error instanceof MergeRiskEvidenceTooLarge
           ? "skipped_oversized"
           : "error",
-        {}
+        {},
+        !sent
       ).catch(() => {});
     }
     const finalConfig = await this.options.settings.configuration();
@@ -279,9 +282,17 @@ export class MergeRiskAssessor {
     try {
       await client.query("BEGIN");
       const status = await mergeRiskCapacity(client, env);
+      // A capacity skip is a transient outcome, not an assessment: once the
+      // daily window resets or a slot frees, the same observation may reserve
+      // again. Without this a skipped head shows "daily limit" forever.
       const record = await client.query<{ id: string }>(
         `INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version,result)
-         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id`,
+         VALUES($1,$2,$3,$4,$5,$6)
+         ON CONFLICT(url,head_sha,review_fingerprint) DO UPDATE
+           SET status=EXCLUDED.status,created_at=now(),prompt_version=EXCLUDED.prompt_version,result=EXCLUDED.result
+           WHERE merge_risk_decision_records.status IN ('skipped_daily_cap','skipped_concurrency')
+             AND merge_risk_decision_records.status <> EXCLUDED.status
+         RETURNING id`,
         [
           url,
           headSha,
@@ -307,15 +318,23 @@ export class MergeRiskAssessor {
     }
   }
 
+  /** `unsent`: no provider request left Dispatch, so the reserved call is returned. */
   private async finish(
     id: string,
     status: string,
-    result: Record<string, unknown>
+    result: Record<string, unknown>,
+    unsent = false
   ) {
     await this.options.pool.query(
       "UPDATE merge_risk_decision_records SET status=$2,result=result || $3::jsonb WHERE id=$1",
       [id, status, JSON.stringify(result)]
     );
+    if (unsent)
+      await refundUnsentCall(
+        this.options.pool,
+        "merge_risk_decision_records",
+        id
+      );
   }
 
   async prune() {

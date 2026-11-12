@@ -870,6 +870,86 @@ describe("merge-risk assessor", () => {
     expect(rows.rows).toEqual([{ status: "skipped_daily_cap" }]);
   });
 
+  it("retries a daily-cap skip for the same head after the UTC day resets, without a phantom charge", async () => {
+    await review([]);
+    // Yesterday's budget is spent; this head is skipped, never assessed.
+    await pool.query(
+      "INSERT INTO merge_risk_decision_daily(day,calls) VALUES((now() AT TIME ZONE 'UTC')::date,25)"
+    );
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "daily_cap",
+    });
+    // Polls inside the exhausted window stay skipped and spend nothing.
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "daily_cap",
+    });
+    expect(transport).not.toHaveBeenCalled();
+    // Reset boundary: move the spent counter and the skip to the prior day.
+    await pool.query(
+      "UPDATE merge_risk_decision_daily SET day=day-1; UPDATE merge_risk_decision_records SET created_at=created_at-interval '1 day'"
+    );
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      status: "ok",
+      verdict: "routine",
+    });
+    expect(transport).toHaveBeenCalledTimes(1);
+    const rows = await pool.query(
+      "SELECT status FROM merge_risk_decision_records"
+    );
+    expect(rows.rows).toEqual([{ status: "ok" }]);
+    const days = await pool.query(
+      "SELECT calls FROM merge_risk_decision_daily ORDER BY day"
+    );
+    expect(days.rows.map((r) => r.calls)).toEqual([25, 1]);
+  });
+
+  it("retries a concurrency skip once a slot frees", async () => {
+    await review([]);
+    for (const head of ["x1", "x2"])
+      await pool.query(
+        "INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version) VALUES('other',$1,'r','pending','v')",
+        [head]
+      );
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "capacity",
+    });
+    await pool.query(
+      "DELETE FROM merge_risk_decision_records WHERE url='other'"
+    );
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      status: "ok",
+    });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the reserved call when no provider request was sent", async () => {
+    await review([]);
+    details.mockImplementationOnce(async () => null);
+    expect(await service().assess(url, pr(), [builder])).toMatchObject({
+      displayState: "unavailable",
+    });
+    details.mockImplementationOnce(async () => {
+      throw new Error("gh unavailable");
+    });
+    const other = `${url}0`;
+    await service().assess(other, pr({ url: other }), [builder]);
+    expect(transport).not.toHaveBeenCalled();
+    expect(
+      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
+        .calls
+    ).toBe(0);
+    // A sent request with an unknown outcome stays charged.
+    transport.mockImplementationOnce(async () => {
+      throw new TypeError("socket hang up");
+    });
+    const third = `${url}1`;
+    await service().assess(third, pr({ url: third }), [builder]);
+    expect(
+      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
+        .calls
+    ).toBe(1);
+  });
+
   it("reads the daily cap from process.env when no environment is injected", async () => {
     await review([]);
     vi.stubEnv("DISPATCH_MERGE_RISK_DAILY_CAP", "0");

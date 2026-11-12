@@ -1,11 +1,24 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
+
+/** Provider calls per UTC day, shared by automatic assessments and explanations. */
+export function mergeRiskDailyCap(env: NodeJS.ProcessEnv) {
+  const raw = Number(env.DISPATCH_MERGE_RISK_DAILY_CAP ?? 25);
+  return Number.isInteger(raw) && raw >= 0 && raw <= 100 ? raw : 0;
+}
+
+/** The daily window resets at 00:00 UTC. */
+export function mergeRiskDailyReset(now = new Date()) {
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+  ).toISOString();
+}
+
 /** Caller owns a transaction and must reserve its pending record before commit. */
 export async function mergeRiskCapacity(
   client: PoolClient,
   env: NodeJS.ProcessEnv
 ) {
-  const raw = Number(env.DISPATCH_MERGE_RISK_DAILY_CAP ?? 25);
-  const cap = Number.isInteger(raw) && raw >= 0 && raw <= 100 ? raw : 0;
+  const cap = mergeRiskDailyCap(env);
   await client.query("SELECT pg_advisory_xact_lock(719394023)");
   await client.query(
     "UPDATE merge_risk_decision_records SET status='interrupted' WHERE status='pending' AND created_at < now() - interval '2 minutes'"
@@ -27,4 +40,23 @@ export async function mergeRiskCapacity(
     : pending.rowCount! >= 2
       ? "skipped_concurrency"
       : "pending";
+}
+
+/**
+ * Return a reserved call that never reached the provider (stale head, setting
+ * changed, evidence unavailable). Calls that were sent, including timeouts
+ * and unknown outcomes, stay counted. Charged to the reservation's own day.
+ */
+export async function refundUnsentCall(
+  pool: Pool,
+  table: "merge_risk_decision_records" | "merge_risk_explanations",
+  id: string
+) {
+  const key = table === "merge_risk_explanations" ? "assessment_id" : "id";
+  await pool.query(
+    `UPDATE merge_risk_decision_daily d SET calls=d.calls-1
+       FROM ${table} r
+      WHERE r.${key}=$1 AND d.day=(r.created_at AT TIME ZONE 'UTC')::date AND d.calls>0`,
+    [id]
+  );
 }
