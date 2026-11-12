@@ -511,6 +511,14 @@
         "docs/design/compact-system-events.md"
       ],
       "personas": ["stream-interactions-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/test/question-alerts.test.ts",
+        "apps/server/test/slack-app.test.ts",
+        "docs/17-jobs.md"
+      ],
+      "personas": ["code-review"]
     }
   ],
   "fallback": ["code-review"]
