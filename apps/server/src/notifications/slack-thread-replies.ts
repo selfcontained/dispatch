@@ -24,8 +24,10 @@ import {
 
 /** Section text is plain_text (no mrkdwn/@channel/link injection), ≤3000 each. */
 export const REPLY_MAX_CHARS = 8000;
-/** Give up on a reply Slack would not take after this long. */
+/** Give up on a queued reply Slack would not take after this long. */
 const GIVE_UP_MS = 60 * 60 * 1000;
+/** …or after this many real (non rate-limit) send failures. */
+const MAX_ATTEMPTS = 5;
 
 export type ResponseSettled = {
   agentId: string;
@@ -165,6 +167,8 @@ const promptIds = (prompt: PromptSource | undefined | null) =>
 export class SlackThreadReplies {
   private timer?: ReturnType<typeof setInterval>;
   private flushing = false;
+  /** Sent, but recording that failed: never sent again by this process. */
+  private sentUnrecorded = new Set<string>();
   constructor(
     private pool: Pool,
     private app: SlackApp,
@@ -215,7 +219,19 @@ export class SlackThreadReplies {
     // A cut turn may be retried; leave the follow-up for whichever turn answers it.
     if (input.outcome === "interrupted") return;
     const rows = await this.followUps(input.agentId, input.prompt);
-    const open = rows.filter((r) => !r.response_block_id);
+    const text = finalReplyText(input.text, input.lead);
+    const outcome = input.outcome === "error" ? "error" : "reply";
+    // An empty reply sends nothing; the inbound ack was the receipt.
+    if (outcome === "reply" && !text) return;
+    // A real reply supersedes an earlier error notice for the same post
+    // (e.g. the person retried the failed turn); nothing else re-claims.
+    const open = rows.filter(
+      (r) =>
+        !r.response_block_id ||
+        (outcome === "reply" &&
+          r.outcome === "error" &&
+          r.response_block_id !== input.blockId)
+    );
     if (!open.length) return;
     const target = open[open.length - 1]!;
     // Same agent, same conversation the person wrote into; anywhere else
@@ -234,18 +250,17 @@ export class SlackThreadReplies {
       place.thread_id !== target.thread_id
     )
       return;
-    const text = finalReplyText(input.text, input.lead);
-    const outcome = input.outcome === "error" ? "error" : "reply";
-    // An empty reply sends nothing; the inbound ack was the receipt.
-    if (outcome === "reply" && !text) return;
     // Claim every follow-up this response covers; only the newest is sent to.
     await this.pool.query(
       `UPDATE slack_thread_replies SET response_block_id = $1,
          outcome = CASE WHEN post_block_id = $3 THEN $4 ELSE NULL END,
          reply_text = CASE WHEN post_block_id = $3 THEN $5 ELSE NULL END,
-         next_attempt_at = now(),
+         next_attempt_at = now(), queued_at = now(), attempts = 0,
+         gave_up_at = NULL, slack_reply_ts = NULL,
          sent_at = CASE WHEN post_block_id = $3 THEN NULL ELSE now() END
-       WHERE post_block_id = ANY($2::uuid[]) AND response_block_id IS NULL`,
+       WHERE post_block_id = ANY($2::uuid[])
+         AND (response_block_id IS NULL
+           OR ($4 = 'reply' AND outcome = 'error' AND response_block_id <> $1))`,
       [
         input.blockId,
         open.map((r) => r.post_block_id),
@@ -337,23 +352,34 @@ export class SlackThreadReplies {
         ReplyRow & { due: boolean; expired: boolean }
       >(
         `SELECT *, next_attempt_at <= now() AS due,
-           created_at < now() - ($1 * interval '1 millisecond') AS expired
+           queued_at < now() - ($1 * interval '1 millisecond') AS expired
          FROM slack_thread_replies
          WHERE response_block_id IS NOT NULL AND outcome IS NOT NULL
            AND sent_at IS NULL AND gave_up_at IS NULL
-         ORDER BY created_at LIMIT 10`,
+         ORDER BY created_at LIMIT 50`,
         [GIVE_UP_MS]
       );
+      // Order is per Slack thread: a reply backing off holds back only
+      // newer replies in its own thread, never other threads or agents.
+      const held = new Set<string>();
       for (const row of rows) {
-        // Keep order: nothing newer goes out ahead of one still backing off.
-        if (!row.due) break;
-        if (row.expired) {
+        const thread = `${row.channel_id}:${row.thread_ts}`;
+        if (held.has(thread) || this.sentUnrecorded.has(row.post_block_id))
+          continue;
+        if (row.expired || row.attempts >= MAX_ATTEMPTS) {
           await this.giveUp(row.post_block_id);
           continue;
         }
+        if (!row.due) {
+          held.add(thread);
+          continue;
+        }
         const binding = await this.app.currentBinding();
-        // Rebound, disconnected, or the parent is gone: never retarget.
-        if (!binding || !(await this.parentLive(row))) {
+        // Not connected right now (startup, brief disconnect): keep it
+        // queued until the window closes; nothing is lost or retargeted.
+        if (!binding) return;
+        // Rebound to another installation/channel, or the parent is gone.
+        if (!(await this.parentLive(row))) {
           await this.giveUp(row.post_block_id);
           continue;
         }
@@ -384,38 +410,45 @@ export class SlackThreadReplies {
                 text: row.reply_text ?? "",
                 openUrl,
               });
+        let sent: { timestamp: string };
         try {
-          const sent = await this.app.postBlocks(
+          sent = await this.app.postBlocks(
             { ...message, threadTs: row.thread_ts },
             row.binding_generation
           );
-          await this.pool.query(
-            `UPDATE slack_thread_replies SET sent_at = now(), slack_reply_ts = $2, reply_text = NULL
-             WHERE post_block_id = $1`,
-            [row.post_block_id, sent.timestamp]
-          );
         } catch (error) {
-          const backoff = Math.min(900, 15 * 2 ** Math.min(row.attempts, 6));
-          const wait =
-            error instanceof SlackRetryError
-              ? Math.max(1, error.retryAfterMs / 1000)
-              : backoff;
+          const limited = error instanceof SlackRetryError;
+          const wait = limited
+            ? Math.max(1, error.retryAfterMs / 1000)
+            : Math.min(900, 15 * 2 ** Math.min(row.attempts, 6));
+          // The local 1 msg/s limiter isn't a failure: it doesn't count.
           await this.pool.query(
-            `UPDATE slack_thread_replies SET attempts = attempts + 1,
+            `UPDATE slack_thread_replies SET attempts = attempts + $3,
                next_attempt_at = now() + ($2 * interval '1 second')
              WHERE post_block_id = $1`,
-            [row.post_block_id, wait]
+            [row.post_block_id, wait, limited ? 0 : 1]
           );
-          if (error instanceof SlackRetryError) {
-            // The local 1 msg/s limiter: try again shortly, in order.
+          if (limited) {
             const t = setTimeout(
               () => void this.flush().catch(() => {}),
               wait * 1000 + 50
             );
             t.unref?.();
+            return; // Every send hits the same limiter; try again shortly.
           }
-          break;
+          held.add(thread);
+          continue;
         }
+        // Slack has it now. A failed bookkeeping write must never resend.
+        await this.pool
+          .query(
+            `UPDATE slack_thread_replies SET sent_at = now(), slack_reply_ts = $2, reply_text = NULL
+             WHERE post_block_id = $1`,
+            [row.post_block_id, sent.timestamp]
+          )
+          .catch(() => {
+            this.sentUnrecorded.add(row.post_block_id);
+          });
       }
     } finally {
       this.flushing = false;

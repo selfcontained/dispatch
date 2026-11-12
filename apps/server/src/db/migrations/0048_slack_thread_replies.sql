@@ -19,6 +19,9 @@ CREATE TABLE slack_thread_replies (
   outcome text CHECK (outcome IN ('reply', 'error')),
   -- The final reply text while queued; cleared once sent or given up.
   reply_text text,
+  -- When the response was queued; the give-up window runs from here, not
+  -- from the Slack message (turns can run for hours).
+  queued_at timestamptz,
   attempts integer NOT NULL DEFAULT 0,
   next_attempt_at timestamptz,
   sent_at timestamptz,
