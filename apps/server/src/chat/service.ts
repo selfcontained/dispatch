@@ -31,7 +31,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DriverEvent } from "../agents/acp/driver.js";
 import path from "node:path";
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type {
   Block,
   BlockAuthor,
@@ -2985,6 +2985,8 @@ export class StreamService {
       root?: string;
       /** The caller sends this ask to Slack itself (notify with a form). */
       skipExternalAsk?: boolean;
+      /** Runs in the block's insert transaction (it commits or rolls back with it). */
+      afterInsert?: (db: PoolClient, block: Block) => Promise<void>;
     } = {}
   ): Promise<Block> {
     // The stream is known only once the post has found its place, so the
@@ -3007,10 +3009,15 @@ export class StreamService {
   private async writePost(
     agentId: string,
     input: PostInput,
-    opts: { root?: string; skipExternalAsk?: boolean },
+    opts: {
+      root?: string;
+      skipExternalAsk?: boolean;
+      afterInsert?: (db: PoolClient, block: Block) => Promise<void>;
+    },
     admit: (streamId: string) => Promise<void>
   ): Promise<Block> {
     const skipExternalAsk = opts.skipExternalAsk === true;
+    const afterInsert = opts.afterInsert;
     if (
       input.agentHome !== undefined &&
       (opts.root ||
@@ -3278,6 +3285,19 @@ export class StreamService {
             "Question was already answered or canceled."
           );
         }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    } else if (afterInsert) {
+      const client = await this.deps.pool.connect();
+      try {
+        await client.query("BEGIN");
+        block = await this.store.withClient(client).insert(insert);
+        await afterInsert(client, block);
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);

@@ -1,11 +1,11 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { Block } from "@dispatch/shared";
 
 import type { AgentRecord } from "../agents/manager.js";
 import { requestOwnerAgentId } from "../agents/tree.js";
 import type { PostInput } from "../chat/service.js";
 import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
-import type { QuestionAlerts } from "./question-alerts.js";
+import { QuestionAlerts } from "./question-alerts.js";
 import type {
   SlackThreadReplies,
   ThreadTarget,
@@ -25,12 +25,12 @@ import type {
  * Exactly one sender: this call. post's own automatic thread ask is skipped
  * so the two can't both post it.
  *
- * If the send can't even be claimed (the Slack connection changed after the
- * thread was checked, or the claim itself failed), nothing reached Slack and
- * the form falls back to the ordinary reminder: a channel alert if it is
- * still unanswered after five minutes, under the current connection. That is
- * deliberate: the old thread may no longer exist, and the person still
- * needs the form.
+ * A form bound for a Slack thread is reserved to that thread (and its Slack
+ * connection) in the same transaction that creates it, before any reminder
+ * worker can see it. It is then only ever sent to that thread: if Slack is
+ * reconnected or the send can't run, it stays unsent and answerable in
+ * Dispatch, and is never rerouted to the channel root or a new connection.
+ * A form with no thread target follows the ordinary reminder rules.
  */
 export async function notifyForm(
   deps: {
@@ -38,7 +38,10 @@ export async function notifyForm(
     post: (
       agentId: string,
       input: PostInput,
-      opts: { skipExternalAsk: true }
+      opts: {
+        skipExternalAsk: true;
+        afterInsert: (db: PoolClient, block: Block) => Promise<void>;
+      }
     ) => Promise<Block>;
     alerts: Pick<QuestionAlerts, "sendNow">;
     threads: Pick<SlackThreadReplies, "threadTarget" | "turnTarget">;
@@ -70,14 +73,26 @@ export async function notifyForm(
         ...(input.title && !input.form.title ? { title: input.title } : {}),
       },
     },
-    { skipExternalAsk: true }
+    {
+      skipExternalAsk: true,
+      // Inside the insert transaction: no worker can enroll it first.
+      afterInsert: async (db, created) => {
+        target ??= await deps.threads
+          .turnTarget(agent.id, created)
+          .catch(() => null);
+        if (target)
+          await QuestionAlerts.reserveThread(db, created.id, {
+            threadTs: target.threadTs,
+            generation: target.generation,
+          });
+      },
+    }
   );
   const form = {
     id: block.id,
     streamId: block.streamId,
     threadId: block.threadId,
   };
-  target ??= await deps.threads.turnTarget(agent.id, block).catch(() => null);
   const outcome = await deps.alerts
     .sendNow(
       block.id,

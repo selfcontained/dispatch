@@ -121,25 +121,31 @@ export class QuestionAlerts {
     if (thread && thread.generation !== binding.generation)
       return {
         delivery: "not_sent",
-        reason: "That Slack thread belongs to an earlier Slack connection.",
+        reason:
+          "Slack was reconnected, so its thread can't be reached; the form was not sent anywhere else.",
       };
     const claimed = await this.pool.query<Alert>(
       `WITH claimed AS (
         INSERT INTO question_notifications(block_id,binding_generation,due_at,next_attempt_at,attempts,lease_until,immediate,thread_ts)
         SELECT b.id,$2,now(),now(),1,now()+interval '60 seconds',true,$3
         FROM blocks b WHERE b.id=$1 AND b.author_kind='agent' AND ${OPEN_INPUT_SQL} AND ${HUMAN_QUESTION_SQL}
-        ON CONFLICT (block_id) DO UPDATE SET binding_generation=EXCLUDED.binding_generation,
+        ON CONFLICT (block_id) DO UPDATE SET
+          -- A reserved Slack thread keeps its thread and connection: never rerouted.
+          binding_generation=CASE WHEN question_notifications.thread_ts IS NULL
+            THEN EXCLUDED.binding_generation ELSE question_notifications.binding_generation END,
+          thread_ts=COALESCE(question_notifications.thread_ts,EXCLUDED.thread_ts),
           due_at=now(),next_attempt_at=now(),attempts=question_notifications.attempts+1,
-          lease_until=EXCLUDED.lease_until,immediate=true,thread_ts=EXCLUDED.thread_ts
+          lease_until=EXCLUDED.lease_until,immediate=true
         WHERE question_notifications.sent_at IS NULL AND question_notifications.cancelled_at IS NULL
           AND (question_notifications.lease_until IS NULL OR question_notifications.lease_until<now())
+          AND (question_notifications.thread_ts IS NULL OR question_notifications.binding_generation=$2)
         RETURNING *
       ) SELECT ${ALERT_SELECT}
         FROM claimed n JOIN blocks b ON b.id=n.block_id LEFT JOIN agents a ON a.id=b.author_agent_id`,
       [blockId, binding.generation, thread?.threadTs ?? null]
     );
     const alert = claimed.rows[0];
-    if (!alert) return this.unclaimed(blockId);
+    if (!alert) return this.unclaimed(blockId, binding.generation);
     const result = await this.deliver(alert);
     if (result.sent) return { delivery: "sent" };
     if (result.stale)
@@ -163,21 +169,50 @@ export class QuestionAlerts {
     };
   }
 
+  /**
+   * Bind a just-created ask to its Slack thread, inside the transaction that
+   * creates it, before any worker can see it. From then on its alert only
+   * ever goes to that thread under that Slack connection: a reconnect leaves
+   * it unsent (still answerable in Dispatch), never rerouted to the channel.
+   */
+  static async reserveThread(
+    db: Pick<Pool, "query">,
+    blockId: string,
+    thread: { threadTs: string; generation: string }
+  ) {
+    await db.query(
+      `INSERT INTO question_notifications(block_id,binding_generation,due_at,next_attempt_at,immediate,thread_ts)
+       VALUES ($1,$2,now(),now()+interval '60 seconds',true,$3)`,
+      [blockId, thread.generation, thread.threadTs]
+    );
+  }
+
   /** Why a send-now request found nothing to claim. */
-  private async unclaimed(blockId: string): Promise<ImmediateAlertOutcome> {
+  private async unclaimed(
+    blockId: string,
+    generation: string
+  ): Promise<ImmediateAlertOutcome> {
     const { rows } = await this.pool.query<{
       open: boolean;
       sent: boolean;
       leased: boolean;
+      stale_thread: boolean;
     }>(
       `SELECT (${OPEN_INPUT_SQL} AND ${HUMAN_QUESTION_SQL}) AS open,
         n.sent_at IS NOT NULL AS sent,
-        COALESCE(n.lease_until>=now(),false) AS leased
+        COALESCE(n.lease_until>=now(),false) AS leased,
+        COALESCE(n.thread_ts IS NOT NULL AND n.binding_generation<>$2,false) AS stale_thread
        FROM blocks b LEFT JOIN question_notifications n ON n.block_id=b.id WHERE b.id=$1`,
-      [blockId]
+      [blockId, generation]
     );
     const row = rows[0];
     if (row?.sent) return { delivery: "sent" };
+    if (row?.stale_thread)
+      return {
+        delivery: "not_sent",
+        reason:
+          "Slack was reconnected, so its thread can't be reached; the form was not sent anywhere else.",
+      };
     if (row?.open && row.leased)
       return {
         delivery: "retrying",

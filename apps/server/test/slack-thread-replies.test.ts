@@ -748,6 +748,11 @@ describe("questions asked while working on a Slack follow-up", () => {
   });
 });
 
+async function unansweredForm(svc: StreamService, id: string) {
+  const state = (await svc.store.getById(id))!.state as any;
+  return !state?.submission && !state?.cancellation;
+}
+
 describe("notify({ form }) in a Slack thread", () => {
   const form = {
     fields: [
@@ -900,6 +905,91 @@ describe("notify({ form }) in a Slack thread", () => {
     expect(result.form?.id).toBeTruthy();
     calls.throttled = false;
     await pool.query("UPDATE question_notifications SET next_attempt_at=now()");
+    await alerts.tick();
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
+  });
+
+  /** Age every alert so a reminder worker scan would treat it as long overdue. */
+  const overdue = () =>
+    pool.query(
+      `UPDATE blocks SET created_at=now()-interval '10 minutes';
+       UPDATE question_notifications SET next_attempt_at=now()-interval '1 second',due_at=now()-interval '5 minutes',lease_until=NULL`
+    );
+
+  it("Slack reconnected before the immediate claim: not sent anywhere, never rerouted to the channel or new connection by the worker", async () => {
+    const { svc, answers, calls, alerts, deps } = harness();
+    const { post } = await followUp(answers, A, "ship it?");
+    const rotating = {
+      ...deps,
+      alerts: {
+        sendNow: async (id: string, thread?: any) => {
+          binding = { ...binding, generation: "gen-2" };
+          return alerts.sendNow(id, thread);
+        },
+      },
+    };
+    const result = await notifyForm(rotating, agentA, {
+      message: "Which version ships?",
+      replyTo: post.id,
+      form,
+    });
+    expect(result).toMatchObject({ sent: false, delivery: "not_sent" });
+    expect(result.reason).toMatch(/not sent anywhere else/);
+    expect(await unansweredForm(svc, result.form!.id)).toBe(true);
+    // New connection's worker, long after the reminder delay: still nothing.
+    await overdue();
+    await alerts.tick();
+    await alerts.tick();
+    expect(calls.posted).toHaveLength(0);
+    // An explicit retry under the new connection is refused too.
+    expect((await alerts.sendNow(result.form!.id)).delivery).toBe("not_sent");
+    expect(calls.posted).toHaveLength(0);
+  });
+
+  it("a worker scan between creation and the immediate claim neither enrolls a channel reminder nor double-sends", async () => {
+    const { answers, calls, alerts, deps } = harness();
+    const { parent, post } = await followUp(answers, A, "ship it?");
+    const racing = {
+      ...deps,
+      alerts: {
+        sendNow: async (id: string, thread?: any) => {
+          await overdue();
+          await alerts.tick(); // the worker sees the form first
+          return alerts.sendNow(id, thread);
+        },
+      },
+    };
+    const result = await notifyForm(racing, agentA, {
+      message: "Which version ships?",
+      replyTo: post.id,
+      form,
+    });
+    expect(result.sent).toBe(true);
+    await overdue();
+    await alerts.tick();
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
+  });
+
+  it("if the immediate send never runs, the worker delivers into the reserved thread once", async () => {
+    const { answers, calls, alerts, deps } = harness();
+    const { parent, post } = await followUp(answers, A, "ship it?");
+    const crashed = {
+      ...deps,
+      alerts: {
+        sendNow: async () => {
+          throw new Error("db blip before the claim");
+        },
+      },
+    };
+    const result = await notifyForm(crashed, agentA, {
+      message: "Which version ships?",
+      replyTo: post.id,
+      form,
+    });
+    expect(result).toMatchObject({ sent: false, delivery: "retrying" });
+    await overdue();
+    await alerts.tick();
+    await overdue();
     await alerts.tick();
     expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
   });
