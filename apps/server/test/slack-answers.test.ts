@@ -720,11 +720,19 @@ describe("reconcile", () => {
     const q = await ask(svc, answers, calls, {
       question: { options: [{ label: "A" }] },
     });
-    await svc.answerQuestion(A, q.block.id, { value: "A" });
+    const { reply } = await svc.answerQuestion(A, q.block.id, { value: "A" });
+    // Settle delivery first so only the "answered" render is under test
+    // (the sending → delivered re-render is covered above).
+    await svc.waitForInFlightDeliveries(1000);
+    for (let i = 0; i < 50; i++) {
+      if ((await svc.store.getById(reply.id))!.delivered !== null) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
     await answers.reconcile();
     await answers.reconcile();
     const updates = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.text).toContain("Answered by the owner in Dispatch");
+    expect(updates[0]!.text).toContain("delivered to the agent");
   });
 });
