@@ -1,3 +1,4 @@
+import type { BlockFormData } from "@dispatch/shared";
 import {
   registerPullRequestRiskTool,
   type RiskReader,
@@ -240,13 +241,23 @@ export type NotifyInput = {
   replyTo?: string;
   /** Absolute paths of png/jpg/gif files to show inline in Slack. */
   images?: string[];
+  /**
+   * Create a Dispatch form (as post({ form }) would) and send its interactive
+   * Slack alert now instead of after the five-minute reminder wait.
+   */
+  form?: Omit<BlockFormData, "parentHandled" | "parentRequestConversation">;
 };
 
 export type NotifyResult = {
+  /** True only when Slack accepted the message. */
   sent: boolean;
   reason?: string;
   /** Something about a sent message the agent should know (e.g. images skipped). */
   note?: string;
+  /** notify with a form: the durable Dispatch form block that was created. */
+  form?: { id: string; streamId: string; threadId: string | null };
+  /** notify with a form: what became of its Slack alert. */
+  delivery?: "sent" | "retrying" | "unknown" | "not_sent";
 };
 
 /** The ephemeral SSE member every tool invocation publishes. */

@@ -20,6 +20,9 @@ import type {
   SlackInbound,
 } from "../src/notifications/slack-app.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
+import { QuestionAlerts } from "../src/notifications/question-alerts.js";
+import { notifyForm } from "../src/notifications/notify-form.js";
+import type { AgentRecord } from "../src/agents/manager.js";
 
 const A = "agt_slack_asker";
 const binding: SlackBinding = {
@@ -764,6 +767,131 @@ describe("forms via modal", () => {
     );
     expect(result.response_action).toBe("update");
     expect(JSON.stringify(result.view)).toMatch(/not linked/);
+  });
+});
+
+describe("notify({ form }) end to end", () => {
+  const form = {
+    fields: [
+      {
+        id: "version",
+        label: "Version",
+        type: "text" as const,
+        required: true,
+      },
+      { id: "notes", label: "Notes", type: "textarea" as const },
+    ],
+  };
+  const submit = (user: string, ref: string, values: Record<string, any>) =>
+    interactive({
+      type: "view_submission",
+      user: { id: user },
+      view: {
+        callback_id: "dispatch_form_modal",
+        private_metadata: ref,
+        state: { values },
+      },
+    });
+  const setup = () => {
+    const built = build();
+    const alerts = new QuestionAlerts(
+      pool,
+      (alert) => built.answers.postAsk(alert),
+      async () => binding
+    );
+    const deps = {
+      pool,
+      post: (agentId: string, input: any) => built.svc.post(agentId, input),
+      alerts,
+    };
+    return { ...built, alerts, deps };
+  };
+  const agent = { id: A, name: "builder-7" } as AgentRecord;
+
+  it("creates the form, alerts Slack at once, and one modal submit reaches the agent once", async () => {
+    const { svc, answers, calls, alerts, deps } = setup();
+    await linkUser(answers, calls, "U1");
+    const before = calls.posted.length;
+    const result = await notifyForm(deps, agent, {
+      message: "Which version ships?",
+      title: "Release",
+      form,
+    });
+    expect(result).toMatchObject({ sent: true, delivery: "sent" });
+    const block = (await svc.store.getById(result.form!.id))!;
+    expect(block).toMatchObject({ kind: "form", streamId: A, toAgentId: null });
+    expect(block.data).toMatchObject({ title: "Release" });
+    expect(calls.posted.length).toBe(before + 1);
+    const message = calls.posted.at(-1)!;
+    expect(JSON.stringify(message.blocks)).not.toMatch(/5 minutes/);
+    // The delayed worker sees the recorded success and stays quiet.
+    await pool.query(
+      "UPDATE question_notifications SET next_attempt_at=now()-interval '1 second'"
+    );
+    await alerts.tick();
+    expect(calls.posted.length).toBe(before + 1);
+
+    const ref = message.blocks.find((b: any) => b.type === "actions")
+      .elements[0].value;
+    await answers.handle(click("U1", "dispatch_form", ref, message.ts));
+    expect(calls.views.at(-1)!.view.callback_id).toBe("dispatch_form_modal");
+    // Required field enforced by the same modal validation.
+    expect(await answers.handle(submit("U1", ref, {}))).toMatchObject({
+      response_action: "errors",
+    });
+    expect(injected).toHaveLength(0);
+    const values = { f0: { value: { value: "1.8.0" } } };
+    expect(await answers.handle(submit("U1", ref, values))).toBeUndefined();
+    // A redelivered submission records nothing new.
+    await answers.handle(submit("U1", ref, values));
+    expect((await svc.store.getById(block.id))!.state).toMatchObject({
+      submission: {
+        values: { version: "1.8.0" },
+        external: { source: "slack", userId: "U1" },
+      },
+    });
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toContain("1.8.0");
+  });
+
+  it("keeps the form usable in Dispatch and says so when Slack fails", async () => {
+    const { svc, calls, deps } = setup();
+    const failing = {
+      ...deps,
+      alerts: new QuestionAlerts(
+        pool,
+        async () => {
+          throw new Error("socket down");
+        },
+        async () => binding
+      ),
+    };
+    const result = await notifyForm(failing, agent, {
+      message: "Which version ships?",
+      form,
+    });
+    expect(result).toMatchObject({ sent: false, delivery: "retrying" });
+    expect(result.reason).toMatch(/open in Dispatch/);
+    expect(await unanswered(svc, result.form!.id)).toBe(true);
+  });
+
+  it("refuses for a child agent before creating anything", async () => {
+    const { deps } = setup();
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id) VALUES ('agt_notify_child','kid','/tmp','running',$1) ON CONFLICT DO NOTHING`,
+      [A]
+    );
+    const result = await notifyForm(
+      deps,
+      { id: "agt_notify_child", name: "kid" } as AgentRecord,
+      { message: "x", form }
+    );
+    expect(result).toMatchObject({ sent: false });
+    expect(result.form).toBeUndefined();
+    const { rowCount } = await pool.query(
+      "SELECT 1 FROM blocks WHERE author_agent_id='agt_notify_child'"
+    );
+    expect(rowCount).toBe(0);
   });
 });
 

@@ -60,6 +60,8 @@ export type AskAlert = {
   name: string;
   /** Post inside this Slack thread (a mid-turn ask) instead of as an alert. */
   threadTs?: string;
+  /** The agent asked for it now (notify with a form); it didn't wait 5 minutes. */
+  immediate?: boolean;
 };
 
 type MessageRow = {
@@ -218,7 +220,7 @@ export class SlackAnswers {
     };
   }
 
-  /** The delayed question/form alert, now as interactive Block Kit. */
+  /** A question/form alert (delayed, or sent now by notify) as interactive Block Kit. */
   async postAsk(alert: AskAlert) {
     const binding = await this.app.currentBinding();
     if (!binding || binding.generation !== alert.binding_generation)
@@ -232,7 +234,7 @@ export class SlackAnswers {
       alert.name || alert.agent_id,
       alert.text,
       ref,
-      alert.threadTs ? undefined : "unanswered for 5 minutes"
+      alert.threadTs || alert.immediate ? undefined : "unanswered for 5 minutes"
     );
     const message =
       kind === "form"

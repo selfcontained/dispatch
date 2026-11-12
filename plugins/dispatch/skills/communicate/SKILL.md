@@ -34,6 +34,7 @@ the same stream; the rows differ in what the user can _do_ with it.
 | A value they will copy — an id, a command, an env var, a port | `post` with a `code` attachment                                | —           |
 | A checklist they will watch you work through                  | `post` with `tasks`, ticked with `update`                      | below       |
 | Something worth reaching them away from the session           | `notify` (Slack when configured)                               | —           |
+| A form they must fill in now, even away from the session      | `notify` with `form` (sends to Slack now; `post` waits 5 min)  | —           |
 | Progress during a long task                                   | ordinary replies; `tasks` for a persistent checklist           | below       |
 | A message to another agent                                    | `post` with `to: <agentId>`                                    | `subagents` |
 

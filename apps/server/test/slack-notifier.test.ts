@@ -443,6 +443,101 @@ describe("notify({ replyTo })", () => {
   });
 });
 
+describe("notify({ form })", () => {
+  beforeEach(() => fetchSpy.mockClear());
+  const withApp = (bound: boolean) => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const postBlocks = vi.fn();
+    (notifier as any).app = {
+      settings: async () => ({ binding: bound ? { generation: "g" } : null }),
+      postBlocks,
+    };
+    const formNotify = vi.fn(async () => ({
+      sent: true,
+      delivery: "sent" as const,
+      form: { id: "f", streamId: "agent-1", threadId: null },
+    }));
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setFormNotify(formNotify);
+    notifier.setThreadReply(threadReply);
+    return { notifier, formNotify, threadReply, postBlocks };
+  };
+  const form = {
+    fields: [{ id: "v", label: "Version", type: "text" as const }],
+  };
+
+  it("hands the form to the immediate form path, not the plain notify message", async () => {
+    const { notifier, formNotify, postBlocks } = withApp(true);
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Fill this in",
+      title: "Release",
+      form,
+    });
+    expect(result).toMatchObject({ sent: true, delivery: "sent" });
+    expect(formNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      expect.objectContaining({
+        message: "Fill this in",
+        title: "Release",
+        form,
+      })
+    );
+    expect(postBlocks).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects ambiguous combinations before anything is created", async () => {
+    const { notifier, formNotify, threadReply } = withApp(true);
+    await expect(
+      notifier.sendNotification(makeAgent(), {
+        message: "x",
+        form,
+        replyTo: "11111111-1111-4111-8111-111111111111",
+      })
+    ).rejects.toThrow(/replyTo/);
+    await expect(
+      notifier.sendNotification(makeAgent(), {
+        message: "x",
+        form,
+        images: ["/tmp/a.png"],
+      })
+    ).rejects.toThrow(/images/);
+    await expect(
+      notifier.sendNotification(makeAgent(), {
+        message: "x",
+        title: "A",
+        form: { ...form, title: "B" },
+      })
+    ).rejects.toThrow(/title/);
+    expect(formNotify).not.toHaveBeenCalled();
+    expect(threadReply).not.toHaveBeenCalled();
+  });
+
+  it("needs the Slack app connected: creates nothing and never falls back to the webhook", async () => {
+    const { notifier, formNotify } = withApp(false);
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "x",
+      form,
+    });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toMatch(/Nothing was created/);
+    expect(formNotify).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("shares notify's per-agent rate limit and refuses before creating", async () => {
+    const { notifier, formNotify } = withApp(true);
+    for (let i = 0; i < 5; i += 1)
+      await notifier.sendNotification(makeAgent(), { message: "x", form });
+    const limited = await notifier.sendNotification(makeAgent(), {
+      message: "x",
+      form,
+    });
+    expect(limited.reason).toMatch(/Rate limited/);
+    expect(formNotify).toHaveBeenCalledTimes(5);
+  });
+});
+
 describe("notify in the shared Block Kit layout", () => {
   beforeEach(() => fetchSpy.mockClear());
   const bound = () => {

@@ -118,6 +118,14 @@ export class SlackNotifier {
   setThreadReply(fn: NonNullable<SlackNotifier["threadReply"]>) {
     this.threadReply = fn;
   }
+  /** `notify({ form })`: create a Dispatch form and alert Slack about it now. */
+  private formNotify?: (
+    agent: AgentRecord,
+    input: NotifyInput & { form: NonNullable<NotifyInput["form"]> }
+  ) => Promise<NotifyResult>;
+  setFormNotify(fn: NonNullable<SlackNotifier["formNotify"]>) {
+    this.formNotify = fn;
+  }
   /** Per-agent rate limit tracking for notify calls. */
   private notifyTimestamps: Map<string, number[]> = new Map();
 
@@ -324,6 +332,33 @@ export class SlackNotifier {
         sent: false,
         reason: "Rate limited — max 5 notifications per minute per agent.",
       };
+    }
+
+    // A form to answer now: created in Dispatch, then alerted through the
+    // Slack app's interactive flow. Every refusal here precedes creation.
+    if (input.form) {
+      if (input.replyTo)
+        throw new Error(
+          "notify can't combine form with replyTo: a Slack thread reply can't carry a new form. Send the form without replyTo, or reply in text."
+        );
+      if (input.images?.length)
+        throw new Error(
+          "notify can't combine form with images. Send them separately."
+        );
+      if (input.title && input.form.title)
+        throw new Error(
+          "notify got both title and form.title; give the form one title."
+        );
+      if (!this.formNotify)
+        return { sent: false, reason: "Slack forms are unavailable." };
+      if (!(await this.app.settings()).binding)
+        return {
+          sent: false,
+          reason:
+            "Slack forms need the Slack app connected in Settings. Nothing was created; use post with form to ask in Dispatch.",
+        };
+      this.recordNotifyTimestamp(agent.id);
+      return this.formNotify(agent, { ...input, form: input.form });
     }
 
     // An explicit answer in the Slack thread a message came from.
