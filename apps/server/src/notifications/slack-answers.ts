@@ -58,6 +58,8 @@ export type AskAlert = {
   kind?: string;
   data: unknown;
   name: string;
+  /** Post inside this Slack thread (a mid-turn ask) instead of as an alert. */
+  threadTs?: string;
 };
 
 type MessageRow = {
@@ -230,13 +232,20 @@ export class SlackAnswers {
       alert.name || alert.agent_id,
       alert.text,
       ref,
-      "unanswered for 5 minutes"
+      alert.threadTs ? undefined : "unanswered for 5 minutes"
     );
     const message =
       kind === "form"
         ? formMessage(data as BlockFormData, ctx)
         : questionMessage(data as BlockQuestionData, ctx);
-    const sent = await this.app.postBlocks(message, alert.binding_generation);
+    const sent = await this.app.postBlocks(
+      {
+        text: message.text,
+        blocks: message.blocks,
+        ...(alert.threadTs ? { threadTs: alert.threadTs } : {}),
+      },
+      alert.binding_generation
+    );
     await this.pool.query(
       `INSERT INTO slack_messages(id,binding_generation,channel_id,message_ts,kind,agent_id,stream_id,thread_id,block_id,data_hash)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
@@ -719,18 +728,44 @@ export class SlackAnswers {
         await this.reconcile().catch(() => {});
         return;
       }
-      const result = await this.writer().sendUserPost(
-        ask?.stream_id ?? row.stream_id,
-        {
+      // Provenance for the return path, written before the post so a fast
+      // turn can't settle first; the response is matched to this post id.
+      await this.pool.query(
+        `INSERT INTO slack_thread_replies(post_block_id,binding_generation,channel_id,thread_ts,message_ts,agent_id)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+        [
           id,
-          to: row.agent_id,
-          text,
-          replyTo: ask?.id ?? null,
-          resolveMentions: false,
-          allowInert: true,
-          external: origin,
-        }
+          binding.generation,
+          event.channel,
+          event.thread_ts,
+          event.ts,
+          row.agent_id,
+        ]
       );
+      let result: StreamPostResponse;
+      try {
+        result = await this.writer().sendUserPost(
+          ask?.stream_id ?? row.stream_id,
+          {
+            id,
+            to: row.agent_id,
+            text,
+            replyTo: ask?.id ?? null,
+            resolveMentions: false,
+            allowInert: true,
+            external: origin,
+          }
+        );
+      } catch (error) {
+        await this.pool
+          .query(
+            `DELETE FROM slack_thread_replies WHERE post_block_id=$1 AND response_block_id IS NULL
+               AND NOT EXISTS (SELECT 1 FROM blocks WHERE id=$1)`,
+            [id]
+          )
+          .catch(() => {});
+        throw error;
+      }
       await reply(
         `Sent to ${name} as a message${ask ? " (not an answer)" : ""} · ${this.deliveryText(name, result.delivered === false ? false : null)}.`
       );

@@ -271,6 +271,20 @@ export type StreamServiceDeps = {
   hasUiClient?: () => boolean;
   /** An agent posted a question or form for people: it is waiting now. */
   onInputPosted?: (agentId: string, text: string) => Promise<void>;
+  /** The same question/form as a block, for channels that render it (Slack threads). */
+  onAgentAsk?: (agentId: string, block: Block) => Promise<void>;
+  /**
+   * A response settled (or froze at a steering split) with the prompt it
+   * answers. Display-free: Slack returns it to the thread that prompt came from.
+   */
+  onResponseSettled?: (input: {
+    agentId: string;
+    blockId: string;
+    prompt: PromptSource | undefined;
+    text: string;
+    lead?: string;
+    outcome: "ok" | "error" | "interrupted";
+  }) => Promise<void>;
   /** Copy a file from the agent's disk into its files; for `path` attachments. */
   uploadFile?: (
     agentId: string,
@@ -3304,6 +3318,19 @@ export class StreamService {
           );
         });
     }
+    if (
+      toAgentId === null &&
+      (kind === "question" || kind === "form") &&
+      this.deps.onAgentAsk
+    ) {
+      // Off the post's path: a slow Slack call must not delay the agent.
+      void this.deps.onAgentAsk(agentId, block).catch((error: unknown) => {
+        this.log.warn(
+          { err: error, agentId },
+          "stream: external ask notification failed"
+        );
+      });
+    }
     return block;
   }
 
@@ -4085,7 +4112,7 @@ export class StreamService {
     );
     if (id === previousId) return id;
     // Freeze just this response before the turn's current-block pointer moves.
-    await this.recordTurnSettled(input);
+    await this.recordTurnSettled({ ...input, frozen: true });
     await this.store.insertIfAbsent({
       id,
       streamId: previous.streamId,
@@ -4127,6 +4154,8 @@ export class StreamService {
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
+    /** A steering split: this response is complete though the turn runs on. */
+    frozen?: boolean;
   }): Promise<void> {
     // A late startup can settle after the next turn has begun routing.
     this.deps.routingShadow?.cancel?.(input.agentId, input.turnRow.id);
@@ -4137,10 +4166,50 @@ export class StreamService {
     const turns = await loadTurnEntries(this.store.db, input.agentId, [
       input.turnRow.id,
     ]);
-    const text = turns.get(input.turnRow.id)?.result?.text ?? "";
+    const entry = turns.get(input.turnRow.id);
+    const text = entry?.result?.text ?? "";
     await this.store.update(blockId, { text });
     await this.publishBlockEntry(streamId, blockId);
     this.deps.publishUiEvent({ type: "stream.changed", agentId: streamId });
+    if (!this.deps.onResponseSettled || !entry) return;
+    if (!input.frozen && !entry.settled) return;
+    const payload = input.turnRow.payload as TurnPayload;
+    // Off the recorder's path: Slack latency must not hold the agent's events.
+    void this.deps
+      .onResponseSettled({
+        agentId: input.agentId,
+        blockId,
+        prompt: payload.responsePrompt ?? payload.prompt,
+        text,
+        ...(entry.result?.lead ? { lead: entry.result.lead } : {}),
+        outcome: input.frozen
+          ? "ok"
+          : entry.interrupted
+            ? "interrupted"
+            : entry.error
+              ? "error"
+              : "ok",
+      })
+      .catch((error: unknown) => {
+        this.log.warn(
+          { err: error, agentId: input.agentId },
+          "stream: external response relay failed"
+        );
+      });
+  }
+
+  /** The agent's open turn: the block it writes to and the prompt it answers. */
+  async currentTurn(
+    agentId: string
+  ): Promise<{ blockId: string | null; prompt: PromptSource } | null> {
+    const open = await this.turns.openTurn(agentId);
+    if (!open) return null;
+    const payload = open.payload as TurnPayload;
+    const blockId = open.payload.blockId;
+    return {
+      blockId: typeof blockId === "string" ? blockId : null,
+      prompt: payload.responsePrompt ?? payload.prompt,
+    };
   }
 
   publishRead(

@@ -1,6 +1,7 @@
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
 import { QuestionAlerts } from "./notifications/question-alerts.js";
 import { SlackAnswers } from "./notifications/slack-answers.js";
+import { SlackThreadReplies } from "./notifications/slack-thread-replies.js";
 import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
@@ -213,6 +214,13 @@ const slackAnswers = new SlackAnswers(
 );
 slackNotifier.setNotifySent((sent, agentId) =>
   slackAnswers.recordNotify(sent, agentId)
+);
+const slackThreadReplies: SlackThreadReplies = new SlackThreadReplies(
+  pool,
+  slackNotifier.app,
+  slackAnswers,
+  async (agentId) => (await agentManager.getAgent(agentId))?.name ?? null,
+  (agentId) => streamService.currentTurn(agentId)
 );
 const questionAlerts = new QuestionAlerts(
   pool,
@@ -505,6 +513,10 @@ const streamService = new StreamService({
   filesRoot: config.filesRoot,
   onInputPosted: (agentId, text) =>
     agentManager.noteQuestionPosted(agentId, text),
+  onAgentAsk: (agentId, block): Promise<void> =>
+    slackThreadReplies.agentAsked(agentId, block),
+  onResponseSettled: (input): Promise<void> =>
+    slackThreadReplies.responseSettled(input),
   // Both are created below; they are only called once requests arrive.
   uploadFile: (agentId, input) =>
     mcpHandlers.shareFile(agentId, {
@@ -1266,6 +1278,7 @@ export async function initializeApp(options?: {
       void diffStatsRefresher.signal(agent.id);
     }
     slackAnswers.start();
+    slackThreadReplies.start();
     void slackNotifier.app.start().catch(() => {});
     questionAlerts.start();
     pullRequests.start();
@@ -1390,6 +1403,7 @@ async function cleanupAppResources(): Promise<void> {
 
   questionAlerts.stop();
   slackAnswers.stop();
+  slackThreadReplies.stop();
   slackNotifier.app.stop();
   notificationRuntime.clearPendingWebNotifications();
 
