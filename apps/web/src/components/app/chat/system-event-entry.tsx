@@ -110,9 +110,9 @@ export function SystemEventEntry({
     prNumber && event.resource?.label === "View pull request"
       ? undefined
       : event.resource?.label.replace(
-          new RegExp(`^(?:PR )?#${prNumber ?? "\\d+"}(?: · |: | )`),
+          new RegExp(`^(?:PR )?#${prNumber ?? "\\d+"}(?: · |: | |$)`),
           ""
-        );
+        ) || undefined;
   const prHeading =
     inline && (prNumber || event.resource) ? (
       <a

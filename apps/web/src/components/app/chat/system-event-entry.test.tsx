@@ -138,6 +138,19 @@ describe("system event presentation", () => {
       />
     );
     expect(screen.getByRole("link", { name: "#1439 Fix it" })).toBeTruthy();
+    for (const label of ["PR #1439", "#1439"]) {
+      rerender(
+        <SystemEventEntry
+          event={{
+            category: "checks",
+            summary: "Pull request checks",
+            details: "",
+            resource: { label, url: "https://github.com/a/b/pull/1439" },
+          }}
+        />
+      );
+      expect(screen.getByRole("link", { name: "#1439" })).toBeTruthy();
+    }
     rerender(
       <SystemEventEntry
         event={{
