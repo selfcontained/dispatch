@@ -24,6 +24,13 @@ import type {
  * - otherwise: the channel, as a new alert.
  * Exactly one sender: this call. post's own automatic thread ask is skipped
  * so the two can't both post it.
+ *
+ * If the send can't even be claimed (the Slack connection changed after the
+ * thread was checked, or the claim itself failed), nothing reached Slack and
+ * the form falls back to the ordinary reminder: a channel alert if it is
+ * still unanswered after five minutes, under the current connection. That is
+ * deliberate: the old thread may no longer exist, and the person still
+ * needs the form.
  */
 export async function notifyForm(
   deps: {
