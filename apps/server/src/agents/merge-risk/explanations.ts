@@ -4,6 +4,7 @@ import {
   mergeRiskDailyCap,
   mergeRiskDailyReset,
   refundUnsentCall,
+  refusedByProvider,
 } from "./budget.js";
 import { createHash } from "node:crypto";
 import type { AgentPullRequest } from "@dispatch/shared";
@@ -201,8 +202,11 @@ export class RiskExplanations {
     const current =
       !!(await this.eligible(input)) &&
       config === (await this.deps.settings.configuration());
-    // Oversized input is rejected before any request leaves Dispatch.
-    if (result.status === "error" && result.reason === "oversized")
+    // Oversized input never leaves Dispatch; a refused request did no billable work.
+    if (
+      result.status === "error" &&
+      (result.reason === "oversized" || refusedByProvider(result.httpStatus))
+    )
       await refundUnsentCall(
         this.deps.pool,
         "merge_risk_explanations",

@@ -42,9 +42,15 @@ export async function mergeRiskCapacity(
       : "pending";
 }
 
+/** 401/403/429: refused before any billable work, so not charged. */
+export function refusedByProvider(httpStatus: number | undefined) {
+  return httpStatus === 401 || httpStatus === 403 || httpStatus === 429;
+}
+
 /**
  * Return a reserved call that never reached the provider (stale head, setting
- * changed, evidence unavailable). Calls that were sent, including timeouts
+ * changed, evidence unavailable) or that the provider refused (401/403/429).
+ * Calls that were sent, including timeouts
  * and unknown outcomes, stay counted. Charged to the reservation's own day.
  */
 export async function refundUnsentCall(

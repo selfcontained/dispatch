@@ -211,6 +211,11 @@ it.each([
     expect(row.status).toBe("error");
     expect(row.result).toMatchObject({ reason, httpStatus: status });
     expect(JSON.stringify(row.result)).not.toContain("private");
+    // Refused (401/403/429) requests did no billable work; other errors count.
+    expect(
+      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
+        .calls
+    ).toBe(status === 500 ? 1 : 0);
   }
 );
 it("reports network failures and timeouts by cause", async () => {

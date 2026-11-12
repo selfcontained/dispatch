@@ -204,6 +204,7 @@ function explanationNotice(data: ExplanationReply | undefined) {
       ? new Date(data.resetsAt).toLocaleTimeString([], {
           hour: "numeric",
           minute: "2-digit",
+          timeZoneName: "short",
         })
       : "00:00 UTC";
     return {

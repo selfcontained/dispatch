@@ -948,6 +948,18 @@ describe("merge-risk assessor", () => {
       (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
         .calls
     ).toBe(1);
+    // A provider refusal (rate limit) did no billable work.
+    transport.mockImplementationOnce(
+      async () => new Response("", { status: 429 })
+    );
+    const fourth = `${url}2`;
+    expect(
+      await service().assess(fourth, pr({ url: fourth }), [builder])
+    ).toMatchObject({ displayState: "rate_limited" });
+    expect(
+      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
+        .calls
+    ).toBe(1);
   });
 
   it("reads the daily cap from process.env when no environment is injected", async () => {

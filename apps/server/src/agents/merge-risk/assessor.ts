@@ -1,4 +1,8 @@
-import { mergeRiskCapacity, refundUnsentCall } from "./budget.js";
+import {
+  mergeRiskCapacity,
+  refundUnsentCall,
+  refusedByProvider,
+} from "./budget.js";
 /**
  * Produces one merge-risk recommendation per (pull request, head, review
  * state) and remembers it. Called by the PR refresher after each GitHub read;
@@ -204,14 +208,20 @@ export class MergeRiskAssessor {
         { transport: this.options.transport, timeoutMs: 20_000 }
       );
       const assessment = assessMergeRisk(response.status, response.answers);
-      await this.finish(id, response.status, {
-        ...serialize(assessment),
-        usage: response.usage,
-        latencyMs: response.latencyMs,
-        ...(response.httpStatus === undefined
-          ? {}
-          : { httpStatus: response.httpStatus }),
-      });
+      await this.finish(
+        id,
+        response.status,
+        {
+          ...serialize(assessment),
+          usage: response.usage,
+          latencyMs: response.latencyMs,
+          ...(response.httpStatus === undefined
+            ? {}
+            : { httpStatus: response.httpStatus }),
+        },
+        // Rejected key or rate limit: the provider did no billable work.
+        refusedByProvider(response.httpStatus)
+      );
     } catch (error) {
       this.options.warn?.(error);
       await this.finish(
