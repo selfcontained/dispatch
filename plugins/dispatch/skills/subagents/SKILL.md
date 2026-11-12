@@ -48,7 +48,8 @@ launching — its `summary` says whether any type is low or exhausted and names
 the one to prefer (`suggestedType`); pass that as `type`. When every type is
 fine, or nothing reports usage, the default is as good as any. If every reported
 type is low, say so to the user before launching rather than queueing work that
-cannot run.
+cannot run. To wait for a type to run low or recover, subscribe with
+`usage_watch` rather than polling `get_usage`; remove it with `usage_unwatch`.
 
 `redeem_codex_reset` irreversibly consumes a limited, account-shared Codex reset
 credit. Before invoking it, call `get_usage`, present current usage and available

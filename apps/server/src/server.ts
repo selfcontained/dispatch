@@ -15,6 +15,7 @@ import { installRequestLifecycle } from "./server/request-lifecycle.js";
 import { createCodexResetCoordinator } from "./agents/codex-reset.js";
 import { consumeCodexLimitReset } from "./agents/provider-plans.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
+import { UsageWatchService } from "./agents/usage-watches.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { ScheduledMessageService } from "./scheduled-messages/service.js";
@@ -890,7 +891,36 @@ async function registerRoutes() {
     providerPlans,
     consume: (requestId) => consumeCodexLimitReset({ log: app.log, requestId }),
   });
+  // One evaluator for every agent's usage watches, fed by every refresh of
+  // the shared reporter plus its own bounded tick while live watches exist.
+  const usageWatches = new UsageWatchService({
+    pool,
+    providerPlans,
+    deliver: async (agentId, text, options) => {
+      await (
+        await enqueueAgentPrompt(agentId, text, {
+          source: { source: "system", text: "Usage watch" },
+          signal: options.signal,
+          beforeSubmit: options.beforeSubmit,
+        })
+      ).delivery;
+    },
+    warn: (err) => app.log.warn({ err }, "usage watch delivery deferred"),
+  });
+  const stopUsageReports = providerPlans.onReport((report) =>
+    usageWatches.evaluate(report)
+  );
+  // Archived agents never claim a notice; the tick sweeps their rows.
+  await usageWatches
+    .recover()
+    .catch((err) => app.log.warn({ err }, "usage watch recovery failed"));
+  usageWatches.start();
+  app.addHook("onClose", async () => {
+    stopUsageReports();
+    usageWatches.dispose();
+  });
   await registerMcpRoutes(app, {
+    usageWatches,
     providerPlans,
     redeemCodexReset,
     config,
