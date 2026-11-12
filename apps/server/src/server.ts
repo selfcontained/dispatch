@@ -1,5 +1,6 @@
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
 import { QuestionAlerts } from "./notifications/question-alerts.js";
+import { notifyForm } from "./notifications/notify-form.js";
 import { SlackAnswers } from "./notifications/slack-answers.js";
 import { SlackThreadReplies } from "./notifications/slack-thread-replies.js";
 import { SteeringDecisions } from "./chat/steering-decisions.js";
@@ -229,6 +230,18 @@ const questionAlerts = new QuestionAlerts(
   pool,
   (alert) => slackAnswers.postAsk(alert),
   async () => (await slackNotifier.app.settings()).binding
+);
+slackNotifier.setFormNotify((agent, input) =>
+  notifyForm(
+    {
+      pool,
+      post: (agentId, post, opts) => streamService.post(agentId, post, opts),
+      alerts: questionAlerts,
+      threads: slackThreadReplies,
+    },
+    agent,
+    input
+  )
 );
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const uiEventBroker = new UiEventBroker();

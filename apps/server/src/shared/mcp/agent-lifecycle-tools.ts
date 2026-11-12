@@ -3,6 +3,7 @@ import * as z from "zod/v4";
 
 import type { NotifyInput } from "./server.js";
 import { jsonText, LIST_STRING_MAX, truncateLongStrings } from "./response.js";
+import { formSchema } from "./stream-tools.js";
 import { toToolError } from "./tool-error.js";
 
 /**
@@ -151,7 +152,7 @@ export function registerAgentLifecycleTools(
       "notify",
       {
         description:
-          "Request an immediate Slack alert for the user through their configured notification channels. Use when something warrants attention now. With replyTo, answer a person in the Slack thread their message came from instead: write a self-contained reply, since they see only this text, not your stream. This does not post to a stream, answer a question, or prove the user read it. Rate limited; inspect the returned delivery result.",
+          "Request an immediate Slack alert for the user through their configured notification channels. Use when something warrants attention now. With replyTo, answer a person in the Slack thread their message came from instead: write a self-contained reply, since they see only this text, not your stream. With form, create a form (as post with form does, message as its text) and send it to Slack now as an answerable form: with replyTo into that Slack thread, otherwise where post would ask it. The submission comes back to you as a DISPATCH POST whose id you can pass as replyTo to answer in that Slack thread; the form stays answerable in Dispatch if Slack fails. A form posted with post alerts the channel only if still unanswered after five minutes. form needs the Slack app connected and cannot combine with images. Without form, this does not post to a stream, answer a question, or prove the user read it. Rate limited; inspect the returned delivery result.",
         inputSchema: {
           message: z
             .string()
@@ -168,7 +169,7 @@ export function registerAgentLifecycleTools(
             .uuid()
             .optional()
             .describe(
-              "Message id of a post that reached you from a Slack thread (its envelope says so). Posts this reply into that Slack thread."
+              "Message id of a post that reached you from a Slack thread (its envelope says so), or of a form submission answered in Slack. Posts this reply (or, with form, the form) into that Slack thread."
             ),
           images: z
             .array(z.string().min(1))
@@ -176,6 +177,11 @@ export function registerAgentLifecycleTools(
             .optional()
             .describe(
               "Absolute paths of png/jpg/gif files (up to 4, 5 MB each) to show inline in the Slack message."
+            ),
+          form: formSchema
+            .optional()
+            .describe(
+              "Fields to collect, as in post's form. Creates the form and sends it to Slack now. The result names the form's id and its Slack delivery: sent, retrying (queued; Dispatch retries), unknown (may have posted; not resent, don't resend) or not_sent."
             ),
         },
       },

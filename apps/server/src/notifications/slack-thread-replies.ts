@@ -95,6 +95,48 @@ const promptIds = (prompts: Array<PromptSource | undefined | null>) => [
     )
   ),
 ];
+/** A live Slack thread an agent may ask in, and the Dispatch post it came from. */
+export type ThreadTarget = {
+  postId: string;
+  streamId: string;
+  threadId: string | null;
+  threadTs: string;
+  generation: string;
+};
+const toTarget = (row: ProvenanceRow): ThreadTarget => ({
+  postId: row.post_block_id,
+  streamId: row.stream_id,
+  threadId: row.thread_id,
+  threadTs: row.thread_ts,
+  generation: row.binding_generation,
+});
+/** The open turn's Slack thread and its Dispatch conversation. */
+export type TurnThread = {
+  target: ThreadTarget;
+  streamId: string;
+  threadId: string | null;
+};
+type AskShape = Pick<
+  Block,
+  "kind" | "toAgentId" | "data" | "streamId" | "threadId"
+>;
+const isHumanAsk = (block: AskShape) =>
+  (block.kind === "question" || block.kind === "form") &&
+  !block.toAgentId &&
+  !(block.data as any)?.parentHandled;
+/** The turn's thread, if this ask is a human ask in the turn's conversation. Pure. */
+export function inTurnThread(
+  turn: TurnThread | null,
+  block: AskShape
+): ThreadTarget | null {
+  if (!turn || !isHumanAsk(block)) return null;
+  if (
+    block.streamId !== turn.streamId ||
+    (block.threadId ?? null) !== turn.threadId
+  )
+    return null;
+  return turn.target;
+}
 const isUuid = (id: string) => /^[0-9a-f-]{36}$/i.test(id);
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 
@@ -292,33 +334,84 @@ export class SlackThreadReplies {
   }
 
   /**
+   * The Slack thread `notify({ replyTo, form })` asks in: the same checks as
+   * a text reply (the caller is the agent the post went to, same Slack
+   * installation/channel, parent still live), before anything is created.
+   */
+  async threadTarget(
+    agentId: string,
+    replyTo: string
+  ): Promise<
+    { ok: true; target: ThreadTarget } | { ok: false; reason: string }
+  > {
+    const [row] = await this.provenance([replyTo], agentId);
+    if (!row)
+      return {
+        ok: false,
+        reason:
+          "replyTo must be the id of a message that reached you from a Slack thread. Nothing was created.",
+      };
+    if (!(await this.parentLive(row)))
+      return {
+        ok: false,
+        reason:
+          "That Slack thread is no longer linked to this Dispatch (Slack was reconnected or the message removed). Nothing was created; ask with post instead.",
+      };
+    return { ok: true, target: toTarget(row) };
+  }
+
+  /**
+   * The Slack thread the agent's open turn answers, and where in Dispatch
+   * that turn lives. All lookups happen here, so callers can decide where a
+   * new ask belongs with `inTurnThread` without touching the database again.
+   */
+  async turnThread(agentId: string): Promise<TurnThread | null> {
+    const turn = await this.currentTurn(agentId);
+    if (!turn?.blockId) return null;
+    const rows = await this.provenance(promptIds(turn.prompts), agentId);
+    const target = rows[rows.length - 1];
+    if (!target) return null;
+    const turnPlace = await this.place(turn.blockId);
+    if (
+      !turnPlace ||
+      turnPlace.stream_id !== target.stream_id ||
+      turnPlace.thread_id !== target.thread_id
+    )
+      return null;
+    if (!(await this.parentLive(target))) return null;
+    return {
+      target: toTarget(target),
+      streamId: turnPlace.stream_id,
+      threadId: turnPlace.thread_id,
+    };
+  }
+
+  /**
+   * The Slack thread a question/form belongs in because the agent asked it
+   * while working on a Slack follow-up: the open turn's recorded prompts name
+   * the post, and the ask is in the same conversation as the turn and post.
+   */
+  async turnTarget(
+    agentId: string,
+    block: Pick<Block, "kind" | "toAgentId" | "data" | "streamId" | "threadId">
+  ): Promise<ThreadTarget | null> {
+    if (!isHumanAsk(block)) return null;
+    return inTurnThread(await this.turnThread(agentId), block);
+  }
+
+  /**
    * A question/form the agent posts while working on a Slack follow-up goes
    * into that thread now, as interactive Block Kit, instead of the 5-minute
    * channel alert. Correlation: the open turn's recorded prompts name the
    * post, and the ask is in the same conversation as the turn and the post.
    */
   async agentAsked(agentId: string, block: Block) {
-    if (block.kind !== "question" && block.kind !== "form") return;
-    if (block.toAgentId || (block.data as any)?.parentHandled) return;
-    const turn = await this.currentTurn(agentId);
-    if (!turn?.blockId) return;
-    const rows = await this.provenance(promptIds(turn.prompts), agentId);
-    const target = rows[rows.length - 1];
+    const target = await this.turnTarget(agentId, block);
     if (!target) return;
-    const turnPlace = await this.place(turn.blockId);
-    if (
-      !turnPlace ||
-      turnPlace.stream_id !== target.stream_id ||
-      turnPlace.thread_id !== target.thread_id ||
-      block.streamId !== turnPlace.stream_id ||
-      (block.threadId ?? null) !== turnPlace.thread_id
-    )
-      return;
-    if (!(await this.parentLive(target))) return;
     const sent = await this.answers
       .postAsk({
         block_id: block.id,
-        binding_generation: target.binding_generation,
+        binding_generation: target.generation,
         agent_id: agentId,
         stream_id: block.streamId,
         thread_id: block.threadId ?? null,
@@ -326,7 +419,7 @@ export class SlackThreadReplies {
         kind: block.kind,
         data: block.data,
         name: (await this.agentName(agentId)) ?? agentId,
-        threadTs: target.thread_ts,
+        threadTs: target.threadTs,
       })
       .catch(() => false);
     if (!sent || sent === true) return; // The ordinary 5-minute alert still applies.

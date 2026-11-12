@@ -80,7 +80,7 @@ const questionSchema = strictObject({
   'Ask the user (or the agent in `to`) something with options. The options render as buttons, so keep each label to a short action and put the context in the text; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting. If you found the answer yourself, close it with update({ id, state: { answer: "<what settled it>" } }). If you no longer need it asked at all, withdraw it instead: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
 );
 
-const formSchema = strictObject({
+export const formSchema = strictObject({
   title: z.string().max(200).optional(),
   fields: z
     .array(

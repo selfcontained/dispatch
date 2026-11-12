@@ -31,7 +31,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DriverEvent } from "../agents/acp/driver.js";
 import path from "node:path";
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type {
   Block,
   BlockAuthor,
@@ -2981,7 +2981,13 @@ export class StreamService {
   async post(
     agentId: string,
     input: PostInput,
-    opts: { root?: string } = {}
+    opts: {
+      root?: string;
+      /** The caller sends this ask to Slack itself (notify with a form). */
+      skipExternalAsk?: boolean;
+      /** Runs in the block's insert transaction (it commits or rolls back with it). */
+      afterInsert?: (db: PoolClient, block: Block) => Promise<void>;
+    } = {}
   ): Promise<Block> {
     // The stream is known only once the post has found its place, so the
     // write is admitted there, right before the insert.
@@ -3003,9 +3009,15 @@ export class StreamService {
   private async writePost(
     agentId: string,
     input: PostInput,
-    opts: { root?: string },
+    opts: {
+      root?: string;
+      skipExternalAsk?: boolean;
+      afterInsert?: (db: PoolClient, block: Block) => Promise<void>;
+    },
     admit: (streamId: string) => Promise<void>
   ): Promise<Block> {
+    const skipExternalAsk = opts.skipExternalAsk === true;
+    const afterInsert = opts.afterInsert;
     if (
       input.agentHome !== undefined &&
       (opts.root ||
@@ -3246,6 +3258,12 @@ export class StreamService {
     let block: Block;
     let answered: Block | null = null;
     if (answering && target) {
+      // This branch commits its own transaction; an afterInsert must never
+      // be skipped silently.
+      if (afterInsert)
+        throw new StreamValidationError(
+          "This post answers an open question and can't carry this request."
+        );
       if (target.kind === "question" && target.data.parentHandled)
         insert.data = {
           ...((insert.data as object) ?? {}),
@@ -3273,6 +3291,19 @@ export class StreamService {
             "Question was already answered or canceled."
           );
         }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    } else if (afterInsert) {
+      const client = await this.deps.pool.connect();
+      try {
+        await client.query("BEGIN");
+        block = await this.store.withClient(client).insert(insert);
+        await afterInsert(client, block);
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
@@ -3309,6 +3340,7 @@ export class StreamService {
     if (
       toAgentId === null &&
       (kind === "question" || kind === "form") &&
+      !skipExternalAsk &&
       this.deps.onAgentAsk
     ) {
       // Off the post's path: a slow Slack call must not delay the agent.
