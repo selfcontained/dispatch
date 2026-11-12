@@ -351,6 +351,18 @@ describe("sendNow (notify with a form)", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses a thread from an earlier Slack connection before claiming, leaving the ordinary reminder", async () => {
+    const id = await form();
+    const send = vi.fn(async () => true);
+    const outcome = await new QuestionAlerts(pool, send, live).sendNow(id, {
+      threadTs: "1.0",
+      generation: "old",
+    });
+    expect(outcome.delivery).toBe("not_sent");
+    expect(send).not.toHaveBeenCalled();
+    expect(await row(id)).toBeUndefined();
+  });
+
   it("does nothing without a connected Slack app", async () => {
     const id = await form();
     const send = vi.fn(async () => true);
