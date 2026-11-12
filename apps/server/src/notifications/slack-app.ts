@@ -527,7 +527,6 @@ export class SlackApp {
       generation: binding.generation,
     };
   }
-  /** Only ever targets the bound channel; callers pass the stored ts. */
   /**
    * Wait until the local 1 msg/s guard would let a post through. For a
    * same-message retry after Slack definitively rejected the first try.
@@ -584,6 +583,7 @@ export class SlackApp {
     });
     return fileId;
   }
+  /** Only ever targets the bound channel; callers pass the stored ts. */
   async updateMessage(ts: string, text: string, blocks: unknown[]) {
     const config = await this.configuration();
     if (!config) throw new Error("Slack app is not configured.");
