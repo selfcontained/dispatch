@@ -90,6 +90,14 @@ export class SlackNotifier {
   readonly app: SlackApp;
   private cachedSettings: CachedSettings | null = null;
   private isFocused: ((agentId: string) => boolean) | null = null;
+  /** Records a notify message so Slack thread replies route to that agent. */
+  private notifySent?: (
+    sent: { channelId: string; timestamp: string; generation: string },
+    agentId: string
+  ) => Promise<void>;
+  setNotifySent(fn: NonNullable<SlackNotifier["notifySent"]>) {
+    this.notifySent = fn;
+  }
   /** Per-agent rate limit tracking for notify calls. */
   private notifyTimestamps: Map<string, number[]> = new Map();
 
@@ -299,9 +307,10 @@ export class SlackNotifier {
     const appSettings = await this.app.settings();
     if (appSettings.binding) {
       try {
-        await this.app.send(
-          `Dispatch · ${agent.name || agent.id} · ${agent.type || "Agent"}\n${input.title ? input.title + "\n" : ""}${input.message}\n${appSettings.binding.baseUrl}/agents/${encodeURIComponent(agent.id)}\nPrivate link: LAN or VPN required.`
+        const sent = await this.app.send(
+          `Dispatch · ${agent.name || agent.id} · ${agent.type || "Agent"}\n${input.title ? input.title + "\n" : ""}${input.message}\n${appSettings.binding.baseUrl}/agents/${encodeURIComponent(agent.id)}\nPrivate link: LAN or VPN required. Linked answerers can reply in this thread to message the agent.`
         );
+        await this.notifySent?.(sent, agent.id).catch(() => {});
         this.recordNotifyTimestamp(agent.id);
         return { sent: true };
       } catch (error) {

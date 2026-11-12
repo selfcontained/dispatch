@@ -54,6 +54,18 @@ export type BlockOption = {
   value?: string;
 };
 
+/**
+ * Where a person answered from when it was not the Dispatch UI. Server-set
+ * from an authenticated external binding; never accepted from clients.
+ */
+export type BlockExternalOrigin = {
+  source: "slack";
+  teamId: string;
+  userId: string;
+  /** Display name/handle Slack reported when the identity was linked. */
+  displayName: string;
+};
+
 export type BlockQuestionData = {
   /** Routed to the session parent for an answer. */
   parentHandled?: boolean;
@@ -95,6 +107,7 @@ export type BlockQuestionState = {
   answer?: BlockActor & {
     value: string;
     label?: string;
+    external?: BlockExternalOrigin;
     /**
      * The reply block that carried the answer to the author. Absent when
      * the author closed its own question (nothing to answer any more).
@@ -136,6 +149,7 @@ export type BlockFormData = {
 export type BlockFormState = {
   submission?: BlockActor & {
     values: Record<string, string | number | boolean>;
+    external?: BlockExternalOrigin;
     /** The reply block that carried the submission to the author. */
     blockId: string;
   };
@@ -265,6 +279,8 @@ export type BlockTextData = BlockRecipientData & {
   scheduledDeliveryStatus?: "waiting" | "discarded" | "uncertain" | "accepted";
   /** Delivery record rendered on its question/form, never as a thread reply. */
   inlineAnswer?: boolean;
+  /** Written by a linked external identity (server-set). */
+  external?: BlockExternalOrigin;
   /** Resolved destination for queue controls on an inline answer. */
   inlineAnswerConversation?: { streamId: string; threadId: string | null };
   /** A user post first delivered as a raw ACP slash command. */

@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
+import { SlackAnswerersCard, type SlackAnswerer } from "./slack-answerers-card";
 
 type Channel = { id: string; name: string; private: boolean };
 type State = {
@@ -43,6 +44,8 @@ type State = {
   configured: boolean;
   binding: { teamName: string; channelName: string; baseUrl: string } | null;
   channels: Channel[];
+  answerers?: SlackAnswerer[];
+  missingAnswerScopes?: string[] | null;
   linkOrigins?: {
     options: { url: string; loopback: boolean }[];
     defaultUrl: string | null;
@@ -54,9 +57,23 @@ const manifest = JSON.stringify(
     display_information: { name: "Dispatch" },
     features: { bot_user: { display_name: "Dispatch", always_online: false } },
     oauth_config: {
-      scopes: { bot: ["chat:write", "channels:read", "groups:read"] },
+      scopes: {
+        bot: [
+          "chat:write",
+          "channels:read",
+          "groups:read",
+          "channels:history",
+          "groups:history",
+        ],
+      },
     },
-    settings: { socket_mode_enabled: true },
+    settings: {
+      socket_mode_enabled: true,
+      interactivity: { is_enabled: true },
+      event_subscriptions: {
+        bot_events: ["message.channels", "message.groups"],
+      },
+    },
   },
   null,
   2
@@ -257,6 +274,15 @@ export function SlackAppSection() {
         </Card>
       )}
 
+      {configured && !editing && query.data?.binding && (
+        <SlackAnswerersCard
+          channelName={query.data.binding.channelName}
+          answerers={query.data.answerers ?? []}
+          missingScopes={query.data.missingAnswerScopes ?? null}
+          manifest={manifest}
+        />
+      )}
+
       {showSetup && (
         <>
           <ol
@@ -327,7 +353,8 @@ export function SlackAppSection() {
                         Copy the app manifest
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Includes Socket Mode and the required permissions.
+                        Includes Socket Mode, buttons and forms, and thread
+                        replies under Dispatch’s own messages.
                       </p>
                     </div>
                     <CopyButton

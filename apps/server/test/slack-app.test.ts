@@ -110,6 +110,164 @@ describe("Slack app boundary", () => {
     await vi.advanceTimersByTimeAsync(60000);
     expect((await f.app.settings()).status).toBe("disabled");
   });
+  it("routes only bound app/team envelopes to the handler and acks modal results within budget", async () => {
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    const seen: unknown[] = [];
+    f.app.setInboundHandler(async (inbound) => {
+      seen.push(inbound.payload);
+      if (inbound.payload.type === "view_submission")
+        return { response_action: "errors", errors: { f0: "Required." } };
+    });
+    const deliver = (envelope: Record<string, unknown>) =>
+      f.socket.onmessage!({ data: JSON.stringify(envelope) } as MessageEvent);
+    const flush = () => new Promise((r) => setTimeout(r, 10));
+    deliver({
+      type: "interactive",
+      envelope_id: "E1",
+      payload: {
+        api_app_id: "A1",
+        team: { id: "forged" },
+        type: "block_actions",
+      },
+    });
+    deliver({
+      type: "events_api",
+      envelope_id: "E2",
+      payload: { api_app_id: "A9", team_id: "T1", event: { type: "message" } },
+    });
+    deliver({
+      type: "interactive",
+      envelope_id: "E3",
+      payload: {
+        api_app_id: "A1",
+        team: { id: "T1" },
+        type: "view_submission",
+      },
+    });
+    deliver({
+      type: "events_api",
+      envelope_id: "E4",
+      payload: { api_app_id: "A1", team_id: "T1", event: { type: "message" } },
+    });
+    await flush();
+    expect(seen).toHaveLength(2);
+    const acks = (f.socket.send as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([raw]) => JSON.parse(raw as string)
+    );
+    expect(acks).toEqual(
+      expect.arrayContaining([
+        { envelope_id: "E1" },
+        { envelope_id: "E2" },
+        { envelope_id: "E4" },
+        {
+          envelope_id: "E3",
+          payload: { response_action: "errors", errors: { f0: "Required." } },
+        },
+      ])
+    );
+    f.app.stop();
+  });
+  it("tells the person when a slow modal submission is refused after the ack", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    f.app.setInboundHandler(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                response_action: "errors",
+                errors: {
+                  f0: "Already answered — your input was not recorded.",
+                },
+              }),
+            4000
+          )
+        )
+    );
+    f.socket.onmessage!({
+      data: JSON.stringify({
+        type: "interactive",
+        envelope_id: "E6",
+        payload: {
+          api_app_id: "A1",
+          team: { id: "T1" },
+          type: "view_submission",
+          user: { id: "U1" },
+        },
+      }),
+    } as MessageEvent);
+    await vi.advanceTimersByTimeAsync(2600);
+    expect(f.socket.send).toHaveBeenCalledWith(
+      JSON.stringify({ envelope_id: "E6" })
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    const ephemeral = f.transport.mock.calls.find(([url]) =>
+      url.endsWith("chat.postEphemeral")
+    );
+    expect(JSON.parse(ephemeral![1]!.body as string)).toMatchObject({
+      user: "U1",
+      text: "Not recorded: Already answered — your input was not recorded.",
+    });
+    f.app.stop();
+  });
+  it("acks a slow modal submission before Slack's 3 second deadline", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    f.app.setInboundHandler(() => new Promise(() => {}));
+    f.socket.onmessage!({
+      data: JSON.stringify({
+        type: "interactive",
+        envelope_id: "E5",
+        payload: {
+          api_app_id: "A1",
+          team: { id: "T1" },
+          type: "view_submission",
+        },
+      }),
+    } as MessageEvent);
+    await vi.advanceTimersByTimeAsync(2600);
+    expect(f.socket.send).toHaveBeenCalledWith(
+      JSON.stringify({ envelope_id: "E5" })
+    );
+    f.app.stop();
+  });
+  it("posts Block Kit, updates and ephemerals only to the bound channel", async () => {
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    await f.app.postBlocks({ text: "t", blocks: [{ type: "divider" }] });
+    await f.app.updateMessage("1.2", "u", []);
+    await f.app.postEphemeral("U1", "e", "1.2");
+    const bodies = f.transport.mock.calls
+      .filter(([url]) => /chat\.(postMessage|update|postEphemeral)$/.test(url))
+      .map(([, init]) => JSON.parse(init!.body as string));
+    expect(bodies.map((b) => b.channel)).toEqual(["C1", "C1", "C1"]);
+    expect(bodies[2]).toMatchObject({ user: "U1", thread_ts: "1.2" });
+    f.app.stop();
+  });
+  it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
+    const f = fixture();
+    f.transport.mockResolvedValueOnce(
+      Response.json(
+        { ok: true, team_id: "T1", team: "Local team", user_id: "UBOT" },
+        {
+          headers: { "x-oauth-scopes": "chat:write,channels:read,groups:read" },
+        }
+      )
+    );
+    await f.app.validate(credentials);
+    expect((await f.app.settings()).missingAnswerScopes).toEqual([
+      "channels:history",
+      "groups:history",
+    ]);
+  });
   it("rejects redirects, malformed credentials and unvalidated enable", async () => {
     const f = fixture();
     await expect(

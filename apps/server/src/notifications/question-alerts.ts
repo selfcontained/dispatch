@@ -9,7 +9,8 @@ type Alert = {
   stream_id: string;
   thread_id: string | null;
   text: string;
-  data: { options?: { label: string }[] } | null;
+  kind: string;
+  data: unknown;
   name: string;
   attempts: number;
 };
@@ -48,7 +49,7 @@ export class QuestionAlerts {
       await this.pool.query(
         `INSERT INTO question_notifications(block_id,binding_generation,due_at,next_attempt_at)
         SELECT b.id,$1,b.created_at + interval '5 minutes',b.created_at + interval '5 minutes'
-        FROM blocks b WHERE b.created_at >= $2::timestamptz AND b.kind='question' AND b.author_kind='agent' AND ${HUMAN_QUESTION_SQL}
+        FROM blocks b WHERE b.created_at >= $2::timestamptz AND b.kind IN ('question','form') AND b.author_kind='agent' AND ${HUMAN_QUESTION_SQL}
         AND ${OPEN_INPUT_SQL} ON CONFLICT DO NOTHING`,
         [binding.generation, binding.enabledAt]
       );
@@ -65,7 +66,7 @@ export class QuestionAlerts {
       ), claimed AS (
         UPDATE question_notifications n SET lease_until=now()+interval '60 seconds',attempts=attempts+1
         FROM candidate c WHERE c.block_id=n.block_id RETURNING n.*
-      ) SELECT n.block_id,n.binding_generation,n.attempts,b.author_agent_id AS agent_id,b.stream_id,b.thread_id,b.text,b.data,a.name
+      ) SELECT n.block_id,n.binding_generation,n.attempts,b.author_agent_id AS agent_id,b.stream_id,b.thread_id,b.text,b.kind,b.data,a.name
         FROM claimed n JOIN blocks b ON b.id=n.block_id LEFT JOIN agents a ON a.id=b.author_agent_id`,
         [binding.generation]
       );

@@ -855,3 +855,45 @@ describe("Slack link address boundary", () => {
     expect(res.json().error).toBe("Choose an active Dispatch server address.");
   });
 });
+
+describe("Slack answerer routes", () => {
+  const post = (action: string, payload: Record<string, unknown> = {}) =>
+    ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/notifications/slack-app/${action}`,
+      headers: { cookie: sessionCookie },
+      payload,
+    });
+  it("lists answerers (none before any link) alongside settings", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/notifications/slack-app",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().answerers).toEqual([]);
+  });
+  it("requires an account id for allow and revoke", async () => {
+    for (const action of ["allow", "revoke"]) {
+      const res = await post(action);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("Choose a Slack account.");
+    }
+  });
+  it("refuses link and allow without a connected Slack app, and stays behind auth", async () => {
+    for (const [action, payload] of [
+      ["link", {}],
+      ["allow", { id: "00000000-0000-4000-8000-000000000000" }],
+    ] as const) {
+      const res = await post(action, payload);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("Connect Slack first.");
+    }
+    const anonymous = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/notifications/slack-app/allow",
+      payload: { id: "x" },
+    });
+    expect(anonymous.statusCode).toBe(401);
+  });
+});

@@ -41,7 +41,8 @@ export function RequestContext({
           (block) =>
             block.author.kind === "user" &&
             !block.threadId &&
-            (block.kind === "text" ||
+            // Slack-linked teammates' posts aren't the owner's requests.
+            ((block.kind === "text" && !block.data?.external) ||
               // Launch cards are user-authored even when an agent launched
               // the child; only a person's own launches are their requests.
               (block.kind === "launch" && !block.launchedByAgentId)) &&
