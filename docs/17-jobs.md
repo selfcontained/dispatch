@@ -183,7 +183,7 @@ Between runs, the compact handoff (`action`, `phase`, `summary`, `nextIntent`, `
 
 **None of it fires today.** The channel lists come from `job.notify`, and no code path writes that column: it is absent from `createJob`'s insert, from `JobConfigUpdate`, from the routes' Zod schemas, and from the MCP `create_job`/`update_job` tools. `buildRunConfig` falls back to three empty arrays, so `getNotifyChannels` always returns none and the notifier returns before sending. Treat this as a data model waiting on a write path, not a shipped feature.
 
-What does notify is the ordinary per-agent path, and only half of it: a job agent's derived status changes (waiting, blocked, idle) raise browser notifications like any other agent's, but `createNotificationRuntime` skips the Slack send for any agent whose name starts with `job-` and has a job run. So a job run's status never reaches Slack through that path either. Agents can `post` with `notify: true`, which is in `JOB_TOOLS`, and that path has no job exclusion.
+What does notify is the ordinary per-agent path, and only half of it: a job agent's derived status changes (waiting, blocked, idle) raise browser notifications like any other agent's, but `createNotificationRuntime` skips the Slack send for any agent whose name starts with `job-` and has a job run. So a job run's status never reaches Slack through that path either. Agents can call the separate `notify` tool, which is in `JOB_TOOLS`, and that path has no job exclusion.
 
 ### API
 
@@ -206,7 +206,7 @@ Job agents are given a narrowed MCP toolset (see `JOB_TOOLS` in `apps/server/src
 | `job_needs_input` | Pause the run and ask a human a question.   |
 | `job_log`         | Append a progress log to a named task.      |
 
-Job agents may also call analytics tools (`get_feedback_summary`), lister tools (`list_agents`, `list_personas`), `launch_agent` (with `persona` for a reviewer), `rename_session`, and the stream tools `post` / `update` / `react` (`post` with `notify: true` for browser and Slack notifications). Pull requests go through the `gh` CLI and are posted as a `pr` attachment.
+Job agents may also call analytics tools (`get_feedback_summary`), lister tools (`list_agents`, `list_personas`), `launch_agent` (with `persona` for a reviewer), `rename_session`, and the stream tools `post` / `update` / `react` (the separate `notify` tool requests Slack notifications). Pull requests go through the `gh` CLI and are posted as a `pr` attachment.
 
 ## UI
 

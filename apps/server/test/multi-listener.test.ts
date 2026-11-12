@@ -4,6 +4,7 @@ import websocket from "@fastify/websocket";
 import { createServer } from "node:net";
 import {
   listenAdditionalHosts,
+  additionalListenerAddresses,
   parseListenHosts,
 } from "../src/multi-listener.js";
 import { serverOrigin } from "../src/server-origin.js";
@@ -53,6 +54,9 @@ it("serves the same routes and authentication hooks on each selected address", a
   await app.listen({ host: "127.0.0.1", port: 0 });
   const port = (app.server.address() as { port: number }).port;
   const close = await listenAdditionalHosts(app, ["::1"], port);
+  expect(additionalListenerAddresses(app)).toEqual([
+    expect.objectContaining({ address: "::1", port }),
+  ]);
   cleanup.push(close);
   for (const host of ["127.0.0.1", "[::1]"]) {
     expect((await fetch(`http://${host}:${port}/hello`)).status).toBe(401);

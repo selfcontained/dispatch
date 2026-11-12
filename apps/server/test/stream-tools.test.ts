@@ -213,7 +213,7 @@ describe("registerStreamTools", () => {
     );
   });
 
-  it("describes post as the one verb: to, kinds, replyTo and notify", () => {
+  it("describes post as the one verb: to, kinds and replyTo", () => {
     const description = tool("post").config.description;
     expect(description).toContain("`to: <agentId>`");
     expect(description).toContain("`question`");
@@ -223,7 +223,7 @@ describe("registerStreamTools", () => {
     expect(description).toContain("`tasks`");
     expect(description).toContain("replyTo");
     expect(description).toContain("DISPATCH POST envelope");
-    expect(description).toContain("`notify: true`");
+    expect(description).not.toContain("notify:");
     expect(description).not.toMatch(/chat_post|share_file|chat_update/);
     expect(Object.keys(shape("post"))).toEqual([
       "to",
@@ -242,7 +242,6 @@ describe("registerStreamTools", () => {
       "tasks",
       "task",
       "attachments",
-      "notify",
       "delivery",
     ]);
     expect(Object.keys(shape("update"))).toEqual([
@@ -284,7 +283,6 @@ describe("registerStreamTools", () => {
       tasks: null,
       task: null,
       attachments: [],
-      notify: undefined,
     });
   });
 
@@ -326,7 +324,7 @@ describe("registerStreamTools", () => {
     });
   });
 
-  it("forwards to, replyTo, notify and each typed payload as given", async () => {
+  it("forwards to, replyTo and each typed payload as given", async () => {
     const question = {
       options: [{ label: "Yes", value: "y" }, { label: "No" }],
       allowFreeform: true,
@@ -336,7 +334,6 @@ describe("registerStreamTools", () => {
       text: "Ship?",
       replyTo: OTHER,
       question,
-      notify: true,
     });
     expect(post).toHaveBeenLastCalledWith(
       AGENT_ID,
@@ -345,7 +342,6 @@ describe("registerStreamTools", () => {
         text: "Ship?",
         replyTo: OTHER,
         question,
-        notify: true,
       })
     );
     const form = {

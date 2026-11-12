@@ -160,17 +160,17 @@ block (`block.turn.error`).
 
 Agents get these, and only these, for the stream:
 
-| tool     | input                                                                                              | returns             |
-| -------- | -------------------------------------------------------------------------------------------------- | ------------------- |
-| `post`   | `{ to?, kind?, text?, replyTo?, question?, form?, review?, tasks?, link?, attachments?, notify? }` | `{ id, createdAt }` |
-| `update` | `{ id, text?, data?, state?, attachments? }`                                                       | `{ id, updatedAt }` |
-| `react`  | `{ id, emoji, remove? }`                                                                           | reactions           |
+| tool     | input                                                                                     | returns             |
+| -------- | ----------------------------------------------------------------------------------------- | ------------------- |
+| `post`   | `{ to?, kind?, text?, replyTo?, question?, form?, review?, tasks?, link?, attachments? }` | `{ id, createdAt }` |
+| `update` | `{ id, text?, data?, state?, attachments? }`                                              | `{ id, updatedAt }` |
+| `react`  | `{ id, emoji, remove? }`                                                                  | reactions           |
 
 `post` without `to` posts to your own stream (a child's goes to the parent's
 stream, attributed to the child). `to: <agentId>` addresses another agent;
 any agent may address any agent. `kind` defaults from the data given
 (`question` present → question, `review` → review, …) and to `text`.
-`notify: true` sends the browser/Slack notification a `notify` call used to.
+The separate `notify` tool requests the Slack notification; `post` only writes to a stream.
 
 `update` on your own block may change `text`, `data`, `attachments` and
 `state` (a reviewer resolving its finding). `update` on a block addressed to
@@ -211,7 +211,7 @@ SSE events: `stream.entry` (upsert one entry), `stream.changed` (refetch),
 1. `blocks` and `block_reactions`; `post`/`update`/`react`; `text`,
    `question`, `form`, `file`, `link` kinds; threads in the side panel; feed
    and routes as above for the root agent's own stream; `chat_*`,
-   `share_file` and `notify` deleted; the launch post is a block.
+   `share_file` deleted; `notify` remains a separate alert tool; the launch post is a block.
 2. `to_agent_id` delivery for peers; children post into the parent's stream
    and their turns render folded there; `agent_messages`, the Messages tab
    and `send_message` deleted.

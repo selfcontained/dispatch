@@ -225,7 +225,7 @@ const POST_DESCRIPTION =
   "Use post for structured content: `question`, `form`, `link`, `review`, `tasks`, live task cards (`task`), attachments, a scoped answer, or a message to another agent. " +
   "`replyTo` selects the original authorized discussion anchor (use the id from a DISPATCH POST envelope or post result). Use taskId for explicit task chat; task_comment remains available. Neither changes subsequent ordinary output. " +
   "agentHome cannot combine with replyTo, taskId, or placement. Questions, forms, and reviews preserve dedicated routing and reject agentHome and placement overrides. Placement also conflicts with replyTo and taskId. Placement alone never delivers; use to when another agent must receive the post. " +
-  "`notify: true` also sends the browser/Slack notification. A receipt is not proof of pickup or an answer. Returns { id, kind, streamId, threadId, replyTo, createdAt } naming the actual stored location (a review also returns findings' ids); keep original anchors for replies and updates.";
+  "A receipt is not proof of pickup or an answer. Returns { id, kind, streamId, threadId, replyTo, createdAt } naming the actual stored location (a review also returns findings' ids); keep original anchors for replies and updates.";
 
 const UPDATE_DESCRIPTION =
   "Revise a block you posted (text, data, attachments, state) or change the state of a block addressed to you " +
@@ -430,7 +430,6 @@ export function registerStreamTools(
             .describe("Share a live task card by task ID.")
             .optional(),
           attachments: attachmentsSchema.optional(),
-          notify: z.boolean().optional(),
           delivery: z
             .enum(["auto", "queue"])
             .optional()
@@ -460,7 +459,6 @@ export function registerStreamTools(
             tasks: args.tasks ?? null,
             task: args.task ?? null,
             attachments: args.attachments ?? [],
-            notify: args.notify,
             delivery: args.delivery,
           };
           const block = await streams.post(agentId, input);

@@ -1,3 +1,4 @@
+import { SlackAppSection } from "./slack-app-section";
 import { BrowserNotificationsSection } from "@/components/app/browser-notifications-section";
 import {
   SoundCuesSection,
@@ -55,6 +56,8 @@ export function NotificationSettings(): JSX.Element {
         onToggleWebEvent={toggleWebEvent}
         onTestWebNotification={handleTestWebNotification}
       />
+
+      <SlackAppSection />
 
       <SlackNotificationsSection
         webhookUrl={webhookUrl}

@@ -170,8 +170,6 @@ export type PostInput = {
   tasks?: BlockTasksData | null;
   task?: { id: string } | null;
   attachments?: BlockAttachmentInput[];
-  /** Also send the browser/Slack notification. */
-  notify?: boolean;
   delivery?: "auto" | "queue" | "interrupt";
 };
 
@@ -277,11 +275,6 @@ export type StreamServiceDeps = {
     agentId: string,
     input: { filePath: string; description: string }
   ) => Promise<{ fileName: string }>;
-  /** The browser/Slack notification a post with `notify: true` sends. */
-  notify?: (
-    agentId: string,
-    input: { message: string; title?: string }
-  ) => Promise<unknown>;
   /** Required for anything that delivers to an agent. */
   delivery?: StreamDeliveryAdapter;
   /**
@@ -3290,20 +3283,6 @@ export class StreamService {
             { err: error, agentId },
             "stream: failed to mark the agent waiting"
           );
-        });
-    }
-    if (
-      input.notify &&
-      this.deps.notify &&
-      !(
-        (block.kind === "question" || block.kind === "form") &&
-        block.data.parentHandled
-      )
-    ) {
-      await this.deps
-        .notify(agentId, { message: text || describeInput(block) })
-        .catch((error: unknown) => {
-          this.log.warn({ err: error, agentId }, "stream: notification failed");
         });
     }
     return block;

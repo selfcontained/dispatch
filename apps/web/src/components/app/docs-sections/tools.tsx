@@ -164,8 +164,8 @@ export function ToolsContent() {
             prompt (any agent, any time). Takes <Code>text</Code> plus, by kind,{" "}
             <Code>question</Code>, <Code>form</Code>, <Code>review</Code>,{" "}
             <Code>tasks</Code>, <Code>link</Code>, and <Code>attachments</Code>;{" "}
-            <Code>replyTo</Code> threads it under another block, and{" "}
-            <Code>notify: true</Code> also sends the browser/Slack notification.
+            <Code>replyTo</Code> threads it under another block. Use the
+            separate <Code>notify</Code> tool for an immediate Slack alert.
             Returns <Code>{"{ id, createdAt }"}</Code>.
           </li>
           <li>

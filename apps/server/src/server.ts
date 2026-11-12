@@ -1,3 +1,5 @@
+import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
+import { QuestionAlerts } from "./notifications/question-alerts.js";
 import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
@@ -18,7 +20,10 @@ import { ScheduledMessageService } from "./scheduled-messages/service.js";
 import { registerScheduledMessageRoutes } from "./routes/scheduled-messages.js";
 import { agentForClient } from "./server/agent-client-view.js";
 import path from "node:path";
-import { listenAdditionalHosts } from "./multi-listener.js";
+import {
+  listenAdditionalHosts,
+  additionalListenerAddresses,
+} from "./multi-listener.js";
 import { watchLocalTls } from "./local-tls.js";
 import { registerLocalTrustRoutes } from "./routes/local-trust.js";
 import os from "node:os";
@@ -198,6 +203,26 @@ const agentManager = new AgentManager(pool, app.log, config, {
 });
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
+const questionAlerts = new QuestionAlerts(
+  pool,
+  async (alert) => {
+    const settings = await slackNotifier.app.settings();
+    if (!settings.binding) return false;
+    const binding = settings.binding;
+    const context =
+      alert.text ||
+      alert.data?.options?.map((option) => option.label).join(" / ") ||
+      "Question awaiting your answer";
+    const params = new URLSearchParams({ block: alert.block_id });
+    if (alert.thread_id) params.set("thread", alert.thread_id);
+    if (alert.stream_id.startsWith("tsk_")) params.set("task", alert.stream_id);
+    return slackNotifier.app.send(
+      `Dispatch · ${alert.name || alert.agent_id}\nQuestion unanswered for 5 minutes\n${context.slice(0, 2000)}\n${binding.baseUrl}/agents/${encodeURIComponent(alert.stream_id.startsWith("tsk_") ? alert.agent_id : alert.stream_id)}?${params}\nOpen Dispatch on your LAN or VPN. Delivery does not mean read or picked up.`,
+      alert.binding_generation
+    );
+  },
+  async () => (await slackNotifier.app.settings()).binding
+);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const uiEventBroker = new UiEventBroker();
 const reconciliationTracker = new SubsystemTracker({
@@ -490,8 +515,6 @@ const streamService = new StreamService({
       filePath: input.filePath,
       description: input.description,
     }),
-  notify: (agentId, input) =>
-    notificationRuntime.sendExplicitNotification(agentId, input),
   delivery: {
     access: (agentId) => agentManager.getTerminalAccess(agentId),
     inject: async (agentId, text, opts) =>
@@ -922,6 +945,17 @@ async function registerRoutes() {
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
+    notificationLinkOrigins: () => {
+      const primary = app.server.address();
+      return discoverSlackLinkOrigins({
+        addresses: [
+          ...(primary && typeof primary !== "string" ? [primary] : []),
+          ...additionalListenerAddresses(app),
+        ],
+        tls: !!config.tls,
+        configuredHost: config.host,
+      });
+    },
     canManageEngineUpdates,
     pool,
     localCertificateTrust:
@@ -1205,6 +1239,8 @@ export async function initializeApp(options?: {
     for (const agent of agents) {
       void diffStatsRefresher.signal(agent.id);
     }
+    void slackNotifier.app.start().catch(() => {});
+    questionAlerts.start();
     pullRequests.start();
     agentLifecycleRuntime.startReconcileLoop();
     stopRetentionSweep = startRetentionSweep({
@@ -1325,6 +1361,8 @@ async function cleanupAppResources(): Promise<void> {
   scheduledMessages.stop();
   await stage("service-resources", () => serviceResources.shutdown());
 
+  questionAlerts.stop();
+  slackNotifier.app.stop();
   notificationRuntime.clearPendingWebNotifications();
 
   await stage("jobs", () => jobService.shutdown());
