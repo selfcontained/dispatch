@@ -67,7 +67,7 @@ final class UpdateUserDriver: SPUStandardUserDriver {
                     reply(.dismiss)
                 } catch {
                     cancelling = false
-                    window.update(.cancelFailed("Could not cancel the staged update. Choose Try again to retry cancellation, or close this window to leave the update pending. \(error.localizedDescription)"))
+                    window.update(.cancelFailed("Couldn’t cancel the staged update. Try again, or close this window to leave it pending. \(error.localizedDescription)"))
                     window.onClose = { [weak self] in
                         guard !answered else { return }
                         self?.abandonActivity?()
@@ -118,7 +118,7 @@ final class UpdateUserDriver: SPUStandardUserDriver {
             } catch is CancellationError { }
             catch {
                 guard !answered else { return }
-                window.update(.stopped("Could not check agent activity. Dismiss and try Check for Updates again. \(error.localizedDescription)"))
+                window.update(.stopped("Couldn’t check agent activity. Try Check for Updates again. \(error.localizedDescription)"))
             }
         }
     }

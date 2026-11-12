@@ -37,16 +37,48 @@ final class UpdateProgressWindowTests: XCTestCase {
         XCTAssertTrue(controls.compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Restarting Dispatch…" })
         try capture(controller, name: "restarting")
         controller.update(.stopped(String(repeating: "Long recovery explanation. ", count: 30)))
+        try XCTUnwrap(controls.compactMap { $0 as? NSButton }.first { $0.title == "Show Details" }).performClick(nil)
         view.layoutSubtreeIfNeeded()
         let detail = try XCTUnwrap(controls.compactMap { $0 as? NSTextField }.first { $0.stringValue.hasPrefix("Long recovery") })
-        XCTAssertGreaterThan(detail.frame.minY, 0, "Long errors must fit in the resized window")
+        XCTAssertTrue(view.bounds.contains(detail.convert(detail.bounds, to: view)), "Long errors must fit in the resized window")
         controller.update(.stopped("Agents are still working. Dispatch will retry automatically when agents are idle."))
         XCTAssertTrue(controls.compactMap { $0 as? NSProgressIndicator }.allSatisfy(\.isHidden))
         let dismiss = try XCTUnwrap(controls.compactMap { $0 as? NSButton }.first { !$0.isHidden })
-        XCTAssertEqual(dismiss.title, "Dismiss")
+        XCTAssertEqual(dismiss.title, "OK")
         try capture(controller, name: "paused")
         dismiss.performClick(nil)
         XCTAssertFalse(try XCTUnwrap(controller.window).isVisible)
+    }
+    @MainActor func testErrorsLeadWithUserGuidanceAndKeepDetailsBehindDisclosure() throws {
+        _ = NSApplication.shared
+        let controller = UpdateProgressWindow()
+        defer { controller.close() }
+        let view = try XCTUnwrap(controller.window?.contentView)
+        let controls = descendants(view)
+        func label(_ text: String) -> NSTextField? { controls.compactMap { $0 as? NSTextField }.first { $0.stringValue == text } }
+        let internals = "Sparkle has an update installer staged; run launchctl bootout."
+        controller.update(.stopped(internals))
+        XCTAssertNotNil(label("Update didn’t install"))
+        XCTAssertNotNil(label("You can try again later from the Dispatch menu."))
+        XCTAssertTrue(try XCTUnwrap(label(internals)).isHidden, "Internals stay out of the main message")
+        let toggle = try XCTUnwrap(controls.compactMap { $0 as? NSButton }.first { $0.title == "Show Details" })
+        XCTAssertFalse(toggle.isHidden)
+        toggle.performClick(nil)
+        XCTAssertFalse(try XCTUnwrap(label(internals)).isHidden)
+        XCTAssertEqual(toggle.title, "Hide Details")
+        XCTAssertTrue(try XCTUnwrap(controller.window).styleMask.contains(.closable))
+        controller.update(.stopped("Agents are still working. Dispatch will retry automatically when agents are idle."))
+        XCTAssertNotNil(label("Update postponed"))
+        XCTAssertTrue(toggle.isHidden, "A plain postponement has nothing technical to show")
+        var retries = 0
+        controller.onAction = { retries += 1 }
+        controller.update(.cancelFailed("Withdrawal failed"))
+        XCTAssertNotNil(label("Couldn’t postpone the update"))
+        try XCTUnwrap(controls.compactMap { $0 as? NSButton }.first { $0.title == "Try Again" }).performClick(nil)
+        XCTAssertEqual(retries, 1)
+        controller.update(.preparing)
+        XCTAssertFalse(try XCTUnwrap(controller.window).styleMask.contains(.closable), "The protected handoff stays non-closable")
+        XCTAssertTrue(controls.compactMap { $0 as? NSButton }.allSatisfy(\.isHidden))
     }
     #if SPARKLE_UPDATES
     @MainActor func testDisplaySleepVetoAcknowledgesWithoutShowingAnError() {
@@ -180,7 +212,7 @@ final class UpdateProgressWindowTests: XCTestCase {
         try await waitUntil { driver.progress?.phase == .waitingForAgents }
         let controls = descendants(try XCTUnwrap(driver.progress?.window?.contentView))
         let stopWaiting = try XCTUnwrap(controls.compactMap { $0 as? NSButton }.first { !$0.isHidden })
-        XCTAssertEqual(stopWaiting.title, "Cancel update")
+        XCTAssertEqual(stopWaiting.title, "Install Later")
         stopWaiting.performClick(nil)
         active = false
         try await waitUntil { driver.progress == nil && dismissals == 1 }
@@ -229,8 +261,10 @@ final class UpdateProgressWindowTests: XCTestCase {
         driver.progress?.close()
         try await waitUntil { if case .cancelFailed = driver.progress?.phase { return true }; return false }
         let controls = descendants(try XCTUnwrap(driver.progress?.window?.contentView))
-        XCTAssertTrue(controls.compactMap { $0 as? NSButton }.contains { $0.title == "Try again" })
-        driver.progress?.close()
+        XCTAssertTrue(controls.compactMap { $0 as? NSButton }.contains { $0.title == "Try Again" && !$0.isHidden })
+        XCTAssertTrue(try XCTUnwrap(driver.progress?.window).styleMask.contains(.closable), "Errors are always dismissible")
+        // OK leaves the update pending exactly like closing the window; it never retries.
+        try XCTUnwrap(controls.compactMap { $0 as? NSButton }.first { $0.title == "OK" && !$0.isHidden }).performClick(nil)
         XCTAssertNil(driver.progress)
         XCTAssertEqual(attempts, 1)
         XCTAssertEqual(dismissals, 1)

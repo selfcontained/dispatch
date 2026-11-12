@@ -18,75 +18,173 @@ final class SettingsWindowController: NSWindowController {
     private var configuration: Configuration
     private var displayedDatabaseURL = ""
     private var displayedURL: URL
-    private let login = NSButton(checkboxWithTitle: "Show Dispatch in the menu bar at login", target: nil, action: nil)
-    private let serverLogin = NSButton(checkboxWithTitle: "Start server at login", target: nil, action: nil)
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let urlField = NSTextField(string: "")
+    private let tabs = NSTabViewController()
+    private let login = NSSwitch()
+    private let serverLogin = NSSwitch()
+    private let statusDot = NSImageView()
+    private let statusLabel = NSTextField(wrappingLabelWithString: "")
+    private let urlField = NSTextField(wrappingLabelWithString: "")
     private let startStop = NSButton(title: "Start Server", target: nil, action: nil)
-    private let databaseDetails = NSTextField(wrappingLabelWithString: "")
-    private let savedMessage = NSTextField(wrappingLabelWithString: "")
+    private let approvalRow = NSStackView()
     private let approval = NSButton(title: "Allow in System Settings…", target: nil, action: nil)
+    /// Save/apply feedback, shown beside the server status and beside each Save button.
+    private let savedMessage = FeedbackLabel()
+    private var saveFeedback: [FeedbackLabel] = []
+    private let databaseKind = Form.value()
+    private var databaseRows: [NSView] = []
+    private var databaseValues: [NSTextField] = []
+    private let databaseEmpty = Form.note("A private database is created when Dispatch first starts.")
     private let channel = NSPopUpButton(frame: .zero, pullsDown: false)
     var updateChannels: (get: () -> UpdateChannel, set: (UpdateChannel) -> Void) = (get: { UpdateChannel.current() }, set: { $0.save() })
     private var saveButtons: [NSButton] = []
-    private let certificateDetails = NSTextField(wrappingLabelWithString: "")
+    private let certificateStatus = Form.value()
+    private let certificateDetails = Form.value()
+    private let fingerprintToggle = NSButton(title: "Show", target: nil, action: nil)
+    private var fingerprintRow: NSView?
     private var trustButtons: [NSButton] = []
 
     init(configuration: Configuration) {
         self.configuration = configuration; displayedURL = configuration.serverURL; fields = SetupFields(configuration: configuration)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 580, height: 620), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Dispatch Settings"; window.minSize = NSSize(width: 560, height: 480); window.isReleasedWhenClosed = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 560), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.title = "Dispatch Settings"; window.isReleasedWhenClosed = false
+        window.toolbarStyle = .preference
+        window.autorecalculatesKeyViewLoop = true
         super.init(window: window)
-        let tabs = NSTabView(); tabs.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView?.addSubview(tabs)
-        if let content = window.contentView {
-            NSLayoutConstraint.activate([tabs.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16), tabs.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16), tabs.topAnchor.constraint(equalTo: content.topAnchor, constant: 16), tabs.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16)])
-        }
-        login.target = self; login.action = #selector(changeLogin)
-        serverLogin.target = self; serverLogin.action = #selector(changeServerLogin)
-        urlField.isEditable = false; urlField.isSelectable = true; urlField.font = .systemFont(ofSize: 13)
-        urlField.setAccessibilityLabel("Dispatch URL")
-        let copyButton = NSButton(image: NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy URL")!, target: self, action: #selector(copyURL))
-        copyButton.bezelStyle = .rounded; copyButton.toolTip = "Copy URL"
-        let addressRow = row([urlField, copyButton]); urlField.widthAnchor.constraint(equalToConstant: 360).isActive = true
-        startStop.target = self; startStop.action = #selector(toggleServer)
-        approval.target = self; approval.action = #selector(allowService)
-        savedMessage.textColor = .secondaryLabelColor; savedMessage.font = .systemFont(ofSize: 12)
-        addTab("General", to: tabs, views: [
-            card("Startup", [login, serverLogin]),
-            card("Server", [row([statusLabel, startStop]), addressRow, approval, savedMessage]),
-        ])
-        certificateDetails.isSelectable = true; certificateDetails.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        trustButtons = [button("Export Apple Trust Profile…", #selector(exportProfile)), button("Export CA Certificate…", #selector(exportCertificate)), button("Trust Instructions…", #selector(openTrustInstructions))]
-        addTab("Network", to: tabs, views: [card("Network", [fields.view, saveButton()]),
-            card("HTTPS Certificate Trust", [note("Start the server once to create its local CA. Trust it once on each device. Address changes and certificate renewals keep the same CA."), certificateDetails] + trustButtons)])
-        databaseDetails.isSelectable = true; databaseDetails.font = .systemFont(ofSize: 12)
-        addTab("Database", to: tabs, views: [
-            card("Database", [databaseDetails, button("Copy Connection URL", #selector(copyDatabaseURL))]),
-            card("Configuration", [fields.databaseView, saveButton()]),
-        ])
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
-        channel.addItems(withTitles: UpdateChannel.allCases.map(\.title))
-        channel.target = self; channel.action = #selector(changeChannel)
-        channel.setAccessibilityLabel("Update channel")
-        addTab("Support", to: tabs, views: [
-            card("Dispatch", [heading("Version \(version)"), note("Build \(build)")]),
-            card("Updates", [row([NSTextField(labelWithString: "Channel"), channel]), note("Stable gets promoted releases. Preview gets every release as soon as it ships.")]),
-            card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(AppPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
-        ])
+        tabs.tabStyle = .toolbar
+        tabs.transitionOptions = []
+        tabs.canPropagateSelectedChildViewControllerTitle = false
+        addSection("General", symbol: "gearshape", generalPage())
+        addSection("Network", symbol: "network", networkPage())
+        addSection("Database", symbol: "cylinder.split.1x2", databasePage())
+        addSection("About", symbol: "info.circle", aboutPage())
+        window.contentViewController = tabs
+        window.title = "Dispatch Settings"
+        window.setContentSize(NSSize(width: 600, height: 560))
+        window.contentMinSize = NSSize(width: 520, height: 420)
         updateDetails(configuration)
         refreshChannel()
-        if configuration.databaseURL.isEmpty { tabs.selectTabViewItem(at: 1) }
+        if configuration.databaseURL.isEmpty { selectSection(named: "Network") }
         window.center()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    private func saveButton() -> NSButton {
-        let save = button("Save", #selector(saveSettings)); saveButtons.append(save); return save
+
+    // MARK: Sections
+
+    var sectionCount: Int { tabs.tabViewItems.count }
+    func sectionTitle(at index: Int) -> String { tabs.tabViewItems[index].label }
+    func selectSection(at index: Int) { tabs.selectedTabViewItemIndex = index }
+    func selectSection(named title: String) {
+        if let index = tabs.tabViewItems.firstIndex(where: { $0.label == title }) { selectSection(at: index) }
+    }
+    var selectedSectionTitle: String? { tabs.tabViewItems.indices.contains(tabs.selectedTabViewItemIndex) ? tabs.tabViewItems[tabs.selectedTabViewItemIndex].label : nil }
+
+    private func addSection(_ title: String, symbol: String, _ page: NSView) {
+        let controller = NSViewController(); controller.view = page
+        let item = NSTabViewItem(viewController: controller)
+        item.label = title; item.identifier = title
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        tabs.addTabViewItem(item)
+    }
+
+    private func generalPage() -> NSView {
+        statusDot.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
+        statusDot.symbolConfiguration = .init(pointSize: 8, weight: .regular)
+        statusDot.setAccessibilityElement(false)
+        statusLabel.textColor = .secondaryLabelColor
+        startStop.target = self; startStop.action = #selector(toggleServer)
+        startStop.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let identity = Form.vstack([Form.title("Dispatch", size: 15), Form.hstack([statusDot, statusLabel], spacing: 5)], spacing: 2)
+        identity.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let header = Form.hstack([Brand.iconView(size: 40), identity, Form.spacer(), startStop], spacing: 12)
+        let copyButton = NSButton(image: NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy URL")!, target: self, action: #selector(copyURL))
+        copyButton.bezelStyle = .inline; copyButton.isBordered = false; copyButton.toolTip = "Copy URL"
+        urlField.isSelectable = true
+        // Login Items approval is OS-owned; this only routes the user there.
+        let warning = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Needs attention")!)
+        warning.contentTintColor = .systemOrange
+        let approvalText = NSTextField(labelWithString: "Allow in Login Items to run the server.")
+        approvalText.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        approvalText.lineBreakMode = .byTruncatingTail
+        approval.target = self; approval.action = #selector(allowService)
+        approval.setContentCompressionResistancePriority(.required, for: .horizontal)
+        approvalRow.setViews([warning, approvalText, Form.spacer(), approval], in: .leading)
+        approvalRow.orientation = .horizontal; approvalRow.spacing = 6; approvalRow.alignment = .centerY
+        login.target = self; login.action = #selector(changeLogin)
+        serverLogin.target = self; serverLogin.action = #selector(changeServerLogin)
+        return Form.page([
+            Form.section(nil, [header, Form.valueRow("Address", urlField, copyButton), approvalRow], footerLabel: savedMessage),
+            Form.section("Startup", [Form.row("Show in menu bar at login", login), Form.row("Start server at login", serverLogin)]),
+        ])
+    }
+
+    private func networkPage() -> NSView {
+        certificateDetails.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        certificateDetails.textColor = .secondaryLabelColor
+        certificateDetails.isHidden = true
+        fingerprintToggle.bezelStyle = .inline; fingerprintToggle.controlSize = .small
+        fingerprintToggle.target = self; fingerprintToggle.action = #selector(toggleFingerprint)
+        fingerprintToggle.setAccessibilityLabel("Show certificate fingerprint")
+        let fingerprint = Form.vstack([Form.row("Fingerprint", fingerprintToggle), certificateDetails], spacing: 6)
+        fingerprint.arrangedSubviews.forEach { $0.widthAnchor.constraint(equalTo: fingerprint.widthAnchor).isActive = true }
+        fingerprintRow = fingerprint
+        trustButtons = [button("Export Apple Trust Profile…", #selector(exportProfile)), button("Export CA Certificate…", #selector(exportCertificate)), button("Trust Instructions…", #selector(openTrustInstructions))]
+        let trustActions = Form.vstack([Form.actions(Array(trustButtons.prefix(2))), Form.actions([trustButtons[2]])], spacing: 8)
+        trustActions.arrangedSubviews.forEach { $0.widthAnchor.constraint(equalTo: trustActions.widthAnchor).isActive = true }
+        return Form.page([
+            Form.section("Addresses", [fields.view, fields.portRow, saveRow()], footer: "Other devices need an address on your network."),
+            Form.section("HTTPS Certificate", [Form.valueRow("Local CA", certificateStatus), fingerprint, trustActions],
+                         footer: "Trust the CA once per device. It survives address changes and renewals."),
+        ])
+    }
+
+    private func databasePage() -> NSView {
+        databaseRows = [Form.valueRow("Type", databaseKind)]
+        for title in ["Host", "Port", "Database", "User"] {
+            let value = Form.value(); databaseValues.append(value)
+            databaseRows.append(Form.valueRow(title, value))
+        }
+        let empty = Form.vstack([databaseEmpty]); databaseRows.append(empty)
+        databaseEmpty.widthAnchor.constraint(equalTo: empty.widthAnchor).isActive = true
+        return Form.page([
+            Form.section("Current Database", databaseRows + [Form.actions([button("Copy Connection URL", #selector(copyDatabaseURL))])]),
+            Form.section("Connection", [fields.databaseView, saveRow()], footer: "Dispatch manages a private database unless you use your own."),
+        ])
+    }
+
+    private func aboutPage() -> NSView {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
+        let versionLabel = NSTextField(labelWithString: "Version \(version) (\(build))"); versionLabel.textColor = .secondaryLabelColor
+        versionLabel.isSelectable = true
+        let header = Form.hstack([Brand.iconView(size: 40), Form.vstack([Form.title("Dispatch", size: 15), versionLabel], spacing: 2)], spacing: 12)
+        channel.addItems(withTitles: UpdateChannel.allCases.map(\.title))
+        channel.target = self; channel.action = #selector(changeChannel)
+        channel.setAccessibilityLabel("Update channel")
+        let path = Form.value(AppPaths.root.path)
+        return Form.page([
+            Form.section(nil, [header]),
+            Form.section("Updates", [Form.row("Channel", channel)], footer: "Stable gets promoted releases. Preview gets every release."),
+            Form.section("Data", [Form.valueRow("Location", path), Form.actions([button("Copy Path", #selector(copyDataPath)), button("Show in Finder", #selector(showData))])],
+                         footer: "Your database, sessions, settings, and logs."),
+        ])
+    }
+
+    // MARK: State
+
+    private func saveRow() -> NSStackView {
+        let save = button("Save", #selector(saveSettings)); saveButtons.append(save)
+        let feedback = FeedbackLabel(); saveFeedback.append(feedback)
+        feedback.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return Form.actions([save], feedback: feedback)
+    }
+    private func setSavedMessage(_ text: String) {
+        savedMessage.stringValue = text
+        for label in saveFeedback { label.stringValue = text }
     }
     func didSave(_ configuration: Configuration) {
         self.configuration = configuration
-        savedMessage.stringValue = "Settings saved."
+        setSavedMessage("Settings saved.")
     }
     func update(configuration: Configuration, runningConfiguration: Configuration?, displayURL: URL? = nil, canControlServer: Bool = true, canSave: Bool = true, status: String, active: Bool, loginEnabled: Bool, canChangeLogin: Bool, needsApproval: Bool, busy: Bool, serverAtLogin: Bool, stopping: Bool = false) {
         self.configuration = configuration
@@ -94,100 +192,45 @@ final class SettingsWindowController: NSWindowController {
         displayedURL = displayURL ?? (runningConfiguration ?? configuration).serverURL
         urlField.stringValue = displayedURL.absoluteString
         statusLabel.stringValue = status
-        statusLabel.textColor = status == "Running" ? .systemGreen : .secondaryLabelColor
+        statusLabel.setAccessibilityLabel("Server status: \(status)")
+        statusDot.contentTintColor = Brand.color(Self.tone(status))
         startStop.title = stopping ? "Stopping…" : active ? "Stop Server" : "Start Server"; startStop.isEnabled = canControlServer && !busy && !stopping
+        // The server's next step is the dominant action only when it is stopped.
+        startStop.bezelColor = !active && !stopping && startStop.isEnabled ? .controlAccentColor : nil
         login.state = loginEnabled ? .on : .off; login.isEnabled = canChangeLogin && !busy
         serverLogin.state = serverAtLogin ? .on : .off; serverLogin.isEnabled = canChangeLogin && !busy
-        approval.isHidden = !needsApproval
+        approvalRow.isHidden = !needsApproval
         fields.setEnabled(canSave && !busy)
         for save in saveButtons { save.isEnabled = canSave && !busy }
         let certificate = try? Data(contentsOf: AppPaths.root.appendingPathComponent("tls/ca/cert.cer"))
         certificateDetails.stringValue = certificate.map { "CA SHA-256\n" + SHA256.hash(data: $0).map { String(format: "%02X", $0) }.joined(separator: ":") } ?? "Certificate not created yet."
+        certificateStatus.stringValue = certificate == nil ? "Created when the server first starts" : "Ready to trust"
+        fingerprintRow?.isHidden = certificate == nil
         for button in trustButtons { button.isEnabled = certificate != nil && canSave && !busy }
         trustButtons.last?.isEnabled = certificate != nil && active && displayedURL.scheme == "https"
         if let running = runningConfiguration, active && (running.port != configuration.port || running.bindHosts != configuration.bindHosts || running.databaseURL != configuration.databaseURL || running.localTLS != configuration.localTLS) {
-            savedMessage.stringValue = "Saved changes will apply the next time you start the server."
-        } else if active { savedMessage.stringValue = "" }
+            setSavedMessage("Saved changes will apply the next time you start the server.")
+        } else if active { setSavedMessage("") }
+    }
+    static func tone(_ status: String) -> Brand.Tone {
+        switch status {
+        case "Running": return .good
+        case "Starting…", "Stopping…", "Checking…", "Moving your data…", "Needs permission in System Settings": return .pending
+        case "Stopped", "Not configured": return .neutral
+        default: return .attention
+        }
     }
     private func updateDetails(_ config: Configuration) {
         displayedDatabaseURL = config.databaseURL
         if let url = URLComponents(string: config.databaseURL), let host = url.host {
-            databaseDetails.stringValue = "\(config.usesManagedDatabase ? "Managed by Dispatch" : "External PostgreSQL")\n\nHost: \(host)\nPort: \(url.port ?? 5432)\nDatabase: \(String(url.path.dropFirst()))\nUser: \(url.user ?? "")"
-        } else { databaseDetails.stringValue = "A private database will be created when you start Dispatch." }
-    }
-    private func heading(_ title: String) -> NSTextField {
-        let label = NSTextField(labelWithString: title)
-        label.font = .boldSystemFont(ofSize: 14)
-        return label
-    }
-    private func note(_ text: String) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.textColor = .secondaryLabelColor
-        label.font = .systemFont(ofSize: 12)
-        return label
-    }
-    private func pathLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        label.isSelectable = true
-        return label
+            databaseKind.stringValue = config.usesManagedDatabase ? "Managed by Dispatch" : "External PostgreSQL"
+            for (field, value) in zip(databaseValues, [host, String(url.port ?? 5432), String(url.path.dropFirst()), url.user ?? ""]) { field.stringValue = value }
+            for (index, row) in databaseRows.enumerated() { row.isHidden = index == databaseRows.count - 1 }
+        } else {
+            for (index, row) in databaseRows.enumerated() { row.isHidden = index != databaseRows.count - 1 }
+        }
     }
     private func button(_ title: String, _ action: Selector) -> NSButton { NSButton(title: title, target: self, action: action) }
-    private func row(_ views: [NSView]) -> NSStackView {
-        let stack = NSStackView(views: views)
-        stack.spacing = 8
-        return stack
-    }
-    private func card(_ title: String, _ views: [NSView]) -> NSBox {
-        let box = NSBox()
-        box.title = ""
-        box.boxType = .custom
-        box.borderColor = .separatorColor
-        box.borderWidth = 0.5
-        box.cornerRadius = 8
-        box.fillColor = .controlBackgroundColor
-        let stack = NSStackView(views: [heading(title)] + views)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        box.contentView = NSView()
-        box.contentView!.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: box.contentView!.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: box.contentView!.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: box.contentView!.topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(equalTo: box.contentView!.bottomAnchor, constant: -14),
-        ])
-        for view in views { view.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true }
-        return box
-    }
-    private func addTab(_ title: String, to tabs: NSTabView, views: [NSView]) {
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        let container = SettingsDocumentView()
-        let stack = NSStackView(views: views)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
-        container.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = container
-        NSLayoutConstraint.activate([
-            container.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20),
-        ])
-        for view in views { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
-        let tab = NSTabViewItem(identifier: title)
-        tab.label = title
-        tab.view = scroll
-        tabs.addTabViewItem(tab)
-    }
     private func copy(_ text: String) { copyText(text) }
     func refreshChannel() { channel.selectItem(at: UpdateChannel.allCases.firstIndex(of: updateChannels.get()) ?? 0) }
     @objc private func changeChannel() { updateChannels.set(UpdateChannel.allCases[max(channel.indexOfSelectedItem, 0)]) }
@@ -197,6 +240,11 @@ final class SettingsWindowController: NSWindowController {
     @objc private func toggleServer() { onStartStop?() }
     @objc private func allowService() { onApproval?() }
     @objc private func showData() { onDataFolder?() }
+    @objc private func toggleFingerprint() {
+        certificateDetails.isHidden.toggle()
+        fingerprintToggle.title = certificateDetails.isHidden ? "Show" : "Hide"
+        fingerprintToggle.setAccessibilityLabel(certificateDetails.isHidden ? "Show certificate fingerprint" : "Hide certificate fingerprint")
+    }
     @objc private func copyURL() { copy(displayedURL.absoluteString) }
     @objc private func copyDatabaseURL() { copy(displayedDatabaseURL) }
     @objc private func copyDataPath() { copy(AppPaths.root.path) }
@@ -217,4 +265,3 @@ final class SettingsWindowController: NSWindowController {
         }
     }
 }
-private final class SettingsDocumentView: NSView { override var isFlipped: Bool { true } }
