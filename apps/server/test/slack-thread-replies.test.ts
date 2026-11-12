@@ -2,7 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PromptSource } from "../src/agents/acp/prompt-source.js";
 import { StreamService, type StreamAgent } from "../src/chat/service.js";
-import { SlackAnswers } from "../src/notifications/slack-answers.js";
+import {
+  SlackAnswers,
+  stableUuid,
+} from "../src/notifications/slack-answers.js";
+import { QuestionAlerts } from "../src/notifications/question-alerts.js";
+import { notifyForm } from "../src/notifications/notify-form.js";
+import type { AgentRecord } from "../src/agents/manager.js";
 import {
   SlackDeliveryUnknownError,
   SlackRetryError,
@@ -739,5 +745,192 @@ describe("questions asked while working on a Slack follow-up", () => {
         responsePrompt: chat("b"),
       } as any).map((p: any) => p.chatMessageId)
     ).toEqual(["b", "d"]);
+  });
+});
+
+describe("notify({ form }) in a Slack thread", () => {
+  const form = {
+    fields: [
+      {
+        id: "version",
+        label: "Version",
+        type: "text" as const,
+        required: true,
+      },
+    ],
+  };
+  const agentA = { id: A, name: "builder-7" } as AgentRecord;
+  function harness() {
+    const built = build();
+    const alerts = new QuestionAlerts(
+      pool,
+      (alert) => built.answers.postAsk(alert),
+      async () => binding
+    );
+    const deps = {
+      pool,
+      post: (agentId: string, input: any, opts: any) =>
+        built.svc.post(agentId, input, opts),
+      alerts,
+      threads: built.replies,
+    };
+    return { ...built, alerts, deps };
+  }
+  const interactive = (payload: Record<string, any>): SlackInbound => ({
+    type: "interactive",
+    payload: { api_app_id: "A1", team: { id: "T1" }, ...payload },
+    binding,
+    botUserId: "UBOT",
+  });
+  /** Open the form's modal from its Slack message and submit it as U1. */
+  async function submitInSlack(
+    answers: SlackAnswers,
+    message: Posted,
+    version: string
+  ) {
+    const ref = message.blocks.find((b: any) => b.type === "actions")
+      .elements[0].value;
+    await answers.handle(
+      interactive({
+        type: "block_actions",
+        user: { id: "U1", username: "u1" },
+        trigger_id: "t",
+        container: { message_ts: message.ts, channel_id: "C1" },
+        actions: [{ action_id: "dispatch_form", value: ref }],
+      })
+    );
+    const submission = interactive({
+      type: "view_submission",
+      user: { id: "U1" },
+      view: {
+        callback_id: "dispatch_form_modal",
+        private_metadata: ref,
+        state: { values: { f0: { value: { value: version } } } },
+      },
+    });
+    expect(await answers.handle(submission)).toBeUndefined();
+    await answers.handle(submission); // Slack redelivery
+    return stableUuid(`slack-answer:${ref}`);
+  }
+
+  it("with replyTo, asks in that thread at once; the Slack submission settles the same form, reaches the agent once, and the agent can answer back there", async () => {
+    const { svc, answers, calls, alerts, deps, reply } = harness();
+    const { parent, post } = await followUp(answers, A, "ship it?");
+    const before = injected.length;
+    const result = await notifyForm(deps, agentA, {
+      message: "Which version ships?",
+      replyTo: post.id,
+      form,
+    });
+    expect(result).toMatchObject({ sent: true, delivery: "sent" });
+    const block = (await svc.store.getById(result.form!.id))!;
+    // Durable in Dispatch as a reply to the Slack-origin post, for people.
+    expect(block).toMatchObject({ kind: "form", toAgentId: null });
+    expect(block.threadId).toBe(post.thread_id ?? post.id);
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
+    expect(JSON.stringify(calls.posted[0])).not.toMatch(/5 minutes/);
+    // The reminder worker sees it as sent: no channel-root repeat.
+    await pool.query(
+      "UPDATE question_notifications SET next_attempt_at=now()-interval '1 second'"
+    );
+    await alerts.tick();
+    expect(calls.posted).toHaveLength(1);
+
+    const answerId = await submitInSlack(answers, calls.posted[0]!, "1.8.0");
+    expect((await svc.store.getById(block.id))!.state).toMatchObject({
+      submission: {
+        values: { version: "1.8.0" },
+        external: { source: "slack", userId: "U1" },
+      },
+    });
+    const delivered = injected.slice(before);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toContain("1.8.0");
+    expect(delivered[0]).toContain(answerId);
+    // The submission's id is a valid replyTo back into the same thread.
+    expect(await reply(A, answerId, "Thanks, shipping 1.8.0.")).toEqual({
+      sent: true,
+    });
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent, parent]);
+  });
+
+  it("without replyTo during a Slack follow-up turn, posts once into that turn's thread", async () => {
+    const { svc, answers, calls, deps, settle } = harness();
+    const { parent, post } = await followUp(answers, A, "deploy it");
+    let result: Awaited<ReturnType<typeof notifyForm>> | null = null;
+    await runTurn(svc, A, chatPrompt([post.id]), [
+      {
+        during: async () => {
+          result = await notifyForm(deps, agentA, {
+            message: "Which version?",
+            form,
+          });
+          await settle();
+        },
+      },
+    ]);
+    expect(result).toMatchObject({ sent: true, delivery: "sent" });
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
+  });
+
+  it("a channel-root form's Slack answer can be acknowledged in a thread under that form", async () => {
+    const { answers, calls, deps, reply } = harness();
+    const result = await notifyForm(deps, agentA, {
+      message: "Which version ships?",
+      form,
+    });
+    expect(result.sent).toBe(true);
+    const message = calls.posted[0]!;
+    expect(message.threadTs).toBeUndefined();
+    const answerId = await submitInSlack(answers, message, "2.0.0");
+    expect(await reply(A, answerId, "Got it.")).toEqual({ sent: true });
+    expect(calls.posted[1]!.threadTs).toBe(message.ts);
+  });
+
+  it("a failed threaded send stays durable and retries into the same thread, never the channel root", async () => {
+    const { answers, calls, alerts, deps } = harness();
+    const { parent, post } = await followUp(answers, A, "ship it?");
+    calls.failNext.push(new Error("socket down"));
+    const result = await notifyForm(deps, agentA, {
+      message: "Which version ships?",
+      replyTo: post.id,
+      form,
+    });
+    expect(result).toMatchObject({ sent: false, delivery: "retrying" });
+    expect(result.form?.id).toBeTruthy();
+    calls.throttled = false;
+    await pool.query("UPDATE question_notifications SET next_attempt_at=now()");
+    await alerts.tick();
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
+  });
+
+  it("refuses before creating anything for a foreign, non-Slack or stale replyTo", async () => {
+    const { svc, answers, calls, deps } = harness();
+    const { post } = await followUp(answers, A, "for A only");
+    const local = await svc.sendUserPost(A, { to: A, text: "local" });
+    const count = async () =>
+      (await pool.query("SELECT 1 FROM blocks WHERE kind='form'")).rowCount;
+    for (const [agent, replyTo] of [
+      [{ id: B, name: "reviewer-2" } as AgentRecord, post.id],
+      [agentA, local.block.id],
+      [agentA, "11111111-1111-4111-8111-111111111111"],
+    ] as const) {
+      const result = await notifyForm(deps, agent, {
+        message: "x",
+        replyTo,
+        form,
+      });
+      expect(result.sent).toBe(false);
+      expect(result.reason).toMatch(/Nothing was created/);
+    }
+    binding = { ...binding, generation: "gen-2" };
+    const stale = await notifyForm(deps, agentA, {
+      message: "x",
+      replyTo: post.id,
+      form,
+    });
+    expect(stale.reason).toMatch(/no longer linked/);
+    expect(await count()).toBe(0);
+    expect(calls.posted).toHaveLength(0);
   });
 });

@@ -801,8 +801,13 @@ describe("notify({ form }) end to end", () => {
     );
     const deps = {
       pool,
-      post: (agentId: string, input: any) => built.svc.post(agentId, input),
+      post: (agentId: string, input: any, opts: any) =>
+        built.svc.post(agentId, input, opts),
       alerts,
+      threads: {
+        threadTarget: async () => ({ ok: false as const, reason: "n/a" }),
+        turnTarget: async () => null,
+      },
     };
     return { ...built, alerts, deps };
   };

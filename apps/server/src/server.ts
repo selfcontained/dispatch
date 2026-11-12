@@ -235,8 +235,9 @@ slackNotifier.setFormNotify((agent, input) =>
   notifyForm(
     {
       pool,
-      post: (agentId, post) => streamService.post(agentId, post),
+      post: (agentId, post, opts) => streamService.post(agentId, post, opts),
       alerts: questionAlerts,
+      threads: slackThreadReplies,
     },
     agent,
     input

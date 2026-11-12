@@ -330,6 +330,27 @@ describe("sendNow (notify with a form)", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("a lost success record after Slack accepted reports sent and never lets the worker repost", async () => {
+    const id = await form();
+    const send = vi.fn(async () => ({ channelId: "C1", timestamp: "9.0" }));
+    const flaky = {
+      query: (sql: string, params?: unknown[]) =>
+        /sent_at=CASE/.test(sql)
+          ? Promise.reject(new Error("db blip"))
+          : pool.query(sql, params as never),
+    } as unknown as Pool;
+    expect(await new QuestionAlerts(flaky, send, live).sendNow(id)).toEqual({
+      delivery: "sent",
+    });
+    expect((await row(id)).cancelled_at).toBeTruthy();
+    await pool.query(
+      "UPDATE question_notifications SET next_attempt_at=now()-interval '1 second',lease_until=NULL WHERE block_id=$1",
+      [id]
+    );
+    await new QuestionAlerts(pool, send, live).tick();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it("does nothing without a connected Slack app", async () => {
     const id = await form();
     const send = vi.fn(async () => true);

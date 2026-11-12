@@ -2981,7 +2981,11 @@ export class StreamService {
   async post(
     agentId: string,
     input: PostInput,
-    opts: { root?: string } = {}
+    opts: {
+      root?: string;
+      /** The caller sends this ask to Slack itself (notify with a form). */
+      skipExternalAsk?: boolean;
+    } = {}
   ): Promise<Block> {
     // The stream is known only once the post has found its place, so the
     // write is admitted there, right before the insert.
@@ -3003,9 +3007,10 @@ export class StreamService {
   private async writePost(
     agentId: string,
     input: PostInput,
-    opts: { root?: string },
+    opts: { root?: string; skipExternalAsk?: boolean },
     admit: (streamId: string) => Promise<void>
   ): Promise<Block> {
+    const skipExternalAsk = opts.skipExternalAsk === true;
     if (
       input.agentHome !== undefined &&
       (opts.root ||
@@ -3309,6 +3314,7 @@ export class StreamService {
     if (
       toAgentId === null &&
       (kind === "question" || kind === "form") &&
+      !skipExternalAsk &&
       this.deps.onAgentAsk
     ) {
       // Off the post's path: a slow Slack call must not delay the agent.

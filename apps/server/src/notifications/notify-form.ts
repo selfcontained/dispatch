@@ -6,17 +6,35 @@ import { requestOwnerAgentId } from "../agents/tree.js";
 import type { PostInput } from "../chat/service.js";
 import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
 import type { QuestionAlerts } from "./question-alerts.js";
+import type {
+  SlackThreadReplies,
+  ThreadTarget,
+} from "./slack-thread-replies.js";
 
 /**
  * `notify({ form })`: the form is an ordinary Dispatch form, created through
- * the same post path as post({ form }) so its location, validation and answer
- * routing are unchanged; only its Slack alert skips the reminder wait.
+ * the same post path as post({ form }) so its validation and answer routing
+ * are unchanged; only its Slack alert skips the reminder wait.
+ *
+ * Where it goes in Slack:
+ * - with replyTo (a post that came from a Slack thread): into that thread,
+ *   and the Dispatch form is a reply to that post;
+ * - without replyTo, during a turn answering a Slack thread post: into that
+ *   thread, exactly where post({ form }) would have put it;
+ * - otherwise: the channel, as a new alert.
+ * Exactly one sender: this call. post's own automatic thread ask is skipped
+ * so the two can't both post it.
  */
 export async function notifyForm(
   deps: {
     pool: Pool;
-    post: (agentId: string, input: PostInput) => Promise<Block>;
+    post: (
+      agentId: string,
+      input: PostInput,
+      opts: { skipExternalAsk: true }
+    ) => Promise<Block>;
     alerts: Pick<QuestionAlerts, "sendNow">;
+    threads: Pick<SlackThreadReplies, "threadTarget" | "turnTarget">;
   },
   agent: AgentRecord,
   input: NotifyInput & { form: NonNullable<NotifyInput["form"]> }
@@ -28,23 +46,42 @@ export async function notifyForm(
       reason:
         "Your forms go to your parent agent, not Slack. Nothing was created; ask your parent with post.",
     };
-  const block = await deps.post(agent.id, {
-    to: null,
-    text: input.message,
-    form: {
-      ...input.form,
-      ...(input.title && !input.form.title ? { title: input.title } : {}),
+  let target: ThreadTarget | null = null;
+  if (input.replyTo) {
+    const found = await deps.threads.threadTarget(agent.id, input.replyTo);
+    if (!found.ok) return { sent: false, reason: found.reason };
+    target = found.target;
+  }
+  const block = await deps.post(
+    agent.id,
+    {
+      to: null,
+      text: input.message,
+      ...(target ? { replyTo: target.postId } : {}),
+      form: {
+        ...input.form,
+        ...(input.title && !input.form.title ? { title: input.title } : {}),
+      },
     },
-  });
+    { skipExternalAsk: true }
+  );
   const form = {
     id: block.id,
     streamId: block.streamId,
     threadId: block.threadId,
   };
-  const outcome = await deps.alerts.sendNow(block.id).catch(() => ({
-    delivery: "retrying" as const,
-    reason: "Dispatch couldn't send the alert yet and will retry it.",
-  }));
+  target ??= await deps.threads.turnTarget(agent.id, block).catch(() => null);
+  const outcome = await deps.alerts
+    .sendNow(
+      block.id,
+      target
+        ? { threadTs: target.threadTs, generation: target.generation }
+        : undefined
+    )
+    .catch(() => ({
+      delivery: "retrying" as const,
+      reason: "Dispatch couldn't send the alert yet and will retry it.",
+    }));
   if (outcome.delivery === "sent")
     return { sent: true, form, delivery: "sent" };
   return {

@@ -486,15 +486,23 @@ describe("notify({ form })", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("with replyTo, takes the form path (asked in that Slack thread), not a text reply", async () => {
+    const { notifier, formNotify, threadReply } = withApp(true);
+    const replyTo = "11111111-1111-4111-8111-111111111111";
+    await notifier.sendNotification(makeAgent(), {
+      message: "x",
+      form,
+      replyTo,
+    });
+    expect(formNotify).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ replyTo, form })
+    );
+    expect(threadReply).not.toHaveBeenCalled();
+  });
+
   it("rejects ambiguous combinations before anything is created", async () => {
     const { notifier, formNotify, threadReply } = withApp(true);
-    await expect(
-      notifier.sendNotification(makeAgent(), {
-        message: "x",
-        form,
-        replyTo: "11111111-1111-4111-8111-111111111111",
-      })
-    ).rejects.toThrow(/replyTo/);
     await expect(
       notifier.sendNotification(makeAgent(), {
         message: "x",

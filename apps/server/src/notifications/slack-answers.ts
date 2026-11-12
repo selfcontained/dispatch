@@ -58,8 +58,8 @@ export type AskAlert = {
   kind?: string;
   data: unknown;
   name: string;
-  /** Post inside this Slack thread (a mid-turn ask) instead of as an alert. */
-  threadTs?: string;
+  /** Post inside this Slack thread (a mid-turn or notify ask) instead of as an alert. */
+  threadTs?: string | null;
   /** The agent asked for it now (notify with a form); it didn't wait 5 minutes. */
   immediate?: boolean;
 };
@@ -75,6 +75,8 @@ type MessageRow = {
   thread_id: string | null;
   block_id: string | null;
   data_hash: string | null;
+  /** The Slack thread this ask was posted in; NULL at the channel root. */
+  thread_ts: string | null;
 };
 type AskRow = {
   id: string;
@@ -249,8 +251,8 @@ export class SlackAnswers {
       alert.binding_generation
     );
     await this.pool.query(
-      `INSERT INTO slack_messages(id,binding_generation,channel_id,message_ts,kind,agent_id,stream_id,thread_id,block_id,data_hash)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
+      `INSERT INTO slack_messages(id,binding_generation,channel_id,message_ts,kind,agent_id,stream_id,thread_id,block_id,data_hash,thread_ts)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`,
       [
         ref,
         sent.generation,
@@ -262,6 +264,7 @@ export class SlackAnswers {
         alert.thread_id,
         alert.block_id,
         askHash(alert.text, alert.data),
+        alert.threadTs ?? null,
       ]
     );
     return sent;
@@ -466,6 +469,45 @@ export class SlackAnswers {
     return errorText(error);
   }
 
+  /**
+   * A form submitted in Slack becomes a post the agent can reply to with
+   * notify({ replyTo: <submission id> }): it answers in the form's thread (or,
+   * for a channel-root form, a thread under it). Question answers stay
+   * excluded, as before. Written before the submission so a fast turn can't
+   * reply first; forgotten if the submission never landed.
+   */
+  private async withReturnPath<T>(
+    row: MessageRow,
+    answerId: string,
+    messageTs: string,
+    write: () => Promise<T>
+  ): Promise<T> {
+    await this.pool.query(
+      `INSERT INTO slack_thread_replies(post_block_id,binding_generation,channel_id,thread_ts,message_ts,agent_id)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+      [
+        answerId,
+        row.binding_generation,
+        row.channel_id,
+        row.thread_ts ?? row.message_ts,
+        messageTs,
+        row.agent_id,
+      ]
+    );
+    try {
+      return await write();
+    } catch (error) {
+      await this.pool
+        .query(
+          `DELETE FROM slack_thread_replies WHERE post_block_id=$1
+             AND NOT EXISTS (SELECT 1 FROM blocks WHERE id=$1)`,
+          [answerId]
+        )
+        .catch(() => {});
+      throw error;
+    }
+  }
+
   private deliveryText(name: string, delivered: boolean | null) {
     return deliveryPhrase(name, shownDelivery(delivered));
   }
@@ -570,11 +612,18 @@ export class SlackAnswers {
         const parsed = parseFormSubmission(ask.data as BlockFormData, state);
         if ("errors" in parsed)
           return { response_action: "errors", errors: parsed.errors };
-        result = await this.writer().submitForm(ask.stream_id, ask.id, {
-          id: stableUuid(`slack-answer:${row.id}`),
-          values: parsed.values,
-          external: origin,
-        });
+        const answerId = stableUuid(`slack-answer:${row.id}`);
+        result = await this.withReturnPath(
+          row,
+          answerId,
+          `answer:${answerId}`,
+          () =>
+            this.writer().submitForm(ask.stream_id, ask.id, {
+              id: answerId,
+              values: parsed.values,
+              external: origin,
+            })
+        );
       } else {
         const value = String(state.answer?.value?.value ?? "").trim();
         if (!value) return errorsFor("Type an answer.");

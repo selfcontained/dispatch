@@ -337,10 +337,6 @@ export class SlackNotifier {
     // A form to answer now: created in Dispatch, then alerted through the
     // Slack app's interactive flow. Every refusal here precedes creation.
     if (input.form) {
-      if (input.replyTo)
-        throw new Error(
-          "notify can't combine form with replyTo: a Slack thread reply can't carry a new form. Send the form without replyTo, or reply in text."
-        );
       if (input.images?.length)
         throw new Error(
           "notify can't combine form with images. Send them separately."
