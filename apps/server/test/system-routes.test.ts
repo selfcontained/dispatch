@@ -828,3 +828,30 @@ describe("POST /api/v1/system/engines/:engine/update authorization", () => {
     expect(body.statusCode).toBe(400);
   });
 });
+
+describe("Slack link address boundary", () => {
+  it("does not discover aliases from forwarded request headers", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/notifications/slack-app",
+      headers: {
+        cookie: sessionCookie,
+        "x-forwarded-host": "attacker.example:4444",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    // inject() has no listening socket: never manufacture a localhost or header-derived URL.
+    expect(res.json().linkOrigins).toEqual({ options: [], defaultUrl: null });
+  });
+  it("rejects an arbitrary link destination before any Slack setup call", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/notifications/slack-app/enable",
+      headers: { cookie: sessionCookie },
+      payload: { channelId: "C_FAKE", baseUrl: "https://attacker.example" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("Choose an active Dispatch server address.");
+  });
+});

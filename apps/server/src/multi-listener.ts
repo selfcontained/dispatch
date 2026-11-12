@@ -1,8 +1,22 @@
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { isIP, type Socket } from "node:net";
+import { isIP, type Socket, type AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import type { TlsConfig } from "./config.js";
+
+const activeAdditionalListeners = new WeakMap<
+  FastifyInstance,
+  ReturnType<typeof createHttpServer>[]
+>();
+
+export function additionalListenerAddresses(
+  app: FastifyInstance
+): AddressInfo[] {
+  return (activeAdditionalListeners.get(app) ?? []).flatMap((server) => {
+    const address = server.address();
+    return address && typeof address !== "string" ? [address] : [];
+  });
+}
 
 export function parseListenHosts(
   value: string | undefined
@@ -42,6 +56,7 @@ export async function listenAdditionalHosts(
   tls: TlsConfig | null = null
 ): Promise<() => Promise<void>> {
   const listeners: ReturnType<typeof createHttpServer>[] = [];
+  activeAdditionalListeners.set(app, listeners);
   const sockets = new Set<Socket>();
   const close = async () => {
     const pending = listeners.map(
@@ -49,6 +64,8 @@ export async function listenAdditionalHosts(
     );
     for (const socket of sockets) socket.destroy();
     await Promise.all(pending);
+    if (activeAdditionalListeners.get(app) === listeners)
+      activeAdditionalListeners.delete(app);
   };
   try {
     for (const host of hosts) {

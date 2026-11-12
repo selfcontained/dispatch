@@ -4,16 +4,14 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
-  Copy,
   ExternalLink,
   Hash,
   KeyRound,
-  LockKeyhole,
   Radio,
-  ShieldCheck,
   Slack,
   Unplug,
 } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -45,6 +43,10 @@ type State = {
   configured: boolean;
   binding: { teamName: string; channelName: string; baseUrl: string } | null;
   channels: Channel[];
+  linkOrigins?: {
+    options: { url: string; loopback: boolean }[];
+    defaultUrl: string | null;
+  };
 };
 const endpoint = "/api/v1/notifications/slack-app";
 const manifest = JSON.stringify(
@@ -69,7 +71,7 @@ export function SlackAppSection() {
   const [appToken, setAppToken] = useState("");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [channelId, setChannelId] = useState("");
-  const [baseUrl, setBaseUrl] = useState(window.location.origin);
+  const [baseUrl, setBaseUrl] = useState("");
   const [validated, setValidated] = useState(false);
   const [message, setMessage] = useState("");
   const query = useQuery({
@@ -86,6 +88,14 @@ export function SlackAppSection() {
     setWorkspace("");
     setMessage("");
   };
+  const originOptions = query.data?.linkOrigins?.options ?? [];
+  const allowedOrigin = (value: string | null | undefined) =>
+    originOptions.some((option) => option.url === value);
+  const selectedOrigin = allowedOrigin(baseUrl)
+    ? baseUrl
+    : allowedOrigin(query.data?.binding?.baseUrl)
+      ? query.data!.binding!.baseUrl
+      : (query.data?.linkOrigins?.defaultUrl ?? "");
   const action = useMutation({
     mutationFn: async ({
       name,
@@ -141,7 +151,6 @@ export function SlackAppSection() {
     ? "Unavailable"
     : query.data?.status.replaceAll("_", " ") || "Loading";
   const connected = query.data?.status === "connected";
-  const selectedChannel = channels.find((channel) => channel.id === channelId);
   return (
     <section
       className="border-t border-border pt-8 space-y-5"
@@ -250,44 +259,53 @@ export function SlackAppSection() {
 
       {showSetup && (
         <>
-          <nav
+          <ol
             aria-label="Slack setup progress"
-            className="grid grid-cols-3 gap-2"
+            className="flex items-start gap-3 py-2"
           >
             {["Create app", "Connect tokens", "Choose channel"].map(
               (label, index) => (
-                <button
+                <li
                   key={label}
-                  type="button"
-                  disabled={action.isPending || (index === 2 && !validated)}
-                  onClick={() => setStep(index + 1)}
                   aria-current={step === index + 1 ? "step" : undefined}
-                  className={cn(
-                    "flex min-w-0 items-center gap-2 rounded-lg border p-2.5 text-left text-xs transition-colors disabled:opacity-40 sm:text-sm",
-                    step === index + 1
-                      ? "border-primary/40 bg-primary/10 text-foreground"
-                      : "border-border text-muted-foreground hover:bg-muted/50"
-                  )}
+                  className="flex min-w-0 flex-1 items-center gap-2"
                 >
                   <span
                     className={cn(
-                      "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px]",
+                      "flex size-6 shrink-0 items-center justify-center rounded-full text-xs",
                       step === index + 1
                         ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                        : step > index + 1
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted text-muted-foreground"
                     )}
                   >
-                    {validated && index < 2 ? (
+                    {step > index + 1 ? (
                       <Check className="size-3" aria-label="Complete" />
                     ) : (
                       index + 1
                     )}
                   </span>
-                  <span>{label}</span>
-                </button>
+                  <span
+                    className={cn(
+                      "text-xs sm:text-sm",
+                      step === index + 1
+                        ? "font-medium text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {label}
+                  </span>
+                  {index < 2 && (
+                    <span
+                      className="hidden h-px flex-1 bg-border sm:block"
+                      aria-hidden="true"
+                    />
+                  )}
+                </li>
               )
             )}
-          </nav>
+          </ol>
 
           {step === 1 && (
             <Card className="border border-border">
@@ -312,7 +330,11 @@ export function SlackAppSection() {
                         Includes Socket Mode and the required permissions.
                       </p>
                     </div>
-                    <CopyControl text={manifest} label="Copy manifest" />
+                    <CopyButton
+                      text={manifest}
+                      label="Copy manifest"
+                      copiedLabel="Manifest copied"
+                    />
                   </div>
                   <Disclosure label="Preview manifest">
                     <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/50 p-3 text-[11px]">
@@ -321,7 +343,7 @@ export function SlackAppSection() {
                   </Disclosure>
                 </div>
                 <div className="space-y-3">
-                  <Button asChild>
+                  <Button asChild variant="primary">
                     <a
                       href="https://api.slack.com/apps"
                       target="_blank"
@@ -404,9 +426,10 @@ export function SlackAppSection() {
                     </p>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded bg-muted/50 px-3 py-2">
                       <code>connections:write</code>
-                      <CopyControl
+                      <CopyButton
                         text="connections:write"
                         label="Copy scope"
+                        copiedLabel="Scope copied"
                       />
                     </div>
                   </Disclosure>
@@ -518,39 +541,33 @@ export function SlackAppSection() {
                     Slack to invite Dispatch, then refresh.
                   </p>
                 )}
-                <div className="flex gap-2 rounded-lg border border-status-waiting/25 bg-status-waiting/5 p-3 text-xs text-muted-foreground">
-                  <LockKeyhole
-                    className="mt-0.5 size-4 shrink-0 text-status-waiting"
-                    aria-hidden="true"
-                  />
-                  <p>
-                    {selectedChannel ? (
-                      <>
-                        Everyone in{" "}
-                        <strong className="text-foreground">
-                          #{selectedChannel.name}
-                        </strong>
-                      </>
-                    ) : (
-                      "Everyone in the selected channel"
-                    )}{" "}
-                    can read notification text and question context. Channel
-                    membership grants no answer or approval authority.
+                <div className="space-y-2">
+                  <label
+                    className="text-sm font-medium"
+                    id="slack-address-label"
+                  >
+                    Dispatch address
+                  </label>
+                  <Select
+                    disabled={action.isPending || !originOptions.length}
+                    value={selectedOrigin}
+                    onValueChange={setBaseUrl}
+                  >
+                    <SelectTrigger aria-label="Dispatch address">
+                      <SelectValue placeholder="No active server addresses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {originOptions.map((option) => (
+                        <SelectItem key={option.url} value={option.url}>
+                          {option.url}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Used for links in Slack.
                   </p>
                 </div>
-                <label className="block space-y-2 text-sm font-medium">
-                  Dispatch web URL
-                  <Input
-                    aria-label="Dispatch web URL"
-                    disabled={action.isPending}
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                  />
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Links in Slack use this address. Choose one you can reach on
-                  your LAN or VPN.
-                </p>
                 <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
                   <Button
                     variant="ghost"
@@ -561,8 +578,10 @@ export function SlackAppSection() {
                   </Button>
                   <Button
                     variant="primary"
-                    disabled={action.isPending || !channelId || !baseUrl}
-                    onClick={() => run("enable", { channelId, baseUrl })}
+                    disabled={action.isPending || !channelId || !selectedOrigin}
+                    onClick={() =>
+                      run("enable", { channelId, baseUrl: selectedOrigin })
+                    }
                   >
                     {action.isPending ? "Connecting…" : "Enable notifications"}
                     <ArrowRight className="ml-2 size-3.5" aria-hidden="true" />
@@ -571,45 +590,6 @@ export function SlackAppSection() {
               </CardContent>
             </Card>
           )}
-
-          <div className="rounded-xl border border-border bg-muted/20 p-4">
-            <div className="flex items-center gap-2 text-xs font-medium">
-              <ShieldCheck
-                className="size-4 text-muted-foreground"
-                aria-hidden="true"
-              />
-              Before you connect
-            </div>
-            <div className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-              <p>
-                <span className="block font-medium text-foreground">
-                  Stored on your instance
-                </span>
-                Tokens stay in your Dispatch database, not encrypted at rest.
-                Protect the host and backups.
-              </p>
-              <p>
-                <span className="block font-medium text-foreground">
-                  Outbound connection only
-                </span>
-                No public Dispatch URL. This host must be awake and online to
-                deliver alerts.
-              </p>
-            </div>
-            <Disclosure label="Permissions and connection details">
-              <p>
-                The app can post messages and list accessible channel metadata.
-                It does not request message history or the user directory.
-                Tokens are masked and never returned by Settings; use trusted
-                HTTPS to configure a remote instance.
-              </p>
-              <p className="mt-2">
-                No client secret, signing secret, callback URL, or separate
-                Slack process is needed. Receiving a notification does not mean
-                it was read or that an agent picked up work.
-              </p>
-            </Disclosure>
-          </div>
         </>
       )}
 
@@ -631,11 +611,6 @@ export function SlackAppSection() {
           {message}
         </p>
       )}
-      <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4 text-xs text-muted-foreground">
-        <span>Notify tool: immediate alerts</span>
-        <span>Unanswered questions: once after 5 minutes</span>
-        <span>No repeating reminders</span>
-      </div>
     </section>
   );
 }
@@ -663,36 +638,5 @@ function Disclosure({
         {children}
       </CollapsibleContent>
     </Collapsible>
-  );
-}
-
-function CopyControl({ text, label }: { text: string; label: string }) {
-  const [result, setResult] = useState<"idle" | "copied" | "error">("idle");
-  return (
-    <div>
-      <Button
-        size="sm"
-        onClick={() => {
-          void Promise.resolve()
-            .then(() => navigator.clipboard.writeText(text))
-            .then(
-              () => setResult("copied"),
-              () => setResult("error")
-            );
-        }}
-      >
-        {result === "copied" ? (
-          <Check className="mr-2 size-3.5" aria-hidden="true" />
-        ) : (
-          <Copy className="mr-2 size-3.5" aria-hidden="true" />
-        )}
-        {result === "copied" ? "Copied" : label}
-      </Button>
-      {result === "error" && (
-        <p role="alert" className="mt-1 text-xs text-destructive">
-          Copy unavailable. Expand the details to select the text.
-        </p>
-      )}
-    </div>
   );
 }

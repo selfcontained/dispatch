@@ -1,3 +1,7 @@
+import {
+  isAllowedSlackLinkOrigin,
+  type SlackLinkOrigins,
+} from "../notifications/slack-link-origins.js";
 import os from "node:os";
 import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
@@ -54,6 +58,7 @@ import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
 const INSTANCE_NAME_KEY = "instance_name";
 
 type SystemRouteDeps = {
+  notificationLinkOrigins?: () => Promise<SlackLinkOrigins>;
   pool: Pool;
   canManageEngineUpdates?: (request: FastifyRequest) => Promise<boolean>;
   appLog: FastifyBaseLogger;
@@ -385,9 +390,13 @@ export async function registerSystemRoutes(
     };
   });
 
-  app.get("/api/v1/notifications/slack-app", async () =>
-    deps.slackNotifier.app.settings()
-  );
+  const notificationLinkOrigins = () =>
+    deps.notificationLinkOrigins?.() ??
+    Promise.resolve({ options: [], defaultUrl: null });
+  app.get("/api/v1/notifications/slack-app", async () => ({
+    ...(await deps.slackNotifier.app.settings()),
+    linkOrigins: await notificationLinkOrigins(),
+  }));
   app.post(
     "/api/v1/notifications/slack-app/:action",
     async (request, reply) => {
@@ -413,7 +422,19 @@ export async function registerSystemRoutes(
             return reply
               .code(400)
               .send({ error: "Choose a channel and Dispatch URL." });
-          await deps.slackNotifier.app.enable(body.channelId, body.baseUrl);
+          if (
+            !isAllowedSlackLinkOrigin(
+              body.baseUrl,
+              await notificationLinkOrigins()
+            )
+          )
+            return reply
+              .code(400)
+              .send({ error: "Choose an active Dispatch server address." });
+          await deps.slackNotifier.app.enable(
+            body.channelId,
+            new URL(body.baseUrl).origin
+          );
         } else if (action === "disconnect")
           await deps.slackNotifier.app.disconnect();
         else if (action === "refresh")

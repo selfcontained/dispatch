@@ -1,3 +1,4 @@
+import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
 import { QuestionAlerts } from "./notifications/question-alerts.js";
 import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
@@ -19,7 +20,10 @@ import { ScheduledMessageService } from "./scheduled-messages/service.js";
 import { registerScheduledMessageRoutes } from "./routes/scheduled-messages.js";
 import { agentForClient } from "./server/agent-client-view.js";
 import path from "node:path";
-import { listenAdditionalHosts } from "./multi-listener.js";
+import {
+  listenAdditionalHosts,
+  additionalListenerAddresses,
+} from "./multi-listener.js";
 import { watchLocalTls } from "./local-tls.js";
 import { registerLocalTrustRoutes } from "./routes/local-trust.js";
 import os from "node:os";
@@ -941,6 +945,17 @@ async function registerRoutes() {
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
+    notificationLinkOrigins: () => {
+      const primary = app.server.address();
+      return discoverSlackLinkOrigins({
+        addresses: [
+          ...(primary && typeof primary !== "string" ? [primary] : []),
+          ...additionalListenerAddresses(app),
+        ],
+        tls: !!config.tls,
+        configuredHost: config.host,
+      });
+    },
     canManageEngineUpdates,
     pool,
     localCertificateTrust:
