@@ -148,7 +148,7 @@ export function PullRequestCheckResults({ text }: { text: string }) {
             ))}
             {notice.more ? (
               <li className="pl-3.5 text-xs text-muted-foreground">
-                +{notice.more} more
+                +{notice.more} more newly finished, not shown
               </li>
             ) : null}
           </ul>

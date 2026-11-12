@@ -88,7 +88,7 @@ describe("system event presentation", () => {
     );
     expect(results.getByText("failed · 12m 30s")).toBeTruthy();
     expect(results.getByText("Type check")).toBeTruthy();
-    expect(results.getByText("+2 more")).toBeTruthy();
+    expect(results.getByText("+2 more newly finished, not shown")).toBeTruthy();
     expect(
       screen.getByText("Pending checks aren’t named in this update")
     ).toBeTruthy();
