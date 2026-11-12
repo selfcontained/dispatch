@@ -210,26 +210,30 @@ export class SlackThreadReplies {
       .filter(Boolean)
       .join("\n\n");
     const hash = sha(text);
-    const prior = await this.pool.query<{ sent_at: Date | null }>(
-      `SELECT sent_at FROM slack_thread_reply_sends
-       WHERE post_block_id = $1 AND message_hash = $2 LIMIT 1`,
-      [row.post_block_id, hash]
-    );
-    if (prior.rows[0])
-      return {
-        sent: false,
-        reason: prior.rows[0].sent_at
-          ? "You already sent this exact reply to that Slack thread. Not sent again."
-          : "An identical reply may already have posted (Slack's response was unclear). Not sent again.",
-      };
-    // Durable before Slack sees it: if this can't be recorded, nothing is sent.
+    // Durable before Slack sees it, and claimed atomically: the unique
+    // (post, text) key means two identical calls can't both send. If this
+    // can't be recorded, nothing is sent.
     const sendId = randomUUID();
     try {
-      await this.pool.query(
+      const claimed = await this.pool.query(
         `INSERT INTO slack_thread_reply_sends(id, post_block_id, agent_id, message_hash)
-         VALUES ($1, $2, $3, $4)`,
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (post_block_id, message_hash) DO NOTHING RETURNING id`,
         [sendId, row.post_block_id, agent.id, hash]
       );
+      if (!claimed.rowCount) {
+        const prior = await this.pool.query<{ sent_at: Date | null }>(
+          `SELECT sent_at FROM slack_thread_reply_sends
+           WHERE post_block_id = $1 AND message_hash = $2`,
+          [row.post_block_id, hash]
+        );
+        return {
+          sent: false,
+          reason: prior.rows[0]?.sent_at
+            ? "You already sent this exact reply to that Slack thread. Not sent again."
+            : "An identical reply is being sent, may already have posted, or an earlier failed attempt couldn't be cleared. Not sent again; rephrase if you need to try once more.",
+        };
+      }
     } catch {
       return {
         sent: false,

@@ -30,4 +30,5 @@ CREATE TABLE slack_thread_reply_sends (
   sent_at timestamptz,
   slack_ts text
 );
-CREATE INDEX slack_thread_reply_sends_post ON slack_thread_reply_sends(post_block_id, message_hash);
+-- One attempt per identical reply: concurrent identical calls can't both send.
+CREATE UNIQUE INDEX slack_thread_reply_sends_once ON slack_thread_reply_sends(post_block_id, message_hash);

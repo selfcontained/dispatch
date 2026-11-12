@@ -437,6 +437,18 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(calls.posted).toHaveLength(0);
   });
 
+  it("two identical calls racing each other post once", async () => {
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "race me");
+    const results = await Promise.all([
+      reply(A, post.id, "Same words."),
+      reply(A, post.id, "Same words."),
+      reply(A, post.id, "Same words."),
+    ]);
+    expect(results.filter((r) => r.sent)).toHaveLength(1);
+    expect(calls.posted.map(sectionText)).toEqual(["Same words."]);
+  });
+
   it("a definite failure leaves nothing behind, so the agent can retry once", async () => {
     const { answers, calls, reply } = build();
     const { post } = await followUp(answers, A, "retry me");

@@ -5503,7 +5503,8 @@ function describeInput(block: Block): string {
 
 /**
  * The prompts a turn's current response answers, from what the turn itself
- * recorded (used to place a mid-turn ask in the Slack thread it answers). Before any split: the turn's prompt plus posts steered into it.
+ * recorded, used to place a mid-turn ask in the Slack thread it
+ * answers. Before any split: the turn's prompt plus posts steered into it.
  * After a split: only that response's prompt plus posts steered in after it
  * began, so a later response never answers an earlier prompt (even one whose
  * own response said nothing). A pickup whose own response is about to start
