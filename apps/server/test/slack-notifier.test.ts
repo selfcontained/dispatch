@@ -390,3 +390,109 @@ describe("SlackNotifier.sendNotification (notify)", () => {
     expect(map.has(agent.id)).toBe(false);
   });
 });
+
+describe("notify({ replyTo })", () => {
+  beforeEach(() => fetchSpy.mockClear());
+  const withApp = (bound: boolean) => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    (notifier as any).app = {
+      settings: async () => ({ binding: bound ? { generation: "g" } : null }),
+    };
+    return notifier;
+  };
+  const input = {
+    message: "Done.",
+    replyTo: "11111111-1111-4111-8111-111111111111",
+  };
+
+  it("routes to the Slack thread reply, never to the channel or webhook", async () => {
+    const notifier = withApp(true);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    expect(await notifier.sendNotification(makeAgent(), input)).toEqual({
+      sent: true,
+    });
+    expect(threadReply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      { replyTo: input.replyTo, message: "Done.", title: undefined }
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("needs the Slack app connected: no webhook fallback", async () => {
+    const notifier = withApp(false);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    const result = await notifier.sendNotification(makeAgent(), input);
+    expect(result.sent).toBe(false);
+    expect(result.reason).toMatch(/Slack app connected/);
+    expect(threadReply).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("shares notify's per-agent rate limit", async () => {
+    const notifier = withApp(true);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    for (let i = 0; i < 5; i += 1)
+      await notifier.sendNotification(makeAgent(), input);
+    const limited = await notifier.sendNotification(makeAgent(), input);
+    expect(limited.sent).toBe(false);
+    expect(limited.reason).toMatch(/Rate limited/);
+    expect(threadReply).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("notify in the shared Block Kit layout", () => {
+  beforeEach(() => fetchSpy.mockClear());
+  const bound = () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const posted: any[] = [];
+    (notifier as any).app = {
+      settings: async () => ({
+        binding: { generation: "g", baseUrl: "http://lan:6767" },
+      }),
+      postBlocks: async (input: any) => {
+        posted.push(input);
+        return { channelId: "C1", timestamp: "1.1", generation: "g" };
+      },
+      hasScope: () => true,
+      uploadImage: async () => "F1",
+    };
+    return { notifier, posted };
+  };
+
+  it("posts markdown with a primary Open link, never the old plain-text blob", async () => {
+    const { notifier, posted } = bound();
+    const result = await notifier.sendNotification(makeAgent(), {
+      title: "Build is green",
+      message: "All **42** tests pass. See [CI](https://ci.example/run/1).",
+    });
+    expect(result).toEqual({ sent: true });
+    const blocks = posted[0].blocks;
+    expect(blocks.map((b: any) => b.type)).toEqual([
+      "context",
+      "markdown",
+      "actions",
+      "context",
+    ]);
+    expect(blocks[1].text).toContain("[CI](https://ci.example/run/1)");
+    expect(blocks[2].elements[0]).toMatchObject({
+      url: "http://lan:6767/agents/agent-1",
+      style: "primary",
+    });
+    expect(JSON.stringify(posted[0])).not.toMatch(/Delivery does not mean/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses unreadable images before sending anything", async () => {
+    const { notifier, posted } = bound();
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "pics",
+      images: ["/definitely/missing.png"],
+    });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toMatch(/Can't read image/);
+    expect(posted).toHaveLength(0);
+  });
+});

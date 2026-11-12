@@ -1,6 +1,7 @@
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
 import { QuestionAlerts } from "./notifications/question-alerts.js";
 import { SlackAnswers } from "./notifications/slack-answers.js";
+import { SlackThreadReplies } from "./notifications/slack-thread-replies.js";
 import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
@@ -213,6 +214,16 @@ const slackAnswers = new SlackAnswers(
 );
 slackNotifier.setNotifySent((sent, agentId) =>
   slackAnswers.recordNotify(sent, agentId)
+);
+const slackThreadReplies: SlackThreadReplies = new SlackThreadReplies(
+  pool,
+  slackNotifier.app,
+  slackAnswers,
+  async (agentId) => (await agentManager.getAgent(agentId))?.name ?? null,
+  (agentId) => streamService.currentTurn(agentId)
+);
+slackNotifier.setThreadReply((agent, input) =>
+  slackThreadReplies.reply(agent, input)
 );
 const questionAlerts = new QuestionAlerts(
   pool,
@@ -505,6 +516,8 @@ const streamService = new StreamService({
   filesRoot: config.filesRoot,
   onInputPosted: (agentId, text) =>
     agentManager.noteQuestionPosted(agentId, text),
+  onAgentAsk: (agentId, block): Promise<void> =>
+    slackThreadReplies.agentAsked(agentId, block),
   // Both are created below; they are only called once requests arrive.
   uploadFile: (agentId, input) =>
     mcpHandlers.shareFile(agentId, {

@@ -39,17 +39,37 @@ function lateReason(result: Record<string, unknown> | void) {
   return null;
 }
 export const ANSWER_SCOPES = ["channels:history", "groups:history"];
+/** Inline images in Dispatch messages are uploaded privately by the bot. */
+export const IMAGE_SCOPES = ["files:write"];
+const FORM_METHODS = new Set([
+  "conversations.list",
+  "files.getUploadURLExternal",
+]);
 /** Socket Mode requires an ack within 3 seconds. */
 const ACK_BUDGET_MS = 2500;
 type Credentials = { botToken: string; appToken: string };
 export type SlackChannel = { id: string; name: string; private: boolean };
+/**
+ * The request may have reached Slack (timeout, unreadable reply): whether a
+ * message was posted is unknown, so a caller that must not duplicate it
+ * should not resend.
+ */
+export class SlackDeliveryUnknownError extends Error {}
+/** Connection errors that mean the request never reached Slack. */
+const UNSENT_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+]);
 export class SlackRetryError extends Error {
   constructor(readonly retryAfterMs: number) {
     super("Slack delivery rate limited; retry later.");
   }
 }
 const KEY = "slack_app_binding";
-class SlackAuthError extends Error {}
+export class SlackAuthError extends Error {}
 
 /** No raw provider errors, credential-bearing socket URLs or response bodies escape this client. */
 export class SlackApp {
@@ -93,22 +113,25 @@ export class SlackApp {
         signal: AbortSignal.timeout(10000),
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type":
-            method === "conversations.list"
-              ? "application/x-www-form-urlencoded"
-              : "application/json",
+          "Content-Type": FORM_METHODS.has(method)
+            ? "application/x-www-form-urlencoded"
+            : "application/json",
         },
-        body:
-          method === "conversations.list"
-            ? new URLSearchParams(
-                Object.entries(data).map(
-                  ([key, value]) => [key, String(value)] as [string, string]
-                )
-              ).toString()
-            : JSON.stringify(data),
+        body: FORM_METHODS.has(method)
+          ? new URLSearchParams(
+              Object.entries(data).map(
+                ([key, value]) => [key, String(value)] as [string, string]
+              )
+            ).toString()
+          : JSON.stringify(data),
       });
-    } catch {
-      throw new Error("Slack connection failed. Try again.");
+    } catch (error) {
+      const code = (error as { cause?: { code?: unknown } })?.cause?.code;
+      if (typeof code === "string" && UNSENT_CODES.has(code))
+        throw new Error("Slack connection failed. Try again.");
+      throw new SlackDeliveryUnknownError(
+        "Slack connection failed. Try again."
+      );
     }
     if (response.status === 429) {
       const seconds = Number(response.headers.get("retry-after"));
@@ -117,6 +140,12 @@ export class SlackApp {
           1000
       );
     }
+    // A 5xx (often a gateway timeout) can follow a request Slack already
+    // processed, so its outcome is unknown; other non-2xx were rejected.
+    if (response.status >= 500)
+      throw new SlackDeliveryUnknownError(
+        "Slack service unavailable. Try again."
+      );
     if (!response.ok) throw new Error("Slack service unavailable. Try again.");
     if (method === "auth.test") {
       const scopes = response.headers.get("x-oauth-scopes");
@@ -130,7 +159,7 @@ export class SlackApp {
     try {
       body = (await response.json()) as Record<string, any>;
     } catch {
-      throw new Error("Invalid Slack response.");
+      throw new SlackDeliveryUnknownError("Invalid Slack response.");
     }
     if (!body.ok) {
       if (
@@ -185,7 +214,9 @@ export class SlackApp {
       lastDelivery: this.lastDelivery,
       // Answering needs thread-reply events; interactivity can't be probed.
       missingAnswerScopes: this.scopes
-        ? ANSWER_SCOPES.filter((scope) => !this.scopes!.includes(scope))
+        ? [...ANSWER_SCOPES, ...IMAGE_SCOPES].filter(
+            (scope) => !this.scopes!.includes(scope)
+          )
         : null,
     };
   }
@@ -495,6 +526,62 @@ export class SlackApp {
       timestamp: String(result.ts),
       generation: binding.generation,
     };
+  }
+  /**
+   * Wait until the local 1 msg/s guard would let a post through. For a
+   * same-message retry after Slack definitively rejected the first try.
+   */
+  async waitForSendSlot() {
+    const wait = 1000 - (Date.now() - this.lastSend);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+  /** Whether Slack granted a scope on the last auth.test; null when unknown. */
+  hasScope(scope: string): boolean | null {
+    return this.scopes ? this.scopes.includes(scope) : null;
+  }
+  /**
+   * Upload an image privately with the bot token (files.uploadV2 flow,
+   * shared to no channel) and return its file id, to show inline via an
+   * image block's `slack_file`. The file is only visible where the bot
+   * posts a message that shows it.
+   */
+  async uploadImage(bytes: Uint8Array, filename: string) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    const token = config.credentials.botToken;
+    const target = await this.api(token, "files.getUploadURLExternal", {
+      filename,
+      length: bytes.byteLength,
+    });
+    const uploadUrl = String(target.upload_url ?? "");
+    const fileId = String(target.file_id ?? "");
+    // Only ever send bytes to Slack's own upload host.
+    const host = (() => {
+      try {
+        const u = new URL(uploadUrl);
+        return u.protocol === "https:" ? u.hostname : "";
+      } catch {
+        return "";
+      }
+    })();
+    if (!fileId || !(host === "slack.com" || host.endsWith(".slack.com")))
+      throw new Error("Slack returned an unexpected upload target.");
+    let uploaded: Response;
+    try {
+      uploaded = await this.transport(uploadUrl, {
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(30000),
+        body: bytes,
+      });
+    } catch {
+      throw new Error("Slack image upload failed.");
+    }
+    if (!uploaded.ok) throw new Error("Slack image upload failed.");
+    await this.api(token, "files.completeUploadExternal", {
+      files: [{ id: fileId, title: filename }],
+    });
+    return fileId;
   }
   /** Only ever targets the bound channel; callers pass the stored ts. */
   async updateMessage(ts: string, text: string, blocks: unknown[]) {

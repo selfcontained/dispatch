@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SlackApp } from "../src/notifications/slack-app.js";
+import {
+  SlackApp,
+  SlackDeliveryUnknownError,
+  SlackRetryError,
+} from "../src/notifications/slack-app.js";
 import type { Pool } from "pg";
 
 function fixture() {
@@ -252,6 +256,166 @@ describe("Slack app boundary", () => {
     expect(bodies[2]).toMatchObject({ user: "U1", thread_ts: "1.2" });
     f.app.stop();
   });
+  it("classifies post failures: only definite non-deliveries are retryable", async () => {
+    const outcome = async (fail: () => Response | Promise<Response>) => {
+      const f = fixture();
+      await f.app.validate(credentials);
+      await f.app.enable("C1", "http://lan");
+      const real = f.transport.getMockImplementation()!;
+      f.transport.mockImplementation(async (url, init) =>
+        url.endsWith("chat.postMessage") ? fail() : real(url, init)
+      );
+      const error = await f.app.postBlocks({ text: "t", blocks: [] }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      f.app.stop();
+      return error;
+    };
+    const refused = Object.assign(new TypeError("fetch failed"), {
+      cause: { code: "ECONNREFUSED" },
+    });
+    const timeout = Object.assign(new Error("aborted"), {
+      name: "TimeoutError",
+    });
+    // May have been posted: unknown, never resend.
+    for (const status of [500, 502, 503, 504])
+      expect(await outcome(() => new Response("x", { status }))).toBeInstanceOf(
+        SlackDeliveryUnknownError
+      );
+    expect(
+      await outcome(() => {
+        throw timeout;
+      })
+    ).toBeInstanceOf(SlackDeliveryUnknownError);
+    expect(
+      await outcome(() => new Response("not json", { status: 200 }))
+    ).toBeInstanceOf(SlackDeliveryUnknownError);
+    // Definitely not posted: retryable.
+    const definite = [
+      await outcome(() => {
+        throw refused;
+      }),
+      await outcome(() => new Response("x", { status: 400 })),
+      await outcome(() =>
+        Response.json({ ok: false, error: "channel_not_found" })
+      ),
+    ];
+    for (const error of definite) {
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(SlackDeliveryUnknownError);
+    }
+    expect(
+      await outcome(
+        () =>
+          new Response("x", { status: 429, headers: { "retry-after": "2" } })
+      )
+    ).toBeInstanceOf(SlackRetryError);
+  });
+  it("uploads images privately and only ever sends bytes to Slack's upload host", async () => {
+    const upload = async (uploadUrl: string) => {
+      const f = fixture();
+      await f.app.validate(credentials);
+      await f.app.enable("C1", "http://lan");
+      const real = f.transport.getMockImplementation()!;
+      f.transport.mockImplementation(async (url, init) =>
+        url.endsWith("files.getUploadURLExternal")
+          ? Response.json({ ok: true, upload_url: uploadUrl, file_id: "F42" })
+          : url === uploadUrl
+            ? new Response("OK", { status: 200 })
+            : url.endsWith("files.completeUploadExternal")
+              ? Response.json({ ok: true, files: [{ id: "F42" }] })
+              : real(url, init)
+      );
+      const result = await f.app
+        .uploadImage(new Uint8Array([1, 2, 3]), "shot.png")
+        .then(
+          (id) => id,
+          (e: Error) => e
+        );
+      const calls = f.transport.mock.calls.map(([url, init]) => ({
+        url: String(url),
+        body: init?.body,
+      }));
+      f.app.stop();
+      return { result, calls };
+    };
+    const ok = await upload("https://files.slack.com/upload/v1/abc");
+    expect(ok.result).toBe("F42");
+    const names = ok.calls.map((c) => c.url.split("/").at(-1));
+    expect(names.slice(-3)).toEqual([
+      "files.getUploadURLExternal",
+      "abc",
+      "files.completeUploadExternal",
+    ]);
+    // Form-encoded size request; no channel, so the file stays private.
+    expect(String(ok.calls.at(-3)!.body)).toBe("filename=shot.png&length=3");
+    expect(JSON.parse(String(ok.calls.at(-1)!.body))).toEqual({
+      files: [{ id: "F42", title: "shot.png" }],
+    });
+    for (const evil of [
+      "https://evil.example/upload",
+      "http://files.slack.com/upload",
+      "https://slack.com.evil.example/x",
+    ]) {
+      const bad = await upload(evil);
+      expect(bad.result).toBeInstanceOf(Error);
+      expect(bad.calls.some((c) => c.url === evil)).toBe(false);
+    }
+  });
+  it("a message Slack rejects for its image is resent as words through the real 1 msg/s guard", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir("/tmp/dogfood-slack-cdc9-test", { recursive: true });
+    const png = "/tmp/dogfood-slack-cdc9-test/app-shot.png";
+    await writeFile(png, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    const real = f.transport.getMockImplementation()!;
+    const posts: any[] = [];
+    f.transport.mockImplementation(async (url, init) => {
+      if (url.endsWith("files.getUploadURLExternal"))
+        return Response.json({
+          ok: true,
+          upload_url: "https://files.slack.com/upload/v1/x",
+          file_id: "F9",
+        });
+      if (url === "https://files.slack.com/upload/v1/x")
+        return new Response("OK");
+      if (url.endsWith("files.completeUploadExternal"))
+        return Response.json({ ok: true, files: [{ id: "F9" }] });
+      if (url.endsWith("chat.postMessage")) {
+        posts.push(JSON.parse(String(init!.body)));
+        return posts.length === 1
+          ? Response.json({ ok: false, error: "invalid_blocks" })
+          : Response.json({ ok: true, ts: "2.2" });
+      }
+      return real(url, init);
+    });
+    const { SlackNotifier } = await import("../src/notifications/slack.js");
+    const notifier = new SlackNotifier(
+      null as never,
+      {
+        warn: () => {},
+        info: () => {},
+        debug: () => {},
+        error: () => {},
+      } as never
+    );
+    (notifier as any).app = f.app;
+    const result = await notifier.sendNotification(
+      { id: "agt_1", name: "builder-7" } as never,
+      { message: "See chart", images: [png] }
+    );
+    f.app.stop();
+    expect(result).toMatchObject({
+      sent: true,
+      note: expect.stringMatching(/couldn't show/),
+    });
+    expect(posts).toHaveLength(2);
+    expect(posts[0].blocks.some((b: any) => b.type === "image")).toBe(true);
+    expect(posts[1].blocks.some((b: any) => b.type === "image")).toBe(false);
+  });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();
     f.transport.mockResolvedValueOnce(
@@ -266,6 +430,7 @@ describe("Slack app boundary", () => {
     expect((await f.app.settings()).missingAnswerScopes).toEqual([
       "channels:history",
       "groups:history",
+      "files:write",
     ]);
   });
   it("rejects redirects, malformed credentials and unvalidated enable", async () => {

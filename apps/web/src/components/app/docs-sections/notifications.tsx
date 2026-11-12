@@ -75,6 +75,19 @@ export function NotificationsContent() {
           appears as a pending request until you allow it. Answers show &quot;in
           Slack by @name&quot; and count the same as answering in Dispatch.
         </P>
+        <P>
+          The agent can answer a thread message back in that thread. It writes
+          that reply for Slack on purpose; its progress and other output stay in
+          Dispatch. A question it asks while working on the message appears in
+          the thread too, ready to answer. A Slack reply is never posted twice,
+          but if Slack&apos;s response is unclear it may be missing; the full
+          conversation is always in Dispatch.
+        </P>
+        <P>
+          Agents write Slack messages in markdown (bold, lists, code blocks,
+          links) and can attach images. Images need the Slack app&apos;s
+          files:write permission; Settings shows when the app needs updating.
+        </P>
       </Section>
 
       <Section>

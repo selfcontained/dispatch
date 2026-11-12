@@ -55,6 +55,93 @@ export function plain(text: string, max: number): Text {
   return { type: "plain_text", text: clip(text, max), emoji: false };
 }
 
+/**
+ * Agent-written text, rendered with Slack's `markdown` block (bold, lists,
+ * code, real links). Slack's own control tokens can't ping or mislead
+ * anyone: `<!channel>`, `<@U…>`, `<#C…>` and bare @channel/@here/@everyone
+ * are broken with a zero-width space, so they show as text.
+ */
+export const MARKDOWN_MAX = 8000;
+export function neutralizeMentions(text: string) {
+  return text
+    .replace(/<([!@#])/g, "<\u200b$1")
+    .replace(/@(channel|here|everyone)\b/gi, "@\u200b$1");
+}
+/**
+ * Neutralize outside code only: Slack doesn't parse mention tokens inside
+ * fenced or inline code, and code should copy out exactly as written.
+ */
+export function neutralizeOutsideCode(text: string) {
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part, i) => (i % 2 ? part : neutralizeMentions(part)))
+    .join("");
+}
+export function markdownBody(text: string, max = MARKDOWN_MAX): SlackBlock {
+  return { type: "markdown", text: clip(neutralizeOutsideCode(text), max) };
+}
+/** Our own context lines are mrkdwn: escape names/titles so they stay text. */
+export function mrkdwnText(text: string) {
+  return neutralizeMentions(
+    text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  );
+}
+export function mrkdwnLink(url: string, label: string) {
+  return `<${url.replace(/[<>|\s]/g, encodeURIComponent)}|${mrkdwnText(label)}>`;
+}
+/** One small line naming who and where, e.g. "*builder-7* asks · Task …". */
+export function headerLine(input: {
+  agentName: string;
+  verb?: string;
+  parts?: Array<string | undefined>;
+  openUrl?: string;
+}): SlackBlock {
+  const who = `*${mrkdwnText(input.agentName)}*${input.verb ? ` ${mrkdwnText(input.verb)}` : ""}`;
+  const text = [
+    who,
+    ...(input.parts ?? []).filter(Boolean).map((p) => mrkdwnText(p!)),
+    ...(input.openUrl ? [mrkdwnLink(input.openUrl, "Open in Dispatch")] : []),
+  ].join(" · ");
+  return { type: "context", elements: [{ type: "mrkdwn", text }] };
+}
+/** Muted footer: the link is private, and how to answer. */
+export function footerLine(agentName?: string): SlackBlock {
+  const text = [
+    "Private link: opens on your LAN or VPN",
+    agentName
+      ? `Reply in this thread to message *${mrkdwnText(agentName)}*`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { type: "context", elements: [{ type: "mrkdwn", text }] };
+}
+
+/** A Dispatch notification in the shared layout. */
+export function notifyMessage(input: {
+  agentName: string;
+  title?: string;
+  message: string;
+  openUrl: string;
+  images?: SlackBlock[];
+}): { text: string; blocks: SlackBlock[] } {
+  const body = input.title
+    ? `**${input.title}**\n\n${input.message}`
+    : input.message;
+  return {
+    text: neutralizeMentions(
+      clip(`${input.agentName}: ${input.title ?? input.message}`, 2900)
+    ),
+    blocks: [
+      headerLine({ agentName: input.agentName }),
+      markdownBody(body),
+      ...(input.images ?? []),
+      { type: "actions", elements: [openButton(input.openUrl, true)] },
+      footerLine(input.agentName),
+    ],
+  };
+}
+
 export function clip(text: string, max: number) {
   const value = text.trim() || " ";
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
@@ -79,35 +166,26 @@ export type Adapted = {
   unsupported: string[];
 };
 
-function header(ctx: AskContext, verb: string): SlackBlock[] {
+function header(ctx: AskContext, verb: string, openUrl?: string): SlackBlock[] {
   const blocks: SlackBlock[] = [
-    {
-      type: "context",
-      elements: [
-        plain(
-          [`${ctx.agentName} ${verb}`, ctx.context, ctx.headline]
-            .filter(Boolean)
-            .join(" · "),
-          SLACK_LIMITS.sectionText
-        ),
-      ],
-    },
+    headerLine({
+      agentName: ctx.agentName,
+      verb,
+      parts: [ctx.headline, ctx.context],
+      openUrl,
+    }),
   ];
-  if (ctx.text.trim()) {
-    blocks.push({
-      type: "section",
-      text: plain(ctx.text, SLACK_LIMITS.sectionText),
-    });
-  }
+  if (ctx.text.trim()) blocks.push(markdownBody(ctx.text));
   return blocks;
 }
 
-function openButton(url: string): SlackBlock {
+export function openButton(url: string, primary = false): SlackBlock {
   return {
     type: "button",
     action_id: ACTION.open,
     text: plain("Open in Dispatch", SLACK_LIMITS.buttonText),
     url,
+    ...(primary ? { style: "primary" } : {}),
   };
 }
 
@@ -124,9 +202,9 @@ function fallback(reasons: string[]): SlackBlock {
 }
 
 function textReasons(text: string) {
-  return text.length > SLACK_LIMITS.sectionText
+  return text.length > MARKDOWN_MAX
     ? [
-        `the question is ${text.length} characters (Slack shows ${SLACK_LIMITS.sectionText})`,
+        `the question is ${text.length} characters (Slack shows ${MARKDOWN_MAX})`,
       ]
     : [];
 }
@@ -184,6 +262,7 @@ export function questionMessage(
         ),
       ],
     });
+  blocks.push(footerLine());
   return {
     text: clip(`${ctx.agentName} asks: ${ctx.text}`, SLACK_LIMITS.sectionText),
     blocks,
@@ -238,12 +317,18 @@ export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
   elements.push(openButton(ctx.openUrl));
   const blocks: SlackBlock[] = [
     ...header(
-      { ...ctx, text: [title, ctx.text].filter(Boolean).join("\n") },
+      {
+        ...ctx,
+        text: [title ? `**${title}**` : undefined, ctx.text]
+          .filter(Boolean)
+          .join("\n"),
+      },
       `asks you to fill in a form (${summary})`
     ),
     { type: "actions", block_id: `ask:${ctx.ref}`, elements },
   ];
   if (unsupported.length) blocks.push(fallback(unsupported));
+  blocks.push(footerLine());
   return {
     text: clip(
       `${ctx.agentName} asks you to fill in ${title ? `"${title}"` : "a form"}`,
@@ -526,15 +611,25 @@ export function settledMessage(ctx: AskContext, outcome: Outcome): Adapted {
       : outcome.kind === "cancelled"
         ? `Withdrawn${outcome.reason ? `: ${outcome.reason}` : ""}`
         : outcome.message;
+  const mark =
+    outcome.kind === "answered"
+      ? ":white_check_mark:"
+      : outcome.kind === "cancelled"
+        ? ":heavy_minus_sign:"
+        : ":warning:";
   return {
     text: clip(line, SLACK_LIMITS.sectionText),
     blocks: [
       ...header(ctx, "asked"),
-      { type: "context", elements: [plain(line, SLACK_LIMITS.sectionText)] },
       {
-        type: "actions",
+        type: "context",
         block_id: `done:${ctx.ref}`,
-        elements: [openButton(ctx.openUrl)],
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `${mark} ${mrkdwnText(clip(line, 2900))} · ${mrkdwnLink(ctx.openUrl, "Open in Dispatch")}`,
+          },
+        ],
       },
     ],
     unsupported: [],

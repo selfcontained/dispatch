@@ -271,6 +271,8 @@ export type StreamServiceDeps = {
   hasUiClient?: () => boolean;
   /** An agent posted a question or form for people: it is waiting now. */
   onInputPosted?: (agentId: string, text: string) => Promise<void>;
+  /** The same question/form as a block, for channels that render it (Slack threads). */
+  onAgentAsk?: (agentId: string, block: Block) => Promise<void>;
   /** Copy a file from the agent's disk into its files; for `path` attachments. */
   uploadFile?: (
     agentId: string,
@@ -3304,6 +3306,19 @@ export class StreamService {
           );
         });
     }
+    if (
+      toAgentId === null &&
+      (kind === "question" || kind === "form") &&
+      this.deps.onAgentAsk
+    ) {
+      // Off the post's path: a slow Slack call must not delay the agent.
+      void this.deps.onAgentAsk(agentId, block).catch((error: unknown) => {
+        this.log.warn(
+          { err: error, agentId },
+          "stream: external ask notification failed"
+        );
+      });
+    }
     return block;
   }
 
@@ -4141,6 +4156,20 @@ export class StreamService {
     await this.store.update(blockId, { text });
     await this.publishBlockEntry(streamId, blockId);
     this.deps.publishUiEvent({ type: "stream.changed", agentId: streamId });
+  }
+
+  /** The agent's open turn: the block it writes to and the prompt it answers. */
+  async currentTurn(
+    agentId: string
+  ): Promise<{ blockId: string | null; prompts: PromptSource[] } | null> {
+    const open = await this.turns.openTurn(agentId);
+    if (!open) return null;
+    const payload = open.payload as TurnPayload;
+    const blockId = open.payload.blockId;
+    return {
+      blockId: typeof blockId === "string" ? blockId : null,
+      prompts: answeredPrompts(payload),
+    };
   }
 
   publishRead(
@@ -5470,4 +5499,45 @@ function describeInput(block: Block): string {
   }
   if (block.kind === "form") return block.data.title ?? "Form";
   return block.text;
+}
+
+/**
+ * The prompts a turn's current response answers, from what the turn itself
+ * recorded, used to place a mid-turn ask in the Slack thread it
+ * answers. Before any split: the turn's prompt plus posts steered into it.
+ * After a split: only that response's prompt plus posts steered in after it
+ * began, so a later response never answers an earlier prompt (even one whose
+ * own response said nothing). A pickup whose own response is about to start
+ * (`pendingResponse`) belongs to that next response.
+ */
+export function answeredPrompts(payload: TurnPayload): PromptSource[] {
+  const pending = payload.pendingResponse?.source;
+  const pendingIds = new Set(
+    pending?.source === "chat"
+      ? (pending.chatMessageIds ?? [pending.chatMessageId])
+      : []
+  );
+  const steering = payload.steering ?? [];
+  let all: PromptSource[];
+  if (payload.responsePrompt) {
+    const current = payload.responseReceipts?.at(-1);
+    const start = current
+      ? steering.findIndex((s) => s.receiptId === current)
+      : -1;
+    all = [
+      payload.responsePrompt,
+      ...(start >= 0 ? steering.slice(start + 1) : []).map((s) => s.source),
+    ];
+  } else {
+    all = [payload.prompt, ...steering.map((s) => s.source)];
+  }
+  return all.flatMap((source): PromptSource[] => {
+    if (!source) return [];
+    if (source.source !== "chat") return [source];
+    const ids = (source.chatMessageIds ?? [source.chatMessageId]).filter(
+      (id) => !pendingIds.has(id)
+    );
+    if (!ids.length) return [];
+    return [{ ...source, chatMessageId: ids[0]!, chatMessageIds: ids }];
+  });
 }

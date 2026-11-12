@@ -97,8 +97,8 @@ export function SlackAnswerersCard({
             </div>
             <p className="text-xs text-muted-foreground">
               In Slack app management open App Manifest, paste, save, then
-              Reinstall to Workspace. Adds buttons, forms and thread replies (
-              {missingScopes!.join(", ")}).
+              Reinstall to Workspace. Adds buttons, forms, thread replies and
+              images ({missingScopes!.join(", ")}).
             </p>
           </div>
         )}

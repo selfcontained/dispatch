@@ -339,11 +339,8 @@ describe("choice answers", () => {
     const settled = calls.updated.find((u) => u.ts === q.message.ts)!;
     expect(settled.text).toContain("Answered by @u1 in Slack");
     expect(settled.text).toContain("sending to the agent");
-    expect(
-      settled.blocks
-        .find((b: any) => b.type === "actions")
-        .elements.map((e: any) => e.action_id)
-    ).toEqual(["dispatch_open"]);
+    expect(settled.blocks.some((b: any) => b.type === "actions")).toBe(false);
+    expect(JSON.stringify(settled.blocks)).toContain("Open in Dispatch");
     // Still in flight: reconcile leaves it alone.
     await answers.reconcile();
     expect(calls.updated.filter((u) => u.ts === q.message.ts)).toHaveLength(1);
