@@ -29,10 +29,13 @@ export function SystemEventEntry({
   event,
   children,
   visibleContent,
+  icon,
 }: {
   event: SystemEventPresentation;
   children?: ReactNode;
   visibleContent?: ReactNode;
+  /** Replaces the category glyph for events with an established icon. */
+  icon?: ReactNode;
 }) {
   const Icon = {
     risk: ShieldCheck,
@@ -60,7 +63,9 @@ export function SystemEventEntry({
       className="my-1 rounded-md border bg-card px-3 py-3 text-sm"
     >
       <div className="flex items-start gap-2">
-        <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${iconColor}`} />
+        {icon ?? (
+          <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${iconColor}`} />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium [overflow-wrap:anywhere]">
