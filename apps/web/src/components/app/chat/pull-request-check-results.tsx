@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
  * show results inline; anything unrecognised falls back to the text verbatim.
  */
 export interface ParsedCheckNotice {
+  /** The PR the notice names, e.g. "#1439", linked when the server linked it. */
+  pr?: { number: string; url?: string };
   status?: string;
   counts: { count: number; label: string }[];
   checks: { name: string; url?: string; outcome: string; detail?: string }[];
@@ -29,15 +31,29 @@ const safeUrl = (s: string) => {
 export function parseCheckNotice(text: string): ParsedCheckNotice | undefined {
   const lines = text.split("\n").filter((l) => l.trim());
   // Header: "<PR link> — <Status> · 3 passed, 1 failed, 2 pending"
-  const header = lines[0]?.match(/^\S.* — ([A-Za-z]+) · (.+)$/);
+  const header = lines[0]?.match(/^(\S.*) — ([A-Za-z]+) · (.+)$/);
   if (!header) return;
+  const prRef = header[1].match(/^(?:\[#(\d+)\]\(<([^>]*)>\)|#(\d+))$/);
+  const prUrl = prRef?.[2] ? safeUrl(decodeUrl(prRef[2])) : undefined;
   const counts: ParsedCheckNotice["counts"] = [];
-  for (const part of header[2].split(", ")) {
+  for (const part of header[3].split(", ")) {
     const m = part.match(/^(\d+) (.+)$/);
     if (!m) return;
     counts.push({ count: Number(m[1]), label: unescape(m[2]) });
   }
-  const parsed: ParsedCheckNotice = { status: header[1], counts, checks: [] };
+  const parsed: ParsedCheckNotice = {
+    ...(prRef
+      ? {
+          pr: {
+            number: prRef[1] ?? prRef[3],
+            ...(prUrl ? { url: prUrl } : {}),
+          },
+        }
+      : {}),
+    status: header[2],
+    counts,
+    checks: [],
+  };
   for (const line of lines.slice(1)) {
     if (/· Info only; no action authorized\.$/.test(line)) continue;
     const more = line.match(/^- \+(\d+) more$/);
@@ -68,21 +84,26 @@ const tone = (label: string) =>
         ? "text-status-waiting"
         : "text-muted-foreground";
 
-export function PullRequestCheckResults({ text }: { text: string }) {
+export function PullRequestCheckResults({
+  text,
+  notice,
+}: {
+  text: string;
+  /** Pass when already parsed; undefined means the shape was unrecognised. */
+  notice: ParsedCheckNotice | undefined;
+}) {
   if (!text.trim()) return null;
-  const notice = parseCheckNotice(text);
   if (!notice)
     return (
       <div className="mt-2 break-words font-sans text-sm leading-relaxed">
         <Markdown>{text}</Markdown>
       </div>
     );
-  // The notice names only checks that newly passed or failed (bounded). Put
-  // failures first, and never let those rows read as the outstanding ones.
+  // Totals describe the whole snapshot; rows are the bounded set of checks the
+  // notice names (failures first), so they add names and links, not counts.
   const checks = [...notice.checks].sort(
     (a, b) => Number(b.outcome === "failed") - Number(a.outcome === "failed")
   );
-  const pending = notice.counts.find((c) => c.label === "pending")?.count;
   return (
     <div className="mt-2 space-y-2 font-sans">
       {notice.counts.length > 0 && (
@@ -97,17 +118,9 @@ export function PullRequestCheckResults({ text }: { text: string }) {
           ))}
         </p>
       )}
-      {pending ? (
-        <p className="text-xs text-status-waiting">
-          Pending checks aren’t named in this update
-        </p>
-      ) : null}
       {checks.length > 0 && (
         <div>
-          <p className="mb-1 text-[11px] text-muted-foreground">
-            Newly finished
-          </p>
-          <ul className="space-y-1 text-sm" aria-label="Newly finished checks">
+          <ul className="space-y-1 text-sm" aria-label="Check results">
             {checks.map((check, i) => (
               <li key={i} className="flex items-baseline gap-2">
                 <span
@@ -148,7 +161,7 @@ export function PullRequestCheckResults({ text }: { text: string }) {
             ))}
             {notice.more ? (
               <li className="pl-3.5 text-xs text-muted-foreground">
-                +{notice.more} more newly finished, not shown
+                +{notice.more} more
               </li>
             ) : null}
           </ul>
