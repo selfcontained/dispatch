@@ -281,8 +281,8 @@ export type StreamServiceDeps = {
     agentId: string;
     blockId: string;
     prompt: PromptSource | undefined;
-    text: string;
-    lead?: string;
+    /** Assistant text after the response's last tool call; "" if none. */
+    finalText: string;
     outcome: "ok" | "error" | "interrupted";
   }) => Promise<void>;
   /** Copy a file from the agent's disk into its files; for `path` attachments. */
@@ -4163,9 +4163,14 @@ export class StreamService {
     if (typeof blockId !== "string") return;
     const streamId = await this.turnStreamOf(input.agentId, blockId);
     if (!streamId) return;
-    const turns = await loadTurnEntries(this.store.db, input.agentId, [
-      input.turnRow.id,
-    ]);
+    const finalTexts = new Map<number, string>();
+    const turns = await loadTurnEntries(
+      this.store.db,
+      input.agentId,
+      [input.turnRow.id],
+      undefined,
+      finalTexts
+    );
     const entry = turns.get(input.turnRow.id);
     const text = entry?.result?.text ?? "";
     await this.store.update(blockId, { text });
@@ -4180,8 +4185,7 @@ export class StreamService {
         agentId: input.agentId,
         blockId,
         prompt: payload.responsePrompt ?? payload.prompt,
-        text,
-        ...(entry.result?.lead ? { lead: entry.result.lead } : {}),
+        finalText: finalTexts.get(input.turnRow.id) ?? "",
         outcome: input.frozen
           ? "ok"
           : entry.interrupted

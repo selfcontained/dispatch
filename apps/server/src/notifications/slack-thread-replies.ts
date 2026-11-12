@@ -35,9 +35,12 @@ export type ResponseSettled = {
   blockId: string;
   /** The prompt this response answers (`responsePrompt ?? prompt`). */
   prompt: PromptSource | undefined;
-  /** The response's assistant text, and the part said before its last tool call. */
-  text: string;
-  lead?: string;
+  /**
+   * Assistant text after the response's last tool call, from the turn's own
+   * rows; "" when nothing was said after it. Progress before a tool call is
+   * never a reply, so an empty value sends nothing (fail closed).
+   */
+  finalText: string;
   outcome: "ok" | "error" | "interrupted";
 };
 
@@ -56,14 +59,6 @@ type ReplyRow = {
 };
 
 type PlaceRow = { id: string; stream_id: string; thread_id: string | null };
-
-/** Only the words after the response's last tool call: no lead-in narration. */
-export function finalReplyText(text: string, lead?: string) {
-  const all = text.trim();
-  if (!lead?.trim()) return all;
-  const before = lead.trim();
-  return all.startsWith(before) ? all.slice(before.length).trim() : all;
-}
 
 /** Split on paragraph, then line, then hard boundaries; each ≤ max. */
 export function chunkText(text: string, max: number): string[] {
@@ -219,7 +214,7 @@ export class SlackThreadReplies {
     // A cut turn may be retried; leave the follow-up for whichever turn answers it.
     if (input.outcome === "interrupted") return;
     const rows = await this.followUps(input.agentId, input.prompt);
-    const text = finalReplyText(input.text, input.lead);
+    const text = input.finalText.trim();
     const outcome = input.outcome === "error" ? "error" : "reply";
     // An empty reply sends nothing; the inbound ack was the receipt.
     if (outcome === "reply" && !text) return;

@@ -667,6 +667,8 @@ describe("assembleTurns answer text", () => {
       text: "Looking.\n\nFound it.\n\nDone.",
       lead: "Looking.\n\nFound it.",
     });
+    // Only what was said after the last tool call is the final reply.
+    expect(twoTools[0].finalText).toBe("Done.");
 
     seq = 0;
     const endsOnTool = assembleTurns(
@@ -677,6 +679,8 @@ describe("assembleTurns answer text", () => {
       text: "Looking.",
       streaming: false,
     });
+    // Progress before a tool call is not a final reply.
+    expect(endsOnTool[0].finalText).toBe("");
 
     seq = 0;
     const toolFirst = assembleTurns(
@@ -684,6 +688,7 @@ describe("assembleTurns answer text", () => {
       new Map()
     );
     expect(toolFirst[0].result).toEqual({ text: "Done.", streaming: false });
+    expect(toolFirst[0].finalText).toBe("Done.");
   });
 
   it("streams a tool-free turn's text as the answer from the start", () => {

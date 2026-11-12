@@ -353,6 +353,51 @@ describe("Slack thread reply → agent → same Slack thread", () => {
     ).toBe(1);
   });
 
+  it("fails closed: progress said only before the last tool call is never sent as a reply", async () => {
+    const { svc, answers, calls, settle } = build();
+    const parent = await notifyParent(answers, A);
+    await answers.handle(threadReply("U1", parent, "check prod"));
+    const post = await slackPost("check prod");
+    // Narration, then tools, then nothing more: not a final reply.
+    await runTurn(svc, A, chatPrompt([post.id]), [
+      { assistant: "Let me check the deploy logs first." },
+      { tool: "tail logs" },
+      { assistant: "Now the metrics." },
+      { tool: "query metrics" },
+    ]);
+    await settle();
+    expect(calls.posted).toHaveLength(0);
+    // The Dispatch block still shows everything the agent said.
+    const turnText = await pool.query(
+      `SELECT text FROM blocks WHERE origin='turn' AND author_agent_id=$1 ORDER BY created_at DESC LIMIT 1`,
+      [A]
+    );
+    expect(turnText.rows[0].text).toMatch(/deploy logs[\s\S]*metrics/);
+    // Left unclaimed: a later genuine final reply to the same post still goes out.
+    await runTurn(svc, A, chatPrompt([post.id]), [
+      { assistant: "Checking once more." },
+      { tool: "tail logs" },
+      { assistant: "Prod is healthy: error rate 0.1%." },
+    ]);
+    await settle();
+    expect(calls.posted.map(sectionText)).toEqual([
+      "Prod is healthy: error rate 0.1%.",
+    ]);
+  });
+
+  it("a reply with no tool calls is the whole response", async () => {
+    const { svc, answers, calls, settle } = build();
+    const parent = await notifyParent(answers, A);
+    await answers.handle(threadReply("U1", parent, "quick?"));
+    const post = await slackPost("quick?");
+    await runTurn(svc, A, chatPrompt([post.id]), [
+      { assistant: "Yes." },
+      { assistant: "It ships Friday." },
+    ]);
+    await settle();
+    expect(calls.posted.map(sectionText)).toEqual(["Yes.\n\nIt ships Friday."]);
+  });
+
   it("routes per stored agent id across several agents and threads", async () => {
     const { svc, answers, calls, settle } = build();
     const pa = await notifyParent(answers, A);
