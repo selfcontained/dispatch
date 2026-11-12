@@ -903,6 +903,34 @@ describe("merge-risk assessor", () => {
     expect(days.rows.map((r) => r.calls)).toEqual([25, 1]);
   });
 
+  it("revives a skipped head with exactly one reservation when polls race after the reset", async () => {
+    await review([]);
+    await pool.query(
+      "INSERT INTO merge_risk_decision_daily(day,calls) VALUES((now() AT TIME ZONE 'UTC')::date,25)"
+    );
+    await service().assess(url, pr(), [builder]);
+    await pool.query(
+      "UPDATE merge_risk_decision_daily SET day=day-1; UPDATE merge_risk_decision_records SET created_at=created_at-interval '1 day'"
+    );
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => service().assess(url, pr(), [builder]))
+    );
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(results.filter((r) => r?.status === "ok").length).toBeGreaterThan(0);
+    // Losers see the in-flight/stored record, never a stale "daily limit".
+    for (const r of results)
+      expect(["ok", "evaluating", "deferred"]).toContain(
+        r?.displayState ?? r?.status
+      );
+    const days = await pool.query(
+      "SELECT calls FROM merge_risk_decision_daily ORDER BY day"
+    );
+    expect(days.rows.map((r) => r.calls)).toEqual([25, 1]);
+    // Further polls of the assessed head never reserve again.
+    await service().assess(url, pr(), [builder]);
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
   it("retries a concurrency skip once a slot frees", async () => {
     await review([]);
     for (const head of ["x1", "x2"])
