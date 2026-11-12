@@ -85,7 +85,28 @@ export class SlackApp {
   private botUserId: string | null = null;
   /** Bot scopes Slack reported on the last auth.test; null when unknown. */
   private scopes: string[] | null = null;
+  private recheckWork?: Promise<void>;
   private inbound?: SlackInboundHandler;
+  private callbackDiagnostic: { stage: string; at: string } | null = null;
+  /** Fixed stage names only: never payloads, credentials or provider errors. */
+  recordCallbackStage(
+    stage:
+      | "accepted"
+      | "handler_completed"
+      | "handler_failed"
+      | "binding_unavailable"
+      | "app_mismatch"
+      | "team_mismatch"
+      | "malformed"
+      | "handler_unavailable"
+      | "link_received"
+      | "link_refused"
+      | "link_expired"
+      | "link_pending"
+      | "link_already_allowed"
+  ) {
+    this.callbackDiagnostic = { stage, at: new Date().toISOString() };
+  }
   private onConnected?: () => void;
   private validated?: {
     credentials: Credentials;
@@ -147,14 +168,6 @@ export class SlackApp {
         "Slack service unavailable. Try again."
       );
     if (!response.ok) throw new Error("Slack service unavailable. Try again.");
-    if (method === "auth.test") {
-      const scopes = response.headers.get("x-oauth-scopes");
-      if (scopes !== null)
-        this.scopes = scopes
-          .split(",")
-          .map((scope) => scope.trim())
-          .filter(Boolean);
-    }
     let body: Record<string, any>;
     try {
       body = (await response.json()) as Record<string, any>;
@@ -177,6 +190,16 @@ export class SlackApp {
       throw new Error(
         "Slack request rejected. Check app permissions and channel membership."
       );
+    }
+    if (method === "auth.test") {
+      const header = response.headers.get("x-oauth-scopes");
+      this.scopes =
+        header === null
+          ? null
+          : header
+              .split(",")
+              .map((scope) => scope.trim())
+              .filter(Boolean);
     }
     return body;
   }
@@ -212,11 +235,16 @@ export class SlackApp {
       binding,
       channels: this.channels,
       lastDelivery: this.lastDelivery,
+      missingLinkScopes: this.scopes
+        ? ["chat:write"].filter((scope) => !this.scopes!.includes(scope))
+        : null,
+      callbackDiagnostic: this.callbackDiagnostic,
+      missingImageScopes: this.scopes
+        ? IMAGE_SCOPES.filter((scope) => !this.scopes!.includes(scope))
+        : null,
       // Answering needs thread-reply events; interactivity can't be probed.
       missingAnswerScopes: this.scopes
-        ? [...ANSWER_SCOPES, ...IMAGE_SCOPES].filter(
-            (scope) => !this.scopes!.includes(scope)
-          )
+        ? ANSWER_SCOPES.filter((scope) => !this.scopes!.includes(scope))
         : null,
     };
   }
@@ -328,6 +356,31 @@ export class SlackApp {
     this.validated = undefined;
     await this.start();
   }
+  /** Probe stored credentials without reconnecting, rewriting tokens or changing generation. */
+  recheckPermissions() {
+    if (this.recheckWork) return this.recheckWork;
+    this.recheckWork = this.performRecheck().finally(() => {
+      this.recheckWork = undefined;
+    });
+    return this.recheckWork;
+  }
+  private async performRecheck() {
+    const config = await this.configuration();
+    if (!config) throw new Error("Connect Slack first.");
+    const probe = new SlackApp(this.pool, this.transport, this.openSocket);
+    const auth = await probe.api(config.credentials.botToken, "auth.test");
+    if (auth.team_id !== config.binding.teamId)
+      throw new Error(
+        "Slack workspace identity changed. Recheck the installation."
+      );
+    const current = await this.configuration();
+    if (
+      current?.binding.generation !== config.binding.generation ||
+      current.credentials.botToken !== config.credentials.botToken
+    )
+      throw new Error("Slack installation changed. Recheck again.");
+    this.scopes = probe.scopes;
+  }
   async refreshChannels() {
     const config = await this.configuration();
     const token =
@@ -373,9 +426,21 @@ export class SlackApp {
       payload.api_app_id !== binding.appId ||
       team !== binding.teamId
     ) {
+      this.recordCallbackStage(
+        !handler
+          ? "handler_unavailable"
+          : !binding
+            ? "binding_unavailable"
+            : !payload || typeof payload !== "object"
+              ? "malformed"
+              : payload.api_app_id !== binding.appId
+                ? "app_mismatch"
+                : "team_mismatch"
+      );
       ack();
       return;
     }
+    this.recordCallbackStage("accepted");
     const inbound: SlackInbound = {
       type: message.type,
       payload,
@@ -384,7 +449,10 @@ export class SlackApp {
     };
     if (message.type === "interactive" && payload.type === "view_submission") {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const work = handler(inbound).catch(() => undefined);
+      const work = handler(inbound).catch(() => {
+        this.recordCallbackStage("handler_failed");
+        return undefined;
+      });
       const timedOut = Symbol("timeout");
       const result = await Promise.race([
         work,
@@ -410,7 +478,14 @@ export class SlackApp {
       return;
     }
     ack();
-    await handler(inbound).catch(() => {});
+    try {
+      await handler(inbound);
+      // Preserve the more specific link outcome reported by the handler.
+      if (this.callbackDiagnostic?.stage === "accepted")
+        this.recordCallbackStage("handler_completed");
+    } catch {
+      this.recordCallbackStage("handler_failed");
+    }
   }
   stop() {
     this.stopped = true;

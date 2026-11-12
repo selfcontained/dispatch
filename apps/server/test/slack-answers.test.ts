@@ -39,6 +39,8 @@ function fakeSlack() {
   };
   let ts = 100;
   const app = {
+    recordCallbackStage: () => {},
+    settings: async () => ({ missingLinkScopes: [] }),
     currentBinding: async () => binding,
     setInboundHandler: () => {},
     postBlocks: async (input: { text: string; blocks: any[] }) => {

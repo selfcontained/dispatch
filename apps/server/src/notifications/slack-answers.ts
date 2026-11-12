@@ -280,6 +280,11 @@ export class SlackAnswers {
   // ── answerer binding ─────────────────────────────────────
 
   async createLink() {
+    const capabilities = await this.app.settings();
+    if (capabilities.missingLinkScopes?.length)
+      throw new Error(
+        "Slack needs chat:write to post an account link. Update the manifest, reinstall, then recheck permissions."
+      );
     const binding = await this.app.currentBinding();
     if (!binding) throw new Error("Connect Slack first.");
     const nonce = randomBytes(24).toString("base64url");
@@ -595,7 +600,12 @@ export class SlackAnswers {
     nonce: unknown,
     messageTs: unknown
   ) {
+    this.app.recordCallbackStage("link_received");
     const user = payload.user ?? {};
+    if (payload.container?.channel_id !== binding.channelId) {
+      this.app.recordCallbackStage("link_refused");
+      return;
+    }
     if (typeof nonce !== "string" || typeof user.id !== "string") return;
     // Only members of the bound workspace may claim (no Slack Connect
     // guests); a rejected click doesn't consume the one-time link.
@@ -614,6 +624,7 @@ export class SlackAnswers {
       [sha(nonce), binding.generation]
     );
     if (!claimed.rowCount) {
+      this.app.recordCallbackStage("link_expired");
       await this.app
         .postEphemeral(
           user.id,
@@ -636,6 +647,7 @@ export class SlackAnswers {
       [randomUUID(), binding.generation, binding.teamId, user.id, displayName]
     );
     if (!stored.rowCount) {
+      this.app.recordCallbackStage("link_already_allowed");
       await this.app
         .postEphemeral(
           user.id,
@@ -644,6 +656,7 @@ export class SlackAnswers {
         .catch(() => {});
       return;
     }
+    this.app.recordCallbackStage("link_pending");
     const text = `Link request from ${displayName} received. It takes effect only after the Dispatch owner allows it in Settings.`;
     if (typeof messageTs === "string")
       await this.app

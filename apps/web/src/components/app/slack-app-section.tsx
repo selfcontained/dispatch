@@ -45,6 +45,9 @@ type State = {
   binding: { teamName: string; channelName: string; baseUrl: string } | null;
   channels: Channel[];
   answerers?: SlackAnswerer[];
+  missingLinkScopes?: string[] | null;
+  missingImageScopes?: string[] | null;
+  callbackDiagnostic?: { stage: string; at: string } | null;
   missingAnswerScopes?: string[] | null;
   linkOrigins?: {
     options: { url: string; loopback: boolean }[];
@@ -132,6 +135,12 @@ export function SlackAppSection() {
         setWorkspace(result.teamName || "Your workspace");
         setStep(3);
         setMessage(`Validated ${result.teamName}. Choose a channel below.`);
+      } else if (name === "recheck") {
+        setMessage(
+          result.missingAnswerScopes === null
+            ? "Connection checked. Slack did not supply scope evidence; permissions remain unknown."
+            : "Permissions rechecked. Current capabilities are shown below."
+        );
       } else if (name === "refresh") {
         setChannels(result.channels);
         setChannelId((id) =>
@@ -244,6 +253,32 @@ export function SlackAppSection() {
                 {editing ? "Cancel replacement" : "Replace tokens"}
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground" role="status">
+              Socket Mode WebSocket: {query.data?.status.replaceAll("_", " ")}.
+              A connected socket does not verify interactive callback delivery.
+            </p>
+            <Button
+              variant="default"
+              size="sm"
+              disabled={action.isPending}
+              onClick={() => run("recheck")}
+            >
+              {action.isPending && action.variables?.name === "recheck"
+                ? "Rechecking permissions…"
+                : "Recheck permissions"}
+            </Button>
+            {query.data?.callbackDiagnostic && (
+              <p className="text-xs text-muted-foreground">
+                Last Socket Mode callback:{" "}
+                {query.data.callbackDiagnostic.stage.replaceAll("_", " ")} ·{" "}
+                {new Date(
+                  query.data.callbackDiagnostic.at
+                ).toLocaleTimeString()}
+                . If no new callback appears after your Slack click, check
+                Socket Mode delivery. A failed handler needs a retry with a
+                fresh link after diagnosis.
+              </p>
+            )}
             <Collapsible>
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" size="sm" className="px-0">
@@ -281,6 +316,8 @@ export function SlackAppSection() {
           answerers={query.data.answerers ?? []}
           missingScopes={query.data.missingAnswerScopes ?? null}
           manifest={manifest}
+          missingLinkScopes={query.data.missingLinkScopes ?? null}
+          missingImageScopes={query.data.missingImageScopes ?? null}
         />
       )}
 
