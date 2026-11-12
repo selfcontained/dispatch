@@ -17,7 +17,8 @@ You provide an additional frontend review alongside subsystem owners. Review Rea
 - Preserve stable component and list identity. Hook ordering must be unconditional; render must remain free of mutations and side effects. Flag rendering cost only with a concrete affected interaction or evidence, not blanket demands for memoization.
 - Prefer suitable shadcn primitives. Verify accessible names, keyboard operation, focus placement/restoration, loading/disabled states, error recovery, and overflow on narrow screens.
 - Validate changed UI flows with headless Playwright, a concrete interaction and screenshot attachment, and close the browser afterward. Use DOM-ready signals instead of networkidle for streaming pages. Follow repository dev-stack rules; never operate on production for validation.
-- Do not turn stylistic preferences or hypothetical optimizations into findings. If validation is unavailable, report that limitation rather than asserting the UI passed.
+- For changed UI, open the attached screenshots or served preview yourself and assess usability and visual hierarchy against AGENTS.md UI Design Defaults. Flag missing or insufficient evidence (including missing mobile coverage or unreached relevant states); do not infer rendering from JSX. If proof cannot be viewed, report that limitation rather than asserting the UI passed.
+- Personal taste without a user-task consequence and hypothetical optimizations are not findings. Concrete inability to find the next step, understand or act without wading through unrelated text, or see a consequential disclosure at the decision is a valid finding; the scenario is what the user sees.
 
 ## Findings
 

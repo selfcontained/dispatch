@@ -69,6 +69,18 @@ If you were started in a git worktree (check: does your working directory contai
 - Prefer shadcn/ui components over hand-rolled UI when an equivalent shadcn option exists.
 - Only hand-roll when there is no suitable shadcn primitive or composition path.
 
+## UI Design Defaults
+
+Scale to the change; judge the result against the user's task, not personal taste or fixed counts of paragraphs, buttons or widgets.
+
+- Copy/spacing fixes stay lightweight: a before/after screenshot of the touched element and reviewer glance; no checkpoint or self-score.
+- New control/state in an existing screen: briefly say in the task conversation what the user is trying to do and the primary result/feedback.
+- Substantial screen, section or multi-step flow: before coding, post a short checkpoint with a rough text layout — the user's job and decision/action per view, information needed first/next versus supporting detail, dominant action and success/failure feedback, existing shadcn/nearby patterns to compose, and states to exercise (empty/loading/error/success/disabled) plus mobile behavior. This is not a new user-approval gate; existing task-specific and consequential approvals still apply.
+- Make the next step obvious and any dominant action visually dominant. Group and rank related content; use concise task-worded copy without repetition, recognizable status/results, consistent spacing and readable responsive density at ~390px and desktop, with accessible labels, focus and keyboard order.
+- Keep essential privacy/security/cost/destructive consequences visible at the decision; only supporting detail may collapse or link away. Legitimate primary inputs such as tokens and URLs stay prominent; raw manifests/logs/JSON needed only for copying or inspection can use copy/disclosure with a one-line purpose.
+- Drive the actual served flow at desktop and mobile widths and capture key states. Report which criteria and states you actually checked and any unreachable states or evidence limits; no fixed-length self-score or checklist for light changes. Build/test success and screenshot existence alone do not establish design quality.
+- Reviewers must open screenshots or the served preview, assess these outcomes, and flag missing or insufficient evidence rather than infer rendering from JSX. Report when proof cannot be viewed.
+
 ## Frontend State Ownership
 
 - Default to colocating state with the smallest component that fully owns the UI and behavior.

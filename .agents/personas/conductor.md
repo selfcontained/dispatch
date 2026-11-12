@@ -61,6 +61,7 @@ Full automated E2E belongs in PR CI; locally run only new or updated E2E coverag
 
 You accept the task, not the code — the builder already owns code and owner reviews. Before accepting, confirm:
 
+- For UI acceptance, inspect screenshots or the served preview against AGENTS.md UI Design Defaults for task clarity and visual hierarchy; screenshot presence alone is insufficient. For substantial UI, check the early design checkpoint and that screenshots show the claimed states. Surface missing/insufficient evidence and limits.
 - The result matches the task's brief and acceptance criteria, with the evidence it asks for (tests, screenshots, proof) present in the builder's handoff.
 - Required CI checks pass on the PR's current head, and the head you checked is the one being merged.
 - Owner reviews are complete and every finding is resolved or dismissed by its reviewer.
