@@ -140,7 +140,7 @@ export function SystemEventEntry({
           {MERGE_RISK[event.risk].label}
         </Badge>
       )}
-      {status && (
+      {status && !inline && (
         <Badge
           variant="default"
           className={
@@ -172,11 +172,15 @@ export function SystemEventEntry({
           )}
           <div className="min-w-0 flex-1">
             {header}
-            <PullRequestCheckResults text={event.details} notice={notice} />
+            <PullRequestCheckResults
+              text={event.details}
+              notice={notice}
+              status={status}
+            />
             {visibleContent}
             {children}
             {/* Separators lead their item so a wrapped row never ends in "·". */}
-            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
               {time}
               {commit && (
                 <span className="whitespace-nowrap">

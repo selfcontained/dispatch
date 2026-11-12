@@ -84,89 +84,63 @@ const tone = (label: string) =>
         ? "text-status-waiting"
         : "text-muted-foreground";
 
+const statusTone = (status: string) =>
+  status === "Failing"
+    ? "text-destructive"
+    : status === "Passing"
+      ? "text-status-working"
+      : status === "Pending"
+        ? "text-status-waiting"
+        : "text-muted-foreground";
+
+/**
+ * One summary line, the same on every check card: status, then counts by
+ * status from the snapshot. Named check rows are left out on purpose: the
+ * notice only names a bounded set of newly finished checks, so rows would
+ * appear on some cards and not others.
+ */
 export function PullRequestCheckResults({
   text,
   notice,
+  status,
 }: {
   text: string;
   /** Pass when already parsed; undefined means the shape was unrecognised. */
   notice: ParsedCheckNotice | undefined;
+  status?: string;
 }) {
-  if (!text.trim()) return null;
-  if (!notice)
+  if (text.trim() && !notice)
     return (
-      <div className="mt-2 break-words font-sans text-sm leading-relaxed">
+      <div className="mt-1 break-words font-sans text-sm leading-relaxed">
         <Markdown>{text}</Markdown>
       </div>
     );
-  // Totals describe the whole snapshot; rows are the bounded set of checks the
-  // notice names (failures first), so they add names and links, not counts.
-  const checks = [...notice.checks].sort(
-    (a, b) => Number(b.outcome === "failed") - Number(a.outcome === "failed")
-  );
+  const counts = notice?.counts ?? [];
   return (
-    <div className="mt-2 space-y-2 font-sans">
-      {notice.counts.length > 0 && (
-        <p
-          className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
-          aria-label="Check totals"
-        >
-          {notice.counts.map(({ count, label }) => (
-            <span key={label} className={cn("font-medium", tone(label))}>
-              {count} {label}
+    <p
+      className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 font-sans text-xs"
+      aria-label="Check summary"
+    >
+      {status ? (
+        <span className={cn("font-semibold", statusTone(status))}>
+          {status}
+        </span>
+      ) : null}
+      {counts.map(({ count, label }, i) => (
+        <span key={label} className="whitespace-nowrap">
+          {status || i > 0 ? (
+            <span aria-hidden className="text-muted-foreground">
+              ·{" "}
             </span>
-          ))}
-        </p>
-      )}
-      {checks.length > 0 && (
-        <div>
-          <ul className="space-y-1 text-sm" aria-label="Check results">
-            {checks.map((check, i) => (
-              <li key={i} className="flex items-baseline gap-2">
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-1.5 shrink-0 translate-y-[-1px] rounded-full",
-                    check.outcome === "failed"
-                      ? "bg-destructive"
-                      : "bg-status-working"
-                  )}
-                />
-                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-                  {check.url ? (
-                    <a
-                      href={check.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline decoration-border underline-offset-4 focus-visible:outline-ring"
-                    >
-                      {check.name}
-                    </a>
-                  ) : (
-                    check.name
-                  )}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 text-xs",
-                    check.outcome === "failed"
-                      ? "font-medium text-destructive"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {check.outcome}
-                  {check.detail ? ` · ${check.detail}` : ""}
-                </span>
-              </li>
-            ))}
-            {notice.more ? (
-              <li className="pl-3.5 text-xs text-muted-foreground">
-                +{notice.more} more
-              </li>
-            ) : null}
-          </ul>
-        </div>
-      )}
-    </div>
+          ) : null}
+          <span className={tone(label)}>
+            {count} {label}
+          </span>
+        </span>
+      ))}
+      {!status && !counts.length ? (
+        <span className="text-muted-foreground">No check results</span>
+      ) : null}
+    </p>
   );
 }

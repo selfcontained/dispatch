@@ -1,11 +1,5 @@
 // @vitest-environment jsdom
-import {
-  cleanup,
-  render,
-  screen,
-  fireEvent,
-  within,
-} from "@testing-library/react";
+import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { SystemEventEntry } from "./system-event-entry";
 import { parseCheckNotice } from "./pull-request-check-results";
@@ -72,7 +66,7 @@ describe("system event presentation", () => {
     expect(button.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("leads with the linked PR number and title and shows totals and results inline", () => {
+  it("shows one light summary: linked PR, status and counts by status", () => {
     const view = checks(notice, "Failing");
     expect(screen.queryByRole("button", { name: "Details" })).toBeNull();
     expect(screen.queryByText("Observation details")).toBeNull();
@@ -81,19 +75,13 @@ describe("system event presentation", () => {
       name: "#1439 Preserve observation delivery provenance",
     });
     expect(pr.getAttribute("href")).toBe("https://github.com/a/b/pull/1439");
-    expect(screen.getAllByText("Failing")).toHaveLength(1);
-    const totals = screen.getByLabelText("Check totals");
-    expect(totals.textContent).toBe("4 passed1 failed2 pending1 cancelled");
-    const results = within(screen.getByLabelText("Check results"));
-    const failed = results.getByRole("link", {
-      name: "Browser [e2e] regression",
-    });
-    expect(failed.getAttribute("href")).toBe(
-      "https://github.com/a/b/runs/1?x=1&y=2"
+    expect(screen.getByLabelText("Check summary").textContent).toBe(
+      "Failing· 4 passed· 1 failed· 2 pending· 1 cancelled"
     );
-    expect(results.getByText("failed · 12m 30s")).toBeTruthy();
-    expect(results.getByText("Type check")).toBeTruthy();
-    expect(results.getByText("+2 more")).toBeTruthy();
+    expect(screen.getAllByText("Failing")).toHaveLength(1);
+    // Named rows only exist for some notices, so no card shows them.
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.queryByText(/Type check|\+2 more/)).toBeNull();
     // No qualifiers or disclaimers; commit and time appear once.
     expect(screen.queryByText(/aren’t named/)).toBeNull();
     expect(screen.queryByText(/Newly finished/)).toBeNull();
@@ -102,6 +90,21 @@ describe("system event presentation", () => {
     expect(view.container.querySelectorAll("code")).toHaveLength(1);
     expect(screen.getByText("0c935fb")).toBeTruthy();
     expect(view.container.querySelectorAll("time")).toHaveLength(1);
+  });
+
+  it("gives cards with and without named checks the same shape", () => {
+    const summaries = [
+      "#1 — Passing · 6 passed\n- Lint — passed · 20s",
+      "#1 — Passing · 6 passed",
+    ].map((details) => {
+      const view = checks(details);
+      const text = screen.getByLabelText("Check summary").textContent;
+      const html = view.container.innerHTML.replace(/>[^<]*</g, "><");
+      cleanup();
+      return { text, html };
+    });
+    expect(summaries[0]).toEqual(summaries[1]);
+    expect(summaries[0].text).toBe("Passing· 6 passed");
   });
 
   it("takes the PR number from the notice when the resource has none", () => {
@@ -118,8 +121,9 @@ describe("system event presentation", () => {
     expect(screen.getByRole("link", { name: "#77" }).getAttribute("href")).toBe(
       "https://github.com/a/b/pull/77"
     );
-    expect(screen.getByText("Passing")).toBeTruthy();
-    expect(screen.queryByLabelText("Check results")).toBeNull();
+    expect(screen.getByLabelText("Check summary").textContent).toBe(
+      "Passing· 2 passed"
+    );
   });
 
   it("does not repeat a number already in the title or show a placeholder title", () => {
@@ -171,13 +175,14 @@ describe("system event presentation", () => {
     checks("Checks changed on a legacy notice");
     expect(screen.getByText("Checks changed on a legacy notice")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Details" })).toBeNull();
-    expect(screen.queryByLabelText("Check totals")).toBeNull();
+    expect(screen.queryByLabelText("Check summary")).toBeNull();
   });
 
   it("renders no invented results when check data is missing", () => {
     checks("");
-    expect(screen.queryByLabelText("Check totals")).toBeNull();
-    expect(screen.queryByLabelText("Check results")).toBeNull();
+    expect(screen.getByLabelText("Check summary").textContent).toBe(
+      "No check results"
+    );
     expect(screen.queryByText(/Passing|Failing|Pending|Mixed/)).toBeNull();
   });
 
@@ -198,30 +203,19 @@ describe("system event presentation", () => {
     ).toBe("https://e.com/a%5Cb?q=%3Cx%3E&r=1");
   });
 
-  it("puts failures first and keeps totals independent of the named rows", () => {
+  it("takes counts from the snapshot, not from the named rows", () => {
     checks(
       [
         "#1449 — Failing · 2 passed, 1 failed, 5 pending",
         "- Type check — passed · 58s",
-        "- Lint — passed · 20s",
         "- [Browser e2e](<https://github.com/a/b/runs/9>) — failed · 3m",
         "",
         "4d9ea93eb810 · 2026-11-12 16:54Z · Info only; no action authorized.",
       ].join("\n")
     );
-    expect(screen.getByLabelText("Check totals").textContent).toBe(
-      "2 passed1 failed5 pending"
+    expect(screen.getByLabelText("Check summary").textContent).toBe(
+      "Failing· 2 passed· 1 failed· 5 pending"
     );
-    const rows = within(screen.getByLabelText("Check results"))
-      .getAllByRole("listitem")
-      .map((li) => li.textContent);
-    expect(rows[0]).toMatch(/^Browser e2efailed/);
-    expect(rows.slice(1)).toEqual([
-      "Type checkpassed · 58s",
-      "Lintpassed · 20s",
-    ]);
-    // Pending checks are counted, never invented as rows.
-    expect(rows).toHaveLength(3);
   });
 
   it("parses the PR reference from the notice header", () => {
