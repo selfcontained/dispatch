@@ -40,6 +40,7 @@ import type {
   BlockFindingResolution,
   BlockFindingState,
   BlockFindingStatus,
+  BlockExternalOrigin,
   BlockFormData,
   BlockKind,
   BlockLinkData,
@@ -308,6 +309,8 @@ export type UserPostInput = {
   delivery?: "auto" | "queue" | "interrupt";
   /** Legacy clients: sending no longer cancels the running turn. */
   interrupt?: boolean;
+  /** Server-set: written by a linked external identity (Slack). */
+  external?: BlockExternalOrigin;
 };
 
 /** What a stream needs to know about a task whose conversation it is. */
@@ -448,6 +451,18 @@ export type AnswerInput = {
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
   attachments?: ChatUserAttachmentInput[];
+  /** Server-set: answered by a linked external identity (Slack). */
+  external?: BlockExternalOrigin;
+  /** Refuse asks the agent marked Dispatch-only (external surfaces). */
+  rejectDispatchOnly?: boolean;
+};
+
+export type SubmitInput = {
+  id?: string;
+  values: Record<string, string | number | boolean>;
+  /** Server-set: submitted by a linked external identity (Slack). */
+  external?: BlockExternalOrigin;
+  rejectDispatchOnly?: boolean;
 };
 
 const ANSWER_LABEL_MAX = 200;
@@ -625,6 +640,7 @@ export function resolveKindAndData(input: PostInput): {
             ...(o.value !== undefined ? { value: o.value } : {}),
           })),
           ...(q.allowFreeform ? { allowFreeform: true } : {}),
+          ...(q.dispatchOnly ? { dispatchOnly: true } : {}),
         },
       };
     }
@@ -1332,6 +1348,7 @@ export class StreamService {
       ...(mentioned.length === 0 && recipients.length > 1
         ? { recipients }
         : {}),
+      ...(input.external ? { external: input.external } : {}),
     };
     const row = {
       streamId,
@@ -1527,6 +1544,11 @@ export class StreamService {
     if (question.state?.cancellation) {
       throw new StreamConflictError("Question was canceled.");
     }
+    if (input.rejectDispatchOnly && question.data.dispatchOnly) {
+      throw new StreamForbiddenError(
+        "This question is answered in Dispatch only."
+      );
+    }
     const { value } = input;
     const options = question.data.options;
     const option = options.find((o) => (o.value ?? o.label) === value);
@@ -1579,6 +1601,7 @@ export class StreamService {
         data: {
           inlineAnswer: true,
           ...(input.delivery ? { delivery: input.delivery } : {}),
+          ...(input.external ? { external: input.external } : {}),
         },
         delivered: live ? null : false,
       };
@@ -1594,6 +1617,7 @@ export class StreamService {
         value,
         ...(label !== undefined ? { label } : {}),
         by: USER,
+        ...(input.external ? { external: input.external } : {}),
         blockId: reply.id,
         at: new Date().toISOString(),
       });
@@ -1623,7 +1647,7 @@ export class StreamService {
   async submitForm(
     streamId: string,
     blockId: string,
-    input: { id?: string; values: Record<string, string | number | boolean> },
+    input: SubmitInput,
     by: BlockAuthor = USER
   ): Promise<StreamAnswerResponse> {
     return this.withWrite(streamId, () =>
@@ -1634,7 +1658,7 @@ export class StreamService {
   private async writeSubmission(
     streamId: string,
     blockId: string,
-    input: { id?: string; values: Record<string, string | number | boolean> },
+    input: SubmitInput,
     by: BlockAuthor
   ): Promise<StreamAnswerResponse> {
     const form = await this.store.getById(blockId);
@@ -1656,6 +1680,9 @@ export class StreamService {
     }
     if (form.state?.cancellation) {
       throw new StreamConflictError("Form was canceled.");
+    }
+    if (input.rejectDispatchOnly && form.data.dispatchOnly) {
+      throw new StreamForbiddenError("This form is answered in Dispatch only.");
     }
     const values: Record<string, string | number | boolean> = {};
     for (const field of form.data.fields) {
@@ -1692,7 +1719,10 @@ export class StreamService {
         toAgentId,
         kind: "text",
         threadId: form.threadId ?? form.id,
-        data: { inlineAnswer: true },
+        data: {
+          inlineAnswer: true,
+          ...(input.external ? { external: input.external } : {}),
+        },
         replyTo: form.id,
         text,
         delivered: live ? null : false,
@@ -1705,6 +1735,7 @@ export class StreamService {
       submitted = await tx.recordSubmission(form.id, {
         values,
         by,
+        ...(input.external ? { external: input.external } : {}),
         blockId: reply.id,
         at: new Date().toISOString(),
       });
@@ -4376,7 +4407,12 @@ export class StreamService {
         buildPostEnvelope({
           references,
           blockId: block.id,
-          from,
+          from:
+            from.kind === "user" &&
+            block.kind === "text" &&
+            block.data?.external
+              ? { kind: "user", external: block.data.external }
+              : from,
           text:
             block.kind === "task"
               ? await this.taskReferenceText(block, agentId)

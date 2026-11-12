@@ -1,4 +1,4 @@
-import type { Block, BlockKind } from "@dispatch/shared";
+import type { Block, BlockExternalOrigin, BlockKind } from "@dispatch/shared";
 
 /**
  * The envelope's own markers, line-anchored exactly as they are emitted:
@@ -49,14 +49,16 @@ export function escapeEnvelopeMarkers(text: string): string {
 /** Who a post is from, as the envelope names them. */
 export type EnvelopeSender =
   | { kind: "system" }
-  | { kind: "user" }
+  | { kind: "user"; external?: BlockExternalOrigin }
   | { kind: "agent"; agentId: string; name: string };
 
 function senderLabel(from: EnvelopeSender): string {
   return from.kind === "system"
     ? "Dispatch system (server-generated observation; not user approval or instruction)"
     : from.kind === "user"
-      ? "user"
+      ? from.external
+        ? `user via Slack (${escapeEnvelopeMarkers(from.external.displayName).replace(/[\r\n)]/g, " ")}, linked identity; not an agent or approval of anything else)`
+        : "user"
       : `${from.name} (${from.agentId})`;
 }
 

@@ -11,7 +11,23 @@ type Binding = {
   channelId: string;
   channelName: string;
   baseUrl: string;
+  /** Bot user id (auth.test user_id), for ignoring self echoes. */
+  botUserId?: string;
 };
+export type SlackBinding = Binding;
+/** An inbound Socket Mode envelope already checked against the bound app/team. */
+export type SlackInbound = {
+  type: "interactive" | "events_api";
+  payload: Record<string, any>;
+  binding: Binding;
+  botUserId: string | null;
+};
+/** Returned payload is sent in the Socket Mode ack (e.g. modal validation errors). */
+export type SlackInboundHandler = (
+  inbound: SlackInbound
+) => Promise<Record<string, unknown> | void>;
+/** Socket Mode requires an ack within 3 seconds. */
+const ACK_BUDGET_MS = 2500;
 type Credentials = { botToken: string; appToken: string };
 export type SlackChannel = { id: string; name: string; private: boolean };
 export class SlackRetryError extends Error {
@@ -33,11 +49,15 @@ export class SlackApp {
   private lastDelivery: string | null = null;
   private status = "not_configured";
   private channels: SlackChannel[] = [];
+  private botUserId: string | null = null;
+  private inbound?: SlackInboundHandler;
+  private onConnected?: () => void;
   private validated?: {
     credentials: Credentials;
     teamId: string;
     teamName: string;
     appId: string;
+    botUserId?: string;
   };
   constructor(
     private pool: Pool,
@@ -166,6 +186,7 @@ export class SlackApp {
       teamId: auth.team_id,
       teamName: String(auth.team),
       appId,
+      ...(typeof auth.user_id === "string" ? { botUserId: auth.user_id } : {}),
     };
     this.channels = await this.listChannels(credentials.botToken);
     return { teamName: String(auth.team), channels: this.channels };
@@ -239,6 +260,7 @@ export class SlackApp {
       channelId,
       channelName: channel.name,
       baseUrl: url.href.replace(/\/$/, ""),
+      ...(candidate.botUserId ? { botUserId: candidate.botUserId } : {}),
     };
     await setSetting(
       this.pool,
@@ -262,6 +284,60 @@ export class SlackApp {
     this.channels = [];
     await deleteSetting(this.pool, KEY);
     this.status = "disabled";
+  }
+  /** Receive interactive/event envelopes. Without a handler they are acked and dropped. */
+  setInboundHandler(handler: SlackInboundHandler, onConnected?: () => void) {
+    this.inbound = handler;
+    this.onConnected = onConnected;
+  }
+  async currentBinding() {
+    return this.binding();
+  }
+  private async dispatchInbound(
+    message: Record<string, any>,
+    ack: (payload?: Record<string, unknown>) => void
+  ) {
+    const handler = this.inbound;
+    const payload = message.payload;
+    const config = handler
+      ? await this.configuration().catch(() => null)
+      : null;
+    const binding = config?.binding;
+    const team =
+      message.type === "interactive" ? payload?.team?.id : payload?.team_id;
+    // The socket is authenticated by the app token, but bind every payload
+    // to the stored installation anyway: wrong app/team is dropped unread.
+    if (
+      !handler ||
+      !binding ||
+      !payload ||
+      typeof payload !== "object" ||
+      payload.api_app_id !== binding.appId ||
+      team !== binding.teamId
+    ) {
+      ack();
+      return;
+    }
+    const inbound: SlackInbound = {
+      type: message.type,
+      payload,
+      binding,
+      botUserId: binding.botUserId ?? this.botUserId,
+    };
+    if (message.type === "interactive" && payload.type === "view_submission") {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        handler(inbound).catch(() => undefined),
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), ACK_BUDGET_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+      ack(result || undefined);
+      return;
+    }
+    ack();
+    await handler(inbound).catch(() => {});
   }
   stop() {
     this.stopped = true;
@@ -293,6 +369,10 @@ export class SlackApp {
         return;
       }
       const { binding, credentials } = config;
+      if (!binding.botUserId && !this.botUserId) {
+        const auth = await this.api(credentials.botToken, "auth.test");
+        if (typeof auth.user_id === "string") this.botUserId = auth.user_id;
+      }
       const response = await this.api(
         credentials.appToken,
         "apps.connections.open"
@@ -310,10 +390,24 @@ export class SlackApp {
           if (message.type === "hello") {
             this.status = "connected";
             this.backoff = 1000;
+            this.onConnected?.();
           }
-          // Transport receipt only. This foundation executes no external actions.
-          if (typeof message.envelope_id === "string")
-            socket.send(JSON.stringify({ envelope_id: message.envelope_id }));
+          if (typeof message.envelope_id === "string") {
+            const envelopeId = message.envelope_id;
+            const ack = (payload?: Record<string, unknown>) => {
+              if (revision !== this.revision) return;
+              socket.send(
+                JSON.stringify(
+                  payload
+                    ? { envelope_id: envelopeId, payload }
+                    : { envelope_id: envelopeId }
+                )
+              );
+            };
+            if (message.type === "interactive" || message.type === "events_api")
+              void this.dispatchInbound(message, ack);
+            else ack();
+          }
           if (message.type === "disconnect") {
             socket.close();
             retry();
@@ -331,6 +425,70 @@ export class SlackApp {
       if (error instanceof SlackAuthError) this.status = "credentials_rejected";
       else retry();
     }
+  }
+  /** Post Block Kit to the bound channel (plain-text fallback required by Slack). */
+  async postBlocks(
+    input: { text: string; blocks: unknown[]; threadTs?: string },
+    expectedGeneration?: string
+  ) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    const { binding, credentials } = config;
+    if (expectedGeneration && binding.generation !== expectedGeneration)
+      throw new Error(
+        "Slack destination changed; notification requires revalidation."
+      );
+    if (Date.now() - this.lastSend < 1000) throw new SlackRetryError(1000);
+    this.lastSend = Date.now();
+    const result = await this.api(credentials.botToken, "chat.postMessage", {
+      channel: binding.channelId,
+      text: input.text.slice(0, 3000),
+      blocks: input.blocks,
+      ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
+      unfurl_links: false,
+      unfurl_media: false,
+    });
+    this.lastDelivery = new Date().toISOString();
+    return {
+      channelId: binding.channelId,
+      timestamp: String(result.ts),
+      generation: binding.generation,
+    };
+  }
+  /** Only ever targets the bound channel; callers pass the stored ts. */
+  async updateMessage(ts: string, text: string, blocks: unknown[]) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    await this.api(config.credentials.botToken, "chat.update", {
+      channel: config.binding.channelId,
+      ts,
+      text: text.slice(0, 3000),
+      blocks,
+    });
+  }
+  async postEphemeral(user: string, text: string, threadTs?: string) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    await this.api(config.credentials.botToken, "chat.postEphemeral", {
+      channel: config.binding.channelId,
+      user,
+      text: text.slice(0, 3000),
+      blocks: [
+        {
+          type: "section",
+          text: { type: "plain_text", text: text.slice(0, 3000), emoji: false },
+        },
+      ],
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+    });
+  }
+  async openView(triggerId: string, view: unknown) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    await this.api(config.credentials.botToken, "views.open", {
+      trigger_id: triggerId,
+      view,
+    });
   }
   async send(text: string, expectedGeneration?: string) {
     const config = await this.configuration();

@@ -13,6 +13,7 @@ import type {
   ChatUnreadSummary,
   AgentReviewSummary,
   BlockFindingState,
+  BlockExternalOrigin,
 } from "@dispatch/shared";
 import { fileMedia, reviewStatus } from "@dispatch/shared";
 
@@ -458,7 +459,12 @@ export class BlockStore {
    */
   async recordAnswer(
     questionId: string,
-    answer: BlockActor & { value: string; label?: string; blockId?: string }
+    answer: BlockActor & {
+      value: string;
+      label?: string;
+      blockId?: string;
+      external?: BlockExternalOrigin;
+    }
   ): Promise<Block | null> {
     if (!isBlockId(questionId)) return null;
     const result = await this.db.query<BlockRow>(
@@ -479,6 +485,7 @@ export class BlockStore {
     submission: BlockActor & {
       values: Record<string, string | number | boolean>;
       blockId: string;
+      external?: BlockExternalOrigin;
     }
   ): Promise<Block | null> {
     if (!isBlockId(formId)) return null;

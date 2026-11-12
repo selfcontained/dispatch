@@ -105,6 +105,7 @@ export type {
   BlockFindingResolution,
   BlockFindingState,
   BlockFindingStatus,
+  BlockExternalOrigin,
   BlockFormData,
   BlockFormField,
   BlockFormFieldType,

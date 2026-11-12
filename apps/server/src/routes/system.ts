@@ -2,6 +2,7 @@ import {
   isAllowedSlackLinkOrigin,
   type SlackLinkOrigins,
 } from "../notifications/slack-link-origins.js";
+import type { SlackAnswers } from "../notifications/slack-answers.js";
 import os from "node:os";
 import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
@@ -59,6 +60,10 @@ const INSTANCE_NAME_KEY = "instance_name";
 
 type SystemRouteDeps = {
   notificationLinkOrigins?: () => Promise<SlackLinkOrigins>;
+  slackAnswers?: Pick<
+    SlackAnswers,
+    "answerers" | "allow" | "revoke" | "createLink"
+  >;
   pool: Pool;
   canManageEngineUpdates?: (request: FastifyRequest) => Promise<boolean>;
   appLog: FastifyBaseLogger;
@@ -393,8 +398,12 @@ export async function registerSystemRoutes(
   const notificationLinkOrigins = () =>
     deps.notificationLinkOrigins?.() ??
     Promise.resolve({ options: [], defaultUrl: null });
-  app.get("/api/v1/notifications/slack-app", async () => ({
+  const slackAppState = async () => ({
     ...(await deps.slackNotifier.app.settings()),
+    answerers: (await deps.slackAnswers?.answerers()) ?? [],
+  });
+  app.get("/api/v1/notifications/slack-app", async () => ({
+    ...(await slackAppState()),
     linkOrigins: await notificationLinkOrigins(),
   }));
   app.post(
@@ -441,8 +450,17 @@ export async function registerSystemRoutes(
           return { channels: await deps.slackNotifier.app.refreshChannels() };
         else if (action === "test")
           await deps.slackNotifier.app.send("Dispatch test notification");
-        else return reply.code(404).send({ error: "Unknown Slack action." });
-        return await deps.slackNotifier.app.settings();
+        else if (action === "link" && deps.slackAnswers)
+          await deps.slackAnswers.createLink();
+        else if (
+          (action === "allow" || action === "revoke") &&
+          deps.slackAnswers
+        ) {
+          if (typeof body?.id !== "string")
+            return reply.code(400).send({ error: "Choose a Slack account." });
+          await deps.slackAnswers[action](body.id);
+        } else return reply.code(404).send({ error: "Unknown Slack action." });
+        return await slackAppState();
       } catch (error) {
         return reply.code(400).send({
           error: error instanceof Error ? error.message : "Slack setup failed.",

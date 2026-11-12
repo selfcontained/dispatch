@@ -1,5 +1,6 @@
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
 import { QuestionAlerts } from "./notifications/question-alerts.js";
+import { SlackAnswers } from "./notifications/slack-answers.js";
 import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
@@ -203,24 +204,18 @@ const agentManager = new AgentManager(pool, app.log, config, {
 });
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
+const slackAnswers = new SlackAnswers(
+  pool,
+  slackNotifier.app,
+  () => streamService,
+  async (agentId) => (await agentManager.getAgent(agentId))?.name ?? null
+);
+slackNotifier.setNotifySent((sent, agentId) =>
+  slackAnswers.recordNotify(sent, agentId)
+);
 const questionAlerts = new QuestionAlerts(
   pool,
-  async (alert) => {
-    const settings = await slackNotifier.app.settings();
-    if (!settings.binding) return false;
-    const binding = settings.binding;
-    const context =
-      alert.text ||
-      alert.data?.options?.map((option) => option.label).join(" / ") ||
-      "Question awaiting your answer";
-    const params = new URLSearchParams({ block: alert.block_id });
-    if (alert.thread_id) params.set("thread", alert.thread_id);
-    if (alert.stream_id.startsWith("tsk_")) params.set("task", alert.stream_id);
-    return slackNotifier.app.send(
-      `Dispatch · ${alert.name || alert.agent_id}\nQuestion unanswered for 5 minutes\n${context.slice(0, 2000)}\n${binding.baseUrl}/agents/${encodeURIComponent(alert.stream_id.startsWith("tsk_") ? alert.agent_id : alert.stream_id)}?${params}\nOpen Dispatch on your LAN or VPN. Delivery does not mean read or picked up.`,
-      alert.binding_generation
-    );
-  },
+  (alert) => slackAnswers.postAsk(alert),
   async () => (await slackNotifier.app.settings()).binding
 );
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
@@ -945,6 +940,7 @@ async function registerRoutes() {
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
+    slackAnswers,
     notificationLinkOrigins: () => {
       const primary = app.server.address();
       return discoverSlackLinkOrigins({
@@ -1239,6 +1235,7 @@ export async function initializeApp(options?: {
     for (const agent of agents) {
       void diffStatsRefresher.signal(agent.id);
     }
+    slackAnswers.start();
     void slackNotifier.app.start().catch(() => {});
     questionAlerts.start();
     pullRequests.start();
@@ -1362,6 +1359,7 @@ async function cleanupAppResources(): Promise<void> {
   await stage("service-resources", () => serviceResources.shutdown());
 
   questionAlerts.stop();
+  slackAnswers.stop();
   slackNotifier.app.stop();
   notificationRuntime.clearPendingWebNotifications();
 
