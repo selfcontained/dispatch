@@ -95,6 +95,7 @@ Full automated E2E belongs in PR CI; locally run only new or updated E2E coverag
   follow AGENTS.md, including Playwright interactions and shared screenshots for
   UI changes. Child test results inform verification but do not prove that the
   integrated branch works. Do not claim live runtime testing from mocked tests.
+- Inspect UI screenshots or the served preview yourself against AGENTS.md UI Design Defaults: judge task clarity, hierarchy and the claimed states, not mere screenshot presence. For substantial UI, also check the early design checkpoint; flag missing or insufficient evidence and record limits.
 - For every UI change, capture at least one screenshot per validated flow after
   interacting with the integrated app. Show the relevant final state and caption
   what was exercised. Keep screenshots outside the repo root and close the
