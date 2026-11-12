@@ -969,9 +969,28 @@ describe("thread replies", () => {
       {
         user: "U1",
         threadTs: q.message.ts,
-        text: "Sent to builder-7 as a message, not an answer — use the buttons above to answer.",
+        text: "Sent to builder-7 as a message — it wasn't recorded as an answer.",
       },
     ]);
+    // Another person replying under the same open question hears it once too.
+    await linkUser(answers, calls, "U2");
+    const u2From = calls.ephemeral.length;
+    await answers.handle(threadReply("U2", q.message.ts, "+1 sqlite"));
+    await answers.handle(threadReply("U2", q.message.ts, "seriously"));
+    expect(calls.ephemeral.slice(u2From).map((e) => [e.user, e.text])).toEqual([
+      [
+        "U2",
+        "Sent to builder-7 as a message — it wasn't recorded as an answer.",
+      ],
+    ]);
+    // Undelivered under an open ask: only the actionable failure, not both.
+    live = false;
+    const failFrom = calls.ephemeral.length;
+    await answers.handle(threadReply("U1", q.message.ts, "still there?"));
+    expect(calls.ephemeral.slice(failFrom).map((e) => e.text)).toEqual([
+      "Sent to builder-7 as a message (not an answer) · not delivered to builder-7 yet — open Dispatch to retry.",
+    ]);
+    live = true;
 
     // Once the question is settled, follow-ups in its thread are quiet too.
     await answers.handle(
@@ -994,6 +1013,31 @@ describe("thread replies", () => {
     ]);
     // A routine follow-up in a notify thread: no receipt.
     expect(calls.ephemeral.slice(afterAnswer)).toEqual([]);
+  });
+
+  it("retries the not-an-answer notice on the next reply if Slack failed to show it", async () => {
+    const { svc, answers, calls, app } = build();
+    await linkUser(answers, calls, "U1");
+    const q = await ask(svc, answers, calls, {
+      question: { options: [{ label: "Postgres" }] },
+    });
+    const real = app.postEphemeral.bind(app);
+    let fail = true;
+    (app as any).postEphemeral = async (...args: [string, string, string?]) => {
+      if (fail) {
+        fail = false;
+        throw new Error("slack down");
+      }
+      return real(...args);
+    };
+    const quietFrom = calls.ephemeral.length;
+    await answers.handle(threadReply("U1", q.message.ts, "why not sqlite?"));
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
+    await answers.handle(threadReply("U1", q.message.ts, "or duckdb?"));
+    await answers.handle(threadReply("U1", q.message.ts, "hello?"));
+    expect(calls.ephemeral.slice(quietFrom).map((e) => e.text)).toEqual([
+      "Sent to builder-7 as a message — it wasn't recorded as an answer.",
+    ]);
   });
 
   it("still tells the sender when a follow-up wasn't delivered", async () => {

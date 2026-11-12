@@ -828,14 +828,22 @@ export class SlackAnswers {
         await reply(
           `Sent to ${name} as a message${ask ? " (not an answer)" : ""} · ${this.deliveryText(name, false)}.`
         );
-      else if (
-        ask &&
-        isOpen(ask.state) &&
-        (await this.once(`notice:not-answer:${event.thread_ts}:${event.user}`))
-      )
-        await reply(
-          `Sent to ${name} as a message, not an answer — use the buttons above${ask.kind === "form" ? " to fill in the form" : " to answer"}.`
-        );
+      else if (ask && isOpen(ask.state)) {
+        const key = `notice:not-answer:${event.thread_ts}:${event.user}`;
+        if (await this.once(key))
+          await this.app
+            .postEphemeral(
+              event.user,
+              `Sent to ${name} as a message — it wasn't recorded as an answer.`,
+              event.thread_ts
+            )
+            .catch(() =>
+              // Unsent warning: free the key so the next reply tries again.
+              this.pool
+                .query(`DELETE FROM slack_inbound WHERE key=$1`, [key])
+                .catch(() => {})
+            );
+      }
     } catch (error) {
       await reply(errorText(error));
     }
