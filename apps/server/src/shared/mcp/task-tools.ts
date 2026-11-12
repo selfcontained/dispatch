@@ -70,6 +70,22 @@ const launchTemplateIdSchema = z
     "Full task template override for every eligible trigger column; null inherits each column default. Editing does not launch."
   );
 
+const launchAgentTypeSchema = z
+  .enum(AGENT_TYPES)
+  .nullable()
+  .describe(
+    "Runtime for this task's trigger launches only; wins over its launch template and column automation without editing either. Omit to keep; null clears it (and launchModel) to inherit."
+  );
+
+const launchModelSchema = z
+  .string()
+  .min(1)
+  .nullable()
+  .describe(
+    "Model for launchAgentType (required with it), validated for that runtime; invalid pairs are rejected with nothing changed. Omit to keep; null inherits: the column/template model when the runtime is unchanged, else the template rule (its model on its own runtime, otherwise the runtime's CLI default). " +
+      describeAgentModelCatalog(AGENT_TYPES)
+  );
+
 const linkSchema = z.object({
   kind: z.enum(["pr", "branch", "url"]),
   url: z.string().max(2048).nullable().optional(),
@@ -388,6 +404,8 @@ export function registerTaskTools(
               "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; new names must be 16 characters or fewer. Existing longer names remain usable."
             ),
           launchTemplateId: launchTemplateIdSchema.optional(),
+          launchAgentType: launchAgentTypeSchema.optional(),
+          launchModel: launchModelSchema.optional(),
           title: z.string().min(1).max(500),
           body: z
             .string()
@@ -410,6 +428,12 @@ export function registerTaskTools(
               ...(args.launchTemplateId !== undefined
                 ? { launchTemplateId: args.launchTemplateId }
                 : {}),
+              ...(args.launchAgentType !== undefined
+                ? { launchAgentType: args.launchAgentType }
+                : {}),
+              ...(args.launchModel !== undefined
+                ? { launchModel: args.launchModel }
+                : {}),
               title: args.title,
               ...(args.labels !== undefined ? { labels: args.labels } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),
@@ -425,6 +449,8 @@ export function registerTaskTools(
             column: key ?? null,
             labels: task.labels ?? [],
             launchTemplateId: task.launchTemplateId,
+            launchAgentType: task.launchAgentType,
+            launchModel: task.launchModel,
           });
         } catch (error) {
           return toTaskToolError(error);
@@ -447,6 +473,8 @@ export function registerTaskTools(
               "Project label assignments. Replaces the task's labels; omit on update to preserve. Send [] to remove all, or send remaining labels to remove one. Names reuse project definitions/colors; new names must be 16 characters or fewer. Existing longer names remain usable."
             ),
           launchTemplateId: launchTemplateIdSchema.optional(),
+          launchAgentType: launchAgentTypeSchema.optional(),
+          launchModel: launchModelSchema.optional(),
           title: z.string().min(1).max(500).optional(),
           body: z.string().max(50_000).optional(),
           column: z.string().min(1).optional().describe("Column key."),
@@ -497,6 +525,12 @@ export function registerTaskTools(
               ...(args.launchTemplateId !== undefined
                 ? { launchTemplateId: args.launchTemplateId }
                 : {}),
+              ...(args.launchAgentType !== undefined
+                ? { launchAgentType: args.launchAgentType }
+                : {}),
+              ...(args.launchModel !== undefined
+                ? { launchModel: args.launchModel }
+                : {}),
               ...(args.title !== undefined ? { title: args.title } : {}),
               ...(args.labels !== undefined ? { labels: args.labels } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),
@@ -520,6 +554,8 @@ export function registerTaskTools(
             launching: updated.launching,
             labels: updated.labels ?? [],
             launchTemplateId: updated.launchTemplateId,
+            launchAgentType: updated.launchAgentType,
+            launchModel: updated.launchModel,
           });
         } catch (error) {
           return toTaskToolError(error);

@@ -146,5 +146,10 @@ Unavailable templates fail visibly; choose another or clear the preference rathe
 than silently inheriting. Inspect the actual `trigger_launched.configuration`
 snapshot after a launch. A restricted caller cannot select or launch full access.
 
+To change only the runtime/model for one task, set `launchAgentType` (and
+`launchModel`) on `task_create`/`task_update` instead of editing the template or
+column; null clears it. It applies to that task's trigger launches only, and
+the `trigger_launched.configuration` snapshot shows what actually ran.
+
 Normal `task_update` stage moves launch the selected task template directly through
 the column trigger; no preview, revision or human confirmation is required.

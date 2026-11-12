@@ -641,14 +641,83 @@ export class TaskService {
     return template;
   }
 
-  private effectiveLaunch(
-    task: Pick<Task, "launchTemplateId">,
-    column: TaskColumn
-  ) {
+  /**
+   * What a trigger launches for this task. The full template override (or
+   * the column trigger) is the base; the task's runtime override then
+   * replaces its runtime for this task only. An omitted task model keeps
+   * the base model and effort when the runtime is unchanged; otherwise the
+   * template rule applies (template model on the template's runtime, else
+   * the runtime's CLI default). Template and column rows are never edited.
+   */
+  private async effectiveLaunch(
+    task: Pick<Task, "launchTemplateId" | "launchAgentType" | "launchModel">,
+    column: TaskColumn & { trigger: TaskColumnTrigger }
+  ): Promise<{
+    templateId: string;
+    agentType: AgentType | null;
+    model: string | null;
+    effort?: Effort | null;
+  }> {
     const templateId = task.launchTemplateId;
-    return templateId
-      ? { templateId, agentType: null, model: null }
+    const base = templateId
+      ? { templateId, agentType: null, model: null, effort: null }
       : column.trigger;
+    if (!task.launchAgentType) return base;
+    const inherited =
+      base.agentType ??
+      (await this.deps.getTemplate(base.templateId))?.agentType ??
+      null;
+    const sameRuntime = task.launchAgentType === inherited;
+    const model = task.launchModel ?? (sameRuntime ? base.model : null);
+    return {
+      templateId: base.templateId,
+      agentType: task.launchAgentType,
+      model,
+      effort:
+        sameRuntime && model === base.model ? (base.effort ?? null) : null,
+    };
+  }
+
+  /**
+   * The task's runtime override after `input`, checked before any write: a
+   * null runtime clears its model too, a model needs a runtime, and the pair
+   * must be a configured model of that runtime. Never substitutes either.
+   */
+  private launchRuntimePatch(
+    current: Pick<Task, "launchAgentType" | "launchModel"> | null,
+    input: Pick<UpdateTaskInput, "launchAgentType" | "launchModel">
+  ): Pick<TaskPatch, "launchAgentType" | "launchModel"> {
+    if (input.launchAgentType === undefined && input.launchModel === undefined)
+      return {};
+    const agentType =
+      input.launchAgentType !== undefined
+        ? input.launchAgentType
+        : (current?.launchAgentType ?? null);
+    if (agentType !== null && !AGENT_TYPES.includes(agentType))
+      throw invalid(
+        `Unsupported launchAgentType "${agentType}". Must be one of: ${AGENT_TYPES.join(", ")}.`
+      );
+    const requested =
+      input.launchModel !== undefined
+        ? input.launchModel
+        : input.launchAgentType === null
+          ? null
+          : (current?.launchModel ?? null);
+    if (requested !== null && !requested.trim())
+      throw invalid("launchModel must be a model id, or null to inherit.");
+    if (requested !== null && agentType === null)
+      throw invalid(
+        "launchModel needs launchAgentType: set the runtime with the model, or send launchModel: null."
+      );
+    let model: string | null = null;
+    if (requested !== null && agentType !== null) {
+      try {
+        model = validateAgentModel(agentType, requested) ?? null;
+      } catch (error) {
+        throw invalid(errorMessage(error));
+      }
+    }
+    return { launchAgentType: agentType, launchModel: model };
   }
 
   private async validateLaunchPreference(
@@ -988,6 +1057,7 @@ export class TaskService {
         input.launchTemplateId,
         caller
       );
+    const runtime = this.launchRuntimePatch(null, input);
     const column = await this.store.transaction(async (db) => {
       if (!(await this.store.lockColumn(initialColumn.id, db)))
         throw notFound("Column");
@@ -1009,10 +1079,15 @@ export class TaskService {
         },
         db
       );
-      if (input.launchTemplateId !== undefined)
+      if (input.launchTemplateId !== undefined || runtime.launchAgentType)
         await this.store.updateTask(
           id,
-          { launchTemplateId: input.launchTemplateId },
+          {
+            ...(input.launchTemplateId !== undefined
+              ? { launchTemplateId: input.launchTemplateId }
+              : {}),
+            ...runtime,
+          },
           { db }
         );
       if (
@@ -1142,6 +1217,21 @@ export class TaskService {
       );
       patch.launchTemplateId = input.launchTemplateId;
       changed.push("launchTemplateId");
+    }
+    const runtime = this.launchRuntimePatch(task, input);
+    if (
+      runtime.launchAgentType !== undefined &&
+      runtime.launchAgentType !== task.launchAgentType
+    ) {
+      patch.launchAgentType = runtime.launchAgentType;
+      changed.push("launchAgentType");
+    }
+    if (
+      runtime.launchModel !== undefined &&
+      runtime.launchModel !== task.launchModel
+    ) {
+      patch.launchModel = runtime.launchModel;
+      changed.push("launchModel");
     }
 
     if (input.title !== undefined) {
@@ -1489,8 +1579,12 @@ export class TaskService {
   ): Promise<void> {
     const trigger = column.trigger;
     if (!trigger) return;
-    const launch = this.effectiveLaunch(task, column)!;
+    const launch = await this.effectiveLaunch(task, { ...column, trigger });
     const source = task.launchTemplateId ? "task" : "column";
+    // The task's own runtime intent, recorded beside the actual snapshot.
+    const runtimeOverride = task.launchAgentType
+      ? { agentType: task.launchAgentType, model: task.launchModel }
+      : undefined;
     const system: TaskActor = { kind: "system" };
     await this.store.insertEvent(task.id, "trigger_launching", system, {
       templateId: launch.templateId,
@@ -1509,6 +1603,7 @@ export class TaskService {
       );
       await this.store.insertEvent(task.id, "trigger_failed", system, {
         templateId: launch.templateId,
+        ...(runtimeOverride ? { runtimeOverride } : {}),
         reason,
       });
       return;
@@ -1518,6 +1613,7 @@ export class TaskService {
       templateId: launch.templateId,
       columnId: column.id,
       source,
+      ...(runtimeOverride ? { runtimeOverride } : {}),
       configuration: { ...configuration, effort: agent.effort ?? null },
     });
     if (!trigger.assign) return;

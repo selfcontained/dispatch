@@ -8,6 +8,7 @@ import type {
   TaskActor,
   TaskAgent,
   TaskAgentRole,
+  TaskAgentType,
   TaskColumn,
   TaskColumnTrigger,
   TaskEvent,
@@ -85,7 +86,7 @@ function toColumn(row: ColumnRow): TaskColumn {
 const TASK_SELECT = `
   COALESCE((SELECT json_agg(json_build_object('name', lab.name, 'color', lab.color) ORDER BY lower(lab.name)) FROM task_label_assignments a JOIN task_labels lab ON lab.id = a.label_id WHERE a.task_id = t.id), '[]'::json) AS labels,
   t.id, t.project_id, t.column_id, t.title, t.body, t.position,
-  t.assigned_agent_id, t.links, t.launch_template_id, t.created_by_kind, t.created_by_agent_id,
+  t.assigned_agent_id, t.links, t.launch_template_id, t.launch_agent_type, t.launch_model, t.created_by_kind, t.created_by_agent_id,
   t.archived_at, t.completed_at, t.created_at, t.updated_at,
   f.reason AS failure_reason, f.created_at AS failure_at,
   l.template_id AS launching_template_id, l.created_at AS launching_at
@@ -132,6 +133,8 @@ type TaskRow = {
   assigned_agent_id: string | null;
   links: TaskLink[];
   launch_template_id: string | null;
+  launch_agent_type: TaskAgentType | null;
+  launch_model: string | null;
   created_by_kind: string;
   created_by_agent_id: string | null;
   archived_at: Date | null;
@@ -156,6 +159,8 @@ function toTask(row: TaskRow): Task {
     assignedAgentId: row.assigned_agent_id,
     links: row.links ?? [],
     launchTemplateId: row.launch_template_id ?? null,
+    launchAgentType: row.launch_agent_type ?? null,
+    launchModel: row.launch_model ?? null,
     createdBy: actorFrom(row.created_by_kind, row.created_by_agent_id),
     latestFailure:
       row.failure_at !== null
@@ -226,6 +231,8 @@ export type InsertColumn = {
 
 export type TaskPatch = {
   launchTemplateId?: string | null;
+  launchAgentType?: TaskAgentType | null;
+  launchModel?: string | null;
   title?: string;
   body?: string;
   columnId?: string;
@@ -637,6 +644,9 @@ export class TaskStore {
       );
     if (patch.launchTemplateId !== undefined)
       set("launch_template_id", patch.launchTemplateId);
+    if (patch.launchAgentType !== undefined)
+      set("launch_agent_type", patch.launchAgentType);
+    if (patch.launchModel !== undefined) set("launch_model", patch.launchModel);
     sets.push("updated_at = now()");
     let where = "id = $1";
     if (opts.fromColumnId !== undefined) {

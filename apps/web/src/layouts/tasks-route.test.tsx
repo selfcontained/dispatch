@@ -270,6 +270,8 @@ it("lists older archived tasks with column/time and filters them by search and a
         archivedAt: "2020-01-02T00:00:00Z",
         assignedAgentId: null,
         launchTemplateId: null,
+        launchAgentType: null,
+        launchModel: null,
       },
       {
         id: "other",
@@ -279,6 +281,8 @@ it("lists older archived tasks with column/time and filters them by search and a
         archivedAt: "2020-01-03T00:00:00Z",
         assignedAgentId: null,
         launchTemplateId: null,
+        launchAgentType: null,
+        launchModel: null,
       },
     ],
   } as TaskBoard;
@@ -326,6 +330,8 @@ it("clears pane and conversation targets on ordinary opens, paging and close whi
           position: 0,
           assignedAgentId: null,
           launchTemplateId: null,
+          launchAgentType: null,
+          launchModel: null,
           links: [],
           createdBy: { kind: "user" },
           latestFailure: null,

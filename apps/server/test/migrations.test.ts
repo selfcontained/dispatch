@@ -76,6 +76,12 @@ describe("block_reactions uniqueness migration", () => {
 /** Rewinds task migrations, which depend on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
   await pool.query(
+    "ALTER TABLE IF EXISTS tasks DROP COLUMN IF EXISTS launch_agent_type, DROP COLUMN IF EXISTS launch_model"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name = '0049_task_launch_runtime'"
+  );
+  await pool.query(
     "DROP TABLE IF EXISTS slack_thread_replies, slack_thread_reply_sends"
   );
   await pool.query(
