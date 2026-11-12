@@ -3,6 +3,16 @@ import type { ProviderPlan, ProviderPlansResponse } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import {
+  MAX_WATCHES_PER_AGENT,
+  REARM_MARGIN,
+  STALE_AFTER_MS,
+  USAGE_WATCH_COMPARISONS,
+  UsageWatchError,
+  describeCondition,
+  withRemaining,
+  type UsageWatchService,
+} from "../../agents/usage-watches.js";
 import { getAgentModelOptions } from "../agent-models.js";
 import { CLI_AGENT_TYPES } from "../agent-types.js";
 import { jsonText } from "./response.js";
@@ -26,6 +36,8 @@ export type UsageCallbacks = {
    * launch that is refused. Absent means every type is launchable.
    */
   enabledAgentTypes?: () => Promise<readonly string[]>;
+  /** Threshold subscriptions; the tools bind every call to the caller. */
+  usageWatches?: Pick<UsageWatchService, "subscribe" | "list" | "unsubscribe">;
 };
 
 /** Below this much headroom a type is `low`; at none it is `exhausted`. */
@@ -158,8 +170,16 @@ export function summarizeUsage(
 export function registerUsageTools(
   server: McpServer,
   allowed: Set<string>,
-  callbacks: UsageCallbacks
+  callbacks: UsageCallbacks,
+  callerAgentId?: string
 ): void {
+  if (callerAgentId && callbacks.usageWatches)
+    registerUsageWatchTools(
+      server,
+      allowed,
+      callbacks.usageWatches,
+      callerAgentId
+    );
   if (allowed.has("redeem_codex_reset") && callbacks.redeemCodexReset) {
     server.registerTool(
       "redeem_codex_reset",
@@ -245,13 +265,7 @@ export function registerUsageTools(
           const plan = report.providers.find(
             (provider) => provider.engine === engine
           );
-          const windows = (plan?.windows ?? []).map((window) => ({
-            ...window,
-            remainingPercent: Math.max(
-              0,
-              Math.min(100, 100 - window.usedPercent)
-            ),
-          }));
+          const windows = withRemaining(plan?.windows ?? []);
           return {
             ...(plan
               ? agentPlan(plan)
@@ -293,4 +307,124 @@ export function registerUsageTools(
       }
     }
   );
+}
+
+const ok = (result: Record<string, unknown>) => ({
+  content: [{ type: "text" as const, text: jsonText(result) }],
+  structuredContent: result,
+});
+
+function watchError(error: unknown) {
+  if (error instanceof UsageWatchError)
+    return {
+      content: [{ type: "text" as const, text: error.message }],
+      isError: true,
+    };
+  return toToolError(error);
+}
+
+function registerUsageWatchTools(
+  server: McpServer,
+  allowed: Set<string>,
+  watches: NonNullable<UsageCallbacks["usageWatches"]>,
+  agentId: string
+): void {
+  if (allowed.has("usage_watch"))
+    server.registerTool(
+      "usage_watch",
+      {
+        description:
+          "Subscribe yourself to a provider's remaining subscription usage reaching a threshold, instead of polling get_usage. " +
+          "The value is get_usage's headroomPercent: the tightest quota window's percentage REMAINING (not used). " +
+          "comparison at_or_below fires when remaining <= remainingPercent (e.g. 10 = '10% remaining or less'); at_or_above fires when remaining >= remainingPercent (recovery, e.g. after a reset). Equality matches. " +
+          "Returns the watch id, the normalized condition, the current reading and matched (true/false, or null when the report is unknown/stale). " +
+          "If already matched, this response is that episode's notice: no separate message follows until usage moves " +
+          `${REARM_MARGIN} points back past the threshold and returns. ` +
+          "Later notices arrive as a USAGE WATCH message in your own session with provider, tightest window, remaining %, reset time and observedAt; one per episode, not per refresh. " +
+          `Reports with no windows, no observation time or older than ${STALE_AFTER_MS / 60_000} minutes never match or rearm — unknown is not zero. ` +
+          "Reports are read from the shared usage cache, refreshed in the background every few minutes while a watch exists. " +
+          "Watches persist across session and server restarts until usage_unwatch or archive; while you are stopped no notice is sent, and one matching on resume is delivered then. " +
+          `Subscribing the same condition again returns the existing watch. Up to ${MAX_WATCHES_PER_AGENT} per agent. ` +
+          "A notice is information only: it never launches agents, switches providers, notifies the user, redeems resets, spends credits or grants approval.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+        inputSchema: {
+          type: z
+            .enum(CLI_AGENT_TYPES)
+            .describe(
+              "Provider/agent type to watch: claude or codex (opencode does not report subscription limits)."
+            ),
+          comparison: z
+            .enum(USAGE_WATCH_COMPARISONS)
+            .describe(
+              "at_or_below: low-capacity watch. at_or_above: recovery watch."
+            ),
+          remainingPercent: z
+            .number()
+            .min(0)
+            .max(100)
+            .describe(
+              "Threshold as percent REMAINING in the tightest window, 0-100."
+            ),
+        },
+      },
+      async ({ type, comparison, remainingPercent }) => {
+        try {
+          const result = await watches.subscribe(agentId, {
+            type: type as never,
+            comparison,
+            remainingPercent,
+          });
+          return ok({
+            ...result,
+            condition: describeCondition(comparison, remainingPercent),
+          });
+        } catch (error) {
+          return watchError(error);
+        }
+      }
+    );
+  if (allowed.has("usage_watch_list"))
+    server.registerTool(
+      "usage_watch_list",
+      {
+        description:
+          "List your own usage watches: condition, armed (false = this episode was already reported), last reading applied and last notice time.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          return ok({ watches: await watches.list(agentId) });
+        } catch (error) {
+          return watchError(error);
+        }
+      }
+    );
+  if (allowed.has("usage_unwatch"))
+    server.registerTool(
+      "usage_unwatch",
+      {
+        description:
+          "Remove one of your usage watches by id. Idempotent: removed is false when it was already gone or is not yours. Stops future notices and drops one still queued.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+        inputSchema: { id: z.string().min(1).max(64) },
+      },
+      async ({ id }) => {
+        try {
+          return ok({ id, removed: await watches.unsubscribe(agentId, id) });
+        } catch (error) {
+          return watchError(error);
+        }
+      }
+    );
 }

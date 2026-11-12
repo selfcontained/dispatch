@@ -378,3 +378,76 @@ describe("summarizeUsage", () => {
     });
   });
 });
+
+describe("usage watch tools", () => {
+  const watches = () => ({
+    subscribe: vi.fn(async (_agentId: string, input: object) => ({
+      watch: { id: "uw_1", ...input },
+      created: true,
+      matched: false,
+      reading: { usable: true, headroomPercent: 40 },
+    })),
+    list: vi.fn(async () => []),
+    unsubscribe: vi.fn(async () => true),
+  });
+
+  it("binds subscribe, list and unsubscribe to the calling agent", async () => {
+    const usageWatches = watches();
+    await withClient(
+      { ...base, agent: { id: "caller", cwd: "/tmp" }, usageWatches } as never,
+      async (client) => {
+        const names = (await client.listTools()).tools.map((t) => t.name);
+        expect(names).toEqual(
+          expect.arrayContaining([
+            "usage_watch",
+            "usage_watch_list",
+            "usage_unwatch",
+          ])
+        );
+        const result = await client.callTool({
+          name: "usage_watch",
+          arguments: {
+            type: "codex",
+            comparison: "at_or_below",
+            remainingPercent: 10,
+          },
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toMatchObject({
+          condition: "tightest-window remaining ≤ 10%",
+          matched: false,
+        });
+        await client.callTool({ name: "usage_watch_list", arguments: {} });
+        await client.callTool({
+          name: "usage_unwatch",
+          arguments: { id: "uw_x" },
+        });
+      }
+    );
+    expect(usageWatches.subscribe).toHaveBeenCalledWith("caller", {
+      type: "codex",
+      comparison: "at_or_below",
+      remainingPercent: 10,
+    });
+    expect(usageWatches.list).toHaveBeenCalledWith("caller");
+    expect(usageWatches.unsubscribe).toHaveBeenCalledWith("caller", "uw_x");
+  });
+
+  it("rejects out-of-range thresholds and unknown comparisons before the service", async () => {
+    const usageWatches = watches();
+    await withClient({ ...base, usageWatches } as never, async (client) => {
+      for (const args of [
+        { type: "codex", comparison: "at_or_below", remainingPercent: 101 },
+        { type: "codex", comparison: "below", remainingPercent: 10 },
+        { type: "gemini", comparison: "at_or_below", remainingPercent: 10 },
+      ]) {
+        const result = await client.callTool({
+          name: "usage_watch",
+          arguments: args,
+        });
+        expect(result.isError).toBe(true);
+      }
+    });
+    expect(usageWatches.subscribe).not.toHaveBeenCalled();
+  });
+});

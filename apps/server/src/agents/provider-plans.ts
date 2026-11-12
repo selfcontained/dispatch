@@ -900,6 +900,14 @@ export type ProviderPlansReporter = ((request?: {
 }) => Promise<ProviderPlansResponse>) & {
   /** Forget the cached report, so the next ask reads the providers again. */
   invalidate: () => void;
+  /**
+   * Called with every report a load puts in the cache, whoever asked for it
+   * (UI, get_usage, usage watches). Returns an unsubscribe. A listener that
+   * throws or rejects never affects the caller's report.
+   */
+  onReport: (
+    listener: (report: ProviderPlansResponse) => unknown
+  ) => () => void;
 };
 
 export function createProviderPlansReporter(
@@ -912,6 +920,7 @@ export function createProviderPlansReporter(
   // may neither be joined nor fill the cache, so a read after a reset never
   // sees the windows as they were before it.
   let generation = 0;
+  const listeners = new Set<(report: ProviderPlansResponse) => unknown>();
   const report = async (request: { force?: boolean } = {}) => {
     const now = Date.now();
     if (
@@ -937,6 +946,15 @@ export function createProviderPlansReporter(
             : plan;
         });
         cached = { loadedAt: Date.now(), report };
+        for (const listener of listeners) {
+          try {
+            void Promise.resolve(listener(report)).catch((err: unknown) =>
+              options.log?.warn({ err }, "usage report listener failed")
+            );
+          } catch (err) {
+            options.log?.warn({ err }, "usage report listener failed");
+          }
+        }
         return report;
       })
       .finally(() => {
@@ -950,6 +968,10 @@ export function createProviderPlansReporter(
       generation += 1;
       cached = null;
       pending = null;
+    },
+    onReport: (listener: (report: ProviderPlansResponse) => unknown) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
     },
   });
 }

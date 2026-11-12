@@ -10,6 +10,7 @@ import type { SharedUiEvent } from "@dispatch/shared";
 
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
 import { createProviderPlansReporter } from "../agents/provider-plans.js";
+import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
 import type { AgentManager } from "../agents/manager.js";
 import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import * as telemetry from "../agents/telemetry.js";
@@ -48,6 +49,7 @@ type McpRouteDeps = {
   pullRequests?: Pick<PullRequestRefresher, "get">;
   riskEnabled?: () => Promise<boolean>;
   redeemCodexReset?: RedeemCodexReset;
+  usageWatches?: UsageCallbacks["usageWatches"];
   providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   config: {
     authToken: string;
@@ -250,6 +252,7 @@ export async function registerMcpRoutes(
         enabled: deps.riskEnabled,
       }),
       providerPlans,
+      usageWatches: deps.usageWatches,
       redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
@@ -352,6 +355,7 @@ export async function registerMcpRoutes(
         enabled: deps.riskEnabled,
       }),
       providerPlans,
+      usageWatches: deps.usageWatches,
       redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,

@@ -116,6 +116,9 @@ const AGENT_TOOLS = new Set([
   "get_feedback_summary",
   "get_usage",
   "redeem_codex_reset",
+  "usage_watch",
+  "usage_watch_list",
+  "usage_unwatch",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -182,6 +185,9 @@ const JOB_TOOLS = new Set([
   "get_feedback_summary",
   "get_usage",
   "redeem_codex_reset",
+  "usage_watch",
+  "usage_watch_list",
+  "usage_unwatch",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -575,7 +581,8 @@ export async function createDispatchMcpServer(
     });
   }
 
-  if (context.agent) registerUsageTools(server, allowed, context);
+  if (context.agent)
+    registerUsageTools(server, allowed, context, context.agent.id);
 
   // ── Summary / analytics tools (available to both agents and jobs) ──
   registerAnalyticsTools(server, allowed, {
