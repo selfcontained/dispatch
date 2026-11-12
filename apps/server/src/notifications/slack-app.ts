@@ -69,7 +69,7 @@ export class SlackRetryError extends Error {
   }
 }
 const KEY = "slack_app_binding";
-class SlackAuthError extends Error {}
+export class SlackAuthError extends Error {}
 
 /** No raw provider errors, credential-bearing socket URLs or response bodies escape this client. */
 export class SlackApp {
@@ -528,6 +528,14 @@ export class SlackApp {
     };
   }
   /** Only ever targets the bound channel; callers pass the stored ts. */
+  /**
+   * Wait until the local 1 msg/s guard would let a post through. For a
+   * same-message retry after Slack definitively rejected the first try.
+   */
+  async waitForSendSlot() {
+    const wait = 1000 - (Date.now() - this.lastSend);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  }
   /** Whether Slack granted a scope on the last auth.test; null when unknown. */
   hasScope(scope: string): boolean | null {
     return this.scopes ? this.scopes.includes(scope) : null;

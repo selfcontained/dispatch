@@ -363,6 +363,59 @@ describe("Slack app boundary", () => {
       expect(bad.calls.some((c) => c.url === evil)).toBe(false);
     }
   });
+  it("a message Slack rejects for its image is resent as words through the real 1 msg/s guard", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir("/tmp/dogfood-slack-cdc9-test", { recursive: true });
+    const png = "/tmp/dogfood-slack-cdc9-test/app-shot.png";
+    await writeFile(png, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    const real = f.transport.getMockImplementation()!;
+    const posts: any[] = [];
+    f.transport.mockImplementation(async (url, init) => {
+      if (url.endsWith("files.getUploadURLExternal"))
+        return Response.json({
+          ok: true,
+          upload_url: "https://files.slack.com/upload/v1/x",
+          file_id: "F9",
+        });
+      if (url === "https://files.slack.com/upload/v1/x")
+        return new Response("OK");
+      if (url.endsWith("files.completeUploadExternal"))
+        return Response.json({ ok: true, files: [{ id: "F9" }] });
+      if (url.endsWith("chat.postMessage")) {
+        posts.push(JSON.parse(String(init!.body)));
+        return posts.length === 1
+          ? Response.json({ ok: false, error: "invalid_blocks" })
+          : Response.json({ ok: true, ts: "2.2" });
+      }
+      return real(url, init);
+    });
+    const { SlackNotifier } = await import("../src/notifications/slack.js");
+    const notifier = new SlackNotifier(
+      null as never,
+      {
+        warn: () => {},
+        info: () => {},
+        debug: () => {},
+        error: () => {},
+      } as never
+    );
+    (notifier as any).app = f.app;
+    const result = await notifier.sendNotification(
+      { id: "agt_1", name: "builder-7" } as never,
+      { message: "See chart", images: [png] }
+    );
+    f.app.stop();
+    expect(result).toMatchObject({
+      sent: true,
+      note: expect.stringMatching(/couldn't show/),
+    });
+    expect(posts).toHaveLength(2);
+    expect(posts[0].blocks.some((b: any) => b.type === "image")).toBe(true);
+    expect(posts[1].blocks.some((b: any) => b.type === "image")).toBe(false);
+  });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();
     f.transport.mockResolvedValueOnce(

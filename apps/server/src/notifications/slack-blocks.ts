@@ -67,8 +67,18 @@ export function neutralizeMentions(text: string) {
     .replace(/<([!@#])/g, "<\u200b$1")
     .replace(/@(channel|here|everyone)\b/gi, "@\u200b$1");
 }
+/**
+ * Neutralize outside code only: Slack doesn't parse mention tokens inside
+ * fenced or inline code, and code should copy out exactly as written.
+ */
+export function neutralizeOutsideCode(text: string) {
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part, i) => (i % 2 ? part : neutralizeMentions(part)))
+    .join("");
+}
 export function markdownBody(text: string, max = MARKDOWN_MAX): SlackBlock {
-  return { type: "markdown", text: clip(neutralizeMentions(text), max) };
+  return { type: "markdown", text: clip(neutralizeOutsideCode(text), max) };
 }
 /** Our own context lines are mrkdwn: escape names/titles so they stay text. */
 export function mrkdwnText(text: string) {

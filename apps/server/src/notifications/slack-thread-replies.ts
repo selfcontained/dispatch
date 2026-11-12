@@ -5,6 +5,7 @@ import type { Block } from "@dispatch/shared";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
 import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
 import {
+  SlackAuthError,
   SlackDeliveryUnknownError,
   SlackRetryError,
   type SlackApp,
@@ -184,7 +185,9 @@ export class SlackThreadReplies {
     const text = [title ? `**${title}**` : undefined, input.message.trim()]
       .filter(Boolean)
       .join("\n\n");
-    const hash = sha(JSON.stringify([text, loaded.images.map((i) => i.name)]));
+    const hash = sha(
+      JSON.stringify([text, loaded.images.map((i) => i.digest)])
+    );
     // Durable before Slack sees it, and claimed atomically: the unique
     // (post, text) key means two identical calls can't both send. If this
     // can't be recorded, nothing is sent.
@@ -248,9 +251,12 @@ export class SlackThreadReplies {
         if (
           !pictures.blocks.length ||
           error instanceof SlackRetryError ||
-          error instanceof SlackDeliveryUnknownError
+          error instanceof SlackDeliveryUnknownError ||
+          error instanceof SlackAuthError
         )
           throw error;
+        // The first try counted against the local 1 msg/s guard.
+        await this.app.waitForSendSlot();
         sent = await this.app.postBlocks(
           { ...compose([]), threadTs: row.thread_ts },
           row.binding_generation

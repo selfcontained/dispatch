@@ -53,6 +53,7 @@ function build() {
     uploads: [] as Array<{ name: string; bytes: number }>,
     /** Granted bot scopes; null = unknown (treated as allowed). */
     scopes: null as string[] | null,
+    throttled: false,
   };
   let ts = 100;
   const app = {
@@ -64,8 +65,13 @@ function build() {
     ) => {
       if (expected && expected !== binding.generation)
         throw new Error("Slack destination changed");
+      // Mirrors SlackApp's 1 msg/s guard right after a rejected post.
+      if (calls.throttled) throw new SlackRetryError(1000);
       const fail = calls.failNext.shift();
-      if (fail) throw fail;
+      if (fail) {
+        calls.throttled = true;
+        throw fail;
+      }
       const t = `${ts++}.000`;
       calls.posted.push({ ...input, ts: t });
       const during = calls.duringPost.shift();
@@ -79,6 +85,9 @@ function build() {
       calls.ephemeral.push({ user, text, threadTs });
     },
     openView: async () => {},
+    waitForSendSlot: async () => {
+      calls.throttled = false;
+    },
     hasScope: (scope: string) =>
       calls.scopes ? calls.scopes.includes(scope) : null,
     uploadImage: async (bytes: Uint8Array, name: string) => {
@@ -296,6 +305,11 @@ beforeAll(async () => {
   const { mkdir, writeFile } = await import("node:fs/promises");
   await mkdir("/tmp/dogfood-slack-cdc9-test", { recursive: true });
   await writeFile(png, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+  await writeFile(fakePng, "secret notes, not an image");
+  await writeFile("/tmp/dogfood-slack-cdc9-test/secret.txt", "secret");
+  const { symlink, rm } = await import("node:fs/promises");
+  await rm(linkPng, { force: true });
+  await symlink("/tmp/dogfood-slack-cdc9-test/secret.txt", linkPng);
   pool = await setupTestDb();
   await runTestMigrations();
   for (const [id, name] of [
@@ -321,6 +335,8 @@ beforeEach(async () => {
 });
 
 const png = "/tmp/dogfood-slack-cdc9-test/shot.png";
+const fakePng = "/tmp/dogfood-slack-cdc9-test/notes.png";
+const linkPng = "/tmp/dogfood-slack-cdc9-test/link.png";
 /** notify({ replyTo, images }) for the most recently built harness. */
 const replyWith = (
   _reply: unknown,
@@ -484,10 +500,11 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect((await reply(A, post.id, "Here you go.")).reason).toMatch(
       /rejected/
     );
-    calls.failNext.push(new SlackRetryError(1000));
+    // Straight away, the local 1 msg/s guard still holds it back…
     expect((await reply(A, post.id, "Here you go.")).reason).toMatch(
       /rate limited/
     );
+    calls.throttled = false; // …a second later it goes through, once.
     expect((await reply(A, post.id, "Here you go.")).sent).toBe(true);
     expect(calls.posted.map(sectionText)).toEqual(["Here you go."]);
   });
@@ -538,6 +555,22 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     });
   });
 
+  it("same file name with new image bytes is a new reply, not a duplicate", async () => {
+    const { answers, calls } = build();
+    const { post } = await followUp(answers, A, "chart?");
+    const { writeFile } = await import("node:fs/promises");
+    const chart = "/tmp/dogfood-slack-cdc9-test/chart.png";
+    await writeFile(chart, new Uint8Array([137, 80, 78, 71, 1]));
+    expect((await replyWith(null, A, post.id, "Chart:", [chart])).sent).toBe(
+      true
+    );
+    await writeFile(chart, new Uint8Array([137, 80, 78, 71, 2]));
+    expect((await replyWith(null, A, post.id, "Chart:", [chart])).sent).toBe(
+      true
+    );
+    expect(calls.posted).toHaveLength(2);
+  });
+
   it("images: bad paths refuse the message; a missing scope or Slack rejection still sends the words", async () => {
     const { answers, calls, reply } = build();
     const { post } = await followUp(answers, A, "pics");
@@ -547,6 +580,13 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(
       (await replyWith(reply, A, post.id, "x", ["/etc/hosts"])).reason
     ).toMatch(/png, jpg or gif/);
+    // Named .png but not an image, or a .png symlink to another file.
+    expect((await replyWith(reply, A, post.id, "x", [fakePng])).reason).toMatch(
+      /Not a png, jpg or gif/
+    );
+    expect((await replyWith(reply, A, post.id, "x", [linkPng])).reason).toMatch(
+      /png, jpg or gif images only/
+    );
     expect(calls.posted).toHaveLength(0);
     calls.scopes = ["chat:write"];
     const noScope = await replyWith(reply, A, post.id, "words only", [png]);

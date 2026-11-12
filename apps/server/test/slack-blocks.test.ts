@@ -295,3 +295,16 @@ describe("notifyMessage", () => {
     expect(out.text).not.toContain("<!here>");
   });
 });
+
+describe("markdownBody", () => {
+  it("leaves code exactly as written while neutralizing mentions in prose", async () => {
+    const { markdownBody } =
+      await import("../src/notifications/slack-blocks.js");
+    const text =
+      "Ping <!here> please.\n```\nfoo(@channel, Array<@Foo>)\n```\nand `@everyone` inline.";
+    const out = markdownBody(text) as any;
+    expect(out.text).toContain("```\nfoo(@channel, Array<@Foo>)\n```");
+    expect(out.text).toContain("`@everyone`");
+    expect(out.text).not.toContain("<!here>");
+  });
+});

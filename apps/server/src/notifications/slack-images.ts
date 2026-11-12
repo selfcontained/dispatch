@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute } from "node:path";
 import { IMAGE_SCOPES, type SlackApp } from "./slack-app.js";
 import { clip, type SlackBlock } from "./slack-blocks.js";
@@ -7,7 +8,17 @@ import { clip, type SlackBlock } from "./slack-blocks.js";
 export const IMAGE_LIMITS = { count: 4, bytes: 5 * 1024 * 1024 } as const;
 const TYPES = new Set([".png", ".jpg", ".jpeg", ".gif"]);
 
-export type LoadedImage = { name: string; bytes: Uint8Array };
+export type LoadedImage = { name: string; bytes: Uint8Array; digest: string };
+
+/** PNG, JPEG or GIF by content, not by name. */
+function isImage(bytes: Uint8Array) {
+  const at = (i: number) => bytes[i];
+  return (
+    (at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47) ||
+    (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) ||
+    (at(0) === 0x47 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x38)
+  );
+}
 
 /**
  * Agent-named image files (absolute paths on this machine, as `post`
@@ -28,15 +39,27 @@ export async function loadImages(
       return { error: `Image path must be absolute: ${name}.` };
     if (!TYPES.has(extname(path).toLowerCase()))
       return { error: `Slack shows png, jpg or gif images only: ${name}.` };
+    let bytes: Uint8Array;
     try {
-      const info = await stat(path);
+      // Checks apply to the file actually read, not a name or a symlink.
+      const real = await realpath(path);
+      if (!TYPES.has(extname(real).toLowerCase()))
+        return { error: `Slack shows png, jpg or gif images only: ${name}.` };
+      const info = await stat(real);
       if (!info.isFile()) return { error: `Not a file: ${name}.` };
       if (info.size > IMAGE_LIMITS.bytes)
         return { error: `Image over 5 MB: ${name}.` };
-      images.push({ name, bytes: new Uint8Array(await readFile(path)) });
+      bytes = new Uint8Array(await readFile(real));
     } catch {
       return { error: `Can't read image: ${name}.` };
     }
+    if (!isImage(bytes))
+      return { error: `Not a png, jpg or gif image: ${name}.` };
+    images.push({
+      name,
+      bytes,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+    });
   }
   return { images };
 }

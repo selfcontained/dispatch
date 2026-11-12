@@ -1,5 +1,6 @@
 import {
   SlackApp,
+  SlackAuthError,
   SlackDeliveryUnknownError,
   SlackRetryError,
 } from "./slack-app.js";
@@ -367,9 +368,12 @@ export class SlackNotifier {
           if (
             !pictures.blocks.length ||
             error instanceof SlackRetryError ||
-            error instanceof SlackDeliveryUnknownError
+            error instanceof SlackDeliveryUnknownError ||
+            error instanceof SlackAuthError
           )
             throw error;
+          // The first try counted against the local 1 msg/s guard.
+          await this.app.waitForSendSlot();
           sent = await this.app.postBlocks(compose([]));
           note = "Images weren't attached: Slack couldn't show them.";
         }
