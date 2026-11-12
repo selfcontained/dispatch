@@ -776,7 +776,9 @@ export class SlackAnswers {
            AND (b.state->'answer' IS NOT NULL OR b.state->'submission' IS NOT NULL OR b.state->'cancellation' IS NOT NULL)
            AND (m.settled_at IS NULL
              -- Re-render once an in-flight reply's delivery settles.
-             OR (m.shown_delivery='sending' AND r.delivered IS NOT NULL))
+             OR (m.shown_delivery='sending' AND r.delivered IS NOT NULL)
+             -- …and once a manual retry in Dispatch succeeds.
+             OR (m.shown_delivery='not_delivered' AND r.delivered IS TRUE))
          ORDER BY m.created_at LIMIT 20`,
         [binding.generation]
       );

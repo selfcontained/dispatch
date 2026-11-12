@@ -536,6 +536,15 @@ describe("choice answers", () => {
     expect(calls.updated.at(-1)!.text).toContain(
       "not delivered to the agent yet — open Dispatch to retry"
     );
+    // A manual retry that succeeds updates Slack once.
+    await pool.query("UPDATE blocks SET delivered=true WHERE id=$1", [
+      reply.id,
+    ]);
+    await answers.reconcile();
+    await answers.reconcile();
+    const renders = calls.updated.filter((u) => u.ts === q.message.ts);
+    expect(renders).toHaveLength(2);
+    expect(renders[1]!.text).toContain("delivered to the agent");
     expect(calls.updated.at(-1)!.text).not.toMatch(/picked up|resumed/);
   });
 });
