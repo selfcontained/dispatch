@@ -533,14 +533,16 @@ export class SlackAnswers {
     // The click must come from the very message this ref was posted as.
     if (payload.container?.message_ts !== row.message_ts)
       return reply("This message is no longer linked to Dispatch.");
-    const name = (await this.agentName(row.agent_id!)) ?? row.agent_id!;
-
     if (actionId === ACTION.freeform || actionId === ACTION.form) {
       if (actionId === ACTION.freeform && !ask.data?.allowFreeform)
         return reply("This question takes one of the listed options.");
       const view =
         actionId === ACTION.form
-          ? formModal(ask.data as BlockFormData, row.id, `${name} asks`)
+          ? formModal(
+              ask.data as BlockFormData,
+              row.id,
+              `${(await this.agentName(row.agent_id!)) ?? row.agent_id!} asks`
+            )
           : freeformModal(row.id, ask.text || "Answer");
       if (!view)
         return reply("Slack can't show this form. Open Dispatch to answer.");
@@ -559,15 +561,15 @@ export class SlackAnswers {
       return reply("That choice isn't valid for this question.");
     const option = (ask.data as BlockQuestionData).options?.[Number(index)];
     if (!option) return reply("That choice isn't valid for this question.");
+    // Success is quiet: the settled Slack message shows who answered and
+    // its delivery state (re-rendered as that settles). Only refusals and
+    // failures get a private reply.
     try {
-      const result = await this.writer().answerQuestion(ask.stream_id, ask.id, {
+      await this.writer().answerQuestion(ask.stream_id, ask.id, {
         id: stableUuid(`slack-answer:${row.id}`),
         value: option.value ?? option.label,
         external: origin,
       });
-      await reply(
-        `Recorded "${option.label}" · ${this.deliveryText(name, result.delivered)}.`
-      );
     } catch (error) {
       await reply(await this.failureText(error, ask.id, origin));
     }
@@ -604,41 +606,31 @@ export class SlackAnswers {
       };
     }
     const { row, ask, origin } = resolved;
-    const name = (await this.agentName(row.agent_id!)) ?? row.agent_id!;
     const state = (view.state?.values ?? {}) as Record<string, any>;
     try {
-      let result: StreamAnswerResponse;
       if (kind === "form") {
         const parsed = parseFormSubmission(ask.data as BlockFormData, state);
         if ("errors" in parsed)
           return { response_action: "errors", errors: parsed.errors };
         const answerId = stableUuid(`slack-answer:${row.id}`);
-        result = await this.withReturnPath(
-          row,
-          answerId,
-          `answer:${answerId}`,
-          () =>
-            this.writer().submitForm(ask.stream_id, ask.id, {
-              id: answerId,
-              values: parsed.values,
-              external: origin,
-            })
+        await this.withReturnPath(row, answerId, `answer:${answerId}`, () =>
+          this.writer().submitForm(ask.stream_id, ask.id, {
+            id: answerId,
+            values: parsed.values,
+            external: origin,
+          })
         );
       } else {
         const value = String(state.answer?.value?.value ?? "").trim();
         if (!value) return errorsFor("Type an answer.");
-        result = await this.writer().answerQuestion(ask.stream_id, ask.id, {
+        await this.writer().answerQuestion(ask.stream_id, ask.id, {
           id: stableUuid(`slack-answer:${row.id}`),
           value,
           external: origin,
         });
       }
-      void this.app
-        .postEphemeral(
-          userId,
-          `Recorded your ${kind === "form" ? "form" : "answer"} · ${this.deliveryText(name, result.delivered)}.`
-        )
-        .catch(() => {});
+      // Closing the modal is the acknowledgment; the settled Slack message
+      // carries the outcome and delivery state. No extra private receipt.
       void this.reconcile().catch(() => {});
     } catch (error) {
       return errorsFor(await this.failureText(error, ask.id, origin));
@@ -782,18 +774,12 @@ export class SlackAnswers {
         !ask.to_agent_id &&
         (!row.data_hash || row.data_hash === askHash(ask.text, ask.data))
       ) {
-        const result = await this.writer().answerQuestion(
-          ask.stream_id,
-          ask.id,
-          {
-            id,
-            value: text,
-            external: origin,
-          }
-        );
-        await reply(
-          `Recorded as your answer · ${this.deliveryText(name, result.delivered)}.`
-        );
+        // Quiet on success: the settled question message shows the answer.
+        await this.writer().answerQuestion(ask.stream_id, ask.id, {
+          id,
+          value: text,
+          external: origin,
+        });
         await this.reconcile().catch(() => {});
         return;
       }
@@ -835,9 +821,21 @@ export class SlackAnswers {
           .catch(() => {});
         throw error;
       }
-      await reply(
-        `Sent to ${name} as a message${ask ? " (not an answer)" : ""} · ${this.deliveryText(name, result.delivered === false ? false : null)}.`
-      );
+      // Routine follow-ups are quiet. Speak up only when it needs action:
+      // delivery definitely failed, or a reply under a still-open question
+      // could be mistaken for an answer (said once per person per thread).
+      if (result.delivered === false)
+        await reply(
+          `Sent to ${name} as a message${ask ? " (not an answer)" : ""} · ${this.deliveryText(name, false)}.`
+        );
+      else if (
+        ask &&
+        isOpen(ask.state) &&
+        (await this.once(`notice:not-answer:${event.thread_ts}:${event.user}`))
+      )
+        await reply(
+          `Sent to ${name} as a message, not an answer — use the buttons above${ask.kind === "form" ? " to fill in the form" : " to answer"}.`
+        );
     } catch (error) {
       await reply(errorText(error));
     }

@@ -453,6 +453,7 @@ describe("choice answers", () => {
     expect(JSON.stringify(q.message.blocks)).not.toContain("pg-14");
     let release!: () => void;
     gate = new Promise<void>((r) => (release = r));
+    const quietFrom = calls.ephemeral.length;
     await answers.handle(
       click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
     );
@@ -478,10 +479,9 @@ describe("choice answers", () => {
     );
     expect(reply.author).toEqual({ kind: "user" });
     expect(reply.data).toMatchObject({ external: { userId: "U1" } });
+    // Success is quiet: no private receipt; the settled message says it all.
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     // Returned before the engine took it: in flight, never "delivered".
-    expect(calls.ephemeral.at(-1)!.text).toBe(
-      'Recorded "Postgres" · sending to builder-7 — delivery status is in Dispatch.'
-    );
     const settled = calls.updated.find((u) => u.ts === q.message.ts)!;
     expect(settled.text).toContain("Answered by @u1 in Slack");
     expect(settled.text).toContain("sending to the agent");
@@ -505,6 +505,7 @@ describe("choice answers", () => {
     const renders = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(renders).toHaveLength(2);
     expect(renders[1]!.text).toContain("delivered to the agent");
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
   });
 
   it("duplicate, racing and retried clicks yield one answer", async () => {
@@ -530,9 +531,10 @@ describe("choice answers", () => {
       [q.block.id]
     );
     expect(rows[0].n).toBe(1);
-    const recorded = calls.ephemeral.filter((e) => /^Recorded/.test(e.text));
-    expect(recorded).toHaveLength(1);
-    const winner = recorded[0]!.user;
+    // The winning click gets no receipt; only the two losers hear back.
+    expect(calls.ephemeral.filter((e) => /^Recorded/.test(e.text))).toEqual([]);
+    const winner = ((await svc.store.getById(q.block.id))!.state as any).answer
+      .external.userId;
     const repeats = calls.ephemeral.filter((e) => /^Already/.test(e.text));
     expect(repeats).toHaveLength(2);
     // The winner's own repeat says it counted; anyone else's says it didn't.
@@ -665,13 +667,14 @@ describe("choice answers", () => {
     expect(injected.at(-1)).not.toMatch(/not an agent or approval/);
   });
 
-  it("records durably and says not delivered (no auto-resume promise) when the agent is offline", async () => {
+  it("records durably and shows not delivered (no auto-resume promise) when the agent is offline", async () => {
     const { svc, answers, calls } = build();
     await linkUser(answers, calls, "U1");
     const q = await ask(svc, answers, calls, {
       question: { options: [{ label: "Postgres" }] },
     });
     live = false;
+    const quietFrom = calls.ephemeral.length;
     await answers.handle(
       click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
     );
@@ -680,9 +683,9 @@ describe("choice answers", () => {
       (answered.state as any).answer.blockId
     ))!;
     expect(reply.delivered).toBe(false);
-    expect(calls.ephemeral.at(-1)!.text).toBe(
-      'Recorded "Postgres" · not delivered to builder-7 yet — open Dispatch to retry.'
-    );
+    // The actionable "not delivered" lives on the settled message itself, so
+    // no duplicate private receipt.
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     expect(calls.updated.at(-1)!.text).toContain(
       "not delivered to the agent yet — open Dispatch to retry"
     );
@@ -734,6 +737,7 @@ describe("forms via modal", () => {
     );
     expect(calls.views.at(-1)!.view.callback_id).toBe("dispatch_form_modal");
     const ref = q.actions[0].value;
+    const quietFrom = calls.ephemeral.length;
     expect(
       await answers.handle(submit("U1", ref, { f1: { value: { value: "x" } } }))
     ).toEqual({
@@ -757,6 +761,11 @@ describe("forms via modal", () => {
         external: { userId: "U1" },
       },
     });
+    // The modal closing is the acknowledgment; the message settles in place.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
+    expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
+    expect(calls.updated.at(-1)!.text).toContain("Answered by @u1 in Slack");
   });
 
   it("unlinked or stale submissions keep the modal open with the reason", async () => {
@@ -845,6 +854,7 @@ describe("notify({ form }) end to end", () => {
       response_action: "errors",
     });
     expect(injected).toHaveLength(0);
+    const quietFrom = calls.ephemeral.length;
     const values = { f0: { value: { value: "1.8.0" } } };
     expect(await answers.handle(submit("U1", ref, values))).toBeUndefined();
     // A redelivered submission records nothing new.
@@ -857,6 +867,7 @@ describe("notify({ form }) end to end", () => {
     });
     expect(injected).toHaveLength(1);
     expect(injected[0]).toContain("1.8.0");
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
   });
 
   it("keeps the form usable in Dispatch and says so when Slack fails", async () => {
@@ -914,6 +925,7 @@ describe("thread replies", () => {
       {},
       "Ev1"
     );
+    const quietFrom = calls.ephemeral.length;
     await answers.handle(event);
     await answers.handle(event);
     const answered = (await svc.store.getById(q.block.id))!;
@@ -921,10 +933,13 @@ describe("thread replies", () => {
       value: "Use <CockroachDB> docs",
       external: { userId: "U1" },
     });
-    expect(
-      calls.ephemeral.filter((e) => /Recorded as your answer/.test(e.text))
-    ).toHaveLength(1);
-    expect(calls.ephemeral.at(-1)!.threadTs).toBe(q.message.ts);
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS n FROM blocks WHERE reply_to=$1",
+      [q.block.id]
+    );
+    expect(rows[0].n).toBe(1);
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
+    expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
   });
 
   it("is an ordinary follow-up message (not an answer) for non-freeform or answered asks and notify threads", async () => {
@@ -933,10 +948,12 @@ describe("thread replies", () => {
     const q = await ask(svc, answers, calls, {
       question: { options: [{ label: "Postgres" }] },
     });
+    const quietFrom = calls.ephemeral.length;
     await answers.handle(threadReply("U1", q.message.ts, "why not sqlite?"));
+    await answers.handle(threadReply("U1", q.message.ts, "or duckdb?"));
     expect(await unanswered(svc, q.block.id)).toBe(true);
     const { rows } = await pool.query(
-      "SELECT id, text, to_agent_id, reply_to, data FROM blocks WHERE reply_to=$1",
+      "SELECT id, text, to_agent_id, reply_to, data FROM blocks WHERE reply_to=$1 ORDER BY created_at",
       [q.block.id]
     );
     expect(rows).toMatchObject([
@@ -945,10 +962,24 @@ describe("thread replies", () => {
         to_agent_id: A,
         data: { external: { userId: "U1" } },
       },
+      { text: "or duckdb?", to_agent_id: A },
     ]);
-    expect(calls.ephemeral.at(-1)!.text).toMatch(
-      /as a message \(not an answer\)/
+    // An open question could be mistaken as answered: said once, then quiet.
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([
+      {
+        user: "U1",
+        threadTs: q.message.ts,
+        text: "Sent to builder-7 as a message, not an answer — use the buttons above to answer.",
+      },
+    ]);
+
+    // Once the question is settled, follow-ups in its thread are quiet too.
+    await answers.handle(
+      click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
     );
+    const afterAnswer = calls.ephemeral.length;
+    await answers.handle(threadReply("U1", q.message.ts, "thanks"));
+    expect(calls.ephemeral.slice(afterAnswer)).toEqual([]);
 
     await answers.recordNotify(
       { channelId: "C1", timestamp: "500.000", generation: "gen-1" },
@@ -960,6 +991,31 @@ describe("thread replies", () => {
     );
     expect(home.rows).toEqual([
       { stream_id: A, to_agent_id: A, reply_to: null },
+    ]);
+    // A routine follow-up in a notify thread: no receipt.
+    expect(calls.ephemeral.slice(afterAnswer)).toEqual([]);
+  });
+
+  it("still tells the sender when a follow-up wasn't delivered", async () => {
+    const { answers, calls } = build();
+    await linkUser(answers, calls, "U1");
+    await answers.recordNotify(
+      { channelId: "C1", timestamp: "600.000", generation: "gen-1" },
+      A
+    );
+    live = false;
+    const quietFrom = calls.ephemeral.length;
+    await answers.handle(threadReply("U1", "600.000", "you there?"));
+    const { rows } = await pool.query(
+      "SELECT delivered FROM blocks WHERE text='you there?'"
+    );
+    expect(rows).toEqual([{ delivered: false }]);
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([
+      {
+        user: "U1",
+        threadTs: "600.000",
+        text: "Sent to builder-7 as a message · not delivered to builder-7 yet — open Dispatch to retry.",
+      },
     ]);
   });
 
