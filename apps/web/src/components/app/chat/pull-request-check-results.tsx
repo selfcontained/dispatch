@@ -111,14 +111,14 @@ export function PullRequestCheckResults({
 }) {
   if (text.trim() && !notice)
     return (
-      <div className="mt-1 break-words font-sans text-sm leading-relaxed">
+      <div className="mt-2.5 break-words font-sans text-sm leading-relaxed">
         <Markdown>{text}</Markdown>
       </div>
     );
   const counts = notice?.counts ?? [];
   return (
     <p
-      className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 font-sans text-xs"
+      className="mt-2.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 font-sans text-xs"
       aria-label="Check summary"
     >
       {status ? (

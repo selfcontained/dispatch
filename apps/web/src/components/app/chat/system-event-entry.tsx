@@ -180,7 +180,7 @@ export function SystemEventEntry({
             {visibleContent}
             {children}
             {/* Separators lead their item so a wrapped row never ends in "·". */}
-            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
               {time}
               {commit && (
                 <span className="whitespace-nowrap">
