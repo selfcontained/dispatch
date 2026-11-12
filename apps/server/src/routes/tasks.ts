@@ -50,6 +50,8 @@ const LinkSchema = z.object({
 const CreateTaskSchema = z.object({
   labels: taskLabelsSchema.optional(),
   launchTemplateId: z.string().min(1).nullable().optional(),
+  launchAgentType: z.enum(AGENT_TYPES).nullable().optional(),
+  launchModel: z.string().min(1).nullable().optional(),
   projectId: z.string().min(1, "projectId is required."),
   title: z.string().min(1, "title is required."),
   body: z.string().optional(),
@@ -60,6 +62,8 @@ const CreateTaskSchema = z.object({
 const UpdateTaskSchema = z.object({
   labels: taskLabelsSchema.optional(),
   launchTemplateId: z.string().min(1).nullable().optional(),
+  launchAgentType: z.enum(AGENT_TYPES).nullable().optional(),
+  launchModel: z.string().min(1).nullable().optional(),
   beforeId: z.string().min(1).nullable().optional(),
   title: z.string().min(1).optional(),
   body: z.string().optional(),
@@ -208,8 +212,13 @@ export async function registerTaskRoutes(
       );
       if (parsed.isMultipart && typeof parsed.body.labels === "string")
         parsed.body.labels = JSON.parse(parsed.body.labels);
-      if (parsed.isMultipart && parsed.body.launchTemplateId === "null")
-        parsed.body.launchTemplateId = null;
+      for (const field of [
+        "launchTemplateId",
+        "launchAgentType",
+        "launchModel",
+      ] as const)
+        if (parsed.isMultipart && parsed.body[field] === "null")
+          parsed.body[field] = null;
       if (parsed.isMultipart && parsed.body.position !== undefined)
         parsed.body.position = Number(parsed.body.position);
     } catch (error) {

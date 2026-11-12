@@ -3412,6 +3412,404 @@ describe("task template overrides", () => {
   });
 });
 
+describe("task runtime overrides", () => {
+  const LEAD = "tpl_lead_runtime";
+  const lead = () =>
+    template({
+      id: LEAD,
+      agentType: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+      useWorktree: true,
+      baseBranch: "main",
+      branchName: "lead-runtime",
+    });
+  let templateReads: string[];
+  beforeEach(() => {
+    templateReads = [];
+    service = build(filesRoot, {
+      getTemplate: async (id) => {
+        templateReads.push(id);
+        return id === LEAD
+          ? lead()
+          : id === TEMPLATE_ID
+            ? template({ id, effort: "high" })
+            : id === FULL_TEMPLATE_ID
+              ? template({ id, fullAccess: true })
+              : null;
+      },
+    });
+  });
+
+  const launched = async (taskId: string) =>
+    (await service.getTaskDetail(taskId)).events.filter(
+      (e) => e.kind === "trigger_launched"
+    );
+
+  it("leaves tasks without an override on the column's runtime and model", async () => {
+    const ready = await withTrigger("ready", {
+      agentType: "claude",
+      model: "haiku",
+      assign: false,
+    });
+    const task = await service.createTask({ projectId, title: "Plain" }, USER);
+    expect(task).toMatchObject({ launchAgentType: null, launchModel: null });
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]).toMatchObject({ agentType: "claude", model: "haiku" });
+    expect(launches[0]!.resolvedTemplate).toMatchObject({
+      agentType: "claude",
+      model: "haiku",
+    });
+    expect((await launched(task.id))[0]!.data.runtimeOverride).toBeUndefined();
+  });
+
+  it("applies an explicit pair over the column for this task only, persists across relaunches, snapshots, and clears", async () => {
+    const ready = await withTrigger("ready", {
+      agentType: "claude",
+      model: "haiku",
+      effort: "low",
+      assign: false,
+    });
+    const before = (await service.getBoard(projectId)).columns.find(
+      (c) => c.id === ready
+    )!.trigger;
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Switch to codex",
+        launchAgentType: "codex",
+        launchModel: "gpt-5.5",
+      },
+      USER
+    );
+    expect(task).toMatchObject({
+      launchAgentType: "codex",
+      launchModel: "gpt-5.5",
+    });
+    const other = await service.createTask(
+      { projectId, title: "Neighbour" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    await service.updateTask(other.id, { columnId: ready }, USER);
+    expect(launches[0]!.resolvedTemplate).toMatchObject({
+      agentType: "codex",
+      model: "gpt-5.5",
+      effort: null,
+    });
+    expect(launches[1]!.resolvedTemplate).toMatchObject({
+      agentType: "claude",
+      model: "haiku",
+      effort: "low",
+    });
+    const [first] = await launched(task.id);
+    expect(first!.data).toMatchObject({
+      source: "column",
+      runtimeOverride: { agentType: "codex", model: "gpt-5.5" },
+      configuration: { agentType: "codex", model: "gpt-5.5", effort: null },
+    });
+    // Neither the column nor the template changed.
+    expect(
+      (await service.getBoard(projectId)).columns.find((c) => c.id === ready)!
+        .trigger
+    ).toEqual(before);
+
+    // Re-entry (a retry) launches the same stored intent.
+    await service.updateTask(task.id, { columnId: other.columnId }, USER);
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[2]!.resolvedTemplate).toMatchObject({
+      agentType: "codex",
+      model: "gpt-5.5",
+    });
+
+    // Editing the override never rewrites history and launches nothing.
+    await service.updateTask(
+      task.id,
+      { launchAgentType: "claude", launchModel: "opus" },
+      USER
+    );
+    expect(launches).toHaveLength(3);
+    expect((await launched(task.id))[0]!.data).toEqual(first!.data);
+
+    const cleared = await service.updateTask(
+      task.id,
+      { launchAgentType: null },
+      USER
+    );
+    expect(cleared).toMatchObject({ launchAgentType: null, launchModel: null });
+    await service.updateTask(task.id, { columnId: other.columnId }, USER);
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[3]!.resolvedTemplate).toMatchObject({
+      agentType: "claude",
+      model: "haiku",
+      effort: "low",
+    });
+  });
+
+  it("keeps the column effort only for an unchanged pair and drops it for another model", async () => {
+    const ready = await withTrigger("ready", {
+      agentType: "claude",
+      model: "haiku",
+      effort: "low",
+      assign: false,
+    });
+    const same = await service.createTask(
+      {
+        projectId,
+        title: "Same pair",
+        launchAgentType: "claude",
+        launchModel: "haiku",
+      },
+      USER
+    );
+    await service.updateTask(same.id, { columnId: ready }, USER);
+    expect(launches[0]!.resolvedTemplate).toMatchObject({
+      agentType: "claude",
+      model: "haiku",
+      effort: "low",
+    });
+    const other = await service.createTask(
+      {
+        projectId,
+        title: "Other model",
+        launchAgentType: "claude",
+        launchModel: "sonnet",
+      },
+      USER
+    );
+    await service.updateTask(other.id, { columnId: ready }, USER);
+    expect(launches[1]!.resolvedTemplate).toMatchObject({
+      agentType: "claude",
+      model: "sonnet",
+      effort: null,
+    });
+    expect((await launched(other.id))[0]!.data).toMatchObject({
+      runtimeOverride: { agentType: "claude", model: "sonnet" },
+      configuration: { agentType: "claude", model: "sonnet", effort: null },
+    });
+  });
+
+  it("overrides the runtime of a full task template while keeping its workspace settings", async () => {
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Lead on claude",
+        launchTemplateId: LEAD,
+        launchAgentType: "claude",
+        launchModel: "sonnet",
+      },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]).toMatchObject({ templateId: LEAD });
+    expect(launches[0]!.resolvedTemplate).toMatchObject({
+      agentType: "claude",
+      model: "sonnet",
+      effort: null,
+      useWorktree: true,
+      baseBranch: "main",
+      branchName: "lead-runtime",
+      fullAccess: false,
+    });
+    expect((await launched(task.id))[0]!.data).toMatchObject({
+      source: "task",
+      templateId: LEAD,
+    });
+  });
+
+  it.each([
+    [{ launchModel: "sonnet" }, /needs launchAgentType/],
+    [{ launchAgentType: "claude", launchModel: "gpt-5.5" }, /not supported/],
+    [{ launchAgentType: "codex", launchModel: "opus" }, /not supported/],
+    [{ launchAgentType: "nope" }, /Unsupported launchAgentType/],
+    [{ launchAgentType: "claude", launchModel: " " }, /model id/],
+    [{ launchAgentType: null, launchModel: "sonnet" }, /needs launchAgentType/],
+    [{ launchAgentType: "claude" }, /needs an explicit launchModel/],
+    [{ launchAgentType: "claude", launchModel: null }, /cannot be cleared/],
+  ] as const)(
+    "rejects %j before any write or launch",
+    async (override, message) => {
+      const ready = await withTrigger("ready", { fireOnCreate: true });
+      await expect(
+        service.createTask(
+          {
+            projectId,
+            title: "Rejected create",
+            columnId: ready,
+            ...(override as object),
+          },
+          USER
+        )
+      ).rejects.toThrow(message);
+      const task = await service.createTask(
+        { projectId, title: "Original" },
+        USER
+      );
+      await expect(
+        service.updateTask(
+          task.id,
+          { title: "Changed", columnId: ready, ...(override as object) },
+          USER
+        )
+      ).rejects.toThrow(message);
+      expect(await service.requireTask(task.id)).toMatchObject({
+        title: "Original",
+        columnId: task.columnId,
+        launchAgentType: null,
+        launchModel: null,
+      });
+      expect(launches).toHaveLength(0);
+      const board = await service.getBoard(projectId);
+      expect(board.tasks.map((t) => t.title)).toEqual(["Original"]);
+    }
+  );
+
+  it("keeps the pair explicit: no stranded model, no cleared model under a runtime", async () => {
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Paired",
+        launchAgentType: "claude",
+        launchModel: "opus",
+      },
+      USER
+    );
+    const unchanged = {
+      launchAgentType: "claude",
+      launchModel: "opus",
+    } as const;
+    await expect(
+      service.updateTask(task.id, { launchAgentType: "codex" }, USER)
+    ).rejects.toThrow(
+      /launchModel "opus" is not supported for codex\. Send a launchModel for the new runtime, or launchAgentType: null/
+    );
+    expect(await service.requireTask(task.id)).toMatchObject(unchanged);
+    for (const input of [
+      { launchModel: null },
+      { launchAgentType: "codex", launchModel: null },
+      { launchModel: "gpt-5.5" },
+    ] as const) {
+      await expect(service.updateTask(task.id, input, USER)).rejects.toThrow();
+      expect(await service.requireTask(task.id)).toMatchObject(unchanged);
+    }
+    // Same runtime keeps a stored model that is valid for it.
+    await expect(
+      service.updateTask(task.id, { launchAgentType: "claude" }, USER)
+    ).resolves.toMatchObject(unchanged);
+    await expect(
+      service.updateTask(task.id, { launchModel: "sonnet" }, USER)
+    ).resolves.toMatchObject({
+      launchAgentType: "claude",
+      launchModel: "sonnet",
+    });
+    await expect(
+      service.updateTask(
+        task.id,
+        { launchAgentType: "codex", launchModel: "gpt-5.5" },
+        USER
+      )
+    ).resolves.toMatchObject({
+      launchAgentType: "codex",
+      launchModel: "gpt-5.5",
+    });
+    await expect(
+      service.updateTask(task.id, { launchAgentType: null }, USER)
+    ).resolves.toMatchObject({ launchAgentType: null, launchModel: null });
+  });
+
+  it("enforces the pair in the database too", async () => {
+    const task = await service.createTask({ projectId, title: "Raw" }, USER);
+    await expect(
+      pool.query(
+        `UPDATE tasks SET launch_agent_type = 'claude' WHERE id = $1`,
+        [task.id]
+      )
+    ).rejects.toThrow(/tasks_launch_runtime_pair/);
+  });
+
+  it("never lifts the restricted-caller access ceiling", async () => {
+    const ready = await columnId("ready");
+    await service.updateColumn(ready, {
+      trigger: { templateId: FULL_TEMPLATE_ID, assign: false },
+    });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Restricted",
+        launchAgentType: "codex",
+        launchModel: "gpt-5.5",
+      },
+      USER
+    );
+    const moved = await service.updateTask(
+      task.id,
+      { columnId: ready },
+      { kind: "agent", agentId: "restricted" }
+    );
+    expect(moved.latestFailure?.reason).toContain("restricted agent");
+    expect(launches).toHaveLength(0);
+    const failed = (await service.getTaskDetail(task.id)).events.find(
+      (e) => e.kind === "trigger_failed"
+    );
+    expect(failed?.data).toMatchObject({
+      runtimeOverride: { agentType: "codex", model: "gpt-5.5" },
+    });
+  });
+
+  it("records trigger_failed when resolving the override's template throws", async () => {
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Store down",
+        launchAgentType: "codex",
+        launchModel: "gpt-5.5",
+      },
+      USER
+    );
+    service = build(filesRoot, {
+      getTemplate: async () => {
+        throw new Error("template store unavailable");
+      },
+    });
+    const moved = await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(moved.latestFailure?.reason).toContain("template store unavailable");
+    expect(launches).toHaveLength(0);
+  });
+
+  it("fails visibly at launch when the stored model leaves the catalog", async () => {
+    const { setLearnedAgentModels, forgetLearnedAgentModels } =
+      await import("../src/shared/agent-models.js");
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "Retired model",
+        launchAgentType: "claude",
+        launchModel: "opus",
+      },
+      USER
+    );
+    setLearnedAgentModels(
+      "claude",
+      [{ id: "sonnet", label: "Sonnet" }],
+      "sonnet"
+    );
+    try {
+      const moved = await service.updateTask(
+        task.id,
+        { columnId: ready },
+        USER
+      );
+      expect(moved.latestFailure?.reason).toMatch(/opus/);
+      expect(launches).toHaveLength(0);
+    } finally {
+      forgetLearnedAgentModels();
+    }
+  });
+});
+
 it("passes normalized workspace/model options to the shared template launcher", async () => {
   const saved = template({
     id: TEMPLATE_ID,

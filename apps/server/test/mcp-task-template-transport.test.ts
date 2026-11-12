@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { beforeAll, expect, it, vi } from "vitest";
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -184,4 +187,154 @@ it("round-trips task overrides and clear across authenticated MCP and HTTP", asy
   await http("DELETE", `/api/v1/templates/${lead.id}`);
   const missing = await call("task_get", { id });
   expect(missing.structuredContent.launchTemplateId).toBe(lead.id);
+});
+
+it("applies per-task runtime/model overrides over MCP without editing the column or template", async () => {
+  const projectId = "prj_runtime_transport";
+  const repo = await mkdtemp(path.join(tmpdir(), "task-runtime-"));
+  await ctx.pool.query(
+    `INSERT INTO projects (id, name, repo_root, color) VALUES ($1, 'Runtime', $2, '#336699')`,
+    [projectId, repo]
+  );
+  await ctx.pool.query(
+    `INSERT INTO agents (id, name, type, status, cwd, project_id) VALUES ('agt_runtime_caller', 'Caller', 'codex', 'stopped', $2, $1)`,
+    [projectId, repo]
+  );
+  const token = (
+    await ctx.pool.query(`SELECT value FROM settings WHERE key = 'auth_token'`)
+  ).rows[0].value;
+  const http = async (
+    method: "GET" | "POST" | "PATCH",
+    url: string,
+    payload?: object
+  ) => {
+    const response = await ctx.app.inject({
+      method,
+      url,
+      headers: { authorization: `Bearer ${token}` },
+      ...(payload ? { payload } : {}),
+    });
+    return { status: response.statusCode, body: response.json() };
+  };
+  const board = (await http("GET", `/api/v1/projects/${projectId}/tasks/board`))
+    .body;
+  const stage = board.columns.find(
+    (c: { key: string }) => c.key === "in_progress"
+  );
+  const template = (
+    await http("POST", "/api/v1/templates", {
+      name: "Build Task",
+      projectId,
+      directory: repo,
+      agentType: "codex",
+      model: "gpt-5.5",
+      prompt: "Work on this task",
+    })
+  ).body;
+  await http("PATCH", `/api/v1/task-columns/${stage.id}`, {
+    trigger: { templateId: template.id, assign: false },
+  });
+  const columnBefore = (
+    await http("GET", `/api/v1/projects/${projectId}/tasks/board`)
+  ).body.columns.find((c: { id: string }) => c.id === stage.id).trigger;
+  const bearer = ctx.auth.createAgentMcpToken(token, "agt_runtime_caller");
+  let seq = 0;
+  const call = async (name: string, args: object) => {
+    const response = await fetch(`${base}/api/mcp/agt_runtime_caller`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++seq,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
+    });
+    const text = await response.text();
+    const data = text.split("\n").find((line) => line.startsWith("data: "));
+    return JSON.parse(data ? data.slice(6) : text).result;
+  };
+
+  const created = await call("task_create", {
+    title: "Run this one on Claude",
+    launchAgentType: "claude",
+    launchModel: "sonnet",
+  });
+  expect(created.isError).toBeUndefined();
+  expect(created.structuredContent).toMatchObject({
+    launchAgentType: "claude",
+    launchModel: "sonnet",
+  });
+  const id = created.structuredContent.id;
+
+  const invalid = await call("task_update", {
+    id,
+    title: "Must remain",
+    column: "in_progress",
+    launchAgentType: "codex",
+  });
+  expect(invalid.isError).toBe(true);
+  expect(invalid.content[0].text).toMatch(/not supported for codex/);
+  let detail = (await http("GET", `/api/v1/tasks/${id}`)).body;
+  expect(detail).toMatchObject({
+    title: "Run this one on Claude",
+    launchAgentType: "claude",
+    launchModel: "sonnet",
+  });
+  expect(detail.columnId).not.toBe(stage.id);
+
+  expect(
+    (await call("task_update", { id, column: "in_progress" })).isError
+  ).toBeUndefined();
+  detail = (await http("GET", `/api/v1/tasks/${id}`)).body;
+  const launched = detail.events.find(
+    (e: { kind: string }) => e.kind === "trigger_launched"
+  );
+  expect(launched.data).toMatchObject({
+    templateId: template.id,
+    runtimeOverride: { agentType: "claude", model: "sonnet" },
+    configuration: { agentType: "claude", model: "sonnet" },
+  });
+  await ctx.awaitLaunched(launched.data.agentId);
+  expect(
+    (await http("GET", `/api/v1/templates/${template.id}`)).body
+  ).toMatchObject({ agentType: "codex", model: "gpt-5.5" });
+  expect(
+    (
+      await http("GET", `/api/v1/projects/${projectId}/tasks/board`)
+    ).body.columns.find((c: { id: string }) => c.id === stage.id).trigger
+  ).toEqual(columnBefore);
+
+  const cleared = await call("task_update", { id, launchAgentType: null });
+  expect(cleared.structuredContent).toMatchObject({
+    launchAgentType: null,
+    launchModel: null,
+  });
+  const runtimeOnly = await call("task_update", {
+    id,
+    launchAgentType: "claude",
+  });
+  expect(runtimeOnly.isError).toBe(true);
+  expect(runtimeOnly.content[0].text).toMatch(/needs an explicit launchModel/);
+  const clearModel = await http("PATCH", `/api/v1/tasks/${id}`, {
+    launchAgentType: "claude",
+    launchModel: null,
+  });
+  expect(clearModel.status).toBe(400);
+  const rejected = await http("PATCH", `/api/v1/tasks/${id}`, {
+    launchModel: "sonnet",
+  });
+  expect(rejected.status).toBe(400);
+  expect(
+    (
+      await http("PATCH", `/api/v1/tasks/${id}`, {
+        launchAgentType: "codex",
+        launchModel: "gpt-5.5",
+      })
+    ).body
+  ).toMatchObject({ launchAgentType: "codex", launchModel: "gpt-5.5" });
 });

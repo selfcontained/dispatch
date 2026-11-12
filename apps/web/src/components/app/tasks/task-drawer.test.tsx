@@ -83,6 +83,8 @@ const detail: TaskDetail = {
   position: 0,
   assignedAgentId: null,
   launchTemplateId: null,
+  launchAgentType: null,
+  launchModel: null,
   links: [],
   createdBy: { kind: "user" },
   latestFailure: null,

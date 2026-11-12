@@ -85,6 +85,38 @@ shared template resolver and launcher, task briefing and attachments. The
 not rewrite this history. Per-task locking covers preference changes alongside
 existing moves and launches.
 
+## Task-specific runtime and model
+
+Direct `launch_agent` calls already take an explicit `type`/`model` for that
+one launch (explicit values beat the template; nothing is persisted). Trigger
+launches have no caller to pass them, so a task stores its own nullable
+`launchAgentType` and `launchModel` (migration `0049_task_launch_runtime.sql`).
+HTTP create/update and MCP `task_create`/`task_update` accept them:
+
+```json
+{ "launchAgentType": "claude", "launchModel": "opus" }
+```
+
+- The override is an explicit pair: both set or both null (also a database
+  check). Setting or changing the runtime needs a model for it; a stored model
+  is kept only when it is valid for the new runtime. `launchModel: null` under
+  an active runtime is rejected; `launchAgentType: null` clears both. Omitted
+  fields are preserved. Invalid pairs are rejected before any write and nothing
+  changes; no runtime or default model is ever substituted.
+- Precedence per launch: task runtime/model → `launchTemplateId` template or the
+  column trigger → template. The column's effort is kept only when the pair
+  matches the column's runtime and model; otherwise the template rule applies
+  (template effort only on the template's own runtime and model).
+- It applies to every later trigger launch of that task (moves, re-entry,
+  fire-on-create) until cleared. It never edits the template or column, and
+  the manual `POST /tasks/:id/agents` launch keeps its own explicit fields.
+- Permissions, full access, worktree, persona, prompt, args, capacity,
+  assignment and relaunch safeguards come from the template/column as before.
+- `trigger_launched` (and `trigger_failed`) add
+  `runtimeOverride { agentType, model }` beside the resolved `configuration` snapshot, which records the
+  runtime, model and effort the agent actually got. Launches revalidate, so a
+  model removed from the catalog fails visibly instead of falling back.
+
 ## Conversation
 
 A task is a **stream root**: its conversation is the blocks with `stream_id = <task id>`, served by the ordinary stream routes (`GET/POST /api/v1/streams/<taskId>/blocks`, `…/blocks/:blockId/thread`, `…/read`). Unread and open-input counts per task come back under `tasks` in `GET /api/v1/chat/unread`; `stream.changed` / `stream.entry` events carry the task id as `agentId`.

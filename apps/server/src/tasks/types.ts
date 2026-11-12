@@ -72,6 +72,13 @@ export type Task = {
   links: TaskLink[];
   /** Full template override; null inherits each column’s automation. */
   launchTemplateId: string | null;
+  /**
+   * Runtime override for this task's trigger launches only; null inherits
+   * the launch template / column automation. Never edits either.
+   */
+  launchAgentType: TaskAgentType | null;
+  /** Explicit model for `launchAgentType`; set exactly when it is. */
+  launchModel: string | null;
   createdBy: TaskActor;
   /**
    * The current column entry's last trigger failure not followed by a
@@ -156,6 +163,8 @@ export type CreateTaskInput = {
   /** Replace labels; omit to preserve. New names: 1–16 characters (existing names preserved); at most 20. */
   labels?: TaskLabel[];
   launchTemplateId?: string | null;
+  launchAgentType?: TaskAgentType | null;
+  launchModel?: string | null;
   projectId: string;
   title: string;
   body?: string;
@@ -169,6 +178,10 @@ export type UpdateTaskInput = {
   /** Replace labels; omit to preserve. New names: 1–16 characters (existing names preserved); at most 20. */
   labels?: TaskLabel[];
   launchTemplateId?: string | null;
+  /** Omit to keep; null clears the runtime and its model override. */
+  launchAgentType?: TaskAgentType | null;
+  /** Omit to keep. Required with a runtime; null only alongside a null runtime. */
+  launchModel?: string | null;
   /** Relative insertion anchor; null appends. Takes precedence over position. */
   beforeId?: string | null;
   title?: string;
