@@ -5548,9 +5548,11 @@ function describeInput(block: Block): string {
 
 /**
  * The prompts a turn's current response answers, from what the turn itself
- * recorded: its prompt, its response prompt, and same-conversation posts
- * steered into it. A pickup whose own response is about to start
- * (`pendingResponse`) belongs to that next response, not this one.
+ * recorded. Before any split: the turn's prompt plus posts steered into it.
+ * After a split: only that response's prompt plus posts steered in after it
+ * began, so a later response never answers an earlier prompt (even one whose
+ * own response said nothing). A pickup whose own response is about to start
+ * (`pendingResponse`) belongs to that next response.
  */
 export function answeredPrompts(payload: TurnPayload): PromptSource[] {
   const pending = payload.pendingResponse?.source;
@@ -5559,11 +5561,20 @@ export function answeredPrompts(payload: TurnPayload): PromptSource[] {
       ? (pending.chatMessageIds ?? [pending.chatMessageId])
       : []
   );
-  const all = [
-    payload.prompt,
-    ...(payload.steering ?? []).map((s) => s.source),
-    ...(payload.responsePrompt ? [payload.responsePrompt] : []),
-  ];
+  const steering = payload.steering ?? [];
+  let all: PromptSource[];
+  if (payload.responsePrompt) {
+    const current = payload.responseReceipts?.at(-1);
+    const start = current
+      ? steering.findIndex((s) => s.receiptId === current)
+      : -1;
+    all = [
+      payload.responsePrompt,
+      ...(start >= 0 ? steering.slice(start + 1) : []).map((s) => s.source),
+    ];
+  } else {
+    all = [payload.prompt, ...steering.map((s) => s.source)];
+  }
   return all.flatMap((source): PromptSource[] => {
     if (!source) return [];
     if (source.source !== "chat") return [source];

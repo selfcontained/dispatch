@@ -136,6 +136,12 @@ export class SlackApp {
           1000
       );
     }
+    // A 5xx (often a gateway timeout) can follow a request Slack already
+    // processed, so its outcome is unknown; other non-2xx were rejected.
+    if (response.status >= 500)
+      throw new SlackDeliveryUnknownError(
+        "Slack service unavailable. Try again."
+      );
     if (!response.ok) throw new Error("Slack service unavailable. Try again.");
     if (method === "auth.test") {
       const scopes = response.headers.get("x-oauth-scopes");

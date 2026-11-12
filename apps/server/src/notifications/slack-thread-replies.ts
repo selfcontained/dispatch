@@ -183,6 +183,8 @@ export class SlackThreadReplies {
   private sentUnrecorded = new Map<string, string>();
   /** Rows this process marked sending and is posting right now. */
   private inFlight = new Set<string>();
+  /** Definitely unsent, but clearing the sending mark failed: retry the clear. */
+  private unsentUncleared = new Map<string, { wait: number; failed: number }>();
   constructor(
     private pool: Pool,
     private app: SlackApp,
@@ -374,6 +376,22 @@ export class SlackThreadReplies {
     }
   }
 
+  /** A definite non-delivery: clear the sending mark so it is retried. */
+  private async clearSending(row: ReplyRow, wait: number, failed: number) {
+    const key = `${row.post_block_id}:${row.response_block_id}`;
+    try {
+      await this.pool.query(
+        `UPDATE slack_thread_replies SET attempts = attempts + $3, sending_at = NULL,
+           next_attempt_at = now() + ($2 * interval '1 second')
+         WHERE post_block_id = $1 AND response_block_id = $4`,
+        [row.post_block_id, wait, failed, row.response_block_id]
+      );
+      this.unsentUncleared.delete(key);
+    } catch {
+      this.unsentUncleared.set(key, { wait, failed });
+    }
+  }
+
   private async giveUp(postBlockId: string, responseBlockId?: string | null) {
     await this.pool.query(
       `UPDATE slack_thread_replies SET gave_up_at = now(), reply_text = NULL
@@ -418,6 +436,12 @@ export class SlackThreadReplies {
           held.add(thread);
           continue;
         }
+        const uncleared = this.unsentUncleared.get(key);
+        if (uncleared) {
+          await this.clearSending(row, uncleared.wait, uncleared.failed);
+          held.add(thread);
+          continue;
+        }
         // Marked sending but not by a send this process is making or
         // recording (e.g. it restarted mid-send): it may be in Slack, so
         // never resend it. At most once.
@@ -426,7 +450,7 @@ export class SlackThreadReplies {
           continue;
         }
         if (row.expired || row.attempts >= MAX_ATTEMPTS) {
-          await this.giveUp(row.post_block_id);
+          await this.giveUp(row.post_block_id, row.response_block_id);
           continue;
         }
         if (!row.due) {
@@ -439,7 +463,7 @@ export class SlackThreadReplies {
         if (!binding) return;
         // Rebound to another installation/channel, or the parent is gone.
         if (!(await this.parentLive(row))) {
-          await this.giveUp(row.post_block_id);
+          await this.giveUp(row.post_block_id, row.response_block_id);
           continue;
         }
         const [post, response] = await Promise.all([
@@ -448,7 +472,7 @@ export class SlackThreadReplies {
         ]);
         const name = await this.agentName(row.agent_id);
         if (!post || !response || !name) {
-          await this.giveUp(row.post_block_id);
+          await this.giveUp(row.post_block_id, row.response_block_id);
           continue;
         }
         const openUrl = this.answers.openUrl(binding.baseUrl, {
@@ -509,13 +533,10 @@ export class SlackThreadReplies {
             ? Math.max(1, error.retryAfterMs / 1000)
             : Math.min(900, 15 * 2 ** Math.min(row.attempts, 6));
           // Definitely not posted: clear sending and retry later. The local
-          // 1 msg/s limiter isn't a failure: it doesn't count.
-          await this.pool.query(
-            `UPDATE slack_thread_replies SET attempts = attempts + $3, sending_at = NULL,
-               next_attempt_at = now() + ($2 * interval '1 second')
-             WHERE post_block_id = $1 AND response_block_id = $4`,
-            [row.post_block_id, wait, limited ? 0 : 1, row.response_block_id]
-          );
+          // 1 msg/s limiter isn't a failure: it doesn't count. If the clear
+          // itself fails, remember it was unsent and clear it next pass,
+          // rather than mistaking the leftover mark for a possible send.
+          await this.clearSending(row, wait, limited ? 0 : 1);
           if (limited) {
             const t = setTimeout(
               () => void this.flush().catch(() => {}),

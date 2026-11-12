@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SlackApp } from "../src/notifications/slack-app.js";
+import {
+  SlackApp,
+  SlackDeliveryUnknownError,
+  SlackRetryError,
+} from "../src/notifications/slack-app.js";
 import type { Pool } from "pg";
 
 function fixture() {
@@ -251,6 +255,62 @@ describe("Slack app boundary", () => {
     expect(bodies.map((b) => b.channel)).toEqual(["C1", "C1", "C1"]);
     expect(bodies[2]).toMatchObject({ user: "U1", thread_ts: "1.2" });
     f.app.stop();
+  });
+  it("classifies post failures: only definite non-deliveries are retryable", async () => {
+    const outcome = async (fail: () => Response | Promise<Response>) => {
+      const f = fixture();
+      await f.app.validate(credentials);
+      await f.app.enable("C1", "http://lan");
+      const real = f.transport.getMockImplementation()!;
+      f.transport.mockImplementation(async (url, init) =>
+        url.endsWith("chat.postMessage") ? fail() : real(url, init)
+      );
+      const error = await f.app.postBlocks({ text: "t", blocks: [] }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      f.app.stop();
+      return error;
+    };
+    const refused = Object.assign(new TypeError("fetch failed"), {
+      cause: { code: "ECONNREFUSED" },
+    });
+    const timeout = Object.assign(new Error("aborted"), {
+      name: "TimeoutError",
+    });
+    // May have been posted: unknown, never resend.
+    for (const status of [500, 502, 503, 504])
+      expect(await outcome(() => new Response("x", { status }))).toBeInstanceOf(
+        SlackDeliveryUnknownError
+      );
+    expect(
+      await outcome(() => {
+        throw timeout;
+      })
+    ).toBeInstanceOf(SlackDeliveryUnknownError);
+    expect(
+      await outcome(() => new Response("not json", { status: 200 }))
+    ).toBeInstanceOf(SlackDeliveryUnknownError);
+    // Definitely not posted: retryable.
+    const definite = [
+      await outcome(() => {
+        throw refused;
+      }),
+      await outcome(() => new Response("x", { status: 400 })),
+      await outcome(() =>
+        Response.json({ ok: false, error: "channel_not_found" })
+      ),
+    ];
+    for (const error of definite) {
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(SlackDeliveryUnknownError);
+    }
+    expect(
+      await outcome(
+        () =>
+          new Response("x", { status: 429, headers: { "retry-after": "2" } })
+      )
+    ).toBeInstanceOf(SlackRetryError);
   });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();

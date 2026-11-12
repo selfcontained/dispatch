@@ -995,6 +995,59 @@ describe("Slack thread reply → agent → same Slack thread", () => {
     expect(rows[0].response_block_id).toBeNull();
   });
 
+  it("a definite failure whose sending mark can't be cleared is retried, not dropped", async () => {
+    const { svc, answers, replies, calls, settle } = build();
+    const parent = await notifyParent(answers, A);
+    await answers.handle(threadReply("U1", parent, "blip"));
+    const post = await slackPost("blip");
+    const real = (replies as any).pool as Pool;
+    let blocked = true;
+    (replies as any).pool = {
+      query: (sql: string, params?: unknown[]) =>
+        blocked && /attempts = attempts \+ \$3, sending_at = NULL/.test(sql)
+          ? Promise.reject(new Error("db blip"))
+          : real.query(sql, params),
+    };
+    calls.failNext.push(new Error("channel_not_found"));
+    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "after blip" }]);
+    await settle();
+    expect(calls.posted).toHaveLength(0);
+    blocked = false;
+    await replies.flush(); // clears the mark
+    await real.query(`UPDATE slack_thread_replies SET next_attempt_at = now()`);
+    await replies.flush(); // sends
+    expect(calls.posted.map(sectionText)).toEqual(["after blip"]);
+    const { rows } = await real.query(
+      `SELECT gave_up_at, sent_at FROM slack_thread_replies`
+    );
+    expect(rows[0].gave_up_at).toBeNull();
+    expect(rows[0].sent_at).toBeTruthy();
+  });
+
+  it("a later split response never answers an earlier Slack prompt whose own response was empty", async () => {
+    const { svc, answers, calls, settle } = build();
+    const parent = await notifyParent(answers, A);
+    await answers.handle(threadReply("U1", parent, "slack A"));
+    const a = await slackPost("slack A");
+    const b = await svc.sendUserPost(A, { to: A, text: "local B" });
+    const bPrompt = chatPrompt([b.block.id]);
+    // Response 1 (to A) said nothing after its tools; B was steered in and
+    // split off its own response, which answers B.
+    await runTurn(svc, A, chatPrompt([a.id]), [{ assistant: "Answer to B." }], {
+      steering: [
+        { source: bPrompt, at: new Date().toISOString(), receiptId: "rB" },
+      ],
+      responseReceipts: ["rB"],
+      responsePrompt: bPrompt,
+    });
+    await settle();
+    expect(calls.posted).toHaveLength(0);
+    const { rows } = await pool.query(
+      `SELECT response_block_id FROM slack_thread_replies`
+    );
+    expect(rows[0].response_block_id).toBeNull();
+  });
+
   it("a steering split relays the finished response it froze", async () => {
     const { svc, answers, calls, settle } = build();
     const parent = await notifyParent(answers, A);
