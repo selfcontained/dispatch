@@ -169,7 +169,7 @@ export function registerAgentLifecycleTools(
             .uuid()
             .optional()
             .describe(
-              "Message id of a post that reached you from a Slack thread (its envelope says so). Posts this reply into that Slack thread."
+              "Message id of a post that reached you from a Slack thread (its envelope says so), or of a form submission answered in Slack. Posts this reply (or, with form, the form) into that Slack thread."
             ),
           images: z
             .array(z.string().min(1))
