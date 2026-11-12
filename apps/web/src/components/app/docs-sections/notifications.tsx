@@ -73,8 +73,7 @@ export function NotificationsContent() {
           Slack alert, or reply in the alert&apos;s thread to message the agent.
           Linking posts a one-time button in your channel; whoever clicks it
           appears as a pending request until you allow it. Answers show &quot;in
-          Slack by @name&quot;. Approvals agents mark Dispatch-only always open
-          in Dispatch.
+          Slack by @name&quot; and count the same as answering in Dispatch.
         </P>
       </Section>
 

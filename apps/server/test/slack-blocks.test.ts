@@ -76,12 +76,8 @@ describe("questionMessage", () => {
     expect(section.text.text.endsWith("…")).toBe(true);
   });
 
-  it("keeps Dispatch-only (gate) and parent-handled asks out of Slack answering", () => {
+  it("keeps parent-handled asks out of Slack answering", () => {
     for (const out of [
-      questionMessage(
-        { options: [{ label: "Merge" }] },
-        { ...ctx, dispatchOnly: true }
-      ),
       questionMessage(
         { options: [{ label: "Merge" }], parentHandled: true },
         ctx

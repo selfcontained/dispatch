@@ -453,8 +453,6 @@ export type AnswerInput = {
   attachments?: ChatUserAttachmentInput[];
   /** Server-set: answered by a linked external identity (Slack). */
   external?: BlockExternalOrigin;
-  /** Refuse asks the agent marked Dispatch-only (external surfaces). */
-  rejectDispatchOnly?: boolean;
 };
 
 export type SubmitInput = {
@@ -462,7 +460,6 @@ export type SubmitInput = {
   values: Record<string, string | number | boolean>;
   /** Server-set: submitted by a linked external identity (Slack). */
   external?: BlockExternalOrigin;
-  rejectDispatchOnly?: boolean;
 };
 
 const ANSWER_LABEL_MAX = 200;
@@ -640,7 +637,6 @@ export function resolveKindAndData(input: PostInput): {
             ...(o.value !== undefined ? { value: o.value } : {}),
           })),
           ...(q.allowFreeform ? { allowFreeform: true } : {}),
-          ...(q.dispatchOnly ? { dispatchOnly: true } : {}),
         },
       };
     }
@@ -1544,11 +1540,6 @@ export class StreamService {
     if (question.state?.cancellation) {
       throw new StreamConflictError("Question was canceled.");
     }
-    if (input.rejectDispatchOnly && question.data.dispatchOnly) {
-      throw new StreamForbiddenError(
-        "This question is answered in Dispatch only."
-      );
-    }
     const { value } = input;
     const options = question.data.options;
     const option = options.find((o) => (o.value ?? o.label) === value);
@@ -1680,9 +1671,6 @@ export class StreamService {
     }
     if (form.state?.cancellation) {
       throw new StreamConflictError("Form was canceled.");
-    }
-    if (input.rejectDispatchOnly && form.data.dispatchOnly) {
-      throw new StreamForbiddenError("This form is answered in Dispatch only.");
     }
     const values: Record<string, string | number | boolean> = {};
     for (const field of form.data.fields) {

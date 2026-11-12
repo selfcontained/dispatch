@@ -434,7 +434,7 @@ describe("choice answers", () => {
     ]);
   });
 
-  it("rejects stale (changed), cancelled, wrong-generation and Dispatch-only asks", async () => {
+  it("rejects stale (changed), cancelled and wrong-generation asks", async () => {
     const { svc, answers, calls } = build();
     await linkUser(answers, calls, "U1");
     const changed = await ask(svc, answers, calls, {
@@ -473,29 +473,6 @@ describe("choice answers", () => {
     );
     expect(calls.ephemeral.at(-1)!.text).toMatch(/withdrawn/);
 
-    const gated = await ask(svc, answers, calls, {
-      question: { options: [{ label: "Merge" }], dispatchOnly: true },
-    });
-    expect(gated.actions.map((e: any) => e.action_id)).toEqual([
-      "dispatch_open",
-    ]);
-    const ref = await pool.query(
-      "SELECT id FROM slack_messages WHERE block_id=$1",
-      [gated.block.id]
-    );
-    await answers.handle(
-      click("U1", "dispatch_option:0", `${ref.rows[0].id}:0`, gated.message.ts)
-    );
-    expect(calls.ephemeral.at(-1)!.text).toMatch(/answer in Dispatch/);
-    await answers.handle(threadReply("U1", gated.message.ts, "yes merge it"));
-    expect(calls.ephemeral.at(-1)!.text).toMatch(/answer in Dispatch/);
-    expect(await unanswered(svc, gated.block.id)).toBe(true);
-    const { rows } = await pool.query(
-      "SELECT count(*)::int AS n FROM blocks WHERE reply_to=$1",
-      [gated.block.id]
-    );
-    expect(rows[0].n).toBe(0);
-
     await pool.query("UPDATE slack_messages SET binding_generation='old'");
     const fresh = await ask(svc, answers, calls, {
       question: { options: [{ label: "A" }] },
@@ -513,6 +490,36 @@ describe("choice answers", () => {
       )
     );
     expect(await unanswered(svc, fresh.block.id)).toBe(true);
+  });
+
+  it("answers approval-style questions from a linked user just like Dispatch (no question gating)", async () => {
+    const { svc, answers, calls } = build();
+    await linkUser(answers, calls, "U1");
+    const q = await ask(svc, answers, calls, {
+      text: "Merge PR #42 and cut the release?",
+      question: { options: [{ label: "Merge" }, { label: "Hold" }] },
+    });
+    expect(q.actions.map((e: any) => e.action_id)).toEqual([
+      "dispatch_option:0",
+      "dispatch_option:1",
+      "dispatch_open",
+    ]);
+    await answers.handle(
+      click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
+    );
+    const answered = (await svc.store.getById(q.block.id))!;
+    expect(answered.state).toMatchObject({
+      answer: {
+        value: "Merge",
+        by: { kind: "user" },
+        external: { userId: "U1" },
+      },
+    });
+    await svc.waitForInFlightDeliveries(1000);
+    expect(injected.at(-1)).toContain(
+      "from: user via Slack (@u1, linked identity)"
+    );
+    expect(injected.at(-1)).not.toMatch(/not an agent or approval/);
   });
 
   it("records durably and says not delivered (no auto-resume promise) when the agent is offline", async () => {

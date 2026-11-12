@@ -105,9 +105,7 @@ prose:
 - **A finite choice** — `post` with `question.options` (up to 10). The options
   render as buttons; their pick comes back as a DISPATCH POST with `replyTo`
   set to your question, so you always know what was answered. Add
-  `allowFreeform` when a typed answer also makes sense. Set `dispatchOnly`
-  on a question or form that gates permission, security, merge or release
-  so it is never answered from Slack.
+  `allowFreeform` when a typed answer also makes sense.
 - **More than one field, or a field with a real answer** — `post` with
   `form`. Its fields are the only way to collect several values in one
   submission; an option labelled "Add explanation" with nowhere to type is not

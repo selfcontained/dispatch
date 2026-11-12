@@ -188,8 +188,8 @@ export function SlackAnswerersCard({
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Approvals agents mark Dispatch-only (merge, release, security,
-          permissions) always open in Dispatch.
+          Their answers count the same as yours in Dispatch, including
+          approvals.
         </p>
         {action.error && (
           <p role="alert" className="text-sm text-destructive">

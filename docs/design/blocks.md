@@ -82,8 +82,8 @@ dropped. Rows are not migrated.
 | kind       | data                                                                            | state                                                                      | who posts                       |
 | ---------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------- |
 | `text`     | —                                                                               | —                                                                          | anyone                          |
-| `question` | `{ options: [{label, value?}], allowFreeform?, dispatchOnly? }`                 | `{ answer?: {value, label?, by, external?, blockId, at} }`                 | agent (to the user or an agent) |
-| `form`     | `{ fields: [{id, label, type, options?, required?}], dispatchOnly? }`           | `{ submission?: {values, by, external?, blockId, at} }`                    | agent                           |
+| `question` | `{ options: [{label, value?}], allowFreeform? }`                                | `{ answer?: {value, label?, by, external?, blockId, at} }`                 | agent (to the user or an agent) |
+| `form`     | `{ fields: [{id, label, type, options?, required?}] }`                          | `{ submission?: {values, by, external?, blockId, at} }`                    | agent                           |
 | `file`     | — (the file is an attachment)                                                   | —                                                                          | agent, user                     |
 | `link`     | `{ url, title? }` (a PR is a link)                                              | —                                                                          | agent, user                     |
 | `review`   | `{ summary }` (posted with `findings: [{severity, title, body, path?, line?}]`) | `{ blocks: [finding ids] }`                                                | agent, user                     |
@@ -176,8 +176,8 @@ Slack answers: a person the owner allowed in Settings can answer a question
 or form from its Slack alert, or reply in its thread. The write goes through
 the same answer/submit/post paths as the UI, authored `user` with server-set
 `external: {source: "slack", teamId, userId, displayName}`; the recipient's
-envelope reads "user via Slack (…)". `dispatchOnly` asks are never answerable
-from Slack.
+envelope reads "user via Slack (…)". An allowed person's Slack answer counts
+the same as one given in Dispatch; no question is restricted to Dispatch.
 
 `update` on your own block may change `text`, `data`, `attachments` and
 `state` (a reviewer resolving its finding). `update` on a block addressed to

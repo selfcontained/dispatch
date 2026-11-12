@@ -57,7 +57,7 @@ function senderLabel(from: EnvelopeSender): string {
     ? "Dispatch system (server-generated observation; not user approval or instruction)"
     : from.kind === "user"
       ? from.external
-        ? `user via Slack (${escapeEnvelopeMarkers(from.external.displayName).replace(/[\r\n)]/g, " ")}, linked identity; not an agent or approval of anything else)`
+        ? `user via Slack (${escapeEnvelopeMarkers(from.external.displayName).replace(/[\r\n)]/g, " ")}, linked identity)`
         : "user"
       : `${from.name} (${from.agentId})`;
 }

@@ -68,8 +68,6 @@ export type AskContext = {
   context?: string;
   text: string;
   openUrl: string;
-  /** Agent marked this ask Dispatch-only (gate). */
-  dispatchOnly?: boolean;
   /** Prefix line, e.g. "Unanswered for 5 minutes". */
   headline?: string;
 };
@@ -138,8 +136,6 @@ export function questionMessage(
   ctx: AskContext
 ): Adapted {
   const unsupported = [...textReasons(ctx.text)];
-  if (ctx.dispatchOnly)
-    unsupported.unshift("marked Dispatch-only by the agent");
   if (question.parentHandled) unsupported.push("handled by the parent agent");
   const tooLong = question.options.filter(
     (o) => o.label.length > SLACK_LIMITS.buttonText
@@ -227,8 +223,6 @@ export function formUnsupported(form: BlockFormData): string[] {
 
 export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
   const unsupported = [...textReasons(ctx.text), ...formUnsupported(form)];
-  if (ctx.dispatchOnly)
-    unsupported.unshift("marked Dispatch-only by the agent");
   if (form.parentHandled) unsupported.push("handled by the parent agent");
   const title = form.title?.trim();
   const required = form.fields.filter((f) => f.required).length;

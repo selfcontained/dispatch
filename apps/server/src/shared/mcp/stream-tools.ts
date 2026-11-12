@@ -76,12 +76,6 @@ const questionSchema = strictObject({
     .boolean()
     .optional()
     .describe("Hint that a typed reply is also acceptable."),
-  dispatchOnly: z
-    .boolean()
-    .optional()
-    .describe(
-      "Set for permission, security, merge, release or other approval gates: answerable only in Dispatch, never from Slack."
-    ),
 }).describe(
   'Ask the user (or the agent in `to`) something with options. The options render as buttons, so keep each label to a short action and put the context in the text; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting. If you found the answer yourself, close it with update({ id, state: { answer: "<what settled it>" } }). If you no longer need it asked at all, withdraw it instead: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
 );
@@ -109,12 +103,6 @@ const formSchema = strictObject({
     .min(1)
     .max(BLOCK_FORM_FIELDS_MAX),
   submitLabel: z.string().max(60).optional(),
-  dispatchOnly: z
-    .boolean()
-    .optional()
-    .describe(
-      "Set for permission, security, merge, release or other approval gates: answerable only in Dispatch, never from Slack."
-    ),
 }).describe(
   'Collect several values at once. The submission comes back to you as a DISPATCH POST listing each field. While it is open you show as Waiting. If you no longer need it, withdraw it: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
 );

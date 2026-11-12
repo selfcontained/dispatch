@@ -67,11 +67,6 @@ export type BlockExternalOrigin = {
 };
 
 export type BlockQuestionData = {
-  /**
-   * A gate (permission, security, merge, release or other approval):
-   * answered only in Dispatch, never from external surfaces like Slack.
-   */
-  dispatchOnly?: boolean;
   /** Routed to the session parent for an answer. */
   parentHandled?: boolean;
   /** Conversation to resume when the child asked while working in another stream. */
@@ -142,11 +137,6 @@ export type BlockFormField = {
 };
 
 export type BlockFormData = {
-  /**
-   * A gate (permission, security, merge, release or other approval):
-   * answered only in Dispatch, never from external surfaces like Slack.
-   */
-  dispatchOnly?: boolean;
   /** Routed to the session parent for an answer. */
   parentHandled?: boolean;
   /** Conversation to resume when the child asked while working in another stream. */

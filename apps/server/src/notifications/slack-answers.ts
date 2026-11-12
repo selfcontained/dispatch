@@ -147,8 +147,6 @@ function errorText(error: unknown) {
     return "Already answered — your input was not recorded.";
   if (/canceled|cancelled/i.test(message))
     return "This was withdrawn — your input was not recorded.";
-  if (/Dispatch only/i.test(message))
-    return "This needs an answer in Dispatch — nothing was recorded.";
   if (/required|must|does not match|number/i.test(message))
     return `Not recorded: ${clip(message, 300)}`;
   return "Dispatch couldn't record that. Open Dispatch to answer.";
@@ -204,7 +202,6 @@ export class SlackAnswers {
     name: string,
     text: string,
     ref: string,
-    dispatchOnly: boolean,
     headline?: string
   ): AskContext {
     return {
@@ -215,7 +212,6 @@ export class SlackAnswers {
         : undefined,
       text,
       openUrl: this.openUrl(binding.baseUrl, row),
-      dispatchOnly,
       ...(headline ? { headline } : {}),
     };
   }
@@ -234,7 +230,6 @@ export class SlackAnswers {
       alert.name || alert.agent_id,
       alert.text,
       ref,
-      data.dispatchOnly === true,
       "unanswered for 5 minutes"
     );
     const message =
@@ -436,11 +431,6 @@ export class SlackAnswers {
         reason:
           "This question changed since it was sent. Open Dispatch to answer.",
       };
-    if (ask.data?.dispatchOnly)
-      return {
-        ok: false,
-        reason: "This needs an answer in Dispatch — nothing was recorded.",
-      };
     if (ask.data?.parentHandled || ask.to_agent_id)
       return {
         ok: false,
@@ -516,7 +506,6 @@ export class SlackAnswers {
         id: stableUuid(`slack-answer:${row.id}`),
         value: option.value ?? option.label,
         external: origin,
-        rejectDispatchOnly: true,
       });
       await reply(
         `Recorded "${option.label}" · ${this.deliveryText(name, result.delivered)}.`
@@ -569,7 +558,6 @@ export class SlackAnswers {
           id: stableUuid(`slack-answer:${row.id}`),
           values: parsed.values,
           external: origin,
-          rejectDispatchOnly: true,
         });
       } else {
         const value = String(state.answer?.value?.value ?? "").trim();
@@ -578,7 +566,6 @@ export class SlackAnswers {
           id: stableUuid(`slack-answer:${row.id}`),
           value,
           external: origin,
-          rejectDispatchOnly: true,
         });
       }
       void this.app
@@ -708,10 +695,6 @@ export class SlackAnswers {
     const ask = row.block_id ? await this.ask(row.block_id) : null;
     if (row.block_id && !ask)
       return reply("This question no longer exists in Dispatch.");
-    if (ask?.data?.dispatchOnly)
-      return reply(
-        "This needs an answer in Dispatch — your reply wasn't sent."
-      );
     try {
       if (
         ask &&
@@ -728,7 +711,6 @@ export class SlackAnswers {
             id,
             value: text,
             external: origin,
-            rejectDispatchOnly: true,
           }
         );
         await reply(
@@ -794,8 +776,7 @@ export class SlackAnswers {
           },
           name,
           row.text,
-          row.id,
-          false
+          row.id
         );
         const done = row.state.answer ?? row.state.submission;
         let outcome: Parameters<typeof settledMessage>[1];
