@@ -3258,6 +3258,12 @@ export class StreamService {
     let block: Block;
     let answered: Block | null = null;
     if (answering && target) {
+      // This branch commits its own transaction; an afterInsert must never
+      // be skipped silently.
+      if (afterInsert)
+        throw new StreamValidationError(
+          "This post answers an open question and can't carry this request."
+        );
       if (target.kind === "question" && target.data.parentHandled)
         insert.data = {
           ...((insert.data as object) ?? {}),

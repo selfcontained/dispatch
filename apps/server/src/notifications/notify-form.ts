@@ -6,9 +6,11 @@ import { requestOwnerAgentId } from "../agents/tree.js";
 import type { PostInput } from "../chat/service.js";
 import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
 import { QuestionAlerts } from "./question-alerts.js";
-import type {
-  SlackThreadReplies,
-  ThreadTarget,
+import {
+  inTurnThread,
+  type SlackThreadReplies,
+  type ThreadTarget,
+  type TurnThread,
 } from "./slack-thread-replies.js";
 
 /**
@@ -44,7 +46,7 @@ export async function notifyForm(
       }
     ) => Promise<Block>;
     alerts: Pick<QuestionAlerts, "sendNow">;
-    threads: Pick<SlackThreadReplies, "threadTarget" | "turnTarget">;
+    threads: Pick<SlackThreadReplies, "threadTarget" | "turnThread">;
   },
   agent: AgentRecord,
   input: NotifyInput & { form: NonNullable<NotifyInput["form"]> }
@@ -62,6 +64,13 @@ export async function notifyForm(
     if (!found.ok) return { sent: false, reason: found.reason };
     target = found.target;
   }
+  // Every lookup happens before the insert transaction; inside it, only the
+  // reservation write runs (no second pool connection while one is held).
+  // A failed lookup fails the call with nothing created: guessing "no thread"
+  // could send a Slack follow-up's form to the channel root.
+  const turn: TurnThread | null = target
+    ? null
+    : await deps.threads.turnThread(agent.id);
   const block = await deps.post(
     agent.id,
     {
@@ -77,9 +86,7 @@ export async function notifyForm(
       skipExternalAsk: true,
       // Inside the insert transaction: no worker can enroll it first.
       afterInsert: async (db, created) => {
-        target ??= await deps.threads
-          .turnTarget(agent.id, created)
-          .catch(() => null);
+        target ??= inTurnThread(turn, created);
         if (target)
           await QuestionAlerts.reserveThread(db, created.id, {
             threadTs: target.threadTs,

@@ -994,6 +994,27 @@ describe("notify({ form }) in a Slack thread", () => {
     expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
   });
 
+  it("a failed Slack-turn lookup fails the call with nothing created or sent", async () => {
+    const { calls, deps } = harness();
+    const failing = {
+      ...deps,
+      threads: {
+        ...deps.threads,
+        threadTarget: deps.threads.threadTarget.bind(deps.threads),
+        turnThread: async () => {
+          throw new Error("db blip");
+        },
+      },
+    };
+    await expect(
+      notifyForm(failing as any, agentA, { message: "x", form })
+    ).rejects.toThrow(/db blip/);
+    expect(
+      (await pool.query("SELECT 1 FROM blocks WHERE kind='form'")).rowCount
+    ).toBe(0);
+    expect(calls.posted).toHaveLength(0);
+  });
+
   it("refuses before creating anything for a foreign, non-Slack or stale replyTo", async () => {
     const { svc, answers, calls, deps } = harness();
     const { post } = await followUp(answers, A, "for A only");

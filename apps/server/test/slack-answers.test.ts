@@ -806,7 +806,7 @@ describe("notify({ form }) end to end", () => {
       alerts,
       threads: {
         threadTarget: async () => ({ ok: false as const, reason: "n/a" }),
-        turnTarget: async () => null,
+        turnThread: async () => null,
       },
     };
     return { ...built, alerts, deps };
