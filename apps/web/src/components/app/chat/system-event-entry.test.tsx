@@ -126,5 +126,11 @@ describe("system event presentation", () => {
         "#1 — Failing · 1 failed\n- [x](<javascript:alert(1)>) — failed"
       )?.checks[0]
     ).toEqual({ name: "x", outcome: "failed" });
+    // Percent-encoded characters stay encoded; only &amp; is undone.
+    expect(
+      parseCheckNotice(
+        "#1 — Failing · 1 failed\n- [x](<https://e.com/a%5Cb?q=%3Cx%3E&amp;r=1>) — failed"
+      )?.checks[0].url
+    ).toBe("https://e.com/a%5Cb?q=%3Cx%3E&r=1");
   });
 });

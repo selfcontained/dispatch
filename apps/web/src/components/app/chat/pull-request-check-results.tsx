@@ -14,10 +14,9 @@ export interface ParsedCheckNotice {
 }
 
 const unescape = (s: string) => s.replace(/\\(.)/g, "$1");
-const decodeUrl = (s: string) =>
-  s
-    .replaceAll("&amp;", "&")
-    .replace(/%3C|%3E|%5C/gi, (c) => decodeURIComponent(c));
+// The server percent-encodes raw <>\ (already valid in an href) and writes
+// & as &amp;; only the latter needs undoing.
+const decodeUrl = (s: string) => s.replaceAll("&amp;", "&");
 const safeUrl = (s: string) => {
   try {
     const url = new URL(s);
