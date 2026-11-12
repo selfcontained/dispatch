@@ -47,7 +47,6 @@ export type MergeRiskSummary = {
     | "not_ready"
     | "evaluating"
     | "deferred"
-    | "daily_cap"
     | "capacity"
     | "rate_limited"
     | "failure";

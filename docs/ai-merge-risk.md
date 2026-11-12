@@ -44,10 +44,12 @@ Merged PRs retain their latest head result as history. Missing heads cannot
 be assessed. The refresher retains its existing settings/review invalidation
 and historical-context behavior.
 
-`DISPATCH_MERGE_RISK_DAILY_CAP` bounds provider requests per UTC day (default
-25, accepted range 0–100; invalid values fail closed to 0). A database lock
-limits concurrency to two in-flight requests fleet-wide. Skipped reservations
-leave the PR without a recommendation rather than retrying.
+Dispatch enforces no daily, call or token limit; spend limits belong to the
+API key's own provider settings, and provider rate limits are reported as
+such. A database lock limits concurrency to two in-flight requests fleet-wide
+(assessments and explanations together). A head skipped for concurrency is
+reserved again on a later refresh once a slot frees; requests are never fired
+at the same time and an assessed head is never re-requested.
 
 ## Evidence
 
@@ -184,7 +186,7 @@ and unavailable tracking return tool errors; this tool never discovers PRs.
 The response identifies its source as `cached_inventory`. `headSha` and
 `checkedAt` describe the cached GitHub observation, not a live freshness claim.
 `lifecycle` is the cached PR lifecycle. `state` preserves the risk display state
-(disabled, waiting_ci, waiting_review, evaluating, deferred, capacity, daily_cap,
+(disabled, waiting_ci, waiting_review, evaluating, deferred, capacity,
 rate_limited, failure, unavailable, not_ready), or is absent, stale, current, or
 inconclusive. Absent means there is no cached result, not that work was queued.
 Only an open PR with a matching cached head and no display lifecycle override

@@ -91,11 +91,10 @@ export class SteeringDecisions {
   constructor(
     private readonly pool: Pool,
     private readonly settings: RoutingSettings,
-    private readonly transport: typeof fetch = fetch,
-    private readonly env: NodeJS.ProcessEnv = process.env
+    private readonly transport: typeof fetch = fetch
   ) {}
 
-  private async reserve(input: Input, cap: number) {
+  private async reserve(input: Input) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -103,21 +102,11 @@ export class SteeringDecisions {
       await client.query(
         "UPDATE steering_decision_records SET status='interrupted' WHERE status='pending' AND created_at < now() - interval '10 seconds'"
       );
-      await client.query(
-        "INSERT INTO steering_decision_daily(day) VALUES((now() AT TIME ZONE 'UTC')::date) ON CONFLICT DO NOTHING"
-      );
-      const daily = await client.query<{ calls: number }>(
-        "SELECT calls FROM steering_decision_daily WHERE day=(now() AT TIME ZONE 'UTC')::date"
-      );
       const pending = await client.query(
         "SELECT 1 FROM steering_decision_records WHERE status='pending' LIMIT 2"
       );
-      const status =
-        daily.rows[0]!.calls >= cap
-          ? "skipped_daily_cap"
-          : pending.rowCount! >= 2
-            ? "skipped_concurrency"
-            : "pending";
+      // Dispatch enforces no daily or token limit; only in-flight concurrency.
+      const status = pending.rowCount! >= 2 ? "skipped_concurrency" : "pending";
       const record = await client.query<{ id: string }>(
         `INSERT INTO steering_decision_records(agent_id,message_id,turn_seq,status,prompt_version,result) VALUES($1,$2,$3,$4,$5,$6)
          ON CONFLICT DO NOTHING RETURNING id`,
@@ -133,10 +122,6 @@ export class SteeringDecisions {
           }),
         ]
       );
-      if (record.rowCount && status === "pending")
-        await client.query(
-          "UPDATE steering_decision_daily SET calls=calls+1 WHERE day=(now() AT TIME ZONE 'UTC')::date"
-        );
       await client.query("COMMIT");
       return record.rows[0] && status === "pending"
         ? record.rows[0].id
@@ -156,11 +141,7 @@ export class SteeringDecisions {
     const evidence = await steeringEvidence(this.pool, input);
     if (!evidence || input.signal.aborted || !this.settings.isCurrent(config))
       return;
-    const cap = Number(this.env.DISPATCH_STEERING_DAILY_CAP ?? 25);
-    const id = await this.reserve(
-      input,
-      Number.isInteger(cap) && cap >= 0 && cap <= 100 ? cap : 0
-    );
+    const id = await this.reserve(input);
     if (!id) return;
     // Evidence reads and the reservation lock can outlive an opt-out or key
     // removal. Recheck after the final await before handing evidence to fetch.
@@ -222,9 +203,6 @@ export class SteeringDecisions {
   async prune() {
     await this.pool.query(
       "DELETE FROM steering_decision_records WHERE created_at < now() - interval '14 days' OR id IN (SELECT id FROM steering_decision_records ORDER BY created_at DESC,id DESC OFFSET 2000)"
-    );
-    await this.pool.query(
-      "DELETE FROM steering_decision_daily WHERE day < (now() AT TIME ZONE 'UTC')::date - 2"
     );
   }
 }

@@ -12,9 +12,9 @@ Production uses the database token and checkbox state. Environment tokens and mo
 
 Settings and connection checks require an authenticated session or the server bearer token in production, including first-run mode. A password-free isolated dev stack permits its normal browser Settings flow without an extra login. An existing dev password remains authoritative. Global browser-origin and portfolio boundaries still apply. Diagnostic export always requires the server bearer token.
 
-The normal single-API-server deployment owns the in-memory settings cache. If multiple API processes intentionally share one DB, restart the other processes after a settings change. Shared reservations still enforce the fleet request cap.
+The normal single-API-server deployment owns the in-memory settings cache. If multiple API processes intentionally share one DB, restart the other processes after a settings change. Shared reservations still enforce the fleet concurrency limit.
 
-`DISPATCH_ROUTING_SHADOW_DAILY_CAP` defaults to 25; integer values 0–100 are allowed and invalid caps fail closed at zero. UTC reservations persist across restarts and include failures/timeouts. Requests are not retried or redirected. A request cap is not a guaranteed dollar cap; provider project budgets remain separate.
+Dispatch enforces no daily, call or token limit; spend limits belong to the API key's own provider settings. A database lock allows at most two in-flight routing requests fleet-wide. Requests are not retried or redirected.
 
 ## Decisions and evidence
 
@@ -22,7 +22,7 @@ The fixed endpoint is `https://api.openai.com/v1/decisions`, model `gpt-6-luna`,
 
 Evidence contains up to four incoming user messages (1,000 UTF-16 units each), an authorized plain-text anchor (500 units), the current source location (thread or home root), and up to three nearby authorized user/assistant messages from the same stream/discussion (500 units each). Assistant evidence is only this target agent's plain user-facing turn text. Structured answers, tool output, unrelated streams, attachments, files, repository contents, and session purpose are excluded. Attachment-bearing messages become a fixed placeholder. Serialized evidence is bounded at 8 KiB UTF-8, the HTTP request below 20 KiB, and response parsing at 16 KiB. Only allowlisted results are retained.
 
-Only persisted ordinary user text addressed to the target agent qualifies. Internal/agent messages, awaited deliveries, invalid or mixed batches, structured answers, and steering do not classify. Source answer targets preserve placement. Thread origin is supplied as context, not an explicit placement instruction: a new response can return to root when the user resumes the main task or requests root. Follow-ups, acknowledgments, closing remarks alone, and explicit requests to stay in the thread remain in the initiating discussion. Uncertain decisions preserve the current placement. Overriding the default requires both the selected destination's probability and the API confidence score to reach 0.8. The three destination probabilities compare options; confidence is a separate decision score. Missing or uncertain values, keep-default, cap/concurrency rejection, timeout, or errors preserve the existing default.
+Only persisted ordinary user text addressed to the target agent qualifies. Internal/agent messages, awaited deliveries, invalid or mixed batches, structured answers, and steering do not classify. Source answer targets preserve placement. Thread origin is supplied as context, not an explicit placement instruction: a new response can return to root when the user resumes the main task or requests root. Follow-ups, acknowledgments, closing remarks alone, and explicit requests to stay in the thread remain in the initiating discussion. Uncertain decisions preserve the current placement. Overriding the default requires both the selected destination's probability and the API confidence score to reach 0.8. The three destination probabilities compare options; confidence is a separate decision score. Missing or uncertain values, keep-default, concurrency rejection, timeout, or errors preserve the existing default.
 
 A three-second total deadline covers configuration, evidence, reservation, provider response, and persistence. The validated destination is copied into the output block before first output. Late responses cannot mutate it. Cancellation and timeout diagnostics retain measured delay and frozen placement even when provider cleanup or reservation finishes late. Shadow-only internals remain available to the offline harness and historical diagnostics; Shadow is not a product Settings mode.
 
@@ -40,7 +40,7 @@ Pending routing appears only after 500 ms in the same fixed-size receipt slot as
 
 JSON returns `records` and `nextBefore`; `format=jsonl` returns JSONL. At most 200 rows are ordered by decreasing signed turn ID; pass the last ID as `before` for the next page. Records retain IDs, frozen placement, explicit-routing label, model/prompt version, status, proposal, probabilities/confidence, timing, usage, and sanitized HTTP status. No copied conversation excerpts, credentials, or raw provider/error bodies are persisted.
 
-Retention is fourteen days and approximately 2,000 newest records, with transient excess until cleanup. Cleanup runs hourly and before observation/export. Daily counters retain the current and two preceding days. Dedupe markers last as long as their turns. Conversation messages are not deleted by diagnostic retention.
+Retention is fourteen days and approximately 2,000 newest records, with transient excess until cleanup. Cleanup runs hourly and before observation/export. Dedupe markers last as long as their turns. Conversation messages are not deleted by diagnostic retention.
 
 ## Estimated cost and validation
 

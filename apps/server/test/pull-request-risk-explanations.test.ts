@@ -40,13 +40,12 @@ const response = (
       total_tokens: 150,
     },
   });
-const service = (env: NodeJS.ProcessEnv = {}) =>
+const service = () =>
   new RiskExplanations({
     pool,
     settings,
     inventory: { get: (agent) => (agent === "explain-owner" ? [pr] : []) },
     transport,
-    env,
   });
 beforeAll(async () => {
   pool = await setupTestDb();
@@ -114,10 +113,6 @@ it("only explicit requests generate; concurrent requests dedupe and cached reads
   );
   expect((await svc.explain(input())).state).toBe("ready");
   expect(transport).toHaveBeenCalledTimes(1);
-  expect(
-    (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
-      .calls
-  ).toBe(1);
   const body = JSON.parse(String(transport.mock.calls[0][1]?.body));
   expect(body).toMatchObject({
     store: false,
@@ -164,11 +159,65 @@ it.each([
   ).toBe("unavailable");
   expect(transport).not.toHaveBeenCalled();
 });
-it.each(["0", "garbage"])("respects shared cap %s", async (cap) => {
-  expect(
-    (await service({ DISPATCH_MERGE_RISK_DAILY_CAP: cap }).explain(input()))
-      .state
-  ).toBe("limited");
+it("enforces no daily call limit: a full legacy counter does not block a click", async () => {
+  vi.stubEnv("DISPATCH_MERGE_RISK_DAILY_CAP", "0");
+  try {
+    await pool.query(
+      "INSERT INTO merge_risk_decision_daily(day,calls) VALUES((now() AT TIME ZONE 'UTC')::date,25)"
+    );
+    expect((await service().explain(input())).state).toBe("ready");
+    expect(transport).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+it.each([
+  [401, "provider_rejected"],
+  [403, "provider_rejected"],
+  [429, "provider_rate_limited"],
+  [500, "provider_error"],
+])(
+  "reports provider status %s as %s, never as a Dispatch limit",
+  async (status, reason) => {
+    transport.mockImplementationOnce(async () =>
+      Response.json({ error: "private" }, { status })
+    );
+    expect(await service().explain(input())).toEqual({
+      state: "failed",
+      reason,
+    });
+    const row = (
+      await pool.query("SELECT status,result FROM merge_risk_explanations")
+    ).rows[0];
+    expect(row.status).toBe("error");
+    expect(row.result).toMatchObject({ reason, httpStatus: status });
+    expect(JSON.stringify(row.result)).not.toContain("private");
+  }
+);
+it("reports network failures and timeouts by cause", async () => {
+  transport.mockImplementationOnce(async () => {
+    throw new TypeError("fetch failed");
+  });
+  expect(await service().explain(input())).toEqual({
+    state: "failed",
+    reason: "network",
+  });
+  transport.mockImplementationOnce(async () => {
+    throw new DOMException("timed out", "TimeoutError");
+  });
+  expect(await service().explain(input())).toEqual({
+    state: "failed",
+    reason: "timeout",
+  });
+});
+it("makes no request when the assessment goes stale before sending", async () => {
+  await settings.configuration();
+  const svc = service();
+  let checks = 0;
+  const original = svc["eligible"].bind(svc);
+  svc["eligible"] = async (i: Parameters<typeof original>[0]) =>
+    ++checks === 2 ? null : original(i);
+  expect((await svc.explain(input())).state).toBe("unavailable");
   expect(transport).not.toHaveBeenCalled();
 });
 it("respects assessor concurrency slots", async () => {
@@ -177,7 +226,10 @@ it("respects assessor concurrency slots", async () => {
       "INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version) VALUES('other',$1,'r','pending','v')",
       [head]
     );
-  expect((await service().explain(input())).state).toBe("limited");
+  expect(await service().explain(input())).toEqual({
+    state: "limited",
+    reason: "concurrency",
+  });
   expect(transport).not.toHaveBeenCalled();
 });
 it("discards in-flight stale results and retains usage", async () => {
@@ -193,7 +245,7 @@ it("discards in-flight stale results and retains usage", async () => {
   expect(row.result.text).toBeUndefined();
   expect(row.result.estimatedUsd).toBeGreaterThan(0);
 });
-it("explicit failure retry consumes another reservation and retains attempt accounting", async () => {
+it("explicit failure retry makes one more request and retains attempt accounting", async () => {
   transport.mockImplementationOnce(async () =>
     Response.json({ error: "private" }, { status: 500 })
   );
@@ -202,10 +254,6 @@ it("explicit failure retry consumes another reservation and retains attempt acco
   const row = (await pool.query("SELECT result FROM merge_risk_explanations"))
     .rows[0];
   expect(row.result.attempts).toHaveLength(2);
-  expect(
-    (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
-      .calls
-  ).toBe(2);
 });
 it.each(["routine", "human_review", "abstain"])(
   "grounds %s follow-ups in the completed assessment",
@@ -543,10 +591,6 @@ it.each(
     expect(actual.evidence.reviews[0].summary).toBe("[summary withheld]");
     expect(actual.evidence.reviews[0].reviewer).toBe("reviewer");
     expect(actual.assessment.reviewAdequate).toBe(0.94);
-    expect(
-      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
-        .calls
-    ).toBe(2);
     await service().explain(input());
     expect(transport).toHaveBeenCalledTimes(1);
     await blocks.update(finding.id, {

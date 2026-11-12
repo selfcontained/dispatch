@@ -47,7 +47,6 @@ type Options = {
   agentRoot: (agentId: string) => Promise<string | null>;
   readDetails?: (url: string) => Promise<PullRequestDetails | null>;
   transport?: typeof fetch;
-  env?: NodeJS.ProcessEnv;
   warn?: (error: unknown) => void;
 };
 
@@ -128,11 +127,9 @@ export class MergeRiskAssessor {
       return display(
         record.rows[0]?.status === "pending"
           ? "evaluating"
-          : record.rows[0]?.status === "skipped_daily_cap"
-            ? "daily_cap"
-            : record.rows[0]?.status === "skipped_concurrency"
-              ? "capacity"
-              : "deferred"
+          : record.rows[0]?.status === "skipped_concurrency"
+            ? "capacity"
+            : "deferred"
       );
     }
     onProgress?.(display("evaluating"));
@@ -274,14 +271,22 @@ export class MergeRiskAssessor {
   }
 
   private async reserve(url: string, headSha: string, fingerprint: string) {
-    const env = this.options.env ?? process.env;
     const client = await this.options.pool.connect();
     try {
       await client.query("BEGIN");
-      const status = await mergeRiskCapacity(client, env);
+      const status = await mergeRiskCapacity(client);
+      // A capacity skip is a transient outcome, not an assessment: once a slot
+      // frees, the same observation reserves again. 'skipped_daily_cap' rows
+      // predate the removal of Dispatch's daily cap and revive the same way;
+      // before this, a skipped head showed its limit forever.
       const record = await client.query<{ id: string }>(
         `INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version,result)
-         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id`,
+         VALUES($1,$2,$3,$4,$5,$6)
+         ON CONFLICT(url,head_sha,review_fingerprint) DO UPDATE
+           SET status=EXCLUDED.status,created_at=now(),prompt_version=EXCLUDED.prompt_version,result=EXCLUDED.result
+           WHERE merge_risk_decision_records.status IN ('skipped_daily_cap','skipped_concurrency')
+             AND merge_risk_decision_records.status <> EXCLUDED.status
+         RETURNING id`,
         [
           url,
           headSha,
@@ -291,10 +296,6 @@ export class MergeRiskAssessor {
           JSON.stringify({ model: DECISIONS_MODEL }),
         ]
       );
-      if (record.rowCount && status === "pending")
-        await client.query(
-          "UPDATE merge_risk_decision_daily SET calls=calls+1 WHERE day=(now() AT TIME ZONE 'UTC')::date"
-        );
       await client.query("COMMIT");
       return record.rows[0] && status === "pending"
         ? record.rows[0].id
@@ -321,9 +322,6 @@ export class MergeRiskAssessor {
   async prune() {
     await this.options.pool.query(
       "DELETE FROM merge_risk_decision_records WHERE created_at < now() - interval '14 days' OR id IN (SELECT id FROM merge_risk_decision_records ORDER BY created_at DESC,id DESC OFFSET 2000)"
-    );
-    await this.options.pool.query(
-      "DELETE FROM merge_risk_decision_daily WHERE day < (now() AT TIME ZONE 'UTC')::date - 2"
     );
   }
 }

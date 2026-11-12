@@ -29,10 +29,9 @@ choice probability and confidence of at least 0.8; this is an initial policy
 threshold, not a measured accuracy guarantee. The total runtime wait is capped at
 three seconds, with a provider timeout of 2.5 seconds.
 
-`DISPATCH_STEERING_DAILY_CAP` sets the UTC daily reservation cap (default 25,
-accepted range 0–100). A database lock limits provider concurrency to two steering
-requests fleet-wide. Skipped reservations retain the default. The cap is separate
-from reply routing. In dev stacks, `DISPATCH_DECISIONS_API_KEY` seeds the shared
+Dispatch enforces no daily, call or token limit; spend limits belong to the API
+key's own provider settings. A database lock limits provider concurrency to two
+steering requests fleet-wide. Skipped reservations retain the default. In dev stacks, `DISPATCH_DECISIONS_API_KEY` seeds the shared
 stored token once when absent; an explicitly removed token is not reseeded.
 
 Activity → Metrics shows reply routing and steering separately: attempts, applied
@@ -50,7 +49,7 @@ completed. A steered choice records host acceptance, not confirmed agent pickup.
 Use `--live --split development|holdout --policy baseline|candidate|current|both|ablations|final-pair`
 with `--limit 1–120 --repeats 1–3 --out /tmp/results.json` for a bounded live batch.
 The runner reads the dev token from `.env`, uses two workers, no retries, and a
-2.5-second provider timeout. It does not touch application databases, daily caps,
+2.5-second provider timeout. It does not touch application databases
 or settings. Outputs contain synthetic fixtures and sanitized API results only.
 
 Fixtures in `scripts/evals/steering-fixtures.ts` have fixed labels and a development/

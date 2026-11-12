@@ -44,6 +44,38 @@ export function explanationUsage(raw: unknown) {
     },
   };
 }
+/** Why an explanation failed, safe to show and retain (no provider text). */
+export type ExplanationFailure =
+  | "provider_rejected"
+  | "provider_rate_limited"
+  | "provider_error"
+  | "timeout"
+  | "network"
+  | "malformed"
+  | "oversized";
+class Failure extends Error {
+  constructor(
+    readonly reason: ExplanationFailure,
+    readonly httpStatus?: number
+  ) {
+    super(reason);
+  }
+}
+function classify(error: unknown): {
+  reason: ExplanationFailure;
+  httpStatus?: number;
+} {
+  if (error instanceof Failure)
+    return error.httpStatus === undefined
+      ? { reason: error.reason }
+      : { reason: error.reason, httpStatus: error.httpStatus };
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === "TimeoutError" || name === "AbortError")
+    return { reason: "timeout" };
+  if (error instanceof SyntaxError) return { reason: "malformed" };
+  return { reason: "network" };
+}
+
 export async function requestExplanation(
   key: string,
   input: unknown,
@@ -56,7 +88,7 @@ export async function requestExplanation(
   };
   try {
     const text = JSON.stringify(input);
-    if (Buffer.byteLength(text) > 16_384) throw new Error("oversized");
+    if (Buffer.byteLength(text) > 16_384) throw new Failure("oversized");
     const response = await transport("https://api.openai.com/v1/responses", {
       method: "POST",
       redirect: "error",
@@ -68,11 +100,18 @@ export async function requestExplanation(
       body: JSON.stringify(explanationRequest(input)),
     });
     if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error("provider_error");
+      await response.body?.cancel().catch(() => {});
+      throw new Failure(
+        response.status === 401 || response.status === 403
+          ? "provider_rejected"
+          : response.status === 429
+            ? "provider_rate_limited"
+            : "provider_error",
+        response.status
+      );
     }
     const reader = response.body?.getReader();
-    if (!reader) throw new Error("malformed");
+    if (!reader) throw new Failure("malformed");
     const chunks: Uint8Array[] = [];
     let bytes = 0;
     try {
@@ -80,7 +119,7 @@ export async function requestExplanation(
         const { done, value } = await reader.read();
         if (done) break;
         bytes += value.byteLength;
-        if (bytes > 32_768) throw new Error("oversized");
+        if (bytes > 32_768) throw new Failure("malformed");
         chunks.push(value);
       }
     } finally {
@@ -89,7 +128,7 @@ export async function requestExplanation(
     const raw = obj(JSON.parse(Buffer.concat(chunks).toString("utf8")));
     accounting = explanationUsage(raw.usage);
     if (raw.status !== "completed" || !Array.isArray(raw.output))
-      throw new Error("incomplete");
+      throw new Failure("malformed");
     const parts: string[] = [];
     for (const item of raw.output) {
       const message = obj(item);
@@ -99,11 +138,11 @@ export async function requestExplanation(
         message.role !== "assistant" ||
         !Array.isArray(message.content)
       )
-        throw new Error("malformed");
+        throw new Failure("malformed");
       for (const part of message.content) {
         const p = obj(part);
         if (p.type !== "output_text" || typeof p.text !== "string")
-          throw new Error("malformed");
+          throw new Failure("malformed");
         parts.push(p.text);
       }
     }
@@ -114,17 +153,18 @@ export async function requestExplanation(
       explanation.split(/\s+/).length > 200 ||
       explanation.includes(key)
     )
-      throw new Error("malformed");
+      throw new Failure("malformed");
     return {
-      status: "ok",
+      status: "ok" as const,
       text: String(retainedEvidence(explanation, key)),
       model: EXPLANATION_MODEL,
       ...accounting,
       latencyMs: Date.now() - started,
     };
-  } catch {
+  } catch (error) {
     return {
-      status: "error",
+      status: "error" as const,
+      ...classify(error),
       text: undefined,
       model: EXPLANATION_MODEL,
       ...accounting,

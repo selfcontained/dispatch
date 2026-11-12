@@ -93,7 +93,6 @@ export class RoutingSettings {
       configured: !!saved.routing_api_key,
       keySource: saved.routing_api_key ? "settings" : "none",
       storedKey: !!saved.routing_api_key,
-      dailyCap: routingShadowConfig(this.env).dailyCap,
     };
   }
   /** Non-generating check. Never return arbitrary provider text (it may echo secrets). */

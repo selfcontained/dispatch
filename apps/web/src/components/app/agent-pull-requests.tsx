@@ -62,13 +62,9 @@ const RISK_DISPLAY = {
     label: "Risk · evaluating",
     hint: "Assessing this change.",
   },
-  daily_cap: {
-    label: "Risk · daily limit",
-    hint: "Daily budget reached. No assessment.",
-  },
   capacity: {
     label: "Risk · capacity limit",
-    hint: "Capacity full. No assessment.",
+    hint: "Two AI requests were already running. Retries on the next refresh.",
   },
   rate_limited: {
     label: "Risk · provider limit",
@@ -168,6 +164,46 @@ function EvidencePercent({
     </span>
   );
 }
+type ExplanationReply = {
+  state: "ready" | "unavailable" | "pending" | "limited" | "failed";
+  text?: string;
+  reason?: string;
+};
+const EXPLANATION_FAILURES: Record<string, string> = {
+  provider_rejected:
+    "OpenAI rejected the request. Check the API key in Settings → AI routing.",
+  provider_rate_limited: "OpenAI rate limit. Wait a minute, then retry.",
+  provider_error: "OpenAI returned an error. You can retry.",
+  timeout: "OpenAI did not answer in time. You can retry.",
+  network: "Could not reach OpenAI. Check the connection, then retry.",
+  malformed: "OpenAI returned an unusable answer. You can retry.",
+  oversized: "Saved evidence is too large to explain. No request was made.",
+};
+/** One notice per outcome; "busy" never describes a failed request. */
+function explanationNotice(data: ExplanationReply | undefined) {
+  if (data?.state === "unavailable")
+    return {
+      title: "Explanation unavailable",
+      message:
+        "Explanation unavailable for this assessment: it is no longer current or lacks saved evidence. The assessment above still applies.",
+    };
+  if (data?.state === "limited")
+    return {
+      title: "Assessments busy",
+      message: "Two AI requests are already running. Retry in a minute.",
+    };
+  if (data?.state === "pending")
+    return {
+      title: "Already in progress",
+      message: "An explanation is already in progress. Check again shortly.",
+    };
+  return {
+    title: "Explanation failed",
+    message:
+      (data?.reason && EXPLANATION_FAILURES[data.reason]) ??
+      "Could not explain this assessment. You can retry.",
+  };
+}
 function RiskExplanation({
   agentId,
   url,
@@ -178,7 +214,7 @@ function RiskExplanation({
   assessmentId: string;
 }) {
   const [requested, setRequested] = useState(false);
-  const query = useQuery<{ state: string; text?: string }>({
+  const query = useQuery<ExplanationReply>({
     queryKey: ["risk-explanation", agentId, url, assessmentId],
     enabled: false,
     retry: false,
@@ -197,33 +233,7 @@ function RiskExplanation({
   const showNotice =
     requested && !query.isFetching && !ready && (query.isError || !!query.data);
   const failure = query.isError || query.data?.state === "failed";
-  const notice =
-    query.isError || query.data?.state === "failed"
-      ? {
-          title: "Explanation failed",
-          message: "Could not explain this assessment. You can retry.",
-        }
-      : query.data?.state === "unavailable"
-        ? {
-            title: "Explanation unavailable",
-            message:
-              "Explanation unavailable for this assessment. Older assessments may lack saved evidence.",
-          }
-        : query.data?.state === "limited"
-          ? {
-              title: "Assessment limit reached",
-              message: "Assessment limit reached. Try again later.",
-            }
-          : query.data?.state === "pending"
-            ? {
-                title: "Already in progress",
-                message:
-                  "An explanation is already in progress. Check again shortly.",
-              }
-            : {
-                title: "Explanation failed",
-                message: "Could not explain this assessment. You can retry.",
-              };
+  const notice = explanationNotice(query.isError ? undefined : query.data);
   const ActionIcon = query.isFetching
     ? LoaderCircle
     : requested

@@ -9,13 +9,23 @@ import {
   loadReviewEvidence,
   reviewFingerprint,
 } from "./sources.js";
-import { requestExplanation } from "./explanation-client.js";
+import {
+  requestExplanation,
+  type ExplanationFailure,
+} from "./explanation-client.js";
 
 type Input = { agentId: string; url: string; assessmentId: string };
-type Reply = {
-  state: "ready" | "unavailable" | "pending" | "limited" | "failed";
-  text?: string;
-};
+/**
+ * `limited` only means two provider calls were already in flight; Dispatch
+ * has no daily or token limit. Provider/network failures, including the
+ * key's own provider rate limits, are `failed` with their reason.
+ */
+export type ExplanationReply =
+  | { state: "ready"; text?: string }
+  | { state: "unavailable" | "pending" }
+  | { state: "limited"; reason: "concurrency" }
+  | { state: "failed"; reason: ExplanationFailure | "unknown" };
+type Reply = ExplanationReply;
 type Snapshot = {
   owner_ids: string[];
   owner_projects: Record<string, string | null>;
@@ -33,7 +43,6 @@ export class RiskExplanations {
       settings: RoutingSettings;
       inventory: { get(id: string): AgentPullRequest[] };
       transport?: typeof fetch;
-      env?: NodeJS.ProcessEnv;
     }
   ) {}
   private async eligible(input: Input): Promise<Snapshot | null> {
@@ -103,10 +112,7 @@ export class RiskExplanations {
     let run = false;
     try {
       await client.query("BEGIN");
-      const capacity = await mergeRiskCapacity(
-        client,
-        this.deps.env ?? process.env
-      );
+      const capacity = await mergeRiskCapacity(client);
       const stored = (
         await client.query<{ status: string; result: { text?: string } }>(
           "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
@@ -122,14 +128,11 @@ export class RiskExplanations {
       }
       if (capacity !== "pending") {
         await client.query("COMMIT");
-        return { state: "limited" };
+        return { state: "limited", reason: "concurrency" };
       }
       await client.query(
         "INSERT INTO merge_risk_explanations(assessment_id,status) VALUES($1,'pending') ON CONFLICT(assessment_id) DO UPDATE SET status='pending',created_at=now()",
         [input.assessmentId]
-      );
-      await client.query(
-        "UPDATE merge_risk_decision_daily SET calls=calls+1 WHERE day=(now() AT TIME ZONE 'UTC')::date"
       );
       await client.query("COMMIT");
       run = true;
@@ -139,7 +142,7 @@ export class RiskExplanations {
     } finally {
       client.release();
     }
-    if (!run) return { state: "failed" };
+    if (!run) return { state: "failed", reason: "unknown" };
     const config = await this.deps.settings.configuration();
     if (
       !(await this.eligible(input)) ||
@@ -171,7 +174,10 @@ export class RiskExplanations {
       ? { state: "unavailable" }
       : result.status === "ok"
         ? { state: "ready", text }
-        : { state: "failed" };
+        : {
+            state: "failed",
+            reason: result.status === "error" ? result.reason : "unknown",
+          };
   }
   private async finish(id: string, status: string, result: unknown) {
     await this.deps.pool.query(
