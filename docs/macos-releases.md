@@ -51,6 +51,26 @@ with both assets, and only then adds the Mac build to the appcast on the
 preview channel. The Mac build number is `github.run_id.github.run_attempt`;
 a rerun of the same release replaces that release's older build.
 
+For an interrupted release whose tag already exists but whose GitHub release does
+not, dispatch Release from `main` with `recovery_tag` and `recovery_commit` (the
+full expected tag commit SHA). This ignores the version bump input, validates the
+unchanged tag/version and main ancestry, and rebuilds all artifacts from that
+commit using the current workflow. Do not rerun an old workflow to pick up a
+routing fix: reruns retain the old workflow definition. Recovery refuses an
+existing GitHub release. Retain any release freeze and obtain its explicit
+exception before dispatching recovery. Record the workflow SHA separately from
+the released application SHA; artifacts include the new run ID and attempt.
+
+The macOS jobs require `[self-hosted, macOS, ARM64]`. Checkout cleans persistent
+workspace outputs; the PostgreSQL cache remains architecture-specific and is
+verified by the downloader. Signing uses a private, unique temporary directory,
+never changes the default keychain, restores the original user search list, and
+removes only the job's own certificate and keychain. If restoration fails, cleanup
+fails visibly and retains the snapshot and keychain for explicit investigation
+(after removing the raw certificate). Abrupt host termination may prevent an
+`always()` step; never clean unrelated keychains or change runner services to
+recover it.
+
 **Promote Release** (`.github/workflows/promote-release.yml`, main only)
 takes a tag, removes its appcast entry's channel tag, then marks the GitHub
 release non-prerelease and latest. Settings → Releases → Promote dispatches

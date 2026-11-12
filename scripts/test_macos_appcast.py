@@ -497,6 +497,9 @@ class PublicationTests(unittest.TestCase):
             self.assertEqual({str(path.relative_to(dist)) for path in dist.rglob('*') if path.is_file()},
                              {appcast.FEED_PATH.lstrip('/'), '_headers'})
 
+    def test_runner_and_recovery_contract(self):
+        subprocess.run(['node', '--test', 'scripts/test-release-workflow.mjs'], cwd=appcast.ROOT, check=True)
+
     def test_release_workflow_contract(self):
         workflow = (appcast.ROOT / '.github/workflows/release.yml').read_text()
         self.assertIn('tags: ["v*.*.*"]', workflow)
