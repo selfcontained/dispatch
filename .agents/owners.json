@@ -245,6 +245,7 @@
         "apps/server/src/routes/release.ts",
         "apps/server/src/db/migrations/**",
         "release-notes/**",
+        "docs/macos-releases.md",
         "bin/**",
         "scripts/*release*",
         "scripts/*macos*",

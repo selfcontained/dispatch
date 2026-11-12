@@ -127,6 +127,7 @@ with open(os.environ['CALLS'],'a') as f: f.write(json.dumps([os.path.basename(sy
 if os.path.basename(sys.argv[0])=='node': print(os.environ.get('PACKAGE_VERSION', '1.7.10')); sys.exit(0)
 if os.path.basename(sys.argv[0])=='gh': sys.exit(0 if os.environ.get('EXISTS') else 1)
 if args==['rev-parse','HEAD']: print(os.environ['ACTUAL_SHA'])
+if args and args[0]=='rev-parse' and args[1]!='HEAD': print(os.environ.get('ACTUAL_OBJECT', 'a'*40))
 if args[:2]==['merge-base','--is-ancestor'] and os.environ.get('BAD_ANCESTRY'): sys.exit(1)
 if args and args[0] in ['push','tag','commit']: sys.exit(99)
 `;
@@ -142,6 +143,8 @@ if args and args[0] in ['push','tag','commit']: sys.exit(99)
       {},
       { RECOVERY_TAG: "v1.7.10;echo bad" },
       { RECOVERY_COMMIT: "" },
+      { RECOVERY_TAG_OBJECT: "" },
+      { ACTUAL_OBJECT: "b".repeat(40) },
       { ACTUAL_SHA: "f".repeat(40) },
       { BAD_ANCESTRY: "1" },
       { PACKAGE_VERSION: "1.7.9" },
@@ -159,6 +162,7 @@ if args and args[0] in ['push','tag','commit']: sys.exit(99)
           GITHUB_REF_NAME: "main",
           RECOVERY_TAG: "v1.7.10",
           RECOVERY_COMMIT: sha,
+          RECOVERY_TAG_OBJECT: "a".repeat(40),
           ACTUAL_SHA: sha,
           GITHUB_OUTPUT: output,
           GITHUB_RUN_ID: "123",
@@ -177,6 +181,64 @@ if args and args[0] in ['push','tag','commit']: sys.exit(99)
           new RegExp(`release_commit=${sha}`)
         );
       else assert.ok(!existsSync(output));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("appcast tests have dependencies and retries use producer artifact names", () => {
+  const steps = workflow.jobs["build-macos-app"].steps;
+  assert.ok(
+    steps.findIndex((s) => s.run === "pnpm install --frozen-lockfile") <
+      steps.findIndex((s) => s.name === "Test appcast publisher")
+  );
+  assert.equal(
+    workflow.jobs["build-macos-app"].outputs.artifact_name,
+    "${{ steps.artifact.outputs.name }}"
+  );
+  for (const job of ["publish-release", "publish-macos-appcast"]) {
+    assert.ok(workflow.jobs[job].needs.includes("build-macos-app"));
+    assert.equal(
+      step(job, "Download macOS app").with.name,
+      "${{ needs.build-macos-app.outputs.artifact_name }}"
+    );
+  }
+});
+
+test("publication fails before mutations when the remote tag object changes", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "release-tag-guard-test-"));
+  try {
+    const gh = path.join(root, "gh");
+    writeFileSync(
+      gh,
+      '#!/usr/bin/env python3\nimport os,sys\nif sys.argv[1]=="api": print(os.environ["REMOTE_OBJECT"]); sys.exit(0)\nwith open(os.environ["MUTATIONS"],"a") as f: f.write("mutation")\n'
+    );
+    chmodSync(gh, 0o755);
+    for (const [job, name] of [
+      ["publish-release", "Create GitHub prerelease from tested artifacts"],
+      ["publish-macos-appcast", "Add the build to the preview channel"],
+    ]) {
+      const script = step(job, name)
+        .run.replaceAll("${{ needs.prepare-release.outputs.tag }}", "v1.7.10")
+        .replaceAll(
+          "${{ needs.prepare-release.outputs.tag_object }}",
+          "a".repeat(40)
+        )
+        .replaceAll("${{ github.repository }}", "selfcontained/dispatch");
+      const mutations = path.join(root, "mutations");
+      const result = spawnSync("bash", ["-c", script], {
+        env: {
+          ...process.env,
+          PATH: `${root}:${process.env.PATH}`,
+          REMOTE_OBJECT: "b".repeat(40),
+          MUTATIONS: mutations,
+        },
+        encoding: "utf8",
+      });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /release tag object changed/);
+      assert.ok(!existsSync(mutations));
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

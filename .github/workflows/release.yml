@@ -26,6 +26,11 @@ on:
         required: false
         default: ""
         type: string
+      recovery_tag_object:
+        description: "Expected tag object SHA (required with recovery_tag)"
+        required: false
+        default: ""
+        type: string
   push:
     tags: ["v*.*.*"]
 
@@ -46,6 +51,7 @@ jobs:
       tag: ${{ steps.prepare.outputs.tag }}
       release_commit: ${{ steps.prepare.outputs.release_commit }}
       artifact_name: ${{ steps.prepare.outputs.artifact_name }}
+      tag_object: ${{ steps.prepare.outputs.tag_object }}
 
     steps:
       - uses: actions/checkout@v6
@@ -100,8 +106,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -n "$RECOVERY_COMMIT" ] && [ -z "$RECOVERY_TAG" ]; then
-            echo "error: recovery_commit requires recovery_tag" >&2
+          if { [ -n "$RECOVERY_COMMIT" ] || [ -n "$RECOVERY_TAG_OBJECT" ]; } && [ -z "$RECOVERY_TAG" ]; then
+            echo "error: recovery commit/object requires recovery_tag" >&2
             exit 1
           fi
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -z "$RECOVERY_TAG" ]; then
@@ -179,8 +185,10 @@ jobs:
               [ "$GITHUB_REF_NAME" = main ] || { echo "error: recovery must run from main" >&2; exit 1; }
               [[ "$RECOVERY_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "error: invalid recovery tag" >&2; exit 1; }
               [[ "$RECOVERY_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "error: recovery requires a full expected commit SHA" >&2; exit 1; }
+              [[ "$RECOVERY_TAG_OBJECT" =~ ^[0-9a-f]{40}$ ]] || { echo "error: recovery requires a full expected tag object SHA" >&2; exit 1; }
               TAG="$RECOVERY_TAG"
               git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+              [ "$(git rev-parse "refs/tags/$TAG")" = "$RECOVERY_TAG_OBJECT" ] || { echo "error: recovery tag object changed" >&2; exit 1; }
               git checkout --detach "refs/tags/$TAG^{commit}"
               [ "$(git rev-parse HEAD)" = "$RECOVERY_COMMIT" ] || { echo "error: recovery tag moved or expected commit is wrong" >&2; exit 1; }
             else
@@ -209,12 +217,14 @@ jobs:
           {
             echo "tag=${TAG}"
             echo "release_commit=$(git rev-parse HEAD)"
+            echo "tag_object=$(git rev-parse "refs/tags/$TAG")"
             echo "artifact_name=release-bundle-${TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           } >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY_TAG: ${{ inputs.recovery_tag }}
           RECOVERY_COMMIT: ${{ inputs.recovery_commit }}
+          RECOVERY_TAG_OBJECT: ${{ inputs.recovery_tag_object }}
 
   verify-release:
     needs: prepare-release
@@ -425,6 +435,9 @@ jobs:
     permissions:
       contents: read
 
+    outputs:
+      artifact_name: ${{ steps.artifact.outputs.name }}
+
     env:
       MAC_ARCH: arm64
       DISPATCH_SPARKLE_PUBLIC_KEY: ${{ vars.MACOS_SPARKLE_PUBLIC_KEY }}
@@ -471,12 +484,12 @@ jobs:
           echo "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c  $DISPATCH_SPARKLE_SDK/sdk.tar.xz" | shasum -a 256 -c -
           tar -xf "$DISPATCH_SPARKLE_SDK/sdk.tar.xz" -C "$DISPATCH_SPARKLE_SDK"
 
+      - run: pnpm install --frozen-lockfile
+
       # Runs with the SDK present so the signed-feed tests also check the
       # official sign_update. Uses synthetic keys only.
       - name: Test appcast publisher
         run: python3 scripts/test_macos_appcast.py
-
-      - run: pnpm install --frozen-lockfile
 
       - uses: actions/cache@v4
         with:
@@ -546,9 +559,15 @@ jobs:
           node scripts/sign-macos-archive.mjs "dist/macos/arm64/dispatch-macos-$DISPATCH_MAC_BUILD-arm64.zip" dist/macos/arm64/signature.txt
           python3 scripts/macos_appcast.py item --directory dist/macos/arm64 --build "$DISPATCH_MAC_BUILD" --version "${TAG#v}"
 
+      - name: Name macOS artifact
+        id: artifact
+        env:
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: echo "name=macos-app-${TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v7
         with:
-          name: macos-app-${{ needs.prepare-release.outputs.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ steps.artifact.outputs.name }}
           path: |
             dist/macos/arm64/*.zip
             dist/macos/arm64/macos-item.json
@@ -784,13 +803,16 @@ jobs:
       - name: Download macOS app
         uses: actions/download-artifact@v8
         with:
-          name: macos-app-${{ needs.prepare-release.outputs.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.build-macos-app.outputs.artifact_name }}
           path: macos
 
       - name: Create GitHub prerelease from tested artifacts
         run: |
           set -euo pipefail
           TAG="${{ needs.prepare-release.outputs.tag }}"
+          EXPECTED_OBJECT="${{ needs.prepare-release.outputs.tag_object }}"
+          ACTUAL_OBJECT="$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq '.object.sha')"
+          [ "$ACTUAL_OBJECT" = "$EXPECTED_OBJECT" ] || { echo "error: release tag object changed" >&2; exit 1; }
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "error: release $TAG already exists" >&2
             exit 1
@@ -809,6 +831,7 @@ jobs:
   publish-macos-appcast:
     needs:
       - prepare-release
+      - build-macos-app
       - publish-release
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -836,13 +859,20 @@ jobs:
       - name: Download macOS app
         uses: actions/download-artifact@v8
         with:
-          name: macos-app-${{ needs.prepare-release.outputs.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.build-macos-app.outputs.artifact_name }}
           path: ${{ runner.temp }}/macos
 
       # The feed is signed here, before deploy; the key stays in the environment.
       - name: Add the build to the preview channel
-        run: python3 scripts/macos_appcast.py publish --item "$RUNNER_TEMP/macos/macos-item.json"
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.prepare-release.outputs.tag }}"
+          EXPECTED_OBJECT="${{ needs.prepare-release.outputs.tag_object }}"
+          ACTUAL_OBJECT="$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq '.object.sha')"
+          [ "$ACTUAL_OBJECT" = "$EXPECTED_OBJECT" ] || { echo "error: release tag object changed" >&2; exit 1; }
+          python3 scripts/macos_appcast.py publish --item "$RUNNER_TEMP/macos/macos-item.json"
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MACOS_SPARKLE_PRIVATE_KEY: ${{ secrets.MACOS_SPARKLE_PRIVATE_KEY }}
           DISPATCH_SPARKLE_PUBLIC_KEY: ${{ vars.MACOS_SPARKLE_PUBLIC_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
