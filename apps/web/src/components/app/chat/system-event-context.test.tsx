@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+} from "@testing-library/react";
 import { afterEach, it, expect, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Post } from "./chat-entries";
@@ -15,6 +21,7 @@ vi.mock("../scheduled-messages-button", () => ({
   ScheduledMessagesButton: () => <button>Manage</button>,
 }));
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   live.data = [];
 });
@@ -128,4 +135,21 @@ it("follows the live status once a reminder is cancelled", () => {
   reminder();
   expect(screen.getAllByText("Cancelled").length).toBeGreaterThan(0);
   expect(screen.queryByText(/Next/)).toBeNull();
+});
+it("drops Next once the due time passes on an idle tab, without a query update", () => {
+  vi.useFakeTimers();
+  const next = new Date(Date.now() + 60_000).toISOString();
+  live.data = [{ ...snapshot, id: "s", nextDueAt: next }];
+  reminder();
+  expect(screen.getByText(/^Next/)).toBeTruthy();
+  act(() => {
+    vi.advanceTimersByTime(59_000);
+  });
+  expect(screen.getByText(/^Next/)).toBeTruthy();
+  act(() => {
+    vi.advanceTimersByTime(1_000);
+  });
+  expect(screen.queryByText(/Next/)).toBeNull();
+  expect(screen.getByText("Active")).toBeTruthy();
+  expect(vi.getTimerCount()).toBe(0);
 });

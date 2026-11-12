@@ -2,6 +2,7 @@ import {
   SystemEventEntry,
   type SystemEventPresentation,
 } from "./system-event-entry";
+import { useEffect, useState } from "react";
 import { Clock } from "lucide-react";
 import type { ScheduledMessagePresentation } from "@dispatch/shared";
 import { ScheduledMessagesButton } from "../scheduled-messages-button";
@@ -35,11 +36,24 @@ export function ScheduledMessageEntry({
   const cached = query.data?.find((s) => s.id === scheduleId);
   const schedule = cached ?? presentation;
   // Only the live query's nextDueAt is current; the block snapshot is frozen.
+  const liveDue =
+    !delivery && cached?.status === "active" ? cached.nextDueAt : null;
+  // One-shot re-render at the due boundary so an idle tab never keeps
+  // showing a past time as "Next".
+  const [passedDue, setPassedDue] = useState<string | null>(null);
+  useEffect(() => {
+    if (!liveDue) return;
+    const ms = Date.parse(liveDue) - Date.now();
+    if (!(ms > 0)) return;
+    const timer = setTimeout(
+      () => setPassedDue(liveDue),
+      Math.min(ms, 2 ** 31 - 1)
+    );
+    return () => clearTimeout(timer);
+  }, [liveDue]);
   const upcoming =
-    !delivery &&
-    cached?.status === "active" &&
-    new Date(cached.nextDueAt).getTime() > Date.now()
-      ? cached.nextDueAt
+    liveDue && passedDue !== liveDue && Date.parse(liveDue) > Date.now()
+      ? liveDue
       : null;
   const current = schedule ? isCurrentSchedule(schedule) : true;
   const content = (
