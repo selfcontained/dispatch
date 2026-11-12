@@ -520,6 +520,7 @@
         "apps/server/test/slack-answers.test.ts",
         "apps/server/test/slack-blocks.test.ts",
         "apps/server/test/slack-thread-replies.test.ts",
+        "apps/server/test/slack-notifier.test.ts",
         "docs/17-jobs.md"
       ],
       "personas": ["code-review"]

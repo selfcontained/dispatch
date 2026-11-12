@@ -191,7 +191,7 @@ export function buildPostEnvelope(input: {
   ) {
     // Only the agent's explicit choice reaches Slack; its stream replies don't.
     context.push(
-      `They wrote this in a Slack thread and see only what is posted there. To answer them in Slack, call notify({ replyTo: "${input.blockId}", message }) with a self-contained reply; ordinary replies stay in Dispatch.`
+      `Sent from Slack: they read only Slack, and your normal reply here is not shown there. When you have their answer, reply with notify({ replyTo: "${input.blockId}", message }), written to stand on its own.`
     );
   }
   if (input.references?.length) {
