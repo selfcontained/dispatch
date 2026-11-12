@@ -36,6 +36,7 @@
         "packages/shared/src/pull-requests.ts",
         "apps/server/test/codex-reset.test.ts",
         "apps/server/test/provider-plans.test.ts",
+        "apps/server/test/usage-watches.test.ts",
         "apps/server/test/lifecycle-routes.test.ts",
         "apps/server/test/*worktree*",
         "apps/server/test/workspace-target.test.ts",
