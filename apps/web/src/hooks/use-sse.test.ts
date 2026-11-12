@@ -298,6 +298,104 @@ describe("applyStreamEntry", () => {
     );
   });
 
+  /**
+   * A busy turn republishes its block on every step. Each one used to
+   * cancel and restart the feed's refetch, so with steps faster than a
+   * fetch no response ever landed and the person's own post stayed off the
+   * feed until the agent went quiet. The fetch in flight must finish, and
+   * the burst must cost one throttled follow-up, not one fetch per step.
+   */
+  it("lets a refetch finish while a busy turn publishes, then refetches once", async () => {
+    apiMock.mockResolvedValueOnce(page([]));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => useStreamFeed("agent-busy"), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let resolveRefetch!: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveRefetch = resolve;
+      })
+    );
+    void queryClient.refetchQueries({
+      queryKey: streamFeedQueryKey("agent-busy"),
+      exact: true,
+    });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+
+    const post = blockEntry(
+      block({ id: "post", streamId: "agent-busy", authorKind: "user" })
+    );
+    const turn = (step: number) =>
+      blockEntry(
+        block({
+          id: "turn",
+          streamId: "agent-busy",
+          authorKind: "agent",
+          text: `step ${step}`,
+          updatedAt: `2026-11-12T00:00:0${step}.000Z`,
+        })
+      );
+    applyStreamEntry(queryClient, "agent-busy", turn(1));
+    applyStreamEntry(queryClient, "agent-busy", post);
+    for (let step = 2; step < 8; step += 1)
+      applyStreamEntry(queryClient, "agent-busy", turn(step));
+    // Nothing cancelled or restarted the fetch in flight.
+    expect(apiMock).toHaveBeenCalledTimes(2);
+
+    apiMock.mockResolvedValue(page([post, turn(7)]));
+    // The snapshot in flight predates the entries.
+    resolveRefetch(page([]));
+    await waitFor(
+      () =>
+        expect(result.current.entries.map((e) => e.id)).toEqual([
+          "post",
+          "turn",
+        ]),
+      { timeout: 3_000 }
+    );
+    expect(apiMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops a scheduled follow-up for a feed removed before it runs", async () => {
+    apiMock.mockResolvedValueOnce(page([]));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const key = streamFeedQueryKey("agent-gone");
+    const { result, unmount } = renderHook(() => useStreamFeed("agent-gone"), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    let resolveRefetch!: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveRefetch = resolve;
+      })
+    );
+    void queryClient.refetchQueries({ queryKey: key, exact: true });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    applyStreamEntry(
+      queryClient,
+      "agent-gone",
+      blockEntry(block({ id: "late", streamId: "agent-gone" }))
+    );
+    unmount();
+    queryClient.removeQueries({ queryKey: key, exact: true });
+    resolveRefetch(page([]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(apiMock).toHaveBeenCalledTimes(2);
+    expect(
+      queryClient.getQueryCache().find({ queryKey: key, exact: true })
+    ).toBeUndefined();
+  });
+
   it("recovers a threaded checklist arriving during the first collection fetch, and refetch replaces progress", async () => {
     let resolveFirst!: (value: StreamFeedResponse) => void;
     apiMock.mockReturnValueOnce(
