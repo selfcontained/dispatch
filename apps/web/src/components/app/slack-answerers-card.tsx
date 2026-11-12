@@ -106,8 +106,8 @@ export function SlackAnswerersCard({
         )}
         {!!missingImageScopes?.length && (
           <p className="text-xs text-muted-foreground">
-            Optional images unavailable: {missingImageScopes.join(", ")}. Text
-            and account linking remain available.
+            Optional images unavailable: {missingImageScopes.join(", ")}.
+            Account linking uses separate permissions.
           </p>
         )}
 
