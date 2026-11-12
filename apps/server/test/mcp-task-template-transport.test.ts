@@ -314,6 +314,17 @@ it("applies per-task runtime/model overrides over MCP without editing the column
     launchAgentType: null,
     launchModel: null,
   });
+  const runtimeOnly = await call("task_update", {
+    id,
+    launchAgentType: "claude",
+  });
+  expect(runtimeOnly.isError).toBe(true);
+  expect(runtimeOnly.content[0].text).toMatch(/needs an explicit launchModel/);
+  const clearModel = await http("PATCH", `/api/v1/tasks/${id}`, {
+    launchAgentType: "claude",
+    launchModel: null,
+  });
+  expect(clearModel.status).toBe(400);
   const rejected = await http("PATCH", `/api/v1/tasks/${id}`, {
     launchModel: "sonnet",
   });

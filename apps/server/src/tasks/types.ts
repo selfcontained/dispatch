@@ -77,7 +77,7 @@ export type Task = {
    * the launch template / column automation. Never edits either.
    */
   launchAgentType: TaskAgentType | null;
-  /** Model override for `launchAgentType`; null inherits (see service). */
+  /** Explicit model for `launchAgentType`; set exactly when it is. */
   launchModel: string | null;
   createdBy: TaskActor;
   /**
@@ -180,7 +180,7 @@ export type UpdateTaskInput = {
   launchTemplateId?: string | null;
   /** Omit to keep; null clears the runtime and its model override. */
   launchAgentType?: TaskAgentType | null;
-  /** Omit to keep; null clears. Requires a runtime override. */
+  /** Omit to keep. Required with a runtime; null only alongside a null runtime. */
   launchModel?: string | null;
   /** Relative insertion anchor; null appends. Takes precedence over position. */
   beforeId?: string | null;

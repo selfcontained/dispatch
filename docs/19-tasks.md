@@ -97,22 +97,23 @@ HTTP create/update and MCP `task_create`/`task_update` accept them:
 { "launchAgentType": "claude", "launchModel": "opus" }
 ```
 
-- Omitted fields are preserved; `launchAgentType: null` clears the runtime and
-  its model; `launchModel: null` clears only the model. A model needs a runtime
-  and must be a configured model of it. Invalid pairs are rejected before any
-  write and nothing changes; a runtime is never substituted.
+- The override is an explicit pair: both set or both null (also a database
+  check). Setting or changing the runtime needs a model for it; a stored model
+  is kept only when it is valid for the new runtime. `launchModel: null` under
+  an active runtime is rejected; `launchAgentType: null` clears both. Omitted
+  fields are preserved. Invalid pairs are rejected before any write and nothing
+  changes; no runtime or default model is ever substituted.
 - Precedence per launch: task runtime/model → `launchTemplateId` template or the
-  column trigger → template. With the runtime unchanged and no task model, the
-  column/template model and effort are kept. With a different runtime and no
-  task model, the template rule applies (the template's model on its own
-  runtime, otherwise the runtime's CLI default) and inherited effort is dropped.
+  column trigger → template. The column's effort is kept only when the pair
+  matches the column's runtime and model; otherwise the template rule applies
+  (template effort only on the template's own runtime and model).
 - It applies to every later trigger launch of that task (moves, re-entry,
   fire-on-create) until cleared. It never edits the template or column, and
   the manual `POST /tasks/:id/agents` launch keeps its own explicit fields.
 - Permissions, full access, worktree, persona, prompt, args, capacity,
   assignment and relaunch safeguards come from the template/column as before.
-- `trigger_launched` (and `trigger_failed`) add `runtimeOverride { agentType,
-model }` beside the resolved `configuration` snapshot, which records the
+- `trigger_launched` (and `trigger_failed`) add
+  `runtimeOverride { agentType, model }` beside the resolved `configuration` snapshot, which records the
   runtime, model and effort the agent actually got. Launches revalidate, so a
   model removed from the catalog fails visibly instead of falling back.
 

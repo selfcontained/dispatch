@@ -643,11 +643,10 @@ export class TaskService {
 
   /**
    * What a trigger launches for this task. The full template override (or
-   * the column trigger) is the base; the task's runtime override then
-   * replaces its runtime for this task only. An omitted task model keeps
-   * the base model and effort when the runtime is unchanged; otherwise the
-   * template rule applies (template model on the template's runtime, else
-   * the runtime's CLI default). Template and column rows are never edited.
+   * the column trigger) is the base; the task's runtime/model pair, always
+   * explicit, replaces the base runtime and model for this task only. The
+   * base effort is kept only when both runtime and model are unchanged.
+   * Template and column rows are never edited.
    */
   private async effectiveLaunch(
     task: Pick<Task, "launchTemplateId" | "launchAgentType" | "launchModel">,
@@ -662,26 +661,27 @@ export class TaskService {
     const base = templateId
       ? { templateId, agentType: null, model: null, effort: null }
       : column.trigger;
-    if (!task.launchAgentType) return base;
+    if (!task.launchAgentType || !task.launchModel) return base;
     const inherited =
       base.agentType ??
       (await this.deps.getTemplate(base.templateId))?.agentType ??
       null;
-    const sameRuntime = task.launchAgentType === inherited;
-    const model = task.launchModel ?? (sameRuntime ? base.model : null);
+    const unchanged =
+      task.launchAgentType === inherited && task.launchModel === base.model;
     return {
       templateId: base.templateId,
       agentType: task.launchAgentType,
-      model,
-      effort:
-        sameRuntime && model === base.model ? (base.effort ?? null) : null,
+      model: task.launchModel,
+      effort: unchanged ? (base.effort ?? null) : null,
     };
   }
 
   /**
-   * The task's runtime override after `input`, checked before any write: a
-   * null runtime clears its model too, a model needs a runtime, and the pair
-   * must be a configured model of that runtime. Never substitutes either.
+   * The task's runtime/model override after `input`, checked before any
+   * write. It is a pair: both set, or both null. Setting or changing the
+   * runtime needs an explicit model (a stored one is kept only when valid
+   * for the new runtime); a model is never cleared under an active runtime,
+   * and `launchAgentType: null` clears both. Nothing is ever substituted.
    */
   private launchRuntimePatch(
     current: Pick<Task, "launchAgentType" | "launchModel"> | null,
@@ -689,40 +689,47 @@ export class TaskService {
   ): Pick<TaskPatch, "launchAgentType" | "launchModel"> {
     if (input.launchAgentType === undefined && input.launchModel === undefined)
       return {};
-    const agentType =
-      input.launchAgentType !== undefined
-        ? input.launchAgentType
-        : (current?.launchAgentType ?? null);
-    if (agentType !== null && !AGENT_TYPES.includes(agentType))
+    if (input.launchAgentType === null) {
+      if (input.launchModel != null)
+        throw invalid(
+          "launchModel needs launchAgentType: send both, or launchAgentType: null to clear the override."
+        );
+      return { launchAgentType: null, launchModel: null };
+    }
+    const agentType = input.launchAgentType ?? current?.launchAgentType ?? null;
+    if (agentType === null)
+      throw invalid(
+        "launchModel needs launchAgentType: send both, or launchAgentType: null to clear the override."
+      );
+    if (!AGENT_TYPES.includes(agentType))
       throw invalid(
         `Unsupported launchAgentType "${agentType}". Must be one of: ${AGENT_TYPES.join(", ")}.`
       );
-    const requested =
-      input.launchModel !== undefined
-        ? input.launchModel
-        : input.launchAgentType === null
-          ? null
-          : (current?.launchModel ?? null);
-    if (requested !== null && !requested.trim())
-      throw invalid("launchModel must be a model id, or null to inherit.");
-    if (requested !== null && agentType === null)
+    if (input.launchModel === null)
       throw invalid(
-        "launchModel needs launchAgentType: set the runtime with the model, or send launchModel: null."
+        "launchModel cannot be cleared while launchAgentType is set: send another model, or launchAgentType: null to clear the override."
       );
-    let model: string | null = null;
-    if (requested !== null && agentType !== null) {
-      try {
-        model = validateAgentModel(agentType, requested) ?? null;
-      } catch (error) {
-        // A runtime change keeps the stored model; say how to resolve it.
-        throw invalid(
-          input.launchModel === undefined
-            ? `The task's launchModel "${requested}" is not supported for ${agentType}. Send launchModel with the new runtime, or launchModel: null for its default.`
-            : errorMessage(error)
-        );
-      }
+    const requested = input.launchModel ?? current?.launchModel ?? null;
+    if (requested === null)
+      throw invalid(
+        `launchAgentType "${agentType}" needs an explicit launchModel for that runtime; no default is substituted.`
+      );
+    if (!requested.trim())
+      throw invalid(
+        "launchModel must be a model id; send launchAgentType: null to clear the override."
+      );
+    try {
+      const model = validateAgentModel(agentType, requested);
+      if (!model) throw new Error(`Model "${requested}" is not supported.`);
+      return { launchAgentType: agentType, launchModel: model };
+    } catch (error) {
+      // A runtime change keeps the stored model; say how to resolve it.
+      throw invalid(
+        input.launchModel === undefined
+          ? `The task's launchModel "${requested}" is not supported for ${agentType}. Send a launchModel for the new runtime, or launchAgentType: null to clear the override.`
+          : errorMessage(error)
+      );
     }
-    return { launchAgentType: agentType, launchModel: model };
   }
 
   private async validateLaunchPreference(

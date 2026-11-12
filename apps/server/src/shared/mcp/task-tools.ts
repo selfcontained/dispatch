@@ -74,7 +74,7 @@ const launchAgentTypeSchema = z
   .enum(AGENT_TYPES)
   .nullable()
   .describe(
-    "Runtime for this task's trigger launches only; wins over its launch template and column automation without editing either. Omit to keep; null clears it (and launchModel) to inherit."
+    "Runtime for this task's trigger launches only; wins over its launch template and column automation without editing either. Needs an explicit launchModel (a stored one is kept if valid for it). Omit to keep; null clears runtime and model to inherit."
   );
 
 const launchModelSchema = z
@@ -82,7 +82,7 @@ const launchModelSchema = z
   .min(1)
   .nullable()
   .describe(
-    "Model for launchAgentType (required with it), validated for that runtime; invalid pairs are rejected with nothing changed. Omit to keep; null inherits: the column/template model when the runtime is unchanged, else the template rule (its model on its own runtime, otherwise the runtime's CLI default). " +
+    "Model for launchAgentType, required with it and validated for that runtime; no default is ever substituted and invalid pairs are rejected with nothing changed. Omit to keep. Null is accepted only with launchAgentType: null (clears the override). " +
       describeAgentModelCatalog(AGENT_TYPES)
   );
 

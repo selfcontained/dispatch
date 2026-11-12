@@ -3546,7 +3546,7 @@ describe("task runtime overrides", () => {
     });
   });
 
-  it("keeps the inherited model and effort on the same runtime and uses the template rule on another", async () => {
+  it("keeps the column effort only for an unchanged pair and drops it for another model", async () => {
     const ready = await withTrigger("ready", {
       agentType: "claude",
       model: "haiku",
@@ -3554,7 +3554,12 @@ describe("task runtime overrides", () => {
       assign: false,
     });
     const same = await service.createTask(
-      { projectId, title: "Same runtime", launchAgentType: "claude" },
+      {
+        projectId,
+        title: "Same pair",
+        launchAgentType: "claude",
+        launchModel: "haiku",
+      },
       USER
     );
     await service.updateTask(same.id, { columnId: ready }, USER);
@@ -3563,26 +3568,24 @@ describe("task runtime overrides", () => {
       model: "haiku",
       effort: "low",
     });
-    const sameModel = await service.updateTask(
-      same.id,
-      { launchModel: "sonnet" },
+    const other = await service.createTask(
+      {
+        projectId,
+        title: "Other model",
+        launchAgentType: "claude",
+        launchModel: "sonnet",
+      },
       USER
     );
-    expect(sameModel.launchAgentType).toBe("claude");
-    const moved = await service.createTask(
-      { projectId, title: "Other runtime", launchAgentType: "codex" },
-      USER
-    );
-    await service.updateTask(moved.id, { columnId: ready }, USER);
-    // Template is claude, so codex runs on its CLI default, recorded as such.
+    await service.updateTask(other.id, { columnId: ready }, USER);
     expect(launches[1]!.resolvedTemplate).toMatchObject({
-      agentType: "codex",
-      model: null,
+      agentType: "claude",
+      model: "sonnet",
       effort: null,
     });
-    expect((await launched(moved.id))[0]!.data).toMatchObject({
-      runtimeOverride: { agentType: "codex", model: null },
-      configuration: { agentType: "codex", model: null },
+    expect((await launched(other.id))[0]!.data).toMatchObject({
+      runtimeOverride: { agentType: "claude", model: "sonnet" },
+      configuration: { agentType: "claude", model: "sonnet", effort: null },
     });
   });
 
@@ -3622,6 +3625,8 @@ describe("task runtime overrides", () => {
     [{ launchAgentType: "nope" }, /Unsupported launchAgentType/],
     [{ launchAgentType: "claude", launchModel: " " }, /model id/],
     [{ launchAgentType: null, launchModel: "sonnet" }, /needs launchAgentType/],
+    [{ launchAgentType: "claude" }, /needs an explicit launchModel/],
+    [{ launchAgentType: "claude", launchModel: null }, /cannot be cleared/],
   ] as const)(
     "rejects %j before any write or launch",
     async (override, message) => {
@@ -3660,7 +3665,7 @@ describe("task runtime overrides", () => {
     }
   );
 
-  it("rejects a runtime change that strands the stored model", async () => {
+  it("keeps the pair explicit: no stranded model, no cleared model under a runtime", async () => {
     const task = await service.createTask(
       {
         projectId,
@@ -3670,34 +3675,57 @@ describe("task runtime overrides", () => {
       },
       USER
     );
+    const unchanged = {
+      launchAgentType: "claude",
+      launchModel: "opus",
+    } as const;
     await expect(
       service.updateTask(task.id, { launchAgentType: "codex" }, USER)
     ).rejects.toThrow(
-      /launchModel "opus" is not supported for codex\. Send launchModel with the new runtime, or launchModel: null/
+      /launchModel "opus" is not supported for codex\. Send a launchModel for the new runtime, or launchAgentType: null/
     );
-    expect(await service.requireTask(task.id)).toMatchObject({
-      launchAgentType: "claude",
-      launchModel: "opus",
-    });
+    expect(await service.requireTask(task.id)).toMatchObject(unchanged);
+    for (const input of [
+      { launchModel: null },
+      { launchAgentType: "codex", launchModel: null },
+      { launchModel: "gpt-5.5" },
+    ] as const) {
+      await expect(service.updateTask(task.id, input, USER)).rejects.toThrow();
+      expect(await service.requireTask(task.id)).toMatchObject(unchanged);
+    }
+    // Same runtime keeps a stored model that is valid for it.
     await expect(
-      service.updateTask(
-        task.id,
-        { launchAgentType: "codex", launchModel: null },
-        USER
-      )
-    ).resolves.toMatchObject({ launchAgentType: "codex", launchModel: null });
-    await service.updateTask(
-      task.id,
-      { launchAgentType: "claude", launchModel: "opus" },
-      USER
-    );
+      service.updateTask(task.id, { launchAgentType: "claude" }, USER)
+    ).resolves.toMatchObject(unchanged);
+    await expect(
+      service.updateTask(task.id, { launchModel: "sonnet" }, USER)
+    ).resolves.toMatchObject({
+      launchAgentType: "claude",
+      launchModel: "sonnet",
+    });
     await expect(
       service.updateTask(
         task.id,
         { launchAgentType: "codex", launchModel: "gpt-5.5" },
         USER
       )
-    ).resolves.toMatchObject({ launchAgentType: "codex" });
+    ).resolves.toMatchObject({
+      launchAgentType: "codex",
+      launchModel: "gpt-5.5",
+    });
+    await expect(
+      service.updateTask(task.id, { launchAgentType: null }, USER)
+    ).resolves.toMatchObject({ launchAgentType: null, launchModel: null });
+  });
+
+  it("enforces the pair in the database too", async () => {
+    const task = await service.createTask({ projectId, title: "Raw" }, USER);
+    await expect(
+      pool.query(
+        `UPDATE tasks SET launch_agent_type = 'claude' WHERE id = $1`,
+        [task.id]
+      )
+    ).rejects.toThrow(/tasks_launch_runtime_pair/);
   });
 
   it("never lifts the restricted-caller access ceiling", async () => {
@@ -3732,7 +3760,12 @@ describe("task runtime overrides", () => {
   it("records trigger_failed when resolving the override's template throws", async () => {
     const ready = await withTrigger("ready", { assign: false });
     const task = await service.createTask(
-      { projectId, title: "Store down", launchAgentType: "codex" },
+      {
+        projectId,
+        title: "Store down",
+        launchAgentType: "codex",
+        launchModel: "gpt-5.5",
+      },
       USER
     );
     service = build(filesRoot, {
