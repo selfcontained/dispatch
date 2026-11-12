@@ -22,15 +22,53 @@ const events: SystemEventPresentation[] = [
         ? "Assessment inconclusive: insufficient evidence. Checks are reported independently."
         : "Assessment applies to this head only. Checks are reported independently.",
   })),
-  ...(["Passing", "Failing", "Pending"] as const).map((status) => ({
+  ...(
+    [
+      [
+        "Passing",
+        "Passing · 3 passed",
+        ["Type check — passed · 1m 4s", "Production build — passed · 2m"],
+      ],
+      [
+        "Failing",
+        "Failing · 4 passed, 1 failed, 2 pending",
+        [
+          "[Type check](<https://github.com/a/b/actions/runs/2>) — passed · 58s",
+          "Unit tests — passed",
+          "[Browser regression coverage with a deliberately long check lab…](<https://github.com/a/b/actions/runs/1>) — failed · 12m 30s",
+          "+2 more",
+        ],
+      ],
+      [
+        "Pending",
+        "Pending · 1 passed, 5 pending",
+        ["[Lint](<https://github.com/a/b/actions/runs/3>) — passed · 20s"],
+      ],
+      [
+        "Mixed",
+        "Mixed · 2 passed, 1 cancelled, 1 skipped",
+        ["Production build — passed · 2m 1s"],
+      ],
+    ] as const
+  ).map(([status, header, lines]) => ({
     category: "checks" as const,
     summary: "Pull request checks",
     status,
     resource,
     head,
-    details:
-      "Type check · Production build · Browser regression coverage with a deliberately long check label\nStatus observed at 10:42. No merge action taken.",
+    details: [
+      `[#1439](<https://github.com/a/b/pull/1439>) — ${header}`,
+      ...lines.map((l) => `- ${l}`),
+      "",
+      "0c935fb3a917 · 2026-11-10 17:42Z · Info only; no action authorized.",
+    ].join("\n"),
   })),
+  {
+    category: "checks",
+    summary: "Pull request checks",
+    resource,
+    details: "",
+  },
   {
     category: "lifecycle",
     summary: "Pull request merged",
@@ -52,8 +90,7 @@ export function SystemEventsCheckpoint() {
       </h1>
       <p className="mb-4 text-xs text-muted-foreground">
         Staged feed examples for visual approval. The “No recommendation”
-        example starts with details open; every Details button can expand or
-        collapse its observation.
+        example starts with details open; check results are shown inline.
       </p>
       <Post
         author={{ key: "user", kind: "user", name: "You" }}
