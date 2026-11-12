@@ -25,25 +25,35 @@ export async function discoverSlackLinkOrigins(
     resolve?: (hostname: string) => Promise<string[]>;
   } = {}
 ): Promise<SlackLinkOrigins> {
-  const candidates = new Map<string, { url: string; loopback: boolean }>();
+  const candidates = new Map<
+    string,
+    { url: string; loopback: boolean; virtual: boolean }
+  >();
   const interfaces = deps.interfaces ?? os.networkInterfaces;
-  const add = (host: string, port: number, local: boolean) => {
+  const add = (host: string, port: number, local: boolean, virtual = false) => {
     if (!Number.isInteger(port) || port < 1 || port > 65535) return;
     const authority = isIP(host) === 6 ? `[${host}]` : host;
     const url = new URL(
       `${input.tls ? "https" : "http"}://${authority}:${port}`
     ).origin;
-    candidates.set(url, { url, loopback: local });
+    const previous = candidates.get(url);
+    if (!previous || Number(virtual) < Number(previous.virtual))
+      candidates.set(url, { url, loopback: local, virtual });
   };
   for (const bound of input.addresses) {
     if (bound.address === "0.0.0.0" || bound.address === "::") {
       // Conservatively advertise only the wildcard's family, regardless of
       // platform-dependent IPv6 dual-stack behavior.
       const family = bound.address === "::" ? 6 : 4;
-      for (const entries of Object.values(interfaces()))
+      for (const [name, entries] of Object.entries(interfaces()))
         for (const entry of entries ?? []) {
           if (concreteIp(entry.address) && isIP(entry.address) === family)
-            add(entry.address, bound.port, loopback(entry.address));
+            add(
+              entry.address,
+              bound.port,
+              loopback(entry.address),
+              /^(docker|br-|veth|bridge|utun|vmnet)/i.test(name)
+            );
         }
       add(family === 4 ? "127.0.0.1" : "::1", bound.port, true);
     } else if (concreteIp(bound.address))
@@ -71,9 +81,14 @@ export async function discoverSlackLinkOrigins(
       if (addresses.includes(bound.address))
         add(hostname, bound.port, loopback(bound.address));
   }
-  const options = [...candidates.values()].sort(
-    (a, b) => Number(a.loopback) - Number(b.loopback)
-  );
+  // Preference only: interface names do not prove remote reachability.
+  const options = [...candidates.values()]
+    .sort(
+      (a, b) =>
+        Number(a.loopback) - Number(b.loopback) ||
+        Number(a.virtual) - Number(b.virtual)
+    )
+    .map(({ url, loopback }) => ({ url, loopback }));
   return { options, defaultUrl: options[0]?.url ?? null };
 }
 

@@ -292,3 +292,28 @@ it("offers configured DNS only when it resolves to an active bind, with an IP fa
     { options: [], defaultUrl: null }
   );
 });
+
+it("prefers ordinary interfaces over virtual interfaces without removing options", async () => {
+  const result = await discoverSlackLinkOrigins(
+    { addresses: [{ address: "0.0.0.0", port: 6767 }], tls: false },
+    {
+      interfaces: () => ({
+        utun4: fakeInterfaces("100.64.0.2")().test,
+        en0: fakeInterfaces("192.168.1.2")().test,
+        docker0: fakeInterfaces("172.17.0.1")().test,
+      }),
+    }
+  );
+  expect(result.defaultUrl).toBe("http://192.168.1.2:6767");
+  expect(result.options).toEqual([
+    { url: "http://192.168.1.2:6767", loopback: false },
+    { url: "http://100.64.0.2:6767", loopback: false },
+    { url: "http://172.17.0.1:6767", loopback: false },
+    { url: "http://127.0.0.1:6767", loopback: true },
+  ]);
+  const virtualOnly = await discoverSlackLinkOrigins(
+    { addresses: [{ address: "0.0.0.0", port: 6767 }], tls: false },
+    { interfaces: () => ({ utun4: fakeInterfaces("100.64.0.2")().test }) }
+  );
+  expect(virtualOnly.defaultUrl).toBe("http://100.64.0.2:6767");
+});
