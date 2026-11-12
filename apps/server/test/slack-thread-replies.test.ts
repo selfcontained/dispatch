@@ -15,6 +15,7 @@ import {
   SlackThreadReplies,
   chunkText,
 } from "../src/notifications/slack-thread-replies.js";
+import { answeredPrompts } from "../src/chat/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const A = "agt_slack_reply_a";
@@ -34,6 +35,7 @@ const freshBinding = (): SlackBinding => ({
 let pool: Pool;
 let live = true;
 let seq = 1;
+const injected: string[] = [];
 
 type Posted = { text: string; blocks: any[]; ts: string; threadTs?: string };
 
@@ -88,13 +90,14 @@ function build() {
     filesRoot: "/files-root",
     onAgentAsk: (agentId, block) =>
       (pending = replies.agentAsked(agentId, block)),
-    onResponseSettled: (input) => (pending = replies.responseSettled(input)),
     delivery: {
       access: async () =>
         live
           ? { mode: "live" as const }
           : { mode: "inert" as const, message: "Agent stopped." },
-      inject: async () => {},
+      inject: async (_agentId, text) => {
+        injected.push(text);
+      },
       held: () => false,
       activeTurn: () => false,
       commands: () => [],
@@ -106,12 +109,15 @@ function build() {
   replies = new SlackThreadReplies(pool, app, answers, name, (id) =>
     svc.currentTurn(id)
   );
-  /** A fresh relay over the same DB/Slack: what a server restart looks like. */
-  const restart = () =>
-    new SlackThreadReplies(pool, app, answers, name, (id) =>
-      svc.currentTurn(id)
+  const reply = (agentId: string, replyTo: string, message: string) =>
+    replies.reply(
+      { id: agentId, name: agents[agentId]?.name },
+      {
+        replyTo,
+        message,
+      }
     );
-  return { svc, answers, replies, calls, settle, restart };
+  return { svc, answers, replies, calls, settle, reply };
 }
 
 const threadReply = (
@@ -292,191 +298,72 @@ afterAll(teardownTestDb);
 beforeEach(async () => {
   live = true;
   binding = freshBinding();
+  injected.length = 0;
   await pool.query(
-    `DELETE FROM slack_thread_replies; DELETE FROM slack_messages; DELETE FROM slack_answerers;
+    `DELETE FROM slack_thread_replies; DELETE FROM slack_thread_reply_sends; DELETE FROM slack_messages; DELETE FROM slack_answerers;
      DELETE FROM slack_inbound; DELETE FROM question_notifications; DELETE FROM agent_stream_events;
      DELETE FROM blocks`
   );
   await allow("U1");
 });
 
-describe("Slack thread reply → agent → same Slack thread", () => {
-  it("returns only the final reply, once, as plain text in the originating thread", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(
-      threadReply("U1", parent, "can you also bump the timeout?")
+/** A Slack follow-up from U1 under a fresh notify parent for `agentId`. */
+async function followUp(answers: SlackAnswers, agentId: string, text: string) {
+  const parent = await notifyParent(answers, agentId);
+  await answers.handle(threadReply("U1", parent, text));
+  return { parent, post: await slackPost(text) };
+}
+
+describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
+  it("posts the agent's own words, plain text, into the originating thread", async () => {
+    const { answers, calls, reply } = build();
+    const { parent, post } = await followUp(answers, A, "bump the timeout?");
+    const result = await reply(
+      A,
+      post.id,
+      "Done: timeout is now 30s (was 10s). <!channel> *bold*"
     );
-    const post = await slackPost("can you also bump the timeout?");
-    expect(calls.ephemeral.at(-1)!.text).toMatch(/Sent to builder-7/);
-
-    const prompt = chatPrompt([post.id], {
-      streamId: post.stream_id,
-      threadId: post.thread_id,
-    });
-    const turn = await runTurn(svc, A, prompt, [
-      { assistant: "Let me look at the config." },
-      { tool: "grep timeout" },
-      { assistant: "Done — timeout is now 30s (was 10s). <!channel> *bold*" },
-    ]);
-    await settle();
-
+    expect(result).toEqual({ sent: true });
     expect(calls.posted).toHaveLength(1);
-    const reply = calls.posted[0]!;
-    expect(reply.threadTs).toBe(parent);
-    expect(reply.blocks[0]).toMatchObject({
+    const posted = calls.posted[0]!;
+    expect(posted.threadTs).toBe(parent);
+    expect(posted.blocks[0]).toMatchObject({
       type: "context",
       elements: [{ type: "plain_text", text: "builder-7 replied" }],
     });
-    // Final words only: no lead-in narration, tool titles or tool output.
-    expect(sectionText(reply)).toBe(
-      "Done — timeout is now 30s (was 10s). <!channel> *bold*"
+    expect(sectionText(posted)).toBe(
+      "Done: timeout is now 30s (was 10s). <!channel> *bold*"
     );
-    const json = JSON.stringify(reply);
-    expect(json).not.toMatch(/Let me look|grep timeout|SECRET_TOKEN/);
-    // Plain text everywhere: agent words are never parsed as mrkdwn.
-    for (const b of reply.blocks.filter((b: any) => b.type === "section"))
+    for (const b of posted.blocks.filter((b: any) => b.type === "section"))
       expect(b.text.type).toBe("plain_text");
-    const open = reply.blocks.at(-1).elements[0];
+    const open = posted.blocks.at(-1).elements[0];
     expect(open).toMatchObject({ action_id: "dispatch_open" });
-    expect(open.url).toContain(`block=${turn.blockId}`);
-
-    // Re-settling (reconnect replay) never sends twice.
-    await svc.recordTurnSettled({ agentId: A, turnRow: turn.turnRow as never });
-    await settle();
-    expect(calls.posted).toHaveLength(1);
+    expect(open.url).toContain(`block=${post.id}`);
     const { rows } = await pool.query(
-      `SELECT response_block_id, sent_at, reply_text FROM slack_thread_replies`
+      `SELECT sent_at, slack_ts FROM slack_thread_reply_sends`
     );
-    expect(rows[0]).toMatchObject({
-      response_block_id: turn.blockId,
-      reply_text: null,
-    });
+    expect(rows[0].slack_ts).toBe(posted.ts);
     expect(rows[0].sent_at).toBeTruthy();
-
     // Our own reply echoing back as a bot message is ignored: no loop.
-    await answers.handle(
-      threadReply("UBOT", parent, sectionText(reply), { bot_id: "B1" })
-    );
+    await answers.handle(threadReply("UBOT", parent, "echo", { bot_id: "B1" }));
     expect(
       (await pool.query(`SELECT 1 FROM slack_thread_replies`)).rowCount
     ).toBe(1);
   });
 
-  it("fails closed: progress said only before the last tool call is never sent as a reply", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "check prod"));
-    const post = await slackPost("check prod");
-    // Narration, then tools, then nothing more: not a final reply.
-    await runTurn(svc, A, chatPrompt([post.id]), [
-      { assistant: "Let me check the deploy logs first." },
-      { tool: "tail logs" },
-      { assistant: "Now the metrics." },
-      { tool: "query metrics" },
-    ]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-    // The Dispatch block still shows everything the agent said.
-    const turnText = await pool.query(
-      `SELECT text FROM blocks WHERE origin='turn' AND author_agent_id=$1 ORDER BY created_at DESC LIMIT 1`,
-      [A]
-    );
-    expect(turnText.rows[0].text).toMatch(/deploy logs[\s\S]*metrics/);
-    // Left unclaimed: a later genuine final reply to the same post still goes out.
-    await runTurn(svc, A, chatPrompt([post.id]), [
-      { assistant: "Checking once more." },
-      { tool: "tail logs" },
-      { assistant: "Prod is healthy: error rate 0.1%." },
-    ]);
-    await settle();
-    expect(calls.posted.map(sectionText)).toEqual([
-      "Prod is healthy: error rate 0.1%.",
-    ]);
-  });
-
-  it("a reply with no tool calls is the whole response", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "quick?"));
-    const post = await slackPost("quick?");
-    await runTurn(svc, A, chatPrompt([post.id]), [
-      { assistant: "Yes." },
-      { assistant: "It ships Friday." },
-    ]);
-    await settle();
-    expect(calls.posted.map(sectionText)).toEqual(["Yes.\n\nIt ships Friday."]);
-  });
-
-  it("routes per stored agent id across several agents and threads", async () => {
-    const { svc, answers, calls, settle } = build();
-    const pa = await notifyParent(answers, A);
-    const pb = await notifyParent(answers, B);
-    await answers.handle(threadReply("U1", pa, "for A"));
-    await answers.handle(threadReply("U1", pb, "for B"));
-    const postA = await slackPost("for A");
-    const postB = await slackPost("for B");
-    expect(postB.stream_id).toBe(B);
-
-    await runTurn(svc, B, chatPrompt([postB.id]), [{ assistant: "B here" }]);
-    await settle();
-    await runTurn(svc, A, chatPrompt([postA.id]), [{ assistant: "A here" }]);
-    await settle();
-    expect(calls.posted.map((p) => [p.threadTs, sectionText(p)])).toEqual([
-      [pb, "B here"],
-      [pa, "A here"],
-    ]);
-  });
-
-  it("never correlates by time: other prompts, other agents and other places send nothing", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "status?"));
-    const post = await slackPost("status?");
-
-    // A turn from a Dispatch-only prompt right after the Slack message.
-    const local = await svc.sendUserPost(A, { to: A, text: "local only" });
-    await runTurn(svc, A, chatPrompt([local.block.id]), [
-      { assistant: "local" },
-    ]);
-    // Another agent's turn naming the Slack post id.
-    await runTurn(svc, B, chatPrompt([post.id]), [{ assistant: "B" }]);
-    // A system/engine turn.
-    await runTurn(svc, A, { source: "system", text: "tick" }, [
-      { assistant: "sys" },
-    ]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-
-    // The right agent, but the response landed in another conversation.
-    const other = await svc.sendUserPost(A, { to: A, text: "other root" });
-    const thread = await svc.sendUserPost(A, {
-      to: A,
-      text: "in a thread",
-      replyTo: other.block.id,
-    });
-    // E.g. a routing policy placed it in another thread.
-    await runTurn(svc, A, chatPrompt([post.id]), [
-      {
-        during: async (blockId) => {
-          await pool.query(
-            `UPDATE blocks SET thread_id=$2, reply_to=$3 WHERE id=$1`,
-            [blockId, other.block.id, thread.block.id]
-          );
-        },
-      },
-      { assistant: "elsewhere" },
-    ]);
-    await settle();
-    expect(calls.posted.map(sectionText)).toEqual([]);
-    // Still eligible for a turn that does answer it in place.
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "in place" }]);
-    await settle();
-    expect(calls.posted.map(sectionText)).toEqual(["in place"]);
-  });
-
-  it("answers stay answers: a thread reply recorded as an answer is not mirrored", async () => {
-    const { svc, answers, calls, settle } = build();
+  it("only the agent the message went to may answer, and only Slack follow-ups qualify", async () => {
+    const { svc, answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "for A only");
+    // Another agent naming A's Slack message.
+    expect((await reply(B, post.id, "hijack")).sent).toBe(false);
+    // A Dispatch-only post.
+    const local = await svc.sendUserPost(A, { to: A, text: "local" });
+    expect((await reply(A, local.block.id, "x")).sent).toBe(false);
+    // A made-up id.
+    expect(
+      (await reply(A, "00000000-0000-4000-8000-000000000000", "x")).sent
+    ).toBe(false);
+    // A thread reply recorded as an answer is not a follow-up.
     const q = await svc.post(A, {
       text: "Which DB?",
       question: { options: [{ label: "Postgres" }], allowFreeform: true },
@@ -493,587 +380,143 @@ describe("Slack thread reply → agent → same Slack thread", () => {
       data: block.data,
       name: "builder-7",
     });
-    const askTs = calls.posted.at(-1)!.ts;
+    await answers.handle(threadReply("U1", calls.posted.at(-1)!.ts, "sqlite"));
+    const answerId = ((await svc.store.getById(q.id))!.state as any).answer
+      .blockId;
     calls.posted.length = 0;
-    await answers.handle(threadReply("U1", askTs, "sqlite please"));
-    const answered = (await svc.store.getById(q.id))!;
-    const answerId = (answered.state as any).answer.blockId;
-    await runTurn(svc, A, chatPrompt([answerId]), [{ assistant: "ok sqlite" }]);
-    await settle();
+    const refused = await reply(A, answerId, "ok sqlite");
+    expect(refused.sent).toBe(false);
+    expect(refused.reason).toMatch(/Slack thread/);
     expect(calls.posted).toHaveLength(0);
-    expect(
-      (await pool.query(`SELECT 1 FROM slack_thread_replies`)).rowCount
-    ).toBe(0);
-
-    // A follow-up under a non-freeform ask is a message, and gets its reply.
-    const q2 = await svc.post(A, {
-      text: "Ship?",
-      question: { options: [{ label: "Yes" }, { label: "No" }] },
-    });
-    const b2 = (await svc.store.getById(q2.id))!;
-    await answers.postAsk({
-      block_id: b2.id,
-      binding_generation: binding.generation,
-      agent_id: A,
-      stream_id: A,
-      thread_id: null,
-      text: b2.text,
-      kind: b2.kind,
-      data: b2.data,
-      name: "builder-7",
-    });
-    const ts2 = calls.posted.at(-1)!.ts;
-    await answers.handle(threadReply("U1", ts2, "what breaks if yes?"));
-    const follow = await slackPost("what breaks if yes?");
-    expect(follow.thread_id).toBeTruthy();
-    await runTurn(
-      svc,
-      A,
-      chatPrompt([follow.id], {
-        streamId: follow.stream_id,
-        threadId: follow.thread_id,
-      }),
-      [{ assistant: "Nothing; migrations are additive." }]
-    );
-    await settle();
-    expect(calls.posted.at(-1)).toMatchObject({ threadTs: ts2 });
-    expect(sectionText(calls.posted.at(-1)!)).toBe(
-      "Nothing; migrations are additive."
-    );
   });
 
-  it("stale binding, deleted parent or deleted post sends nothing to any audience", async () => {
-    const { svc, answers, calls, settle } = build();
-    const p1 = await notifyParent(answers, A);
-    const p2 = await notifyParent(answers, A);
-    const p3 = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", p1, "one"));
-    await answers.handle(threadReply("U1", p2, "two"));
-    await answers.handle(threadReply("U1", p3, "three"));
-    const [one, two, three] = await Promise.all([
-      slackPost("one"),
-      slackPost("two"),
-      slackPost("three"),
+  it("never reaches a stale audience: rebound, removed parent or deleted post", async () => {
+    const { answers, calls, reply } = build();
+    const one = await followUp(answers, A, "one");
+    const two = await followUp(answers, A, "two");
+    const three = await followUp(answers, A, "three");
+    await pool.query(`DELETE FROM slack_messages WHERE message_ts=$1`, [
+      two.parent,
     ]);
-    await pool.query(`DELETE FROM slack_messages WHERE message_ts=$1`, [p2]);
-    await runTurn(svc, A, chatPrompt([two.id]), [{ assistant: "r2" }]);
-    await pool.query(`DELETE FROM blocks WHERE id=$1`, [three.id]);
-    await runTurn(svc, A, chatPrompt([three.id]), [{ assistant: "r3" }]);
-    // Rebound to a new installation/channel before the reply went out.
-    binding = { ...binding, generation: "gen-2", channelId: "C9" };
-    await runTurn(svc, A, chatPrompt([one.id]), [{ assistant: "r1" }]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-    const { rows } = await pool.query(
-      `SELECT post_block_id, gave_up_at, reply_text FROM slack_thread_replies WHERE sent_at IS NULL`
+    expect((await reply(A, two.post.id, "r2")).reason).toMatch(
+      /no longer linked/
     );
-    for (const r of rows.filter((r) => r.post_block_id !== three.id)) {
-      expect(r.gave_up_at).toBeTruthy();
-      expect(r.reply_text).toBeNull();
-    }
+    await pool.query(`DELETE FROM blocks WHERE id=$1`, [three.post.id]);
+    expect((await reply(A, three.post.id, "r3")).sent).toBe(false);
+    binding = { ...binding, generation: "gen-2", channelId: "C9" };
+    expect((await reply(A, one.post.id, "r1")).reason).toMatch(
+      /no longer linked/
+    );
+    binding = null as unknown as SlackBinding;
+    expect((await reply(A, one.post.id, "r1")).reason).toMatch(
+      /isn't connected/
+    );
+    expect(calls.posted).toHaveLength(0);
   });
 
-  it("errors get one short notice; interrupted and empty replies send nothing", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "try it"));
-    const post = await slackPost("try it");
+  it("several replies are fine, but identical text is never posted twice", async () => {
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "status?");
+    expect((await reply(A, post.id, "Starting now.")).sent).toBe(true);
+    expect((await reply(A, post.id, "Done.")).sent).toBe(true);
+    const again = await reply(A, post.id, "Done.");
+    expect(again).toMatchObject({ sent: false });
+    expect(again.reason).toMatch(/already sent this exact reply/);
+    expect(calls.posted.map(sectionText)).toEqual(["Starting now.", "Done."]);
+  });
 
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "half" }], {
-      stopReason: "cancelled",
-    });
-    await settle();
-    await runTurn(svc, A, chatPrompt([post.id]), [{ tool: "ls" }]);
-    await settle();
+  it("at most once: an unclear Slack outcome is reported and never resent", async () => {
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "deploy?");
+    calls.failNext.push(new SlackDeliveryUnknownError("timeout"));
+    const first = await reply(A, post.id, "Deployed.");
+    expect(first.sent).toBe(false);
+    expect(first.reason).toMatch(/may or may not have posted/);
+    const again = await reply(A, post.id, "Deployed.");
+    expect(again.reason).toMatch(/may already have posted/);
     expect(calls.posted).toHaveLength(0);
+  });
 
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "oops" }], {
-      error: "Engine crashed",
-    });
-    await settle();
-    expect(calls.posted).toHaveLength(1);
-    expect(sectionText(calls.posted[0]!)).toMatch(
-      /builder-7 stopped with an error before replying/
+  it("a definite failure leaves nothing behind, so the agent can retry once", async () => {
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "retry me");
+    calls.failNext.push(new Error("channel_not_found"));
+    expect((await reply(A, post.id, "Here you go.")).reason).toMatch(
+      /rejected/
     );
-    expect(JSON.stringify(calls.posted[0])).not.toMatch(/Engine crashed|oops/);
+    calls.failNext.push(new SlackRetryError(1000));
+    expect((await reply(A, post.id, "Here you go.")).reason).toMatch(
+      /rate limited/
+    );
+    expect((await reply(A, post.id, "Here you go.")).sent).toBe(true);
+    expect(calls.posted.map(sectionText)).toEqual(["Here you go."]);
+  });
+
+  it("nothing is sent unless the attempt is durably recorded first", async () => {
+    const { answers, replies, calls, reply } = build();
+    const { post } = await followUp(answers, A, "careful");
+    const real = (replies as any).pool as Pool;
+    (replies as any).pool = {
+      query: (sql: string, params?: unknown[]) =>
+        /INSERT INTO slack_thread_reply_sends/.test(sql)
+          ? Promise.reject(new Error("db blip"))
+          : real.query(sql, params),
+    };
+    expect((await reply(A, post.id, "x")).reason).toMatch(/couldn't record/);
+    expect(calls.posted).toHaveLength(0);
   });
 
   it("chunks long replies within Slack limits and points to Dispatch for the rest", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "write it up"));
-    const post = await slackPost("write it up");
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "write it up");
     const para = `${"word ".repeat(500).trim()}.`;
-    const long = Array.from({ length: 6 }, () => para).join("\n\n");
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: long }]);
-    await settle();
-    const reply = calls.posted[0]!;
-    const sections = reply.blocks.filter((b: any) => b.type === "section");
+    await reply(A, post.id, Array.from({ length: 6 }, () => para).join("\n\n"));
+    const posted = calls.posted[0]!;
+    const sections = posted.blocks.filter((b: any) => b.type === "section");
     expect(sections.length).toBeGreaterThan(1);
     for (const s of sections)
       expect(s.text.text.length).toBeLessThanOrEqual(3000);
-    expect(sectionText(reply).length).toBeLessThanOrEqual(REPLY_MAX_CHARS + 10);
-    expect(JSON.stringify(reply)).toMatch(/continues in Dispatch/);
-    expect(reply.blocks.length).toBeLessThanOrEqual(50);
-    expect(reply.text.length).toBeLessThanOrEqual(3000);
+    expect(sectionText(posted).length).toBeLessThanOrEqual(
+      REPLY_MAX_CHARS + 10
+    );
+    expect(JSON.stringify(posted)).toMatch(/continues in Dispatch/);
+    expect(posted.blocks.length).toBeLessThanOrEqual(50);
+    expect(posted.text.length).toBeLessThanOrEqual(3000);
     expect(chunkText("a\n\nb", 3000)).toEqual(["a\n\nb"]);
   });
 
-  it("retries Slack failures in order and batches several messages into one reply", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    live = false; // Agent offline: recorded, said not delivered.
-    await answers.handle(threadReply("U1", parent, "first"));
-    await answers.handle(threadReply("U1", parent, "second"));
-    expect(calls.ephemeral.at(-1)!.text).toMatch(/not delivered/i);
-    live = true;
-    const [first, second] = await Promise.all([
-      slackPost("first"),
-      slackPost("second"),
-    ]);
-    calls.failNext.push(new SlackRetryError(1000));
-    await runTurn(svc, A, chatPrompt([first.id, second.id]), [
-      { assistant: "both handled" },
-    ]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-
-    // A later reply in the same thread must not jump ahead of it.
-    await answers.handle(threadReply("U1", parent, "third"));
-    const third = await slackPost("third");
-    await runTurn(svc, A, chatPrompt([third.id]), [
-      { assistant: "third done" },
-    ]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-
-    await pool.query(`UPDATE slack_thread_replies SET next_attempt_at = now()`);
-    await replies.flush();
-    expect(calls.posted.map((p) => [p.threadTs, sectionText(p)])).toEqual([
-      [parent, "both handled"],
-      [parent, "third done"],
-    ]);
-    const { rows } = await pool.query(
-      `SELECT count(*)::int AS n FROM slack_thread_replies WHERE sent_at IS NOT NULL`
-    );
-    expect(rows[0].n).toBe(3);
-  });
-
-  it("gives up after an hour rather than replying to a stale thread", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "late"));
-    const post = await slackPost("late");
-    calls.failNext.push(new Error("network"));
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "late reply" }]);
-    await settle();
-    await pool.query(
-      `UPDATE slack_thread_replies SET next_attempt_at = now(), queued_at = now() - interval '2 hours'`
-    );
-    await replies.flush();
-    expect(calls.posted).toHaveLength(0);
-    const { rows } = await pool.query(
-      `SELECT gave_up_at, reply_text FROM slack_thread_replies`
-    );
-    expect(rows[0].gave_up_at).toBeTruthy();
-    expect(rows[0].reply_text).toBeNull();
-  });
-
-  it("a turn that runs for hours still gets its reply: the window starts when it is queued", async () => {
+  it("nothing is mirrored automatically: a turn's final output never reaches Slack", async () => {
     const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "big job"));
-    const post = await slackPost("big job");
-    await pool.query(
-      `UPDATE slack_thread_replies SET created_at = now() - interval '3 hours'`
-    );
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "finished" }]);
-    await settle();
-    expect(calls.posted.map(sectionText)).toEqual(["finished"]);
-  });
-
-  it("a momentarily missing binding keeps the reply queued; it sends once Slack is back", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "hello"));
-    const post = await slackPost("hello");
-    const saved = binding;
-    binding = null as unknown as SlackBinding;
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "hi back" }]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-    const queued = await pool.query(
-      `SELECT gave_up_at, reply_text FROM slack_thread_replies`
-    );
-    expect(queued.rows[0]).toMatchObject({
-      gave_up_at: null,
-      reply_text: "hi back",
-    });
-    binding = saved;
-    await replies.flush();
-    expect(calls.posted.map(sectionText)).toEqual(["hi back"]);
-  });
-
-  it("a failing thread holds back only its own thread, and gives up after a few real failures", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const p1 = await notifyParent(answers, A);
-    const p2 = await notifyParent(answers, B);
-    await answers.handle(threadReply("U1", p1, "x1"));
-    await answers.handle(threadReply("U1", p2, "x2"));
-    const [x1, x2] = await Promise.all([slackPost("x1"), slackPost("x2")]);
-    // Both queued while Slack is unavailable, then due in the same pass.
-    const saved = binding;
-    binding = null as unknown as SlackBinding;
-    await runTurn(svc, A, chatPrompt([x1.id]), [{ assistant: "r1" }]);
-    await settle();
-    await runTurn(svc, B, chatPrompt([x2.id]), [{ assistant: "r2" }]);
-    await settle();
-    binding = saved;
-    calls.failNext.push(new Error("invalid_blocks"));
-    await replies.flush();
-    // Thread p1 failed and is backing off; p2 went out in the same pass.
-    expect(calls.posted.map((p) => [p.threadTs, sectionText(p)])).toEqual([
-      [p2, "r2"],
-    ]);
-    for (let i = 0; i < 6; i += 1) {
-      calls.failNext.push(new Error("invalid_blocks"));
-      await pool.query(
-        `UPDATE slack_thread_replies SET next_attempt_at = now() WHERE sent_at IS NULL`
-      );
-      await replies.flush();
-    }
-    const { rows } = await pool.query(
-      `SELECT attempts, gave_up_at, reply_text FROM slack_thread_replies WHERE post_block_id=$1`,
-      [x1.id]
-    );
-    expect(rows[0].attempts).toBe(5);
-    expect(rows[0].gave_up_at).toBeTruthy();
-    expect(rows[0].reply_text).toBeNull();
-    expect(calls.posted).toHaveLength(1);
-  });
-
-  it("the local rate limiter never counts as a failed attempt", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "rl"));
-    const post = await slackPost("rl");
-    for (let i = 0; i < 7; i += 1)
-      calls.failNext.push(new SlackRetryError(1000));
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "eventually" }]);
-    await settle();
-    for (let i = 0; i < 7; i += 1) {
-      await pool.query(
-        `UPDATE slack_thread_replies SET next_attempt_at = now()`
-      );
-      await replies.flush();
-    }
-    expect(calls.posted.map(sectionText)).toEqual(["eventually"]);
-    const { rows } = await pool.query(
-      `SELECT attempts FROM slack_thread_replies`
-    );
-    expect(rows[0].attempts).toBe(0);
-  });
-
-  it("a successful retry after an error notice still sends the real reply, once", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "flaky"));
-    const post = await slackPost("flaky");
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "x" }], {
-      error: "overloaded",
-      retry: "open",
-    });
-    await settle();
-    const retried = await runTurn(svc, A, chatPrompt([post.id]), [
-      { assistant: "worked this time" },
-    ]);
-    await settle();
-    expect(calls.posted.map(sectionText)).toEqual([
-      expect.stringMatching(/stopped with an error/),
-      "worked this time",
-    ]);
-    // Re-settling either response doesn't send anything again.
-    await svc.recordTurnSettled({
-      agentId: A,
-      turnRow: retried.turnRow as never,
-    });
-    await settle();
-    expect(calls.posted).toHaveLength(2);
-  });
-
-  it("a failed write after Slack accepted the reply never resends it", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "once"));
-    const post = await slackPost("once");
-    const real = (replies as any).pool as Pool;
-    let failed = false;
-    (replies as any).pool = {
-      query: (sql: string, params?: unknown[]) => {
-        if (!failed && /SET sent_at = now\(\), slack_reply_ts/.test(sql)) {
-          failed = true;
-          return Promise.reject(new Error("db blip"));
-        }
-        return real.query(sql, params);
-      },
-    };
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "only once" }]);
-    await settle();
-    expect(failed).toBe(true);
-    for (let i = 0; i < 3; i += 1) {
-      await real.query(
-        `UPDATE slack_thread_replies SET next_attempt_at = now()`
-      );
-      await replies.flush();
-    }
-    expect(calls.posted.map(sectionText)).toEqual(["only once"]);
-    // The record was retried on a later flush and landed with the Slack ts.
-    const { rows } = await real.query(
-      `SELECT sent_at, slack_reply_ts, reply_text FROM slack_thread_replies`
-    );
-    expect(rows[0].sent_at).toBeTruthy();
-    expect(rows[0].slack_reply_ts).toBe(calls.posted[0]!.ts);
-    expect(rows[0].reply_text).toBeNull();
-    expect((replies as any).sentUnrecorded.size).toBe(0);
-  });
-
-  it("at most once: a send interrupted by a restart is never resent", async () => {
-    const { svc, answers, replies, calls, settle, restart } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "one"));
-    const post = await slackPost("one");
-    // Slack accepts it, then the record write fails and the process dies.
-    const real = (replies as any).pool as Pool;
-    (replies as any).pool = {
-      query: (sql: string, params?: unknown[]) =>
-        /SET sent_at = now\(\), slack_reply_ts/.test(sql)
-          ? Promise.reject(new Error("db down"))
-          : real.query(sql, params),
-    };
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "sent once" }]);
-    await settle();
-    expect(calls.posted).toHaveLength(1);
-    const after = restart();
-    await real.query(`UPDATE slack_thread_replies SET next_attempt_at = now()`);
-    await after.flush();
-    await after.flush();
-    expect(calls.posted).toHaveLength(1);
-    const { rows } = await real.query(
-      `SELECT sending_at, sent_at, gave_up_at, reply_text FROM slack_thread_replies`
-    );
-    expect(rows[0].sending_at).toBeTruthy();
-    expect(rows[0].sent_at).toBeNull();
-    expect(rows[0].gave_up_at).toBeTruthy();
-    expect(rows[0].reply_text).toBeNull();
-  });
-
-  it("at most once: a send whose outcome is unknown is never retried", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "two"));
-    const post = await slackPost("two");
-    calls.failNext.push(new SlackDeliveryUnknownError("timeout"));
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "maybe" }]);
-    await settle();
-    await pool.query(`UPDATE slack_thread_replies SET next_attempt_at = now()`);
-    await replies.flush();
-    expect(calls.posted).toHaveLength(0);
-    const { rows } = await pool.query(
-      `SELECT gave_up_at, attempts FROM slack_thread_replies`
-    );
-    expect(rows[0].gave_up_at).toBeTruthy();
-  });
-
-  it("nothing is sent unless the sending mark is durably written first", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "three"));
-    const post = await slackPost("three");
-    const real = (replies as any).pool as Pool;
-    let blocked = true;
-    (replies as any).pool = {
-      query: (sql: string, params?: unknown[]) =>
-        blocked && /SET sending_at = now\(\)/.test(sql)
-          ? Promise.reject(new Error("db blip"))
-          : real.query(sql, params),
-    };
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "careful" }]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-    blocked = false;
-    await replies.flush();
-    expect(calls.posted.map(sectionText)).toEqual(["careful"]);
-  });
-
-  it("a reply superseding an error notice mid-send is still sent, and recorded against the right claim", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "race"));
-    const post = await slackPost("race");
-    let retried: Promise<unknown> = Promise.resolve();
-    // While Slack is accepting the error notice, the retried turn settles.
-    calls.duringPost.push(async () => {
-      retried = runTurn(svc, A, chatPrompt([post.id]), [
-        { assistant: "the real answer" },
-      ]);
-      await retried;
-      // Its re-claim lands while the error notice is still being sent.
-      await settle();
-      const { rows } = await pool.query(
-        `SELECT outcome FROM slack_thread_replies`
-      );
-      expect(rows[0].outcome).toBe("reply");
-    });
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "x" }], {
-      error: "overloaded",
-      retry: "open",
-    });
-    await settle();
-    await retried;
-    await settle();
-    await pool.query(`UPDATE slack_thread_replies SET next_attempt_at = now()`);
-    await replies.flush();
-    const { rows } = await pool.query(
-      `SELECT outcome, sent_at, slack_reply_ts FROM slack_thread_replies`
-    );
-    expect(calls.posted.map(sectionText)).toEqual([
-      expect.stringMatching(/stopped with an error/),
-      "the real answer",
-    ]);
-    expect(rows[0].outcome).toBe("reply");
-    expect(rows[0].slack_reply_ts).toBe(calls.posted[1]!.ts);
-  });
-
-  it("a Slack message steered into a same-conversation turn is answered even without its own response split", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    const local = await svc.sendUserPost(A, { to: A, text: "local start" });
-    await answers.handle(threadReply("U1", parent, "and also this"));
-    const post = await slackPost("and also this");
+    const { post } = await followUp(answers, A, "anything?");
     await runTurn(
       svc,
       A,
-      chatPrompt([local.block.id]),
-      [{ assistant: "Covered both." }],
-      {
-        steering: [
-          { source: chatPrompt([post.id]), at: new Date().toISOString() },
-        ],
-      }
-    );
-    await settle();
-    expect(calls.posted.map((p) => [p.threadTs, sectionText(p)])).toEqual([
-      [parent, "Covered both."],
-    ]);
-  });
-
-  it("a pickup whose own response is about to start is left for that response", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    const local = await svc.sendUserPost(A, { to: A, text: "first ask" });
-    await answers.handle(threadReply("U1", parent, "next ask"));
-    const post = await slackPost("next ask");
-    const pending = chatPrompt([post.id]);
-    await runTurn(
-      svc,
-      A,
-      chatPrompt([local.block.id]),
-      [{ assistant: "Answer to the first." }],
-      {
-        steering: [
-          { source: pending, at: new Date().toISOString(), receiptId: "r1" },
-        ],
-        pendingResponse: { receiptId: "r1", source: pending },
-      },
-      { settle: false }
+      chatPrompt([post.id], { streamId: post.stream_id, threadId: null }),
+      [
+        { assistant: "Let me look." },
+        { tool: "grep" },
+        { assistant: "All good, see the diff above." },
+      ]
     );
     await settle();
     expect(calls.posted).toHaveLength(0);
-    const { rows } = await pool.query(
-      `SELECT response_block_id FROM slack_thread_replies`
-    );
-    expect(rows[0].response_block_id).toBeNull();
   });
 
-  it("a definite failure whose sending mark can't be cleared is retried, not dropped", async () => {
-    const { svc, answers, replies, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "blip"));
-    const post = await slackPost("blip");
-    const real = (replies as any).pool as Pool;
-    let blocked = true;
-    (replies as any).pool = {
-      query: (sql: string, params?: unknown[]) =>
-        blocked && /attempts = attempts \+ \$3, sending_at = NULL/.test(sql)
-          ? Promise.reject(new Error("db blip"))
-          : real.query(sql, params),
-    };
-    calls.failNext.push(new Error("channel_not_found"));
-    await runTurn(svc, A, chatPrompt([post.id]), [{ assistant: "after blip" }]);
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-    blocked = false;
-    await replies.flush(); // clears the mark
-    await real.query(`UPDATE slack_thread_replies SET next_attempt_at = now()`);
-    await replies.flush(); // sends
-    expect(calls.posted.map(sectionText)).toEqual(["after blip"]);
-    const { rows } = await real.query(
-      `SELECT gave_up_at, sent_at FROM slack_thread_replies`
-    );
-    expect(rows[0].gave_up_at).toBeNull();
-    expect(rows[0].sent_at).toBeTruthy();
-  });
-
-  it("a later split response never answers an earlier Slack prompt whose own response was empty", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "slack A"));
-    const a = await slackPost("slack A");
-    const b = await svc.sendUserPost(A, { to: A, text: "local B" });
-    const bPrompt = chatPrompt([b.block.id]);
-    // Response 1 (to A) said nothing after its tools; B was steered in and
-    // split off its own response, which answers B.
-    await runTurn(svc, A, chatPrompt([a.id]), [{ assistant: "Answer to B." }], {
-      steering: [
-        { source: bPrompt, at: new Date().toISOString(), receiptId: "rB" },
-      ],
-      responseReceipts: ["rB"],
-      responsePrompt: bPrompt,
-    });
-    await settle();
-    expect(calls.posted).toHaveLength(0);
-    const { rows } = await pool.query(
-      `SELECT response_block_id FROM slack_thread_replies`
-    );
-    expect(rows[0].response_block_id).toBeNull();
-  });
-
-  it("a steering split relays the finished response it froze", async () => {
-    const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "quick q"));
-    const post = await slackPost("quick q");
-    await runTurn(
-      svc,
-      A,
-      chatPrompt([post.id]),
-      [{ assistant: "quick a" }],
-      {},
-      {
-        settle: false,
-      }
-    );
-    await settle();
-    expect(calls.posted.map(sectionText)).toEqual(["quick a"]);
+  it("tells the agent how to answer in Slack, only for Slack follow-ups", async () => {
+    const { svc, answers } = build();
+    const { post } = await followUp(answers, A, "ping from slack");
+    const slack = injected.find((t) => t.includes("ping from slack"))!;
+    expect(slack).toContain(`notify({ replyTo: "${post.id}"`);
+    await svc.sendUserPost(A, { to: A, text: "ping from dispatch" });
+    const local = injected.find((t) => t.includes("ping from dispatch"))!;
+    expect(local).not.toContain("notify({ replyTo");
   });
 });
 
-describe("questions asked while answering a Slack follow-up", () => {
+describe("questions asked while working on a Slack follow-up", () => {
   it("go into the same thread at once, answerable there, and suppress the 5-minute alert", async () => {
     const { svc, answers, calls, settle } = build();
-    const parent = await notifyParent(answers, A);
-    await answers.handle(threadReply("U1", parent, "deploy it"));
-    const post = await slackPost("deploy it");
+    const { parent, post } = await followUp(answers, A, "deploy it");
     let askId = "";
     await runTurn(svc, A, chatPrompt([post.id]), [
       {
@@ -1086,10 +529,8 @@ describe("questions asked while answering a Slack follow-up", () => {
           await settle();
         },
       },
-      { assistant: "Waiting on your environment choice." },
     ]);
-    await settle();
-    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent, parent]);
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
     const ask = calls.posted[0]!;
     expect(JSON.stringify(ask)).toMatch(/Which environment\?/);
     expect(JSON.stringify(ask)).not.toMatch(/unanswered for 5 minutes/);
@@ -1099,8 +540,6 @@ describe("questions asked while answering a Slack follow-up", () => {
     );
     expect(alert.rows[0]).toMatchObject({ slack_message_ts: ask.ts });
     expect(alert.rows[0].sent_at).toBeTruthy();
-
-    // A button click on the in-thread ask records the linked user's answer.
     const button = ask.blocks
       .find((b: any) => b.type === "actions")
       .elements.find((e: any) => e.text.text === "staging");
@@ -1118,31 +557,66 @@ describe("questions asked while answering a Slack follow-up", () => {
       binding,
       botUserId: "UBOT",
     });
-    const answered = (await svc.store.getById(askId))!;
-    expect((answered.state as any).answer).toMatchObject({
-      value: "staging",
-      external: { userId: "U1" },
-    });
+    expect(
+      ((await svc.store.getById(askId))!.state as any).answer
+    ).toMatchObject({ value: "staging", external: { userId: "U1" } });
   });
 
-  it("are not posted for turns that did not come from Slack", async () => {
-    const { svc, calls, settle } = build();
+  it("are not posted for turns that did not come from Slack, or by another agent", async () => {
+    const { svc, answers, calls, settle } = build();
+    const { post } = await followUp(answers, A, "for A");
     const local = await svc.sendUserPost(A, { to: A, text: "local" });
-    await runTurn(svc, A, chatPrompt([local.block.id]), [
+    const ask = async () => {
+      await svc.post(A, {
+        text: "Proceed?",
+        question: { options: [{ label: "yes" }] },
+      });
+      await settle();
+    };
+    await runTurn(svc, A, chatPrompt([local.block.id]), [{ during: ask }]);
+    await runTurn(svc, B, chatPrompt([post.id]), [
       {
         during: async () => {
-          await svc.post(A, {
-            text: "Proceed?",
-            question: { options: [{ label: "yes" }] },
+          await svc.post(B, {
+            text: "B asks",
+            question: { options: [{ label: "y" }] },
           });
           await settle();
         },
       },
     ]);
-    await settle();
     expect(calls.posted).toHaveLength(0);
     expect(
       (await pool.query(`SELECT 1 FROM question_notifications`)).rowCount
     ).toBe(0);
+  });
+
+  it("are placed by the turn's recorded prompts, split-aware", () => {
+    const chat = (id: string) => chatPrompt([id]);
+    // Before a split: the prompt plus steered posts, minus a pending pickup.
+    expect(
+      answeredPrompts({
+        state: "started",
+        prompt: chat("a"),
+        steering: [
+          { source: chat("b"), at: "", receiptId: "rb" },
+          { source: chat("c"), at: "", receiptId: "rc" },
+        ],
+        pendingResponse: { receiptId: "rc", source: chat("c") },
+      } as any).map((p: any) => p.chatMessageId)
+    ).toEqual(["a", "b"]);
+    // After a split onto b: only b and what was steered after it.
+    expect(
+      answeredPrompts({
+        state: "started",
+        prompt: chat("a"),
+        steering: [
+          { source: chat("b"), at: "", receiptId: "rb" },
+          { source: chat("d"), at: "", receiptId: "rd" },
+        ],
+        responseReceipts: ["rb"],
+        responsePrompt: chat("b"),
+      } as any).map((p: any) => p.chatMessageId)
+    ).toEqual(["b", "d"]);
   });
 });

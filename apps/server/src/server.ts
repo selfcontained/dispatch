@@ -222,6 +222,9 @@ const slackThreadReplies: SlackThreadReplies = new SlackThreadReplies(
   async (agentId) => (await agentManager.getAgent(agentId))?.name ?? null,
   (agentId) => streamService.currentTurn(agentId)
 );
+slackNotifier.setThreadReply((agent, input) =>
+  slackThreadReplies.reply(agent, input)
+);
 const questionAlerts = new QuestionAlerts(
   pool,
   (alert) => slackAnswers.postAsk(alert),
@@ -515,8 +518,6 @@ const streamService = new StreamService({
     agentManager.noteQuestionPosted(agentId, text),
   onAgentAsk: (agentId, block): Promise<void> =>
     slackThreadReplies.agentAsked(agentId, block),
-  onResponseSettled: (input): Promise<void> =>
-    slackThreadReplies.responseSettled(input),
   // Both are created below; they are only called once requests arrive.
   uploadFile: (agentId, input) =>
     mcpHandlers.shareFile(agentId, {
@@ -1278,7 +1279,6 @@ export async function initializeApp(options?: {
       void diffStatsRefresher.signal(agent.id);
     }
     slackAnswers.start();
-    slackThreadReplies.start();
     void slackNotifier.app.start().catch(() => {});
     questionAlerts.start();
     pullRequests.start();
@@ -1403,7 +1403,6 @@ async function cleanupAppResources(): Promise<void> {
 
   questionAlerts.stop();
   slackAnswers.stop();
-  slackThreadReplies.stop();
   slackNotifier.app.stop();
   notificationRuntime.clearPendingWebNotifications();
 

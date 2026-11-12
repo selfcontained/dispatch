@@ -183,6 +183,17 @@ export function buildPostEnvelope(input: {
   if (input.threadId) {
     context.push(`In the thread under ${input.threadId}.`);
   }
+  if (
+    input.from.kind === "user" &&
+    input.from.external?.source === "slack" &&
+    !input.answers &&
+    !input.cancels
+  ) {
+    // Only the agent's explicit choice reaches Slack; its stream replies don't.
+    context.push(
+      `They wrote this in a Slack thread and see only what is posted there. To answer them in Slack, call notify({ replyTo: "${input.blockId}", message }) with a self-contained reply; ordinary replies stay in Dispatch.`
+    );
+  }
   if (input.references?.length) {
     context.push(
       `Silent agent references (context only; not notified): ${escapeEnvelopeMarkers(JSON.stringify(input.references))}. These references do not request forwarding or contacting those agents.`

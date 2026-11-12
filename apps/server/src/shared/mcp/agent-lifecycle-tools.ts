@@ -151,11 +151,18 @@ export function registerAgentLifecycleTools(
       "notify",
       {
         description:
-          "Request an immediate Slack alert for the user through their configured notification channels. Use when something warrants attention now. This does not post to a stream, answer a question, or prove the user read it. Rate limited; inspect the returned delivery result.",
+          "Request an immediate Slack alert for the user through their configured notification channels. Use when something warrants attention now. With replyTo, answer a person in the Slack thread their message came from instead: write a self-contained reply, since they see only this text, not your stream. This does not post to a stream, answer a question, or prove the user read it. Rate limited; inspect the returned delivery result.",
         inputSchema: {
           message: z.string().trim().min(1).max(2000),
           title: z.string().trim().min(1).max(120).optional(),
           level: z.enum(["info", "success", "warning", "error"]).optional(),
+          replyTo: z
+            .string()
+            .uuid()
+            .optional()
+            .describe(
+              "Message id of a post that reached you from a Slack thread (its envelope says so). Posts this reply into that Slack thread."
+            ),
         },
       },
       async (args) => {

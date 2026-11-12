@@ -390,3 +390,55 @@ describe("SlackNotifier.sendNotification (notify)", () => {
     expect(map.has(agent.id)).toBe(false);
   });
 });
+
+describe("notify({ replyTo })", () => {
+  beforeEach(() => fetchSpy.mockClear());
+  const withApp = (bound: boolean) => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    (notifier as any).app = {
+      settings: async () => ({ binding: bound ? { generation: "g" } : null }),
+    };
+    return notifier;
+  };
+  const input = {
+    message: "Done.",
+    replyTo: "11111111-1111-4111-8111-111111111111",
+  };
+
+  it("routes to the Slack thread reply, never to the channel or webhook", async () => {
+    const notifier = withApp(true);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    expect(await notifier.sendNotification(makeAgent(), input)).toEqual({
+      sent: true,
+    });
+    expect(threadReply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      { replyTo: input.replyTo, message: "Done.", title: undefined }
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("needs the Slack app connected: no webhook fallback", async () => {
+    const notifier = withApp(false);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    const result = await notifier.sendNotification(makeAgent(), input);
+    expect(result.sent).toBe(false);
+    expect(result.reason).toMatch(/Slack app connected/);
+    expect(threadReply).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("shares notify's per-agent rate limit", async () => {
+    const notifier = withApp(true);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    for (let i = 0; i < 5; i += 1)
+      await notifier.sendNotification(makeAgent(), input);
+    const limited = await notifier.sendNotification(makeAgent(), input);
+    expect(limited.sent).toBe(false);
+    expect(limited.reason).toMatch(/Rate limited/);
+    expect(threadReply).toHaveBeenCalledTimes(5);
+  });
+});

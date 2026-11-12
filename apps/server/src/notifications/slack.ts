@@ -98,6 +98,14 @@ export class SlackNotifier {
   setNotifySent(fn: NonNullable<SlackNotifier["notifySent"]>) {
     this.notifySent = fn;
   }
+  /** `notify({ replyTo })`: an agent answering in a Slack thread. */
+  private threadReply?: (
+    agent: AgentRecord,
+    input: { replyTo: string; message: string; title?: string }
+  ) => Promise<NotifyResult>;
+  setThreadReply(fn: NonNullable<SlackNotifier["threadReply"]>) {
+    this.threadReply = fn;
+  }
   /** Per-agent rate limit tracking for notify calls. */
   private notifyTimestamps: Map<string, number[]> = new Map();
 
@@ -294,6 +302,24 @@ export class SlackNotifier {
         sent: false,
         reason: "Rate limited — max 5 notifications per minute per agent.",
       };
+    }
+
+    // An explicit answer in the Slack thread a message came from.
+    if (input.replyTo) {
+      if (!this.threadReply)
+        return { sent: false, reason: "Slack thread replies are unavailable." };
+      if (!(await this.app.settings()).binding)
+        return {
+          sent: false,
+          reason:
+            "Slack thread replies need the Slack app connected in Settings. Nothing was sent.",
+        };
+      this.recordNotifyTimestamp(agent.id);
+      return this.threadReply(agent, {
+        replyTo: input.replyTo,
+        message: input.message,
+        title: input.title,
+      });
     }
 
     // Respect focus if explicitly requested

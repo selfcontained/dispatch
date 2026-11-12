@@ -273,19 +273,6 @@ export type StreamServiceDeps = {
   onInputPosted?: (agentId: string, text: string) => Promise<void>;
   /** The same question/form as a block, for channels that render it (Slack threads). */
   onAgentAsk?: (agentId: string, block: Block) => Promise<void>;
-  /**
-   * A response settled (or froze at a steering split) with the prompt it
-   * answers. Display-free: Slack returns it to the thread that prompt came from.
-   */
-  onResponseSettled?: (input: {
-    agentId: string;
-    blockId: string;
-    /** Every prompt the response answers, as the turn recorded them. */
-    prompts: PromptSource[];
-    /** Assistant text after the response's last tool call; "" if none. */
-    finalText: string;
-    outcome: "ok" | "error" | "interrupted";
-  }) => Promise<void>;
   /** Copy a file from the agent's disk into its files; for `path` attachments. */
   uploadFile?: (
     agentId: string,
@@ -4113,7 +4100,7 @@ export class StreamService {
     );
     if (id === previousId) return id;
     // Freeze just this response before the turn's current-block pointer moves.
-    await this.recordTurnSettled({ ...input, frozen: true });
+    await this.recordTurnSettled(input);
     await this.store.insertIfAbsent({
       id,
       streamId: previous.streamId,
@@ -4155,8 +4142,6 @@ export class StreamService {
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
-    /** A steering split: this response is complete though the turn runs on. */
-    frozen?: boolean;
   }): Promise<void> {
     // A late startup can settle after the next turn has begun routing.
     this.deps.routingShadow?.cancel?.(input.agentId, input.turnRow.id);
@@ -4164,43 +4149,13 @@ export class StreamService {
     if (typeof blockId !== "string") return;
     const streamId = await this.turnStreamOf(input.agentId, blockId);
     if (!streamId) return;
-    const finalTexts = new Map<number, string>();
-    const turns = await loadTurnEntries(
-      this.store.db,
-      input.agentId,
-      [input.turnRow.id],
-      undefined,
-      finalTexts
-    );
-    const entry = turns.get(input.turnRow.id);
-    const text = entry?.result?.text ?? "";
+    const turns = await loadTurnEntries(this.store.db, input.agentId, [
+      input.turnRow.id,
+    ]);
+    const text = turns.get(input.turnRow.id)?.result?.text ?? "";
     await this.store.update(blockId, { text });
     await this.publishBlockEntry(streamId, blockId);
     this.deps.publishUiEvent({ type: "stream.changed", agentId: streamId });
-    if (!this.deps.onResponseSettled || !entry) return;
-    if (!input.frozen && !entry.settled) return;
-    const payload = input.turnRow.payload as TurnPayload;
-    // Off the recorder's path: Slack latency must not hold the agent's events.
-    void this.deps
-      .onResponseSettled({
-        agentId: input.agentId,
-        blockId,
-        prompts: answeredPrompts(payload),
-        finalText: finalTexts.get(input.turnRow.id) ?? "",
-        outcome: input.frozen
-          ? "ok"
-          : entry.interrupted
-            ? "interrupted"
-            : entry.error
-              ? "error"
-              : "ok",
-      })
-      .catch((error: unknown) => {
-        this.log.warn(
-          { err: error, agentId: input.agentId },
-          "stream: external response relay failed"
-        );
-      });
   }
 
   /** The agent's open turn: the block it writes to and the prompt it answers. */
@@ -5548,7 +5503,7 @@ function describeInput(block: Block): string {
 
 /**
  * The prompts a turn's current response answers, from what the turn itself
- * recorded. Before any split: the turn's prompt plus posts steered into it.
+ * recorded (used to place a mid-turn ask in the Slack thread it answers). Before any split: the turn's prompt plus posts steered into it.
  * After a split: only that response's prompt plus posts steered in after it
  * began, so a later response never answers an earlier prompt (even one whose
  * own response said nothing). A pickup whose own response is about to start

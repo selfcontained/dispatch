@@ -236,6 +236,8 @@ export type NotifyInput = {
   title?: string;
   level?: "info" | "success" | "warning" | "error";
   respectFocus?: boolean;
+  /** Answer in the Slack thread this message (a Slack-origin post) came from. */
+  replyTo?: string;
 };
 
 export type NotifyResult = {

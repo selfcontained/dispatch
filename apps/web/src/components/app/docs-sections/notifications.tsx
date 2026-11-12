@@ -76,10 +76,12 @@ export function NotificationsContent() {
           Slack by @name&quot; and count the same as answering in Dispatch.
         </P>
         <P>
-          When the agent answers a thread message, Slack gets its final reply in
-          that same thread. Its progress and tool steps are not sent. A question
-          it asks while working on that message appears in the thread too, ready
-          to answer.
+          The agent can answer a thread message back in that thread. It writes
+          that reply for Slack on purpose; its progress and other output stay in
+          Dispatch. A question it asks while working on the message appears in
+          the thread too, ready to answer. A Slack reply is never posted twice,
+          but if Slack&apos;s response is unclear it may be missing; the full
+          conversation is always in Dispatch.
         </P>
       </Section>
 

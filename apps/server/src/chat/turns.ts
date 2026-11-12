@@ -68,11 +68,6 @@ export type AssembledTurn = {
   plan?: ChatTurnPlanEntry[];
   /** Context used and, where the engine reports it, cost so far in this session. */
   usage?: { used: number; size: number; costUsd: number | null };
-  /**
-   * Server-side only (never on the wire): the response's assistant text
-   * after its last tool call, empty when nothing was said after it.
-   */
-  finalText: string;
 };
 
 /** The agent's own status reports already show as status lines; in a trace they are noise. */
@@ -437,8 +432,6 @@ export function assembleTurns(
     // How many of `spoken` came before the newest tool call: the text after
     // it is the final reply, the text before it what was said along the way.
     let spokenBeforeTool = 0;
-    // Text said after the newest tool call; a tool call clears it.
-    let afterTool: string[] = [];
     let truncated = false;
     const flat: {
       step: ChatTurnStep;
@@ -449,7 +442,6 @@ export function assembleTurns(
     for (const row of group.rows) {
       if (row.kind === "tool_call") {
         spokenBeforeTool = spoken.length;
-        afterTool = [];
         const step = toolStep(row);
         if (step) {
           flat.push({
@@ -473,10 +465,7 @@ export function assembleTurns(
           continue;
         const p = row.payload as Partial<AssistantPayload>;
         const text = p.text ?? "";
-        if (text.trim()) {
-          spoken.push(text.trim());
-          afterTool.push(text.trim());
-        }
+        if (text.trim()) spoken.push(text.trim());
         if (p.truncated) truncated = true;
         result = {
           text: spoken.join("\n\n"),
@@ -569,7 +558,6 @@ export function assembleTurns(
       ...(error ? { error } : {}),
       ...(plan ? { plan } : {}),
       ...(usage ? { usage } : {}),
-      finalText: afterTool.join("\n\n"),
     };
   });
 }
@@ -655,9 +643,7 @@ export async function loadTurnEntries(
   db: Queryable,
   agentId: string,
   anchorIds: readonly number[],
-  currentBlocks?: Map<number, string>,
-  /** Filled with each turn's text after its last tool call (server-side use). */
-  finalTexts?: Map<number, string>
+  currentBlocks?: Map<number, string>
 ): Promise<Map<number, ChatTurnEntry>> {
   const out = new Map<number, ChatTurnEntry>();
   if (anchorIds.length === 0) return out;
@@ -721,7 +707,6 @@ export async function loadTurnEntries(
     if (!group?.turn || !wanted.has(group.turn.id)) return;
     const blockId = group.turn.payload.blockId;
     if (typeof blockId === "string") currentBlocks?.set(group.turn.id, blockId);
-    finalTexts?.set(group.turn.id, turn.finalText);
     out.set(group.turn.id, toTurnEntry(turn, group, agentId));
   });
   return out;
