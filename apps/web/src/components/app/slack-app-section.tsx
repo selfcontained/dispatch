@@ -64,6 +64,7 @@ const manifest = JSON.stringify(
           "groups:read",
           "channels:history",
           "groups:history",
+          "files:write",
         ],
       },
     },

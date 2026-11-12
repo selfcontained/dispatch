@@ -1,4 +1,10 @@
-import { SlackApp, SlackRetryError } from "./slack-app.js";
+import {
+  SlackApp,
+  SlackDeliveryUnknownError,
+  SlackRetryError,
+} from "./slack-app.js";
+import { notifyMessage, type SlackBlock as KitBlock } from "./slack-blocks.js";
+import { imageBlocks, loadImages } from "./slack-images.js";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -101,7 +107,12 @@ export class SlackNotifier {
   /** `notify({ replyTo })`: an agent answering in a Slack thread. */
   private threadReply?: (
     agent: AgentRecord,
-    input: { replyTo: string; message: string; title?: string }
+    input: {
+      replyTo: string;
+      message: string;
+      title?: string;
+      images?: string[];
+    }
   ) => Promise<NotifyResult>;
   setThreadReply(fn: NonNullable<SlackNotifier["threadReply"]>) {
     this.threadReply = fn;
@@ -319,6 +330,7 @@ export class SlackNotifier {
         replyTo: input.replyTo,
         message: input.message,
         title: input.title,
+        images: input.images,
       });
     }
 
@@ -332,16 +344,47 @@ export class SlackNotifier {
 
     const appSettings = await this.app.settings();
     if (appSettings.binding) {
+      const loaded = await loadImages(input.images);
+      if ("error" in loaded)
+        return { sent: false, reason: `${loaded.error} Nothing was sent.` };
+      const pictures = await imageBlocks(this.app, loaded.images);
+      const compose = (images: KitBlock[]) =>
+        notifyMessage({
+          agentName: agent.name || agent.id,
+          title: input.title,
+          message: input.message,
+          openUrl: `${appSettings.binding!.baseUrl}/agents/${encodeURIComponent(agent.id)}`,
+          images,
+        });
       try {
-        const sent = await this.app.send(
-          `Dispatch · ${agent.name || agent.id} · ${agent.type || "Agent"}\n${input.title ? input.title + "\n" : ""}${input.message}\n${appSettings.binding.baseUrl}/agents/${encodeURIComponent(agent.id)}\nPrivate link: LAN or VPN required. Linked answerers can reply in this thread to message the agent.`
-        );
+        let note = pictures.skipped;
+        let sent;
+        try {
+          sent = await this.app.postBlocks(compose(pictures.blocks));
+        } catch (error) {
+          // Slack definitely rejected it (e.g. an image it couldn't show):
+          // send the words once more without images.
+          if (
+            !pictures.blocks.length ||
+            error instanceof SlackRetryError ||
+            error instanceof SlackDeliveryUnknownError
+          )
+            throw error;
+          sent = await this.app.postBlocks(compose([]));
+          note = "Images weren't attached: Slack couldn't show them.";
+        }
         await this.notifySent?.(sent, agent.id).catch(() => {});
         this.recordNotifyTimestamp(agent.id);
-        return { sent: true };
+        return note ? { sent: true, note } : { sent: true };
       } catch (error) {
         if (error instanceof SlackRetryError)
           return { sent: false, reason: "Slack rate limited. Retry shortly." };
+        if (error instanceof SlackDeliveryUnknownError)
+          return {
+            sent: false,
+            reason:
+              "Slack's response was unclear, so it may or may not have posted. Don't repeat it.",
+          };
         return {
           sent: false,
           reason: "Slack delivery failed. Check connection in Settings.",

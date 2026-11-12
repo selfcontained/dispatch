@@ -83,6 +83,11 @@ export function NotificationsContent() {
           but if Slack&apos;s response is unclear it may be missing; the full
           conversation is always in Dispatch.
         </P>
+        <P>
+          Agents write Slack messages in markdown (bold, lists, code blocks,
+          links) and can attach images. Images need the Slack app&apos;s
+          files:write permission; Settings shows when the app needs updating.
+        </P>
       </Section>
 
       <Section>

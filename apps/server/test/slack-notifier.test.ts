@@ -442,3 +442,57 @@ describe("notify({ replyTo })", () => {
     expect(threadReply).toHaveBeenCalledTimes(5);
   });
 });
+
+describe("notify in the shared Block Kit layout", () => {
+  beforeEach(() => fetchSpy.mockClear());
+  const bound = () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const posted: any[] = [];
+    (notifier as any).app = {
+      settings: async () => ({
+        binding: { generation: "g", baseUrl: "http://lan:6767" },
+      }),
+      postBlocks: async (input: any) => {
+        posted.push(input);
+        return { channelId: "C1", timestamp: "1.1", generation: "g" };
+      },
+      hasScope: () => true,
+      uploadImage: async () => "F1",
+    };
+    return { notifier, posted };
+  };
+
+  it("posts markdown with a primary Open link, never the old plain-text blob", async () => {
+    const { notifier, posted } = bound();
+    const result = await notifier.sendNotification(makeAgent(), {
+      title: "Build is green",
+      message: "All **42** tests pass. See [CI](https://ci.example/run/1).",
+    });
+    expect(result).toEqual({ sent: true });
+    const blocks = posted[0].blocks;
+    expect(blocks.map((b: any) => b.type)).toEqual([
+      "context",
+      "markdown",
+      "actions",
+      "context",
+    ]);
+    expect(blocks[1].text).toContain("[CI](https://ci.example/run/1)");
+    expect(blocks[2].elements[0]).toMatchObject({
+      url: "http://lan:6767/agents/agent-1",
+      style: "primary",
+    });
+    expect(JSON.stringify(posted[0])).not.toMatch(/Delivery does not mean/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses unreadable images before sending anything", async () => {
+    const { notifier, posted } = bound();
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "pics",
+      images: ["/definitely/missing.png"],
+    });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toMatch(/Can't read image/);
+    expect(posted).toHaveLength(0);
+  });
+});

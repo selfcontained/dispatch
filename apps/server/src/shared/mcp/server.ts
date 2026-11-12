@@ -238,11 +238,15 @@ export type NotifyInput = {
   respectFocus?: boolean;
   /** Answer in the Slack thread this message (a Slack-origin post) came from. */
   replyTo?: string;
+  /** Absolute paths of png/jpg/gif files to show inline in Slack. */
+  images?: string[];
 };
 
 export type NotifyResult = {
   sent: boolean;
   reason?: string;
+  /** Something about a sent message the agent should know (e.g. images skipped). */
+  note?: string;
 };
 
 /** The ephemeral SSE member every tool invocation publishes. */

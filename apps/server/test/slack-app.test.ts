@@ -312,6 +312,57 @@ describe("Slack app boundary", () => {
       )
     ).toBeInstanceOf(SlackRetryError);
   });
+  it("uploads images privately and only ever sends bytes to Slack's upload host", async () => {
+    const upload = async (uploadUrl: string) => {
+      const f = fixture();
+      await f.app.validate(credentials);
+      await f.app.enable("C1", "http://lan");
+      const real = f.transport.getMockImplementation()!;
+      f.transport.mockImplementation(async (url, init) =>
+        url.endsWith("files.getUploadURLExternal")
+          ? Response.json({ ok: true, upload_url: uploadUrl, file_id: "F42" })
+          : url === uploadUrl
+            ? new Response("OK", { status: 200 })
+            : url.endsWith("files.completeUploadExternal")
+              ? Response.json({ ok: true, files: [{ id: "F42" }] })
+              : real(url, init)
+      );
+      const result = await f.app
+        .uploadImage(new Uint8Array([1, 2, 3]), "shot.png")
+        .then(
+          (id) => id,
+          (e: Error) => e
+        );
+      const calls = f.transport.mock.calls.map(([url, init]) => ({
+        url: String(url),
+        body: init?.body,
+      }));
+      f.app.stop();
+      return { result, calls };
+    };
+    const ok = await upload("https://files.slack.com/upload/v1/abc");
+    expect(ok.result).toBe("F42");
+    const names = ok.calls.map((c) => c.url.split("/").at(-1));
+    expect(names.slice(-3)).toEqual([
+      "files.getUploadURLExternal",
+      "abc",
+      "files.completeUploadExternal",
+    ]);
+    // Form-encoded size request; no channel, so the file stays private.
+    expect(String(ok.calls.at(-3)!.body)).toBe("filename=shot.png&length=3");
+    expect(JSON.parse(String(ok.calls.at(-1)!.body))).toEqual({
+      files: [{ id: "F42", title: "shot.png" }],
+    });
+    for (const evil of [
+      "https://evil.example/upload",
+      "http://files.slack.com/upload",
+      "https://slack.com.evil.example/x",
+    ]) {
+      const bad = await upload(evil);
+      expect(bad.result).toBeInstanceOf(Error);
+      expect(bad.calls.some((c) => c.url === evil)).toBe(false);
+    }
+  });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();
     f.transport.mockResolvedValueOnce(
@@ -326,6 +377,7 @@ describe("Slack app boundary", () => {
     expect((await f.app.settings()).missingAnswerScopes).toEqual([
       "channels:history",
       "groups:history",
+      "files:write",
     ]);
   });
   it("rejects redirects, malformed credentials and unvalidated enable", async () => {

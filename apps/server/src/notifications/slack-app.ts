@@ -39,6 +39,12 @@ function lateReason(result: Record<string, unknown> | void) {
   return null;
 }
 export const ANSWER_SCOPES = ["channels:history", "groups:history"];
+/** Inline images in Dispatch messages are uploaded privately by the bot. */
+export const IMAGE_SCOPES = ["files:write"];
+const FORM_METHODS = new Set([
+  "conversations.list",
+  "files.getUploadURLExternal",
+]);
 /** Socket Mode requires an ack within 3 seconds. */
 const ACK_BUDGET_MS = 2500;
 type Credentials = { botToken: string; appToken: string };
@@ -107,19 +113,17 @@ export class SlackApp {
         signal: AbortSignal.timeout(10000),
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type":
-            method === "conversations.list"
-              ? "application/x-www-form-urlencoded"
-              : "application/json",
+          "Content-Type": FORM_METHODS.has(method)
+            ? "application/x-www-form-urlencoded"
+            : "application/json",
         },
-        body:
-          method === "conversations.list"
-            ? new URLSearchParams(
-                Object.entries(data).map(
-                  ([key, value]) => [key, String(value)] as [string, string]
-                )
-              ).toString()
-            : JSON.stringify(data),
+        body: FORM_METHODS.has(method)
+          ? new URLSearchParams(
+              Object.entries(data).map(
+                ([key, value]) => [key, String(value)] as [string, string]
+              )
+            ).toString()
+          : JSON.stringify(data),
       });
     } catch (error) {
       const code = (error as { cause?: { code?: unknown } })?.cause?.code;
@@ -210,7 +214,9 @@ export class SlackApp {
       lastDelivery: this.lastDelivery,
       // Answering needs thread-reply events; interactivity can't be probed.
       missingAnswerScopes: this.scopes
-        ? ANSWER_SCOPES.filter((scope) => !this.scopes!.includes(scope))
+        ? [...ANSWER_SCOPES, ...IMAGE_SCOPES].filter(
+            (scope) => !this.scopes!.includes(scope)
+          )
         : null,
     };
   }
@@ -522,6 +528,54 @@ export class SlackApp {
     };
   }
   /** Only ever targets the bound channel; callers pass the stored ts. */
+  /** Whether Slack granted a scope on the last auth.test; null when unknown. */
+  hasScope(scope: string): boolean | null {
+    return this.scopes ? this.scopes.includes(scope) : null;
+  }
+  /**
+   * Upload an image privately with the bot token (files.uploadV2 flow,
+   * shared to no channel) and return its file id, to show inline via an
+   * image block's `slack_file`. The file is only visible where the bot
+   * posts a message that shows it.
+   */
+  async uploadImage(bytes: Uint8Array, filename: string) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    const token = config.credentials.botToken;
+    const target = await this.api(token, "files.getUploadURLExternal", {
+      filename,
+      length: bytes.byteLength,
+    });
+    const uploadUrl = String(target.upload_url ?? "");
+    const fileId = String(target.file_id ?? "");
+    // Only ever send bytes to Slack's own upload host.
+    const host = (() => {
+      try {
+        const u = new URL(uploadUrl);
+        return u.protocol === "https:" ? u.hostname : "";
+      } catch {
+        return "";
+      }
+    })();
+    if (!fileId || !(host === "slack.com" || host.endsWith(".slack.com")))
+      throw new Error("Slack returned an unexpected upload target.");
+    let uploaded: Response;
+    try {
+      uploaded = await this.transport(uploadUrl, {
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(30000),
+        body: bytes,
+      });
+    } catch {
+      throw new Error("Slack image upload failed.");
+    }
+    if (!uploaded.ok) throw new Error("Slack image upload failed.");
+    await this.api(token, "files.completeUploadExternal", {
+      files: [{ id: fileId, title: filename }],
+    });
+    return fileId;
+  }
   async updateMessage(ts: string, text: string, blocks: unknown[]) {
     const config = await this.configuration();
     if (!config) throw new Error("Slack app is not configured.");

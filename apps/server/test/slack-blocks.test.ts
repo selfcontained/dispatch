@@ -8,6 +8,8 @@ import {
   parseFormSubmission,
   questionMessage,
   settledMessage,
+  MARKDOWN_MAX,
+  notifyMessage,
 } from "../src/notifications/slack-blocks.js";
 
 const ctx = {
@@ -46,34 +48,45 @@ describe("questionMessage", () => {
     expect(elements[3]!.url).toBe(ctx.openUrl);
   });
 
-  it("never emits mrkdwn so agent text can't ping @channel or inject links", () => {
+  it("renders agent markdown, but Slack mentions can't ping anyone", () => {
     const out = questionMessage(
       { options: [{ label: "ok" }] },
-      { ...ctx, text: "<!channel> see <http://evil|here>" }
+      {
+        ...ctx,
+        text: "**Ship?** <!channel> @here <@U123> <#C9> see [docs](https://x.y)\n```\ncode\n```",
+      }
     );
-    const json = JSON.stringify(out.blocks);
-    expect(json).not.toContain('"mrkdwn"');
-    expect(out.blocks.find((b) => b.type === "section")).toMatchObject({
-      text: { type: "plain_text", text: "<!channel> see <http://evil|here>" },
-    });
+    const body = out.blocks.find((b) => b.type === "markdown") as any;
+    expect(body.text).toContain("**Ship?**");
+    expect(body.text).toContain("[docs](https://x.y)");
+    expect(body.text).toContain("```\ncode\n```");
+    for (const token of ["<!channel>", "@here", "<@U123>", "<#C9>"])
+      expect(JSON.stringify(out.blocks)).not.toContain(token);
+    // Our own header line escapes names so they stay text.
+    const head = questionMessage(
+      { options: [{ label: "ok" }] },
+      { ...ctx, agentName: "<!channel> bot" }
+    ).blocks[0] as any;
+    expect(head.elements[0].text).toContain("&lt;!channel&gt; bot");
+    expect(head.elements[0].text).not.toContain("<!channel>");
   });
 
   it("falls back to Open in Dispatch with explicit reasons instead of dropping", () => {
     const out = questionMessage(
       { options: [{ label: "x".repeat(80) }, { label: "fine" }] },
-      { ...ctx, text: "q".repeat(3500) }
+      { ...ctx, text: "q".repeat(9000) }
     );
     expect(out.unsupported).toEqual([
-      "the question is 3500 characters (Slack shows 3000)",
+      "the question is 9000 characters (Slack shows 8000)",
       "1 option label is longer than Slack allows",
     ]);
     const elements = actionsOf(out.blocks);
     expect(elements).toHaveLength(1);
     expect(elements[0]!.action_id).toBe(ACTION.open);
     expect(JSON.stringify(out.blocks)).toContain("Answer in Dispatch:");
-    const section = out.blocks.find((b) => b.type === "section") as any;
-    expect(section.text.text).toHaveLength(SLACK_LIMITS.sectionText);
-    expect(section.text.text.endsWith("…")).toBe(true);
+    const body = out.blocks.find((b) => b.type === "markdown") as any;
+    expect(body.text).toHaveLength(MARKDOWN_MAX);
+    expect(body.text.endsWith("…")).toBe(true);
   });
 
   it("keeps parent-handled asks out of Slack answering", () => {
@@ -234,12 +247,51 @@ describe("settledMessage", () => {
       summary: '"Postgres"',
       delivery: "not_delivered",
     });
-    expect(actionsOf(out.blocks).map((e) => e.action_id)).toEqual([
-      ACTION.open,
-    ]);
+    expect(out.blocks.some((b) => b.type === "actions")).toBe(false);
+    const status = out.blocks.at(-1) as any;
+    expect(status.elements[0].text).toContain(":white_check_mark:");
+    expect(status.elements[0].text).toContain(
+      `<${ctx.openUrl}|Open in Dispatch>`
+    );
     expect(out.text).toContain(
       "recorded · not delivered to the agent yet — open Dispatch to retry"
     );
     expect(out.text).not.toMatch(/picked up/);
+  });
+});
+
+describe("notifyMessage", () => {
+  it("uses the shared layout: who, markdown body, images, primary Open, private-link footer", () => {
+    const image = {
+      type: "image",
+      slack_file: { id: "F1" },
+      alt_text: "shot.png",
+    };
+    const out = notifyMessage({
+      agentName: "builder-7",
+      title: "Build is green",
+      message: "All **42** tests pass. <!here>",
+      openUrl: "http://lan:6767/agents/agt_1",
+      images: [image],
+    });
+    expect(out.blocks.map((b) => b.type)).toEqual([
+      "context",
+      "markdown",
+      "image",
+      "actions",
+      "context",
+    ]);
+    expect((out.blocks[0] as any).elements[0].text).toBe("*builder-7*");
+    expect((out.blocks[1] as any).text).toBe(
+      "**Build is green**\n\nAll **42** tests pass. <\u200b!here>"
+    );
+    expect((out.blocks[3] as any).elements[0]).toMatchObject({
+      url: "http://lan:6767/agents/agt_1",
+      style: "primary",
+    });
+    expect((out.blocks[4] as any).elements[0].text).toContain(
+      "Private link: opens on your LAN or VPN"
+    );
+    expect(out.text).not.toContain("<!here>");
   });
 });

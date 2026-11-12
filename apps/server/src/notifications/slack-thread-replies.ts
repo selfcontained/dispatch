@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { imageBlocks, loadImages } from "./slack-images.js";
 import type { Pool } from "pg";
 import type { Block } from "@dispatch/shared";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
@@ -10,9 +11,11 @@ import {
 } from "./slack-app.js";
 import type { SlackAnswers } from "./slack-answers.js";
 import {
-  ACTION,
-  SLACK_LIMITS,
-  plain,
+  MARKDOWN_MAX,
+  headerLine,
+  markdownBody,
+  mrkdwnLink,
+  neutralizeMentions,
   type SlackBlock,
 } from "./slack-blocks.js";
 
@@ -32,77 +35,43 @@ import {
  * explicit act that goes into the thread (see `agentAsked`).
  */
 
-/** Section text is plain_text (no mrkdwn/@channel/link injection), ≤3000 each. */
-export const REPLY_MAX_CHARS = 8000;
+/** Agent replies render as Slack markdown (formatting, real links), capped. */
+export const REPLY_MAX_CHARS = MARKDOWN_MAX;
 type PlaceRow = { id: string; stream_id: string; thread_id: string | null };
-
-/** Split on paragraph, then line, then hard boundaries; each ≤ max. */
-export function chunkText(text: string, max: number): string[] {
-  const out: string[] = [];
-  let rest = text.trim();
-  while (rest.length > max) {
-    const window = rest.slice(0, max);
-    let cut = window.lastIndexOf("\n\n");
-    if (cut < max / 2) cut = window.lastIndexOf("\n");
-    if (cut < max / 2) cut = window.lastIndexOf(" ");
-    if (cut < max / 2) cut = max;
-    out.push(rest.slice(0, cut).trim());
-    rest = rest.slice(cut).trim();
-  }
-  if (rest) out.push(rest);
-  return out;
-}
 
 export function replyMessage(input: {
   agentName: string;
   context?: string;
   text: string;
   openUrl: string;
+  images?: SlackBlock[];
 }): { text: string; blocks: SlackBlock[] } {
   const clipped = input.text.length > REPLY_MAX_CHARS;
-  const body = clipped
-    ? `${input.text.slice(0, REPLY_MAX_CHARS - 1).trimEnd()}…`
-    : input.text;
   const blocks: SlackBlock[] = [
-    {
-      type: "context",
-      elements: [
-        plain(
-          [`${input.agentName} replied`, input.context]
-            .filter(Boolean)
-            .join(" · "),
-          SLACK_LIMITS.sectionText
-        ),
-      ],
-    },
-    ...chunkText(body, SLACK_LIMITS.sectionText).map((chunk) => ({
-      type: "section",
-      text: plain(chunk, SLACK_LIMITS.sectionText),
-    })),
+    headerLine({
+      agentName: input.agentName,
+      verb: "replied",
+      parts: [input.context],
+      openUrl: input.openUrl,
+    }),
+    markdownBody(input.text, REPLY_MAX_CHARS),
+    ...(input.images ?? []),
   ];
   if (clipped)
     blocks.push({
       type: "context",
-      elements: [plain("The reply continues in Dispatch.", 200)],
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `The reply continues in Dispatch · ${mrkdwnLink(input.openUrl, "Open")}`,
+        },
+      ],
     });
-  blocks.push(openActions(input.openUrl));
   return {
-    text: `${input.agentName}: ${body.slice(0, 2900)}`,
+    text: neutralizeMentions(
+      `${input.agentName}: ${input.text.slice(0, 2900)}`
+    ),
     blocks,
-  };
-}
-
-function openActions(url: string): SlackBlock {
-  return {
-    type: "actions",
-    elements: [
-      {
-        type: "button",
-        action_id: ACTION.open,
-        text: plain("Open in Dispatch", SLACK_LIMITS.buttonText),
-        url,
-      },
-    ],
   };
 }
 
@@ -186,7 +155,9 @@ export class SlackThreadReplies {
    */
   async reply(
     agent: { id: string; name?: string | null },
-    input: Pick<NotifyInput, "message" | "title"> & { replyTo: string }
+    input: Pick<NotifyInput, "message" | "title" | "images"> & {
+      replyTo: string;
+    }
   ): Promise<NotifyResult> {
     const [row] = await this.provenance([input.replyTo], agent.id);
     if (!row)
@@ -206,10 +177,14 @@ export class SlackThreadReplies {
         reason:
           "That Slack thread is no longer linked to this Dispatch (Slack was reconnected or the message removed). Nothing was sent; reply in Dispatch instead.",
       };
-    const text = [input.title?.trim(), input.message.trim()]
+    const loaded = await loadImages(input.images);
+    if ("error" in loaded)
+      return { sent: false, reason: `${loaded.error} Nothing was sent.` };
+    const title = input.title?.trim();
+    const text = [title ? `**${title}**` : undefined, input.message.trim()]
       .filter(Boolean)
       .join("\n\n");
-    const hash = sha(text);
+    const hash = sha(JSON.stringify([text, loaded.images.map((i) => i.name)]));
     // Durable before Slack sees it, and claimed atomically: the unique
     // (post, text) key means two identical calls can't both send. If this
     // can't be recorded, nothing is sent.
@@ -243,31 +218,52 @@ export class SlackThreadReplies {
     }
     const binding = (await this.app.currentBinding())!;
     const name = agent.name || (await this.agentName(agent.id)) || agent.id;
-    const message = replyMessage({
-      agentName: name,
-      context: row.stream_id.startsWith("tsk_")
-        ? `Task ${row.stream_id}`
-        : undefined,
-      text,
-      openUrl: this.answers.openUrl(binding.baseUrl, {
-        block_id: row.post_block_id,
-        thread_id: row.thread_id,
-        stream_id: row.stream_id,
-        agent_id: agent.id,
-      }),
-    });
+    const pictures = await imageBlocks(this.app, loaded.images);
+    const compose = (images: SlackBlock[]) =>
+      replyMessage({
+        agentName: name,
+        context: row.stream_id.startsWith("tsk_")
+          ? `Task ${row.stream_id}`
+          : undefined,
+        text,
+        openUrl: this.answers.openUrl(binding.baseUrl, {
+          block_id: row.post_block_id,
+          thread_id: row.thread_id,
+          stream_id: row.stream_id,
+          agent_id: agent.id,
+        }),
+        images,
+      });
+    let note = pictures.skipped;
     try {
-      const sent = await this.app.postBlocks(
-        { ...message, threadTs: row.thread_ts },
-        row.binding_generation
-      );
+      let sent: { timestamp: string };
+      try {
+        sent = await this.app.postBlocks(
+          { ...compose(pictures.blocks), threadTs: row.thread_ts },
+          row.binding_generation
+        );
+      } catch (error) {
+        // Definitely rejected with images (e.g. one Slack couldn't show):
+        // send the words once more without them.
+        if (
+          !pictures.blocks.length ||
+          error instanceof SlackRetryError ||
+          error instanceof SlackDeliveryUnknownError
+        )
+          throw error;
+        sent = await this.app.postBlocks(
+          { ...compose([]), threadTs: row.thread_ts },
+          row.binding_generation
+        );
+        note = "Images weren't attached: Slack couldn't show them.";
+      }
       await this.pool
         .query(
           `UPDATE slack_thread_reply_sends SET sent_at = now(), slack_ts = $2 WHERE id = $1`,
           [sendId, sent.timestamp]
         )
         .catch(() => {}); // Still blocks an identical resend; never resent.
-      return { sent: true };
+      return note ? { sent: true, note } : { sent: true };
     } catch (error) {
       if (error instanceof SlackDeliveryUnknownError)
         // May be in Slack: keep the record so identical text is never resent.

@@ -13,7 +13,6 @@ import {
 import {
   REPLY_MAX_CHARS,
   SlackThreadReplies,
-  chunkText,
 } from "../src/notifications/slack-thread-replies.js";
 import { answeredPrompts } from "../src/chat/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -51,6 +50,9 @@ function build() {
     failNext: [] as Error[],
     /** Runs inside postBlocks before it returns (to stage races). */
     duringPost: [] as Array<() => Promise<void>>,
+    uploads: [] as Array<{ name: string; bytes: number }>,
+    /** Granted bot scopes; null = unknown (treated as allowed). */
+    scopes: null as string[] | null,
   };
   let ts = 100;
   const app = {
@@ -77,6 +79,12 @@ function build() {
       calls.ephemeral.push({ user, text, threadTs });
     },
     openView: async () => {},
+    hasScope: (scope: string) =>
+      calls.scopes ? calls.scopes.includes(scope) : null,
+    uploadImage: async (bytes: Uint8Array, name: string) => {
+      calls.uploads.push({ name, bytes: bytes.byteLength });
+      return `F_${name}`;
+    },
   } as unknown as SlackApp;
 
   let pending: Promise<void> = Promise.resolve();
@@ -109,6 +117,7 @@ function build() {
   replies = new SlackThreadReplies(pool, app, answers, name, (id) =>
     svc.currentTurn(id)
   );
+  lastReplies = replies;
   const reply = (agentId: string, replyTo: string, message: string) =>
     replies.reply(
       { id: agentId, name: agents[agentId]?.name },
@@ -276,13 +285,17 @@ async function runTurn(
   return { blockId, turnRow };
 }
 
+/** The agent's words as Slack renders them (the markdown body). */
 const sectionText = (p: Posted) =>
   p.blocks
-    .filter((b) => b.type === "section")
-    .map((b) => b.text.text)
+    .filter((b) => b.type === "markdown")
+    .map((b) => b.text)
     .join("\n\n");
 
 beforeAll(async () => {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir("/tmp/dogfood-slack-cdc9-test", { recursive: true });
+  await writeFile(png, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
   pool = await setupTestDb();
   await runTestMigrations();
   for (const [id, name] of [
@@ -307,6 +320,21 @@ beforeEach(async () => {
   await allow("U1");
 });
 
+const png = "/tmp/dogfood-slack-cdc9-test/shot.png";
+/** notify({ replyTo, images }) for the most recently built harness. */
+const replyWith = (
+  _reply: unknown,
+  agentId: string,
+  replyTo: string,
+  message: string,
+  images: string[]
+) =>
+  lastReplies!.reply(
+    { id: agentId, name: agentId === A ? "builder-7" : "reviewer-2" },
+    { replyTo, message, images }
+  );
+let lastReplies: SlackThreadReplies | null = null;
+
 /** A Slack follow-up from U1 under a fresh notify parent for `agentId`. */
 async function followUp(answers: SlackAnswers, agentId: string, text: string) {
   const parent = await notifyParent(answers, agentId);
@@ -315,30 +343,30 @@ async function followUp(answers: SlackAnswers, agentId: string, text: string) {
 }
 
 describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
-  it("posts the agent's own words, plain text, into the originating thread", async () => {
+  it("posts the agent's own markdown into the originating thread, in the shared layout", async () => {
     const { answers, calls, reply } = build();
     const { parent, post } = await followUp(answers, A, "bump the timeout?");
     const result = await reply(
       A,
       post.id,
-      "Done: timeout is now 30s (was 10s). <!channel> *bold*"
+      "Done: timeout is now **30s**. <!channel>\n```\nTIMEOUT_MS=30000\n```\nSee [the PR](https://example.com/pr/1)."
     );
     expect(result).toEqual({ sent: true });
     expect(calls.posted).toHaveLength(1);
     const posted = calls.posted[0]!;
     expect(posted.threadTs).toBe(parent);
-    expect(posted.blocks[0]).toMatchObject({
-      type: "context",
-      elements: [{ type: "plain_text", text: "builder-7 replied" }],
-    });
-    expect(sectionText(posted)).toBe(
-      "Done: timeout is now 30s (was 10s). <!channel> *bold*"
+    const head = posted.blocks[0].elements[0];
+    expect(head.type).toBe("mrkdwn");
+    expect(head.text).toMatch(
+      /^\*builder-7\* replied · <http:\/\/lan:6767\/agents\/[^|]+block=[^|]+\|Open in Dispatch>$/
     );
-    for (const b of posted.blocks.filter((b: any) => b.type === "section"))
-      expect(b.text.type).toBe("plain_text");
-    const open = posted.blocks.at(-1).elements[0];
-    expect(open).toMatchObject({ action_id: "dispatch_open" });
-    expect(open.url).toContain(`block=${post.id}`);
+    expect(head.text).toContain(`block=${post.id}`);
+    const body = sectionText(posted);
+    expect(body).toContain("**30s**");
+    expect(body).toContain("```\nTIMEOUT_MS=30000\n```");
+    expect(body).toContain("[the PR](https://example.com/pr/1)");
+    expect(body).not.toContain("<!channel>");
+    expect(posted.text).not.toContain("<!channel>");
     const { rows } = await pool.query(
       `SELECT sent_at, slack_ts FROM slack_thread_reply_sends`
     );
@@ -478,23 +506,64 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(calls.posted).toHaveLength(0);
   });
 
-  it("chunks long replies within Slack limits and points to Dispatch for the rest", async () => {
-    const { answers, calls, reply } = build();
+  it("caps long replies within Slack's markdown limit and points to Dispatch for the rest", async () => {
+    const { answers, replies, calls } = build();
     const { post } = await followUp(answers, A, "write it up");
-    const para = `${"word ".repeat(500).trim()}.`;
-    await reply(A, post.id, Array.from({ length: 6 }, () => para).join("\n\n"));
-    const posted = calls.posted[0]!;
-    const sections = posted.blocks.filter((b: any) => b.type === "section");
-    expect(sections.length).toBeGreaterThan(1);
-    for (const s of sections)
-      expect(s.text.text.length).toBeLessThanOrEqual(3000);
-    expect(sectionText(posted).length).toBeLessThanOrEqual(
-      REPLY_MAX_CHARS + 10
+    // Past the tool's 4000-char schema cap, straight through the service.
+    await replies.reply(
+      { id: A, name: "builder-7" },
+      { replyTo: post.id, message: "word ".repeat(2500) }
     );
+    const posted = calls.posted[0]!;
+    expect(sectionText(posted).length).toBeLessThanOrEqual(REPLY_MAX_CHARS);
     expect(JSON.stringify(posted)).toMatch(/continues in Dispatch/);
-    expect(posted.blocks.length).toBeLessThanOrEqual(50);
     expect(posted.text.length).toBeLessThanOrEqual(3000);
-    expect(chunkText("a\n\nb", 3000)).toEqual(["a\n\nb"]);
+  });
+
+  it("shows images inline via uploaded Slack files, alongside the words", async () => {
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "screenshot?");
+    const result = await replyWith(reply, A, post.id, "Here it is.", [png]);
+    expect(result).toEqual({ sent: true });
+    expect(calls.uploads).toEqual([{ name: "shot.png", bytes: 8 }]);
+    const posted = calls.posted[0]!;
+    expect(posted.blocks.map((b: any) => b.type)).toEqual([
+      "context",
+      "markdown",
+      "image",
+    ]);
+    expect(posted.blocks[2]).toMatchObject({
+      slack_file: { id: "F_shot.png" },
+      alt_text: "shot.png",
+    });
+  });
+
+  it("images: bad paths refuse the message; a missing scope or Slack rejection still sends the words", async () => {
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "pics");
+    expect(
+      (await replyWith(reply, A, post.id, "x", ["relative.png"])).reason
+    ).toMatch(/absolute/);
+    expect(
+      (await replyWith(reply, A, post.id, "x", ["/etc/hosts"])).reason
+    ).toMatch(/png, jpg or gif/);
+    expect(calls.posted).toHaveLength(0);
+    calls.scopes = ["chat:write"];
+    const noScope = await replyWith(reply, A, post.id, "words only", [png]);
+    expect(noScope.sent).toBe(true);
+    expect(noScope.note).toMatch(/files:write/);
+    expect(calls.uploads).toHaveLength(0);
+    calls.scopes = null;
+    calls.failNext.push(new Error("invalid_blocks"));
+    const rejected = await replyWith(reply, A, post.id, "second try", [png]);
+    expect(rejected).toMatchObject({
+      sent: true,
+      note: expect.stringMatching(/couldn't show/),
+    });
+    expect(calls.posted.map((p) => p.blocks.map((b: any) => b.type))).toEqual([
+      ["context", "markdown"],
+      ["context", "markdown"],
+    ]);
   });
 
   it("nothing is mirrored automatically: a turn's final output never reaches Slack", async () => {
