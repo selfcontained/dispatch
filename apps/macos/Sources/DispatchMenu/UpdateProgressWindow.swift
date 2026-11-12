@@ -105,9 +105,9 @@ final class UpdateProgressWindow: NSWindowController, NSWindowDelegate {
             detail.stringValue = "You can try again later from the Dispatch menu."
             details = message; primaryTitle = "OK"
         case .cancelFailed(let message):
-            // The staged update stays protected: quitting runs the recovery-safe handoff.
+            // Quitting runs the protected handoff, which may install, withdraw, or block the quit.
             heading.stringValue = "Couldn’t postpone the update"
-            detail.stringValue = "It will install safely the next time Dispatch quits."
+            detail.stringValue = "The update is still pending. Dispatch will check that it’s safe to install when you quit."
             details = message; primaryTitle = "OK"; secondaryTitle = "Try Again"
         }
         technical.stringValue = details
