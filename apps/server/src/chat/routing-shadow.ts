@@ -267,7 +267,7 @@ export async function shadowEvidence(pool: Pool, input: ShadowInput) {
   };
 }
 
-/** Postgres lock serializes dedupe, fleet concurrency, and UTC daily reservations. */
+/** Postgres lock serializes dedupe and fleet concurrency. */
 export class RoutingShadowStore {
   constructor(
     readonly pool: Pool,
