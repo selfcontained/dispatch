@@ -77,6 +77,15 @@ export function SlackAppSection() {
     queryFn: () => api<State>(endpoint),
     refetchInterval: 10000,
   });
+  const resetSetup = () => {
+    setBotToken("");
+    setAppToken("");
+    setValidated(false);
+    setChannels([]);
+    setChannelId("");
+    setWorkspace("");
+    setMessage("");
+  };
   const action = useMutation({
     mutationFn: async ({
       name,
@@ -101,6 +110,11 @@ export function SlackAppSection() {
           result.channels.some((channel) => channel.id === id) ? id : ""
         );
       } else {
+        if (name !== "test") {
+          resetSetup();
+          setEditing(false);
+          setStep(1);
+        }
         setMessage(
           name === "test"
             ? "Test delivered to Slack. This does not mean it was read."
@@ -108,14 +122,6 @@ export function SlackAppSection() {
               ? "Disconnected and cleared credentials."
               : "Slack notifications enabled."
         );
-        if (name !== "test") {
-          setBotToken("");
-          setAppToken("");
-          setValidated(false);
-          setChannelId("");
-          setEditing(false);
-          setStep(1);
-        }
       }
       await client.invalidateQueries({ queryKey: ["slack-app"] });
     },
@@ -199,6 +205,10 @@ export function SlackAppSection() {
                 variant="ghost"
                 disabled={action.isPending}
                 onClick={() => {
+                  if (editing) {
+                    resetSetup();
+                    action.reset();
+                  }
                   setEditing(!editing);
                   setStep(2);
                 }}
