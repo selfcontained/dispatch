@@ -79,7 +79,7 @@ describe("system event presentation", () => {
     expect(screen.getAllByText("Failing")).toHaveLength(1);
     const totals = screen.getByLabelText("Check totals");
     expect(totals.textContent).toBe("4 passed1 failed2 pending1 cancelled");
-    const results = within(screen.getByLabelText("Latest check results"));
+    const results = within(screen.getByLabelText("Newly finished checks"));
     const failed = results.getByRole("link", {
       name: "Browser [e2e] regression",
     });
@@ -89,6 +89,9 @@ describe("system event presentation", () => {
     expect(results.getByText("failed · 12m 30s")).toBeTruthy();
     expect(results.getByText("Type check")).toBeTruthy();
     expect(results.getByText("+2 more")).toBeTruthy();
+    expect(
+      screen.getByText("Pending checks aren’t named in this update")
+    ).toBeTruthy();
     // Commit, time and informational note appear once; no footer boilerplate.
     expect(view.container.querySelectorAll("code")).toHaveLength(1);
     expect(screen.getByText("0c935fb")).toBeTruthy();
@@ -113,7 +116,7 @@ describe("system event presentation", () => {
   it("renders no invented results when check data is missing", () => {
     checks("");
     expect(screen.queryByLabelText("Check totals")).toBeNull();
-    expect(screen.queryByLabelText("Latest check results")).toBeNull();
+    expect(screen.queryByLabelText("Newly finished checks")).toBeNull();
     expect(screen.queryByText(/Passing|Failing|Pending|Mixed/)).toBeNull();
   });
 
@@ -132,5 +135,35 @@ describe("system event presentation", () => {
         "#1 — Failing · 1 failed\n- [x](<https://e.com/a%5Cb?q=%3Cx%3E&amp;r=1>) — failed"
       )?.checks[0].url
     ).toBe("https://e.com/a%5Cb?q=%3Cx%3E&r=1");
+  });
+
+  it("puts failures first and never presents passed rows as the pending ones", () => {
+    const view = checks(
+      [
+        "#1449 — Failing · 2 passed, 1 failed, 5 pending",
+        "- Type check — passed · 58s",
+        "- Lint — passed · 20s",
+        "- [Browser e2e](<https://github.com/a/b/runs/9>) — failed · 3m",
+        "",
+        "4d9ea93eb810 · 2026-11-12 16:54Z · Info only; no action authorized.",
+      ].join("\n")
+    );
+    const text = view.container.textContent ?? "";
+    expect(text.indexOf("Pending checks aren’t named")).toBeLessThan(
+      text.indexOf("Newly finished")
+    );
+    const rows = within(screen.getByLabelText("Newly finished checks"))
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(rows[0]).toMatch(/^Browser e2efailed/);
+    expect(rows.slice(1)).toEqual([
+      "Type checkpassed · 58s",
+      "Lintpassed · 20s",
+    ]);
+  });
+
+  it("omits the outstanding line when nothing is pending", () => {
+    checks("#1 — Passing · 2 passed\n- Lint — passed · 20s");
+    expect(screen.queryByText(/aren’t named/)).toBeNull();
   });
 });

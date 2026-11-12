@@ -33,9 +33,9 @@ const events: SystemEventPresentation[] = [
         "Failing",
         "Failing · 4 passed, 1 failed, 2 pending",
         [
-          "[Browser regression coverage with a deliberately long check lab…](<https://github.com/a/b/actions/runs/1>) — failed · 12m 30s",
           "[Type check](<https://github.com/a/b/actions/runs/2>) — passed · 58s",
           "Unit tests — passed",
+          "[Browser regression coverage with a deliberately long check lab…](<https://github.com/a/b/actions/runs/1>) — failed · 12m 30s",
           "+2 more",
         ],
       ],

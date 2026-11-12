@@ -77,6 +77,12 @@ export function PullRequestCheckResults({ text }: { text: string }) {
         <Markdown>{text}</Markdown>
       </div>
     );
+  // The notice names only checks that newly passed or failed (bounded). Put
+  // failures first, and never let those rows read as the outstanding ones.
+  const checks = [...notice.checks].sort(
+    (a, b) => Number(b.outcome === "failed") - Number(a.outcome === "failed")
+  );
+  const pending = notice.counts.find((c) => c.label === "pending")?.count;
   return (
     <div className="mt-2 space-y-2 font-sans">
       {notice.counts.length > 0 && (
@@ -91,52 +97,62 @@ export function PullRequestCheckResults({ text }: { text: string }) {
           ))}
         </p>
       )}
-      {notice.checks.length > 0 && (
-        <ul className="space-y-1 text-sm" aria-label="Latest check results">
-          {notice.checks.map((check, i) => (
-            <li key={i} className="flex items-baseline gap-2">
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 shrink-0 translate-y-[-1px] rounded-full",
-                  check.outcome === "failed"
-                    ? "bg-destructive"
-                    : "bg-status-working"
-                )}
-              />
-              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-                {check.url ? (
-                  <a
-                    href={check.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline decoration-border underline-offset-4 focus-visible:outline-ring"
-                  >
-                    {check.name}
-                  </a>
-                ) : (
-                  check.name
-                )}
-              </span>
-              <span
-                className={cn(
-                  "shrink-0 text-xs",
-                  check.outcome === "failed"
-                    ? "font-medium text-destructive"
-                    : "text-muted-foreground"
-                )}
-              >
-                {check.outcome}
-                {check.detail ? ` · ${check.detail}` : ""}
-              </span>
-            </li>
-          ))}
-          {notice.more ? (
-            <li className="pl-3.5 text-xs text-muted-foreground">
-              +{notice.more} more
-            </li>
-          ) : null}
-        </ul>
+      {pending ? (
+        <p className="text-xs text-status-waiting">
+          Pending checks aren’t named in this update
+        </p>
+      ) : null}
+      {checks.length > 0 && (
+        <div>
+          <p className="mb-1 text-[11px] text-muted-foreground">
+            Newly finished
+          </p>
+          <ul className="space-y-1 text-sm" aria-label="Newly finished checks">
+            {checks.map((check, i) => (
+              <li key={i} className="flex items-baseline gap-2">
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 shrink-0 translate-y-[-1px] rounded-full",
+                    check.outcome === "failed"
+                      ? "bg-destructive"
+                      : "bg-status-working"
+                  )}
+                />
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                  {check.url ? (
+                    <a
+                      href={check.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline decoration-border underline-offset-4 focus-visible:outline-ring"
+                    >
+                      {check.name}
+                    </a>
+                  ) : (
+                    check.name
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 text-xs",
+                    check.outcome === "failed"
+                      ? "font-medium text-destructive"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {check.outcome}
+                  {check.detail ? ` · ${check.detail}` : ""}
+                </span>
+              </li>
+            ))}
+            {notice.more ? (
+              <li className="pl-3.5 text-xs text-muted-foreground">
+                +{notice.more} more
+              </li>
+            ) : null}
+          </ul>
+        </div>
       )}
     </div>
   );
