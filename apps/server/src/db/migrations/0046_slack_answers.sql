@@ -13,6 +13,9 @@ CREATE TABLE slack_messages (
   -- SHA-256 of the ask's text+data when posted: a changed ask is stale.
   data_hash text,
   settled_at timestamptz,
+  -- Delivery state last shown in Slack; 'sending' is re-rendered once
+  -- the reply's delivery settles.
+  shown_delivery text,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (channel_id, message_ts)
 );

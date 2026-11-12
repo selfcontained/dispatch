@@ -326,6 +326,11 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
       ctx
     );
   }
+  // Written by a linked Slack identity, not typed by the owner here.
+  if (block.kind === "text" && block.data?.external) {
+    const { userId, displayName } = block.data.external;
+    return { key: `slack:${userId}`, name: displayName, kind: "user" };
+  }
   return userAuthor();
 }
 
@@ -1855,6 +1860,14 @@ export const BlockView = memo(function BlockView({
         action={postActions}
         deliveryIndicator={deliveryIndicator}
       >
+        {block.kind === "text" && block.data?.external ? (
+          <div
+            className="text-[11px] text-muted-foreground"
+            data-testid="chat-external-origin"
+          >
+            via Slack · not typed in Dispatch
+          </div>
+        ) : null}
         {block.text ? (
           <MessageThreadTap onOpen={openTextThread}>
             <Markdown

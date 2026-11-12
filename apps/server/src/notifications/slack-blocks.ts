@@ -499,13 +499,24 @@ export function parseFormSubmission(
   return Object.keys(errors).length ? { errors } : { values };
 }
 
+/** Mirrors the reply block's `delivered`: true, null (in flight), false. */
+export type DeliveryShown = "delivered" | "sending" | "not_delivered";
+
+export function deliveryPhrase(name: string, delivery: DeliveryShown) {
+  return delivery === "delivered"
+    ? `delivered to ${name}`
+    : delivery === "sending"
+      ? `sending to ${name} — delivery status is in Dispatch`
+      : `not delivered to ${name} yet — open Dispatch to retry`;
+}
+
 export type Outcome =
   | {
       kind: "answered";
       by: string;
       via: "slack" | "dispatch";
       summary: string;
-      delivery: "delivered" | "queued";
+      delivery: DeliveryShown;
     }
   | { kind: "cancelled"; reason?: string }
   | { kind: "error"; message: string };
@@ -514,11 +525,10 @@ export type Outcome =
 export function settledMessage(ctx: AskContext, outcome: Outcome): Adapted {
   const line =
     outcome.kind === "answered"
-      ? `Answered by ${outcome.by}${outcome.via === "slack" ? " in Slack" : " in Dispatch"}: ${outcome.summary} · recorded · ${
-          outcome.delivery === "delivered"
-            ? "handed to the agent"
-            : "queued — agent offline, waiting for it to resume"
-        }`
+      ? `Answered by ${outcome.by}${outcome.via === "slack" ? " in Slack" : " in Dispatch"}: ${outcome.summary} · recorded · ${deliveryPhrase(
+          "the agent",
+          outcome.delivery
+        )}`
       : outcome.kind === "cancelled"
         ? `Withdrawn${outcome.reason ? `: ${outcome.reason}` : ""}`
         : outcome.message;

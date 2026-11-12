@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 
 export type SlackAnswerer = {
   id: string;
+  userId: string;
   displayName: string;
   status: "pending" | "allowed";
   createdAt: string;
@@ -46,11 +47,14 @@ export function SlackAnswerersCard({
         method: "POST",
         body: JSON.stringify(input.id ? { id: input.id } : {}),
       });
+      await client.invalidateQueries({ queryKey: ["slack-app"] });
+    },
+    onSuccess: (_data, input) => {
+      // Worded so it stays true after the link is used or expires.
       if (input.name === "link")
         setMessage(
-          `Link posted in #${channelName}. It works once and expires in 10 minutes.`
+          `Link posted in #${channelName} (one use, 10 min). New requests appear above.`
         );
-      await client.invalidateQueries({ queryKey: ["slack-app"] });
     },
   });
   const run = (name: string, id?: string) => {
@@ -104,17 +108,18 @@ export function SlackAnswerersCard({
             {pending.map((a) => (
               <li
                 key={a.id}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3"
+                className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     {a.displayName}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Asked to answer from Slack
+                    Slack ID <span className="font-mono">{a.userId}</span> ·
+                    match it to their Slack profile before allowing
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex justify-end gap-2">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -144,6 +149,9 @@ export function SlackAnswerersCard({
               <li key={a.id} className="flex items-center gap-3 py-2">
                 <span className="min-w-0 flex-1 truncate text-sm">
                   {a.displayName}
+                  <span className="ml-2 font-mono text-xs text-muted-foreground">
+                    {a.userId}
+                  </span>
                 </span>
                 <Badge variant="running">Allowed</Badge>
                 <Button

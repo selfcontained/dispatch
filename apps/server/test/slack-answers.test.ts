@@ -26,6 +26,8 @@ const binding: SlackBinding = {
 };
 let pool: Pool;
 let live = true;
+/** Holds engine pickup so the in-flight ("sending") state is observable. */
+let gate: Promise<void> | null = null;
 const injected: string[] = [];
 
 function fakeSlack() {
@@ -72,6 +74,7 @@ function build() {
           ? { mode: "live" as const }
           : { mode: "inert" as const, message: "Agent stopped." },
       inject: async (_agentId, text) => {
+        if (gate) await gate;
         injected.push(text);
       },
       held: () => false,
@@ -188,6 +191,7 @@ beforeAll(async () => {
 afterAll(teardownTestDb);
 beforeEach(async () => {
   live = true;
+  gate = null;
   injected.length = 0;
   await pool.query(
     "DELETE FROM slack_messages; DELETE FROM slack_answerers; DELETE FROM slack_link_claims; DELETE FROM slack_inbound; DELETE FROM blocks"
@@ -229,6 +233,43 @@ describe("answerer binding", () => {
     expect(rows[0].nonce_hash).not.toContain(nonce);
   });
 
+  it("rejects cross-team claims without consuming the link and never renames an allowed identity", async () => {
+    const { answers, calls } = build();
+    await answers.createLink();
+    const link = calls.posted.at(-1)!;
+    const nonce = link.blocks[1].elements[0].value;
+    const guest = click("UX", "dispatch_link", nonce, link.ts);
+    guest.payload.user.team_id = "T_OTHER";
+    await answers.handle(guest);
+    expect(calls.ephemeral.at(-1)!.text).toMatch(/Only members of Team/);
+    expect(await answers.answerers()).toEqual([]);
+    const member = click("U1", "dispatch_link", nonce, link.ts);
+    member.payload.user.team_id = "T1";
+    await answers.handle(member);
+    const [pending] = await answers.answerers();
+    expect(pending).toMatchObject({
+      userId: "U1",
+      displayName: "@u1",
+      status: "pending",
+    });
+    await answers.allow(pending!.id);
+
+    await answers.createLink();
+    const again = calls.posted.at(-1)!;
+    const renamed = click(
+      "U1",
+      "dispatch_link",
+      again.blocks[1].elements[0].value,
+      again.ts
+    );
+    renamed.payload.user.username = "bradharris";
+    await answers.handle(renamed);
+    expect(await answers.answerers()).toMatchObject([
+      { userId: "U1", displayName: "@u1", status: "allowed" },
+    ]);
+    expect(calls.ephemeral.at(-1)!.text).toMatch(/already linked/);
+  });
+
   it("expired links bind nobody and revoke removes access", async () => {
     const { svc, answers, calls } = build();
     await answers.createLink();
@@ -264,6 +305,8 @@ describe("choice answers", () => {
       },
     });
     expect(JSON.stringify(q.message.blocks)).not.toContain("pg-14");
+    let release!: () => void;
+    gate = new Promise<void>((r) => (release = r));
     await answers.handle(
       click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
     );
@@ -289,20 +332,36 @@ describe("choice answers", () => {
     );
     expect(reply.author).toEqual({ kind: "user" });
     expect(reply.data).toMatchObject({ external: { userId: "U1" } });
-    await svc.waitForInFlightDeliveries(1000);
-    expect(injected.at(-1)).toContain(
-      "from: user via Slack (@u1, linked identity"
-    );
+    // Returned before the engine took it: in flight, never "delivered".
     expect(calls.ephemeral.at(-1)!.text).toBe(
-      'Recorded "Postgres" · handed to builder-7.'
+      'Recorded "Postgres" · sending to builder-7 — delivery status is in Dispatch.'
     );
     const settled = calls.updated.find((u) => u.ts === q.message.ts)!;
     expect(settled.text).toContain("Answered by @u1 in Slack");
+    expect(settled.text).toContain("sending to the agent");
     expect(
       settled.blocks
         .find((b: any) => b.type === "actions")
         .elements.map((e: any) => e.action_id)
     ).toEqual(["dispatch_open"]);
+    // Still in flight: reconcile leaves it alone.
+    await answers.reconcile();
+    expect(calls.updated.filter((u) => u.ts === q.message.ts)).toHaveLength(1);
+    // Once the engine takes it, the Slack message is re-rendered once.
+    release();
+    await svc.waitForInFlightDeliveries(1000);
+    expect(injected.at(-1)).toContain(
+      "from: user via Slack (@u1, linked identity"
+    );
+    for (let i = 0; i < 50; i++) {
+      if ((await svc.store.getById(reply.id))!.delivered !== null) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await answers.reconcile();
+    await answers.reconcile();
+    const renders = calls.updated.filter((u) => u.ts === q.message.ts);
+    expect(renders).toHaveLength(2);
+    expect(renders[1]!.text).toContain("delivered to the agent");
   });
 
   it("duplicate, racing and retried clicks yield one answer", async () => {
@@ -328,12 +387,23 @@ describe("choice answers", () => {
       [q.block.id]
     );
     expect(rows[0].n).toBe(1);
-    expect(
-      calls.ephemeral.filter((e) => /^Recorded/.test(e.text))
-    ).toHaveLength(1);
-    expect(
-      calls.ephemeral.filter((e) => /Already answered/.test(e.text))
-    ).toHaveLength(2);
+    const recorded = calls.ephemeral.filter((e) => /^Recorded/.test(e.text));
+    expect(recorded).toHaveLength(1);
+    const winner = recorded[0]!.user;
+    const repeats = calls.ephemeral.filter((e) => /^Already/.test(e.text));
+    expect(repeats).toHaveLength(2);
+    // The winner's own repeat says it counted; anyone else's says it didn't.
+    for (const e of repeats)
+      expect(e.text).toBe(
+        e.user === winner
+          ? "Already recorded your answer — nothing more to do."
+          : "Already answered — your input was not recorded."
+      );
+    const own = winner === "U1" ? q.actions[0] : q.actions[1];
+    await answers.handle(click(winner, own.action_id, own.value, q.message.ts));
+    expect(calls.ephemeral.at(-1)!.text).toBe(
+      "Already recorded your answer — nothing more to do."
+    );
   });
 
   it("rejects forged indexes, mismatched action ids and refs replayed from another message", async () => {
@@ -445,7 +515,7 @@ describe("choice answers", () => {
     expect(await unanswered(svc, fresh.block.id)).toBe(true);
   });
 
-  it("records durably and says queued when the agent is offline", async () => {
+  it("records durably and says not delivered (no auto-resume promise) when the agent is offline", async () => {
     const { svc, answers, calls } = build();
     await linkUser(answers, calls, "U1");
     const q = await ask(svc, answers, calls, {
@@ -461,9 +531,11 @@ describe("choice answers", () => {
     ))!;
     expect(reply.delivered).toBe(false);
     expect(calls.ephemeral.at(-1)!.text).toBe(
-      'Recorded "Postgres" · queued — builder-7 is offline and gets it when it resumes.'
+      'Recorded "Postgres" · not delivered to builder-7 yet — open Dispatch to retry.'
     );
-    expect(calls.updated.at(-1)!.text).toContain("queued — agent offline");
+    expect(calls.updated.at(-1)!.text).toContain(
+      "not delivered to the agent yet — open Dispatch to retry"
+    );
     expect(calls.updated.at(-1)!.text).not.toMatch(/picked up|resumed/);
   });
 });

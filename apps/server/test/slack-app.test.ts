@@ -169,6 +169,52 @@ describe("Slack app boundary", () => {
     );
     f.app.stop();
   });
+  it("tells the person when a slow modal submission is refused after the ack", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    f.app.setInboundHandler(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                response_action: "errors",
+                errors: {
+                  f0: "Already answered — your input was not recorded.",
+                },
+              }),
+            4000
+          )
+        )
+    );
+    f.socket.onmessage!({
+      data: JSON.stringify({
+        type: "interactive",
+        envelope_id: "E6",
+        payload: {
+          api_app_id: "A1",
+          team: { id: "T1" },
+          type: "view_submission",
+          user: { id: "U1" },
+        },
+      }),
+    } as MessageEvent);
+    await vi.advanceTimersByTimeAsync(2600);
+    expect(f.socket.send).toHaveBeenCalledWith(
+      JSON.stringify({ envelope_id: "E6" })
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    const ephemeral = f.transport.mock.calls.find(([url]) =>
+      url.endsWith("chat.postEphemeral")
+    );
+    expect(JSON.parse(ephemeral![1]!.body as string)).toMatchObject({
+      user: "U1",
+      text: "Not recorded: Already answered — your input was not recorded.",
+    });
+    f.app.stop();
+  });
   it("acks a slow modal submission before Slack's 3 second deadline", async () => {
     vi.useFakeTimers();
     const f = fixture();

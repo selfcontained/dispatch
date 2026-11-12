@@ -20,7 +20,9 @@ import {
   plain,
   questionMessage,
   settledMessage,
+  deliveryPhrase,
   type AskContext,
+  type DeliveryShown,
 } from "./slack-blocks.js";
 import type {
   AnswerInput,
@@ -83,6 +85,8 @@ type AskRow = {
 };
 export type SlackAnswerer = {
   id: string;
+  /** Immutable Slack user id; the handle is user-chosen and can change. */
+  userId: string;
   displayName: string;
   status: "pending" | "allowed";
   createdAt: string;
@@ -113,6 +117,26 @@ export function slackTextToPlain(text: string) {
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&");
 }
+
+/** Tell the person who already answered that it counted; others that theirs didn't. */
+function settledReason(
+  state: AskRow["state"],
+  origin: BlockExternalOrigin | null
+) {
+  if (state?.cancellation)
+    return "This was withdrawn — your input was not recorded.";
+  const by = (state?.answer ?? state?.submission)?.external;
+  if (origin && by?.userId === origin.userId && by?.teamId === origin.teamId)
+    return "Already recorded your answer — nothing more to do.";
+  return "Already answered — your input was not recorded.";
+}
+
+const shownDelivery = (delivered: boolean | null | undefined): DeliveryShown =>
+  delivered === true
+    ? "delivered"
+    : delivered === false
+      ? "not_delivered"
+      : "sending";
 
 const isOpen = (state: AskRow["state"]) =>
   !state?.answer && !state?.submission && !state?.cancellation;
@@ -293,12 +317,13 @@ export class SlackAnswers {
     const binding = await this.app.currentBinding();
     if (!binding) return [];
     const { rows } = await this.pool.query(
-      `SELECT id, display_name, status, created_at, allowed_at FROM slack_answerers
+      `SELECT id, user_id, display_name, status, created_at, allowed_at FROM slack_answerers
        WHERE binding_generation=$1 AND team_id=$2 ORDER BY created_at`,
       [binding.generation, binding.teamId]
     );
     return rows.map((r) => ({
       id: r.id,
+      userId: r.user_id,
       displayName: r.display_name,
       status: r.status,
       createdAt: new Date(r.created_at).toISOString(),
@@ -404,12 +429,7 @@ export class SlackAnswers {
         reason: "This question no longer exists in Dispatch.",
       };
     if (!isOpen(ask.state))
-      return {
-        ok: false,
-        reason: ask.state?.cancellation
-          ? "This was withdrawn — your input was not recorded."
-          : "Already answered — your input was not recorded.",
-      };
+      return { ok: false, reason: settledReason(ask.state, origin) };
     if (row.data_hash && row.data_hash !== askHash(ask.text, ask.data))
       return {
         ok: false,
@@ -429,10 +449,19 @@ export class SlackAnswers {
     return { ok: true, row, ask, origin };
   }
 
+  /** A write lost a race: if this same person's answer won, say so. */
+  private async failureText(
+    error: unknown,
+    askId: string,
+    origin: BlockExternalOrigin
+  ) {
+    const now = await this.ask(askId).catch(() => null);
+    if (now && !isOpen(now.state)) return settledReason(now.state, origin);
+    return errorText(error);
+  }
+
   private deliveryText(name: string, delivered: boolean | null) {
-    return delivered === false
-      ? `queued — ${name} is offline and gets it when it resumes`
-      : `handed to ${name}`;
+    return deliveryPhrase(name, shownDelivery(delivered));
   }
 
   private async onAction(binding: SlackBinding, payload: Record<string, any>) {
@@ -493,7 +522,7 @@ export class SlackAnswers {
         `Recorded "${option.label}" · ${this.deliveryText(name, result.delivered)}.`
       );
     } catch (error) {
-      await reply(errorText(error));
+      await reply(await this.failureText(error, ask.id, origin));
     }
     await this.reconcile().catch(() => {});
   }
@@ -560,7 +589,7 @@ export class SlackAnswers {
         .catch(() => {});
       void this.reconcile().catch(() => {});
     } catch (error) {
-      return errorsFor(errorText(error));
+      return errorsFor(await this.failureText(error, ask.id, origin));
     }
   }
 
@@ -572,6 +601,17 @@ export class SlackAnswers {
   ) {
     const user = payload.user ?? {};
     if (typeof nonce !== "string" || typeof user.id !== "string") return;
+    // Only members of the bound workspace may claim (no Slack Connect
+    // guests); a rejected click doesn't consume the one-time link.
+    if (typeof user.team_id === "string" && user.team_id !== binding.teamId) {
+      await this.app
+        .postEphemeral(
+          user.id,
+          `Only members of ${binding.teamName} can link an account to this Dispatch.`
+        )
+        .catch(() => {});
+      return;
+    }
     const claimed = await this.pool.query(
       `UPDATE slack_link_claims SET used_at=now()
        WHERE nonce_hash=$1 AND binding_generation=$2 AND used_at IS NULL AND expires_at>now()`,
@@ -591,12 +631,23 @@ export class SlackAnswers {
       80
     );
     const displayName = `@${handle.replace(/^@/, "")}`;
-    await this.pool.query(
+    // An allowed identity's label never changes without a fresh Allow.
+    const stored = await this.pool.query(
       `INSERT INTO slack_answerers(id,binding_generation,team_id,user_id,display_name,status)
        VALUES ($1,$2,$3,$4,$5,'pending')
-       ON CONFLICT (binding_generation,team_id,user_id) DO UPDATE SET display_name=EXCLUDED.display_name`,
+       ON CONFLICT (binding_generation,team_id,user_id) DO UPDATE SET display_name=EXCLUDED.display_name
+       WHERE slack_answerers.status='pending'`,
       [randomUUID(), binding.generation, binding.teamId, user.id, displayName]
     );
+    if (!stored.rowCount) {
+      await this.app
+        .postEphemeral(
+          user.id,
+          "You're already linked to answer for this Dispatch."
+        )
+        .catch(() => {});
+      return;
+    }
     const text = `Link request from ${displayName} received. It takes effect only after the Dispatch owner allows it in Settings.`;
     if (typeof messageTs === "string")
       await this.app
@@ -720,8 +771,12 @@ export class SlackAnswers {
       >(
         `SELECT m.*, b.text, b.data, b.state, b.kind AS ask_kind FROM slack_messages m
          JOIN blocks b ON b.id=m.block_id
-         WHERE m.settled_at IS NULL AND m.binding_generation=$1
+         LEFT JOIN blocks r ON r.id = COALESCE(b.state->'answer'->>'blockId', b.state->'submission'->>'blockId')::uuid
+         WHERE m.binding_generation=$1
            AND (b.state->'answer' IS NOT NULL OR b.state->'submission' IS NOT NULL OR b.state->'cancellation' IS NOT NULL)
+           AND (m.settled_at IS NULL
+             -- Re-render once an in-flight reply's delivery settles.
+             OR (m.shown_delivery='sending' AND r.delivered IS NOT NULL))
          ORDER BY m.created_at LIMIT 20`,
         [binding.generation]
       );
@@ -761,8 +816,7 @@ export class SlackAnswers {
             summary: row.state.answer
               ? `"${clip(String(row.state.answer.label ?? row.state.answer.value), 200)}"`
               : `${Object.keys(row.state.submission.values ?? {}).length} field(s) submitted`,
-            delivery:
-              delivered.rows[0]?.delivered === false ? "queued" : "delivered",
+            delivery: shownDelivery(delivered.rows[0]?.delivered),
           };
         }
         const message = settledMessage(ctx, outcome);
@@ -773,8 +827,8 @@ export class SlackAnswers {
             message.blocks
           );
           await this.pool.query(
-            `UPDATE slack_messages SET settled_at=now() WHERE id=$1`,
-            [row.id]
+            `UPDATE slack_messages SET settled_at=COALESCE(settled_at, now()), shown_delivery=$2 WHERE id=$1`,
+            [row.id, outcome.kind === "answered" ? outcome.delivery : null]
           );
         } catch {
           break; // Slack unavailable/rate limited: retry next pass.

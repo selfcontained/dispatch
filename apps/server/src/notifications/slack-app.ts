@@ -26,6 +26,18 @@ export type SlackInbound = {
 export type SlackInboundHandler = (
   inbound: SlackInbound
 ) => Promise<Record<string, unknown> | void>;
+/** The person-facing reason inside a modal errors/update ack payload. */
+function lateReason(result: Record<string, unknown> | void) {
+  if (!result) return null;
+  if (result.response_action === "errors" && result.errors)
+    return Object.values(result.errors as Record<string, string>).join(" ");
+  if (result.response_action === "update") {
+    const blocks = (result.view as { blocks?: any[] } | undefined)?.blocks;
+    const text = blocks?.find((b) => b?.text?.text)?.text?.text;
+    return typeof text === "string" ? text : "Open Dispatch to answer.";
+  }
+  return null;
+}
 export const ANSWER_SCOPES = ["channels:history", "groups:history"];
 /** Socket Mode requires an ack within 3 seconds. */
 const ACK_BUDGET_MS = 2500;
@@ -341,14 +353,29 @@ export class SlackApp {
     };
     if (message.type === "interactive" && payload.type === "view_submission") {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const work = handler(inbound).catch(() => undefined);
+      const timedOut = Symbol("timeout");
       const result = await Promise.race([
-        handler(inbound).catch(() => undefined),
-        new Promise<undefined>((resolve) => {
-          timer = setTimeout(() => resolve(undefined), ACK_BUDGET_MS);
+        work,
+        new Promise<typeof timedOut>((resolve) => {
+          timer = setTimeout(() => resolve(timedOut), ACK_BUDGET_MS);
         }),
       ]);
       clearTimeout(timer);
-      ack(result || undefined);
+      if (result !== timedOut) {
+        ack(result || undefined);
+        return;
+      }
+      // Slack has closed the modal by now: a late refusal must still reach
+      // the person, or they'd assume it was recorded.
+      ack();
+      const late = await work;
+      const reason = lateReason(late);
+      if (reason && typeof payload.user?.id === "string")
+        await this.postEphemeral(
+          payload.user.id,
+          `Not recorded: ${reason}`
+        ).catch(() => {});
       return;
     }
     ack();

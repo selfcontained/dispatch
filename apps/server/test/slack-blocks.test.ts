@@ -236,12 +236,14 @@ describe("settledMessage", () => {
       by: "@brad",
       via: "slack",
       summary: '"Postgres"',
-      delivery: "queued",
+      delivery: "not_delivered",
     });
     expect(actionsOf(out.blocks).map((e) => e.action_id)).toEqual([
       ACTION.open,
     ]);
-    expect(out.text).toContain("recorded · queued — agent offline");
+    expect(out.text).toContain(
+      "recorded · not delivered to the agent yet — open Dispatch to retry"
+    );
     expect(out.text).not.toMatch(/picked up/);
   });
 });
