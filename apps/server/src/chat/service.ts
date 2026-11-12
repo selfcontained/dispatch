@@ -280,7 +280,8 @@ export type StreamServiceDeps = {
   onResponseSettled?: (input: {
     agentId: string;
     blockId: string;
-    prompt: PromptSource | undefined;
+    /** Every prompt the response answers, as the turn recorded them. */
+    prompts: PromptSource[];
     /** Assistant text after the response's last tool call; "" if none. */
     finalText: string;
     outcome: "ok" | "error" | "interrupted";
@@ -4184,7 +4185,7 @@ export class StreamService {
       .onResponseSettled({
         agentId: input.agentId,
         blockId,
-        prompt: payload.responsePrompt ?? payload.prompt,
+        prompts: answeredPrompts(payload),
         finalText: finalTexts.get(input.turnRow.id) ?? "",
         outcome: input.frozen
           ? "ok"
@@ -4205,14 +4206,14 @@ export class StreamService {
   /** The agent's open turn: the block it writes to and the prompt it answers. */
   async currentTurn(
     agentId: string
-  ): Promise<{ blockId: string | null; prompt: PromptSource } | null> {
+  ): Promise<{ blockId: string | null; prompts: PromptSource[] } | null> {
     const open = await this.turns.openTurn(agentId);
     if (!open) return null;
     const payload = open.payload as TurnPayload;
     const blockId = open.payload.blockId;
     return {
       blockId: typeof blockId === "string" ? blockId : null,
-      prompt: payload.responsePrompt ?? payload.prompt,
+      prompts: answeredPrompts(payload),
     };
   }
 
@@ -5543,4 +5544,33 @@ function describeInput(block: Block): string {
   }
   if (block.kind === "form") return block.data.title ?? "Form";
   return block.text;
+}
+
+/**
+ * The prompts a turn's current response answers, from what the turn itself
+ * recorded: its prompt, its response prompt, and same-conversation posts
+ * steered into it. A pickup whose own response is about to start
+ * (`pendingResponse`) belongs to that next response, not this one.
+ */
+export function answeredPrompts(payload: TurnPayload): PromptSource[] {
+  const pending = payload.pendingResponse?.source;
+  const pendingIds = new Set(
+    pending?.source === "chat"
+      ? (pending.chatMessageIds ?? [pending.chatMessageId])
+      : []
+  );
+  const all = [
+    payload.prompt,
+    ...(payload.steering ?? []).map((s) => s.source),
+    ...(payload.responsePrompt ? [payload.responsePrompt] : []),
+  ];
+  return all.flatMap((source): PromptSource[] => {
+    if (!source) return [];
+    if (source.source !== "chat") return [source];
+    const ids = (source.chatMessageIds ?? [source.chatMessageId]).filter(
+      (id) => !pendingIds.has(id)
+    );
+    if (!ids.length) return [];
+    return [{ ...source, chatMessageId: ids[0]!, chatMessageIds: ids }];
+  });
 }

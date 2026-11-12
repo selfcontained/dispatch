@@ -1,7 +1,11 @@
 import type { Pool } from "pg";
 import type { Block } from "@dispatch/shared";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
-import { SlackRetryError, type SlackApp } from "./slack-app.js";
+import {
+  SlackDeliveryUnknownError,
+  SlackRetryError,
+  type SlackApp,
+} from "./slack-app.js";
 import type { SlackAnswers } from "./slack-answers.js";
 import {
   ACTION,
@@ -33,8 +37,12 @@ export type ResponseSettled = {
   agentId: string;
   /** The response's block: the turn block, or a split response's own block. */
   blockId: string;
-  /** The prompt this response answers (`responsePrompt ?? prompt`). */
-  prompt: PromptSource | undefined;
+  /**
+   * Every prompt this response answers, as the turn recorded them: the
+   * turn's prompt, its response prompt, and same-conversation posts steered
+   * into it (minus one whose own response is about to start).
+   */
+  prompts: PromptSource[];
   /**
    * Assistant text after the response's last tool call, from the turn's own
    * rows; "" when nothing was said after it. Progress before a tool call is
@@ -53,6 +61,7 @@ type ReplyRow = {
   agent_id: string;
   response_block_id: string | null;
   outcome: "reply" | "error" | null;
+  sending_at: Date | null;
   reply_text: string | null;
   attempts: number;
   created_at: Date;
@@ -154,28 +163,35 @@ function openActions(url: string): SlackBlock {
   };
 }
 
-const promptIds = (prompt: PromptSource | undefined | null) =>
-  prompt?.source === "chat"
-    ? (prompt.chatMessageIds ?? [prompt.chatMessageId])
-    : [];
+const promptIds = (prompts: Array<PromptSource | undefined | null>) => [
+  ...new Set(
+    prompts.flatMap((prompt) =>
+      prompt?.source === "chat"
+        ? (prompt.chatMessageIds ?? [prompt.chatMessageId])
+        : []
+    )
+  ),
+];
 
 export class SlackThreadReplies {
   private timer?: ReturnType<typeof setInterval>;
   private flushing = false;
   /**
-   * Sent (post id → Slack ts), but recording that failed. Never sent again;
-   * each flush retries the record until it lands.
+   * Sent ("post id:response id" → Slack ts), but recording that failed.
+   * Never sent again; each flush retries the record until it lands.
    */
   private sentUnrecorded = new Map<string, string>();
+  /** Rows this process marked sending and is posting right now. */
+  private inFlight = new Set<string>();
   constructor(
     private pool: Pool,
     private app: SlackApp,
     private answers: Pick<SlackAnswers, "openUrl" | "postAsk">,
     private agentName: (agentId: string) => Promise<string | null>,
-    /** The agent's open turn: its current block and the prompt it answers. */
+    /** The agent's open turn: its current block and the prompts it answers. */
     private currentTurn: (
       agentId: string
-    ) => Promise<{ blockId: string | null; prompt: PromptSource } | null>
+    ) => Promise<{ blockId: string | null; prompts: PromptSource[] } | null>
   ) {}
 
   start() {
@@ -189,8 +205,8 @@ export class SlackThreadReplies {
   }
 
   /** The newest unclaimed Slack follow-ups this response's prompt names. */
-  private async followUps(agentId: string, prompt: PromptSource | undefined) {
-    const ids = promptIds(prompt).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  private async followUps(agentId: string, prompts: PromptSource[]) {
+    const ids = promptIds(prompts).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
     if (!ids.length) return [];
     const { rows } = await this.pool.query<
       ReplyRow & { stream_id: string; thread_id: string | null }
@@ -216,7 +232,7 @@ export class SlackThreadReplies {
   async responseSettled(input: ResponseSettled) {
     // A cut turn may be retried; leave the follow-up for whichever turn answers it.
     if (input.outcome === "interrupted") return;
-    const rows = await this.followUps(input.agentId, input.prompt);
+    const rows = await this.followUps(input.agentId, input.prompts);
     const text = input.finalText.trim();
     const outcome = input.outcome === "error" ? "error" : "reply";
     // An empty reply sends nothing; the inbound ack was the receipt.
@@ -254,7 +270,7 @@ export class SlackThreadReplies {
          outcome = CASE WHEN post_block_id = $3 THEN $4 ELSE NULL END,
          reply_text = CASE WHEN post_block_id = $3 THEN $5 ELSE NULL END,
          next_attempt_at = now(), queued_at = now(), attempts = 0,
-         gave_up_at = NULL, slack_reply_ts = NULL,
+         gave_up_at = NULL, slack_reply_ts = NULL, sending_at = NULL,
          sent_at = CASE WHEN post_block_id = $3 THEN NULL ELSE now() END
        WHERE post_block_id = ANY($2::uuid[])
          AND (response_block_id IS NULL
@@ -280,7 +296,7 @@ export class SlackThreadReplies {
     if (block.toAgentId || (block.data as any)?.parentHandled) return;
     const turn = await this.currentTurn(agentId);
     if (!turn?.blockId) return;
-    const rows = await this.followUps(agentId, turn.prompt);
+    const rows = await this.followUps(agentId, turn.prompts);
     const target = rows[rows.length - 1];
     if (!target) return;
     const turnPlace = await this.place(turn.blockId);
@@ -334,24 +350,35 @@ export class SlackThreadReplies {
     return !!parent.rowCount;
   }
 
-  /** Record a send; on failure remember it so it is retried, never resent. */
-  private async markSent(postBlockId: string, ts: string) {
+  /**
+   * Record a send for the exact claim that was sent. If a newer response
+   * re-claimed the row meanwhile (a reply superseding an error notice), this
+   * matches nothing and the newer reply stays queued. On failure, remember
+   * it so the record is retried and the message never resent.
+   */
+  private async markSent(
+    postBlockId: string,
+    responseBlockId: string,
+    ts: string
+  ) {
+    const key = `${postBlockId}:${responseBlockId}`;
     try {
       await this.pool.query(
-        `UPDATE slack_thread_replies SET sent_at = now(), slack_reply_ts = $2, reply_text = NULL
-         WHERE post_block_id = $1`,
-        [postBlockId, ts]
+        `UPDATE slack_thread_replies SET sent_at = now(), slack_reply_ts = $3, reply_text = NULL
+         WHERE post_block_id = $1 AND response_block_id = $2`,
+        [postBlockId, responseBlockId, ts]
       );
-      this.sentUnrecorded.delete(postBlockId);
+      this.sentUnrecorded.delete(key);
     } catch {
-      this.sentUnrecorded.set(postBlockId, ts);
+      this.sentUnrecorded.set(key, ts);
     }
   }
 
-  private async giveUp(postBlockId: string) {
+  private async giveUp(postBlockId: string, responseBlockId?: string | null) {
     await this.pool.query(
-      `UPDATE slack_thread_replies SET gave_up_at = now(), reply_text = NULL WHERE post_block_id = $1`,
-      [postBlockId]
+      `UPDATE slack_thread_replies SET gave_up_at = now(), reply_text = NULL
+       WHERE post_block_id = $1 AND ($2::uuid IS NULL OR response_block_id = $2)`,
+      [postBlockId, responseBlockId ?? null]
     );
   }
 
@@ -377,9 +404,25 @@ export class SlackThreadReplies {
       for (const row of rows) {
         const thread = `${row.channel_id}:${row.thread_ts}`;
         if (held.has(thread)) continue;
-        const unrecorded = this.sentUnrecorded.get(row.post_block_id);
+        const key = `${row.post_block_id}:${row.response_block_id}`;
+        const unrecorded = this.sentUnrecorded.get(key);
         if (unrecorded !== undefined) {
-          await this.markSent(row.post_block_id, unrecorded);
+          await this.markSent(
+            row.post_block_id,
+            row.response_block_id!,
+            unrecorded
+          );
+          continue;
+        }
+        if (this.inFlight.has(key)) {
+          held.add(thread);
+          continue;
+        }
+        // Marked sending but not by a send this process is making or
+        // recording (e.g. it restarted mid-send): it may be in Slack, so
+        // never resend it. At most once.
+        if (row.sending_at) {
+          await this.giveUp(row.post_block_id, row.response_block_id);
           continue;
         }
         if (row.expired || row.attempts >= MAX_ATTEMPTS) {
@@ -426,6 +469,25 @@ export class SlackThreadReplies {
                 text: row.reply_text ?? "",
                 openUrl,
               });
+        // Durably mark this exact claim as sending before Slack sees it. If
+        // that write fails, or the claim changed, nothing is sent.
+        let marked = false;
+        try {
+          const claim = await this.pool.query(
+            `UPDATE slack_thread_replies SET sending_at = now()
+             WHERE post_block_id = $1 AND response_block_id = $2
+               AND sending_at IS NULL AND sent_at IS NULL AND gave_up_at IS NULL`,
+            [row.post_block_id, row.response_block_id]
+          );
+          marked = claim.rowCount === 1;
+        } catch {
+          marked = false;
+        }
+        if (!marked) {
+          held.add(thread);
+          continue;
+        }
+        this.inFlight.add(key);
         let sent: { timestamp: string };
         try {
           sent = await this.app.postBlocks(
@@ -433,16 +495,26 @@ export class SlackThreadReplies {
             row.binding_generation
           );
         } catch (error) {
+          this.inFlight.delete(key);
+          if (error instanceof SlackDeliveryUnknownError) {
+            // It may have been posted: never resend. Keep sending_at as the
+            // record of why; the Dispatch copy is unaffected.
+            await this.giveUp(row.post_block_id, row.response_block_id).catch(
+              () => {}
+            );
+            continue;
+          }
           const limited = error instanceof SlackRetryError;
           const wait = limited
             ? Math.max(1, error.retryAfterMs / 1000)
             : Math.min(900, 15 * 2 ** Math.min(row.attempts, 6));
-          // The local 1 msg/s limiter isn't a failure: it doesn't count.
+          // Definitely not posted: clear sending and retry later. The local
+          // 1 msg/s limiter isn't a failure: it doesn't count.
           await this.pool.query(
-            `UPDATE slack_thread_replies SET attempts = attempts + $3,
+            `UPDATE slack_thread_replies SET attempts = attempts + $3, sending_at = NULL,
                next_attempt_at = now() + ($2 * interval '1 second')
-             WHERE post_block_id = $1`,
-            [row.post_block_id, wait, limited ? 0 : 1]
+             WHERE post_block_id = $1 AND response_block_id = $4`,
+            [row.post_block_id, wait, limited ? 0 : 1, row.response_block_id]
           );
           if (limited) {
             const t = setTimeout(
@@ -456,7 +528,12 @@ export class SlackThreadReplies {
           continue;
         }
         // Slack has it now. A failed bookkeeping write must never resend.
-        await this.markSent(row.post_block_id, sent.timestamp);
+        await this.markSent(
+          row.post_block_id,
+          row.response_block_id!,
+          sent.timestamp
+        );
+        this.inFlight.delete(key);
       }
     } finally {
       this.flushing = false;

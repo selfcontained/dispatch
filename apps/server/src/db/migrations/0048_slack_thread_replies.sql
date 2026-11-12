@@ -24,6 +24,10 @@ CREATE TABLE slack_thread_replies (
   queued_at timestamptz,
   attempts integer NOT NULL DEFAULT 0,
   next_attempt_at timestamptz,
+  -- Set durably before the Slack call. A row still 'sending' that this
+  -- process didn't send (e.g. after a restart) may already be in Slack, so
+  -- it is never resent: at most once.
+  sending_at timestamptz,
   sent_at timestamptz,
   gave_up_at timestamptz,
   slack_reply_ts text,

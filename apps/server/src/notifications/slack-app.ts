@@ -43,6 +43,20 @@ export const ANSWER_SCOPES = ["channels:history", "groups:history"];
 const ACK_BUDGET_MS = 2500;
 type Credentials = { botToken: string; appToken: string };
 export type SlackChannel = { id: string; name: string; private: boolean };
+/**
+ * The request may have reached Slack (timeout, unreadable reply): whether a
+ * message was posted is unknown, so a caller that must not duplicate it
+ * should not resend.
+ */
+export class SlackDeliveryUnknownError extends Error {}
+/** Connection errors that mean the request never reached Slack. */
+const UNSENT_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+]);
 export class SlackRetryError extends Error {
   constructor(readonly retryAfterMs: number) {
     super("Slack delivery rate limited; retry later.");
@@ -107,8 +121,13 @@ export class SlackApp {
               ).toString()
             : JSON.stringify(data),
       });
-    } catch {
-      throw new Error("Slack connection failed. Try again.");
+    } catch (error) {
+      const code = (error as { cause?: { code?: unknown } })?.cause?.code;
+      if (typeof code === "string" && UNSENT_CODES.has(code))
+        throw new Error("Slack connection failed. Try again.");
+      throw new SlackDeliveryUnknownError(
+        "Slack connection failed. Try again."
+      );
     }
     if (response.status === 429) {
       const seconds = Number(response.headers.get("retry-after"));
@@ -130,7 +149,7 @@ export class SlackApp {
     try {
       body = (await response.json()) as Record<string, any>;
     } catch {
-      throw new Error("Invalid Slack response.");
+      throw new SlackDeliveryUnknownError("Invalid Slack response.");
     }
     if (!body.ok) {
       if (
