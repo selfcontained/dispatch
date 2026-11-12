@@ -86,8 +86,7 @@ beforeEach(async () => {
   transport.mockReset();
   transport.mockImplementation(async () => response());
 });
-const service = (env = {}) =>
-  new SteeringDecisions(pool, settings, transport, env);
+const service = () => new SteeringDecisions(pool, settings, transport);
 async function enable() {
   await settings.save({
     apiKey: "synthetic-test-token",
@@ -216,21 +215,27 @@ describe("steering decisions", () => {
       ).rows[0].status
     ).toBe("malformed");
   });
-  it("deduplicates and enforces the daily cap without additional API calls", async () => {
+  it("deduplicates per message and enforces no daily call limit", async () => {
     await enable();
     const data = await input();
-    const instance = service({ DISPATCH_STEERING_DAILY_CAP: "1" });
+    const instance = service();
     await instance.classify(data);
     await instance.classify(data);
-    await instance.classify(await input());
     expect(transport).toHaveBeenCalledOnce();
+    // Far past the former 25/day cap: every distinct message still classifies.
+    for (let i = 0; i < 30; i++) await instance.classify(await input());
+    expect(transport).toHaveBeenCalledTimes(31);
     expect(
       (
         await pool.query(
-          "SELECT status FROM steering_decision_records ORDER BY id DESC LIMIT 1"
+          "SELECT count(*)::int n FROM steering_decision_records WHERE status LIKE 'skipped%'"
         )
-      ).rows[0].status
-    ).toBe("skipped_daily_cap");
+      ).rows[0].n
+    ).toBe(0);
+    expect(
+      (await pool.query("SELECT count(*)::int n FROM steering_decision_daily"))
+        .rows[0].n
+    ).toBe(0);
   });
   it("rejects foreign-recipient context and cancels without making a request", async () => {
     await enable();

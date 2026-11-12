@@ -1,11 +1,5 @@
 import { retainedEvidence } from "./explanation-evidence.js";
-import {
-  mergeRiskCapacity,
-  mergeRiskDailyCap,
-  mergeRiskDailyReset,
-  refundUnsentCall,
-  refusedByProvider,
-} from "./budget.js";
+import { mergeRiskCapacity } from "./budget.js";
 import { createHash } from "node:crypto";
 import type { AgentPullRequest } from "@dispatch/shared";
 import type { Pool } from "pg";
@@ -22,20 +16,13 @@ import {
 
 type Input = { agentId: string; url: string; assessmentId: string };
 /**
- * `limited` is only ever a capacity decision made before any request:
- * `daily_cap` (shared daily budget used) or `concurrency` (two calls already
- * in flight). Provider/network failures are `failed` with their own reason.
+ * `limited` only means two provider calls were already in flight; Dispatch
+ * has no daily or token limit. Provider/network failures, including the
+ * key's own provider rate limits, are `failed` with their reason.
  */
 export type ExplanationReply =
   | { state: "ready"; text?: string }
   | { state: "unavailable" | "pending" }
-  | {
-      state: "limited";
-      reason: "daily_cap";
-      used: number;
-      cap: number;
-      resetsAt: string;
-    }
   | { state: "limited"; reason: "concurrency" }
   | { state: "failed"; reason: ExplanationFailure | "unknown" };
 type Reply = ExplanationReply;
@@ -56,7 +43,6 @@ export class RiskExplanations {
       settings: RoutingSettings;
       inventory: { get(id: string): AgentPullRequest[] };
       transport?: typeof fetch;
-      env?: NodeJS.ProcessEnv;
     }
   ) {}
   private async eligible(input: Input): Promise<Snapshot | null> {
@@ -126,10 +112,7 @@ export class RiskExplanations {
     let run = false;
     try {
       await client.query("BEGIN");
-      const capacity = await mergeRiskCapacity(
-        client,
-        this.deps.env ?? process.env
-      );
+      const capacity = await mergeRiskCapacity(client);
       const stored = (
         await client.query<{ status: string; result: { text?: string } }>(
           "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
@@ -144,28 +127,12 @@ export class RiskExplanations {
           : { state: "pending" };
       }
       if (capacity !== "pending") {
-        const used = (
-          await client.query<{ calls: number }>(
-            "SELECT calls FROM merge_risk_decision_daily WHERE day=(now() AT TIME ZONE 'UTC')::date"
-          )
-        ).rows[0]?.calls;
         await client.query("COMMIT");
-        return capacity === "skipped_daily_cap"
-          ? {
-              state: "limited",
-              reason: "daily_cap",
-              used: used ?? 0,
-              cap: mergeRiskDailyCap(this.deps.env ?? process.env),
-              resetsAt: mergeRiskDailyReset(),
-            }
-          : { state: "limited", reason: "concurrency" };
+        return { state: "limited", reason: "concurrency" };
       }
       await client.query(
         "INSERT INTO merge_risk_explanations(assessment_id,status) VALUES($1,'pending') ON CONFLICT(assessment_id) DO UPDATE SET status='pending',created_at=now()",
         [input.assessmentId]
-      );
-      await client.query(
-        "UPDATE merge_risk_decision_daily SET calls=calls+1 WHERE day=(now() AT TIME ZONE 'UTC')::date"
       );
       await client.query("COMMIT");
       run = true;
@@ -184,11 +151,6 @@ export class RiskExplanations {
       !config.apiKey
     ) {
       await this.finish(input.assessmentId, "stale", {});
-      await refundUnsentCall(
-        this.deps.pool,
-        "merge_risk_explanations",
-        input.assessmentId
-      );
       return { state: "unavailable" };
     }
     const result = await requestExplanation(
@@ -202,16 +164,6 @@ export class RiskExplanations {
     const current =
       !!(await this.eligible(input)) &&
       config === (await this.deps.settings.configuration());
-    // Oversized input never leaves Dispatch; a refused request did no billable work.
-    if (
-      result.status === "error" &&
-      (result.reason === "oversized" || refusedByProvider(result.httpStatus))
-    )
-      await refundUnsentCall(
-        this.deps.pool,
-        "merge_risk_explanations",
-        input.assessmentId
-      );
     // Stale work retains only accounting, never publishes generated text.
     const { text, ...accounting } = result;
     await this.finish(input.assessmentId, current ? result.status : "stale", {

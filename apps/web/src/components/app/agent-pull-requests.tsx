@@ -62,13 +62,9 @@ const RISK_DISPLAY = {
     label: "Risk · evaluating",
     hint: "Assessing this change.",
   },
-  daily_cap: {
-    label: "Risk · daily limit",
-    hint: "Daily request limit reached (a count of calls, not spend). Retries after the 00:00 UTC reset.",
-  },
   capacity: {
     label: "Risk · capacity limit",
-    hint: "Other assessments were running. Retries on the next refresh.",
+    hint: "Two AI requests were already running. Retries on the next refresh.",
   },
   rate_limited: {
     label: "Risk · provider limit",
@@ -172,9 +168,6 @@ type ExplanationReply = {
   state: "ready" | "unavailable" | "pending" | "limited" | "failed";
   text?: string;
   reason?: string;
-  used?: number;
-  cap?: number;
-  resetsAt?: string;
 };
 const EXPLANATION_FAILURES: Record<string, string> = {
   provider_rejected:
@@ -186,7 +179,7 @@ const EXPLANATION_FAILURES: Record<string, string> = {
   malformed: "OpenAI returned an unusable answer. You can retry.",
   oversized: "Saved evidence is too large to explain. No request was made.",
 };
-/** One notice per outcome; capacity limits never describe failed requests. */
+/** One notice per outcome; "busy" never describes a failed request. */
 function explanationNotice(data: ExplanationReply | undefined) {
   if (data?.state === "unavailable")
     return {
@@ -194,24 +187,11 @@ function explanationNotice(data: ExplanationReply | undefined) {
       message:
         "Explanation unavailable for this assessment: it is no longer current or lacks saved evidence. The assessment above still applies.",
     };
-  if (data?.state === "limited" && data.reason === "concurrency")
+  if (data?.state === "limited")
     return {
       title: "Assessments busy",
-      message: "Other AI requests are running. Retry in a minute.",
+      message: "Two AI requests are already running. Retry in a minute.",
     };
-  if (data?.state === "limited") {
-    const reset = data.resetsAt
-      ? new Date(data.resetsAt).toLocaleTimeString([], {
-          hour: "numeric",
-          minute: "2-digit",
-          timeZoneName: "short",
-        })
-      : "00:00 UTC";
-    return {
-      title: "Daily request limit reached",
-      message: `${data.used ?? "All"}${data.cap === undefined ? "" : ` of ${data.cap}`} AI requests used today, shared with automatic assessments. This counts requests, not spend. Resets at ${reset}.`,
-    };
-  }
   if (data?.state === "pending")
     return {
       title: "Already in progress",

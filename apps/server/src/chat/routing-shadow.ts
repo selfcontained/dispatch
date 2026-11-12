@@ -17,14 +17,12 @@ export type ShadowConfig = {
   enabled: boolean;
   mode?: "off" | "shadow" | "active";
   apiKey: string;
-  dailyCap: number;
   steeringEnabled?: boolean;
   mergeRiskEnabled?: boolean;
 };
 export function routingShadowConfig(
   env: NodeJS.ProcessEnv = process.env
 ): ShadowConfig {
-  const cap = Number(env.DISPATCH_ROUTING_SHADOW_DAILY_CAP ?? 25);
   const explicitMode = env.DISPATCH_ROUTING_MODE;
   const mode =
     explicitMode !== undefined
@@ -38,7 +36,6 @@ export function routingShadowConfig(
     enabled: mode !== "off",
     mode,
     apiKey: env.DISPATCH_DECISIONS_API_KEY?.trim() ?? "",
-    dailyCap: Number.isInteger(cap) && cap >= 0 && cap <= 100 ? cap : 0,
   };
 }
 export type ShadowInput = {
@@ -297,14 +294,10 @@ export class RoutingShadowStore {
     await this.pool
       .query(`DELETE FROM routing_shadow_records WHERE created_at < now() - interval '14 days'
       OR turn_id IN (SELECT turn_id FROM routing_shadow_records ORDER BY created_at DESC, turn_id DESC OFFSET 2000)`);
-    await this.pool.query(
-      `DELETE FROM routing_shadow_daily WHERE day < (now() AT TIME ZONE 'UTC')::date - 2`
-    );
   }
   async reserve(
     input: ShadowInput,
     evidence: { messageIds: string[]; explicitThread: boolean },
-    cap: number,
     mode: string = "shadow"
   ) {
     const client = await this.pool.connect();
@@ -319,21 +312,11 @@ export class RoutingShadowStore {
         await client.query("COMMIT");
         return null;
       }
-      await client.query(
-        `INSERT INTO routing_shadow_daily(day) VALUES ((now() AT TIME ZONE 'UTC')::date) ON CONFLICT DO NOTHING`
-      );
-      const calls = await client.query<{ calls: number }>(
-        `SELECT calls FROM routing_shadow_daily WHERE day = (now() AT TIME ZONE 'UTC')::date`
-      );
       const active = await client.query(
         `SELECT 1 FROM routing_shadow_records WHERE status = 'pending' AND created_at > now() - interval '10 seconds' LIMIT 2`
       );
-      const status =
-        calls.rows[0]!.calls >= cap
-          ? "skipped_daily_cap"
-          : active.rowCount! >= 2
-            ? "skipped_concurrency"
-            : "pending";
+      // Dispatch enforces no daily or token limit; only in-flight concurrency.
+      const status = active.rowCount! >= 2 ? "skipped_concurrency" : "pending";
       await client.query(
         `INSERT INTO routing_shadow_records(turn_id,agent_id,message_ids,placement,explicit_thread,status,model,prompt_version,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
@@ -348,10 +331,6 @@ export class RoutingShadowStore {
           JSON.stringify({ mode }),
         ]
       );
-      if (status === "pending")
-        await client.query(
-          `UPDATE routing_shadow_daily SET calls = calls + 1 WHERE day = (now() AT TIME ZONE 'UTC')::date`
-        );
       await client.query("COMMIT");
       return status;
     } catch (error) {
@@ -372,13 +351,7 @@ export class RoutingShadowStore {
     const records = await this.pool.query<{ status: string; result: unknown }>(
       "SELECT status,result FROM routing_shadow_records WHERE created_at >= now() - interval '14 days' ORDER BY created_at DESC LIMIT 2000"
     );
-    const calls = await this.pool.query<{ calls: number }>(
-      "SELECT calls FROM routing_shadow_daily WHERE day = (now() AT TIME ZONE 'UTC')::date"
-    );
-    return {
-      ...summarizeRouting(records.rows),
-      todayReservations: calls.rows[0]?.calls ?? 0,
-    };
+    return summarizeRouting(records.rows);
   }
   async read(before?: number) {
     await this.prune();
@@ -653,7 +626,6 @@ export class RoutingShadow {
     const reservation = await this.store.reserve(
       input,
       evidence,
-      config.dailyCap,
       config.mode ?? "shadow"
     );
     if (reservation !== "pending") return;
@@ -737,7 +709,6 @@ export class RoutingShadow {
     const reservation = await this.store.reserve(
       input,
       { messageIds: [], explicitThread: false },
-      config.dailyCap,
       "connection_check"
     );
     if (reservation !== "pending") return { status: reservation };

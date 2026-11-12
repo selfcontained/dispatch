@@ -140,7 +140,6 @@ for (const [i, displayState] of (
     "waiting_ci",
     "waiting_review",
     "evaluating",
-    "daily_cap",
     "capacity",
     "rate_limited",
     "failure",

@@ -599,14 +599,13 @@ describe("merge-risk assessor", () => {
       ],
       usage: { input_tokens: 100, output_tokens: 0, total_tokens: 100 },
     });
-  const service = (env: NodeJS.ProcessEnv = {}) =>
+  const service = () =>
     new MergeRiskAssessor({
       pool,
       settings,
       agentRoot: async () => null,
       readDetails: details,
       transport,
-      env,
     });
   async function review(findings: { resolved: boolean }[]) {
     const posted = await blocks.insert({
@@ -856,77 +855,72 @@ describe("merge-risk assessor", () => {
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
-  it("stops at the daily cap and records the skip", async () => {
+  it("enforces no daily call limit: every new head is assessed", async () => {
     await review([]);
+    // Far past the former 25/day cap; the old env var no longer limits anything.
+    vi.stubEnv("DISPATCH_MERGE_RISK_DAILY_CAP", "0");
+    const base = (await details(url))!;
+    try {
+      for (let i = 0; i < 30; i++) {
+        const headSha = `head${i}`;
+        details.mockImplementationOnce(async () => ({
+          ...base,
+          headRefOid: headSha,
+        }));
+        expect(
+          await service().assess(url, pr({ ci: { ...pr().ci!, headSha } }), [
+            builder,
+          ])
+        ).toMatchObject({ status: "ok" });
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(transport).toHaveBeenCalledTimes(30);
     expect(
-      await service({ DISPATCH_MERGE_RISK_DAILY_CAP: "0" }).assess(url, pr(), [
-        builder,
-      ])
-    ).toMatchObject({ displayState: "daily_cap" });
-    expect(transport).not.toHaveBeenCalled();
-    const rows = await pool.query(
-      "SELECT status FROM merge_risk_decision_records"
-    );
-    expect(rows.rows).toEqual([{ status: "skipped_daily_cap" }]);
+      (
+        await pool.query(
+          "SELECT count(*)::int n FROM merge_risk_decision_records WHERE status LIKE 'skipped%'"
+        )
+      ).rows[0].n
+    ).toBe(0);
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int n FROM merge_risk_decision_daily"
+        )
+      ).rows[0].n
+    ).toBe(0);
   });
 
-  it("retries a daily-cap skip for the same head after the UTC day resets, without a phantom charge", async () => {
+  it("revives a legacy daily-cap skip with exactly one request when polls race", async () => {
     await review([]);
-    // Yesterday's budget is spent; this head is skipped, never assessed.
+    // Rows recorded before the cap was removed showed "daily limit" forever.
     await pool.query(
-      "INSERT INTO merge_risk_decision_daily(day,calls) VALUES((now() AT TIME ZONE 'UTC')::date,25)"
-    );
-    expect(await service().assess(url, pr(), [builder])).toMatchObject({
-      displayState: "daily_cap",
-    });
-    // Polls inside the exhausted window stay skipped and spend nothing.
-    expect(await service().assess(url, pr(), [builder])).toMatchObject({
-      displayState: "daily_cap",
-    });
-    expect(transport).not.toHaveBeenCalled();
-    // Reset boundary: move the spent counter and the skip to the prior day.
-    await pool.query(
-      "UPDATE merge_risk_decision_daily SET day=day-1; UPDATE merge_risk_decision_records SET created_at=created_at-interval '1 day'"
-    );
-    expect(await service().assess(url, pr(), [builder])).toMatchObject({
-      status: "ok",
-      verdict: "routine",
-    });
-    expect(transport).toHaveBeenCalledTimes(1);
-    const rows = await pool.query(
-      "SELECT status FROM merge_risk_decision_records"
-    );
-    expect(rows.rows).toEqual([{ status: "ok" }]);
-    const days = await pool.query(
-      "SELECT calls FROM merge_risk_decision_daily ORDER BY day"
-    );
-    expect(days.rows.map((r) => r.calls)).toEqual([25, 1]);
-  });
-
-  it("revives a skipped head with exactly one reservation when polls race after the reset", async () => {
-    await review([]);
-    await pool.query(
-      "INSERT INTO merge_risk_decision_daily(day,calls) VALUES((now() AT TIME ZONE 'UTC')::date,25)"
-    );
-    await service().assess(url, pr(), [builder]);
-    await pool.query(
-      "UPDATE merge_risk_decision_daily SET day=day-1; UPDATE merge_risk_decision_records SET created_at=created_at-interval '1 day'"
+      "INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version) VALUES($1,'head1',$2,'skipped_daily_cap','merge-risk-v2')",
+      [
+        url,
+        reviewFingerprint(
+          await loadReviewEvidence(pool, [builder], {
+            settlementProvenance: true,
+          })
+        ),
+      ]
     );
     const results = await Promise.all(
       Array.from({ length: 4 }, () => service().assess(url, pr(), [builder]))
     );
     expect(transport).toHaveBeenCalledTimes(1);
     expect(results.filter((r) => r?.status === "ok").length).toBeGreaterThan(0);
-    // Losers see the in-flight/stored record, never a stale "daily limit".
+    // Losers see the in-flight/stored record until the next poll.
     for (const r of results)
       expect(["ok", "evaluating", "deferred"]).toContain(
         r?.displayState ?? r?.status
       );
-    const days = await pool.query(
-      "SELECT calls FROM merge_risk_decision_daily ORDER BY day"
-    );
-    expect(days.rows.map((r) => r.calls)).toEqual([25, 1]);
-    // Further polls of the assessed head never reserve again.
+    expect(
+      (await pool.query("SELECT status FROM merge_risk_decision_records")).rows
+    ).toEqual([{ status: "ok" }]);
+    // An assessed head is never requested again.
     await service().assess(url, pr(), [builder]);
     expect(transport).toHaveBeenCalledTimes(1);
   });
@@ -948,70 +942,6 @@ describe("merge-risk assessor", () => {
       status: "ok",
     });
     expect(transport).toHaveBeenCalledTimes(1);
-  });
-
-  it("returns the reserved call when no provider request was sent", async () => {
-    await review([]);
-    details.mockImplementationOnce(async () => null);
-    expect(await service().assess(url, pr(), [builder])).toMatchObject({
-      displayState: "unavailable",
-    });
-    details.mockImplementationOnce(async () => {
-      throw new Error("gh unavailable");
-    });
-    const other = `${url}0`;
-    await service().assess(other, pr({ url: other }), [builder]);
-    expect(transport).not.toHaveBeenCalled();
-    expect(
-      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
-        .calls
-    ).toBe(0);
-    // A sent request with an unknown outcome stays charged.
-    transport.mockImplementationOnce(async () => {
-      throw new TypeError("socket hang up");
-    });
-    const third = `${url}1`;
-    await service().assess(third, pr({ url: third }), [builder]);
-    expect(
-      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
-        .calls
-    ).toBe(1);
-    // A provider refusal (rate limit) did no billable work.
-    transport.mockImplementationOnce(
-      async () => new Response("", { status: 429 })
-    );
-    const fourth = `${url}2`;
-    expect(
-      await service().assess(fourth, pr({ url: fourth }), [builder])
-    ).toMatchObject({ displayState: "rate_limited" });
-    expect(
-      (await pool.query("SELECT calls FROM merge_risk_decision_daily")).rows[0]
-        .calls
-    ).toBe(1);
-  });
-
-  it("reads the daily cap from process.env when no environment is injected", async () => {
-    await review([]);
-    vi.stubEnv("DISPATCH_MERGE_RISK_DAILY_CAP", "0");
-    try {
-      const assessor = new MergeRiskAssessor({
-        pool,
-        settings,
-        agentRoot: async () => null,
-        readDetails: details,
-        transport,
-      });
-      expect(await assessor.assess(url, pr(), [builder])).toMatchObject({
-        displayState: "daily_cap",
-      });
-      expect(transport).not.toHaveBeenCalled();
-      const rows = await pool.query(
-        "SELECT status FROM merge_risk_decision_records"
-      );
-      expect(rows.rows).toEqual([{ status: "skipped_daily_cap" }]);
-    } finally {
-      vi.unstubAllEnvs();
-    }
   });
 
   it("does not assess a head that GitHub no longer reports", async () => {

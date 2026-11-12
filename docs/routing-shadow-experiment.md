@@ -12,9 +12,9 @@ Production uses the database token and checkbox state. Environment tokens and mo
 
 Settings and connection checks require an authenticated session or the server bearer token in production, including first-run mode. A password-free isolated dev stack permits its normal browser Settings flow without an extra login. An existing dev password remains authoritative. Global browser-origin and portfolio boundaries still apply. Diagnostic export always requires the server bearer token.
 
-The normal single-API-server deployment owns the in-memory settings cache. If multiple API processes intentionally share one DB, restart the other processes after a settings change. Shared reservations still enforce the fleet request cap.
+The normal single-API-server deployment owns the in-memory settings cache. If multiple API processes intentionally share one DB, restart the other processes after a settings change. Shared reservations still enforce the fleet concurrency limit.
 
-`DISPATCH_ROUTING_SHADOW_DAILY_CAP` defaults to 25; integer values 0–100 are allowed and invalid caps fail closed at zero. UTC reservations persist across restarts and include failures/timeouts. Requests are not retried or redirected. A request cap is not a guaranteed dollar cap; provider project budgets remain separate.
+Dispatch enforces no daily, call or token limit; spend limits belong to the API key's own provider settings. A database lock allows at most two in-flight routing requests fleet-wide. Requests are not retried or redirected.
 
 ## Decisions and evidence
 
@@ -40,7 +40,7 @@ Pending routing appears only after 500 ms in the same fixed-size receipt slot as
 
 JSON returns `records` and `nextBefore`; `format=jsonl` returns JSONL. At most 200 rows are ordered by decreasing signed turn ID; pass the last ID as `before` for the next page. Records retain IDs, frozen placement, explicit-routing label, model/prompt version, status, proposal, probabilities/confidence, timing, usage, and sanitized HTTP status. No copied conversation excerpts, credentials, or raw provider/error bodies are persisted.
 
-Retention is fourteen days and approximately 2,000 newest records, with transient excess until cleanup. Cleanup runs hourly and before observation/export. Daily counters retain the current and two preceding days. Dedupe markers last as long as their turns. Conversation messages are not deleted by diagnostic retention.
+Retention is fourteen days and approximately 2,000 newest records, with transient excess until cleanup. Cleanup runs hourly and before observation/export. Dedupe markers last as long as their turns. Conversation messages are not deleted by diagnostic retention.
 
 ## Estimated cost and validation
 

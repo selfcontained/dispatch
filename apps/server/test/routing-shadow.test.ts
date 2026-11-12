@@ -39,7 +39,7 @@ let pool: Pool;
 let svc: StreamService;
 let store: RoutingShadowStore;
 const A = "agt_shadow";
-const enabled = { enabled: true, apiKey: "test-dedicated-key", dailyCap: 25 };
+const enabled = { enabled: true, apiKey: "test-dedicated-key" };
 const answer = {
   answers: [
     {
@@ -166,12 +166,7 @@ describe("optional routing shadow", () => {
       enabled: false,
       apiKey: "",
       mode: "off",
-      dailyCap: 25,
     });
-    expect(
-      routingShadowConfig({ DISPATCH_ROUTING_SHADOW_DAILY_CAP: "5000" })
-        .dailyCap
-    ).toBe(0);
   });
   it("observes the real turn-start path without delaying or changing frozen placement", async () => {
     let release!: () => void;
@@ -326,34 +321,31 @@ describe("optional routing shadow", () => {
     );
     expect(await shadowEvidence(pool, event)).toBeNull();
   });
-  it("deduplicates across observers/restarts and persists the daily call cap", async () => {
+  it("deduplicates across observers/restarts and enforces no daily call limit", async () => {
     const one = await input();
     const two = await input();
-    const first = new RoutingShadow(
-      { ...enabled, dailyCap: 1 },
-      store,
-      transport
-    );
+    const first = new RoutingShadow(enabled, store, transport);
     first.observe(one);
     await finished();
     const restarted = new RoutingShadow(
-      { ...enabled, dailyCap: 1 },
+      enabled,
       new RoutingShadowStore(pool),
       transport
     );
     restarted.observe(one);
     restarted.observe(two);
     const rows = await finished(2);
-    expect(rows.map((r) => r.status)).toEqual(["ok", "skipped_daily_cap"]);
-    expect(transport).toHaveBeenCalledTimes(1);
+    expect(rows.map((r) => r.status)).toEqual(["ok", "ok"]);
+    expect(transport).toHaveBeenCalledTimes(2);
     expect(
-      (await pool.query("SELECT calls FROM routing_shadow_daily")).rows[0].calls
-    ).toBe(1);
+      (await pool.query("SELECT count(*)::int n FROM routing_shadow_daily"))
+        .rows[0].n
+    ).toBe(0);
     await pool.query("DELETE FROM routing_shadow_records");
     restarted.observe(one);
     await new Promise((r) => setTimeout(r, 50));
     expect(await records()).toHaveLength(0);
-    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
   it("reserves at most two concurrent calls across instances", async () => {
     const events = await Promise.all([input(), input(), input()]);
@@ -362,7 +354,7 @@ describe("optional routing shadow", () => {
     );
     const results = await Promise.all(
       events.map((e, i) =>
-        new RoutingShadowStore(pool).reserve(e, evidence[i]!, 25)
+        new RoutingShadowStore(pool).reserve(e, evidence[i]!)
       )
     );
     expect(results.filter((r) => r === "pending")).toHaveLength(2);
@@ -395,7 +387,7 @@ describe("optional routing shadow", () => {
     expect(JSON.parse(response.body.trim()).result.choice).toBe("home_root");
     await app.close();
   });
-  it("enforces the byte bound for escaped text and prunes expired diagnostics without resetting budget", async () => {
+  it("enforces the byte bound for escaped text and prunes expired diagnostics", async () => {
     const event = await input("\u0001".repeat(4000));
     const evidence = await shadowEvidence(pool, event);
     expect(Buffer.byteLength(evidence!.input, "utf8")).toBeLessThanOrEqual(
@@ -412,9 +404,6 @@ describe("optional routing shadow", () => {
       "UPDATE routing_shadow_records SET created_at = now() - interval '15 days'"
     );
     expect(await store.read()).toEqual([]);
-    expect(
-      (await pool.query("SELECT calls FROM routing_shadow_daily")).rows[0].calls
-    ).toBe(1);
     expect(
       (
         await pool.query(
@@ -887,13 +876,9 @@ describe("optional routing shadow", () => {
     expect((await records())[0].agent_id).toBe("synthetic_connection_check");
     const request = JSON.parse(transport.mock.calls[0]![1]!.body as string);
     expect(request.input).not.toContain("original discussion");
-    const capped = new RoutingShadow(
-      { ...enabled, dailyCap: 1 },
-      store,
-      transport
-    );
-    expect((await capped.checkConnection()).status).toBe("skipped_daily_cap");
-    expect(transport).toHaveBeenCalledTimes(1);
+    // No daily limit: a repeated check makes another request.
+    expect((await experiment.checkConnection()).status).toBe("ok");
+    expect(transport).toHaveBeenCalledTimes(2);
   });
   it("serves settings without secret readback and rejects invalid secret payloads", async () => {
     const app = Fastify();
@@ -1141,11 +1126,10 @@ describe("routing feed diagnostics", () => {
     });
     const changed = vi.fn();
     const notifying = new RoutingShadowStore(pool, changed);
-    await notifying.reserve(
-      source,
-      { messageIds: [opener!.id], explicitThread: false },
-      25
-    );
+    await notifying.reserve(source, {
+      messageIds: [opener!.id],
+      explicitThread: false,
+    });
     const response = await svc.store.insert({
       streamId: A,
       author: { kind: "agent", agentId: A },
@@ -1196,7 +1180,6 @@ describe("routing feed diagnostics", () => {
     await store.reserve(
       source,
       { messageIds: [openerId], explicitThread: false },
-      25,
       "active"
     );
     await store.finish(source.turnRow.id, "ok", {
