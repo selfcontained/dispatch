@@ -51,7 +51,7 @@ for (const [job, cleanupName] of [
   ["build-binaries", "Delete temporary keychain"],
   ["build-macos-app", "Remove signing credentials"],
 ]) {
-  test(`${job}: cleanup restores exact search list, deletes only owned secrets, and fails closed`, () => {
+  test(`${job}: cleanup restores exact search list, deletes only owned secrets, even when restoration or deletion fails`, () => {
     const root = mkdtempSync(path.join(tmpdir(), "release-cleanup-test-"));
     try {
       const owned = path.join(root, "owned");
@@ -60,12 +60,12 @@ for (const [job, cleanupName] of [
       const security = path.join(root, "security");
       writeFileSync(
         security,
-        '#!/usr/bin/env python3\nimport json,os,sys\nwith open(os.environ["CALLS"],"a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")\nif os.environ.get("FAIL_RESTORE") and sys.argv[1]=="list-keychains": sys.exit(1)\n'
+        '#!/usr/bin/env python3\nimport json,os,sys\nwith open(os.environ["CALLS"],"a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")\nif os.environ.get("FAIL_RESTORE") and sys.argv[1]=="list-keychains": sys.exit(1)\nif os.environ.get("FAIL_DELETE") and sys.argv[1]=="delete-keychain": sys.exit(1)\n'
       );
       chmodSync(security, 0o755);
       const cleanup = step(job, cleanupName);
       assert.equal(cleanup.if, "always()");
-      for (const fail of [false, true]) {
+      for (const fail of ["none", "restore", "delete", "both"]) {
         const init = spawnSync("mkdir", ["-p", owned]);
         assert.equal(init.status, 0);
         writeFileSync(
@@ -75,7 +75,7 @@ for (const [job, cleanupName] of [
         const keychain = path.join(owned, "signing.keychain-db");
         writeFileSync(keychain, "synthetic");
         writeFileSync(path.join(owned, "developer-id.p12"), "synthetic");
-        const calls = path.join(root, fail ? "failed-calls" : "calls");
+        const calls = path.join(root, `calls-${fail}`);
         const result = spawnSync("bash", ["-c", cleanup.run], {
           env: {
             ...process.env,
@@ -83,7 +83,12 @@ for (const [job, cleanupName] of [
             SIGNING_DIR: owned,
             DISPATCH_NOTARY_KEYCHAIN: keychain,
             CALLS: calls,
-            ...(fail ? { FAIL_RESTORE: "1" } : {}),
+            ...(fail === "restore" || fail === "both"
+              ? { FAIL_RESTORE: "1" }
+              : {}),
+            ...(fail === "delete" || fail === "both"
+              ? { FAIL_DELETE: "1" }
+              : {}),
           },
           encoding: "utf8",
         });
@@ -99,15 +104,14 @@ for (const [job, cleanupName] of [
           "/Users/test/Library/Keychains/custom with spaces.keychain-db",
           "/Users/test/login.keychain-db",
         ]);
-        if (fail) {
-          assert.notEqual(result.status, 0);
-          assert.equal(recorded.length, 1);
-          assert.ok(existsSync(keychain));
-        } else {
-          assert.equal(result.status, 0, result.stderr);
-          assert.deepEqual(recorded[1], ["delete-keychain", keychain]);
-          assert.ok(!existsSync(owned));
-        }
+        assert.equal(result.status === 0, fail === "none", result.stderr);
+        assert.deepEqual(recorded[1], ["delete-keychain", keychain]);
+        assert.equal(recorded.length, 2);
+        assert.ok(!existsSync(owned));
+        assert.ok(!existsSync(keychain));
+        assert.ok(!existsSync(path.join(owned, "developer-id.p12")));
+        if (fail !== "none")
+          assert.match(result.stderr, /signing cleanup failed/);
         assert.ok(existsSync(other));
       }
     } finally {

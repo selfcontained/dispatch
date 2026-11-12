@@ -67,9 +67,9 @@ The macOS jobs require `[self-hosted, macOS, ARM64]`. Checkout cleans persistent
 workspace outputs; the PostgreSQL cache remains architecture-specific and is
 verified by the downloader. Signing uses a private, unique temporary directory,
 never changes the default keychain, restores the original user search list, and
-removes only the job's own certificate and keychain. If restoration fails, cleanup
-fails visibly and retains the snapshot and keychain for explicit investigation
-(after removing the raw certificate). Abrupt host termination may prevent an
+removes only the job's own certificate and keychain. Cleanup attempts credential
+deletion even if search-list restoration fails, and reports any cleanup failure
+with a nonzero exit status. Abrupt host termination may prevent an
 `always()` step; never clean unrelated keychains or change runner services to
 recover it.
 

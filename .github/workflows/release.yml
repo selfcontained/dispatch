@@ -413,16 +413,21 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${SIGNING_DIR:-}" ] && [ -f "$SIGNING_DIR/search-list.txt" ]; then
-            rm -f "$SIGNING_DIR/developer-id.p12"
-            python3 - "$SIGNING_DIR/search-list.txt" <<'PYTHON'
+            cleanup_status=0
+            rm -f "$SIGNING_DIR/developer-id.p12" || cleanup_status=1
+            python3 - "$SIGNING_DIR/search-list.txt" <<'PYTHON' || cleanup_status=1
           import pathlib, shlex, subprocess, sys
           paths = shlex.split(pathlib.Path(sys.argv[1]).read_text())
           subprocess.run(["security", "list-keychains", "-d", "user", "-s", *paths], check=True)
           PYTHON
             if [ -f "$DISPATCH_NOTARY_KEYCHAIN" ]; then
-              security delete-keychain "$DISPATCH_NOTARY_KEYCHAIN"
+              security delete-keychain "$DISPATCH_NOTARY_KEYCHAIN" || cleanup_status=1
             fi
-            rm -rf "$SIGNING_DIR"
+            rm -rf "$SIGNING_DIR" || cleanup_status=1
+            if [ "$cleanup_status" -ne 0 ]; then
+              echo "error: signing cleanup failed; attempted search-list restore and owned credential deletion" >&2
+            fi
+            exit "$cleanup_status"
           fi
 
   build-macos-app:
@@ -579,16 +584,21 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${SIGNING_DIR:-}" ] && [ -f "$SIGNING_DIR/search-list.txt" ]; then
-            rm -f "$SIGNING_DIR/developer-id.p12"
-            python3 - "$SIGNING_DIR/search-list.txt" <<'PYTHON'
+            cleanup_status=0
+            rm -f "$SIGNING_DIR/developer-id.p12" || cleanup_status=1
+            python3 - "$SIGNING_DIR/search-list.txt" <<'PYTHON' || cleanup_status=1
           import pathlib, shlex, subprocess, sys
           paths = shlex.split(pathlib.Path(sys.argv[1]).read_text())
           subprocess.run(["security", "list-keychains", "-d", "user", "-s", *paths], check=True)
           PYTHON
             if [ -f "$DISPATCH_NOTARY_KEYCHAIN" ]; then
-              security delete-keychain "$DISPATCH_NOTARY_KEYCHAIN"
+              security delete-keychain "$DISPATCH_NOTARY_KEYCHAIN" || cleanup_status=1
             fi
-            rm -rf "$SIGNING_DIR"
+            rm -rf "$SIGNING_DIR" || cleanup_status=1
+            if [ "$cleanup_status" -ne 0 ]; then
+              echo "error: signing cleanup failed; attempted search-list restore and owned credential deletion" >&2
+            fi
+            exit "$cleanup_status"
           fi
 
   smoke-linux:
