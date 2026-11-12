@@ -372,25 +372,169 @@ describe("UsageWatchService (postgres)", () => {
     expect(deliver.mock.calls.map((c) => c[0])).toEqual(["agt_uw_b"]);
   });
 
-  it("unsubscribe while a notice is queued drops it", async () => {
-    const sub = await service.subscribe("agt_uw_a", {
+  /** A delivery held at a gate, recording what the runtime would have done. */
+  function gatedDeliveries() {
+    const outcomes: Array<"aborted" | "declined" | "submitted"> = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const impl = async (
+      _agent: string,
+      _text: string,
+      options: { signal: AbortSignal; beforeSubmit: () => Promise<boolean> }
+    ) => {
+      await gate;
+      if (options.signal.aborted) {
+        outcomes.push("aborted");
+        throw new Error("cancelled");
+      }
+      if (!(await options.beforeSubmit())) {
+        outcomes.push("declined");
+        throw new Error("cancelled");
+      }
+      outcomes.push("submitted");
+    };
+    return { outcomes, release: () => release(), impl };
+  }
+  const watchCodexLow = (agent = "agt_uw_a") =>
+    service.subscribe(agent, {
       type: "codex",
       comparison: "at_or_below",
       remainingPercent: 10,
     });
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    deliver.mockImplementation(async (_agent, _text, options) => {
-      await gate;
-      if (options.signal.aborted || !(await options.beforeSubmit()))
-        throw new Error("cancelled");
-    });
+
+  it("unsubscribe while a notice is queued aborts it", async () => {
+    const sub = await watchCodexLow();
+    const gated = gatedDeliveries();
+    deliver.mockImplementation(gated.impl);
     current = report(plan("codex", [95]));
     await service.evaluate(current);
-    await service.unsubscribe("agt_uw_a", sub.watch.id);
-    release();
+    expect(await service.unsubscribe("agt_uw_a", sub.watch.id)).toBe(true);
+    gated.release();
     await service.idle();
-    expect(await service.list("agt_uw_a")).toEqual([]);
+    expect(gated.outcomes).toEqual(["aborted"]);
+  });
+
+  it("a queued notice is not accepted for a resubscribed watch (DB check, no abort)", async () => {
+    await watchCodexLow();
+    const gated = gatedDeliveries();
+    deliver.mockImplementation(gated.impl);
+    current = report(plan("codex", [95]));
+    await service.evaluate(current);
+    // Bypass the in-memory abort: delete and resubscribe straight in the DB.
+    await pool.query(`DELETE FROM usage_watches WHERE agent_id = 'agt_uw_a'`);
+    const other = new UsageWatchService({
+      pool,
+      providerPlans: async () => current,
+      deliver: async () => {},
+      warn: () => {},
+      now: () => clock,
+    });
+    const again = await other.subscribe("agt_uw_a", {
+      type: "codex",
+      comparison: "at_or_below",
+      remainingPercent: 10,
+    });
+    expect(again).toMatchObject({ created: true, matched: true });
+    gated.release();
+    await service.idle();
+    other.dispose();
+    expect(gated.outcomes).toEqual(["declined"]);
+  });
+
+  it("notified_at identifies the episode: only the newest claim is accepted", async () => {
+    await watchCodexLow();
+    const gated = gatedDeliveries();
+    deliver.mockImplementation(gated.impl);
+    await service.evaluate((current = report(plan("codex", [95]))));
+    // A second process (empty in-flight map) rearms and reclaims the watch.
+    const otherDeliver = vi.fn(
+      async (
+        _a: string,
+        _t: string,
+        o: { beforeSubmit: () => Promise<boolean> }
+      ) => {
+        if (!(await o.beforeSubmit())) throw new Error("cancelled");
+      }
+    );
+    const other = new UsageWatchService({
+      pool,
+      providerPlans: async () => current,
+      deliver: otherDeliver,
+      warn: () => {},
+      now: () => clock,
+    });
+    await other.evaluate(report(plan("codex", [0])));
+    await other.evaluate(report(plan("codex", [96])));
+    await other.idle();
+    gated.release();
+    await service.idle();
+    other.dispose();
+    expect(gated.outcomes).toEqual(["declined"]);
+    expect(otherDeliver).toHaveBeenCalledTimes(1);
+    const [watch] = await service.list("agt_uw_a");
+    expect(watch).toMatchObject({ armed: false, lastHeadroomPercent: 4 });
+    expect(watch!.notifiedAt).not.toBeNull();
+  });
+
+  it("a notice declined because the agent stopped while queued is rearmed", async () => {
+    await watchCodexLow();
+    const gated = gatedDeliveries();
+    deliver.mockImplementation(gated.impl);
+    await service.evaluate((current = report(plan("codex", [95]))));
+    await pool.query(
+      `UPDATE agents SET status = 'stopped' WHERE id = 'agt_uw_a'`
+    );
+    gated.release();
+    await service.idle();
+    expect(gated.outcomes).toEqual(["declined"]);
+    expect((await service.list("agt_uw_a"))[0]).toMatchObject({
+      armed: true,
+      notifiedAt: null,
+    });
+  });
+
+  it("a prompt that fails after the pre-submit check passed is rearmed", async () => {
+    await watchCodexLow();
+    deliver.mockImplementationOnce(async (_a, _t, options) => {
+      expect(await options.beforeSubmit()).toBe(true);
+      throw new Error("host exited mid-submit");
+    });
+    await feed(plan("codex", [95]));
+    expect((await service.list("agt_uw_a"))[0]).toMatchObject({
+      armed: true,
+      notifiedAt: null,
+    });
+  });
+
+  it("a claim lost to shutdown is rearmed at the next boot", async () => {
+    await watchCodexLow();
+    const gated = gatedDeliveries();
+    deliver.mockImplementation(gated.impl);
+    await service.evaluate((current = report(plan("codex", [95]))));
+    service.dispose();
+    gated.release();
+    await service.idle();
+    expect(gated.outcomes).toEqual(["aborted"]);
+    expect((await service.list("agt_uw_a"))[0]!.armed).toBe(false);
+    deliver.mockReset().mockImplementation(async (_a, _t, options) => {
+      if (!(await options.beforeSubmit())) throw new Error("cancelled");
+    });
+    service = new UsageWatchService({
+      pool,
+      providerPlans: async () => current,
+      deliver,
+      warn: () => {},
+      now: () => clock,
+    });
+    await service.recover();
+    await service.tick();
+    await service.idle();
+    expect(deliver).toHaveBeenCalledTimes(1);
+    // Delivered episodes are not re-sent by a later boot.
+    await service.recover();
+    await service.tick();
+    await service.idle();
+    expect(deliver).toHaveBeenCalledTimes(1);
   });
 
   it("a stopped agent keeps its watch armed and gets the notice after resuming", async () => {
@@ -413,18 +557,20 @@ describe("UsageWatchService (postgres)", () => {
     expect(deliver).toHaveBeenCalledTimes(1);
   });
 
-  it("a failed or declined delivery rearms the episode for retry", async () => {
-    await service.subscribe("agt_uw_a", {
-      type: "codex",
-      comparison: "at_or_below",
-      remainingPercent: 10,
-    });
+  it("a failed delivery rearms and retries no sooner than one tick later", async () => {
+    await watchCodexLow();
     deliver.mockRejectedValueOnce(new Error("Agent has no live session"));
     await feed(plan("codex", [95]));
     expect((await service.list("agt_uw_a"))[0]).toMatchObject({
       armed: true,
       notifiedAt: null,
     });
+    // Same cached report, repeatedly: backing off, no re-delivery.
+    await service.evaluate(current);
+    await service.tick();
+    await service.idle();
+    expect(deliver).toHaveBeenCalledTimes(1);
+    clock += 2 * 60_000 + 1;
     await service.tick();
     await service.idle();
     expect(deliver).toHaveBeenCalledTimes(2);

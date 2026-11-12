@@ -13,6 +13,11 @@ import type { Pool } from "pg";
  * reading is usable only when the provider reported at least one window with
  * a parseable observation time no older than STALE_AFTER_MS; anything else
  * leaves every watch exactly as it was.
+ *
+ * Delivery is at-least-once per episode across restarts: a claimed notice the
+ * runtime never accepted (server shutdown, crash between claim and enqueue)
+ * is rearmed by recover() at boot. A notice that fails while the server runs
+ * (no live session) is rearmed and retried no sooner than one tick later.
  */
 
 /** Types whose provider reports subscription windows. OpenCode never does. */
@@ -228,11 +233,24 @@ export class UsageWatchService {
   private disposed = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private inFlight = new Map<string, AbortController>();
+  /** Watch id → earliest retry time after a failed delivery. */
+  private retryAfter = new Map<string, number>();
   private deliveries = new Set<Promise<void>>();
   constructor(private readonly deps: Deps) {}
 
   private now() {
     return this.deps.now?.() ?? Date.now();
+  }
+
+  /**
+   * Boot-time repair: rearm episodes claimed by an earlier process whose
+   * notice was never accepted. Call once before the first evaluation.
+   */
+  async recover(): Promise<void> {
+    await this.deps.pool.query(
+      `UPDATE usage_watches SET armed = true, notified_at = NULL
+        WHERE NOT armed AND notified_at IS NOT NULL AND delivered_at IS NULL`
+    );
   }
 
   start(): void {
@@ -249,6 +267,7 @@ export class UsageWatchService {
     this.timer = null;
     for (const controller of this.inFlight.values()) controller.abort();
     this.inFlight.clear();
+    this.retryAfter.clear();
   }
 
   /** Settles once every delivery begun so far has finished (tests, shutdown). */
@@ -315,8 +334,10 @@ export class UsageWatchService {
     // Already matched: this response is the episode's notice, so the watch
     // starts disarmed and notifies only after a rearm.
     const { rows } = await this.deps.pool.query<Row>(
-      `INSERT INTO usage_watches (id, agent_id, engine, comparison, threshold, armed, last_observed_at, last_headroom, notified_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $6 THEN NULL ELSE date_trunc('milliseconds', clock_timestamp()) END)
+      `INSERT INTO usage_watches (id, agent_id, engine, comparison, threshold, armed, last_observed_at, last_headroom, notified_at, delivered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+         CASE WHEN $6 THEN NULL ELSE date_trunc('milliseconds', clock_timestamp()) END,
+         CASE WHEN $6 THEN NULL ELSE clock_timestamp() END)
        ON CONFLICT (agent_id, engine, comparison, threshold) DO NOTHING
        RETURNING *`,
       [
@@ -388,21 +409,24 @@ export class UsageWatchService {
       const reading = usageReading(report, type, now);
       if (!reading.usable || reading.headroomPercent === null) continue;
       const params = [type, reading.observedAt, reading.headroomPercent];
+      const backingOff = [...this.retryAfter]
+        .filter(([, at]) => at > now)
+        .map(([id]) => id);
       // Claim each newly matched episode atomically: a concurrent evaluation
       // of the same reading finds the row disarmed and skips it. An older
       // reading than one already applied changes nothing.
       const { rows: claimed } = await this.deps.pool.query<Row>(
         `UPDATE usage_watches w
             SET armed = false, notified_at = date_trunc('milliseconds', clock_timestamp()),
-                last_observed_at = $2, last_headroom = $3
+                delivered_at = NULL, last_observed_at = $2, last_headroom = $3
            FROM agents a
           WHERE a.id = w.agent_id AND a.status = 'running' AND a.deleted_at IS NULL
-            AND w.engine = $1 AND w.armed
+            AND w.engine = $1 AND w.armed AND NOT (w.id = ANY($4::text[]))
             AND (w.last_observed_at IS NULL OR w.last_observed_at <= $2)
             AND ((w.comparison = 'at_or_below' AND $3 <= w.threshold)
               OR (w.comparison = 'at_or_above' AND $3 >= w.threshold))
           RETURNING w.*`,
-        params
+        [...params, backingOff]
       );
       await this.deps.pool.query(
         `UPDATE usage_watches
@@ -422,7 +446,8 @@ export class UsageWatchService {
     }
   }
 
-  private track(delivery: Promise<void>) {
+  private track(notice: Promise<void>) {
+    const delivery = notice.catch(this.deps.warn);
     this.deliveries.add(delivery);
     void delivery.finally(() => this.deliveries.delete(delivery));
   }
@@ -432,7 +457,6 @@ export class UsageWatchService {
     this.inFlight.get(watch.id)?.abort();
     const controller = new AbortController();
     this.inFlight.set(watch.id, controller);
-    let accepted = false;
     try {
       await this.deps.deliver(row.agent_id, noticeText(watch, reading), {
         signal: controller.signal,
@@ -446,23 +470,38 @@ export class UsageWatchService {
                 AND a.status = 'running' AND a.deleted_at IS NULL`,
             [row.id, row.agent_id, row.notified_at]
           );
-          accepted = rows.length > 0;
-          return accepted;
+          return rows.length > 0;
         },
       });
+      // Delivered means the runtime accepted the prompt, not just that the
+      // pre-submit check passed.
+      this.retryAfter.delete(watch.id);
+      // Never let a bookkeeping failure turn a delivered notice into a rearm.
+      await this.deps.pool
+        .query(
+          `UPDATE usage_watches SET delivered_at = clock_timestamp()
+            WHERE id = $1 AND notified_at = $2`,
+          [row.id, row.notified_at]
+        )
+        .catch(this.deps.warn);
     } catch (error) {
-      if (!accepted && !controller.signal.aborted) {
-        // Not delivered (host unavailable, agent stopped): rearm the same
-        // episode so a later evaluation retries while it still matches.
-        await this.deps.pool
-          .query(
-            `UPDATE usage_watches SET armed = true, notified_at = NULL
-              WHERE id = $1 AND NOT armed AND notified_at = $2`,
-            [row.id, row.notified_at]
-          )
-          .catch(this.deps.warn);
-        this.deps.warn(error);
-      }
+      // Aborted: unsubscribed (row gone) or shutting down (the pool may be
+      // closed; recover() rearms the undelivered claim at the next boot).
+      if (controller.signal.aborted) return;
+      // Not delivered (no live session, agent stopped, prompt failed): rearm
+      // this episode. The notified_at guard makes it a no-op if the row was
+      // removed or re-claimed meanwhile; only a real rearm backs off.
+      const { rowCount } = await this.deps.pool.query(
+        `UPDATE usage_watches SET armed = true, notified_at = NULL
+          WHERE id = $1 AND NOT armed AND notified_at = $2`,
+        [row.id, row.notified_at]
+      );
+      if (rowCount)
+        this.retryAfter.set(
+          watch.id,
+          this.now() + (this.deps.tickMs ?? USAGE_WATCH_TICK_MS)
+        );
+      this.deps.warn(error);
     } finally {
       if (this.inFlight.get(watch.id) === controller)
         this.inFlight.delete(watch.id);

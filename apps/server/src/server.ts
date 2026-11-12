@@ -911,6 +911,9 @@ async function registerRoutes() {
     usageWatches.evaluate(report)
   );
   // Archived agents never claim a notice; the tick sweeps their rows.
+  await usageWatches
+    .recover()
+    .catch((err) => app.log.warn({ err }, "usage watch recovery failed"));
   usageWatches.start();
   app.addHook("onClose", async () => {
     stopUsageReports();

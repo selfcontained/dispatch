@@ -343,7 +343,7 @@ function registerUsageWatchTools(
           "Later notices arrive as a USAGE WATCH message in your own session with provider, tightest window, remaining %, reset time and observedAt; one per episode, not per refresh. " +
           `Reports with no windows, no observation time or older than ${STALE_AFTER_MS / 60_000} minutes never match or rearm — unknown is not zero. ` +
           "Reports are read from the shared usage cache, refreshed in the background every few minutes while a watch exists. " +
-          "Watches persist across session and server restarts until usage_unwatch or archive; while you are stopped no notice is sent, and one matching on resume is delivered then. " +
+          "Watches persist across session and server restarts until usage_unwatch or archive; while you are stopped no notice is sent, and one matching on resume is delivered then. A notice that could not be delivered (restart, no live session) is retried while the condition still holds, so a rare duplicate is possible; a missing one is not. " +
           `Subscribing the same condition again returns the existing watch. Up to ${MAX_WATCHES_PER_AGENT} per agent. ` +
           "A notice is information only: it never launches agents, switches providers, notifies the user, redeems resets, spends credits or grants approval.",
         annotations: {
