@@ -8,7 +8,11 @@ import type {
   StreamReadEvent,
   StreamThreadResponse,
 } from "@dispatch/shared";
-import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  type QueryClient,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useStore } from "jotai";
 import {
   type Agent,
@@ -198,6 +202,53 @@ function invalidateOnceFirstFetchSettles(
   promise.then(onSettled, onSettled);
 }
 
+/** The fastest a busy stream's events may refetch one feed. */
+export const FEED_ENTRY_REFETCH_MS = 1_000;
+
+/** Feeds with a throttled refetch scheduled, and when each last ran one. */
+const scheduledFeedRefetches = new Set<string>();
+const lastFeedRefetchAt = new Map<string, number>();
+
+/**
+ * An entry arrived while this feed (with data) is fetching, and that fetch
+ * may not include it: refetch once more after it, at most once per
+ * `FEED_ENTRY_REFETCH_MS`. The fetch in flight is never cancelled. A busy
+ * turn republishes its block on every step; restarting the fetch on each
+ * one cancelled every response before it landed, so the feed showed
+ * nothing new — the person's own post included — until the agent went
+ * quiet. Entries that arrive while the feed is idle are still patched in
+ * at once; only this fallback is throttled.
+ */
+function refetchFeedAfterEntry(
+  queryClient: QueryClient,
+  key: readonly unknown[]
+): void {
+  const hash = hashKey(key);
+  if (scheduledFeedRefetches.has(hash)) return;
+  scheduledFeedRefetches.add(hash);
+  const run = () => {
+    const query = queryClient
+      .getQueryCache()
+      .find({ queryKey: key, exact: true });
+    // Another fetch started meanwhile (focus, interval): it may predate
+    // the entries, so wait it out rather than share its answer.
+    if (query?.state.fetchStatus === "fetching" && query.promise) {
+      query.promise.then(run, run);
+      return;
+    }
+    const wait =
+      (lastFeedRefetchAt.get(hash) ?? 0) + FEED_ENTRY_REFETCH_MS - Date.now();
+    if (wait > 0) {
+      setTimeout(run, wait);
+      return;
+    }
+    scheduledFeedRefetches.delete(hash);
+    lastFeedRefetchAt.set(hash, Date.now());
+    void queryClient.invalidateQueries({ queryKey: key, exact: true });
+  };
+  run();
+}
+
 /** Protect a thread patch from an older in-flight server snapshot. */
 function reconcileThreadEntry(
   queryClient: QueryClient,
@@ -284,7 +335,7 @@ export function applyStreamEntry(
       if (feed.state.fetchStatus === "fetching") {
         if (feed.state.data === undefined)
           invalidateOnceFirstFetchSettles(queryClient, feed.queryKey);
-        else invalidateStreamFeed(queryClient, agentId);
+        else refetchFeedAfterEntry(queryClient, feed.queryKey);
       }
     }
     const showReview = reply.kind === "review";
@@ -354,7 +405,7 @@ function applyFeedEntry(
     if (state.data === undefined) {
       invalidateOnceFirstFetchSettles(queryClient, key);
     } else {
-      invalidateStreamFeed(queryClient, agentId);
+      refetchFeedAfterEntry(queryClient, key);
     }
     return;
   }
