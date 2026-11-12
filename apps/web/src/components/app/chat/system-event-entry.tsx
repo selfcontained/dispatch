@@ -49,9 +49,8 @@ export function SystemEventEntry({
   }[event.category];
   // Check observations show their results inline: no disclosure, one meta row.
   const inline = event.category === "checks";
-  const parsedStatus = inline
-    ? parseCheckNotice(event.details)?.status
-    : undefined;
+  const notice = inline ? parseCheckNotice(event.details) : undefined;
+  const parsedStatus = notice?.status;
   const status =
     event.status ??
     (["Passing", "Failing", "Pending", "Mixed"].includes(parsedStatus ?? "")
@@ -76,9 +75,7 @@ export function SystemEventEntry({
     <code title={event.head}>{event.head.slice(0, 7)}</code>
   );
   const resource = event.resource && (
-    <div
-      className={`${inline ? "mt-1" : "mt-3"} font-sans text-sm leading-snug`}
-    >
+    <div className="mt-3 font-sans text-sm leading-snug">
       <a
         href={event.resource.url}
         target="_blank"
@@ -101,17 +98,49 @@ export function SystemEventEntry({
             : event.category === "lifecycle"
               ? "text-status-done"
               : "text-primary";
+  // Check cards lead with the PR itself ("#1439 Title"), not a generic label.
+  const prNumber = inline
+    ? (event.resource?.url.match(/\/pull\/(\d+)(?:[/?#]|$)/)?.[1] ??
+      notice?.pr?.number)
+    : undefined;
+  const prUrl = event.resource?.url ?? notice?.pr?.url;
+  // Drop a leading "PR #n" from the title (shown as the number) and the
+  // feed's "View pull request" placeholder when the number already says it.
+  const prTitle =
+    prNumber && event.resource?.label === "View pull request"
+      ? undefined
+      : event.resource?.label.replace(
+          new RegExp(`^(?:PR )?#${prNumber ?? "\\d+"}(?: · |: | |$)`),
+          ""
+        ) || undefined;
+  const prHeading =
+    inline && (prNumber || event.resource) ? (
+      <a
+        href={prUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="min-w-0 font-medium text-foreground underline decoration-border underline-offset-4 [overflow-wrap:anywhere] focus-visible:outline-ring"
+      >
+        {prNumber && (
+          <span className="font-mono text-muted-foreground">#{prNumber}</span>
+        )}
+        {prNumber && prTitle ? " " : null}
+        {prTitle && <span className="font-sans">{prTitle}</span>}
+      </a>
+    ) : undefined;
   const header = (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="font-medium [overflow-wrap:anywhere]">
-        {event.summary}
-      </span>
+      {prHeading ?? (
+        <span className="font-medium [overflow-wrap:anywhere]">
+          {event.summary}
+        </span>
+      )}
       {event.risk && (
         <Badge variant="default" className={MERGE_RISK[event.risk].badge}>
           {MERGE_RISK[event.risk].label}
         </Badge>
       )}
-      {status && (
+      {status && !inline && (
         <Badge
           variant="default"
           className={
@@ -143,12 +172,15 @@ export function SystemEventEntry({
           )}
           <div className="min-w-0 flex-1">
             {header}
-            {resource}
-            <PullRequestCheckResults text={event.details} />
+            <PullRequestCheckResults
+              text={event.details}
+              notice={notice}
+              status={status}
+            />
             {visibleContent}
             {children}
             {/* Separators lead their item so a wrapped row never ends in "·". */}
-            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
               {time}
               {commit && (
                 <span className="whitespace-nowrap">
@@ -156,9 +188,6 @@ export function SystemEventEntry({
                   {commit}
                 </span>
               )}
-              <span className="whitespace-nowrap">
-                <span aria-hidden>· </span>Info only · not merge approval
-              </span>
             </div>
           </div>
         </div>

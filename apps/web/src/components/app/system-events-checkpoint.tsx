@@ -54,7 +54,14 @@ const events: SystemEventPresentation[] = [
     category: "checks" as const,
     summary: "Pull request checks",
     status,
-    resource,
+    resource:
+      status === "Pending"
+        ? {
+            label:
+              "Fix Slack Socket Mode app identity and reinstall account linking across every connected workspace",
+            url: "https://github.com/a/b/pull/1439",
+          }
+        : resource,
     head,
     details: [
       `[#1439](<https://github.com/a/b/pull/1439>) — ${header}`,
