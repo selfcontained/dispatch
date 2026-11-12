@@ -110,12 +110,11 @@ export function NotificationsContent() {
       <Section>
         <H3>Agent-initiated notifications</H3>
         <P>
-          An agent can page you mid-task by posting to its stream with{" "}
-          <Code>notify: true</Code> — useful for summarizing intermediate
-          results, flagging risks, or asking you to check something specific.
-          The post goes out through the same browser and Slack channels as a
-          status change, subject to the same focus suppression, and the block
-          itself stays in the Chat. Available to regular and job agents.
+          An agent can page you mid-task with the separate <Code>notify</Code>{" "}
+          tool — useful for summarizing intermediate results, flagging risks, or
+          asking you to check something specific. The alert uses your configured
+          notification channels and does not write a stream post. Available to
+          regular and job agents.
         </P>
       </Section>
     </>

@@ -145,6 +145,35 @@ export function registerAgentLifecycleTools(
   }
 
   // ── notify ───────────────────────────────────────────────
+  if (allowed.has("notify") && context.sendNotify) {
+    const sendNotify = context.sendNotify;
+    server.registerTool(
+      "notify",
+      {
+        description:
+          "Request an immediate Slack alert for the user through their configured notification channels. Use when something warrants attention now. This does not post to a stream, answer a question, or prove the user read it. Rate limited; inspect the returned delivery result.",
+        inputSchema: {
+          message: z.string().trim().min(1).max(2000),
+          title: z.string().trim().min(1).max(120).optional(),
+          level: z.enum(["info", "success", "warning", "error"]).optional(),
+        },
+      },
+      async (args) => {
+        try {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: jsonText(await sendNotify(agentId, args)),
+              },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
   // ── list_files ──────────────────────────────────────────
   if (allowed.has("list_files") && context.listFiles) {
     const listFiles = context.listFiles;

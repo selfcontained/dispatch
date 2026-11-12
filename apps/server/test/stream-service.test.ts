@@ -1307,30 +1307,6 @@ describe("StreamService.post", () => {
     ).resolves.toMatchObject({ kind: "question" });
   });
 
-  it("sends the notification only when asked, and survives its failure", async () => {
-    const notify = vi.fn(async () => ({ sent: true }));
-    const { svc } = build({ withDelivery: false, deps: { notify } });
-    await svc.post(A, { text: "Done." });
-    expect(notify).not.toHaveBeenCalled();
-    await svc.post(A, { text: "Build finished", notify: true });
-    expect(notify).toHaveBeenCalledWith(A, { message: "Build finished" });
-    await svc.post(A, {
-      notify: true,
-      question: { options: [{ label: "Yes" }] },
-    });
-    expect(notify).toHaveBeenLastCalledWith(A, { message: "Yes" });
-    notify.mockRejectedValueOnce(new Error("slack down"));
-    await expect(
-      svc.post(A, { text: "x", notify: true })
-    ).resolves.toMatchObject({
-      text: "x",
-    });
-    // Without the dep, notify is silently ignored.
-    await expect(
-      service.post(A, { text: "x", notify: true })
-    ).resolves.toBeTruthy();
-  });
-
   it("delivers a post with `to` as a DISPATCH POST from the agent, settling delivered", async () => {
     await seedFiles(A, "diff.patch", 2048);
     let release!: () => void;
@@ -8269,7 +8245,6 @@ describe("Parent-owned child requests", () => {
         status: "running",
       };
       try {
-        const notify = vi.fn();
         const { svc } = build({
           ...(failure === "stopped"
             ? {
@@ -8279,7 +8254,6 @@ describe("Parent-owned child requests", () => {
                 },
               }
             : { failFor: [B] }),
-          deps: { notify },
         });
         const launch = await svc.store.insert({
           streamId: A,
@@ -8309,7 +8283,6 @@ describe("Parent-owned child requests", () => {
             to: B,
             replyTo: launch.id,
             text: "Nested decision",
-            notify: true,
             ...input,
           });
           expect(await settled(svc, ask.id)).toMatchObject({
@@ -8321,7 +8294,6 @@ describe("Parent-owned child requests", () => {
           const feed = await svc.feed(ask.streamId);
           expect(feed.entries.map((e) => e.id)).toContain(ask.id);
           expect(feed.openInputs?.map((b) => b.id)).toContain(ask.id);
-          expect(notify).not.toHaveBeenCalled();
           const recovered = build();
           await recovered.svc.retryDelivery(ask.streamId, ask.id);
           await settled(recovered.svc, ask.id);

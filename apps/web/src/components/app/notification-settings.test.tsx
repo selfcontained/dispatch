@@ -13,6 +13,8 @@ import type { NotificationSettingsResponse } from "@/components/app/notification
 
 import { NotificationSettings } from "./notification-settings";
 
+vi.mock("./slack-app-section", () => ({ SlackAppSection: () => null }));
+
 // The component renders the real useNotificationSettings hook; only its I/O
 // seams are mocked so the assertions exercise the wiring from hook -> sections.
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));

@@ -1284,13 +1284,13 @@ describe("agent MCP route exposes the stream tools", () => {
     expect(names).toContain("post");
     expect(names).toContain("update");
     expect(names).toContain("react");
+    expect(names).toContain("notify");
     for (const retired of [
       "chat_post",
       "chat_update",
       "chat_react",
       "share_file",
       "dispatch_share",
-      "notify",
     ]) {
       expect(names).not.toContain(retired);
     }

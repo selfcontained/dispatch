@@ -1,3 +1,4 @@
+import { SlackApp, SlackRetryError } from "./slack-app.js";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -86,6 +87,7 @@ function sanitizeSlackMrkdwn(text: string): string {
 }
 
 export class SlackNotifier {
+  readonly app: SlackApp;
   private cachedSettings: CachedSettings | null = null;
   private isFocused: ((agentId: string) => boolean) | null = null;
   /** Per-agent rate limit tracking for notify calls. */
@@ -94,7 +96,9 @@ export class SlackNotifier {
   constructor(
     private pool: Pool,
     private log: FastifyBaseLogger
-  ) {}
+  ) {
+    this.app = new SlackApp(pool);
+  }
 
   /** Register a callback to check if the user is actively viewing an agent. */
   setFocusCheck(fn: (agentId: string) => boolean): void {
@@ -205,6 +209,8 @@ export class SlackNotifier {
   ): Promise<void> {
     if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return;
 
+    // App mode uses the durable five-minute question scanner, not legacy immediate attention.
+    if ((await this.app.settings()).configured) return;
     try {
       if (this.isFocused?.(agent.id)) {
         this.log.debug(
@@ -290,6 +296,23 @@ export class SlackNotifier {
       };
     }
 
+    const appSettings = await this.app.settings();
+    if (appSettings.binding) {
+      try {
+        await this.app.send(
+          `Dispatch · ${agent.name || agent.id} · ${agent.type || "Agent"}\n${input.title ? input.title + "\n" : ""}${input.message}\n${appSettings.binding.baseUrl}/agents/${encodeURIComponent(agent.id)}\nPrivate link: LAN or VPN required.`
+        );
+        this.recordNotifyTimestamp(agent.id);
+        return { sent: true };
+      } catch (error) {
+        if (error instanceof SlackRetryError)
+          return { sent: false, reason: "Slack rate limited. Retry shortly." };
+        return {
+          sent: false,
+          reason: "Slack delivery failed. Check connection in Settings.",
+        };
+      }
+    }
     const settings = await this.getCachedSettings();
     if (!settings.webhookUrl) {
       return { sent: false, reason: "No Slack webhook configured." };

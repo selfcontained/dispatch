@@ -385,6 +385,51 @@ export async function registerSystemRoutes(
     };
   });
 
+  app.get("/api/v1/notifications/slack-app", async () =>
+    deps.slackNotifier.app.settings()
+  );
+  app.post(
+    "/api/v1/notifications/slack-app/:action",
+    async (request, reply) => {
+      const { action } = request.params as { action: string };
+      const body = request.body as Record<string, unknown> | null;
+      try {
+        if (action === "validate") {
+          if (
+            typeof body?.botToken !== "string" ||
+            typeof body?.appToken !== "string"
+          )
+            return reply.code(400).send({ error: "Both tokens are required." });
+          return await deps.slackNotifier.app.validate({
+            botToken: body.botToken,
+            appToken: body.appToken,
+          });
+        }
+        if (action === "enable") {
+          if (
+            typeof body?.channelId !== "string" ||
+            typeof body?.baseUrl !== "string"
+          )
+            return reply
+              .code(400)
+              .send({ error: "Choose a channel and Dispatch URL." });
+          await deps.slackNotifier.app.enable(body.channelId, body.baseUrl);
+        } else if (action === "disconnect")
+          await deps.slackNotifier.app.disconnect();
+        else if (action === "refresh")
+          return { channels: await deps.slackNotifier.app.refreshChannels() };
+        else if (action === "test")
+          await deps.slackNotifier.app.send("Dispatch test notification");
+        else return reply.code(404).send({ error: "Unknown Slack action." });
+        return await deps.slackNotifier.app.settings();
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : "Slack setup failed.",
+        });
+      }
+    }
+  );
+
   app.get("/api/v1/notifications/settings", async () => {
     return deps.slackNotifier.getSettings();
   });

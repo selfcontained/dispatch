@@ -225,13 +225,30 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  it("never registers notify: post carries notify: true instead", () => {
+  it("registers notify only with capability and binds the originating agent", async () => {
+    const sendNotify = vi.fn(async () => ({ sent: true }));
+    registerAgentLifecycleTools(server as never, new Set(["notify"]), {
+      ...baseContext(),
+      sendNotify,
+    });
+    expect(server.tools.map((t) => t.name)).toEqual(["notify"]);
+    await server.tools[0]!.handler({ message: "Please check the failure" });
+    expect(sendNotify).toHaveBeenCalledWith(AGENT_ID, {
+      message: "Please check the failure",
+    });
+  });
+
+  it("does not expose notify without its capability or handler", () => {
     registerAgentLifecycleTools(
       server as never,
-      new Set(["notify", "rename_session"]),
+      new Set(["notify"]),
       baseContext()
     );
-    expect(server.tools.map((t) => t.name)).toEqual(["rename_session"]);
+    registerAgentLifecycleTools(server as never, new Set(), {
+      ...baseContext(),
+      sendNotify: vi.fn(),
+    });
+    expect(server.tools).toHaveLength(0);
   });
 
   // ── list_files handler ─────────────────────────────────

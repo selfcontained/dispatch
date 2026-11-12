@@ -405,12 +405,11 @@ export function AutomationsContent() {
           <li>
             <strong>The stream</strong> — <Code>post</Code>, <Code>update</Code>
             , and <Code>react</Code> behave the same as for standard agents: a
-            link for the PR a run opened, a file for a report,{" "}
-            <Code>notify: true</Code> for a post that should page you.{" "}
-            <Code>list_files</Code>, <Code>delete_file</Code>, and{" "}
-            <Code>rename_session</Code> are there too — renaming the session is
-            handy when the job's prompt is generic but each run has a more
-            specific topic.
+            link for the PR a run opened, a file for a report, the separate{" "}
+            <Code>notify</Code> tool to page you. <Code>list_files</Code>,{" "}
+            <Code>delete_file</Code>, and <Code>rename_session</Code> are there
+            too — renaming the session is handy when the job's prompt is generic
+            but each run has a more specific topic.
           </li>
           <li>
             <strong>Discovery &amp; coordination</strong> —{" "}

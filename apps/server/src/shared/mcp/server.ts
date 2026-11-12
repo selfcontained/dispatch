@@ -86,6 +86,7 @@ const AGENT_TOOLS = new Set([
   "cancel_scheduled_message",
   "login_link",
   "rename_session",
+  "notify",
   "set_workspace",
   "list_files",
   "delete_file",
@@ -154,6 +155,7 @@ const AGENT_TOOLS = new Set([
 
 const JOB_TOOLS = new Set([
   "rename_session",
+  "notify",
   "set_workspace",
   "list_files",
   "delete_file",

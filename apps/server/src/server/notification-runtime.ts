@@ -2,11 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import type { FastifyBaseLogger } from "fastify";
 
-import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import type { AgentManager } from "../agents/manager.js";
 import type { JobService } from "../jobs/service.js";
 import type { SlackNotifier } from "../notifications/slack.js";
-import type { NotifyInput } from "../shared/mcp/server.js";
-import type { UiEvent, UiEventBroker } from "./ui-events.js";
+import type { UiEventBroker } from "./ui-events.js";
 
 type CreateNotificationRuntimeDeps = {
   agentManager: AgentManager;
@@ -75,21 +74,6 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
   });
 
   return {
-    async sendExplicitNotification(agentId: string, input: NotifyInput) {
-      const agent = await agentManager.getAgent(agentId);
-      if (!agent) return;
-      if (await slackNotifier.getWebNotifyEnabled()) {
-        uiEventBroker.publish({
-          type: "notification",
-          notificationId: randomUUID(),
-          agentId,
-          agentName: agent.name || agent.id.slice(0, 8),
-          eventType: "notice",
-          message: input.message,
-        });
-      }
-      await slackNotifier.sendNotification(agent, input);
-    },
     ackWebNotification(notificationId: string): boolean {
       const timer = pendingWebNotifications.get(notificationId);
       if (!timer) return false;
