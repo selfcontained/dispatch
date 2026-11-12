@@ -208,7 +208,7 @@ function explanationNotice(data: ExplanationReply | undefined) {
       : "00:00 UTC";
     return {
       title: "Daily request limit reached",
-      message: `${data.used ?? "All"}${data.cap === undefined ? "" : ` of ${data.cap}`} AI requests used today, mostly by automatic assessments. This counts requests, not spend. Resets at ${reset}.`,
+      message: `${data.used ?? "All"}${data.cap === undefined ? "" : ` of ${data.cap}`} AI requests used today, shared with automatic assessments. This counts requests, not spend. Resets at ${reset}.`,
     };
   }
   if (data?.state === "pending")
