@@ -73,7 +73,9 @@ export function NotificationsContent() {
           Slack alert, or reply in the alert&apos;s thread to message the agent.
           Linking posts a one-time button in your channel; whoever clicks it
           appears as a pending request until you allow it. Answers show &quot;in
-          Slack by @name&quot; and count the same as answering in Dispatch.
+          Slack by @name&quot; and count the same as answering in Dispatch. A
+          thread reply that answers a question gets a ✅ reaction instead of a
+          text receipt (needs the Slack app&apos;s reactions:write permission).
         </P>
         <P>
           The agent can answer a thread message back in that thread. It writes

@@ -920,6 +920,16 @@ export class SlackApp {
       ...(threadTs ? { thread_ts: threadTs } : {}),
     });
   }
+  /** Marks a message in the bound channel with an emoji (reactions:write). */
+  async addReaction(ts: string, name: string) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    await this.api(config.credentials.botToken, "reactions.add", {
+      channel: config.binding.channelId,
+      timestamp: ts,
+      name,
+    });
+  }
   async openView(triggerId: string, view: unknown) {
     const config = await this.configuration();
     if (!config) throw new Error("Slack app is not configured.");

@@ -55,7 +55,7 @@ type State = {
   };
 };
 const endpoint = "/api/v1/notifications/slack-app";
-const manifest = JSON.stringify(
+export const manifest = JSON.stringify(
   {
     display_information: { name: "Dispatch" },
     features: { bot_user: { display_name: "Dispatch", always_online: false } },
@@ -70,6 +70,8 @@ const manifest = JSON.stringify(
           "groups:history",
           "files:write",
           "files:read",
+          "reactions:write",
+          "reactions:read",
         ],
       },
     },

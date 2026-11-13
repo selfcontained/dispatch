@@ -260,11 +260,19 @@ describe("Slack app boundary", () => {
     await f.app.postBlocks({ text: "t", blocks: [{ type: "divider" }] });
     await f.app.updateMessage("1.2", "u", []);
     await f.app.postEphemeral("U1", "e", "1.2");
+    await f.app.addReaction("1.3", "white_check_mark");
     const bodies = f.transport.mock.calls
-      .filter(([url]) => /chat\.(postMessage|update|postEphemeral)$/.test(url))
+      .filter(([url]) =>
+        /(chat\.(postMessage|update|postEphemeral)|reactions\.add)$/.test(url)
+      )
       .map(([, init]) => JSON.parse(init!.body as string));
-    expect(bodies.map((b) => b.channel)).toEqual(["C1", "C1", "C1"]);
+    expect(bodies.map((b) => b.channel)).toEqual(["C1", "C1", "C1", "C1"]);
     expect(bodies[2]).toMatchObject({ user: "U1", thread_ts: "1.2" });
+    expect(bodies[3]).toEqual({
+      channel: "C1",
+      timestamp: "1.3",
+      name: "white_check_mark",
+    });
     f.app.stop();
   });
   it("classifies post failures: only definite non-deliveries are retryable", async () => {

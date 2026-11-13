@@ -47,6 +47,7 @@ function fakeSlack() {
     posted: [] as Array<{ text: string; blocks: any[]; ts: string }>,
     updated: [] as Array<{ ts: string; text: string; blocks: any[] }>,
     ephemeral: [] as Array<{ user: string; text: string; threadTs?: string }>,
+    reactions: [] as Array<{ ts: string; name: string }>,
     views: [] as Array<{ trigger: string; view: any }>,
   };
   let ts = 100;
@@ -65,6 +66,9 @@ function fakeSlack() {
     },
     postEphemeral: async (user: string, text: string, threadTs?: string) => {
       calls.ephemeral.push({ user, text, threadTs });
+    },
+    addReaction: async (t: string, name: string) => {
+      calls.reactions.push({ ts: t, name });
     },
     openView: async (trigger: string, view: any) => {
       calls.views.push({ trigger, view });
@@ -1001,6 +1005,39 @@ describe("thread replies", () => {
     );
     expect(rows[0].n).toBe(1);
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
+    // The reply itself is marked ✅ once; nothing is said in text.
+    expect(calls.reactions).toEqual([
+      { ts: event.payload.event.ts, name: "white_check_mark" },
+    ]);
+    expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
+  });
+
+  it("keeps the answer when the ✅ reaction fails", async () => {
+    const { svc, answers, calls, app } = build();
+    await linkUser(answers, calls, "U1");
+    const q = await ask(svc, answers, calls, {
+      question: { options: [{ label: "Postgres" }], allowFreeform: true },
+    });
+    (app as any).addReaction = async () => {
+      throw new Error("Slack request rejected (missing_scope).");
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const quietFrom = calls.ephemeral.length;
+    try {
+      await answers.handle(threadReply("U1", q.message.ts, "CockroachDB"));
+      // Logged once, never shown to the person.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toMatch(/could not react/);
+    } finally {
+      warn.mockRestore();
+    }
+    const answered = (await svc.store.getById(q.block.id))!;
+    expect((answered.state as any).answer).toMatchObject({
+      value: "CockroachDB",
+      external: { userId: "U1" },
+    });
+    expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
+    expect(calls.reactions).toEqual([]);
     expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
   });
 
@@ -1173,6 +1210,8 @@ describe("thread replies", () => {
     ]);
     // A routine follow-up in a notify thread: no receipt.
     expect(calls.ephemeral.slice(afterAnswer)).toEqual([]);
+    // Only recorded answers get the ✅; follow-ups and button answers don't.
+    expect(calls.reactions).toEqual([]);
   });
 
   it("retries the not-an-answer notice on the next reply if Slack failed to show it", async () => {

@@ -830,7 +830,8 @@ export class SlackAnswers {
         !ask.to_agent_id &&
         (!row.data_hash || row.data_hash === askHash(ask.text, ask.data))
       ) {
-        // Quiet on success: the settled question message shows the answer.
+        // No text receipt on success: the settled question message shows the
+        // answer, and the reply itself gets a ✅ so its author sees it landed.
         await this.withReturnPath(row, id, event.ts, () =>
           this.writer().answerQuestion(ask.stream_id, ask.id, {
             id,
@@ -838,7 +839,19 @@ export class SlackAnswers {
             external: origin,
           })
         );
+        // Settle the question message first; the ✅ is cosmetic and best
+        // effort: a missing reactions:write scope, already_reacted or a
+        // network failure changes nothing about the recorded answer.
         await this.reconcile().catch(() => {});
+        await this.app
+          .addReaction(event.ts, "white_check_mark")
+          .catch((error: unknown) =>
+            console.warn(
+              `Slack: could not react to answer ${event.channel}/${event.ts}: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            )
+          );
         return;
       }
       const images = hasFiles
