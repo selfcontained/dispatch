@@ -79,6 +79,8 @@ import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import {
   MAX_ENCODED_FILE_NAME_LENGTH,
   resolveFilesDir,
+  sanitizeUploadedFileName,
+  timestampedFileName,
 } from "./shared/files.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
@@ -211,7 +213,49 @@ const slackAnswers = new SlackAnswers(
   pool,
   slackNotifier.app,
   () => streamService,
-  async (agentId) => (await agentManager.getAgent(agentId))?.name ?? null
+  async (agentId) => (await agentManager.getAgent(agentId))?.name ?? null,
+  // A photo sent in a Slack thread becomes the agent's file, like an upload.
+  async (agentId, name, bytes) => {
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) throw new Error("Agent not found.");
+    const buffer = Buffer.from(bytes);
+    const fileName = sanitizeUploadedFileName(path.basename(name));
+    const type = detectFileType(buffer, fileName);
+    if (!type.ok || type.media !== "image") throw new Error("Not an image.");
+    const dir = resolveFilesDir(agent.id, agent.filesDir, config.filesRoot);
+    await mkdir(dir, { recursive: true });
+    // Slack names pasted images alike ("image.png"); never overwrite one.
+    let stored = "";
+    for (let n = 0; ; n++) {
+      stored = timestampedFileName(fileName, new Date(), n ? `-${n}` : "");
+      try {
+        await writeFile(path.join(dir, stored), buffer, { flag: "wx" });
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || n >= 20)
+          throw error;
+      }
+    }
+    try {
+      const { rows } = await pool.query<{ id: number }>(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, description, metadata, mime_type)
+         VALUES ($1, $2, 'user', $3, $4, $5, $6) RETURNING id`,
+        [
+          agent.id,
+          stored,
+          buffer.length,
+          "Sent from Slack",
+          fileMetadataFromBuffer(buffer),
+          type.mimeType,
+        ]
+      );
+      return rows[0]!.id;
+    } catch (error) {
+      // Not recorded: don't leave the file behind.
+      await unlink(path.join(dir, stored)).catch(() => {});
+      throw error;
+    }
+  }
 );
 slackNotifier.setNotifySent((sent, agentId) =>
   slackAnswers.recordNotify(sent, agentId)
@@ -225,6 +269,10 @@ const slackThreadReplies: SlackThreadReplies = new SlackThreadReplies(
 );
 slackNotifier.setThreadReply((agent, input) =>
   slackThreadReplies.reply(agent, input)
+);
+slackNotifier.setTurnPost(
+  async (agentId) =>
+    (await slackThreadReplies.turnThread(agentId))?.target.postId ?? null
 );
 const questionAlerts = new QuestionAlerts(
   pool,

@@ -31,6 +31,9 @@ import type {
 } from "../chat/service.js";
 
 /** The existing Dispatch write paths; Slack never gets a parallel one. */
+/** The largest photo from Slack passed to an agent (matches its prompt limit). */
+const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
 export type AnswerWriter = {
   answerQuestion(
     streamId: string,
@@ -165,8 +168,55 @@ export class SlackAnswers {
     private pool: Pool,
     private app: SlackApp,
     private writer: () => AnswerWriter,
-    private agentName: (agentId: string) => Promise<string | null>
+    private agentName: (agentId: string) => Promise<string | null>,
+    /** Store an image a person sent from Slack as the agent's file; returns its id. */
+    private saveImage?: (
+      agentId: string,
+      name: string,
+      bytes: Uint8Array
+    ) => Promise<number>
   ) {}
+
+  /** Images in a Slack thread reply, saved as files the agent receives. */
+  private async slackImages(
+    agentId: string,
+    files: unknown
+  ): Promise<{ fileIds: number[]; failed: number }> {
+    const images = (Array.isArray(files) ? files : [])
+      .filter(
+        (f: any) =>
+          typeof f?.url_private_download === "string" &&
+          /^image\/(png|jpeg|gif|webp)$/.test(String(f?.mimetype ?? "")) &&
+          // Slack states the size; don't start a download that must fail.
+          !(Number(f?.size) > IMAGE_MAX_BYTES)
+      )
+      .slice(0, 4);
+    const fileIds: number[] = [];
+    let failed = (Array.isArray(files) ? files : []).filter(
+      (f: any) =>
+        /^image\//.test(String(f?.mimetype ?? "")) &&
+        Number(f?.size) > IMAGE_MAX_BYTES
+    ).length;
+    for (const file of images as any[]) {
+      try {
+        if (!this.saveImage) throw new Error("Images unavailable.");
+        const bytes = await this.app.downloadFile(
+          file.url_private_download,
+          IMAGE_MAX_BYTES
+        );
+        fileIds.push(
+          await this.saveImage(
+            agentId,
+            String(file.name || "slack-image.png"),
+            bytes
+          )
+        );
+      } catch {
+        failed++;
+      }
+    }
+    return { fileIds, failed };
+  }
 
   start() {
     this.app.setInboundHandler(
@@ -207,18 +257,13 @@ export class SlackAnswers {
     },
     name: string,
     text: string,
-    ref: string,
-    headline?: string
+    ref: string
   ): AskContext {
     return {
       ref,
       agentName: name,
-      context: row.stream_id.startsWith("tsk_")
-        ? `Task ${row.stream_id}`
-        : undefined,
       text,
       openUrl: this.openUrl(binding.baseUrl, row),
-      ...(headline ? { headline } : {}),
     };
   }
 
@@ -235,8 +280,7 @@ export class SlackAnswers {
       alert,
       alert.name || alert.agent_id,
       alert.text,
-      ref,
-      alert.threadTs || alert.immediate ? undefined : "unanswered for 5 minutes"
+      ref
     );
     const message =
       kind === "form"
@@ -246,6 +290,7 @@ export class SlackAnswers {
       {
         text: message.text,
         blocks: message.blocks,
+        username: ctx.agentName,
         ...(alert.threadTs ? { threadTs: alert.threadTs } : {}),
       },
       alert.binding_generation
@@ -470,11 +515,11 @@ export class SlackAnswers {
   }
 
   /**
-   * A form submitted in Slack becomes a post the agent can reply to with
-   * notify({ replyTo: <submission id> }): it answers in the form's thread (or,
-   * for a channel-root form, a thread under it). Question answers stay
-   * excluded, as before. Written before the submission so a fast turn can't
-   * reply first; forgotten if the submission never landed.
+   * A question answer or form submission made in Slack becomes a post the
+   * agent can reply to with notify({ replyTo: <answer id> }): it answers in
+   * the ask's thread (or, for a channel-root ask, a thread under it), so the
+   * conversation stays where the person answered. Written before the answer
+   * so a fast turn can't reply first; forgotten if the answer never landed.
    */
   private async withReturnPath<T>(
     row: MessageRow,
@@ -566,11 +611,14 @@ export class SlackAnswers {
     // its delivery state (re-rendered as that settles). Only refusals and
     // failures get a private reply.
     try {
-      await this.writer().answerQuestion(ask.stream_id, ask.id, {
-        id: stableUuid(`slack-answer:${row.id}`),
-        value: option.value ?? option.label,
-        external: origin,
-      });
+      const answerId = stableUuid(`slack-answer:${row.id}`);
+      await this.withReturnPath(row, answerId, `answer:${answerId}`, () =>
+        this.writer().answerQuestion(ask.stream_id, ask.id, {
+          id: answerId,
+          value: option.value ?? option.label,
+          external: origin,
+        })
+      );
     } catch (error) {
       await reply(await this.failureText(error, ask.id, origin));
     }
@@ -624,11 +672,14 @@ export class SlackAnswers {
       } else {
         const value = String(state.answer?.value?.value ?? "").trim();
         if (!value) return errorsFor("Type an answer.");
-        await this.writer().answerQuestion(ask.stream_id, ask.id, {
-          id: stableUuid(`slack-answer:${row.id}`),
-          value,
-          external: origin,
-        });
+        const answerId = stableUuid(`slack-answer:${row.id}`);
+        await this.withReturnPath(row, answerId, `answer:${answerId}`, () =>
+          this.writer().answerQuestion(ask.stream_id, ask.id, {
+            id: answerId,
+            value,
+            external: origin,
+          })
+        );
       }
       // Closing the modal is the acknowledgment; the settled Slack message
       // carries the outcome and delivery state. No extra private receipt.
@@ -724,18 +775,19 @@ export class SlackAnswers {
   private async onEvent(inbound: SlackInbound) {
     const { payload, binding, botUserId } = inbound;
     const event = payload.event ?? {};
-    // Only plain new thread replies by people. Edits/deletes/joins arrive as
-    // subtypes; bots (including our own echoes) carry bot_id.
+    // Only new thread replies by people, with or without files (file_share).
+    // Edits/deletes/joins arrive as other subtypes; bots (including our own
+    // echoes) carry bot_id.
     if (
       event.type !== "message" ||
-      event.subtype ||
+      (event.subtype && event.subtype !== "file_share") ||
       event.bot_id ||
       typeof event.user !== "string" ||
       event.user === botUserId ||
       typeof event.thread_ts !== "string" ||
       event.thread_ts === event.ts ||
       event.channel !== binding.channelId ||
-      typeof event.text !== "string"
+      (typeof event.text !== "string" && !Array.isArray(event.files))
     )
       return;
     const { rows } = await this.pool.query<MessageRow>(
@@ -759,8 +811,9 @@ export class SlackAnswers {
         );
       return;
     }
-    const text = slackTextToPlain(event.text).trim();
-    if (!text) return;
+    const text = slackTextToPlain(String(event.text ?? "")).trim();
+    const hasFiles = Array.isArray(event.files) && event.files.length > 0;
+    if (!text && !hasFiles) return;
     const id = stableUuid(`slack-message:${event.channel}:${event.ts}`);
     const name = (await this.agentName(row.agent_id)) ?? row.agent_id;
     const ask = row.block_id ? await this.ask(row.block_id) : null;
@@ -768,6 +821,8 @@ export class SlackAnswers {
       return reply("This question no longer exists in Dispatch.");
     try {
       if (
+        text &&
+        !hasFiles &&
         ask &&
         ask.kind === "question" &&
         ask.data?.allowFreeform &&
@@ -776,14 +831,24 @@ export class SlackAnswers {
         (!row.data_hash || row.data_hash === askHash(ask.text, ask.data))
       ) {
         // Quiet on success: the settled question message shows the answer.
-        await this.writer().answerQuestion(ask.stream_id, ask.id, {
-          id,
-          value: text,
-          external: origin,
-        });
+        await this.withReturnPath(row, id, event.ts, () =>
+          this.writer().answerQuestion(ask.stream_id, ask.id, {
+            id,
+            value: text,
+            external: origin,
+          })
+        );
         await this.reconcile().catch(() => {});
         return;
       }
+      const images = hasFiles
+        ? await this.slackImages(row.agent_id, event.files)
+        : { fileIds: [], failed: 0 };
+      if (images.failed)
+        await reply(
+          `${images.failed === 1 ? "An image" : `${images.failed} images`} couldn't be passed to ${name}. Dispatch needs Slack's files:read permission and png, jpeg, gif or webp up to 10 MB.`
+        );
+      if (!text && !images.fileIds.length) return;
       // Provenance for the return path, written before the post so a fast
       // turn can't settle first; the response is matched to this post id.
       await this.pool.query(
@@ -810,6 +875,14 @@ export class SlackAnswers {
             resolveMentions: false,
             allowInert: true,
             external: origin,
+            ...(images.fileIds.length
+              ? {
+                  attachments: images.fileIds.map((fileId) => ({
+                    type: "file" as const,
+                    fileId,
+                  })),
+                }
+              : {}),
           }
         );
       } catch (error) {
@@ -906,10 +979,11 @@ export class SlackAnswers {
           outcome = {
             kind: "answered",
             by: done.external?.displayName ?? "the owner",
-            via: done.external ? "slack" : "dispatch",
-            summary: row.state.answer
-              ? `"${clip(String(row.state.answer.label ?? row.state.answer.value), 200)}"`
-              : `${Object.keys(row.state.submission.values ?? {}).length} field(s) submitted`,
+            ...(row.state.answer
+              ? {
+                  summary: `"${clip(String(row.state.answer.label ?? row.state.answer.value), 200)}"`,
+                }
+              : {}),
             delivery: shownDelivery(delivered.rows[0]?.delivered),
           };
         }
@@ -922,7 +996,8 @@ export class SlackAnswers {
           await this.app.updateMessage(
             row.message_ts,
             message.text,
-            message.blocks
+            message.blocks,
+            ctx.agentName
           );
           await this.pool.query(
             `UPDATE slack_messages SET settled_at=COALESCE(settled_at, now()), shown_delivery=$2 WHERE id=$1`,

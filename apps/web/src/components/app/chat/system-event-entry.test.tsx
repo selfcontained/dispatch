@@ -72,7 +72,7 @@ describe("system event presentation", () => {
     expect(screen.queryByText("Observation details")).toBeNull();
     expect(screen.queryByText("Pull request checks")).toBeNull();
     const pr = screen.getByRole("link", {
-      name: "#1439 Preserve observation delivery provenance",
+      name: "PR #1439 Preserve observation delivery provenance",
     });
     expect(pr.getAttribute("href")).toBe("https://github.com/a/b/pull/1439");
     expect(screen.getByLabelText("Check summary").textContent).toBe(
@@ -118,9 +118,9 @@ describe("system event presentation", () => {
         }}
       />
     );
-    expect(screen.getByRole("link", { name: "#77" }).getAttribute("href")).toBe(
-      "https://github.com/a/b/pull/77"
-    );
+    expect(
+      screen.getByRole("link", { name: "PR #77" }).getAttribute("href")
+    ).toBe("https://github.com/a/b/pull/77");
     expect(screen.getByLabelText("Check summary").textContent).toBe(
       "Passing· 2 passed"
     );
@@ -141,7 +141,7 @@ describe("system event presentation", () => {
         }}
       />
     );
-    expect(screen.getByRole("link", { name: "#1439 Fix it" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "PR #1439 Fix it" })).toBeTruthy();
     for (const label of ["PR #1439", "#1439"]) {
       rerender(
         <SystemEventEntry
@@ -153,7 +153,7 @@ describe("system event presentation", () => {
           }}
         />
       );
-      expect(screen.getByRole("link", { name: "#1439" })).toBeTruthy();
+      expect(screen.getByRole("link", { name: "PR #1439" })).toBeTruthy();
     }
     rerender(
       <SystemEventEntry
@@ -168,7 +168,7 @@ describe("system event presentation", () => {
         }}
       />
     );
-    expect(screen.getByRole("link", { name: "#1439" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "PR #1439" })).toBeTruthy();
   });
 
   it("falls back to the full text, visibly, when the notice shape is unknown", () => {

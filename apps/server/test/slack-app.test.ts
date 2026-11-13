@@ -421,11 +421,189 @@ describe("Slack app boundary", () => {
     f.app.stop();
     expect(result).toMatchObject({
       sent: true,
-      note: expect.stringMatching(/couldn't show/),
+      note: "Images weren't attached: Slack refused them (invalid_blocks).",
     });
     expect(posts).toHaveLength(2);
     expect(posts[0].blocks.some((b: any) => b.type === "image")).toBe(true);
     expect(posts[1].blocks.some((b: any) => b.type === "image")).toBe(false);
+  });
+  it("waits out Slack's processing window for a just-uploaded image instead of dropping it", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir("/tmp/dogfood-slack-cdc9-test", { recursive: true });
+    const png = "/tmp/dogfood-slack-cdc9-test/fresh-shot.png";
+    await writeFile(png, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    const real = f.transport.getMockImplementation()!;
+    const posts: any[] = [];
+    f.transport.mockImplementation(async (url, init) => {
+      if (url.endsWith("files.getUploadURLExternal"))
+        return Response.json({
+          ok: true,
+          upload_url: "https://files.slack.com/upload/v1/x",
+          file_id: "F9",
+        });
+      if (url === "https://files.slack.com/upload/v1/x")
+        return new Response("OK");
+      if (url.endsWith("files.completeUploadExternal"))
+        return Response.json({ ok: true, files: [{ id: "F9" }] });
+      if (url.endsWith("chat.postMessage")) {
+        posts.push(JSON.parse(String(init!.body)));
+        // Slack's answer while a fresh private upload is still processing.
+        // Slack names the file in `errors` or in response_metadata.messages.
+        return posts.length === 1
+          ? Response.json({
+              ok: false,
+              error: "invalid_blocks",
+              response_metadata: {
+                messages: [
+                  "[ERROR] invalid slack file [json-pointer:/blocks/2/slack_file]",
+                ],
+              },
+            })
+          : posts.length === 2
+            ? Response.json({
+                ok: false,
+                error: "invalid_blocks",
+                errors: [
+                  "invalid slack file [json-pointer:/blocks/2/slack_file]",
+                ],
+              })
+            : Response.json({ ok: true, ts: "2.2" });
+      }
+      return real(url, init);
+    });
+    const { SlackNotifier } = await import("../src/notifications/slack.js");
+    const notifier = new SlackNotifier(
+      null as never,
+      {
+        warn: () => {},
+        info: () => {},
+        debug: () => {},
+        error: () => {},
+      } as never
+    );
+    (notifier as any).app = f.app;
+    const result = await notifier.sendNotification(
+      { id: "agt_1", name: "builder-7" } as never,
+      { message: "See chart", images: [png] }
+    );
+    f.app.stop();
+    expect(result).toEqual({ sent: true });
+    expect(posts).toHaveLength(3);
+    for (const post of posts)
+      expect(post.blocks.filter((b: any) => b.type === "image")).toEqual([
+        { type: "image", slack_file: { id: "F9" }, alt_text: "fresh-shot.png" },
+      ]);
+  });
+  it("shows the agent as the sender, keeping the name line only where Slack won't allow it", async () => {
+    const send = async (scopes: string) => {
+      const f = fixture();
+      const real = f.transport.getMockImplementation()!;
+      f.transport.mockImplementation(async (url, init) =>
+        url.endsWith("auth.test")
+          ? Response.json(
+              { ok: true, team_id: "T1", team: "Local team", user_id: "UBOT" },
+              { headers: { "x-oauth-scopes": scopes } }
+            )
+          : real(url, init)
+      );
+      await f.app.validate(credentials);
+      await f.app.enable("C1", "http://lan");
+      await f.app.postBlocks({
+        text: "t",
+        blocks: [
+          {
+            type: "section",
+            block_id: "dispatch_who",
+            text: { type: "mrkdwn", text: "*_builder-7_*" },
+          },
+          { type: "markdown", text: "hi" },
+        ],
+        username: "builder-7",
+      });
+      const body = JSON.parse(
+        String(
+          f.transport.mock.calls
+            .filter(([u]) => u.endsWith("chat.postMessage"))
+            .at(-1)![1]!.body
+        )
+      );
+      f.app.stop();
+      return body;
+    };
+    const named = await send("chat:write,chat:write.customize,files:write");
+    expect(named.username).toBe("builder-7");
+    expect(named.blocks.map((b: any) => b.type)).toEqual(["markdown"]);
+    // An install without the scope would post as "Dispatch" with no name,
+    // so it keeps the name line.
+    const plain = await send("chat:write,files:write");
+    expect(plain.username).toBeUndefined();
+    expect(plain.blocks[0].block_id).toBe("dispatch_who");
+  });
+  it("downloads shared files only from Slack's host, and spots a missing files:read", async () => {
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    const real = f.transport.getMockImplementation()!;
+    const seen: string[] = [];
+    let html = false;
+    f.transport.mockImplementation(async (url, init) => {
+      if (url.startsWith("https://files.slack.com/")) {
+        seen.push(url);
+        expect((init!.headers as any).Authorization).toMatch(/^Bearer /);
+        return html
+          ? new Response("<html>sign in</html>", {
+              headers: { "content-type": "text/html" },
+            })
+          : new Response(new Uint8Array([1, 2, 3]), {
+              headers: { "content-type": "image/png" },
+            });
+      }
+      return real(url, init);
+    });
+    const ok = await f.app.downloadFile(
+      "https://files.slack.com/files-pri/T1-F1/a.png",
+      10
+    );
+    expect([...ok]).toEqual([1, 2, 3]);
+    for (const bad of [
+      "http://files.slack.com/files-pri/a.png",
+      "https://evil.example/a.png",
+      "https://files.slack.com.evil.example/a.png",
+      "not a url",
+    ])
+      await expect(f.app.downloadFile(bad, 10)).rejects.toThrow(
+        /unexpected file location/
+      );
+    // Over the cap while streaming, and refused up front when declared.
+    await expect(
+      f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 2)
+    ).rejects.toThrow(/too large/);
+    const declaredBig = f.transport.getMockImplementation()!;
+    f.transport.mockImplementationOnce(
+      async () =>
+        new Response(new Uint8Array([1]), {
+          headers: {
+            "content-length": "999999999",
+            "content-type": "image/png",
+          },
+        })
+    );
+    await expect(
+      f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 10)
+    ).rejects.toThrow(/too large/);
+    f.transport.mockImplementation(declaredBig);
+    html = true;
+    await expect(
+      f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 10)
+    ).rejects.toThrow(/files:read/);
+    // The token never went anywhere but files.slack.com.
+    expect(seen.every((u) => u.startsWith("https://files.slack.com/"))).toBe(
+      true
+    );
+    f.app.stop();
   });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();

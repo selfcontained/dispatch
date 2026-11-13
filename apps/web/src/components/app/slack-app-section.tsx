@@ -63,11 +63,13 @@ const manifest = JSON.stringify(
       scopes: {
         bot: [
           "chat:write",
+          "chat:write.customize",
           "channels:read",
           "groups:read",
           "channels:history",
           "groups:history",
           "files:write",
+          "files:read",
         ],
       },
     },

@@ -91,7 +91,6 @@ const variants: Record<string, { text: string; blocks: SlackBlock[] }> = {
   "question answered": settledMessage(ctx, {
     kind: "answered",
     by: "@brad",
-    via: "slack",
     summary: '"Postgres"',
     delivery: "delivered",
   }),
@@ -100,8 +99,6 @@ const variants: Record<string, { text: string; blocks: SlackBlock[] }> = {
     {
       kind: "answered",
       by: "the owner",
-      via: "dispatch",
-      summary: "2 field(s) submitted",
       delivery: "sending",
     },
     form
@@ -110,11 +107,13 @@ const variants: Record<string, { text: string; blocks: SlackBlock[] }> = {
   closed: settledMessage(ctx, { kind: "error", message: "Closed by x." }),
 };
 
-const textOf = (b: SlackBlock) =>
-  ((b as any).elements ?? [])
+const textOf = (b: SlackBlock) => {
+  const t = (b as any).text;
+  return ((b as any).elements ?? [])
     .map((e: any) => e.text)
-    .concat((b as any).text ?? [])
+    .concat(t === undefined ? [] : typeof t === "string" ? t : t.text)
     .join(" ");
+};
 const RANK: Record<string, number> = {
   markdown: 1,
   image: 2,
@@ -125,11 +124,12 @@ describe("shared Slack layout", () => {
   for (const [name, message] of Object.entries(variants)) {
     describe(name, () => {
       const { blocks } = message;
-      it("starts with the header context: who, verb, task — no links", () => {
+      it("starts with just the agent name, in bold italics", () => {
         const head = blocks[0] as any;
-        expect(head.type).toBe("context");
-        expect(head.elements[0].text).toMatch(/^\*builder-7\*/);
-        expect(head.elements[0].text).not.toContain("<http");
+        expect(head.type).toBe("section");
+        // Just the agent's name, in bold italics.
+        expect(head.text.text).toBe("*_builder-7_*");
+        expect(head.text.text).not.toContain("<http");
       });
       it("ends with the one View in Dispatch footer, the only navigation", () => {
         const footer = textOf(blocks.at(-1)!);
@@ -138,6 +138,8 @@ describe("shared Slack layout", () => {
         expect(all.split(VIEW_IN_DISPATCH)).toHaveLength(2);
         expect(all).not.toContain("Open in Dispatch");
         expect(all).not.toContain(ACTION.open);
+        // No network-reachability disclaimer next to the link.
+        expect(JSON.stringify(message)).not.toMatch(/private link|VPN/i);
         for (const b of blocks)
           for (const e of (b as any).elements ?? [])
             expect(e.url).toBeUndefined();
@@ -205,12 +207,10 @@ describe("shared Slack layout", () => {
     for (const [ask, done] of pairs) {
       const a = variants[ask]!.blocks;
       const d = variants[done]!.blocks;
-      expect(textOf(d[0]!)).toMatch(/^\*builder-7\* asked.* · Task tsk_9$/);
+      expect(d[0]).toEqual(a[0]);
       expect(d[1]).toEqual(a[1]); // same body (form keeps its title)
       // Same destination; only the reply hint, which needs buttons, goes.
-      expect(textOf(d.at(-1)!)).toBe(
-        `<${URL}|${VIEW_IN_DISPATCH}> · Private link: opens on your LAN or VPN`
-      );
+      expect(textOf(d.at(-1)!)).toBe(`<${URL}|${VIEW_IN_DISPATCH}>`);
       expect(textOf(a.at(-1)!).startsWith(textOf(d.at(-1)!))).toBe(true);
     }
     // A stale "unanswered for 5 minutes" headline doesn't survive the answer.
@@ -227,7 +227,7 @@ describe("shared Slack layout", () => {
       body: "hi",
       summary: "hi",
     });
-    expect(out.blocks.map((b) => b.type)).toEqual(["context", "markdown"]);
+    expect(out.blocks.map((b) => b.type)).toEqual(["section", "markdown"]);
     expect(out.text).toBe("builder-7: hi");
     expect(JSON.stringify(out)).not.toContain(VIEW_IN_DISPATCH);
   });
@@ -239,19 +239,16 @@ describe("shared Slack layout", () => {
       {
         ...ctx,
         agentName: "<!channel> & bot",
-        context: "Task <@U1>",
         openUrl: evil,
       }
     );
     const head = textOf(out.blocks[0]!);
     expect(head).toContain("&lt;!channel&gt; &amp; bot");
-    expect(head).toContain("Task &lt;@U1&gt;");
     const footer = textOf(out.blocks.at(-1)!);
     expect(footer).toMatch(
       /^<http:\/\/lan\/a\?b=1%7C%3C!channel%3E%20%3Ex\|View in Dispatch>/
     );
     expect(out.text).not.toContain("<!channel>");
-    expect(out.text).not.toContain("<@U1>");
   });
 
   it("keeps the fallback link whole for long content and long names", () => {
@@ -270,8 +267,8 @@ describe("shared Slack layout", () => {
       message: "m",
       openUrl: URL,
     }).blocks[0] as any;
-    expect(head.elements[0].text.length).toBeLessThanOrEqual(3000);
-    expect(head.elements[0].text).toMatch(/(&amp;)+…$/);
+    expect(head.text.text.length).toBeLessThanOrEqual(3000);
+    expect(head.text.text).toMatch(/(&amp;)+…$/);
   });
 
   it("omits the task when there is none, without moving other parts", () => {
@@ -279,9 +276,9 @@ describe("shared Slack layout", () => {
       { options: [{ label: "ok" }] },
       { ...ctx, context: undefined }
     );
-    expect(textOf(out.blocks[0]!)).toBe("*builder-7* asks");
+    expect(textOf(out.blocks[0]!)).toBe("*_builder-7_*");
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "actions",
       "context",
@@ -291,10 +288,10 @@ describe("shared Slack layout", () => {
   it("puts the destination in the fallback built on its own", () => {
     expect(
       fallbackText({
-        header: { agentName: "b", verb: "asks", parts: ["Task t"] },
+        header: { agentName: "b" },
         summary: "line one\n\nline two",
         openUrl: URL,
       })
-    ).toBe(`b asks · Task t: line one line two · <${URL}|${VIEW_IN_DISPATCH}>`);
+    ).toBe(`b: line one line two · <${URL}|${VIEW_IN_DISPATCH}>`);
   });
 });

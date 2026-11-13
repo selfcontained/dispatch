@@ -523,6 +523,7 @@
         "apps/server/test/slack-layout.test.ts",
         "apps/server/test/slack-thread-replies.test.ts",
         "apps/server/test/slack-notifier.test.ts",
+        "apps/server/test/slack-images.test.ts",
         "docs/17-jobs.md"
       ],
       "personas": ["code-review"]

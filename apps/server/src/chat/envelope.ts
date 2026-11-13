@@ -186,12 +186,13 @@ export function buildPostEnvelope(input: {
   if (
     input.from.kind === "user" &&
     input.from.external?.source === "slack" &&
-    !input.answers &&
     !input.cancels
   ) {
     // Only the agent's explicit choice reaches Slack; its stream replies don't.
     context.push(
-      `Sent from Slack: they read only Slack, and your normal reply here is not shown there. When you have their answer, reply with notify({ replyTo: "${input.blockId}", message }), written to stand on its own.`
+      input.answers
+        ? `Answered in Slack: they read only Slack, and your normal reply here is not shown there. To follow up in that Slack thread, use notify({ replyTo: "${input.blockId}", message }), written to stand on its own.`
+        : `Sent from Slack: they read only Slack, and your normal reply here is not shown there. When you have their answer, reply with notify({ replyTo: "${input.blockId}", message }), written to stand on its own.`
     );
   }
   if (input.references?.length) {

@@ -97,37 +97,36 @@ export function mrkdwnLink(url: string, label: string) {
  * built from the same parts, always in this order; optional parts are left
  * out without moving the others:
  *
- *   1. header   context  *agent* verb · headline · Task tsk_…   (no links)
+ *   1. header   section  *_agent name_*   (alone; no links)
  *   2. body     markdown  agent-written title/text
  *   3. media    image blocks
  *   4. actions  genuine Slack actions only (answer, Fill in form…)
  *   5. notes    context   status or why it can't be answered here
- *   6. footer   context   <url|View in Dispatch> · Private link… · reply hint
+ *   6. footer   context   <url|View in Dispatch> · reply hint
  *
  * Navigation lives only in the footer, as the one "View in Dispatch" link;
  * there is never a navigation button. No URL → no link (never invented).
  */
 export const VIEW_IN_DISPATCH = "View in Dispatch";
-export const PRIVATE_LINK_NOTE = "Private link: opens on your LAN or VPN";
 
-type Header = {
-  agentName: string;
-  verb?: string;
-  parts?: Array<string | undefined>;
-};
+type Header = { agentName: string };
 
-/** One small line naming who and where, e.g. "*builder-7* asks · Task …". */
+/**
+ * The line that leads the message: the agent's name alone, in bold italics,
+ * at full strength (a section, not a muted context line). Dispatch adds it;
+ * agents never write it.
+ */
 export function headerLine(input: Header): SlackBlock {
-  const who = `*${mrkdwnText(input.agentName)}*${input.verb ? ` ${mrkdwnText(input.verb)}` : ""}`;
-  const text = [
-    who,
-    ...(input.parts ?? []).filter(Boolean).map((p) => mrkdwnText(p!)),
-  ].join(" · ");
   return {
-    type: "context",
-    elements: [
-      { type: "mrkdwn", text: clipEscaped(text, SLACK_LIMITS.sectionText) },
-    ],
+    type: "section",
+    block_id: "dispatch_who",
+    text: {
+      type: "mrkdwn",
+      text: clipEscaped(
+        `*_${mrkdwnText(input.agentName)}_*`,
+        SLACK_LIMITS.sectionText
+      ),
+    },
   };
 }
 
@@ -144,7 +143,7 @@ export function noteLine(text: string, blockId?: string): SlackBlock {
 
 /**
  * The footer every Dispatch message ends with: the "View in Dispatch" link
- * first, then that the link is private, then how to reply (when it applies).
+ * first, then how to reply (when it applies).
  * Empty when there is neither a destination nor a hint.
  */
 export function footerLine(input: {
@@ -152,9 +151,7 @@ export function footerLine(input: {
   hint?: string;
 }): SlackBlock[] {
   const parts = [
-    ...(input.openUrl
-      ? [mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH), PRIVATE_LINK_NOTE]
-      : []),
+    ...(input.openUrl ? [mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH)] : []),
     ...(input.hint ? [input.hint] : []),
   ];
   if (!parts.length) return [];
@@ -174,7 +171,7 @@ function clipEscaped(escaped: string, max: number) {
 
 /**
  * The top-level `text`: what notifications, screen readers and clients
- * without Block Kit show. Same context as the header, a one-line summary,
+ * without Block Kit show. The agent's name, a one-line summary,
  * and the same destination as the footer. Escaped like our own mrkdwn.
  */
 export function fallbackText(input: {
@@ -182,11 +179,7 @@ export function fallbackText(input: {
   summary: string;
   openUrl?: string;
 }) {
-  const { header } = input;
-  const who = [
-    `${header.agentName}${header.verb ? ` ${header.verb}` : ""}`,
-    ...(header.parts ?? []).filter(Boolean),
-  ].join(" · ");
+  const who = input.header.agentName;
   const summary = input.summary.replace(/\s+/g, " ").trim();
   const link = input.openUrl
     ? ` · ${mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH)}`
@@ -253,7 +246,7 @@ export function notifyMessage(input: {
     body,
     media: input.images,
     openUrl: input.openUrl,
-    hint: `Reply in this thread to message *${mrkdwnText(input.agentName)}*`,
+    hint: "Reply in thread",
     summary: input.title ?? input.message,
   });
 }
@@ -267,12 +260,8 @@ export type AskContext = {
   /** Opaque, server-minted reference for the Slack message row. */
   ref: string;
   agentName: string;
-  /** "Project · Task: …", optional. */
-  context?: string;
   text: string;
   openUrl: string;
-  /** Prefix line, e.g. "Unanswered for 5 minutes". */
-  headline?: string;
 };
 
 export type Adapted = {
@@ -281,11 +270,6 @@ export type Adapted = {
   /** Human-readable reasons the ask is not answerable in Slack. Empty = answerable. */
   unsupported: string[];
 };
-
-/** An ask's header: who asks, how long it waited, and which task. */
-function askHeader(ctx: AskContext, verb: string): Header {
-  return { agentName: ctx.agentName, verb, parts: [ctx.headline, ctx.context] };
-}
 
 /** Why it can't be answered here: the footer link is where to answer. */
 function fallback(reasons: string[]): SlackBlock {
@@ -339,14 +323,14 @@ export function questionMessage(
   }
   return {
     ...dispatchMessage({
-      header: askHeader(ctx, "asks"),
+      header: { agentName: ctx.agentName },
       body: ctx.text,
       actions: { blockId: `ask:${ctx.ref}`, elements },
       notes: unsupported.length ? [fallback(unsupported)] : [],
       openUrl: ctx.openUrl,
       hint:
         !unsupported.length && question.allowFreeform
-          ? "Or reply in this thread to answer in your own words"
+          ? "Reply in thread"
           : undefined,
       summary: ctx.text,
     }),
@@ -388,8 +372,6 @@ export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
   const unsupported = [...textReasons(ctx.text), ...formUnsupported(form)];
   if (form.parentHandled) unsupported.push("handled by the parent agent");
   const title = form.title?.trim();
-  const required = form.fields.filter((f) => f.required).length;
-  const summary = `${form.fields.length} field${form.fields.length === 1 ? "" : "s"}${required ? `, ${required} required` : ""}`;
   const elements: SlackBlock[] = [];
   if (!unsupported.length)
     elements.push({
@@ -400,7 +382,7 @@ export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
     });
   return {
     ...dispatchMessage({
-      header: askHeader(ctx, `asks you to fill in a form (${summary})`),
+      header: { agentName: ctx.agentName },
       body: formBody(title, ctx.text),
       actions: { blockId: `ask:${ctx.ref}`, elements },
       notes: unsupported.length ? [fallback(unsupported)] : [],
@@ -670,8 +652,8 @@ export type Outcome =
   | {
       kind: "answered";
       by: string;
-      via: "slack" | "dispatch";
-      summary: string;
+      /** The chosen answer (questions); forms say only that they were submitted. */
+      summary?: string;
       delivery: DeliveryShown;
     }
   | { kind: "cancelled"; reason?: string }
@@ -686,17 +668,22 @@ export function settledMessage(
   outcome: Outcome,
   form?: BlockFormData
 ): Adapted {
+  // Only what the reader acts on: who answered and with what, and a
+  // delivery problem when there is one. Routine progress stays in Dispatch.
+  const undelivered =
+    outcome.kind === "answered" && outcome.delivery === "not_delivered";
   const line =
     outcome.kind === "answered"
-      ? `Answered by ${outcome.by}${outcome.via === "slack" ? " in Slack" : " in Dispatch"}: ${outcome.summary} · recorded · ${deliveryPhrase(
-          "the agent",
-          outcome.delivery
-        )}`
+      ? `${outcome.by} ${form ? "submitted the form" : `answered${outcome.summary ? ` ${outcome.summary}` : ""}`}${
+          undelivered
+            ? " · the agent hasn't received it yet — retry in Dispatch"
+            : ""
+        }`
       : outcome.kind === "cancelled"
         ? `Withdrawn${outcome.reason ? `: ${outcome.reason}` : ""}`
         : outcome.message;
   const mark =
-    outcome.kind === "answered"
+    outcome.kind === "answered" && !undelivered
       ? ":white_check_mark:"
       : outcome.kind === "cancelled"
         ? ":heavy_minus_sign:"
@@ -704,10 +691,7 @@ export function settledMessage(
   const title = form?.title?.trim();
   return {
     ...dispatchMessage({
-      header: askHeader(
-        { ...ctx, headline: undefined },
-        form ? "asked you to fill in a form" : "asked"
-      ),
+      header: { agentName: ctx.agentName },
       body: form ? formBody(title, ctx.text) : ctx.text,
       notes: [noteLine(`${mark} ${mrkdwnText(line)}`, `done:${ctx.ref}`)],
       openUrl: ctx.openUrl,

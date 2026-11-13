@@ -85,8 +85,10 @@ export function NotificationsContent() {
         </P>
         <P>
           Agents write Slack messages in markdown (bold, lists, code blocks,
-          links) and can attach images. Images need the Slack app&apos;s
-          files:write permission; Settings shows when the app needs updating.
+          links) and can attach images. Each message shows the agent as its
+          sender. Photos you add to a thread reply reach the agent too. These
+          need the Slack app&apos;s chat:write.customize, files:write and
+          files:read permissions; Settings shows when the app needs updating.
         </P>
       </Section>
 

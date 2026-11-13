@@ -483,8 +483,9 @@ describe("choice answers", () => {
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     // Returned before the engine took it: in flight, never "delivered".
     const settled = calls.updated.find((u) => u.ts === q.message.ts)!;
-    expect(settled.text).toContain("Answered by @u1 in Slack");
-    expect(settled.text).toContain("sending to the agent");
+    // Who answered and with what; routine delivery progress isn't shown.
+    expect(settled.text).toContain('@u1 answered "Postgres"');
+    expect(settled.text).not.toMatch(/recorded|sending|delivered|in Slack/);
     expect(settled.blocks.some((b: any) => b.type === "actions")).toBe(false);
     // Same footer as the ask it replaced.
     expect(settled.blocks.at(-1)).toEqual(q.message.blocks.at(-1));
@@ -497,6 +498,18 @@ describe("choice answers", () => {
     expect(injected.at(-1)).toContain(
       "from: user via Slack (@u1, linked identity"
     );
+    // The agent can follow up in the question's Slack thread.
+    expect(injected.at(-1)).toContain(
+      `Answered in Slack: they read only Slack`
+    );
+    expect(injected.at(-1)).toContain(`notify({ replyTo: "${reply.id}"`);
+    const returnPath = await pool.query(
+      `SELECT thread_ts, agent_id FROM slack_thread_replies WHERE post_block_id=$1`,
+      [reply.id]
+    );
+    expect(returnPath.rows).toEqual([
+      { thread_ts: q.message.ts, agent_id: q.block.streamId },
+    ]);
     for (let i = 0; i < 50; i++) {
       if ((await svc.store.getById(reply.id))!.delivered !== null) break;
       await new Promise((r) => setTimeout(r, 20));
@@ -505,8 +518,36 @@ describe("choice answers", () => {
     await answers.reconcile();
     const renders = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(renders).toHaveLength(2);
-    expect(renders[1]!.text).toContain("delivered to the agent");
+    expect(renders[1]!.text).toContain('@u1 answered "Postgres"');
+    expect(renders[1]!.text).not.toMatch(/hasn't received/);
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
+  });
+
+  it("an answer that fails to record leaves no return path behind", async () => {
+    const { svc, answers, calls } = build();
+    await linkUser(answers, calls, "U1");
+    const q = await ask(svc, answers, calls, {
+      question: { options: [{ label: "Postgres" }] },
+    });
+    const writer = (answers as any).writer.bind(answers);
+    (answers as any).writer = () => ({
+      ...writer(),
+      answerQuestion: async () => {
+        throw new Error("write failed");
+      },
+    });
+    await answers.handle(
+      click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
+    );
+    const answerId = stableUuid(
+      `slack-answer:${q.actions[0].value.split(":")[0]}`
+    );
+    expect(await svc.store.getById(answerId)).toBeFalsy();
+    const paths = await pool.query(
+      "SELECT 1 FROM slack_thread_replies WHERE post_block_id=$1",
+      [answerId]
+    );
+    expect(paths.rowCount).toBe(0);
   });
 
   it("duplicate, racing and retried clicks yield one answer", async () => {
@@ -532,6 +573,14 @@ describe("choice answers", () => {
       [q.block.id]
     );
     expect(rows[0].n).toBe(1);
+    // The losing clicks don't remove the winner's return path.
+    const answerId = ((await svc.store.getById(q.block.id))!.state as any)
+      .answer.blockId;
+    const paths = await pool.query(
+      "SELECT post_block_id FROM slack_thread_replies WHERE thread_ts=$1",
+      [q.message.ts]
+    );
+    expect(paths.rows).toEqual([{ post_block_id: answerId }]);
     // The winning click gets no receipt; only the two losers hear back.
     expect(calls.ephemeral.filter((e) => /^Recorded/.test(e.text))).toEqual([]);
     const winner = ((await svc.store.getById(q.block.id))!.state as any).answer
@@ -687,7 +736,7 @@ describe("choice answers", () => {
     // no duplicate private receipt.
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     expect(calls.updated.at(-1)!.text).toContain(
-      "not delivered to the agent yet — open Dispatch to retry"
+      "the agent hasn't received it yet — retry in Dispatch"
     );
     // A manual retry that succeeds updates Slack once.
     await pool.query("UPDATE blocks SET delivered=true WHERE id=$1", [
@@ -697,7 +746,7 @@ describe("choice answers", () => {
     await answers.reconcile();
     const renders = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(renders).toHaveLength(2);
-    expect(renders[1]!.text).toContain("delivered to the agent");
+    expect(renders[1]!.text).not.toMatch(/hasn't received/);
     expect(calls.updated.at(-1)!.text).not.toMatch(/picked up|resumed/);
   });
 });
@@ -765,22 +814,20 @@ describe("forms via modal", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
-    expect(calls.updated.at(-1)!.text).toContain("Answered by @u1 in Slack");
+    expect(calls.updated.at(-1)!.text).toContain("@u1 submitted the form");
     // Same layout as the ask: header, the form's title and text, footer.
     const settled = calls.updated.at(-1)!.blocks;
     expect(settled.map((b: any) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
       "context",
     ]);
-    expect(settled[0].elements[0].text).toMatch(
-      /^\*builder-7\* asked you to fill in a form/
-    );
+    expect(settled[0].text.text).toBe("*_builder-7_*");
     expect(settled[1]).toEqual(q.message.blocks[1]);
     expect(settled[1].text).toContain("**Release**");
     expect(settled.at(-1)).toEqual(q.message.blocks.at(-1));
-    expect(settled.at(-1).elements[0].text).toMatch(/\|View in Dispatch> · /);
+    expect(settled.at(-1).elements[0].text).toMatch(/\|View in Dispatch>$/);
   });
 
   it("unlinked or stale submissions keep the modal open with the reason", async () => {
@@ -957,6 +1004,104 @@ describe("thread replies", () => {
     expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
   });
 
+  it("passes photos from a Slack thread reply to the agent as image files", async () => {
+    const { svc, answers, app, calls } = build();
+    const downloads: string[] = [];
+    (app as any).downloadFile = async (url: string) => {
+      downloads.push(url);
+      if (url.includes("broken")) throw new Error("download failed");
+      return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    };
+    const saved: string[] = [];
+    (answers as any).saveImage = async (agentId: string, name: string) => {
+      saved.push(name);
+      const { rows } = await pool.query(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+         VALUES ($1, $2, 'user', 8, 'image/png') RETURNING id`,
+        [agentId, `${name}-${Math.random()}`]
+      );
+      return rows[0].id as number;
+    };
+    await linkUser(answers, calls, "U1");
+    const q = await ask(svc, answers, calls, {
+      question: { options: [{ label: "Postgres" }] },
+    });
+    const photo = (name: string, mimetype = "image/png") => ({
+      name,
+      mimetype,
+      url_private_download: `https://files.slack.com/files-pri/T1-F1/${name}`,
+    });
+    // Slack marks a message carrying files as subtype file_share.
+    await answers.handle(
+      threadReply("U1", q.message.ts, "what is this?", {
+        subtype: "file_share",
+        files: [photo("shot.png"), photo("notes.pdf", "application/pdf")],
+      })
+    );
+    const { rows } = await pool.query(
+      "SELECT text, attachments FROM blocks WHERE reply_to=$1 ORDER BY created_at",
+      [q.block.id]
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].text).toBe("what is this?");
+    expect(rows[0].attachments).toHaveLength(1);
+    expect(rows[0].attachments[0]).toMatchObject({
+      type: "file",
+      mimeType: "image/png",
+    });
+    // Only images are fetched; other files are left in Slack.
+    expect(downloads).toEqual([
+      "https://files.slack.com/files-pri/T1-F1/shot.png",
+    ]);
+    expect(saved).toEqual(["shot.png"]);
+    // A photo with no text still reaches the agent.
+    await answers.handle(
+      threadReply("U1", q.message.ts, "", {
+        subtype: "file_share",
+        files: [photo("only.png")],
+      })
+    );
+    const photoOnly = await pool.query(
+      "SELECT attachments FROM blocks WHERE reply_to=$1 ORDER BY created_at",
+      [q.block.id]
+    );
+    expect(photoOnly.rows).toHaveLength(2);
+    expect(photoOnly.rows[1].attachments).toHaveLength(1);
+    // A photo that can't be fetched is reported privately, not dropped silently.
+    const before = calls.ephemeral.length;
+    await answers.handle(
+      threadReply("U1", q.message.ts, "", {
+        subtype: "file_share",
+        files: [photo("broken.png")],
+      })
+    );
+    expect(calls.ephemeral.slice(before).map((e) => e.text)).toEqual([
+      "An image couldn't be passed to builder-7. Dispatch needs Slack's files:read permission and png, jpeg, gif or webp up to 10 MB.",
+    ]);
+    // An oversize photo (by Slack's stated size) isn't downloaded at all.
+    const big = calls.ephemeral.length;
+    downloads.length = 0;
+    await answers.handle(
+      threadReply("U1", q.message.ts, "", {
+        subtype: "file_share",
+        files: [{ ...photo("huge.png"), size: 50 * 1024 * 1024 }],
+      })
+    );
+    expect(downloads).toEqual([]);
+    expect(calls.ephemeral.slice(big).map((e) => e.text)).toEqual([
+      "An image couldn't be passed to builder-7. Dispatch needs Slack's files:read permission and png, jpeg, gif or webp up to 10 MB.",
+    ]);
+    // Edits and other subtypes are still ignored.
+    await answers.handle(
+      threadReply("U1", q.message.ts, "edited", { subtype: "message_changed" })
+    );
+    const after = await pool.query(
+      "SELECT count(*)::int n FROM blocks WHERE reply_to=$1",
+      [q.block.id]
+    );
+    expect(after.rows[0].n).toBe(2);
+  });
+
   it("is an ordinary follow-up message (not an answer) for non-freeform or answered asks and notify threads", async () => {
     const { svc, answers, calls } = build();
     await linkUser(answers, calls, "U1");
@@ -1127,7 +1272,7 @@ describe("reconcile", () => {
     await answers.reconcile();
     const updates = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(updates).toHaveLength(1);
-    expect(updates[0]!.text).toContain("Answered by the owner in Dispatch");
-    expect(updates[0]!.text).toContain("delivered to the agent");
+    expect(updates[0]!.text).toContain('the owner answered "A"');
+    expect(updates[0]!.text).not.toMatch(/recorded|delivered|in Dispatch:/);
   });
 });

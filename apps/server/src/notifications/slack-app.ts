@@ -41,6 +41,10 @@ function lateReason(result: Record<string, unknown> | void) {
 export const ANSWER_SCOPES = ["channels:history", "groups:history"];
 /** Inline images in Dispatch messages are uploaded privately by the bot. */
 export const IMAGE_SCOPES = ["files:write"];
+/** Lets a message show the agent as its sender instead of "Dispatch". */
+export const IDENTITY_SCOPE = "chat:write.customize";
+/** The header block that names the agent inside the message. */
+export const WHO_BLOCK_ID = "dispatch_who";
 const FORM_METHODS = new Set([
   "conversations.list",
   "files.getUploadURLExternal",
@@ -70,6 +74,20 @@ export class SlackRetryError extends Error {
 }
 const KEY = "slack_app_binding";
 export class SlackAuthError extends Error {}
+/**
+ * Slack answered and definitively refused the request: nothing was posted.
+ * `code` is Slack's own error code (e.g. `invalid_blocks`), safe to log;
+ * `slackFile` says the refusal named a `slack_file` reference.
+ */
+export class SlackRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly slackFile: boolean
+  ) {
+    super(message);
+  }
+}
 
 /** No raw provider errors, credential-bearing socket URLs or response bodies escape this client. */
 export class SlackApp {
@@ -205,8 +223,19 @@ export class SlackApp {
           "Slack credentials rejected. Replace tokens in Settings."
         );
       }
-      throw new Error(
-        "Slack request rejected. Check app permissions and channel membership."
+      // Slack names a refused `slack_file` in `errors` or in
+      // response_metadata.messages; only that fact and the code are kept.
+      const details = [body.errors, body.response_metadata?.messages]
+        .flatMap((list) => (Array.isArray(list) ? list : []))
+        .filter((item): item is string => typeof item === "string");
+      const code =
+        typeof body.error === "string" && /^[a-z0-9_]{1,64}$/.test(body.error)
+          ? body.error
+          : "unknown";
+      throw new SlackRejectedError(
+        "Slack request rejected. Check app permissions and channel membership.",
+        code,
+        details.some((item) => /slack_file|slack file/i.test(item))
       );
     }
     if (method === "auth.test") {
@@ -688,8 +717,28 @@ export class SlackApp {
     }
   }
   /** Post Block Kit to the bound channel (plain-text fallback required by Slack). */
+  /**
+   * The agent is the message's sender (chat:write.customize), so the name is
+   * not repeated inside the message. An install that hasn't granted that
+   * scope would post as "Dispatch" with no name at all, so it keeps the line.
+   */
+  private sender(blocks: unknown[], username?: string) {
+    if (!username || this.hasScope(IDENTITY_SCOPE) !== true) return { blocks };
+    return {
+      username: username.slice(0, 80),
+      blocks: blocks.filter(
+        (b) => (b as { block_id?: string })?.block_id !== WHO_BLOCK_ID
+      ),
+    };
+  }
   async postBlocks(
-    input: { text: string; blocks: unknown[]; threadTs?: string },
+    input: {
+      text: string;
+      blocks: unknown[];
+      threadTs?: string;
+      /** The agent to show as the sender, when the app may customize it. */
+      username?: string;
+    },
     expectedGeneration?: string
   ) {
     const config = await this.configuration();
@@ -704,7 +753,7 @@ export class SlackApp {
     const result = await this.api(credentials.botToken, "chat.postMessage", {
       channel: binding.channelId,
       text: input.text.slice(0, 3000),
-      blocks: input.blocks,
+      ...this.sender(input.blocks, input.username),
       ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
       unfurl_links: false,
       unfurl_media: false,
@@ -772,15 +821,87 @@ export class SlackApp {
     });
     return fileId;
   }
-  /** Only ever targets the bound channel; callers pass the stored ts. */
-  async updateMessage(ts: string, text: string, blocks: unknown[]) {
+  /**
+   * Download a file a person shared in the bound workspace (needs files:read).
+   * The bot token is only ever sent to Slack's own file host.
+   */
+  async downloadFile(url: string, maxBytes: number): Promise<Uint8Array> {
     const config = await this.configuration();
     if (!config) throw new Error("Slack app is not configured.");
+    let target: URL;
+    try {
+      target = new URL(url);
+    } catch {
+      throw new Error("Slack returned an unexpected file location.");
+    }
+    if (
+      target.protocol !== "https:" ||
+      !(
+        target.hostname === "files.slack.com" ||
+        target.hostname.endsWith(".slack.com")
+      )
+    )
+      throw new Error("Slack returned an unexpected file location.");
+    let response: Response;
+    try {
+      response = await this.transport(target.href, {
+        method: "GET",
+        redirect: "error",
+        signal: AbortSignal.timeout(30000),
+        headers: { Authorization: `Bearer ${config.credentials.botToken}` },
+      });
+    } catch {
+      throw new Error("Slack file download failed.");
+    }
+    if (!response.ok) throw new Error("Slack file download failed.");
+    // Without files:read Slack serves its sign-in page instead of the file.
+    if ((response.headers.get("content-type") ?? "").startsWith("text/html"))
+      throw new Error("Slack file download needs the files:read permission.");
+    // Never hold more than maxBytes: refuse a declared oversize up front and
+    // stop reading the moment the running total passes the cap.
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error("Slack file is too large.");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Slack file download failed.");
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error("Slack file is too large.");
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  }
+  /** Only ever targets the bound channel; callers pass the stored ts. */
+  async updateMessage(
+    ts: string,
+    text: string,
+    blocks: unknown[],
+    username?: string
+  ) {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    // The sender can't change on update; only the name line follows it.
+    const { blocks: shown } = this.sender(blocks, username);
     await this.api(config.credentials.botToken, "chat.update", {
       channel: config.binding.channelId,
       ts,
       text: text.slice(0, 3000),
-      blocks,
+      blocks: shown,
     });
   }
   async postEphemeral(user: string, text: string, threadTs?: string) {

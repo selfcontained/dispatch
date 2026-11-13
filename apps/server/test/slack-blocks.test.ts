@@ -46,7 +46,7 @@ describe("questionMessage", () => {
     // Navigation is the footer link, never a button.
     expect(elements.some((e) => e.url)).toBe(false);
     expect((out.blocks.at(-1) as any).elements[0].text).toBe(
-      `<${ctx.openUrl}|View in Dispatch> · Private link: opens on your LAN or VPN · Or reply in this thread to answer in your own words`
+      `<${ctx.openUrl}|View in Dispatch> · Reply in thread`
     );
   });
 
@@ -69,8 +69,8 @@ describe("questionMessage", () => {
       { options: [{ label: "ok" }] },
       { ...ctx, agentName: "<!channel> bot" }
     ).blocks[0] as any;
-    expect(head.elements[0].text).toContain("&lt;!channel&gt; bot");
-    expect(head.elements[0].text).not.toContain("<!channel>");
+    expect(head.text.text).toContain("&lt;!channel&gt; bot");
+    expect(head.text.text).not.toContain("<!channel>");
   });
 
   it("falls back to the View in Dispatch footer with explicit reasons instead of dropping", () => {
@@ -84,7 +84,7 @@ describe("questionMessage", () => {
     ]);
     // Nothing answerable here: no actions block at all, reasons, then footer.
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
       "context",
@@ -241,36 +241,60 @@ describe("form adapters", () => {
       action_id: ACTION.form,
       value: "n1",
     });
-    expect(JSON.stringify(ok.blocks)).toContain("5 fields, 4 required");
+    // The form shows its own fields; the message doesn't count them.
+    expect(JSON.stringify(ok.blocks)).not.toMatch(/fields?\b.*required/);
   });
 });
 
 describe("settledMessage", () => {
-  it("removes actions and states recorded vs delivery truthfully", () => {
+  it("removes actions and says only who answered, plus a delivery problem if any", () => {
     const out = settledMessage(ctx, {
       kind: "answered",
       by: "@brad",
-      via: "slack",
       summary: '"Postgres"',
       delivery: "not_delivered",
     });
     expect(out.blocks.some((b) => b.type === "actions")).toBe(false);
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
       "context",
     ]);
     const status = out.blocks[2] as any;
     expect(status.block_id).toBe("done:n1");
-    expect(status.elements[0].text).toContain(":white_check_mark:");
+    // Not delivered is the one delivery state worth showing, as a warning.
+    expect(status.elements[0].text).toBe(
+      ':warning: @brad answered "Postgres" · the agent hasn\'t received it yet — retry in Dispatch'
+    );
     expect((out.blocks[3] as any).elements[0].text).toBe(
-      `<${ctx.openUrl}|View in Dispatch> · Private link: opens on your LAN or VPN`
+      `<${ctx.openUrl}|View in Dispatch>`
     );
-    expect(out.text).toContain(
-      "recorded · not delivered to the agent yet — open Dispatch to retry"
+    expect(out.text).not.toMatch(/picked up|recorded|in Slack/);
+    // Delivered or in flight: just who answered and with what.
+    for (const delivery of ["delivered", "sending"] as const) {
+      const ok = settledMessage(ctx, {
+        kind: "answered",
+        by: "@brad",
+        summary: '"Postgres"',
+        delivery,
+      });
+      expect((ok.blocks[2] as any).elements[0].text).toBe(
+        ':white_check_mark: @brad answered "Postgres"'
+      );
+    }
+    const form = settledMessage(
+      ctx,
+      {
+        kind: "answered",
+        by: "@brad",
+        delivery: "delivered",
+      },
+      { title: "Release", fields: [] }
     );
-    expect(out.text).not.toMatch(/picked up/);
+    expect((form.blocks[2] as any).elements[0].text).toBe(
+      ":white_check_mark: @brad submitted the form"
+    );
   });
 });
 
@@ -289,17 +313,17 @@ describe("notifyMessage", () => {
       images: [image],
     });
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "image",
       "context",
     ]);
-    expect((out.blocks[0] as any).elements[0].text).toBe("*builder-7*");
+    expect((out.blocks[0] as any).text.text).toBe("*_builder-7_*");
     expect((out.blocks[1] as any).text).toBe(
       "**Build is green**\n\nAll **42** tests pass. <\u200b!here>"
     );
     expect((out.blocks[3] as any).elements[0].text).toBe(
-      "<http://lan:6767/agents/agt_1|View in Dispatch> · Private link: opens on your LAN or VPN · Reply in this thread to message *builder-7*"
+      "<http://lan:6767/agents/agt_1|View in Dispatch> · Reply in thread"
     );
     expect(out.text).not.toContain("<!here>");
   });

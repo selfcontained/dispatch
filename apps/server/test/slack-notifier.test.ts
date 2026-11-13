@@ -419,6 +419,45 @@ describe("notify({ replyTo })", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("without replyTo, answers in the Slack thread the open turn is answering", async () => {
+    const notifier = withApp(true);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    const turnPost = vi.fn(async () => input.replyTo);
+    notifier.setTurnPost(turnPost);
+    expect(
+      await notifier.sendNotification(makeAgent(), {
+        message: "Screens attached.",
+        images: ["/tmp/a.png"],
+      })
+    ).toEqual({ sent: true });
+    expect(turnPost).toHaveBeenCalledWith("agent-1");
+    expect(threadReply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      {
+        replyTo: input.replyTo,
+        message: "Screens attached.",
+        title: undefined,
+        images: ["/tmp/a.png"],
+      }
+    );
+    // Outside a Slack turn, or if the lookup fails, it stays a channel alert.
+    threadReply.mockClear();
+    turnPost.mockResolvedValueOnce(null as never);
+    await notifier.sendNotification(makeAgent(), { message: "Heads up." });
+    turnPost.mockRejectedValueOnce(new Error("db down"));
+    await notifier.sendNotification(makeAgent(), { message: "Heads up 2." });
+    expect(threadReply).not.toHaveBeenCalled();
+    // respectFocus still suppresses it while the user is watching.
+    notifier.setFocusCheck(() => true);
+    const focused = await notifier.sendNotification(makeAgent(), {
+      message: "Quiet.",
+      respectFocus: true,
+    });
+    expect(focused.reason).toMatch(/focused/);
+    expect(threadReply).not.toHaveBeenCalled();
+  });
+
   it("needs the Slack app connected: no webhook fallback", async () => {
     const notifier = withApp(false);
     const threadReply = vi.fn(async () => ({ sent: true }));
@@ -574,7 +613,7 @@ describe("notify in the shared Block Kit layout", () => {
     expect(result).toEqual({ sent: true });
     const blocks = posted[0].blocks;
     expect(blocks.map((b: any) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
     ]);
