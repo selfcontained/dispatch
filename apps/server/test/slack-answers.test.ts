@@ -823,7 +823,7 @@ describe("forms via modal", () => {
       "context",
       "context",
     ]);
-    expect(settled[0].text.text).toMatch(/^Form from \*_builder-7_\*/);
+    expect(settled[0].text.text).toBe("*_builder-7_*");
     expect(settled[1]).toEqual(q.message.blocks[1]);
     expect(settled[1].text).toContain("**Release**");
     expect(settled.at(-1)).toEqual(q.message.blocks.at(-1));

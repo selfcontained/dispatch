@@ -379,7 +379,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(posted.threadTs).toBe(parent);
     const head = posted.blocks[0].text;
     expect(head.type).toBe("mrkdwn");
-    expect(head.text).toBe("Reply from *_builder-7_*");
+    expect(head.text).toBe("*_builder-7_*");
     const footer = posted.blocks.at(-1).elements[0].text;
     expect(footer).toMatch(
       /^<http:\/\/lan:6767\/agents\/[^|]+block=[^|]+\|View in Dispatch>$/

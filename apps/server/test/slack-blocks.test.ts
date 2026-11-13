@@ -241,7 +241,8 @@ describe("form adapters", () => {
       action_id: ACTION.form,
       value: "n1",
     });
-    expect(JSON.stringify(ok.blocks)).toContain("5 fields, 4 required");
+    // The form shows its own fields; the message doesn't count them.
+    expect(JSON.stringify(ok.blocks)).not.toMatch(/fields?\b.*required/);
   });
 });
 
@@ -317,7 +318,7 @@ describe("notifyMessage", () => {
       "image",
       "context",
     ]);
-    expect((out.blocks[0] as any).text.text).toBe("From *_builder-7_*");
+    expect((out.blocks[0] as any).text.text).toBe("*_builder-7_*");
     expect((out.blocks[1] as any).text).toBe(
       "**Build is green**\n\nAll **42** tests pass. <\u200b!here>"
     );

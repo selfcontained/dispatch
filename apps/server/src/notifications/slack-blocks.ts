@@ -97,7 +97,7 @@ export function mrkdwnLink(url: string, label: string) {
  * built from the same parts, always in this order; optional parts are left
  * out without moving the others:
  *
- *   1. header   section  Question from *_agent_* · headline · Task tsk_…   (no links)
+ *   1. header   section  *_agent name_*   (alone; no links)
  *   2. body     markdown  agent-written title/text
  *   3. media    image blocks
  *   4. actions  genuine Slack actions only (answer, Fill in form…)
@@ -109,29 +109,23 @@ export function mrkdwnLink(url: string, label: string) {
  */
 export const VIEW_IN_DISPATCH = "View in Dispatch";
 
-type Header = {
-  agentName: string;
-  /** What this is, e.g. "Question": "Question from <agent>"; plain "From <agent>" otherwise. */
-  kind?: "Question" | "Form" | "Reply";
-  parts?: Array<string | undefined>;
-};
-const lead = (header: Header) =>
-  `${header.kind ? `${header.kind} from` : "From"}`;
+type Header = { agentName: string };
 
 /**
- * The line that leads the message: who and where, e.g. "Question from *_builder-7_* ·
- * Task …". Full-strength text (a section), not a muted context line.
+ * The line that leads the message: the agent's name alone, in bold italics,
+ * at full strength (a section, not a muted context line). Dispatch adds it;
+ * agents never write it.
  */
 export function headerLine(input: Header): SlackBlock {
-  // The agent's name is Dispatch's to add, set off in bold italics.
-  const who = `${lead(input)} *_${mrkdwnText(input.agentName)}_*`;
-  const text = [
-    who,
-    ...(input.parts ?? []).filter(Boolean).map((p) => mrkdwnText(p!)),
-  ].join(" · ");
   return {
     type: "section",
-    text: { type: "mrkdwn", text: clipEscaped(text, SLACK_LIMITS.sectionText) },
+    text: {
+      type: "mrkdwn",
+      text: clipEscaped(
+        `*_${mrkdwnText(input.agentName)}_*`,
+        SLACK_LIMITS.sectionText
+      ),
+    },
   };
 }
 
@@ -176,7 +170,7 @@ function clipEscaped(escaped: string, max: number) {
 
 /**
  * The top-level `text`: what notifications, screen readers and clients
- * without Block Kit show. Same context as the header, a one-line summary,
+ * without Block Kit show. The agent's name, a one-line summary,
  * and the same destination as the footer. Escaped like our own mrkdwn.
  */
 export function fallbackText(input: {
@@ -184,11 +178,7 @@ export function fallbackText(input: {
   summary: string;
   openUrl?: string;
 }) {
-  const { header } = input;
-  const who = [
-    `${lead(header)} ${header.agentName}`,
-    ...(header.parts ?? []).filter(Boolean),
-  ].join(" · ");
+  const who = input.header.agentName;
   const summary = input.summary.replace(/\s+/g, " ").trim();
   const link = input.openUrl
     ? ` · ${mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH)}`
@@ -269,12 +259,8 @@ export type AskContext = {
   /** Opaque, server-minted reference for the Slack message row. */
   ref: string;
   agentName: string;
-  /** "Project · Task: …", optional. */
-  context?: string;
   text: string;
   openUrl: string;
-  /** Prefix line, e.g. "Unanswered for 5 minutes". */
-  headline?: string;
 };
 
 export type Adapted = {
@@ -283,19 +269,6 @@ export type Adapted = {
   /** Human-readable reasons the ask is not answerable in Slack. Empty = answerable. */
   unsupported: string[];
 };
-
-/** An ask's header: who asks, how long it waited, and which task. */
-function askHeader(
-  ctx: AskContext,
-  kind: "Question" | "Form",
-  detail?: string
-): Header {
-  return {
-    agentName: ctx.agentName,
-    kind,
-    parts: [detail, ctx.headline, ctx.context],
-  };
-}
 
 /** Why it can't be answered here: the footer link is where to answer. */
 function fallback(reasons: string[]): SlackBlock {
@@ -349,7 +322,7 @@ export function questionMessage(
   }
   return {
     ...dispatchMessage({
-      header: askHeader(ctx, "Question"),
+      header: { agentName: ctx.agentName },
       body: ctx.text,
       actions: { blockId: `ask:${ctx.ref}`, elements },
       notes: unsupported.length ? [fallback(unsupported)] : [],
@@ -398,8 +371,6 @@ export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
   const unsupported = [...textReasons(ctx.text), ...formUnsupported(form)];
   if (form.parentHandled) unsupported.push("handled by the parent agent");
   const title = form.title?.trim();
-  const required = form.fields.filter((f) => f.required).length;
-  const summary = `${form.fields.length} field${form.fields.length === 1 ? "" : "s"}${required ? `, ${required} required` : ""}`;
   const elements: SlackBlock[] = [];
   if (!unsupported.length)
     elements.push({
@@ -410,7 +381,7 @@ export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
     });
   return {
     ...dispatchMessage({
-      header: askHeader(ctx, "Form", summary),
+      header: { agentName: ctx.agentName },
       body: formBody(title, ctx.text),
       actions: { blockId: `ask:${ctx.ref}`, elements },
       notes: unsupported.length ? [fallback(unsupported)] : [],
@@ -719,10 +690,7 @@ export function settledMessage(
   const title = form?.title?.trim();
   return {
     ...dispatchMessage({
-      header: askHeader(
-        { ...ctx, headline: undefined },
-        form ? "Form" : "Question"
-      ),
+      header: { agentName: ctx.agentName },
       body: form ? formBody(title, ctx.text) : ctx.text,
       notes: [noteLine(`${mark} ${mrkdwnText(line)}`, `done:${ctx.ref}`)],
       openUrl: ctx.openUrl,

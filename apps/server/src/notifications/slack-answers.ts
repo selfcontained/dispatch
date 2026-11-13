@@ -207,18 +207,13 @@ export class SlackAnswers {
     },
     name: string,
     text: string,
-    ref: string,
-    headline?: string
+    ref: string
   ): AskContext {
     return {
       ref,
       agentName: name,
-      context: row.stream_id.startsWith("tsk_")
-        ? `Task ${row.stream_id}`
-        : undefined,
       text,
       openUrl: this.openUrl(binding.baseUrl, row),
-      ...(headline ? { headline } : {}),
     };
   }
 
@@ -235,8 +230,7 @@ export class SlackAnswers {
       alert,
       alert.name || alert.agent_id,
       alert.text,
-      ref,
-      alert.threadTs || alert.immediate ? undefined : "unanswered for 5 minutes"
+      ref
     );
     const message =
       kind === "form"

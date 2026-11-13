@@ -45,18 +45,13 @@ type PlaceRow = {
 
 export function replyMessage(input: {
   agentName: string;
-  context?: string;
   text: string;
   openUrl: string;
   images?: SlackBlock[];
 }): { text: string; blocks: SlackBlock[] } {
   const clipped = input.text.length > REPLY_MAX_CHARS;
   return dispatchMessage({
-    header: {
-      agentName: input.agentName,
-      kind: "Reply",
-      parts: [input.context],
-    },
+    header: { agentName: input.agentName },
     body: input.text,
     bodyMax: REPLY_MAX_CHARS,
     media: input.images,
@@ -281,9 +276,6 @@ export class SlackThreadReplies {
     const compose = (images: SlackBlock[]) =>
       replyMessage({
         agentName: name,
-        context: row.stream_id.startsWith("tsk_")
-          ? `Task ${row.stream_id}`
-          : undefined,
         text,
         openUrl: this.answers.openUrl(binding.baseUrl, {
           block_id: row.post_block_id,
