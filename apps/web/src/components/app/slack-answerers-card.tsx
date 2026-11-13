@@ -198,7 +198,7 @@ export function SlackAnswerersCard({
         ) : (
           pending.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              No one yet. Questions show an Open in Dispatch link only.
+              No one yet. Questions show a View in Dispatch link only.
             </p>
           )
         )}

@@ -486,7 +486,8 @@ describe("choice answers", () => {
     expect(settled.text).toContain("Answered by @u1 in Slack");
     expect(settled.text).toContain("sending to the agent");
     expect(settled.blocks.some((b: any) => b.type === "actions")).toBe(false);
-    expect(JSON.stringify(settled.blocks)).toContain("Open in Dispatch");
+    // Same footer as the ask it replaced.
+    expect(settled.blocks.at(-1)).toEqual(q.message.blocks.at(-1));
     // Still in flight: reconcile leaves it alone.
     await answers.reconcile();
     expect(calls.updated.filter((u) => u.ts === q.message.ts)).toHaveLength(1);
@@ -647,7 +648,6 @@ describe("choice answers", () => {
     expect(q.actions.map((e: any) => e.action_id)).toEqual([
       "dispatch_option:0",
       "dispatch_option:1",
-      "dispatch_open",
     ]);
     await answers.handle(
       click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
@@ -766,6 +766,21 @@ describe("forms via modal", () => {
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
     expect(calls.updated.at(-1)!.text).toContain("Answered by @u1 in Slack");
+    // Same layout as the ask: header, the form's title and text, footer.
+    const settled = calls.updated.at(-1)!.blocks;
+    expect(settled.map((b: any) => b.type)).toEqual([
+      "context",
+      "markdown",
+      "context",
+      "context",
+    ]);
+    expect(settled[0].elements[0].text).toMatch(
+      /^\*builder-7\* asked you to fill in a form/
+    );
+    expect(settled[1]).toEqual(q.message.blocks[1]);
+    expect(settled[1].text).toContain("**Release**");
+    expect(settled.at(-1)).toEqual(q.message.blocks.at(-1));
+    expect(settled.at(-1).elements[0].text).toMatch(/\|View in Dispatch> · /);
   });
 
   it("unlinked or stale submissions keep the modal open with the reason", async () => {

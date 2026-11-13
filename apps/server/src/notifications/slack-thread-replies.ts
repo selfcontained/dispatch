@@ -13,10 +13,8 @@ import {
 import type { SlackAnswers } from "./slack-answers.js";
 import {
   MARKDOWN_MAX,
-  headerLine,
-  markdownBody,
-  mrkdwnLink,
-  neutralizeMentions,
+  dispatchMessage,
+  noteLine,
   type SlackBlock,
 } from "./slack-blocks.js";
 
@@ -48,32 +46,19 @@ export function replyMessage(input: {
   images?: SlackBlock[];
 }): { text: string; blocks: SlackBlock[] } {
   const clipped = input.text.length > REPLY_MAX_CHARS;
-  const blocks: SlackBlock[] = [
-    headerLine({
+  return dispatchMessage({
+    header: {
       agentName: input.agentName,
       verb: "replied",
       parts: [input.context],
-      openUrl: input.openUrl,
-    }),
-    markdownBody(input.text, REPLY_MAX_CHARS),
-    ...(input.images ?? []),
-  ];
-  if (clipped)
-    blocks.push({
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: `The reply continues in Dispatch · ${mrkdwnLink(input.openUrl, "Open")}`,
-        },
-      ],
-    });
-  return {
-    text: neutralizeMentions(
-      `${input.agentName}: ${input.text.slice(0, 2900)}`
-    ),
-    blocks,
-  };
+    },
+    body: input.text,
+    bodyMax: REPLY_MAX_CHARS,
+    media: input.images,
+    notes: clipped ? [noteLine("The reply continues in Dispatch.")] : [],
+    openUrl: input.openUrl,
+    summary: input.text,
+  });
 }
 
 type ProvenanceRow = {

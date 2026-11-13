@@ -379,10 +379,13 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(posted.threadTs).toBe(parent);
     const head = posted.blocks[0].elements[0];
     expect(head.type).toBe("mrkdwn");
-    expect(head.text).toMatch(
-      /^\*builder-7\* replied · <http:\/\/lan:6767\/agents\/[^|]+block=[^|]+\|Open in Dispatch>$/
+    expect(head.text).toBe("*builder-7* replied");
+    const footer = posted.blocks.at(-1).elements[0].text;
+    expect(footer).toMatch(
+      /^<http:\/\/lan:6767\/agents\/[^|]+block=[^|]+\|View in Dispatch> · Private link: opens on your LAN or VPN$/
     );
-    expect(head.text).toContain(`block=${post.id}`);
+    expect(footer).toContain(`block=${post.id}`);
+    expect(posted.text).toContain(`block=${post.id}`);
     const body = sectionText(posted);
     expect(body).toContain("**30s**");
     expect(body).toContain("```\nTIMEOUT_MS=30000\n```");
@@ -554,6 +557,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
       "context",
       "markdown",
       "image",
+      "context",
     ]);
     expect(posted.blocks[2]).toMatchObject({
       slack_file: { id: "F_shot.png" },
@@ -607,8 +611,8 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
       note: expect.stringMatching(/couldn't show/),
     });
     expect(calls.posted.map((p) => p.blocks.map((b: any) => b.type))).toEqual([
-      ["context", "markdown"],
-      ["context", "markdown"],
+      ["context", "markdown", "context"],
+      ["context", "markdown", "context"],
     ]);
   });
 
