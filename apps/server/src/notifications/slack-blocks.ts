@@ -102,13 +102,12 @@ export function mrkdwnLink(url: string, label: string) {
  *   3. media    image blocks
  *   4. actions  genuine Slack actions only (answer, Fill in form…)
  *   5. notes    context   status or why it can't be answered here
- *   6. footer   context   <url|View in Dispatch> · Private link… · reply hint
+ *   6. footer   context   <url|View in Dispatch> · reply hint
  *
  * Navigation lives only in the footer, as the one "View in Dispatch" link;
  * there is never a navigation button. No URL → no link (never invented).
  */
 export const VIEW_IN_DISPATCH = "View in Dispatch";
-export const PRIVATE_LINK_NOTE = "Private link: opens on your LAN or VPN";
 
 type Header = {
   agentName: string;
@@ -144,7 +143,7 @@ export function noteLine(text: string, blockId?: string): SlackBlock {
 
 /**
  * The footer every Dispatch message ends with: the "View in Dispatch" link
- * first, then that the link is private, then how to reply (when it applies).
+ * first, then how to reply (when it applies).
  * Empty when there is neither a destination nor a hint.
  */
 export function footerLine(input: {
@@ -152,9 +151,7 @@ export function footerLine(input: {
   hint?: string;
 }): SlackBlock[] {
   const parts = [
-    ...(input.openUrl
-      ? [mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH), PRIVATE_LINK_NOTE]
-      : []),
+    ...(input.openUrl ? [mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH)] : []),
     ...(input.hint ? [input.hint] : []),
   ];
   if (!parts.length) return [];

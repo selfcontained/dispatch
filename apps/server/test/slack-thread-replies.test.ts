@@ -382,7 +382,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(head.text).toBe("*builder-7* replied");
     const footer = posted.blocks.at(-1).elements[0].text;
     expect(footer).toMatch(
-      /^<http:\/\/lan:6767\/agents\/[^|]+block=[^|]+\|View in Dispatch> · Private link: opens on your LAN or VPN$/
+      /^<http:\/\/lan:6767\/agents\/[^|]+block=[^|]+\|View in Dispatch>$/
     );
     expect(footer).toContain(`block=${post.id}`);
     expect(posted.text).toContain(`block=${post.id}`);

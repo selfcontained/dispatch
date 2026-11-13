@@ -780,7 +780,7 @@ describe("forms via modal", () => {
     expect(settled[1]).toEqual(q.message.blocks[1]);
     expect(settled[1].text).toContain("**Release**");
     expect(settled.at(-1)).toEqual(q.message.blocks.at(-1));
-    expect(settled.at(-1).elements[0].text).toMatch(/\|View in Dispatch> · /);
+    expect(settled.at(-1).elements[0].text).toMatch(/\|View in Dispatch>$/);
   });
 
   it("unlinked or stale submissions keep the modal open with the reason", async () => {

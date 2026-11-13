@@ -138,6 +138,8 @@ describe("shared Slack layout", () => {
         expect(all.split(VIEW_IN_DISPATCH)).toHaveLength(2);
         expect(all).not.toContain("Open in Dispatch");
         expect(all).not.toContain(ACTION.open);
+        // No network-reachability disclaimer next to the link.
+        expect(JSON.stringify(message)).not.toMatch(/private link|VPN/i);
         for (const b of blocks)
           for (const e of (b as any).elements ?? [])
             expect(e.url).toBeUndefined();
@@ -208,9 +210,7 @@ describe("shared Slack layout", () => {
       expect(textOf(d[0]!)).toMatch(/^\*builder-7\* asked.* · Task tsk_9$/);
       expect(d[1]).toEqual(a[1]); // same body (form keeps its title)
       // Same destination; only the reply hint, which needs buttons, goes.
-      expect(textOf(d.at(-1)!)).toBe(
-        `<${URL}|${VIEW_IN_DISPATCH}> · Private link: opens on your LAN or VPN`
-      );
+      expect(textOf(d.at(-1)!)).toBe(`<${URL}|${VIEW_IN_DISPATCH}>`);
       expect(textOf(a.at(-1)!).startsWith(textOf(d.at(-1)!))).toBe(true);
     }
     // A stale "unanswered for 5 minutes" headline doesn't survive the answer.
