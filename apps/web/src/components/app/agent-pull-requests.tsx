@@ -181,13 +181,11 @@ const EXPLANATION_UNAVAILABLE: Record<
   },
   not_found: {
     title: "Assessment not found",
-    message:
-      "This saved assessment is no longer available for this agent. It may have been removed from history.",
+    message: "This saved assessment isn't available for this agent.",
   },
   config_changed: {
     title: "Settings changed",
-    message:
-      "AI settings changed while preparing the explanation, so nothing was shown. Retry to use the new settings.",
+    message: "AI settings changed mid-request. Retry to use the new settings.",
   },
 };
 const EXPLANATION_FAILURES: Record<string, string> = {
@@ -230,13 +228,10 @@ function RiskExplanation({
   agentId,
   url,
   assessmentId,
-  assessedHead,
 }: {
   agentId: string;
   url: string;
   assessmentId: string;
-  /** Set when the assessment is for an earlier commit than the PR's head. */
-  assessedHead?: string;
 }) {
   const [requested, setRequested] = useState(false);
   const query = useQuery<ExplanationReply>({
@@ -375,17 +370,6 @@ function RiskExplanation({
               only its recorded scores.
             </p>
           )}
-          <p className="text-[10px] leading-relaxed">
-            {assessedHead && (
-              <>
-                Explains the assessment of{" "}
-                <span className="font-mono">{assessedHead.slice(0, 7)}</span>,
-                not the current code ·{" "}
-              </>
-            )}
-            Evidence-based follow-up · not private scoring reasoning or merge
-            approval.
-          </p>
         </>
       )}
     </div>
@@ -416,11 +400,6 @@ function MergeRiskDetails({
         agentId={agentId}
         url={url}
         assessmentId={assessment.assessmentId}
-        assessedHead={
-          risk.displayState || assessment.headSha !== ci?.headSha
-            ? assessment.headSha
-            : undefined
-        }
       />
     );
   return (
