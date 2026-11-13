@@ -212,12 +212,7 @@ function CreateAgentDialogContent({
                 </label>
               </div>
             </div>
-            {/* Wraps instead of overflowing on narrow screens; the two create
-                actions stay together on one row when they fit. */}
-            <div
-              className="flex flex-wrap justify-end gap-2 pt-3"
-              data-testid="create-agent-actions"
-            >
+            <div className="flex justify-end gap-2 pt-3">
               <Button
                 type="button"
                 variant="ghost"
@@ -227,34 +222,30 @@ function CreateAgentDialogContent({
               >
                 Cancel
               </Button>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="default"
-                  tabIndex={0}
-                  disabled={
-                    form.creating ||
-                    !form.locationReady ||
-                    !form.createCwd.trim()
-                  }
-                  data-testid="create-agent-with-context"
-                  onClick={form.enterContextStep}
-                >
-                  Create with context
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  tabIndex={0}
-                  disabled={form.creating || !form.locationReady}
-                  data-testid="create-agent-submit"
-                >
-                  {form.creating ? (
-                    <ActivityBars size={16} className="mr-1.5" />
-                  ) : null}
-                  Create
-                </Button>
-              </div>
+              <Button
+                type="button"
+                variant="default"
+                tabIndex={0}
+                disabled={
+                  form.creating || !form.locationReady || !form.createCwd.trim()
+                }
+                data-testid="create-agent-with-context"
+                onClick={form.enterContextStep}
+              >
+                Create with context
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                tabIndex={0}
+                disabled={form.creating || !form.locationReady}
+                data-testid="create-agent-submit"
+              >
+                {form.creating ? (
+                  <ActivityBars size={16} className="mr-1.5" />
+                ) : null}
+                Create
+              </Button>
             </div>
           </form>
         </>
