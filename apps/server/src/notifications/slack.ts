@@ -5,7 +5,7 @@ import {
   SlackRetryError,
 } from "./slack-app.js";
 import { notifyMessage, type SlackBlock as KitBlock } from "./slack-blocks.js";
-import { imageBlocks, loadImages } from "./slack-images.js";
+import { imageBlocks, loadImages, postWithImages } from "./slack-images.js";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -399,25 +399,16 @@ export class SlackNotifier {
           images,
         });
       try {
-        let note = pictures.skipped;
-        let sent;
-        try {
-          sent = await this.app.postBlocks(compose(pictures.blocks));
-        } catch (error) {
-          // Slack definitely rejected it (e.g. an image it couldn't show):
-          // send the words once more without images.
-          if (
-            !pictures.blocks.length ||
-            error instanceof SlackRetryError ||
-            error instanceof SlackDeliveryUnknownError ||
-            error instanceof SlackAuthError
-          )
-            throw error;
-          // The first try counted against the local 1 msg/s guard.
-          await this.app.waitForSendSlot();
-          sent = await this.app.postBlocks(compose([]));
-          note = "Images weren't attached: Slack couldn't show them.";
-        }
+        const { sent, note, rejectedCode } = await postWithImages(
+          this.app,
+          pictures,
+          (images) => this.app.postBlocks(compose(images))
+        );
+        if (rejectedCode)
+          this.log.warn(
+            { slackError: rejectedCode, images: pictures.blocks.length },
+            "Slack refused notify images; sent the words without them"
+          );
         await this.notifySent?.(sent, agent.id).catch(() => {});
         this.recordNotifyTimestamp(agent.id);
         return note ? { sent: true, note } : { sent: true };

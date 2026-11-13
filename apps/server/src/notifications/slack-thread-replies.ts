@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { imageBlocks, loadImages } from "./slack-images.js";
+import { imageBlocks, loadImages, postWithImages } from "./slack-images.js";
 import type { Pool } from "pg";
 import type { Block } from "@dispatch/shared";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
 import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
 import {
-  SlackAuthError,
   SlackDeliveryUnknownError,
   SlackRetryError,
   type SlackApp,
@@ -264,32 +263,16 @@ export class SlackThreadReplies {
         }),
         images,
       });
-    let note = pictures.skipped;
     try {
-      let sent: { timestamp: string };
-      try {
-        sent = await this.app.postBlocks(
-          { ...compose(pictures.blocks), threadTs: row.thread_ts },
-          row.binding_generation
-        );
-      } catch (error) {
-        // Definitely rejected with images (e.g. one Slack couldn't show):
-        // send the words once more without them.
-        if (
-          !pictures.blocks.length ||
-          error instanceof SlackRetryError ||
-          error instanceof SlackDeliveryUnknownError ||
-          error instanceof SlackAuthError
-        )
-          throw error;
-        // The first try counted against the local 1 msg/s guard.
-        await this.app.waitForSendSlot();
-        sent = await this.app.postBlocks(
-          { ...compose([]), threadTs: row.thread_ts },
-          row.binding_generation
-        );
-        note = "Images weren't attached: Slack couldn't show them.";
-      }
+      const { sent, note } = await postWithImages(
+        this.app,
+        pictures,
+        (images) =>
+          this.app.postBlocks(
+            { ...compose(images), threadTs: row.thread_ts },
+            row.binding_generation
+          )
+      );
       await this.pool
         .query(
           `UPDATE slack_thread_reply_sends SET sent_at = now(), slack_ts = $2 WHERE id = $1`,

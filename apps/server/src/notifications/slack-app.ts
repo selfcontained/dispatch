@@ -70,6 +70,38 @@ export class SlackRetryError extends Error {
 }
 const KEY = "slack_app_binding";
 export class SlackAuthError extends Error {}
+/**
+ * Slack answered `ok: false` (definitely not applied). Carries only Slack's
+ * fixed error code and whether it named an image block's `slack_file`;
+ * never Slack's message text, tokens, file URLs or the request.
+ */
+export class SlackApiError extends Error {
+  readonly code: string;
+  /** Slack refused a `slack_file` reference (e.g. a file still processing). */
+  readonly slackFileRejected: boolean;
+  constructor(body: {
+    error?: unknown;
+    errors?: unknown;
+    response_metadata?: unknown;
+  }) {
+    super(
+      "Slack request rejected. Check app permissions and channel membership."
+    );
+    this.code =
+      typeof body.error === "string" && /^[a-z0-9_]{1,64}$/.test(body.error)
+        ? body.error
+        : "unknown_error";
+    const details = [
+      body.errors,
+      (body.response_metadata as { messages?: unknown } | undefined)?.messages,
+    ]
+      .flatMap((list) => (Array.isArray(list) ? list : []))
+      .filter((item): item is string => typeof item === "string");
+    this.slackFileRejected =
+      this.code === "invalid_blocks" &&
+      details.some((item) => /slack_file|slack file/i.test(item));
+  }
+}
 
 /** No raw provider errors, credential-bearing socket URLs or response bodies escape this client. */
 export class SlackApp {
@@ -205,9 +237,7 @@ export class SlackApp {
           "Slack credentials rejected. Replace tokens in Settings."
         );
       }
-      throw new Error(
-        "Slack request rejected. Check app permissions and channel membership."
-      );
+      throw new SlackApiError(body);
     }
     if (method === "auth.test") {
       const header = response.headers.get("x-oauth-scopes");

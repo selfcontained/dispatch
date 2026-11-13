@@ -10,6 +10,7 @@ import { QuestionAlerts } from "../src/notifications/question-alerts.js";
 import { notifyForm } from "../src/notifications/notify-form.js";
 import type { AgentRecord } from "../src/agents/manager.js";
 import {
+  SlackApiError,
   SlackDeliveryUnknownError,
   SlackRetryError,
   type SlackApp,
@@ -565,6 +566,21 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     });
   });
 
+  it("an image Slack is still processing is shown once it's ready: the same reply is posted again, once", async () => {
+    const { answers, calls, reply } = build();
+    const { post } = await followUp(answers, A, "screenshot?");
+    calls.failNext.push(
+      new SlackApiError({
+        error: "invalid_blocks",
+        errors: ["invalid slack file [json-pointer:/blocks/2/slack_file]"],
+      })
+    );
+    const result = await replyWith(reply, A, post.id, "Here it is.", [png]);
+    expect(result).toEqual({ sent: true });
+    expect(calls.posted).toHaveLength(1);
+    expect(calls.posted[0]!.blocks.map((b: any) => b.type)).toContain("image");
+  });
+
   it("same file name with new image bytes is a new reply, not a duplicate", async () => {
     const { answers, calls } = build();
     const { post } = await followUp(answers, A, "chart?");
@@ -604,11 +620,13 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(noScope.note).toMatch(/files:write/);
     expect(calls.uploads).toHaveLength(0);
     calls.scopes = null;
-    calls.failNext.push(new Error("invalid_blocks"));
+    calls.failNext.push(new SlackApiError({ error: "invalid_blocks" }));
     const rejected = await replyWith(reply, A, post.id, "second try", [png]);
     expect(rejected).toMatchObject({
       sent: true,
-      note: expect.stringMatching(/couldn't show/),
+      note: expect.stringMatching(
+        /rejected the message with them \(invalid_blocks\)/
+      ),
     });
     expect(calls.posted.map((p) => p.blocks.map((b: any) => b.type))).toEqual([
       ["context", "markdown", "context"],

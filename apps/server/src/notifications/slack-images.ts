@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute } from "node:path";
-import { IMAGE_SCOPES, type SlackApp } from "./slack-app.js";
+import {
+  IMAGE_SCOPES,
+  SlackApiError,
+  SlackAuthError,
+  SlackDeliveryUnknownError,
+  SlackRetryError,
+  type SlackApp,
+} from "./slack-app.js";
 import { clip, type SlackBlock } from "./slack-blocks.js";
 
 /** Slack shows png/jpeg/gif from `slack_file`; keep messages light. */
@@ -97,4 +104,60 @@ export async function imageBlocks(
     };
   }
   return { blocks };
+}
+
+/**
+ * Waits before re-posting a message whose image Slack hadn't finished
+ * processing. Slack processes an upload after files.completeUploadExternal
+ * returns; until then chat.postMessage refuses its `slack_file` with
+ * `invalid_blocks` and posts nothing. About 7s in all.
+ */
+export const IMAGE_READY_RETRY_MS = [1000, 2000, 4000] as const;
+
+/**
+ * Post a message with its uploaded images. If Slack refuses an image it is
+ * still processing (definitely not posted), wait and post the same message
+ * again, a bounded number of times. If Slack still won't show the images,
+ * or rejects the message for another definite reason, the words go out once
+ * without them and `note` says why (Slack's error code only). Outcomes that
+ * may have posted, rate limits and auth failures are never retried.
+ */
+export async function postWithImages<T>(
+  app: Pick<SlackApp, "waitForSendSlot">,
+  pictures: { blocks: SlackBlock[]; skipped?: string },
+  post: (images: SlackBlock[]) => Promise<T>,
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms))
+): Promise<{ sent: T; note?: string; rejectedCode?: string }> {
+  if (!pictures.blocks.length)
+    return { sent: await post([]), note: pictures.skipped };
+  let rejection: unknown;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return { sent: await post(pictures.blocks) };
+    } catch (error) {
+      if (
+        error instanceof SlackRetryError ||
+        error instanceof SlackDeliveryUnknownError ||
+        error instanceof SlackAuthError
+      )
+        throw error;
+      rejection = error;
+      const processing =
+        error instanceof SlackApiError && error.slackFileRejected;
+      if (!processing || attempt >= IMAGE_READY_RETRY_MS.length) break;
+      await sleep(IMAGE_READY_RETRY_MS[attempt]!);
+      // Each try counts against the local 1 msg/s guard.
+      await app.waitForSendSlot();
+    }
+  }
+  const code =
+    rejection instanceof SlackApiError ? rejection.code : "request_failed";
+  await app.waitForSendSlot();
+  const sent = await post([]);
+  const note =
+    rejection instanceof SlackApiError && rejection.slackFileRejected
+      ? `Images weren't attached: Slack still hadn't finished processing them after several tries (${code}).`
+      : `Images weren't attached: Slack rejected the message with them (${code}).`;
+  return { sent, note, rejectedCode: code };
 }

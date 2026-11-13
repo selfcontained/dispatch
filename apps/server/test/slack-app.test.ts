@@ -421,11 +421,86 @@ describe("Slack app boundary", () => {
     f.app.stop();
     expect(result).toMatchObject({
       sent: true,
-      note: expect.stringMatching(/couldn't show/),
+      note: expect.stringMatching(
+        /rejected the message with them \(invalid_blocks\)/
+      ),
     });
     expect(posts).toHaveLength(2);
     expect(posts[0].blocks.some((b: any) => b.type === "image")).toBe(true);
     expect(posts[1].blocks.some((b: any) => b.type === "image")).toBe(false);
+  });
+  it("an image Slack hasn't finished processing is posted again with it, through the real upload, guard and channel binding", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir("/tmp/dogfood-slack-cdc9-test", { recursive: true });
+    const png = "/tmp/dogfood-slack-cdc9-test/app-ready.png";
+    await writeFile(png, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    const real = f.transport.getMockImplementation()!;
+    const order: string[] = [];
+    const posts: any[] = [];
+    f.transport.mockImplementation(async (url, init) => {
+      if (url.endsWith("files.getUploadURLExternal")) {
+        order.push("url");
+        return Response.json({
+          ok: true,
+          upload_url: "https://files.slack.com/upload/v1/x",
+          file_id: "F9",
+        });
+      }
+      if (url === "https://files.slack.com/upload/v1/x") {
+        order.push("bytes");
+        return new Response("OK");
+      }
+      if (url.endsWith("files.completeUploadExternal")) {
+        order.push("complete");
+        return Response.json({ ok: true, files: [{ id: "F9" }] });
+      }
+      if (url.endsWith("chat.postMessage")) {
+        order.push("post");
+        posts.push(JSON.parse(String(init!.body)));
+        // Slack's reply while the upload is still processing.
+        return posts.length === 1
+          ? Response.json({
+              ok: false,
+              error: "invalid_blocks",
+              errors: [
+                "invalid slack file [json-pointer:/blocks/2/slack_file]",
+              ],
+              response_metadata: {
+                messages: [
+                  "[ERROR] invalid slack file [json-pointer:/blocks/2/slack_file]",
+                ],
+              },
+            })
+          : Response.json({ ok: true, ts: "3.3" });
+      }
+      return real(url, init);
+    });
+    const { SlackNotifier } = await import("../src/notifications/slack.js");
+    const warn = vi.fn();
+    const notifier = new SlackNotifier(
+      null as never,
+      { warn, info: () => {}, debug: () => {}, error: () => {} } as never
+    );
+    (notifier as any).app = f.app;
+    const result = await notifier.sendNotification(
+      { id: "agt_1", name: "builder-7" } as never,
+      { message: "See chart", images: [png] }
+    );
+    f.app.stop();
+    expect(result).toEqual({ sent: true });
+    expect(order).toEqual(["url", "bytes", "complete", "post", "post"]);
+    for (const p of posts) {
+      expect(p.channel).toBe("C1");
+      expect(p.blocks.find((b: any) => b.type === "image")).toEqual({
+        type: "image",
+        slack_file: { id: "F9" },
+        alt_text: "app-ready.png",
+      });
+    }
+    expect(warn).not.toHaveBeenCalled();
   });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();
