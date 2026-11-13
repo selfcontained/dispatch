@@ -483,8 +483,9 @@ describe("choice answers", () => {
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     // Returned before the engine took it: in flight, never "delivered".
     const settled = calls.updated.find((u) => u.ts === q.message.ts)!;
-    expect(settled.text).toContain("Answered by @u1 in Slack");
-    expect(settled.text).toContain("sending to the agent");
+    // Who answered and with what; routine delivery progress isn't shown.
+    expect(settled.text).toContain('@u1 answered "Postgres"');
+    expect(settled.text).not.toMatch(/recorded|sending|delivered|in Slack/);
     expect(settled.blocks.some((b: any) => b.type === "actions")).toBe(false);
     // Same footer as the ask it replaced.
     expect(settled.blocks.at(-1)).toEqual(q.message.blocks.at(-1));
@@ -517,7 +518,8 @@ describe("choice answers", () => {
     await answers.reconcile();
     const renders = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(renders).toHaveLength(2);
-    expect(renders[1]!.text).toContain("delivered to the agent");
+    expect(renders[1]!.text).toContain('@u1 answered "Postgres"');
+    expect(renders[1]!.text).not.toMatch(/hasn't received/);
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
   });
 
@@ -734,7 +736,7 @@ describe("choice answers", () => {
     // no duplicate private receipt.
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     expect(calls.updated.at(-1)!.text).toContain(
-      "not delivered to the agent yet — open Dispatch to retry"
+      "the agent hasn't received it yet — retry in Dispatch"
     );
     // A manual retry that succeeds updates Slack once.
     await pool.query("UPDATE blocks SET delivered=true WHERE id=$1", [
@@ -744,7 +746,7 @@ describe("choice answers", () => {
     await answers.reconcile();
     const renders = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(renders).toHaveLength(2);
-    expect(renders[1]!.text).toContain("delivered to the agent");
+    expect(renders[1]!.text).not.toMatch(/hasn't received/);
     expect(calls.updated.at(-1)!.text).not.toMatch(/picked up|resumed/);
   });
 });
@@ -812,7 +814,7 @@ describe("forms via modal", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
     expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
-    expect(calls.updated.at(-1)!.text).toContain("Answered by @u1 in Slack");
+    expect(calls.updated.at(-1)!.text).toContain("@u1 submitted the form");
     // Same layout as the ask: header, the form's title and text, footer.
     const settled = calls.updated.at(-1)!.blocks;
     expect(settled.map((b: any) => b.type)).toEqual([
@@ -1174,7 +1176,7 @@ describe("reconcile", () => {
     await answers.reconcile();
     const updates = calls.updated.filter((u) => u.ts === q.message.ts);
     expect(updates).toHaveLength(1);
-    expect(updates[0]!.text).toContain("Answered by the owner in Dispatch");
-    expect(updates[0]!.text).toContain("delivered to the agent");
+    expect(updates[0]!.text).toContain('the owner answered "A"');
+    expect(updates[0]!.text).not.toMatch(/recorded|delivered|in Dispatch:/);
   });
 });

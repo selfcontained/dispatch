@@ -246,7 +246,7 @@ describe("form adapters", () => {
 });
 
 describe("settledMessage", () => {
-  it("removes actions and states recorded vs delivery truthfully", () => {
+  it("removes actions and says only who answered, plus a delivery problem if any", () => {
     const out = settledMessage(ctx, {
       kind: "answered",
       by: "@brad",
@@ -263,14 +263,41 @@ describe("settledMessage", () => {
     ]);
     const status = out.blocks[2] as any;
     expect(status.block_id).toBe("done:n1");
-    expect(status.elements[0].text).toContain(":white_check_mark:");
+    // Not delivered is the one delivery state worth showing, as a warning.
+    expect(status.elements[0].text).toBe(
+      ':warning: @brad answered "Postgres" · the agent hasn\'t received it yet — retry in Dispatch'
+    );
     expect((out.blocks[3] as any).elements[0].text).toBe(
       `<${ctx.openUrl}|View in Dispatch>`
     );
-    expect(out.text).toContain(
-      "recorded · not delivered to the agent yet — open Dispatch to retry"
+    expect(out.text).not.toMatch(/picked up|recorded|in Slack/);
+    // Delivered or in flight: just who answered and with what.
+    for (const delivery of ["delivered", "sending"] as const) {
+      const ok = settledMessage(ctx, {
+        kind: "answered",
+        by: "@brad",
+        via: "slack",
+        summary: '"Postgres"',
+        delivery,
+      });
+      expect((ok.blocks[2] as any).elements[0].text).toBe(
+        ':white_check_mark: @brad answered "Postgres"'
+      );
+    }
+    const form = settledMessage(
+      ctx,
+      {
+        kind: "answered",
+        by: "@brad",
+        via: "slack",
+        summary: "4 field(s) submitted",
+        delivery: "delivered",
+      },
+      { title: "Release", fields: [] }
     );
-    expect(out.text).not.toMatch(/picked up/);
+    expect((form.blocks[2] as any).elements[0].text).toBe(
+      ":white_check_mark: @brad submitted the form"
+    );
   });
 });
 

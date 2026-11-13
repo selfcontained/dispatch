@@ -683,17 +683,22 @@ export function settledMessage(
   outcome: Outcome,
   form?: BlockFormData
 ): Adapted {
+  // Only what the reader acts on: who answered and with what, and a
+  // delivery problem when there is one. Routine progress stays in Dispatch.
+  const undelivered =
+    outcome.kind === "answered" && outcome.delivery === "not_delivered";
   const line =
     outcome.kind === "answered"
-      ? `Answered by ${outcome.by}${outcome.via === "slack" ? " in Slack" : " in Dispatch"}: ${outcome.summary} · recorded · ${deliveryPhrase(
-          "the agent",
-          outcome.delivery
-        )}`
+      ? `${outcome.by} ${form ? "submitted the form" : `answered ${outcome.summary}`}${
+          undelivered
+            ? " · the agent hasn't received it yet — retry in Dispatch"
+            : ""
+        }`
       : outcome.kind === "cancelled"
         ? `Withdrawn${outcome.reason ? `: ${outcome.reason}` : ""}`
         : outcome.message;
   const mark =
-    outcome.kind === "answered"
+    outcome.kind === "answered" && !undelivered
       ? ":white_check_mark:"
       : outcome.kind === "cancelled"
         ? ":heavy_minus_sign:"
