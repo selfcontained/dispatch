@@ -309,7 +309,7 @@ it("legacy records without saved detail still explain from recorded scores, mark
   });
   expect(
     JSON.parse(String(transport.mock.calls[0][1]?.body)).instructions
-  ).toContain("supporting detail for this assessment is unavailable");
+  ).toContain("start directly with the recorded assessment signals");
   // Reuse keeps the limited marker without another request.
   expect(await svc.explain(input())).toMatchObject({ limitedEvidence: true });
   expect(transport).toHaveBeenCalledTimes(1);

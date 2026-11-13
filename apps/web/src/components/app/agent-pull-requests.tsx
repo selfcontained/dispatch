@@ -335,12 +335,20 @@ function RiskExplanation({
                   </p>
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-2">
-                {action}
-                {query.isFetching && (
-                  <span role="status">Preparing explanation…</span>
-                )}
-              </div>
+              {/* Retrying can't bring back a missing or inaccessible record. */}
+              {!(
+                showNotice &&
+                !query.isError &&
+                query.data?.state === "unavailable" &&
+                query.data.reason === "not_found"
+              ) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {action}
+                  {query.isFetching && (
+                    <span role="status">Preparing explanation…</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </Card>
