@@ -250,7 +250,6 @@ describe("settledMessage", () => {
     const out = settledMessage(ctx, {
       kind: "answered",
       by: "@brad",
-      via: "slack",
       summary: '"Postgres"',
       delivery: "not_delivered",
     });
@@ -276,7 +275,6 @@ describe("settledMessage", () => {
       const ok = settledMessage(ctx, {
         kind: "answered",
         by: "@brad",
-        via: "slack",
         summary: '"Postgres"',
         delivery,
       });
@@ -289,8 +287,6 @@ describe("settledMessage", () => {
       {
         kind: "answered",
         by: "@brad",
-        via: "slack",
-        summary: "4 field(s) submitted",
         delivery: "delivered",
       },
       { title: "Release", fields: [] }

@@ -667,8 +667,8 @@ export type Outcome =
   | {
       kind: "answered";
       by: string;
-      via: "slack" | "dispatch";
-      summary: string;
+      /** The chosen answer (questions); forms say only that they were submitted. */
+      summary?: string;
       delivery: DeliveryShown;
     }
   | { kind: "cancelled"; reason?: string }
@@ -689,7 +689,7 @@ export function settledMessage(
     outcome.kind === "answered" && outcome.delivery === "not_delivered";
   const line =
     outcome.kind === "answered"
-      ? `${outcome.by} ${form ? "submitted the form" : `answered ${outcome.summary}`}${
+      ? `${outcome.by} ${form ? "submitted the form" : `answered${outcome.summary ? ` ${outcome.summary}` : ""}`}${
           undelivered
             ? " · the agent hasn't received it yet — retry in Dispatch"
             : ""

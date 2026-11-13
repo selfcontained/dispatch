@@ -914,10 +914,11 @@ export class SlackAnswers {
           outcome = {
             kind: "answered",
             by: done.external?.displayName ?? "the owner",
-            via: done.external ? "slack" : "dispatch",
-            summary: row.state.answer
-              ? `"${clip(String(row.state.answer.label ?? row.state.answer.value), 200)}"`
-              : `${Object.keys(row.state.submission.values ?? {}).length} field(s) submitted`,
+            ...(row.state.answer
+              ? {
+                  summary: `"${clip(String(row.state.answer.label ?? row.state.answer.value), 200)}"`,
+                }
+              : {}),
             delivery: shownDelivery(delivered.rows[0]?.delivered),
           };
         }

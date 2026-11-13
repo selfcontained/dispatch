@@ -91,7 +91,6 @@ const variants: Record<string, { text: string; blocks: SlackBlock[] }> = {
   "question answered": settledMessage(ctx, {
     kind: "answered",
     by: "@brad",
-    via: "slack",
     summary: '"Postgres"',
     delivery: "delivered",
   }),
@@ -100,8 +99,6 @@ const variants: Record<string, { text: string; blocks: SlackBlock[] }> = {
     {
       kind: "answered",
       by: "the owner",
-      via: "dispatch",
-      summary: "2 field(s) submitted",
       delivery: "sending",
     },
     form
