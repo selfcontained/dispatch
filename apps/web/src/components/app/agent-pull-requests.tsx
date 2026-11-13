@@ -525,7 +525,6 @@ function MergeRiskDetails({
                 timeStyle: "short",
               })}
             </time>
-            <span>· Not merge approval.</span>
           </div>
         </div>
       )}
