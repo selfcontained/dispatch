@@ -41,6 +41,8 @@ function lateReason(result: Record<string, unknown> | void) {
 export const ANSWER_SCOPES = ["channels:history", "groups:history"];
 /** Inline images in Dispatch messages are uploaded privately by the bot. */
 export const IMAGE_SCOPES = ["files:write"];
+/** Lets a message show the agent as its sender instead of "Dispatch". */
+export const IDENTITY_SCOPE = "chat:write.customize";
 /** The header block that names the agent inside the message. */
 export const WHO_BLOCK_ID = "dispatch_who";
 const FORM_METHODS = new Set([
@@ -716,11 +718,12 @@ export class SlackApp {
   }
   /** Post Block Kit to the bound channel (plain-text fallback required by Slack). */
   /**
-   * The agent is the message's sender (chat:write.customize); the name is
-   * never repeated inside the message.
+   * The agent is the message's sender (chat:write.customize), so the name is
+   * not repeated inside the message. An install that hasn't granted that
+   * scope would post as "Dispatch" with no name at all, so it keeps the line.
    */
   private sender(blocks: unknown[], username?: string) {
-    if (!username) return { blocks };
+    if (!username || this.hasScope(IDENTITY_SCOPE) !== true) return { blocks };
     return {
       username: username.slice(0, 80),
       blocks: blocks.filter(
@@ -854,9 +857,33 @@ export class SlackApp {
     // Without files:read Slack serves its sign-in page instead of the file.
     if ((response.headers.get("content-type") ?? "").startsWith("text/html"))
       throw new Error("Slack file download needs the files:read permission.");
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes)
+    // Never hold more than maxBytes: refuse a declared oversize up front and
+    // stop reading the moment the running total passes the cap.
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      await response.body?.cancel().catch(() => {});
       throw new Error("Slack file is too large.");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Slack file download failed.");
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error("Slack file is too large.");
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
     return bytes;
   }
   /** Only ever targets the bound channel; callers pass the stored ts. */

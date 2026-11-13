@@ -31,6 +31,9 @@ import type {
 } from "../chat/service.js";
 
 /** The existing Dispatch write paths; Slack never gets a parallel one. */
+/** The largest photo from Slack passed to an agent (matches its prompt limit). */
+const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
 export type AnswerWriter = {
   answerQuestion(
     streamId: string,
@@ -183,17 +186,23 @@ export class SlackAnswers {
       .filter(
         (f: any) =>
           typeof f?.url_private_download === "string" &&
-          /^image\/(png|jpeg|gif|webp)$/.test(String(f?.mimetype ?? ""))
+          /^image\/(png|jpeg|gif|webp)$/.test(String(f?.mimetype ?? "")) &&
+          // Slack states the size; don't start a download that must fail.
+          !(Number(f?.size) > IMAGE_MAX_BYTES)
       )
       .slice(0, 4);
     const fileIds: number[] = [];
-    let failed = 0;
+    let failed = (Array.isArray(files) ? files : []).filter(
+      (f: any) =>
+        /^image\//.test(String(f?.mimetype ?? "")) &&
+        Number(f?.size) > IMAGE_MAX_BYTES
+    ).length;
     for (const file of images as any[]) {
       try {
         if (!this.saveImage) throw new Error("Images unavailable.");
         const bytes = await this.app.downloadFile(
           file.url_private_download,
-          10 * 1024 * 1024
+          IMAGE_MAX_BYTES
         );
         fileIds.push(
           await this.saveImage(

@@ -497,7 +497,7 @@ describe("Slack app boundary", () => {
         { type: "image", slack_file: { id: "F9" }, alt_text: "fresh-shot.png" },
       ]);
   });
-  it("shows the agent as the sender and never repeats the name inside the message", async () => {
+  it("shows the agent as the sender, keeping the name line only where Slack won't allow it", async () => {
     const send = async (scopes: string) => {
       const f = fixture();
       const real = f.transport.getMockImplementation()!;
@@ -536,6 +536,11 @@ describe("Slack app boundary", () => {
     const named = await send("chat:write,chat:write.customize,files:write");
     expect(named.username).toBe("builder-7");
     expect(named.blocks.map((b: any) => b.type)).toEqual(["markdown"]);
+    // An install without the scope would post as "Dispatch" with no name,
+    // so it keeps the name line.
+    const plain = await send("chat:write,files:write");
+    expect(plain.username).toBeUndefined();
+    expect(plain.blocks[0].block_id).toBe("dispatch_who");
   });
   it("downloads shared files only from Slack's host, and spots a missing files:read", async () => {
     const f = fixture();
@@ -572,9 +577,24 @@ describe("Slack app boundary", () => {
       await expect(f.app.downloadFile(bad, 10)).rejects.toThrow(
         /unexpected file location/
       );
+    // Over the cap while streaming, and refused up front when declared.
     await expect(
       f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 2)
     ).rejects.toThrow(/too large/);
+    const declaredBig = f.transport.getMockImplementation()!;
+    f.transport.mockImplementationOnce(
+      async () =>
+        new Response(new Uint8Array([1]), {
+          headers: {
+            "content-length": "999999999",
+            "content-type": "image/png",
+          },
+        })
+    );
+    await expect(
+      f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 10)
+    ).rejects.toThrow(/too large/);
+    f.transport.mockImplementation(declaredBig);
     html = true;
     await expect(
       f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 10)

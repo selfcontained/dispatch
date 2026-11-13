@@ -1078,6 +1078,19 @@ describe("thread replies", () => {
     expect(calls.ephemeral.slice(before).map((e) => e.text)).toEqual([
       "An image couldn't be passed to builder-7. Dispatch needs Slack's files:read permission and png, jpeg, gif or webp up to 10 MB.",
     ]);
+    // An oversize photo (by Slack's stated size) isn't downloaded at all.
+    const big = calls.ephemeral.length;
+    downloads.length = 0;
+    await answers.handle(
+      threadReply("U1", q.message.ts, "", {
+        subtype: "file_share",
+        files: [{ ...photo("huge.png"), size: 50 * 1024 * 1024 }],
+      })
+    );
+    expect(downloads).toEqual([]);
+    expect(calls.ephemeral.slice(big).map((e) => e.text)).toEqual([
+      "An image couldn't be passed to builder-7. Dispatch needs Slack's files:read permission and png, jpeg, gif or webp up to 10 MB.",
+    ]);
     // Edits and other subtypes are still ignored.
     await answers.handle(
       threadReply("U1", q.message.ts, "edited", { subtype: "message_changed" })

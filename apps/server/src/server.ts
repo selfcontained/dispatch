@@ -222,23 +222,39 @@ const slackAnswers = new SlackAnswers(
     const fileName = sanitizeUploadedFileName(path.basename(name));
     const type = detectFileType(buffer, fileName);
     if (!type.ok || type.media !== "image") throw new Error("Not an image.");
-    const stored = timestampedFileName(fileName);
     const dir = resolveFilesDir(agent.id, agent.filesDir, config.filesRoot);
     await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, stored), buffer);
-    const { rows } = await pool.query<{ id: number }>(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes, description, metadata, mime_type)
-       VALUES ($1, $2, 'user', $3, $4, $5, $6) RETURNING id`,
-      [
-        agent.id,
-        stored,
-        buffer.length,
-        "Sent from Slack",
-        fileMetadataFromBuffer(buffer),
-        type.mimeType,
-      ]
-    );
-    return rows[0]!.id;
+    // Slack names pasted images alike ("image.png"); never overwrite one.
+    let stored = "";
+    for (let n = 0; ; n++) {
+      stored = timestampedFileName(fileName, new Date(), n ? `-${n}` : "");
+      try {
+        await writeFile(path.join(dir, stored), buffer, { flag: "wx" });
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || n >= 20)
+          throw error;
+      }
+    }
+    try {
+      const { rows } = await pool.query<{ id: number }>(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, description, metadata, mime_type)
+         VALUES ($1, $2, 'user', $3, $4, $5, $6) RETURNING id`,
+        [
+          agent.id,
+          stored,
+          buffer.length,
+          "Sent from Slack",
+          fileMetadataFromBuffer(buffer),
+          type.mimeType,
+        ]
+      );
+      return rows[0]!.id;
+    } catch (error) {
+      // Not recorded: don't leave the file behind.
+      await unlink(path.join(dir, stored)).catch(() => {});
+      throw error;
+    }
   }
 );
 slackNotifier.setNotifySent((sent, agentId) =>
