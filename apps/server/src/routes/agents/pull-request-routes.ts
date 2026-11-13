@@ -34,9 +34,9 @@ export async function registerAgentPullRequestRoutes(
         return reply.code(404).send({ error: "Agent not found." });
       if (!deps.riskExplanations)
         return reply.code(503).send({ error: "Explanation unavailable." });
+      // The id alone identifies the assessment; url stays in the body contract.
       const result = await deps.riskExplanations.explain({
-        agentId: request.params.id,
-        ...request.body,
+        assessmentId: request.body.assessmentId,
       });
       // Reason codes only: never the URL, evidence or provider payload.
       if (result.state !== "ready" && result.state !== "pending")

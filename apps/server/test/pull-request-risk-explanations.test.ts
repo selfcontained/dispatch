@@ -16,11 +16,7 @@ import { RoutingSettings } from "../src/chat/routing-settings.js";
 import { reviewFingerprint } from "../src/agents/merge-risk/sources.js";
 let pool: Pool, settings: RoutingSettings, pr: AgentPullRequest, id: string;
 const transport = vi.fn<typeof fetch>();
-const input = () => ({
-  agentId: "explain-owner",
-  url: pr.url,
-  assessmentId: id,
-});
+const input = () => ({ assessmentId: id });
 const response = (
   text = "The auth/session.ts change affects session handling. Resolved review findings mitigate correctness risk; product judgment still needs a maintainer. Evidence is limited and this does not approve merging."
 ) =>

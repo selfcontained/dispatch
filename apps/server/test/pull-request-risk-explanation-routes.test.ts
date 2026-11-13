@@ -52,7 +52,9 @@ it("validates the click contract, rejects agent bearer requests and scopes calls
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
-    expect(explain).toHaveBeenCalledWith({ agentId: "owner", ...payload });
+    expect(explain).toHaveBeenCalledWith({
+      assessmentId: payload.assessmentId,
+    });
   } finally {
     await app.close();
   }

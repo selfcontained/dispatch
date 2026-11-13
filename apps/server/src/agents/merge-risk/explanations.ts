@@ -7,7 +7,7 @@ import {
   type ExplanationFailure,
 } from "./explanation-client.js";
 
-type Input = { agentId: string; url: string; assessmentId: string };
+type Input = { assessmentId: string };
 /**
  * Why no explanation could start. Safe to show and log; never private data.
  * `not_found` means no completed assessment has that id (unknown or pruned).
