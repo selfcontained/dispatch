@@ -521,6 +521,33 @@ describe("choice answers", () => {
     expect(calls.ephemeral.slice(quietFrom)).toEqual([]);
   });
 
+  it("an answer that fails to record leaves no return path behind", async () => {
+    const { svc, answers, calls } = build();
+    await linkUser(answers, calls, "U1");
+    const q = await ask(svc, answers, calls, {
+      question: { options: [{ label: "Postgres" }] },
+    });
+    const writer = (answers as any).writer.bind(answers);
+    (answers as any).writer = () => ({
+      ...writer(),
+      answerQuestion: async () => {
+        throw new Error("write failed");
+      },
+    });
+    await answers.handle(
+      click("U1", q.actions[0].action_id, q.actions[0].value, q.message.ts)
+    );
+    const answerId = stableUuid(
+      `slack-answer:${q.actions[0].value.split(":")[0]}`
+    );
+    expect(await svc.store.getById(answerId)).toBeFalsy();
+    const paths = await pool.query(
+      "SELECT 1 FROM slack_thread_replies WHERE post_block_id=$1",
+      [answerId]
+    );
+    expect(paths.rowCount).toBe(0);
+  });
+
   it("duplicate, racing and retried clicks yield one answer", async () => {
     const { svc, answers, calls } = build();
     await linkUser(answers, calls, "U1");
@@ -544,6 +571,14 @@ describe("choice answers", () => {
       [q.block.id]
     );
     expect(rows[0].n).toBe(1);
+    // The losing clicks don't remove the winner's return path.
+    const answerId = ((await svc.store.getById(q.block.id))!.state as any)
+      .answer.blockId;
+    const paths = await pool.query(
+      "SELECT post_block_id FROM slack_thread_replies WHERE thread_ts=$1",
+      [q.message.ts]
+    );
+    expect(paths.rows).toEqual([{ post_block_id: answerId }]);
     // The winning click gets no receipt; only the two losers hear back.
     expect(calls.ephemeral.filter((e) => /^Recorded/.test(e.text))).toEqual([]);
     const winner = ((await svc.store.getById(q.block.id))!.state as any).answer

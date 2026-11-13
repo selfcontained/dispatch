@@ -954,6 +954,57 @@ describe("notify({ form }) in a Slack thread", () => {
     expect(target).toMatchObject({
       target: { postId: answerId, threadTs: questionTs },
     });
+    // A turn running somewhere other than where the question was asked is
+    // not answering it.
+    const otherRoot = await svc.post(A, { text: "another conversation" });
+    const turnElsewhere = await svc.post(A, {
+      text: "turn elsewhere",
+      replyTo: otherRoot.id,
+    });
+    const misplaced = new SlackThreadReplies(
+      pool,
+      (lastReplies as any).app,
+      answers,
+      async () => "builder-7",
+      async () => ({
+        blockId: turnElsewhere.id,
+        prompts: [chatPrompt([answerId])],
+      })
+    );
+    expect(await misplaced.turnThread(A)).toBeNull();
+    // An answer whose thread root is not a question/form is not resumed
+    // from the root either.
+    const elsewhere = await svc.post(A, { text: "unrelated thread root" });
+    const q2 = await svc.post(A, {
+      text: "Which region?",
+      replyTo: elsewhere.id,
+      question: { options: [{ label: "us" }], allowFreeform: true },
+    });
+    const block2 = (await svc.store.getById(q2.id))!;
+    expect(block2.threadId).toBe(elsewhere.id);
+    await answers.postAsk({
+      block_id: block2.id,
+      binding_generation: binding.generation,
+      agent_id: A,
+      stream_id: A,
+      thread_id: block2.threadId,
+      text: block2.text,
+      kind: block2.kind,
+      data: block2.data,
+      name: "builder-7",
+    });
+    await answers.handle(threadReply("U1", calls.posted.at(-1)!.ts, "us"));
+    const answer2 = ((await svc.store.getById(q2.id))!.state as any).answer
+      .blockId;
+    target = null;
+    await runTurn(svc, A, chatPrompt([answer2]), [
+      {
+        during: async () => {
+          target = await lastReplies!.turnThread(A);
+        },
+      },
+    ]);
+    expect(target).toBeNull();
   });
 
   it("a channel-root form's Slack answer can be acknowledged in a thread under that form", async () => {

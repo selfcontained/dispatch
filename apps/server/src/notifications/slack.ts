@@ -364,14 +364,7 @@ export class SlackNotifier {
       return this.formNotify(agent, { ...input, form: input.form });
     }
 
-    // An answer in the Slack thread a message came from: named explicitly,
-    // or the thread the agent's open turn is answering.
-    const replyTo =
-      input.replyTo ||
-      (this.threadReply
-        ? await this.turnPost?.(agent.id).catch(() => null)
-        : null);
-    if (replyTo) {
+    const toThread = async (replyTo: string): Promise<NotifyResult> => {
       if (!this.threadReply)
         return { sent: false, reason: "Slack thread replies are unavailable." };
       if (!(await this.app.settings()).binding)
@@ -387,7 +380,10 @@ export class SlackNotifier {
         title: input.title,
         images: input.images,
       });
-    }
+    };
+
+    // An explicit answer in the Slack thread a message came from.
+    if (input.replyTo) return toThread(input.replyTo);
 
     // Respect focus if explicitly requested
     if (input.respectFocus && this.isFocused?.(agent.id)) {
@@ -396,6 +392,12 @@ export class SlackNotifier {
         reason: "Notification suppressed — user is focused on this agent.",
       };
     }
+
+    // While the open turn answers a live Slack thread, the alert goes there.
+    const turnPost = this.threadReply
+      ? await this.turnPost?.(agent.id).catch(() => null)
+      : null;
+    if (turnPost) return toThread(turnPost);
 
     const appSettings = await this.app.settings();
     if (appSettings.binding) {

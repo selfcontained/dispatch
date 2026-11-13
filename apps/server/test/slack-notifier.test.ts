@@ -441,10 +441,20 @@ describe("notify({ replyTo })", () => {
         images: ["/tmp/a.png"],
       }
     );
-    // Outside a Slack turn it stays a channel alert.
+    // Outside a Slack turn, or if the lookup fails, it stays a channel alert.
     threadReply.mockClear();
     turnPost.mockResolvedValueOnce(null as never);
     await notifier.sendNotification(makeAgent(), { message: "Heads up." });
+    turnPost.mockRejectedValueOnce(new Error("db down"));
+    await notifier.sendNotification(makeAgent(), { message: "Heads up 2." });
+    expect(threadReply).not.toHaveBeenCalled();
+    // respectFocus still suppresses it while the user is watching.
+    notifier.setFocusCheck(() => true);
+    const focused = await notifier.sendNotification(makeAgent(), {
+      message: "Quiet.",
+      respectFocus: true,
+    });
+    expect(focused.reason).toMatch(/focused/);
     expect(threadReply).not.toHaveBeenCalled();
   });
 
