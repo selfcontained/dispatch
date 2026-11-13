@@ -839,8 +839,10 @@ export class SlackAnswers {
             external: origin,
           })
         );
-        // Best effort: a missing reactions:write scope, already_reacted or a
+        // Settle the question message first; the ✅ is cosmetic and best
+        // effort: a missing reactions:write scope, already_reacted or a
         // network failure changes nothing about the recorded answer.
+        await this.reconcile().catch(() => {});
         await this.app
           .addReaction(event.ts, "white_check_mark")
           .catch((error: unknown) =>
@@ -850,7 +852,6 @@ export class SlackAnswers {
               }`
             )
           );
-        await this.reconcile().catch(() => {});
         return;
       }
       const images = hasFiles
