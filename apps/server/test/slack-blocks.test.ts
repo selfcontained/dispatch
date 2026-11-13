@@ -46,7 +46,7 @@ describe("questionMessage", () => {
     // Navigation is the footer link, never a button.
     expect(elements.some((e) => e.url)).toBe(false);
     expect((out.blocks.at(-1) as any).elements[0].text).toBe(
-      `<${ctx.openUrl}|View in Dispatch> · Or reply in this thread to answer in your own words`
+      `<${ctx.openUrl}|View in Dispatch> · Reply in thread`
     );
   });
 
@@ -323,7 +323,7 @@ describe("notifyMessage", () => {
       "**Build is green**\n\nAll **42** tests pass. <\u200b!here>"
     );
     expect((out.blocks[3] as any).elements[0].text).toBe(
-      "<http://lan:6767/agents/agt_1|View in Dispatch> · Reply in this thread to message *builder-7*"
+      "<http://lan:6767/agents/agt_1|View in Dispatch> · Reply in thread"
     );
     expect(out.text).not.toContain("<!here>");
   });

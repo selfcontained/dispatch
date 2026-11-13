@@ -1004,6 +1004,91 @@ describe("thread replies", () => {
     expect(calls.updated.at(-1)!.ts).toBe(q.message.ts);
   });
 
+  it("passes photos from a Slack thread reply to the agent as image files", async () => {
+    const { svc, answers, app, calls } = build();
+    const downloads: string[] = [];
+    (app as any).downloadFile = async (url: string) => {
+      downloads.push(url);
+      if (url.includes("broken")) throw new Error("download failed");
+      return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    };
+    const saved: string[] = [];
+    (answers as any).saveImage = async (agentId: string, name: string) => {
+      saved.push(name);
+      const { rows } = await pool.query(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+         VALUES ($1, $2, 'user', 8, 'image/png') RETURNING id`,
+        [agentId, `${name}-${Math.random()}`]
+      );
+      return rows[0].id as number;
+    };
+    await linkUser(answers, calls, "U1");
+    const q = await ask(svc, answers, calls, {
+      question: { options: [{ label: "Postgres" }] },
+    });
+    const photo = (name: string, mimetype = "image/png") => ({
+      name,
+      mimetype,
+      url_private_download: `https://files.slack.com/files-pri/T1-F1/${name}`,
+    });
+    // Slack marks a message carrying files as subtype file_share.
+    await answers.handle(
+      threadReply("U1", q.message.ts, "what is this?", {
+        subtype: "file_share",
+        files: [photo("shot.png"), photo("notes.pdf", "application/pdf")],
+      })
+    );
+    const { rows } = await pool.query(
+      "SELECT text, attachments FROM blocks WHERE reply_to=$1 ORDER BY created_at",
+      [q.block.id]
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].text).toBe("what is this?");
+    expect(rows[0].attachments).toHaveLength(1);
+    expect(rows[0].attachments[0]).toMatchObject({
+      type: "file",
+      mimeType: "image/png",
+    });
+    // Only images are fetched; other files are left in Slack.
+    expect(downloads).toEqual([
+      "https://files.slack.com/files-pri/T1-F1/shot.png",
+    ]);
+    expect(saved).toEqual(["shot.png"]);
+    // A photo with no text still reaches the agent.
+    await answers.handle(
+      threadReply("U1", q.message.ts, "", {
+        subtype: "file_share",
+        files: [photo("only.png")],
+      })
+    );
+    const photoOnly = await pool.query(
+      "SELECT attachments FROM blocks WHERE reply_to=$1 ORDER BY created_at",
+      [q.block.id]
+    );
+    expect(photoOnly.rows).toHaveLength(2);
+    expect(photoOnly.rows[1].attachments).toHaveLength(1);
+    // A photo that can't be fetched is reported privately, not dropped silently.
+    const before = calls.ephemeral.length;
+    await answers.handle(
+      threadReply("U1", q.message.ts, "", {
+        subtype: "file_share",
+        files: [photo("broken.png")],
+      })
+    );
+    expect(calls.ephemeral.slice(before).map((e) => e.text)).toEqual([
+      "An image couldn't be passed to builder-7. Dispatch needs Slack's files:read permission and png, jpeg, gif or webp up to 10 MB.",
+    ]);
+    // Edits and other subtypes are still ignored.
+    await answers.handle(
+      threadReply("U1", q.message.ts, "edited", { subtype: "message_changed" })
+    );
+    const after = await pool.query(
+      "SELECT count(*)::int n FROM blocks WHERE reply_to=$1",
+      [q.block.id]
+    );
+    expect(after.rows[0].n).toBe(2);
+  });
+
   it("is an ordinary follow-up message (not an answer) for non-freeform or answered asks and notify threads", async () => {
     const { svc, answers, calls } = build();
     await linkUser(answers, calls, "U1");

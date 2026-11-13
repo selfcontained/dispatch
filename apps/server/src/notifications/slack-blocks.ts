@@ -246,7 +246,7 @@ export function notifyMessage(input: {
     body,
     media: input.images,
     openUrl: input.openUrl,
-    hint: `Reply in this thread to message *${mrkdwnText(input.agentName)}*`,
+    hint: "Reply in thread",
     summary: input.title ?? input.message,
   });
 }
@@ -330,7 +330,7 @@ export function questionMessage(
       openUrl: ctx.openUrl,
       hint:
         !unsupported.length && question.allowFreeform
-          ? "Or reply in this thread to answer in your own words"
+          ? "Reply in thread"
           : undefined,
       summary: ctx.text,
     }),

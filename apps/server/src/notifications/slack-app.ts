@@ -41,8 +41,6 @@ function lateReason(result: Record<string, unknown> | void) {
 export const ANSWER_SCOPES = ["channels:history", "groups:history"];
 /** Inline images in Dispatch messages are uploaded privately by the bot. */
 export const IMAGE_SCOPES = ["files:write"];
-/** Lets a message show the agent as its sender instead of "Dispatch". */
-export const IDENTITY_SCOPE = "chat:write.customize";
 /** The header block that names the agent inside the message. */
 export const WHO_BLOCK_ID = "dispatch_who";
 const FORM_METHODS = new Set([
@@ -718,11 +716,11 @@ export class SlackApp {
   }
   /** Post Block Kit to the bound channel (plain-text fallback required by Slack). */
   /**
-   * With chat:write.customize the agent is the message's sender, so the
-   * in-message name line would repeat it; without it, that line names them.
+   * The agent is the message's sender (chat:write.customize); the name is
+   * never repeated inside the message.
    */
   private sender(blocks: unknown[], username?: string) {
-    if (!username || this.hasScope(IDENTITY_SCOPE) !== true) return { blocks };
+    if (!username) return { blocks };
     return {
       username: username.slice(0, 80),
       blocks: blocks.filter(
@@ -819,6 +817,47 @@ export class SlackApp {
       files: [{ id: fileId, title: filename }],
     });
     return fileId;
+  }
+  /**
+   * Download a file a person shared in the bound workspace (needs files:read).
+   * The bot token is only ever sent to Slack's own file host.
+   */
+  async downloadFile(url: string, maxBytes: number): Promise<Uint8Array> {
+    const config = await this.configuration();
+    if (!config) throw new Error("Slack app is not configured.");
+    let target: URL;
+    try {
+      target = new URL(url);
+    } catch {
+      throw new Error("Slack returned an unexpected file location.");
+    }
+    if (
+      target.protocol !== "https:" ||
+      !(
+        target.hostname === "files.slack.com" ||
+        target.hostname.endsWith(".slack.com")
+      )
+    )
+      throw new Error("Slack returned an unexpected file location.");
+    let response: Response;
+    try {
+      response = await this.transport(target.href, {
+        method: "GET",
+        redirect: "error",
+        signal: AbortSignal.timeout(30000),
+        headers: { Authorization: `Bearer ${config.credentials.botToken}` },
+      });
+    } catch {
+      throw new Error("Slack file download failed.");
+    }
+    if (!response.ok) throw new Error("Slack file download failed.");
+    // Without files:read Slack serves its sign-in page instead of the file.
+    if ((response.headers.get("content-type") ?? "").startsWith("text/html"))
+      throw new Error("Slack file download needs the files:read permission.");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes)
+      throw new Error("Slack file is too large.");
+    return bytes;
   }
   /** Only ever targets the bound channel; callers pass the stored ts. */
   async updateMessage(

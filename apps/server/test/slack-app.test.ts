@@ -497,7 +497,7 @@ describe("Slack app boundary", () => {
         { type: "image", slack_file: { id: "F9" }, alt_text: "fresh-shot.png" },
       ]);
   });
-  it("shows the agent as the sender only when Slack allows it, without repeating the name", async () => {
+  it("shows the agent as the sender and never repeats the name inside the message", async () => {
     const send = async (scopes: string) => {
       const f = fixture();
       const real = f.transport.getMockImplementation()!;
@@ -536,9 +536,54 @@ describe("Slack app boundary", () => {
     const named = await send("chat:write,chat:write.customize,files:write");
     expect(named.username).toBe("builder-7");
     expect(named.blocks.map((b: any) => b.type)).toEqual(["markdown"]);
-    const plain = await send("chat:write,files:write");
-    expect(plain.username).toBeUndefined();
-    expect(plain.blocks[0].block_id).toBe("dispatch_who");
+  });
+  it("downloads shared files only from Slack's host, and spots a missing files:read", async () => {
+    const f = fixture();
+    await f.app.validate(credentials);
+    await f.app.enable("C1", "http://lan");
+    const real = f.transport.getMockImplementation()!;
+    const seen: string[] = [];
+    let html = false;
+    f.transport.mockImplementation(async (url, init) => {
+      if (url.startsWith("https://files.slack.com/")) {
+        seen.push(url);
+        expect((init!.headers as any).Authorization).toMatch(/^Bearer /);
+        return html
+          ? new Response("<html>sign in</html>", {
+              headers: { "content-type": "text/html" },
+            })
+          : new Response(new Uint8Array([1, 2, 3]), {
+              headers: { "content-type": "image/png" },
+            });
+      }
+      return real(url, init);
+    });
+    const ok = await f.app.downloadFile(
+      "https://files.slack.com/files-pri/T1-F1/a.png",
+      10
+    );
+    expect([...ok]).toEqual([1, 2, 3]);
+    for (const bad of [
+      "http://files.slack.com/files-pri/a.png",
+      "https://evil.example/a.png",
+      "https://files.slack.com.evil.example/a.png",
+      "not a url",
+    ])
+      await expect(f.app.downloadFile(bad, 10)).rejects.toThrow(
+        /unexpected file location/
+      );
+    await expect(
+      f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 2)
+    ).rejects.toThrow(/too large/);
+    html = true;
+    await expect(
+      f.app.downloadFile("https://files.slack.com/files-pri/T1-F1/a.png", 10)
+    ).rejects.toThrow(/files:read/);
+    // The token never went anywhere but files.slack.com.
+    expect(seen.every((u) => u.startsWith("https://files.slack.com/"))).toBe(
+      true
+    );
+    f.app.stop();
   });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();
