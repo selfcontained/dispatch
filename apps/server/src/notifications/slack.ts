@@ -1,11 +1,10 @@
 import {
   SlackApp,
-  SlackAuthError,
   SlackDeliveryUnknownError,
   SlackRetryError,
 } from "./slack-app.js";
 import { notifyMessage, type SlackBlock as KitBlock } from "./slack-blocks.js";
-import { imageBlocks, loadImages } from "./slack-images.js";
+import { imageBlocks, loadImages, sendWithImages } from "./slack-images.js";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -117,6 +116,14 @@ export class SlackNotifier {
   ) => Promise<NotifyResult>;
   setThreadReply(fn: NonNullable<SlackNotifier["threadReply"]>) {
     this.threadReply = fn;
+  }
+  /**
+   * The Slack-origin post the agent's open turn answers, if its thread is
+   * still live: a notify without replyTo during that turn answers there.
+   */
+  private turnPost?: (agentId: string) => Promise<string | null>;
+  setTurnPost(fn: NonNullable<SlackNotifier["turnPost"]>) {
+    this.turnPost = fn;
   }
   /** `notify({ form })`: create a Dispatch form and alert Slack about it now. */
   private formNotify?: (
@@ -357,8 +364,14 @@ export class SlackNotifier {
       return this.formNotify(agent, { ...input, form: input.form });
     }
 
-    // An explicit answer in the Slack thread a message came from.
-    if (input.replyTo) {
+    // An answer in the Slack thread a message came from: named explicitly,
+    // or the thread the agent's open turn is answering.
+    const replyTo =
+      input.replyTo ||
+      (this.threadReply
+        ? await this.turnPost?.(agent.id).catch(() => null)
+        : null);
+    if (replyTo) {
       if (!this.threadReply)
         return { sent: false, reason: "Slack thread replies are unavailable." };
       if (!(await this.app.settings()).binding)
@@ -369,7 +382,7 @@ export class SlackNotifier {
         };
       this.recordNotifyTimestamp(agent.id);
       return this.threadReply(agent, {
-        replyTo: input.replyTo,
+        replyTo,
         message: input.message,
         title: input.title,
         images: input.images,
@@ -399,25 +412,20 @@ export class SlackNotifier {
           images,
         });
       try {
-        let note = pictures.skipped;
-        let sent;
-        try {
-          sent = await this.app.postBlocks(compose(pictures.blocks));
-        } catch (error) {
-          // Slack definitely rejected it (e.g. an image it couldn't show):
-          // send the words once more without images.
-          if (
-            !pictures.blocks.length ||
-            error instanceof SlackRetryError ||
-            error instanceof SlackDeliveryUnknownError ||
-            error instanceof SlackAuthError
-          )
-            throw error;
-          // The first try counted against the local 1 msg/s guard.
-          await this.app.waitForSendSlot();
-          sent = await this.app.postBlocks(compose([]));
-          note = "Images weren't attached: Slack couldn't show them.";
-        }
+        const result = await sendWithImages(
+          this.app,
+          pictures.blocks,
+          (images) => this.app.postBlocks(compose(images)),
+          {
+            onRefused: (code, attempts) =>
+              this.log.warn(
+                { agentId: agent.id, code, attempts },
+                "Slack refused notify images; sent text only"
+              ),
+          }
+        );
+        const sent = result.sent;
+        const note = result.note ?? pictures.skipped;
         await this.notifySent?.(sent, agent.id).catch(() => {});
         this.recordNotifyTimestamp(agent.id);
         return note ? { sent: true, note } : { sent: true };

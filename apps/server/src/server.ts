@@ -226,6 +226,10 @@ const slackThreadReplies: SlackThreadReplies = new SlackThreadReplies(
 slackNotifier.setThreadReply((agent, input) =>
   slackThreadReplies.reply(agent, input)
 );
+slackNotifier.setTurnPost(
+  async (agentId) =>
+    (await slackThreadReplies.turnThread(agentId))?.target.postId ?? null
+);
 const questionAlerts = new QuestionAlerts(
   pool,
   (alert) => slackAnswers.postAsk(alert),

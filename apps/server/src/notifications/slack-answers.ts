@@ -470,11 +470,11 @@ export class SlackAnswers {
   }
 
   /**
-   * A form submitted in Slack becomes a post the agent can reply to with
-   * notify({ replyTo: <submission id> }): it answers in the form's thread (or,
-   * for a channel-root form, a thread under it). Question answers stay
-   * excluded, as before. Written before the submission so a fast turn can't
-   * reply first; forgotten if the submission never landed.
+   * A question answer or form submission made in Slack becomes a post the
+   * agent can reply to with notify({ replyTo: <answer id> }): it answers in
+   * the ask's thread (or, for a channel-root ask, a thread under it), so the
+   * conversation stays where the person answered. Written before the answer
+   * so a fast turn can't reply first; forgotten if the answer never landed.
    */
   private async withReturnPath<T>(
     row: MessageRow,
@@ -566,11 +566,14 @@ export class SlackAnswers {
     // its delivery state (re-rendered as that settles). Only refusals and
     // failures get a private reply.
     try {
-      await this.writer().answerQuestion(ask.stream_id, ask.id, {
-        id: stableUuid(`slack-answer:${row.id}`),
-        value: option.value ?? option.label,
-        external: origin,
-      });
+      const answerId = stableUuid(`slack-answer:${row.id}`);
+      await this.withReturnPath(row, answerId, `answer:${answerId}`, () =>
+        this.writer().answerQuestion(ask.stream_id, ask.id, {
+          id: answerId,
+          value: option.value ?? option.label,
+          external: origin,
+        })
+      );
     } catch (error) {
       await reply(await this.failureText(error, ask.id, origin));
     }
@@ -624,11 +627,14 @@ export class SlackAnswers {
       } else {
         const value = String(state.answer?.value?.value ?? "").trim();
         if (!value) return errorsFor("Type an answer.");
-        await this.writer().answerQuestion(ask.stream_id, ask.id, {
-          id: stableUuid(`slack-answer:${row.id}`),
-          value,
-          external: origin,
-        });
+        const answerId = stableUuid(`slack-answer:${row.id}`);
+        await this.withReturnPath(row, answerId, `answer:${answerId}`, () =>
+          this.writer().answerQuestion(ask.stream_id, ask.id, {
+            id: answerId,
+            value,
+            external: origin,
+          })
+        );
       }
       // Closing the modal is the acknowledgment; the settled Slack message
       // carries the outcome and delivery state. No extra private receipt.
@@ -776,11 +782,13 @@ export class SlackAnswers {
         (!row.data_hash || row.data_hash === askHash(ask.text, ask.data))
       ) {
         // Quiet on success: the settled question message shows the answer.
-        await this.writer().answerQuestion(ask.stream_id, ask.id, {
-          id,
-          value: text,
-          external: origin,
-        });
+        await this.withReturnPath(row, id, event.ts, () =>
+          this.writer().answerQuestion(ask.stream_id, ask.id, {
+            id,
+            value: text,
+            external: origin,
+          })
+        );
         await this.reconcile().catch(() => {});
         return;
       }

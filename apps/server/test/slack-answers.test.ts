@@ -497,6 +497,18 @@ describe("choice answers", () => {
     expect(injected.at(-1)).toContain(
       "from: user via Slack (@u1, linked identity"
     );
+    // The agent can follow up in the question's Slack thread.
+    expect(injected.at(-1)).toContain(
+      `Answered in Slack: they read only Slack`
+    );
+    expect(injected.at(-1)).toContain(`notify({ replyTo: "${reply.id}"`);
+    const returnPath = await pool.query(
+      `SELECT thread_ts, agent_id FROM slack_thread_replies WHERE post_block_id=$1`,
+      [reply.id]
+    );
+    expect(returnPath.rows).toEqual([
+      { thread_ts: q.message.ts, agent_id: q.block.streamId },
+    ]);
     for (let i = 0; i < 50; i++) {
       if ((await svc.store.getById(reply.id))!.delivered !== null) break;
       await new Promise((r) => setTimeout(r, 20));

@@ -98,7 +98,7 @@ export function SystemEventEntry({
             : event.category === "lifecycle"
               ? "text-status-done"
               : "text-primary";
-  // Check cards lead with the PR itself ("#1439 Title"), not a generic label.
+  // Check cards lead with the PR itself ("PR #1439 Title"), not a generic label.
   const prNumber = inline
     ? (event.resource?.url.match(/\/pull\/(\d+)(?:[/?#]|$)/)?.[1] ??
       notice?.pr?.number)
@@ -122,7 +122,9 @@ export function SystemEventEntry({
         className="min-w-0 font-medium text-foreground underline decoration-border underline-offset-4 [overflow-wrap:anywhere] focus-visible:outline-ring"
       >
         {prNumber && (
-          <span className="font-mono text-muted-foreground">#{prNumber}</span>
+          <span className="font-mono text-muted-foreground">
+            PR #{prNumber}
+          </span>
         )}
         {prNumber && prTitle ? " " : null}
         {prTitle && <span className="font-sans">{prTitle}</span>}

@@ -419,6 +419,35 @@ describe("notify({ replyTo })", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("without replyTo, answers in the Slack thread the open turn is answering", async () => {
+    const notifier = withApp(true);
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    const turnPost = vi.fn(async () => input.replyTo);
+    notifier.setTurnPost(turnPost);
+    expect(
+      await notifier.sendNotification(makeAgent(), {
+        message: "Screens attached.",
+        images: ["/tmp/a.png"],
+      })
+    ).toEqual({ sent: true });
+    expect(turnPost).toHaveBeenCalledWith("agent-1");
+    expect(threadReply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      {
+        replyTo: input.replyTo,
+        message: "Screens attached.",
+        title: undefined,
+        images: ["/tmp/a.png"],
+      }
+    );
+    // Outside a Slack turn it stays a channel alert.
+    threadReply.mockClear();
+    turnPost.mockResolvedValueOnce(null as never);
+    await notifier.sendNotification(makeAgent(), { message: "Heads up." });
+    expect(threadReply).not.toHaveBeenCalled();
+  });
+
   it("needs the Slack app connected: no webhook fallback", async () => {
     const notifier = withApp(false);
     const threadReply = vi.fn(async () => ({ sent: true }));

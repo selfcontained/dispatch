@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute } from "node:path";
-import { IMAGE_SCOPES, type SlackApp } from "./slack-app.js";
+import {
+  IMAGE_SCOPES,
+  SlackAuthError,
+  SlackDeliveryUnknownError,
+  SlackRejectedError,
+  SlackRetryError,
+  type SlackApp,
+} from "./slack-app.js";
 import { clip, type SlackBlock } from "./slack-blocks.js";
 
 /** Slack shows png/jpeg/gif from `slack_file`; keep messages light. */
@@ -97,4 +104,68 @@ export async function imageBlocks(
     };
   }
   return { blocks };
+}
+
+/**
+ * Slack can refuse a just-uploaded private file in an image block for a
+ * moment (`invalid_blocks` naming `slack_file`) while it finishes processing.
+ * A refusal means nothing was posted, so the same message is retried after
+ * these waits.
+ */
+export const IMAGE_READY_WAITS_MS = [1000, 2000, 4000] as const;
+
+/**
+ * Send a message with its image blocks. Waits out Slack's processing window
+ * for freshly uploaded files; if Slack still refuses the images, sends the
+ * words once without them and says why (Slack's error code). Outcomes that
+ * may already have posted, rate limits and auth failures are never resent.
+ */
+export async function sendWithImages<T>(
+  app: Pick<SlackApp, "waitForSendSlot">,
+  images: SlackBlock[],
+  send: (images: SlackBlock[]) => Promise<T>,
+  options: {
+    onRefused?: (code: string, attempts: number) => void;
+    waits?: readonly number[];
+    sleep?: (ms: number) => Promise<void>;
+  } = {}
+): Promise<{ sent: T; note?: string }> {
+  if (!images.length) return { sent: await send([]) };
+  const waits = options.waits ?? IMAGE_READY_WAITS_MS;
+  const sleep =
+    options.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return { sent: await send(images) };
+    } catch (error) {
+      if (
+        error instanceof SlackRetryError ||
+        error instanceof SlackDeliveryUnknownError ||
+        error instanceof SlackAuthError
+      )
+        throw error;
+      const notReady =
+        error instanceof SlackRejectedError &&
+        error.code === "invalid_blocks" &&
+        error.slackFile;
+      if (notReady && attempt < waits.length) {
+        await sleep(waits[attempt]!);
+        await app.waitForSendSlot();
+        continue;
+      }
+      const code = error instanceof SlackRejectedError ? error.code : undefined;
+      options.onRefused?.(code ?? "unknown", attempt + 1);
+      // The refused try counted against the local 1 msg/s guard.
+      await app.waitForSendSlot();
+      return {
+        sent: await send([]),
+        note: notReady
+          ? "Images weren't attached: Slack was still processing them after several tries."
+          : code
+            ? `Images weren't attached: Slack refused them (${code}).`
+            : "Images weren't attached: Slack couldn't show them.",
+      };
+    }
+  }
 }

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { imageBlocks, loadImages } from "./slack-images.js";
+import { imageBlocks, loadImages, sendWithImages } from "./slack-images.js";
 import type { Pool } from "pg";
 import type { Block } from "@dispatch/shared";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
@@ -36,7 +36,12 @@ import {
 
 /** Agent replies render as Slack markdown (formatting, real links), capped. */
 export const REPLY_MAX_CHARS = MARKDOWN_MAX;
-type PlaceRow = { id: string; stream_id: string; thread_id: string | null };
+type PlaceRow = {
+  id: string;
+  stream_id: string;
+  thread_id: string | null;
+  kind: string;
+};
 
 export function replyMessage(input: {
   agentName: string;
@@ -151,9 +156,33 @@ export class SlackThreadReplies {
     return rows;
   }
 
+  /**
+   * What an explicit replyTo may name: any message that reached the agent
+   * from a Slack thread (a thread reply, a question answer or a form
+   * submission), or the agent's own question/form as posted in Slack. Each
+   * resolves to its thread's root ts, never a reply's own ts: Slack threads
+   * under the parent message.
+   */
+  private async replyProvenance(replyTo: string, agentId: string) {
+    const [incoming] = await this.provenance([replyTo], agentId);
+    if (incoming) return incoming;
+    if (!isUuid(replyTo)) return undefined;
+    const { rows } = await this.pool.query<ProvenanceRow>(
+      `SELECT m.block_id AS post_block_id, m.binding_generation, m.channel_id,
+              COALESCE(m.thread_ts, m.message_ts) AS thread_ts, m.agent_id,
+              p.stream_id, p.thread_id
+       FROM slack_messages m JOIN blocks p ON p.id = m.block_id
+       WHERE m.block_id = $1::uuid AND m.agent_id = $2
+         AND m.kind IN ('question', 'form')
+       ORDER BY m.created_at DESC LIMIT 1`,
+      [replyTo, agentId]
+    );
+    return rows[0];
+  }
+
   private async place(blockId: string): Promise<PlaceRow | null> {
     const { rows } = await this.pool.query<PlaceRow>(
-      `SELECT id, stream_id, thread_id FROM blocks WHERE id = $1`,
+      `SELECT id, stream_id, thread_id, kind FROM blocks WHERE id = $1`,
       [blockId]
     );
     return rows[0] ?? null;
@@ -187,12 +216,12 @@ export class SlackThreadReplies {
       replyTo: string;
     }
   ): Promise<NotifyResult> {
-    const [row] = await this.provenance([input.replyTo], agent.id);
+    const row = await this.replyProvenance(input.replyTo, agent.id);
     if (!row)
       return {
         sent: false,
         reason:
-          "replyTo must be the id of a message that reached you from a Slack thread. Nothing was sent.",
+          "replyTo must be the id of a message that reached you from Slack, or of your own question or form shown in Slack. Nothing was sent.",
       };
     if (!(await this.app.currentBinding()))
       return {
@@ -266,30 +295,14 @@ export class SlackThreadReplies {
       });
     let note = pictures.skipped;
     try {
-      let sent: { timestamp: string };
-      try {
-        sent = await this.app.postBlocks(
-          { ...compose(pictures.blocks), threadTs: row.thread_ts },
+      const result = await sendWithImages(this.app, pictures.blocks, (images) =>
+        this.app.postBlocks(
+          { ...compose(images), threadTs: row.thread_ts },
           row.binding_generation
-        );
-      } catch (error) {
-        // Definitely rejected with images (e.g. one Slack couldn't show):
-        // send the words once more without them.
-        if (
-          !pictures.blocks.length ||
-          error instanceof SlackRetryError ||
-          error instanceof SlackDeliveryUnknownError ||
-          error instanceof SlackAuthError
         )
-          throw error;
-        // The first try counted against the local 1 msg/s guard.
-        await this.app.waitForSendSlot();
-        sent = await this.app.postBlocks(
-          { ...compose([]), threadTs: row.thread_ts },
-          row.binding_generation
-        );
-        note = "Images weren't attached: Slack couldn't show them.";
-      }
+      );
+      const sent = result.sent;
+      note = result.note ?? note;
       await this.pool
         .query(
           `UPDATE slack_thread_reply_sends SET sent_at = now(), slack_ts = $2 WHERE id = $1`,
@@ -329,12 +342,12 @@ export class SlackThreadReplies {
   ): Promise<
     { ok: true; target: ThreadTarget } | { ok: false; reason: string }
   > {
-    const [row] = await this.provenance([replyTo], agentId);
+    const row = await this.replyProvenance(replyTo, agentId);
     if (!row)
       return {
         ok: false,
         reason:
-          "replyTo must be the id of a message that reached you from a Slack thread. Nothing was created.",
+          "replyTo must be the id of a message that reached you from Slack, or of your own question or form shown in Slack. Nothing was created.",
       };
     if (!(await this.parentLive(row)))
       return {
@@ -357,12 +370,20 @@ export class SlackThreadReplies {
     const target = rows[rows.length - 1];
     if (!target) return null;
     const turnPlace = await this.place(turn.blockId);
-    if (
-      !turnPlace ||
-      turnPlace.stream_id !== target.stream_id ||
-      turnPlace.thread_id !== target.thread_id
-    )
-      return null;
+    if (!turnPlace) return null;
+    const at = (p: { stream_id: string; thread_id: string | null }) =>
+      turnPlace.stream_id === p.stream_id &&
+      turnPlace.thread_id === p.thread_id;
+    if (!at(target)) {
+      // A Slack answer lives under its question, while the turn it starts
+      // resumes where the question was asked: that is the same conversation.
+      const asked = target.thread_id
+        ? await this.place(target.thread_id)
+        : null;
+      if (!asked || (asked.kind !== "question" && asked.kind !== "form"))
+        return null;
+      if (!at(asked)) return null;
+    }
     if (!(await this.parentLive(target))) return null;
     return {
       target: toTarget(target),

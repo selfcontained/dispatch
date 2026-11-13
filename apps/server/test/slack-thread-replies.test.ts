@@ -404,7 +404,43 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     ).toBe(1);
   });
 
-  it("only the agent the message went to may answer, and only Slack follow-ups qualify", async () => {
+  it("any message in a thread names that thread: replies go under its root", async () => {
+    const { svc, answers, calls, reply } = build();
+    const { parent, post: first } = await followUp(answers, A, "first");
+    await answers.handle(threadReply("U1", parent, "second"));
+    const second = await slackPost("second");
+    expect(second.id).not.toBe(first.id);
+    calls.posted.length = 0;
+    expect((await reply(A, first.id, "re first")).sent).toBe(true);
+    expect((await reply(A, second.id, "re second")).sent).toBe(true);
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([parent, parent]);
+
+    // The agent's own question in Slack is a thread root itself.
+    const q = await svc.post(A, {
+      text: "Ship it?",
+      question: { options: [{ label: "Yes" }] },
+    });
+    const block = (await svc.store.getById(q.id))!;
+    await answers.postAsk({
+      block_id: block.id,
+      binding_generation: binding.generation,
+      agent_id: A,
+      stream_id: A,
+      thread_id: null,
+      text: block.text,
+      kind: block.kind,
+      data: block.data,
+      name: "builder-7",
+    });
+    const questionTs = calls.posted.at(-1)!.ts;
+    calls.posted.length = 0;
+    expect((await reply(A, q.id, "Context for the question.")).sent).toBe(true);
+    expect(calls.posted.map((p) => p.threadTs)).toEqual([questionTs]);
+    // Still only its own asks.
+    expect((await reply(B, q.id, "hijack")).sent).toBe(false);
+  });
+
+  it("only the agent the message went to may answer, and only Slack-origin posts qualify", async () => {
     const { svc, answers, calls, reply } = build();
     const { post } = await followUp(answers, A, "for A only");
     // Another agent naming A's Slack message.
@@ -416,7 +452,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(
       (await reply(A, "00000000-0000-4000-8000-000000000000", "x")).sent
     ).toBe(false);
-    // A thread reply recorded as an answer is not a follow-up.
+    // A Slack answer to A's question can be followed up in its thread.
     const q = await svc.post(A, {
       text: "Which DB?",
       question: { options: [{ label: "Postgres" }], allowFreeform: true },
@@ -433,14 +469,17 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
       data: block.data,
       name: "builder-7",
     });
-    await answers.handle(threadReply("U1", calls.posted.at(-1)!.ts, "sqlite"));
+    const questionTs = calls.posted.at(-1)!.ts;
+    await answers.handle(threadReply("U1", questionTs, "sqlite"));
     const answerId = ((await svc.store.getById(q.id))!.state as any).answer
       .blockId;
     calls.posted.length = 0;
-    const refused = await reply(A, answerId, "ok sqlite");
-    expect(refused.sent).toBe(false);
-    expect(refused.reason).toMatch(/Slack thread/);
-    expect(calls.posted).toHaveLength(0);
+    // Only by the agent that asked.
+    expect((await reply(B, answerId, "hijack")).sent).toBe(false);
+    const followed = await reply(A, answerId, "ok sqlite");
+    expect(followed.sent).toBe(true);
+    expect(calls.posted).toHaveLength(1);
+    expect(calls.posted[0]!.threadTs).toBe(questionTs);
   });
 
   it("never reaches a stale audience: rebound, removed parent or deleted post", async () => {
@@ -880,6 +919,41 @@ describe("notify({ form }) in a Slack thread", () => {
     ]);
     expect(result).toMatchObject({ sent: true, delivery: "sent" });
     expect(calls.posted.map((p) => p.threadTs)).toEqual([parent]);
+  });
+
+  it("a turn started by a Slack question answer answers in that question's thread", async () => {
+    const { svc, answers, calls } = harness();
+    const q = await svc.post(A, {
+      text: "Approve the design?",
+      question: { options: [{ label: "Yes" }], allowFreeform: true },
+    });
+    const block = (await svc.store.getById(q.id))!;
+    await answers.postAsk({
+      block_id: block.id,
+      binding_generation: binding.generation,
+      agent_id: A,
+      stream_id: A,
+      thread_id: null,
+      text: block.text,
+      kind: block.kind,
+      data: block.data,
+      name: "builder-7",
+    });
+    const questionTs = calls.posted.at(-1)!.ts;
+    await answers.handle(threadReply("U1", questionTs, "i need screenshots"));
+    const answerId = ((await svc.store.getById(q.id))!.state as any).answer
+      .blockId;
+    let target: Awaited<ReturnType<SlackThreadReplies["turnThread"]>> = null;
+    await runTurn(svc, A, chatPrompt([answerId]), [
+      {
+        during: async () => {
+          target = await lastReplies!.turnThread(A);
+        },
+      },
+    ]);
+    expect(target).toMatchObject({
+      target: { postId: answerId, threadTs: questionTs },
+    });
   });
 
   it("a channel-root form's Slack answer can be acknowledged in a thread under that form", async () => {

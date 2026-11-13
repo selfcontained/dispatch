@@ -70,6 +70,20 @@ export class SlackRetryError extends Error {
 }
 const KEY = "slack_app_binding";
 export class SlackAuthError extends Error {}
+/**
+ * Slack answered and definitively refused the request: nothing was posted.
+ * `code` is Slack's own error code (e.g. `invalid_blocks`), safe to log;
+ * `slackFile` says the refusal named a `slack_file` reference.
+ */
+export class SlackRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly slackFile: boolean
+  ) {
+    super(message);
+  }
+}
 
 /** No raw provider errors, credential-bearing socket URLs or response bodies escape this client. */
 export class SlackApp {
@@ -205,8 +219,19 @@ export class SlackApp {
           "Slack credentials rejected. Replace tokens in Settings."
         );
       }
-      throw new Error(
-        "Slack request rejected. Check app permissions and channel membership."
+      // Slack names a refused `slack_file` in `errors` or in
+      // response_metadata.messages; only that fact and the code are kept.
+      const details = [body.errors, body.response_metadata?.messages]
+        .flatMap((list) => (Array.isArray(list) ? list : []))
+        .filter((item): item is string => typeof item === "string");
+      const code =
+        typeof body.error === "string" && /^[a-z0-9_]{1,64}$/.test(body.error)
+          ? body.error
+          : "unknown";
+      throw new SlackRejectedError(
+        "Slack request rejected. Check app permissions and channel membership.",
+        code,
+        details.some((item) => /slack_file|slack file/i.test(item))
       );
     }
     if (method === "auth.test") {
