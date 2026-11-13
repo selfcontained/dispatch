@@ -127,7 +127,9 @@ describe("shared Slack layout", () => {
       it("starts with the full-strength header: who, verb, task — no links", () => {
         const head = blocks[0] as any;
         expect(head.type).toBe("section");
-        expect(head.text.text).toMatch(/^\*builder-7\*/);
+        expect(head.text.text).toMatch(
+          /^(From|Question from|Form from|Reply from) \*_builder-7_\*/
+        );
         expect(head.text.text).not.toContain("<http");
       });
       it("ends with the one View in Dispatch footer, the only navigation", () => {
@@ -157,7 +159,9 @@ describe("shared Slack layout", () => {
         expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
       });
       it("gives the plain-text fallback the same context and destination", () => {
-        expect(message.text.startsWith("builder-7")).toBe(true);
+        expect(message.text).toMatch(
+          /^(From|Question from|Form from|Reply from) builder-7/
+        );
         expect(message.text.endsWith(`<${URL}|${VIEW_IN_DISPATCH}>`)).toBe(
           true
         );
@@ -206,7 +210,9 @@ describe("shared Slack layout", () => {
     for (const [ask, done] of pairs) {
       const a = variants[ask]!.blocks;
       const d = variants[done]!.blocks;
-      expect(textOf(d[0]!)).toMatch(/^\*builder-7\* asked.* · Task tsk_9$/);
+      expect(textOf(d[0]!)).toMatch(
+        /^(Question|Form) from \*_builder-7_\*.* · Task tsk_9$/
+      );
       expect(d[1]).toEqual(a[1]); // same body (form keeps its title)
       // Same destination; only the reply hint, which needs buttons, goes.
       expect(textOf(d.at(-1)!)).toBe(`<${URL}|${VIEW_IN_DISPATCH}>`);
@@ -227,7 +233,7 @@ describe("shared Slack layout", () => {
       summary: "hi",
     });
     expect(out.blocks.map((b) => b.type)).toEqual(["section", "markdown"]);
-    expect(out.text).toBe("builder-7: hi");
+    expect(out.text).toBe("From builder-7: hi");
     expect(JSON.stringify(out)).not.toContain(VIEW_IN_DISPATCH);
   });
 
@@ -278,7 +284,7 @@ describe("shared Slack layout", () => {
       { options: [{ label: "ok" }] },
       { ...ctx, context: undefined }
     );
-    expect(textOf(out.blocks[0]!)).toBe("*builder-7* asks");
+    expect(textOf(out.blocks[0]!)).toBe("Question from *_builder-7_*");
     expect(out.blocks.map((b) => b.type)).toEqual([
       "section",
       "markdown",
@@ -290,10 +296,12 @@ describe("shared Slack layout", () => {
   it("puts the destination in the fallback built on its own", () => {
     expect(
       fallbackText({
-        header: { agentName: "b", verb: "asks", parts: ["Task t"] },
+        header: { agentName: "b", kind: "Question", parts: ["Task t"] },
         summary: "line one\n\nline two",
         openUrl: URL,
       })
-    ).toBe(`b asks · Task t: line one line two · <${URL}|${VIEW_IN_DISPATCH}>`);
+    ).toBe(
+      `Question from b · Task t: line one line two · <${URL}|${VIEW_IN_DISPATCH}>`
+    );
   });
 });

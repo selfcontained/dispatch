@@ -54,7 +54,7 @@ export function replyMessage(input: {
   return dispatchMessage({
     header: {
       agentName: input.agentName,
-      verb: "replied",
+      kind: "Reply",
       parts: [input.context],
     },
     body: input.text,

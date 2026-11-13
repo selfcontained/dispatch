@@ -317,7 +317,7 @@ describe("notifyMessage", () => {
       "image",
       "context",
     ]);
-    expect((out.blocks[0] as any).text.text).toBe("*builder-7*");
+    expect((out.blocks[0] as any).text.text).toBe("From *_builder-7_*");
     expect((out.blocks[1] as any).text).toBe(
       "**Build is green**\n\nAll **42** tests pass. <\u200b!here>"
     );

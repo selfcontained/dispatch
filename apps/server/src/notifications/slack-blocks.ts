@@ -97,7 +97,7 @@ export function mrkdwnLink(url: string, label: string) {
  * built from the same parts, always in this order; optional parts are left
  * out without moving the others:
  *
- *   1. header   section  *agent* verb · headline · Task tsk_…   (no links)
+ *   1. header   section  Question from *_agent_* · headline · Task tsk_…   (no links)
  *   2. body     markdown  agent-written title/text
  *   3. media    image blocks
  *   4. actions  genuine Slack actions only (answer, Fill in form…)
@@ -111,16 +111,20 @@ export const VIEW_IN_DISPATCH = "View in Dispatch";
 
 type Header = {
   agentName: string;
-  verb?: string;
+  /** What this is, e.g. "Question": "Question from <agent>"; plain "From <agent>" otherwise. */
+  kind?: "Question" | "Form" | "Reply";
   parts?: Array<string | undefined>;
 };
+const lead = (header: Header) =>
+  `${header.kind ? `${header.kind} from` : "From"}`;
 
 /**
- * The line that leads the message: who and where, e.g. "*builder-7* asks ·
+ * The line that leads the message: who and where, e.g. "Question from *_builder-7_* ·
  * Task …". Full-strength text (a section), not a muted context line.
  */
 export function headerLine(input: Header): SlackBlock {
-  const who = `*${mrkdwnText(input.agentName)}*${input.verb ? ` ${mrkdwnText(input.verb)}` : ""}`;
+  // The agent's name is Dispatch's to add, set off in bold italics.
+  const who = `${lead(input)} *_${mrkdwnText(input.agentName)}_*`;
   const text = [
     who,
     ...(input.parts ?? []).filter(Boolean).map((p) => mrkdwnText(p!)),
@@ -182,7 +186,7 @@ export function fallbackText(input: {
 }) {
   const { header } = input;
   const who = [
-    `${header.agentName}${header.verb ? ` ${header.verb}` : ""}`,
+    `${lead(header)} ${header.agentName}`,
     ...(header.parts ?? []).filter(Boolean),
   ].join(" · ");
   const summary = input.summary.replace(/\s+/g, " ").trim();
@@ -281,8 +285,16 @@ export type Adapted = {
 };
 
 /** An ask's header: who asks, how long it waited, and which task. */
-function askHeader(ctx: AskContext, verb: string): Header {
-  return { agentName: ctx.agentName, verb, parts: [ctx.headline, ctx.context] };
+function askHeader(
+  ctx: AskContext,
+  kind: "Question" | "Form",
+  detail?: string
+): Header {
+  return {
+    agentName: ctx.agentName,
+    kind,
+    parts: [detail, ctx.headline, ctx.context],
+  };
 }
 
 /** Why it can't be answered here: the footer link is where to answer. */
@@ -337,7 +349,7 @@ export function questionMessage(
   }
   return {
     ...dispatchMessage({
-      header: askHeader(ctx, "asks"),
+      header: askHeader(ctx, "Question"),
       body: ctx.text,
       actions: { blockId: `ask:${ctx.ref}`, elements },
       notes: unsupported.length ? [fallback(unsupported)] : [],
@@ -398,7 +410,7 @@ export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
     });
   return {
     ...dispatchMessage({
-      header: askHeader(ctx, `asks you to fill in a form (${summary})`),
+      header: askHeader(ctx, "Form", summary),
       body: formBody(title, ctx.text),
       actions: { blockId: `ask:${ctx.ref}`, elements },
       notes: unsupported.length ? [fallback(unsupported)] : [],
@@ -709,7 +721,7 @@ export function settledMessage(
     ...dispatchMessage({
       header: askHeader(
         { ...ctx, headline: undefined },
-        form ? "asked you to fill in a form" : "asked"
+        form ? "Form" : "Question"
       ),
       body: form ? formBody(title, ctx.text) : ctx.text,
       notes: [noteLine(`${mark} ${mrkdwnText(line)}`, `done:${ctx.ref}`)],
